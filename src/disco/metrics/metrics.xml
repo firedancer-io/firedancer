@@ -431,6 +431,14 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database (one per address lookup table account fetched), attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied out of the account database cache on a cache hit" />
 </tile>
 
 <tile name="resolh" telemetry="false">
@@ -684,6 +692,21 @@ metric introduced.
 
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes." />
     <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes." />
+
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
+    <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
+    <counter name="AccdbWriteOps" summary="Number of write operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied within the account database" />
 </tile>
 
 <tile name="bank" telemetry="false">
@@ -764,133 +787,168 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<tile name="accdb">
+    <gauge name="AccountsTotal" summary="Total number of accounts currently in the account database" />
+    <gauge name="AccountsCapacity" summary="Total capacity of accounts that can be stored in the account database" />
+    <counter name="AccountsRelocated" summary="Total number of accounts moved in the account database during compaction" />
+    <gauge name="DiskAllocatedBytes" summary="Total allocated size of the account database on disk" />
+    <gauge name="DiskCurrentBytes" summary="Total written-through size of the account database on disk, excluding never-written partition tail space" />
+    <gauge name="DiskUsedBytes" summary="Total size of the account database on disk that is currently used" />
+    <gauge name="InCompaction" summary="1 if a compaction is currently in progress, 0 if not" />
+    <counter name="CompactionsRequested" summary="Total number of compactions requested on the account database" />
+    <counter name="CompactionsCompleted" summary="Total number of compactions fully completed on the account database, less than or equal to the requested amount" />
+    <counter name="AccountsRelocatedBytes" summary="Total number of bytes moved in the account database during compaction" />
+
+    <counter name="AccdbAccountsPreevicted" enum="AccdbCacheClass" summary="Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
+    <counter name="AccdbWriteOps" summary="Number of write operations performed on the account database" />
+    <counter name="AccdbCopyOps" summary="Number of in-place copy_file_range operations performed on the account database during compaction" />
+    <counter name="AccdbAccountsDeleted" summary="Number of accounts deleted from the account database" />
+
+    <gauge name="AccdbCacheClassUsed" enum="AccdbCacheClass" summary="Number of slots currently occupied in the account database cache, broken down by size class" />
+    <gauge name="AccdbCacheClassMax" enum="AccdbCacheClass" summary="Total slot capacity of the account database cache, broken down by size class" />
+    <gauge name="AccdbCacheClassReserved" enum="AccdbCacheClass" summary="Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class" />
+    <gauge name="AccdbCacheClassTargetUsed" enum="AccdbCacheClass" summary="Target used-slot count for the account database cache (max - cache_free_target). When used exceeds this, the background preevict pass tries to bring used back down to this level." />
+    <gauge name="AccdbCacheClassLowWaterUsed" enum="AccdbCacheClass" summary="Used-slot count at which the background preevict pass kicks in (max - cache_free_low_water). When used exceeds this, preevicts start." />
+</tile>
+
 <enum name="RootPhase">
     <int value="0" name="Copy" label="Copying account data" />
     <int value="1" name="Gc" label="Garbage collecting old account data" />
 </enum>
 
+<enum name="AccdbCacheClass">
+    <int value="0" name="Class0" label="0-128 B" />
+    <int value="1" name="Class1" label="129-512 B" />
+    <int value="2" name="Class2" label="513 B-2 KiB" />
+    <int value="3" name="Class3" label="2-8 KiB" />
+    <int value="4" name="Class4" label="8-32 KiB" />
+    <int value="5" name="Class5" label="32-128 KiB" />
+    <int value="6" name="Class6" label="128 KiB-1 MiB" />
+    <int value="7" name="Class7" label="1-10 MiB" />
+</enum>
+
 <tile name="replay">
-  <counter name="StoreQueryAcquire" summary="Count of store slock acquires for query" />
-  <counter name="StoreQueryRelease" summary="Count of store slock releases for query" />
-  <histogram name="StoreQueryWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting to acquire the slock for query</summary>
-  </histogram>
-  <histogram name="StoreQueryWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent working before releasing the slock for query</summary>
-  </histogram>
-  <counter name="StoreQueryCnt" summary="Count of queries" />
-  <counter name="StoreQueryMissingCnt" summary="Count of queries where merkle root was missing" />
-  <gauge name="StoreQueryMr" summary="First 8 bytes of most recently queried merkle root" />
-  <gauge name="StoreQueryMissingMr" summary="First 8 bytes of most recently queried missing merkle root" />
+    <counter name="StoreQueryAcquire" summary="Count of store slock acquires for query" />
+    <counter name="StoreQueryRelease" summary="Count of store slock releases for query" />
+    <histogram name="StoreQueryWait" min="0.00000001" max="0.001" converter="seconds">
+        <summary>Time in seconds spent waiting to acquire the slock for query</summary>
+    </histogram>
+    <histogram name="StoreQueryWork" min="0.00000001" max="0.001" converter="seconds">
+        <summary>Time in seconds spent working before releasing the slock for query</summary>
+    </histogram>
+    <counter name="StoreQueryCnt" summary="Count of queries" />
+    <counter name="StoreQueryMissingCnt" summary="Count of queries where merkle root was missing" />
+    <gauge name="StoreQueryMr" summary="First 8 bytes of most recently queried merkle root" />
+    <gauge name="StoreQueryMissingMr" summary="First 8 bytes of most recently queried missing merkle root" />
 
-  <gauge name="RootSlot" summary="The slot at which our node has most recently rooted" />
-  <gauge name="RootDistance" summary="The distance in slots between our current root and the current reset slot" />
-  <gauge name="LeaderSlot" summary="The slot at which we are currently leader, or 0 if none" />
-  <gauge name="NextLeaderSlot" summary="The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" />
-  <gauge name="ResetSlot" summary="The slot at which we last reset the replay stage, or 0 if unknown" />
-  <gauge name="MaxLiveBanks" summary="The maximum number of banks we can have alive" />
-  <gauge name="LiveBanks" summary="The number of banks we currently have alive" />
+    <gauge name="RootSlot" summary="The slot at which our node has most recently rooted" />
+    <gauge name="RootDistance" summary="The distance in slots between our current root and the current reset slot" />
+    <gauge name="LeaderSlot" summary="The slot at which we are currently leader, or 0 if none" />
+    <gauge name="NextLeaderSlot" summary="The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" />
+    <gauge name="ResetSlot" summary="The slot at which we last reset the replay stage, or 0 if unknown" />
+    <gauge name="MaxLiveBanks" summary="The maximum number of banks we can have alive" />
+    <gauge name="LiveBanks" summary="The number of banks we currently have alive" />
 
-  <gauge name="ReasmFree" summary="The number of free FEC sets in the reassembly queue" />
-  <gauge name="ReasmLatestSlot" summary="Slot of the latest FEC set in the reassembly queue that can be replayed" />
-  <gauge name="ReasmLatestFecIdx" summary="FEC set index of the latest FEC set in the reassembly queue that can be replayed" />
+    <gauge name="ReasmFree" summary="The number of free FEC sets in the reassembly queue" />
+    <gauge name="ReasmLatestSlot" summary="Slot of the latest FEC set in the reassembly queue that can be replayed" />
+    <gauge name="ReasmLatestFecIdx" summary="FEC set index of the latest FEC set in the reassembly queue that can be replayed" />
 
-  <gauge name="SchedActiveBankIdx" summary="The bank that the replay scheduler is currently dispatching work for" />
-  <gauge name="SchedLastDispatchBankIdx" summary="The bank that the replay scheduler last dispatched work for" />
-  <gauge name="SchedLastDispatchTimeNanos" converter="nanoseconds" summary="Timestamp when the replay scheduler last dispatched work" />
-  <gauge name="SchedStagingLanePopcnt" summary="The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once" />
-  <gauge name="SchedStagingLanePopcntWmk" summary="The high watermark number of staging lanes that were at one point occupied in the replay scheduler" />
-  <gauge name="SchedStagingLaneHeadBankIdx0" summary="The bank at the head of staging lane 0 of the replay dispatcher" />
-  <gauge name="SchedStagingLaneHeadBankIdx1" summary="The bank at the head of staging lane 1 of the replay dispatcher" />
-  <gauge name="SchedStagingLaneHeadBankIdx2" summary="The bank at the head of staging lane 2 of the replay dispatcher" />
-  <gauge name="SchedStagingLaneHeadBankIdx3" summary="The bank at the head of staging lane 3 of the replay dispatcher" />
-  <gauge name="SchedTxnPoolPopcnt" summary="The total number of transactions that are available to be scheduled in the replay scheduler" />
-  <gauge name="SchedTxnPoolSize" summary="The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt" />
-  <gauge name="SchedMblkPoolPopcnt" summary="The total number of microblocks that are available to be scheduled in the replay scheduler" />
-  <gauge name="SchedMblkPoolSize" summary="The maximum number of microblocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for MblkPoolPopcnt" />
-  <gauge name="SchedBlockPoolPopcnt" summary="The total number of blocks that are alive in the replay scheduler" />
-  <gauge name="SchedBlockPoolSize" summary="The maximum number of blocks that the replay scheduler can keep track of. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt" />
-  <counter name="SchedBlockAddedStaged" summary="Blocks added to the replay scheduler as staged" />
-  <counter name="SchedBlockAddedUnstaged" summary="Blocks added to the replay scheduler as unstaged" />
-  <counter name="SchedBlockReplayed" summary="Blocks that the replay scheduler considers fully replayed" />
-  <counter name="SchedBlockAbandoned" summary="Blocks that the replay scheduler abandoned for any reason" />
-  <counter name="SchedBlockBad" summary="Blocks that the replay scheduler considers bad" />
-  <counter name="SchedBlockPromoted" summary="Blocks that the replay scheduler promoted from unstaged to a staging lane" />
-  <counter name="SchedBlockDemoted" summary="Blocks that the replay scheduler demoted from a staging lane to unstaged" />
-  <counter name="SchedDeactivateNoChild" summary="Number of times that the replay scheduler stopped dispatching because a block fully replayed and there was no child block available yet" />
-  <counter name="SchedDeactivateNoWork" summary="Number of times that the replay scheduler stopped dispatching because a partially replayed block ran out of work to dispatch" />
-  <counter name="SchedDeactivateAbandoned" summary="Number of times that the replay scheduler stopped dispatching because a block got abandoned for any reason" />
-  <counter name="SchedDeactivateMinority" summary="Number of times that the replay scheduler stopped dispatching because a block got abandoned for being on a minority fork" />
-  <counter name="SchedLaneSwitch" summary="Number of times that the replay scheduler switched the lane that it is dispatching from" />
-  <counter name="SchedLanePromote" summary="Number of times that the replay scheduler promoted one or more blocks onto a staging lane" />
-  <counter name="SchedLaneDemote" summary="Number of times that the replay scheduler demoted one or more blocks from a staging lane" />
-  <counter name="SchedForkObserved" summary="Number of forks that the replay scheduler has observed" />
-  <counter name="SchedAlutSuccess" summary="Number of transactions with address lookup tables that the replay scheduler successfully expanded" />
-  <counter name="SchedAlutFailure" summary="Number of transactions with address lookup tables that the replay scheduler failed to expand" />
-  <counter name="SchedTxnAbandonedParsed" summary="Number of transactions that were parsed but ended up being in abandoned blocks" />
-  <counter name="SchedTxnAbandonedExec" summary="Number of transactions that were executed but ended up being in abandoned blocks" />
-  <counter name="SchedTxnAbandonedDone" summary="Number of transactions that were fully replayed but ended up being in abandoned blocks" />
-  <counter name="SchedWeightedInFlight" summary="Cumulative number of transactions that have been in-flight from the replay scheduler's point of view, weighted by the duration of each transaction. This value is useful as the dividend for TxnWeightedInFlightDuration" />
-  <counter name="SchedWeightedInFlightDuration" summary="Duration over which TxnWeightedInFlight was accumulated. Use this as divisor to get the average number of in-flight transactions" />
-  <counter name="SchedNoneInFlightDuration" summary="Duration over which the replay scheduler had no transaction in-flight. This value is useful in a ratio against WeightedInFlightDuration to see how often the replay transaction execution pipeline was idle" />
-  <counter name="SchedTxnParsed" summary="Number of transactions that the replay pipeline has parsed" />
-  <counter name="SchedTxnExec" summary="Number of transactions that the replay pipeline has executed" />
-  <counter name="SchedTxnSigverify" summary="Number of transactions that the replay pipeline has sigverified" />
-  <counter name="SchedTxnMixin" summary="Number of transactions that the replay pipeline has performed PoH mixin" />
-  <counter name="SchedTxnDone" summary="Number of transactions that were fully replayed" />
-  <counter name="SchedMblkParsed" summary="Number of microblocks that the replay pipeline has parsed" />
-  <counter name="SchedMblkHashed" summary="Number of microblocks that the replay pipeline has fully hashed" />
-  <counter name="SchedMblkDone" summary="Number of microblocks that were fully replayed" />
-  <counter name="SchedBytesIngested" summary="Number of bytes that the replay scheduler has ingested" />
-  <counter name="SchedBytesIngestedPadding" summary="Number of bytes that the replay scheduler ingested but did not parse for being padding" />
-  <counter name="SchedBytesDropped" summary="Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned" />
-  <counter name="SchedFec" summary="Number of FEC sets that the replay scheduler has been given" />
+    <gauge name="SchedActiveBankIdx" summary="The bank that the replay scheduler is currently dispatching work for" />
+    <gauge name="SchedLastDispatchBankIdx" summary="The bank that the replay scheduler last dispatched work for" />
+    <gauge name="SchedLastDispatchTimeNanos" converter="nanoseconds" summary="Timestamp when the replay scheduler last dispatched work" />
+    <gauge name="SchedStagingLanePopcnt" summary="The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once" />
+    <gauge name="SchedStagingLanePopcntWmk" summary="The high watermark number of staging lanes that were at one point occupied in the replay scheduler" />
+    <gauge name="SchedStagingLaneHeadBankIdx0" summary="The bank at the head of staging lane 0 of the replay dispatcher" />
+    <gauge name="SchedStagingLaneHeadBankIdx1" summary="The bank at the head of staging lane 1 of the replay dispatcher" />
+    <gauge name="SchedStagingLaneHeadBankIdx2" summary="The bank at the head of staging lane 2 of the replay dispatcher" />
+    <gauge name="SchedStagingLaneHeadBankIdx3" summary="The bank at the head of staging lane 3 of the replay dispatcher" />
+    <gauge name="SchedTxnPoolPopcnt" summary="The total number of transactions that are available to be scheduled in the replay scheduler" />
+    <gauge name="SchedTxnPoolSize" summary="The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt" />
+    <gauge name="SchedMblkPoolPopcnt" summary="The total number of microblocks that are available to be scheduled in the replay scheduler" />
+    <gauge name="SchedMblkPoolSize" summary="The maximum number of microblocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for MblkPoolPopcnt" />
+    <gauge name="SchedBlockPoolPopcnt" summary="The total number of blocks that are alive in the replay scheduler" />
+    <gauge name="SchedBlockPoolSize" summary="The maximum number of blocks that the replay scheduler can keep track of. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt" />
+    <counter name="SchedBlockAddedStaged" summary="Blocks added to the replay scheduler as staged" />
+    <counter name="SchedBlockAddedUnstaged" summary="Blocks added to the replay scheduler as unstaged" />
+    <counter name="SchedBlockReplayed" summary="Blocks that the replay scheduler considers fully replayed" />
+    <counter name="SchedBlockAbandoned" summary="Blocks that the replay scheduler abandoned for any reason" />
+    <counter name="SchedBlockBad" summary="Blocks that the replay scheduler considers bad" />
+    <counter name="SchedBlockPromoted" summary="Blocks that the replay scheduler promoted from unstaged to a staging lane" />
+    <counter name="SchedBlockDemoted" summary="Blocks that the replay scheduler demoted from a staging lane to unstaged" />
+    <counter name="SchedDeactivateNoChild" summary="Number of times that the replay scheduler stopped dispatching because a block fully replayed and there was no child block available yet" />
+    <counter name="SchedDeactivateNoWork" summary="Number of times that the replay scheduler stopped dispatching because a partially replayed block ran out of work to dispatch" />
+    <counter name="SchedDeactivateAbandoned" summary="Number of times that the replay scheduler stopped dispatching because a block got abandoned for any reason" />
+    <counter name="SchedDeactivateMinority" summary="Number of times that the replay scheduler stopped dispatching because a block got abandoned for being on a minority fork" />
+    <counter name="SchedLaneSwitch" summary="Number of times that the replay scheduler switched the lane that it is dispatching from" />
+    <counter name="SchedLanePromote" summary="Number of times that the replay scheduler promoted one or more blocks onto a staging lane" />
+    <counter name="SchedLaneDemote" summary="Number of times that the replay scheduler demoted one or more blocks from a staging lane" />
+    <counter name="SchedForkObserved" summary="Number of forks that the replay scheduler has observed" />
+    <counter name="SchedAlutSuccess" summary="Number of transactions with address lookup tables that the replay scheduler successfully expanded" />
+    <counter name="SchedAlutFailure" summary="Number of transactions with address lookup tables that the replay scheduler failed to expand" />
+    <counter name="SchedTxnAbandonedParsed" summary="Number of transactions that were parsed but ended up being in abandoned blocks" />
+    <counter name="SchedTxnAbandonedExec" summary="Number of transactions that were executed but ended up being in abandoned blocks" />
+    <counter name="SchedTxnAbandonedDone" summary="Number of transactions that were fully replayed but ended up being in abandoned blocks" />
+    <counter name="SchedWeightedInFlight" summary="Cumulative number of transactions that have been in-flight from the replay scheduler's point of view, weighted by the duration of each transaction. This value is useful as the dividend for TxnWeightedInFlightDuration" />
+    <counter name="SchedWeightedInFlightDuration" summary="Duration over which TxnWeightedInFlight was accumulated. Use this as divisor to get the average number of in-flight transactions" />
+    <counter name="SchedNoneInFlightDuration" summary="Duration over which the replay scheduler had no transaction in-flight. This value is useful in a ratio against WeightedInFlightDuration to see how often the replay transaction execution pipeline was idle" />
+    <counter name="SchedTxnParsed" summary="Number of transactions that the replay pipeline has parsed" />
+    <counter name="SchedTxnExec" summary="Number of transactions that the replay pipeline has executed" />
+    <counter name="SchedTxnSigverify" summary="Number of transactions that the replay pipeline has sigverified" />
+    <counter name="SchedTxnMixin" summary="Number of transactions that the replay pipeline has performed PoH mixin" />
+    <counter name="SchedTxnDone" summary="Number of transactions that were fully replayed" />
+    <counter name="SchedMblkParsed" summary="Number of microblocks that the replay pipeline has parsed" />
+    <counter name="SchedMblkHashed" summary="Number of microblocks that the replay pipeline has fully hashed" />
+    <counter name="SchedMblkDone" summary="Number of microblocks that were fully replayed" />
+    <counter name="SchedBytesIngested" summary="Number of bytes that the replay scheduler has ingested" />
+    <counter name="SchedBytesIngestedPadding" summary="Number of bytes that the replay scheduler ingested but did not parse for being padding" />
+    <counter name="SchedBytesDropped" summary="Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned" />
+    <counter name="SchedFec" summary="Number of FEC sets that the replay scheduler has been given" />
 
-  <counter name="SlotsTotal" summary="Count of slots replayed successfully or leader slots packed and shredded successfully" />
-  <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
+    <counter name="SlotsTotal" summary="Count of slots replayed successfully or leader slots packed and shredded successfully" />
+    <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
 
-  <counter name="SchedFull" summary="Times where sched is full and a FEC set can't be processed" />
-  <counter name="ReasmEmpty" summary="Times where reasm is empty and a FEC set can't be processed" />
-  <counter name="LeaderBidWait" summary="Times where replay is blocked by the PoH tile not sending an end of leader message" />
-  <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
-  <counter name="StorageRootBehind" summary="Times where the storage root is behind the consensus root and can't be advanced" />
+    <counter name="SchedFull" summary="Times where sched is full and a FEC set can't be processed" />
+    <counter name="ReasmEmpty" summary="Times where reasm is empty and a FEC set can't be processed" />
+    <counter name="LeaderBidWait" summary="Times where replay is blocked by the PoH tile not sending an end of leader message" />
+    <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
+    <counter name="StorageRootBehind" summary="Times where the storage root is behind the consensus root and can't be advanced" />
 
-  <counter name="AccdbCreated" summary="Number of account database records created" />
-  <counter name="AccdbReverted" summary="Number of account database records reverted" />
-  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
-  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
-  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
-  <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
+    <!-- extensive program cache metrics.  Useful for development, will be
+        cut down with time -->
+    <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
+    <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
+    <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free (indicates fragmentation)" />
+    <gauge name="ProgcacheFreeBytes" summary="Program cache heap utilization (free bytes)" />
+    <gauge name="ProgcacheSizeBytes" summary="Program cache heap utilization (total size)" />
+    <gauge name="ProgcacheFreePartMaxBytes" summary="Largest free heap partition in program cache" />
+    <gauge name="ProgcacheUsedPartMedianBytes" summary="Median used heap partition size in program cache" />
+    <gauge name="ProgcacheUsedPartMeanBytes" summary="Mean used heap partition size in program cache" />
+    <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
 
-  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
-  </histogram>
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
+    <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
+    <counter name="AccdbWriteOps" summary="Number of write operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied within the account database" />
 
-  <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
-  </histogram>
+    <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
+      <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
+    </histogram>
 
-  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
+    <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
 
-  <!-- extensive program cache metrics.  Useful for development, will be
-       cut down with time -->
-  <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
-  <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free (indicates fragmentation)" />
-  <gauge name="ProgcacheFreeBytes" summary="Program cache heap utilization (free bytes)" />
-  <gauge name="ProgcacheSizeBytes" summary="Program cache heap utilization (total size)" />
-  <gauge name="ProgcacheFreePartMaxBytes" summary="Largest free heap partition in program cache" />
-  <gauge name="ProgcacheUsedPartMedianBytes" summary="Median used heap partition size in program cache" />
-  <gauge name="ProgcacheUsedPartMeanBytes" summary="Mean used heap partition size in program cache" />
-  <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
-
-  <gauge name="AccdbCacheFreeParts" summary="Number of account database cache heap partitions free (indicates fragmentation)" />
-  <gauge name="AccdbCacheFreeBytes" summary="Account database cache heap utilization (free bytes)" />
-  <gauge name="AccdbCacheSizeBytes" summary="Account database cache heap utilization (total size)" />
-  <gauge name="AccdbCacheFreePartMaxBytes" summary="Largest free heap partition in account database cache" />
-  <gauge name="AccdbCacheUsedPartMedianBytes" summary="Median used heap partition size in account database cache" />
-  <gauge name="AccdbCacheUsedPartMeanBytes" summary="Mean used heap partition size in account database cache" />
-
-  <gauge name="RuntimeStatus" summary="Solana runtime status (0=initializing 1=loaded)" />
+    <gauge name="RuntimeStatus" summary="Solana runtime status (0=initializing 1=loaded)" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
@@ -1164,6 +1222,12 @@ metric introduced.
     <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
 </tile>
 
+<tile name="snapwr">
+    <gauge name="FullBytesRead" summary="Number of decompressed snapshot bytes consumed from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalBytesRead" summary="Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="BytesWritten" summary="Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads." />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 
@@ -1198,6 +1262,13 @@ metric introduced.
     </histogram>
     <counter name="RequestCount" enum="RpcMethod" summary="Number of RPC requests served" />
     <gauge name="ConnectionCount" summary="The number of active HTTP connections to the RPC service" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied out of the account database cache on a cache hit" />
 </tile>
 
 <enum name="Softirq">
@@ -1248,14 +1319,6 @@ metric introduced.
     <int value="4" name="Interpreter" label="VM interpreter execution" />
 </enum>
 
-<enum name="AccountChange">
-    <int value="0" name="UnchangedNonexist" label="Account did not exist before and still does not" />
-    <int value="1" name="Created" label="Account created" />
-    <int value="2" name="Delete" label="Account deleted" />
-    <int value="3" name="Modify" label="Account modified" />
-    <int value="4" name="Unchanged" label="Account unchanged" />
-</enum>
-
 <tile name="execrp">
     <gauge name="Processing" summary="Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing), either 1 or 0" />
 
@@ -1263,12 +1326,9 @@ metric introduced.
     <counter name="SigverifyCount" summary="Number of Ed25519 signature verification jobs executed" />
     <counter name="PohHashCount" summary="Number of PoH SHA-256 calls executed" />
 
-    <counter name="AccdbCreated" summary="Number of account database records created" />
-
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
     <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes" />
 
-    <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 
     <!-- extensive program cache metrics.  Useful for development, will be
@@ -1286,6 +1346,21 @@ metric introduced.
     <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
     <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
     <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
+
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
+    <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
+    <counter name="AccdbWriteOps" summary="Number of write operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied within the account database" />
 </tile>
 
 <tile name="benchs" telemetry="false">
@@ -1401,6 +1476,21 @@ metric introduced.
     <counter name="Votes" enum="VoteTxnResult" summary="Result of processing a vote txn (per txn)" />
     <counter name="VoteSlots" enum="VoteSlotResult" summary="Result of counting an individual vote slot from a vote txn (per slot)" />
     <counter name="VoteIntermediateGate" enum="VoteIntermediateGate" summary="Whether the last vote slot's replay state allowed counting the intermediate vote slots (per txn that reached slot counting)" />
+
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
+    <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
+    <counter name="AccdbWriteOps" summary="Number of write operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied within the account database" />
 
 </tile>
 

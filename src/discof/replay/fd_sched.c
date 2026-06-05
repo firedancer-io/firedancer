@@ -9,11 +9,11 @@
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
 #include "../../disco/pack/fd_chkdup.h"
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
+#include "../../ballet/block/fd_microblock.h" /* for fd_microblock_hdr_t */
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
-#include "../../flamenco/accdb/fd_accdb_sync.h"
 
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
@@ -2247,21 +2247,19 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
       /* test/fuzz: no accdb to query, so treat ALUT txns as serializing. */
       serializing = 1;
     } else {
-      fd_accdb_ro_t ro[1];
-      if( FD_LIKELY( fd_accdb_open_ro( alut_ctx->accdb, ro, alut_ctx->xid, &fd_sysvar_slot_hashes_id ) ) ) {
+      fd_acc_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
+      if( FD_LIKELY( ro.lamports ) ) {
         fd_slot_hashes_t slot_hashes_view[1];
-        if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view,
-                                                   fd_accdb_ref_data_const( ro ),
-                                                   fd_accdb_ref_data_sz( ro ) ) ) ) {
-          serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hashes_view, sched->aluts );
+        if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view, ro.data, ro.data_len ) ) ) {
+          serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
           sched->metrics->alut_success_cnt += (uint)!serializing;
         } else {
           serializing = 1;
         }
-        fd_accdb_close_ro( alut_ctx->accdb, ro );
       } else {
         serializing = 1;
       }
+      fd_accdb_unread_one( alut_ctx->accdb, &ro );
     }
   }
 

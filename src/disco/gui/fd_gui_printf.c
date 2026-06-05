@@ -1255,6 +1255,468 @@ fd_gui_printf_health( fd_gui_t * gui ) {
   jsonp_close_envelope( gui->http );
 }
 
+/* Triangular-weighted average of a delta ring.  Newest sample has
+   weight n, oldest has weight 1.  Returns sum(w*delta) / weighted_dt
+   where weighted_dt is precomputed (sum of w * dt_sec for the same
+   samples). */
+static double
+fd_gui_accdb_weighted_rate( ulong const * ring,
+                            ulong         next_write_idx,
+                            ulong         n,
+                            double        weighted_dt ) {
+  if( !n || weighted_dt<=0.0 ) return 0.0;
+  double num = 0.0;
+  for( ulong k=0UL; k<n; k++ ) {
+    double w  = (double)(n - k);
+    ulong  ri = (next_write_idx + FD_GUI_ACCDB_WIN_SAMPLES - 1UL - k) % FD_GUI_ACCDB_WIN_SAMPLES;
+    num += w * (double)ring[ ri ];
+  }
+  return num / weighted_dt;
+}
+
+void
+fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
+  fd_gui_accounts_stats_t const * cur  = gui->summary.accounts_stats_current;
+  fd_gui_accounts_stats_t const * prev = gui->summary.accounts_stats_reference;
+  int have_ref = gui->summary.accounts_stats_have_reference;
+
+  long  dt_nanos = have_ref ? (cur->sample_time_nanos - prev->sample_time_nanos) : 0L;
+
+  /* Append this snap's deltas to the triangular-window rings.  The
+     emit code below applies triangular weights to compute the smoothed
+     rate.  Buffer is a simple ring; idx points to the next write slot. */
+  if( have_ref && dt_nanos>0L ) {
+    ulong i = gui->summary.accdb_win_idx;
+
+    gui->summary.accdb_win_dt_nanos          [ i ] = dt_nanos;
+    gui->summary.agg_acquired_win            [ i ] = cur->acquired                 - prev->acquired                ;
+    gui->summary.agg_acquired_writable_win   [ i ] = cur->acquired_writable        - prev->acquired_writable       ;
+    gui->summary.agg_bytes_read_win          [ i ] = cur->bytes_read               - prev->bytes_read              ;
+    gui->summary.agg_bytes_copied_win        [ i ] = cur->bytes_copied             - prev->bytes_copied            ;
+    gui->summary.agg_bytes_written_win       [ i ] = cur->bytes_written            - prev->bytes_written           ;
+    gui->summary.agg_bytes_written_accdb_win [ i ] = cur->bytes_written_accdb      - prev->bytes_written_accdb     ;
+    gui->summary.agg_read_ops_win            [ i ] = cur->read_ops                 - prev->read_ops                ;
+    gui->summary.agg_write_ops_win           [ i ] = cur->write_ops                - prev->write_ops               ;
+    gui->summary.agg_relocated_bytes_win     [ i ] = cur->accounts_relocated_bytes - prev->accounts_relocated_bytes;
+
+    ulong agg_misses_delta = 0UL;
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+      ulong d = cur->not_found_per_class[ c ] - prev->not_found_per_class[ c ];
+      agg_misses_delta += d;
+      gui->summary.class_acq_win        [ c ][ i ] = cur->acquired_per_class            [ c ] - prev->acquired_per_class            [ c ];
+      gui->summary.class_acq_wr_win     [ c ][ i ] = cur->acquired_writable_per_class   [ c ] - prev->acquired_writable_per_class   [ c ];
+      gui->summary.class_not_found_win  [ c ][ i ] = d;
+      gui->summary.class_evicted_win    [ c ][ i ] = cur->evicted_per_class             [ c ] - prev->evicted_per_class             [ c ];
+      gui->summary.class_preevicted_win [ c ][ i ] = cur->preevicted_per_class          [ c ] - prev->preevicted_per_class          [ c ];
+      gui->summary.class_commit_new_win [ c ][ i ] = cur->committed_new_per_class       [ c ] - prev->committed_new_per_class       [ c ];
+      gui->summary.class_commit_over_win[ c ][ i ] = cur->committed_overwrite_per_class [ c ] - prev->committed_overwrite_per_class [ c ];
+    }
+    gui->summary.agg_misses_win[ i ] = agg_misses_delta;
+
+    /* Per-partition deltas.  Snap each partition's current cumulative
+       counters from accdb_shmem, diff against prev, push into ring.
+       Also keep the most-recent snapshot for non-rate fields. */
+    if( FD_LIKELY( gui->accdb_shmem ) ) {
+      ulong pcnt = fd_accdb_shmem_partition_max( gui->accdb_shmem );
+      if( pcnt>FD_GUI_MAX_PARTITIONS ) pcnt = FD_GUI_MAX_PARTITIONS;
+      gui->summary.partition_cnt = pcnt;
+      for( ulong p=0UL; p<pcnt; p++ ) {
+        fd_accdb_shmem_partition_info_t info;
+        fd_accdb_shmem_partition_info( gui->accdb_shmem, p, &info );
+        gui->summary.partitions[ p ] = info;
+
+        /* Pool slots get reused: when a partition is released and
+           re-acquired, change_partition zeroes its counters.  Detect
+           the reset (any counter dropped below its previous value) and
+           treat this sample as the start of a new lifecycle — emit a
+           zero delta rather than letting the unsigned subtract wrap
+           into a giant rate. */
+        int reset = info.read_ops      < gui->summary.partition_prev_read_ops     [ p ] ||
+                    info.bytes_read    < gui->summary.partition_prev_bytes_read   [ p ] ||
+                    info.write_ops     < gui->summary.partition_prev_write_ops    [ p ] ||
+                    info.bytes_written < gui->summary.partition_prev_bytes_written[ p ];
+        if( FD_UNLIKELY( reset ) ) {
+          gui->summary.partition_prev_read_ops     [ p ] = info.read_ops;
+          gui->summary.partition_prev_bytes_read   [ p ] = info.bytes_read;
+          gui->summary.partition_prev_write_ops    [ p ] = info.write_ops;
+          gui->summary.partition_prev_bytes_written[ p ] = info.bytes_written;
+          /* Also wipe the historical window so an old lifecycle's
+             samples don't keep contributing to this slot's rate. */
+          for( ulong k=0UL; k<FD_GUI_ACCDB_WIN_SAMPLES; k++ ) {
+            gui->summary.partition_read_ops_win    [ p ][ k ] = 0UL;
+            gui->summary.partition_bytes_read_win  [ p ][ k ] = 0UL;
+            gui->summary.partition_write_ops_win   [ p ][ k ] = 0UL;
+            gui->summary.partition_bytes_written_win[p ][ k ] = 0UL;
+          }
+        }
+        ulong d_read_ops      = info.read_ops      - gui->summary.partition_prev_read_ops     [ p ];
+        ulong d_bytes_read    = info.bytes_read    - gui->summary.partition_prev_bytes_read   [ p ];
+        ulong d_write_ops     = info.write_ops     - gui->summary.partition_prev_write_ops    [ p ];
+        ulong d_bytes_written = info.bytes_written - gui->summary.partition_prev_bytes_written[ p ];
+
+        gui->summary.partition_read_ops_win    [ p ][ i ] = d_read_ops;
+        gui->summary.partition_bytes_read_win  [ p ][ i ] = d_bytes_read;
+        gui->summary.partition_write_ops_win   [ p ][ i ] = d_write_ops;
+        gui->summary.partition_bytes_written_win[p ][ i ] = d_bytes_written;
+
+        gui->summary.partition_prev_read_ops     [ p ] = info.read_ops;
+        gui->summary.partition_prev_bytes_read   [ p ] = info.bytes_read;
+        gui->summary.partition_prev_write_ops    [ p ] = info.write_ops;
+        gui->summary.partition_prev_bytes_written[ p ] = info.bytes_written;
+      }
+    }
+
+    /* Per-tile deltas.  Cumulative values were snapped from each tile's
+       metric page in fd_gui_accounts_stats_snap; diff against prev and
+       push into the ring. */
+    for( ulong s=0UL; s<gui->summary.accdb_tile_cnt; s++ ) {
+      gui->summary.tile_acquired_win         [ s ][ i ] = gui->summary.tile_cur_acquired         [ s ] - gui->summary.tile_prev_acquired         [ s ];
+      gui->summary.tile_acquired_writable_win[ s ][ i ] = gui->summary.tile_cur_acquired_writable[ s ] - gui->summary.tile_prev_acquired_writable[ s ];
+      gui->summary.tile_bytes_read_win       [ s ][ i ] = gui->summary.tile_cur_bytes_read       [ s ] - gui->summary.tile_prev_bytes_read       [ s ];
+      gui->summary.tile_bytes_copied_win     [ s ][ i ] = gui->summary.tile_cur_bytes_copied     [ s ] - gui->summary.tile_prev_bytes_copied     [ s ];
+      gui->summary.tile_bytes_written_win    [ s ][ i ] = gui->summary.tile_cur_bytes_written    [ s ] - gui->summary.tile_prev_bytes_written    [ s ];
+      gui->summary.tile_read_ops_win         [ s ][ i ] = gui->summary.tile_cur_read_ops         [ s ] - gui->summary.tile_prev_read_ops         [ s ];
+      gui->summary.tile_write_ops_win        [ s ][ i ] = gui->summary.tile_cur_write_ops        [ s ] - gui->summary.tile_prev_write_ops        [ s ];
+      gui->summary.tile_misses_win           [ s ][ i ] = gui->summary.tile_cur_misses           [ s ] - gui->summary.tile_prev_misses           [ s ];
+      gui->summary.tile_evicted_win          [ s ][ i ] = gui->summary.tile_cur_evicted          [ s ] - gui->summary.tile_prev_evicted          [ s ];
+      gui->summary.tile_committed_win        [ s ][ i ] = gui->summary.tile_cur_committed        [ s ] - gui->summary.tile_prev_committed        [ s ];
+      gui->summary.tile_acquire_calls_win    [ s ][ i ] = gui->summary.tile_cur_acquire_calls    [ s ] - gui->summary.tile_prev_acquire_calls    [ s ];
+
+      gui->summary.tile_prev_acquired         [ s ] = gui->summary.tile_cur_acquired         [ s ];
+      gui->summary.tile_prev_acquired_writable[ s ] = gui->summary.tile_cur_acquired_writable[ s ];
+      gui->summary.tile_prev_bytes_read       [ s ] = gui->summary.tile_cur_bytes_read       [ s ];
+      gui->summary.tile_prev_bytes_copied     [ s ] = gui->summary.tile_cur_bytes_copied     [ s ];
+      gui->summary.tile_prev_bytes_written    [ s ] = gui->summary.tile_cur_bytes_written    [ s ];
+      gui->summary.tile_prev_read_ops         [ s ] = gui->summary.tile_cur_read_ops         [ s ];
+      gui->summary.tile_prev_write_ops        [ s ] = gui->summary.tile_cur_write_ops        [ s ];
+      gui->summary.tile_prev_misses           [ s ] = gui->summary.tile_cur_misses           [ s ];
+      gui->summary.tile_prev_evicted          [ s ] = gui->summary.tile_cur_evicted          [ s ];
+      gui->summary.tile_prev_committed        [ s ] = gui->summary.tile_cur_committed        [ s ];
+      gui->summary.tile_prev_acquire_calls    [ s ] = gui->summary.tile_cur_acquire_calls    [ s ];
+
+      /* 60s sparkline accumulator.  Sum this snap's delta into the
+         in-flight 1-second bucket; when the bucket closes (>=1s since
+         it opened), shift the history rings right (newest at index 0)
+         and start a new bucket with the leftover delta. */
+      ulong d_acq    = gui->summary.tile_acquired_win         [ s ][ i ];
+      ulong d_acq_wr = gui->summary.tile_acquired_writable_win[ s ][ i ];
+      gui->summary.tile_sparkline_acq_bucket   [ s ] += d_acq;
+      gui->summary.tile_sparkline_acq_wr_bucket[ s ] += d_acq_wr;
+
+      long bucket_age = cur->sample_time_nanos - gui->summary.tile_sparkline_bucket_start_nanos[ s ];
+      if( gui->summary.tile_sparkline_bucket_start_nanos[ s ]==0L ) {
+        /* First snap for this slot — just open a bucket. */
+        gui->summary.tile_sparkline_bucket_start_nanos[ s ] = cur->sample_time_nanos;
+      } else if( bucket_age>=FD_GUI_ACCDB_SPARKLINE_BUCKET_NS ) {
+        /* Close the bucket: normalize to per-second, shift right, push. */
+        double secs = (double)bucket_age / 1e9;
+        double acq_rate    = (double)gui->summary.tile_sparkline_acq_bucket   [ s ] / secs;
+        double acq_wr_rate = (double)gui->summary.tile_sparkline_acq_wr_bucket[ s ] / secs;
+        memmove( &gui->summary.tile_sparkline_acq_history   [ s ][ 1 ],
+                 &gui->summary.tile_sparkline_acq_history   [ s ][ 0 ],
+                 (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
+        memmove( &gui->summary.tile_sparkline_acq_wr_history[ s ][ 1 ],
+                 &gui->summary.tile_sparkline_acq_wr_history[ s ][ 0 ],
+                 (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
+        gui->summary.tile_sparkline_acq_history   [ s ][ 0 ] = acq_rate;
+        gui->summary.tile_sparkline_acq_wr_history[ s ][ 0 ] = acq_wr_rate;
+        if( gui->summary.tile_sparkline_count[ s ]<FD_GUI_ACCDB_SPARKLINE_SAMPLES )
+          gui->summary.tile_sparkline_count[ s ]++;
+        gui->summary.tile_sparkline_acq_bucket        [ s ] = 0UL;
+        gui->summary.tile_sparkline_acq_wr_bucket     [ s ] = 0UL;
+        gui->summary.tile_sparkline_bucket_start_nanos[ s ] = cur->sample_time_nanos;
+      }
+    }
+
+    gui->summary.accdb_win_idx = (i+1UL) % FD_GUI_ACCDB_WIN_SAMPLES;
+    if( gui->summary.accdb_win_count<FD_GUI_ACCDB_WIN_SAMPLES )
+      gui->summary.accdb_win_count++;
+  }
+
+  /* Compute weighted denominator once: sum(weight * dt_sec).  Newest
+     sample has weight n, oldest has weight 1.  If unfilled, only the
+     count samples are used (so first-snap rate is meaningful). */
+  ulong  n           = gui->summary.accdb_win_count;
+  double weighted_dt = 0.0;
+  for( ulong k=0UL; k<n; k++ ) {
+    /* k=0 is newest, k=n-1 is oldest; weight = n - k */
+    double w  = (double)(n - k);
+    /* idx-1-k in ring */
+    ulong  ri = (gui->summary.accdb_win_idx + FD_GUI_ACCDB_WIN_SAMPLES - 1UL - k) % FD_GUI_ACCDB_WIN_SAMPLES;
+    weighted_dt += w * (double)gui->summary.accdb_win_dt_nanos[ ri ] / 1e9;
+  }
+
+  /* Helper: weighted rate of a delta ring. */
+# define WRATE( ring ) ( fd_gui_accdb_weighted_rate( (ring), gui->summary.accdb_win_idx, n, weighted_dt ) )
+
+  double agg_acquired_rate          = WRATE( gui->summary.agg_acquired_win            );
+  double agg_acquired_writable_rate = WRATE( gui->summary.agg_acquired_writable_win   );
+  double agg_bytes_read_rate        = WRATE( gui->summary.agg_bytes_read_win          );
+  double agg_bytes_copied_rate      = WRATE( gui->summary.agg_bytes_copied_win        );
+  double agg_bytes_written_rate     = WRATE( gui->summary.agg_bytes_written_win       );
+  double agg_bytes_written_accdb_rate = WRATE( gui->summary.agg_bytes_written_accdb_win );
+  double agg_read_ops_rate          = WRATE( gui->summary.agg_read_ops_win            );
+  double agg_write_ops_rate         = WRATE( gui->summary.agg_write_ops_win           );
+  double agg_relocated_bytes_rate   = WRATE( gui->summary.agg_relocated_bytes_win     );
+  double agg_misses_rate            = WRATE( gui->summary.agg_misses_win              );
+
+  double agg_hit_rate = agg_acquired_rate>0.0
+    ? fmax( 0.0, 1.0 - agg_misses_rate / agg_acquired_rate )
+    : 0.0;
+
+
+  jsonp_open_envelope( gui->http, "accounts", "stats" );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_long( gui->http, "sample_time_nanos", cur->sample_time_nanos );
+
+      jsonp_open_object( gui->http, "disk" );
+        jsonp_ulong(  gui->http, "accounts_total",       cur->accounts_total       );
+        jsonp_ulong(  gui->http, "accounts_capacity",    cur->accounts_capacity    );
+        jsonp_ulong(  gui->http, "allocated_bytes",      cur->disk_allocated_bytes );
+        jsonp_ulong(  gui->http, "current_bytes",        cur->disk_current_bytes   );
+        jsonp_ulong(  gui->http, "used_bytes",           cur->disk_used_bytes      );
+      jsonp_close_object( gui->http );
+
+      jsonp_open_object( gui->http, "compaction" );
+        jsonp_ulong(  gui->http, "in_compaction",            cur->in_compaction            );
+        jsonp_ulong(  gui->http, "compactions_requested",    cur->compactions_requested    );
+        jsonp_ulong(  gui->http, "compactions_completed",    cur->compactions_completed    );
+        jsonp_ulong(  gui->http, "accounts_relocated_bytes", cur->accounts_relocated_bytes );
+        jsonp_double( gui->http, "relocated_bytes_per_sec",  agg_relocated_bytes_rate );
+      jsonp_close_object( gui->http );
+
+      ulong cache_size_bytes = 0UL;
+      ulong gui_tile_idx = fd_topo_find_tile( gui->topo, "gui", 0UL );
+      if( FD_LIKELY( gui_tile_idx!=ULONG_MAX ) ) {
+        cache_size_bytes = gui->topo->tiles[ gui_tile_idx ].gui.cache_size_gib * (1UL<<30);
+      }
+
+      jsonp_open_object( gui->http, "cache" );
+        jsonp_double( gui->http, "hit_rate_ema", agg_hit_rate );
+        jsonp_ulong(  gui->http, "size_bytes",   cache_size_bytes );
+
+        jsonp_open_array( gui->http, "classes" );
+          for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+            jsonp_open_object( gui->http, NULL );
+              jsonp_ulong(  gui->http, "class",                 c );
+              jsonp_ulong(  gui->http, "used_slots",            cur->cache_class_used           [ c ] );
+              jsonp_ulong(  gui->http, "max_slots",             cur->cache_class_max            [ c ] );
+              jsonp_ulong(  gui->http, "reserved_slots",        cur->cache_class_reserved       [ c ] );
+              jsonp_ulong(  gui->http, "target_used_slots",     cur->cache_class_target_used    [ c ] );
+              jsonp_ulong(  gui->http, "low_water_used_slots",  cur->cache_class_low_water_used [ c ] );
+              jsonp_ulong(  gui->http, "not_found",             cur->not_found_per_class           [ c ] );
+              jsonp_ulong(  gui->http, "evicted",               cur->evicted_per_class             [ c ] );
+              jsonp_ulong(  gui->http, "preevicted",            cur->preevicted_per_class          [ c ] );
+              jsonp_ulong(  gui->http, "committed_new",         cur->committed_new_per_class       [ c ] );
+              jsonp_ulong(  gui->http, "committed_overwrite",   cur->committed_overwrite_per_class [ c ] );
+              double acq_rate    = WRATE( gui->summary.class_acq_win        [ c ] );
+              double acq_wr_rate = WRATE( gui->summary.class_acq_wr_win     [ c ] );
+              double nf_rate     = WRATE( gui->summary.class_not_found_win  [ c ] );
+              jsonp_double( gui->http, "not_found_per_sec",          nf_rate                                                          );
+              jsonp_double( gui->http, "evicted_per_sec",             WRATE( gui->summary.class_evicted_win    [ c ] )                );
+              jsonp_double( gui->http, "preevicted_per_sec",          WRATE( gui->summary.class_preevicted_win [ c ] )                );
+              jsonp_double( gui->http, "committed_new_per_sec",       WRATE( gui->summary.class_commit_new_win [ c ] )                );
+              jsonp_double( gui->http, "committed_overwrite_per_sec", WRATE( gui->summary.class_commit_over_win[ c ] )                );
+              /* reads_per_sec = acquired - acquired_writable (per class);
+                 writes_per_sec = acquired_writable (per class). */
+              jsonp_double( gui->http, "reads_per_sec",  fmax( 0.0, acq_rate - acq_wr_rate ) );
+              jsonp_double( gui->http, "writes_per_sec", acq_wr_rate );
+              jsonp_double( gui->http, "hit_rate_ema",
+                            acq_rate>0.0 ? fmax( 0.0, 1.0 - nf_rate / acq_rate ) : 0.0 );
+            jsonp_close_object( gui->http );
+          }
+        jsonp_close_array( gui->http );
+      jsonp_close_object( gui->http );
+
+      /* Per-tile breakdown.  Iterate the slot table built at init.
+         snapwr's row disappears when it has reached the shutdown
+         status (matching how snapwr drops out of the overview tiles
+         table). */
+      jsonp_open_array( gui->http, "tiles" );
+        for( ulong s=0UL; s<gui->summary.accdb_tile_cnt; s++ ) {
+          ulong t_idx = (ulong)gui->summary.accdb_tile_topo_idx[ s ];
+          fd_topo_tile_t const * tile = &gui->topo->tiles[ t_idx ];
+          uchar kind = gui->summary.accdb_tile_kind[ s ];
+
+          if( kind==FD_GUI_ACCDB_TILE_KIND_SNAPWR && gui->summary.tile_cur_status[ s ]==2U ) continue;
+
+          double t_acq_rate    = WRATE( gui->summary.tile_acquired_win         [ s ] );
+          double t_acq_wr_rate = WRATE( gui->summary.tile_acquired_writable_win[ s ] );
+          double t_br_rate     = WRATE( gui->summary.tile_bytes_read_win       [ s ] );
+          double t_bc_rate     = WRATE( gui->summary.tile_bytes_copied_win     [ s ] );
+          double t_bw_rate     = WRATE( gui->summary.tile_bytes_written_win    [ s ] );
+          double t_ro_rate     = WRATE( gui->summary.tile_read_ops_win         [ s ] );
+          double t_wo_rate     = WRATE( gui->summary.tile_write_ops_win        [ s ] );
+          double t_nf_rate     = WRATE( gui->summary.tile_misses_win           [ s ] );
+          double t_ev_rate     = WRATE( gui->summary.tile_evicted_win          [ s ] );
+          double t_cm_rate     = WRATE( gui->summary.tile_committed_win        [ s ] );
+          double t_ac_rate     = WRATE( gui->summary.tile_acquire_calls_win    [ s ] );
+
+          char const * joiner;
+          switch( kind ) {
+            case FD_GUI_ACCDB_TILE_KIND_RW:     joiner = "RW"; break;
+            case FD_GUI_ACCDB_TILE_KIND_SNAPWR: joiner = "RW"; break;
+            case FD_GUI_ACCDB_TILE_KIND_ACCDB:  joiner = "RW"; break;
+            default:                            joiner = "RO"; break;
+          }
+
+          jsonp_open_object( gui->http, NULL );
+            jsonp_string( gui->http, "name",         tile->name );
+            jsonp_ulong(  gui->http, "kind_id",      tile->kind_id );
+            jsonp_string( gui->http, "joiner_type",  joiner );
+            jsonp_ulong(  gui->http, "status",       (ulong)gui->summary.tile_cur_status[ s ] );
+
+            /* Lifetime totals. */
+            jsonp_ulong(  gui->http, "acquired",      gui->summary.tile_cur_acquired      [ s ] );
+            jsonp_ulong(  gui->http, "bytes_read",    gui->summary.tile_cur_bytes_read    [ s ] );
+            jsonp_ulong(  gui->http, "bytes_written", gui->summary.tile_cur_bytes_written [ s ] );
+
+            /* Rates. */
+            jsonp_double( gui->http, "acquired_per_sec",          t_acq_rate    );
+            jsonp_double( gui->http, "acquired_writable_per_sec", t_acq_wr_rate );
+            jsonp_double( gui->http, "bytes_read_per_sec",        t_br_rate     );
+            jsonp_double( gui->http, "bytes_copied_per_sec",      t_bc_rate     );
+            jsonp_double( gui->http, "bytes_written_per_sec",     t_bw_rate     );
+            jsonp_double( gui->http, "read_ops_per_sec",          t_ro_rate     );
+            jsonp_double( gui->http, "write_ops_per_sec",         t_wo_rate     );
+            jsonp_double( gui->http, "not_found_per_sec",         t_nf_rate     );
+            jsonp_double( gui->http, "evicted_per_sec",           t_ev_rate     );
+            jsonp_double( gui->http, "committed_per_sec",         t_cm_rate     );
+            jsonp_double( gui->http, "acquire_calls_per_sec",     t_ac_rate     );
+
+            jsonp_double( gui->http, "hit_rate_ema",
+                          t_acq_rate>0.0 ? fmax( 0.0, 1.0 - t_nf_rate / t_acq_rate ) : 0.0 );
+
+            /* 60-second sparkline history.  Emit oldest-first so the
+               frontend treats index 0 as the leftmost (oldest) sample. */
+            ulong sp_cnt = gui->summary.tile_sparkline_count[ s ];
+            jsonp_open_array( gui->http, "acquired_history" );
+              for( ulong k=0UL; k<sp_cnt; k++ ) {
+                ulong idx = sp_cnt - 1UL - k;
+                jsonp_double( gui->http, NULL, gui->summary.tile_sparkline_acq_history[ s ][ idx ] );
+              }
+            jsonp_close_array( gui->http );
+            jsonp_open_array( gui->http, "acquired_writable_history" );
+              for( ulong k=0UL; k<sp_cnt; k++ ) {
+                ulong idx = sp_cnt - 1UL - k;
+                jsonp_double( gui->http, NULL, gui->summary.tile_sparkline_acq_wr_history[ s ][ idx ] );
+              }
+            jsonp_close_array( gui->http );
+          jsonp_close_object( gui->http );
+        }
+      jsonp_close_array( gui->http );
+
+      jsonp_open_object( gui->http, "io" );
+        jsonp_ulong(  gui->http, "acquired",            cur->acquired            );
+        jsonp_ulong(  gui->http, "acquired_writable",   cur->acquired_writable   );
+        jsonp_ulong(  gui->http, "bytes_read",          cur->bytes_read          );
+        jsonp_ulong(  gui->http, "bytes_copied",        cur->bytes_copied        );
+        jsonp_ulong(  gui->http, "bytes_written",       cur->bytes_written       );
+        jsonp_ulong(  gui->http, "bytes_written_accdb", cur->bytes_written_accdb );
+        jsonp_ulong(  gui->http, "read_ops",            cur->read_ops            );
+        jsonp_ulong(  gui->http, "write_ops",           cur->write_ops           );
+        jsonp_double( gui->http, "acquired_per_sec",          agg_acquired_rate          );
+        jsonp_double( gui->http, "acquired_writable_per_sec", agg_acquired_writable_rate );
+        jsonp_double( gui->http, "bytes_read_per_sec",        agg_bytes_read_rate        );
+        jsonp_double( gui->http, "bytes_copied_per_sec",      agg_bytes_copied_rate      );
+        jsonp_double( gui->http, "bytes_written_per_sec",     agg_bytes_written_rate     );
+        jsonp_double( gui->http, "read_ops_per_sec",          agg_read_ops_rate          );
+        jsonp_double( gui->http, "write_ops_per_sec",         agg_write_ops_rate         );
+        /* Prewrite ratio: fraction of bytes written that came from the
+           accdb tile's background work (preevict + compaction).
+           cur->bytes_written already includes accdb tile's writes, so
+           the ratio is just accdb_rate / bytes_written_rate. */
+        jsonp_double( gui->http, "prewrite_ratio",
+                      agg_bytes_written_rate>0.0
+                        ? fmin( 1.0, agg_bytes_written_accdb_rate / agg_bytes_written_rate )
+                        : 0.0 );
+      jsonp_close_object( gui->http );
+
+      /* Per-partition table.  Only emit partitions that have been
+         written to (skip the cold tail of the pool that has never been
+         allocated).  Ticks are converted to wallclock nanoseconds using
+         the GUI tile's locally-measured tick rate, since the accdb hot
+         path stamps fd_tickcount() rather than fd_log_wallclock() (no
+         syscall on the IO path). */
+      jsonp_open_array( gui->http, "partitions" );
+      if( FD_LIKELY( gui->accdb_shmem ) ) {
+        ulong  partition_sz = fd_accdb_shmem_partition_sz( gui->accdb_shmem );
+        long   now_ticks    = (long)fd_tickcount();
+        double tick_per_ns  = gui->accdb_tick_per_ns;
+        for( ulong p=0UL; p<gui->summary.partition_cnt; p++ ) {
+          fd_accdb_shmem_partition_info_t const * info = &gui->summary.partitions[ p ];
+          /* Skip partitions that have never been written and are not
+             currently in any compaction state. */
+          if( !info->bytes_written && !info->compaction_state ) continue;
+
+          double read_ops_rate     = WRATE( gui->summary.partition_read_ops_win    [ p ] );
+          double bytes_read_rate   = WRATE( gui->summary.partition_bytes_read_win  [ p ] );
+          double write_ops_rate    = WRATE( gui->summary.partition_write_ops_win   [ p ] );
+          double bytes_written_rate= WRATE( gui->summary.partition_bytes_written_win[p ] );
+
+          double age_seconds    = 0.0;
+          double filled_seconds = 0.0;
+          if( info->created_ticks && tick_per_ns>0.0 ) {
+            age_seconds    = ((double)(now_ticks - info->created_ticks)) / tick_per_ns / 1e9;
+            if( age_seconds<0.0 ) age_seconds = 0.0;
+          }
+          if( info->filled_ticks && tick_per_ns>0.0 ) {
+            filled_seconds = ((double)(now_ticks - info->filled_ticks )) / tick_per_ns / 1e9;
+            if( filled_seconds<0.0 ) filled_seconds = 0.0;
+          }
+
+          /* Fully compacted, awaiting reclaim: present as an "Off" tier
+             with zeroed utilization so the row visually clears once its
+             data has been moved out. */
+          int    is_compacted   = info->compaction_state==0 &&
+                                  info->write_offset>0UL &&
+                                  info->compaction_offset>=info->write_offset;
+          ulong  tier           = is_compacted ? 255UL : (ulong)info->layer;
+          double utilization    = (!is_compacted && partition_sz)
+            ? (double)info->write_offset / (double)partition_sz : 0.0;
+          double fragmentation  = (!is_compacted && info->write_offset)
+            ? (double)info->bytes_freed / (double)info->write_offset : 0.0;
+          ulong  used_bytes     = (!is_compacted && info->write_offset > info->bytes_freed)
+            ? info->write_offset - info->bytes_freed : 0UL;
+          double used_frac      = partition_sz ? (double)used_bytes        / (double)partition_sz : 0.0;
+          double fragmented_frac= (!is_compacted && partition_sz) ? (double)info->bytes_freed / (double)partition_sz : 0.0;
+          double compaction_frac= (!is_compacted && partition_sz) ? (double)info->compaction_offset / (double)partition_sz : 0.0;
+
+          jsonp_open_object( gui->http, NULL );
+            jsonp_ulong(  gui->http, "partition_idx",     p );
+            jsonp_ulong(  gui->http, "file_offset",       info->file_offset );
+            jsonp_ulong(  gui->http, "tier",              tier );
+            jsonp_ulong(  gui->http, "write_offset",      info->write_offset );
+            jsonp_ulong(  gui->http, "bytes_freed",       info->bytes_freed );
+            jsonp_ulong(  gui->http, "read_ops",          info->read_ops );
+            jsonp_ulong(  gui->http, "bytes_read",        info->bytes_read );
+            jsonp_ulong(  gui->http, "write_ops",         info->write_ops );
+            jsonp_ulong(  gui->http, "bytes_written",     info->bytes_written );
+            jsonp_double( gui->http, "read_ops_per_sec",     read_ops_rate );
+            jsonp_double( gui->http, "bytes_read_per_sec",   bytes_read_rate );
+            jsonp_double( gui->http, "write_ops_per_sec",    write_ops_rate );
+            jsonp_double( gui->http, "bytes_written_per_sec",bytes_written_rate );
+            jsonp_double( gui->http, "utilization",       utilization );
+            jsonp_double( gui->http, "fragmentation",     fragmentation );
+            jsonp_double( gui->http, "used_frac",         used_frac );
+            jsonp_double( gui->http, "fragmented_frac",   fragmented_frac );
+            jsonp_double( gui->http, "compaction_trigger_frac", 0.30 );
+            jsonp_double( gui->http, "age_seconds",       age_seconds );
+            jsonp_double( gui->http, "filled_seconds",    filled_seconds );
+            jsonp_ulong(  gui->http, "compaction_state",  (ulong)info->compaction_state );
+            jsonp_double( gui->http, "compaction_frac",   compaction_frac );
+            jsonp_bool(   gui->http, "is_write_head",    (int)info->is_write_head );
+          jsonp_close_object( gui->http );
+        }
+      }
+      jsonp_close_array( gui->http );
+
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+
+# undef WRATE
+}
+
 static int
 fd_gui_gossip_contains( fd_gui_t const * gui,
                         uchar const *    pubkey ) {
