@@ -20,11 +20,9 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
+extern fd_topo_obj_callbacks_t fd_obj_cb_accdb;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
-extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
-extern fd_topo_obj_callbacks_t fd_obj_cb_funk_locks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
-extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
@@ -41,11 +39,9 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
+  &fd_obj_cb_accdb,
   &fd_obj_cb_banks,
-  &fd_obj_cb_funk,
-  &fd_obj_cb_funk_locks,
   &fd_obj_cb_progcache,
-  &fd_obj_cb_acc_pool,
   &fd_obj_cb_rnonce_ss,
   NULL,
 };
@@ -101,6 +97,7 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
 extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
+extern fd_topo_run_tile_t fd_tile_accdb;
 extern fd_topo_run_tile_t fd_tile_backtest;
 extern fd_topo_run_tile_t fd_tile_forktest;
 extern fd_topo_run_tile_t fd_tile_solcap;
@@ -109,6 +106,7 @@ extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
+extern fd_topo_run_tile_t fd_tile_snapwr;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -139,6 +137,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_txsend,
   &fd_tile_tower,
+  &fd_tile_accdb,
   &fd_tile_backtest,
   &fd_tile_forktest,
   &fd_tile_bencho,
@@ -150,6 +149,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
+  &fd_tile_snapwr,
   &fd_tile_genesi,
   &fd_tile_ipecho,
   &fd_tile_solcap,

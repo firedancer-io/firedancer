@@ -23,10 +23,8 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
 
   /* fd_vm_prepare_instruction will handle missing/invalid account case */
   instr_info->program_id = UCHAR_MAX;
-  int program_id = fd_runtime_find_index_of_account( ctx->txn_out, native_program_id );
-  if( FD_LIKELY( program_id!=-1 ) ) {
-    instr_info->program_id = (uchar)program_id;
-  }
+  ulong program_id = fd_runtime_find_index_of_account( ctx->txn_out, native_program_id );
+  if( FD_LIKELY( program_id!=ULONG_MAX ) ) instr_info->program_id = (uchar)program_id;
 
   fd_pubkey_t instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
   uchar       acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
@@ -37,13 +35,13 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
     fd_pubkey_t const *               acct_key      = fd_type_pun_const( acct_meta->pubkey );
     instr_acct_keys[j] = *acct_key;
 
-    int idx_in_txn    = fd_runtime_find_index_of_account( ctx->txn_out, acct_key );
-    int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );
+    ulong idx_in_txn    = fd_runtime_find_index_of_account( ctx->txn_out, acct_key );
+    ulong idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );
 
     fd_instr_info_setup_instr_account( instr_info,
                                        acc_idx_seen,
-                                       idx_in_txn!=-1 ? (ushort)idx_in_txn : USHORT_MAX,
-                                       idx_in_caller!=-1 ? (ushort)idx_in_caller : USHORT_MAX,
+                                       idx_in_txn!=ULONG_MAX ? (ushort)idx_in_txn : USHORT_MAX,
+                                       idx_in_caller!=ULONG_MAX ? (ushort)idx_in_caller : USHORT_MAX,
                                        j,
                                        acct_meta->is_writable,
                                        acct_meta->is_signer );

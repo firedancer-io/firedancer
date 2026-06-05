@@ -1,42 +1,33 @@
 #include "fd_sysvar_rent.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "fd_sysvar_base.h"
-#include "../../accdb/fd_accdb_sync.h"
 
 void
-fd_sysvar_rent_write( fd_bank_t *               bank,
-                      fd_accdb_user_t *         accdb,
-                      fd_funk_txn_xid_t const * xid,
-                      fd_capture_ctx_t *        capture_ctx,
-                      fd_rent_t const *         rent ) {
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_rent_id, rent, FD_SYSVAR_RENT_BINCODE_SZ );
+fd_sysvar_rent_write( fd_bank_t *        bank,
+                      fd_accdb_t *       accdb,
+                      fd_capture_ctx_t * capture_ctx,
+                      fd_rent_t const *  rent ) {
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_rent_id, rent, FD_SYSVAR_RENT_BINCODE_SZ );
 }
 
 void
-fd_sysvar_rent_init( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_capture_ctx_t *        capture_ctx ) {
-  fd_rent_t const * rent = &bank->f.rent;
-  fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, rent );
+fd_sysvar_rent_init( fd_bank_t *        bank,
+                     fd_accdb_t *       accdb,
+                     fd_capture_ctx_t * capture_ctx ) {
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &bank->f.rent );
 }
 
 fd_rent_t const *
-fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_rent_t *               rent ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_rent_id ) ) ) {
+fd_sysvar_rent_read( fd_accdb_t *       accdb,
+                     fd_accdb_fork_id_t fork_id,
+                     fd_rent_t *        rent ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_rent_id.uc );
+  if( FD_UNLIKELY( !acc.lamports || acc.data_len<FD_SYSVAR_RENT_BINCODE_SZ ) ) {
+    fd_accdb_unread_one( accdb, &acc );
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )!=FD_SYSVAR_RENT_BINCODE_SZ ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  memcpy( rent, fd_accdb_ref_data_const( ro ), FD_SYSVAR_RENT_BINCODE_SZ );
-  fd_accdb_close_ro( accdb, ro );
+  fd_memcpy( rent, acc.data, FD_SYSVAR_RENT_BINCODE_SZ );
+  fd_accdb_unread_one( accdb, &acc );
   return rent;
 }
