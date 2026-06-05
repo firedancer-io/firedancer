@@ -44,13 +44,14 @@ kernel, at least v4.18 to build.
 $ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ ./deps.sh
+$ source activate  # enter build environment
 $ make -j
 
 # Run a new development cluster
-$ build/native/gcc/bin/firedancer-dev
+$ firedancer-dev
 
 # Join Solana testnet
-$ build/native/gcc/bin/firedancer-dev --testnet
+$ firedancer-dev --testnet
 ```
 
 `firedancer-dev` (without args) configures your system for validator
