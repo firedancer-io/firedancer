@@ -8,7 +8,6 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 LEDGER=""
 RESTORE_ARCHIVE=""
 END_SLOT="0"
-FUNK_PAGES="16"
 INDEX_MAX="5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
@@ -54,11 +53,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -e|--end_slot)
        END_SLOT="$2"
-       shift
-       shift
-       ;;
-    -y|--funk-pages)
-       FUNK_PAGES="$2"
        shift
        shift
        ;;
@@ -265,8 +259,13 @@ cat <<EOF > ${CONFIG_FILE}
         end_slot = $END_SLOT
     [development.backtest]
         root_distance = $ROOT_DISTANCE
+EOF
+
+if [[ "$INDEX_MAX" -lt "1000000" ]]; then
+  INDEX_MAX=1000000
+fi
+cat <<EOF >> ${CONFIG_FILE}
 [accounts]
-    file_size_gib = $FUNK_PAGES
     max_accounts = $INDEX_MAX
 EOF
 

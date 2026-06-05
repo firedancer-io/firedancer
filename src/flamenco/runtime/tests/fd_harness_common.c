@@ -4,7 +4,6 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
-#include "../../accdb/fd_accdb_sync.h"
 
 void
 fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
@@ -48,10 +47,11 @@ fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
 
 int
 fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
-                            fd_accdb_user_t *                 accdb,
-                            fd_funk_txn_xid_t const *         xid,
+                            fd_accdb_t *                      accdb,
+                            fd_accdb_fork_id_t                fork_id,
                             fd_exec_test_acct_state_t const * state,
                             ulong                             acc_idx ) {
+  (void)runtime; (void)acc_idx;
   if( state->lamports==0UL ) return 0;
 
   ulong size = 0UL;
@@ -60,23 +60,20 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
-    fd_accdb_close_ro( accdb, ro );
+  if( FD_UNLIKELY( fd_accdb_exists( accdb, fork_id, pubkey->key ) ) ) {
     return 0;
   }
 
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, pubkey, size, FD_ACCDB_FLAG_CREATE );
-  if( state->data ) {
-    fd_accdb_ref_data_set( accdb, rw, state->data->bytes, size );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( state->data && size ) {
+    fd_memcpy( acc.data, state->data->bytes, size );
   }
-  runtime->accounts.starting_lamports[ acc_idx ] = state->lamports;
-  runtime->accounts.starting_dlen    [ acc_idx ] = size;
-  fd_accdb_ref_lamports_set( rw, state->lamports   );
-  fd_accdb_ref_exec_bit_set( rw, state->executable );
-  fd_accdb_ref_owner_set   ( rw, state->owner      );
-  fd_accdb_close_rw( accdb, rw );
+  acc.data_len   = size;
+  acc.lamports   = state->lamports;
+  acc.executable = state->executable;
+  fd_memcpy( acc.owner, state->owner, 32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   return 1;
 }
@@ -114,8 +111,8 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
 }
 
 void
-fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
-                                       fd_funk_txn_xid_t const *          xid,
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
+                                       fd_accdb_fork_id_t                 fork_id,
                                        fd_exec_test_feature_set_t const * feature_set,
                                        fd_exec_test_acct_state_t const *  acct_states,
                                        pb_size_t                          acct_states_count ) {
@@ -136,16 +133,14 @@ fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
 
     /* Genesis activation slot */
     fd_feature_t feature = { .is_active = 1, .activation_slot = 0UL };
-    uchar feature_data[ sizeof(fd_feature_t) ];
-    fd_memcpy( feature_data, &feature, sizeof(feature) );
 
-    fd_accdb_rw_t rw[1];
-    FD_TEST( fd_accdb_open_rw( accdb, rw, xid, &id->id, sizeof(feature_data), FD_ACCDB_FLAG_CREATE ) );
-    fd_accdb_ref_data_set    ( accdb, rw, feature_data, sizeof(feature_data) );
-
-    fd_accdb_ref_lamports_set( rw, 100000000 );
-    fd_accdb_ref_exec_bit_set( rw, 0 );
-    fd_memcpy( rw->meta->owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
-    fd_accdb_close_rw( accdb, rw );
+    fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, id->id.key );
+    fd_memcpy( acc.data, &feature, sizeof(feature) );
+    acc.data_len   = sizeof(feature);
+    acc.lamports   = 100000000UL;
+    acc.executable = 0;
+    fd_memcpy( acc.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+    acc.commit = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
   }
 }

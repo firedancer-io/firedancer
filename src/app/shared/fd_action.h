@@ -155,16 +155,15 @@ union fdctl_args {
   } metrics_record;
 
   struct {
-    uint fsck : 1;
-    uint accounts_hist : 1;
-    uint offline : 1;
-    uint no_incremental : 1;
-    uint no_watch : 1;
+    int accounts_hist;
+    int offline;
+    int no_incremental;
+    int no_watch;
 
     char snapshot_dir[ PATH_MAX ];
 
-    ulong db_sz;
     ulong db_rec_max;
+    ulong cache_sz;
   } snapshot_load;
 
   struct {

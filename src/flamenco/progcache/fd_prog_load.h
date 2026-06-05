@@ -4,7 +4,8 @@
 /* fd_prog_load.h provides high-level APIs for loading Solana programs
    from the account database. */
 
-#include "../accdb/fd_accdb_ref.h"
+#include "../accdb/fd_accdb.h"
+#include "../fd_flamenco_base.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -29,8 +30,8 @@ struct fd_prog_info {
 typedef struct fd_prog_info fd_prog_info_t;
 
 fd_prog_info_t *
-fd_prog_info( fd_prog_info_t    * out,
-              fd_accdb_ro_t     * progdata_ro );
+fd_prog_info( fd_prog_info_t * out,
+              fd_acc_t const * acc );
 
 /* fd_prog_versions derives sBPF versions from the current feature set. */
 

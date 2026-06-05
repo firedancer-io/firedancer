@@ -39,8 +39,8 @@ test_sysvar_slot_hashes_init( fd_wksp_t * wksp ) {
   };
   env->bank->f.rent = rent;
 
-  fd_sysvar_slot_hashes_init( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_hashes_init( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   FD_TEST( fd_sysvar_cache_slot_hashes_is_valid( env->sysvar_cache ) );
 
   ulong sz = 0UL;
@@ -67,8 +67,8 @@ test_sysvar_slot_hashes_update( fd_wksp_t * wksp ) {
   fd_hash_t hash0 = { .ul={ 0xaaUL, 0xbbUL, 0xccUL, 0xddUL } };
   env->bank->f.parent_slot = 100UL;
   env->bank->f.bank_hash   = hash0;
-  fd_sysvar_slot_hashes_update( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
 
   {
     ulong sz = 0UL;
@@ -85,8 +85,8 @@ test_sysvar_slot_hashes_update( fd_wksp_t * wksp ) {
   fd_hash_t hash1 = { .ul={ 0x11UL, 0x22UL, 0x33UL, 0x44UL } };
   env->bank->f.parent_slot = 101UL;
   env->bank->f.bank_hash   = hash1;
-  fd_sysvar_slot_hashes_update( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
 
   {
     ulong sz = 0UL;
@@ -105,8 +105,8 @@ test_sysvar_slot_hashes_update( fd_wksp_t * wksp ) {
   fd_hash_t hash0_new = { .ul={ 0xeeUL, 0xffUL, 0x00UL, 0x11UL } };
   env->bank->f.parent_slot = 101UL;
   env->bank->f.bank_hash   = hash0_new;
-  fd_sysvar_slot_hashes_update( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
 
   {
     ulong sz = 0UL;
@@ -137,14 +137,14 @@ test_sysvar_slot_hashes_eviction( fd_wksp_t * wksp ) {
   env->bank->f.rent = rent;
 
   /* Fill to capacity */
-  fd_sysvar_slot_hashes_init( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_slot_hashes_init( env->bank, env->accdb, NULL );
   for( ulong i=0UL; i<FD_SYSVAR_SLOT_HASHES_CAP; i++ ) {
     env->bank->f.parent_slot    = i;
     env->bank->f.bank_hash.ul[0] = i + 1UL;
-    fd_sysvar_slot_hashes_update( env->bank, env->accdb, &env->xid, NULL );
+    fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
   }
 
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   {
     ulong sz = 0UL;
     uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_hashes_id, &sz );
@@ -159,8 +159,8 @@ test_sysvar_slot_hashes_eviction( fd_wksp_t * wksp ) {
   /* One more triggers eviction of oldest (slot 0) */
   env->bank->f.parent_slot      = 999UL;
   env->bank->f.bank_hash.ul[0]  = 0xdeadUL;
-  fd_sysvar_slot_hashes_update( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
 
   {
     ulong sz = 0UL;

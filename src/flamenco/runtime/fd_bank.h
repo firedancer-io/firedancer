@@ -7,8 +7,10 @@
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_top_votes.h"
 #include "../stakes/fd_vote_stakes.h"
+#include "../progcache/fd_progcache_xid.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
+#include "fd_cost_tracker.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
@@ -265,6 +267,7 @@ struct fd_bank {
 
   fd_txncache_fork_id_t  txncache_fork_id;
   fd_progcache_fork_id_t progcache_fork_id;
+  fd_accdb_fork_id_t     accdb_fork_id;
   ushort                 vote_stakes_fork_id;
   uchar                  stake_rewards_fork_id;
   ushort                 stake_delegations_fork_id;
@@ -344,6 +347,7 @@ typedef struct fd_bank fd_bank_t;
 struct fd_banks_prune_cancel_info {
   fd_txncache_fork_id_t  txncache_fork_id;
   fd_progcache_fork_id_t progcache_fork_id;
+  fd_accdb_fork_id_t     accdb_fork_id;
   ulong                  slot;
   ulong                  bank_seq;
   ulong                  bank_idx;
@@ -776,14 +780,6 @@ fd_banks_get_replay_frontier( fd_banks_t * banks,
 
 int
 fd_banks_is_full( fd_banks_t * banks );
-
-/* fd_bank_xid returns the accdb/progcache xid for the given bank. */
-
-static inline fd_xid_t
-fd_bank_xid( fd_bank_t const * bank ) {
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "NULL bank" ));
-  return (fd_xid_t){ .ul = { bank->f.slot, bank->bank_seq } };
-}
 
 FD_PROTOTYPES_END
 

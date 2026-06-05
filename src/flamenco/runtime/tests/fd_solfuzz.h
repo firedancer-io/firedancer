@@ -11,8 +11,7 @@
    - Multi-session use */
 
 #include "../../capture/fd_solcap_writer.h"
-#include "../../accdb/fd_accdb_admin.h"
-#include "../../accdb/fd_accdb_user.h"
+#include "../../accdb/fd_accdb.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_bank.h"
 
@@ -31,12 +30,11 @@ struct fd_solfuzz_runner {
   fd_banks_t *    banks;
   fd_bank_t *     bank;
   fd_runtime_t *  runtime;
-  fd_acc_pool_t * acc_pool;
 
   fd_progcache_t       progcache[1];
 
-  fd_accdb_user_t      accdb[1];
-  fd_accdb_admin_t     accdb_admin[1];
+  fd_accdb_t *         accdb;
+  fd_accdb_fork_id_t   root_fork_id;
 
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
