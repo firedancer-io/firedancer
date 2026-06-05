@@ -16,7 +16,7 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
+AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend env
 
 # Dry rules that should set up dependency targets, but not generate them
 DRY_RULES:=check show-deps proof
@@ -560,3 +560,10 @@ frontend-clean:
 	rm -rf src/disco/gui/dist_stable_cmp
 	rm -rf src/disco/gui/dist_alpha_cmp
 	rm -rf src/disco/gui/dist_dev_cmp
+
+env:
+	@echo BUILDDIR=\'$(BUILDDIR)\'
+	@echo OBJDIR=\'$(CURDIR)/$(OBJDIR)\'
+	@echo MACHINE=\'$(MACHINE)\'
+	@echo EXTRAS=\'$(EXTRAS)\'
+	@echo CC=\'$(CC)\'

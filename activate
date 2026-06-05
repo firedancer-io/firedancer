@@ -1,0 +1,85 @@
+for arg in "$@"; do
+  case "$arg" in
+    help|--help)
+      echo "Usage: source activate [CC=clang] [EXTRAS=...] [MACHINE=...] [BUILDDIR=...]"
+      exit 0
+      ;;
+  esac
+done
+
+# Ignore variables set in existing environment.
+unset BUILDDIR1
+unset BUILDDIR
+unset OBJDIR
+unset MACHINE
+unset EXTRAS
+unset CC
+
+# Auto-derive environment variables from the above 5 input variables.
+_fd_env_make_env=$(make env "$@") || return
+eval "$_fd_env_make_env"
+unset _fd_env_make_env
+if [ -z "${OBJDIR+x}" ] || [ -z "$OBJDIR" ]; then
+  printf '%s\n' 'activate: OBJDIR is not set' >&2
+  return
+fi
+
+# Re-export, so future `make` invocations match.
+echo "Firedancer build directory is $OBJDIR"
+export OBJDIR
+export MACHINE
+export EXTRAS
+export CC
+BUILDDIR1="$BUILDDIR"
+export BUILDDIR1
+
+# Update PATH to exclude stale build dirs,
+# and include OBJDIR bin, unit-test, and fuzz-test
+
+_fd_env_script=${BASH_SOURCE[0]:-$0}
+_fd_env_script_dir=$(CDPATH= cd -- "$(dirname -- "$_fd_env_script")" 2>/dev/null && pwd -P)
+_fd_env_root=$_fd_env_script_dir
+
+_fd_env_old_path=${PATH-}
+_fd_env_new_path=
+
+while [ -n "$_fd_env_old_path" ]; do
+  case $_fd_env_old_path in
+    *:*)
+      _fd_env_path_entry=${_fd_env_old_path%%:*}
+      _fd_env_old_path=${_fd_env_old_path#*:}
+      ;;
+    *)
+      _fd_env_path_entry=$_fd_env_old_path
+      _fd_env_old_path=
+      ;;
+  esac
+
+  case $_fd_env_path_entry in
+    /*) _fd_env_path_match=$_fd_env_path_entry ;;
+    *)  _fd_env_path_match=$PWD/$_fd_env_path_entry ;;
+  esac
+
+  if [ -d "$_fd_env_path_match" ]; then
+    _fd_env_path_match=$(CDPATH= cd -- "$_fd_env_path_match" 2>/dev/null && pwd -P)
+  fi
+
+  case $_fd_env_path_match in
+    "$_fd_env_root"| "$_fd_env_root"/*) continue ;;
+  esac
+
+  if [ -z "$_fd_env_new_path" ]; then
+    _fd_env_new_path=$_fd_env_path_entry
+  else
+    _fd_env_new_path=$_fd_env_new_path:$_fd_env_path_entry
+  fi
+done
+
+PATH=$OBJDIR/bin:$OBJDIR/fuzz-test:$OBJDIR/unit-test
+if [ -n "$_fd_env_new_path" ]; then
+  PATH=$PATH:$_fd_env_new_path
+fi
+export PATH
+
+unset _fd_env_old_path _fd_env_new_path _fd_env_path_entry
+unset _fd_env_path_match _fd_env_root _fd_env_script _fd_env_script_dir

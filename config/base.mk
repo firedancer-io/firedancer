@@ -1,4 +1,7 @@
 BASEDIR?=build
+ifneq ($(BUILDDIR1),)
+BUILDDIR:=$(BUILDDIR1)
+endif
 
 VERBOSE?=0
 OPT?=opt
