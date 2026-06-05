@@ -1399,8 +1399,6 @@ are subsystem-specific and described below.
 }
 ```
 
-:::
-
 **`Health`**
 | Field   | Type     | Description |
 |---------|----------|-------------|
@@ -1442,6 +1440,288 @@ are subsystem-specific and described below.
 | `stalled`          | The turbine slot has not advanced in over 12 seconds |
 | `repair_outpacing` | Turbine slot is advancing, but repair byte throughput has exceeded turbine byte throughput over the last 12-second window, indicating degraded turbine connectivity |
 | `running`          | Turbine is receiving shreds and its throughput exceeds repair |
+
+### accounts
+Live view of the accounts database backend. The accounts database is a
+log-structured store on disk, partitioned into fixed-size regions which
+are written sequentially and reclaimed by background compaction. A
+fixed-size in-memory cache, partitioned into size classes, sits in front
+of the disk. Events on this topic are only emitted to full clients
+(those connected with `?full=true`).
+
+#### `accounts.stats`
+| frequency        | type             | example |
+|------------------|------------------|---------|
+| *Once* + *100ms* | `AccountsStats`  | below   |
+
+A snapshot of the accounts database backend covering disk usage,
+in-progress compaction, per-class cache occupancy, aggregate IO rates,
+and per-partition state. All `*_per_sec` values are exponentially
+weighted rates over recent 100ms samples; cumulative counters are since
+process start.
+
+::: details Example
+
+```json
+{
+    "topic": "accounts",
+    "key": "stats",
+    "value": {
+        "sample_time_nanos": 1742000000000000000,
+        "disk": {
+            "accounts_total": 412563002,
+            "accounts_capacity": 536870912,
+            "allocated_bytes": 549755813888,
+            "current_bytes": 184583291392,
+            "used_bytes": 168540143616
+        },
+        "compaction": {
+            "in_compaction": 1,
+            "compactions_requested": 184,
+            "compactions_completed": 183,
+            "accounts_relocated_bytes": 9382913024,
+            "relocated_bytes_per_sec": 41943040.0
+        },
+        "cache": {
+            "hit_rate_ema": 0.9987,
+            "size_bytes": 68719476736,
+            "classes": [
+                {
+                    "class": 0,
+                    "used_slots": 524288,
+                    "max_slots": 1048576,
+                    "reserved_slots": 8192,
+                    "target_used_slots": 786432,
+                    "low_water_used_slots": 262144,
+                    "not_found": 1024,
+                    "evicted": 9381,
+                    "preevicted": 4012,
+                    "committed_new": 18472,
+                    "committed_overwrite": 1839204,
+                    "not_found_per_sec": 0.4,
+                    "evicted_per_sec": 12.1,
+                    "preevicted_per_sec": 5.2,
+                    "committed_new_per_sec": 1.9,
+                    "committed_overwrite_per_sec": 4189.3,
+                    "reads_per_sec": 8124.0,
+                    "writes_per_sec": 4189.0,
+                    "hit_rate_ema": 0.9999
+                }
+            ]
+        },
+        "io": {
+            "acquired": 184392013,
+            "acquired_writable": 92013874,
+            "bytes_read": 9183920128,
+            "bytes_copied": 184392013120,
+            "bytes_written": 21482938474,
+            "bytes_written_accdb": 9382913024,
+            "read_ops": 891203,
+            "write_ops": 1839204,
+            "acquired_per_sec": 38201.0,
+            "acquired_writable_per_sec": 19102.0,
+            "bytes_read_per_sec": 4194304.0,
+            "bytes_copied_per_sec": 83886080.0,
+            "bytes_written_per_sec": 10485760.0,
+            "read_ops_per_sec": 412.0,
+            "write_ops_per_sec": 819.0,
+            "prewrite_ratio": 0.42
+        },
+        "tiles": [
+            {
+                "name": "execle",
+                "kind_id": 0,
+                "joiner_type": "RW",
+                "status": 1,
+                "acquired": 12381924,
+                "bytes_read": 9183920,
+                "bytes_written": 18374822,
+                "acquired_per_sec": 4128.0,
+                "acquired_writable_per_sec": 2064.0,
+                "bytes_read_per_sec": 524288.0,
+                "bytes_copied_per_sec": 8388608.0,
+                "bytes_written_per_sec": 1048576.0,
+                "read_ops_per_sec": 41.0,
+                "write_ops_per_sec": 82.0,
+                "not_found_per_sec": 0.5,
+                "evicted_per_sec": 1.2,
+                "committed_per_sec": 2063.0,
+                "waited_per_sec": 0.0,
+                "hit_rate_ema": 0.9999
+            }
+        ],
+        "partitions": [
+            {
+                "partition_idx": 184,
+                "file_offset": 6597069766656,
+                "tier": 0,
+                "write_offset": 12884901888,
+                "bytes_freed": 0,
+                "read_ops": 41,
+                "bytes_read": 167936,
+                "write_ops": 8421,
+                "bytes_written": 12884901888,
+                "read_ops_per_sec": 0.4,
+                "bytes_read_per_sec": 4096.0,
+                "write_ops_per_sec": 819.0,
+                "bytes_written_per_sec": 10485760.0,
+                "utilization": 0.375,
+                "fragmentation": 0.0,
+                "used_frac": 0.375,
+                "fragmented_frac": 0.0,
+                "compaction_trigger_frac": 0.30,
+                "age_seconds": 184.2,
+                "filled_seconds": 0.0,
+                "compaction_state": 0,
+                "compaction_frac": 0.0,
+                "is_write_head": true
+            }
+        ]
+    }
+}
+```
+
+:::
+
+**`AccountsStats`**
+| Field             | Type             | Description |
+|-------------------|------------------|-------------|
+| sample_time_nanos | `number`         | Unix nanosecond timestamp at which this sample was taken |
+| disk              | `Disk`           | Disk-level capacity and utilization (see below) |
+| compaction        | `Compaction`     | Aggregate compaction activity (see below) |
+| cache             | `Cache`          | In-memory cache occupancy and per-size-class metrics (see below) |
+| io                | `Io`             | Aggregate IO counters and rates across all accdb joiners (see below) |
+| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity, one entry per consumer tile in stable order. The snapshot-loader `snapwr` row disappears once it reaches the shutdown status |
+| partitions        | `Partition[]`    | Per-partition snapshot. Partitions that have never been written and are not being compacted are omitted |
+
+**`Disk`**
+| Field             | Type     | Description |
+|-------------------|----------|-------------|
+| accounts_total    | `number` | Current number of accounts indexed by the database |
+| accounts_capacity | `number` | Maximum number of accounts the index can hold |
+| allocated_bytes   | `number` | Total bytes reserved on disk for the accounts database file |
+| current_bytes     | `number` | Bytes currently committed within partitions (including fragmentation) |
+| used_bytes        | `number` | Bytes currently in use by live account data (excluding fragmentation) |
+
+**`Compaction`**
+| Field                    | Type     | Description |
+|--------------------------|----------|-------------|
+| in_compaction            | `number` | Non-zero if a partition is currently being compacted |
+| compactions_requested    | `number` | Total number of partition compactions enqueued since startup |
+| compactions_completed    | `number` | Total number of partition compactions completed since startup |
+| accounts_relocated_bytes | `number` | Total bytes of account data rewritten by compaction since startup |
+| relocated_bytes_per_sec  | `number` | Recent rate at which compaction is rewriting account data, in bytes per second |
+
+**`Cache`**
+| Field        | Type            | Description |
+|--------------|-----------------|-------------|
+| hit_rate_ema | `number`        | Recent cache hit rate across all classes, in the range `[0, 1]` |
+| size_bytes   | `number`        | Total in-memory cache footprint in bytes |
+| classes      | `CacheClass[]`  | One entry per cache size class, in ascending class order (see below) |
+
+**`CacheClass`**
+Accounts are bucketed into 8 size classes by data length: `0` covers up
+to 128 B, `1` covers 129 B - 512 B, `2` covers 513 B - 2 KiB, `3` covers
+2 KiB - 8 KiB, `4` covers 8 KiB - 32 KiB, `5` covers 32 KiB - 128 KiB,
+`6` covers 128 KiB - 1 MiB, and `7` covers 1 MiB - 10 MiB.
+
+| Field                        | Type     | Description |
+|------------------------------|----------|-------------|
+| class                        | `number` | The size class index, `0` through `7` |
+| used_slots                   | `number` | Number of cache slots in this class currently holding an account |
+| max_slots                    | `number` | Total number of cache slots provisioned for this class |
+| reserved_slots               | `number` | Slots held in reserve for prewrite, not available for eviction |
+| target_used_slots            | `number` | Steady-state target occupancy for this class |
+| low_water_used_slots         | `number` | Occupancy below which the class will not preemptively evict |
+| not_found                    | `number` | Cumulative count of cache misses (account had to be read from disk) for this class |
+| evicted                      | `number` | Cumulative count of cache lines reclaimed from this class to make room |
+| preevicted                   | `number` | Cumulative count of cache lines speculatively reclaimed in advance by the background accdb tile |
+| committed_new                | `number` | Cumulative count of brand-new account versions committed at this class |
+| committed_overwrite          | `number` | Cumulative count of overwrite commits (existing fork + generation) at this class |
+| not_found_per_sec            | `number` | Recent rate of misses, in accounts per second |
+| evicted_per_sec              | `number` | Recent rate of evictions, in accounts per second |
+| preevicted_per_sec           | `number` | Recent rate of background pre-evictions, in accounts per second |
+| committed_new_per_sec        | `number` | Recent rate of new commits, in accounts per second |
+| committed_overwrite_per_sec  | `number` | Recent rate of overwrite commits, in accounts per second |
+| reads_per_sec                | `number` | Recent rate of read-only acquires at this class, in accounts per second |
+| writes_per_sec               | `number` | Recent rate of writable acquires at this class, in accounts per second |
+| hit_rate_ema                 | `number` | Recent hit rate at this class, in the range `[0, 1]` |
+
+**`Io`**
+| Field                       | Type     | Description |
+|-----------------------------|----------|-------------|
+| acquired                    | `number` | Cumulative count of accounts acquired (read or write) by any joiner since startup |
+| acquired_writable           | `number` | Cumulative count of accounts acquired writable since startup |
+| bytes_read                  | `number` | Cumulative bytes read from disk since startup |
+| bytes_copied                | `number` | Cumulative bytes copied out of the cache on a hit since startup |
+| bytes_written               | `number` | Cumulative bytes written to disk since startup |
+| bytes_written_accdb         | `number` | Cumulative bytes written to disk by the accdb tile background work (preevict and compaction) since startup |
+| read_ops                    | `number` | Cumulative disk read operations since startup |
+| write_ops                   | `number` | Cumulative disk write operations since startup |
+| acquired_per_sec            | `number` | Recent acquire rate, in accounts per second |
+| acquired_writable_per_sec   | `number` | Recent writable acquire rate, in accounts per second |
+| bytes_read_per_sec          | `number` | Recent disk read throughput, in bytes per second |
+| bytes_copied_per_sec        | `number` | Recent cache-hit copy throughput, in bytes per second |
+| bytes_written_per_sec       | `number` | Recent disk write throughput, in bytes per second |
+| read_ops_per_sec            | `number` | Recent disk read operation rate, in operations per second |
+| write_ops_per_sec           | `number` | Recent disk write operation rate, in operations per second |
+| prewrite_ratio              | `number` | Fraction of recent disk writes attributable to background prewrite/compaction, in the range `[0, 1]` |
+
+**`Tile`**
+| Field                       | Type     | Description |
+|-----------------------------|----------|-------------|
+| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `tower`, `rpc`, `resolv`, or `snapwr` |
+| kind_id                     | `number` | Instance index within this tile kind |
+| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `tower`, `snapwr`), `RO` if it only reads (`rpc`, `resolv`) |
+| status                      | `number` | `1` if the tile is running, `2` if it has gracefully shut down |
+| acquired                    | `number` | Cumulative count of accounts this tile has acquired since startup |
+| bytes_read                  | `number` | Cumulative bytes this tile has read from disk since startup |
+| bytes_written               | `number` | Cumulative bytes this tile has written to disk since startup |
+| acquired_per_sec            | `number` | Recent acquire rate for this tile, in accounts per second |
+| acquired_writable_per_sec   | `number` | Recent writable acquire rate for this tile, in accounts per second (always `0` for `RO` tiles and `snapwr`) |
+| bytes_read_per_sec          | `number` | Recent disk read throughput for this tile, in bytes per second |
+| bytes_copied_per_sec        | `number` | Recent cache-hit copy throughput for this tile, in bytes per second |
+| bytes_written_per_sec       | `number` | Recent disk write throughput for this tile, in bytes per second |
+| read_ops_per_sec            | `number` | Recent disk read operation rate for this tile |
+| write_ops_per_sec           | `number` | Recent disk write operation rate for this tile |
+| not_found_per_sec           | `number` | Recent rate of cache misses (account had to be read from disk) for this tile |
+| evicted_per_sec             | `number` | Recent rate at which this tile's commits evicted lines from the cache (always `0` for `RO` tiles and `snapwr`) |
+| committed_per_sec           | `number` | Recent rate of account version commits (new + overwrite) by this tile (always `0` for `RO` tiles and `snapwr`) |
+| waited_per_sec              | `number` | Recent rate at which this tile waited for a concurrent loader to publish a disk offset |
+| hit_rate_ema                | `number` | Recent cache hit rate for this tile, in the range `[0, 1]` |
+
+**`Partition`**
+Partitions are fixed-size regions of the on-disk accounts database file.
+Each partition is assigned to a compaction tier (`layer`) and accumulates
+writes from the active write head for that tier; once a partition crosses
+the compaction trigger it is enqueued and later compacted into a higher
+tier, after which it is reclaimed.
+
+| Field                   | Type      | Description |
+|-------------------------|-----------|-------------|
+| partition_idx           | `number`  | Stable index of the partition within the database |
+| file_offset             | `number`  | Byte offset of the partition's start within the accounts database file |
+| tier                    | `number`  | Compaction tier: `0` (hot), `1` (warm), `2` (cold), or `255` (off, fully compacted and awaiting reclaim) |
+| write_offset            | `number`  | Byte offset of the partition's write head within the partition |
+| bytes_freed             | `number`  | Bytes within the partition marked freed by subsequent writes |
+| read_ops                | `number`  | Cumulative read operations against this partition since process start |
+| bytes_read              | `number`  | Cumulative bytes read from this partition since process start |
+| write_ops               | `number`  | Cumulative write operations into this partition since process start |
+| bytes_written           | `number`  | Cumulative bytes written into this partition since process start |
+| read_ops_per_sec        | `number`  | Recent read operation rate against this partition |
+| bytes_read_per_sec      | `number`  | Recent read throughput against this partition, in bytes per second |
+| write_ops_per_sec       | `number`  | Recent write operation rate into this partition |
+| bytes_written_per_sec   | `number`  | Recent write throughput into this partition, in bytes per second |
+| utilization             | `number`  | Fraction of the partition occupied by writes, in the range `[0, 1]` |
+| fragmentation           | `number`  | Fraction of the written region marked freed, in the range `[0, 1]` |
+| used_frac               | `number`  | Fraction of the partition occupied by live (non-freed) data |
+| fragmented_frac         | `number`  | Fraction of the partition occupied by freed data |
+| compaction_trigger_frac | `number`  | Fragmentation fraction at which the partition is enqueued for compaction |
+| age_seconds             | `number`  | Seconds since the partition was first opened for writes |
+| filled_seconds          | `number`  | Seconds since the partition was closed to new writes, or `0` if still active |
+| compaction_state        | `number`  | `0` idle, `1` queued for compaction, `2` currently being compacted |
+| compaction_frac         | `number`  | Fraction of the partition that the compaction read head has processed |
+| is_write_head           | `boolean` | True if this partition is the active write head for any tier |
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,

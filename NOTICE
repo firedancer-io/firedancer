@@ -9,8 +9,8 @@ the hashing algorithm in xxHash(r39).  xxHash(r39) can be found at
 https://github.com/Cyan4973/xxHash/releases/tag/r39 (note the xxHash
 source code repository has changed location a few times over the years).
 
-fd_funk_rec_key_hash is currently a modified version of xxHash3.
-xxHash3 can be found at https://github.com/Cyan4973/xxHash/releases/tag/v0.8.3.
+fd_accdb_hash is currently a modified version of xxHash3.  xxHash3 can
+be found at https://github.com/Cyan4973/xxHash/releases/tag/v0.8.3.
 
 From https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.zip at xxHash-v0.8.3/LICENSE
 

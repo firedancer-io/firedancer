@@ -4,6 +4,7 @@
 /* fd_rewards.h provides APIs for distributing Solana staking rewards. */
 
 #include "../stakes/fd_stake_delegations.h"
+#include "../runtime/sysvar/fd_sysvar_base.h"
 
 struct fd_prev_epoch_inflation_rewards {
   ulong  validator_rewards;
@@ -47,8 +48,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_begin_partitioned_rewards( fd_bank_t *                    bank,
-                              fd_accdb_user_t *              accdb,
-                              fd_funk_txn_xid_t const *      xid,
+                              fd_accdb_t *                   accdb,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
@@ -67,12 +67,11 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
            - calculate_stake_points_and_credits */
 
 void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
-                                            fd_bank_t *               bank,
-                                            fd_accdb_user_t *         accdb,
-                                            fd_funk_txn_xid_t const * xid,
-                                            fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx );
+fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                            fd_bank_t *          bank,
+                                            fd_accdb_t *         accdb,
+                                            fd_runtime_stack_t * runtime_stack,
+                                            fd_capture_ctx_t *   capture_ctx );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
    accounts.  Called at the beginning of a few slots per epoch.
@@ -82,10 +81,9 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
      - for each stake account: distribute_epoch_reward_to_stake_acc */
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
-                                         fd_accdb_user_t *         accdb,
-                                         fd_funk_txn_xid_t const * xid,
-                                         fd_capture_ctx_t *        capture_ctx );
+fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
+                                         fd_accdb_t *       accdb,
+                                         fd_capture_ctx_t * capture_ctx );
 
 /* fd_rewards_get_reward_distribution_num_blocks returns the number of
    blocks required to distribute rewards for a given epoch schedule and

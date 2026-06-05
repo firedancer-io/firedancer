@@ -6,7 +6,7 @@
 
 #include "fd_txn.h"
 #include "../../disco/fd_txn_p.h"
-#include "../../funk/fd_funk_base.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 
 /* The fd_txn_builder_t class provides methods for assembling a txn.
    fd_txn_builder_t is a static size struct, so a local declaration is a
@@ -43,7 +43,7 @@ typedef struct fd_txn_b_instr fd_txn_b_instr_t;
 #define MAP_IDX_T         uchar
 #define MAP_KEY_T         fd_acct_addr_t
 #define MAP_KEY_EQ(a,b)   0==memcmp( a, b, sizeof(fd_acct_addr_t) )
-#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k)->b, (s) )
+#define MAP_KEY_HASH(k,s) fd_accdb_hash( (k)->b, (s) )
 #define MAP_NEXT  map_next
 #include "../../util/tmpl/fd_map_chain.c"
 #define FD_TXN_B_ADDR_CHAIN_CNT (2*FD_TXN_ACCT_ADDR_MAX)

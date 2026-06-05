@@ -5,9 +5,9 @@
 #include "../../ballet/txn/fd_txn_build.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../disco/topo/fd_topob.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/program/fd_system_program.h"
 #include "../../util/tmpl/fd_unit_test.c"
@@ -94,7 +94,6 @@ test_env_create( void ) {
   topo_wksp->wksp = env->mini->wksp;
   fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "execrp", "execrp", "execrp", 0UL, 0, 0, 0 );
   topo_tile->execrp.max_live_slots = MAX_LIVE_SLOTS;
-  topo_tile->execrp.accdb_max_depth = MAX_LIVE_SLOTS;
 
   void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TOPO_TAG );
   FD_TEST( tile_mem );
@@ -108,20 +107,20 @@ test_env_create( void ) {
   fd_topob_tile_in ( topo, "execrp", 0UL, "execrp", "replay_execrp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "execrp", 0UL, "execrp_replay", 0UL );
 
-  fd_funk_t * funk = fd_accdb_user_v1_funk( env->mini->accdb );
-  fd_topo_obj_t * funk_obj       = test_topo_obj_laddr( topo, "funk",       "execrp", funk->shmem );
-  fd_topo_obj_t * funk_locks_obj = test_topo_obj_laddr( topo, "funk_locks", "execrp", (void *)funk->txn_lock );
+  /* Share mini's accounts DB with the tile.  The tile re-joins the same
+     accdb shmem (a second writer joiner) and opens it via the well-known
+     FD_ACCDB_FD_RW fd, so we dup mini's backing memfd onto it. */
+  FD_TEST( dup2( env->mini->accdb_fd, FD_ACCDB_FD_RW )==FD_ACCDB_FD_RW );
+
+  fd_topo_obj_t * accdb_obj      = test_topo_obj_laddr( topo, "accdb_shmem", "execrp", env->mini->accdb_shmem_mem );
   fd_topo_obj_t * progcache_obj  = test_topo_obj_laddr( topo, "progcache",  "execrp", env->mini->progcache->join->shmem );
   fd_topo_obj_t * banks_obj      = test_topo_obj_laddr( topo, "banks",      "execrp", env->mini->banks );
   fd_topo_obj_t * txncache_obj   = test_topo_obj_laddr( topo, "txncache",   "execrp", env->mini->txncache_shmem );
-  fd_topo_obj_t * acc_pool_obj   = test_topo_obj_laddr( topo, "acc_pool",   "execrp", env->mini->acc_pool );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, funk_obj->id,       "funk"       ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, funk_locks_obj->id, "funk_locks" ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, progcache_obj->id,  "progcache"  ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id,      "banks"      ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
-  topo_tile->execrp.txncache_obj_id = txncache_obj->id;
-  topo_tile->execrp.acc_pool_obj_id = acc_pool_obj->id;
+  topo_tile->execrp.accdb_obj_id     = accdb_obj->id;
+  topo_tile->execrp.progcache_obj_id = progcache_obj->id;
+  topo_tile->execrp.txncache_obj_id  = txncache_obj->id;
 
   unprivileged_init( topo, topo_tile );
 
@@ -275,19 +274,15 @@ static void
 test_fund_account( test_env_t *        env,
                    fd_pubkey_t const * pubkey,
                    ulong               lamports ) {
-  fd_xid_t xid = fd_svm_mini_xid( env->mini, env->bank_idx );
-  fd_svm_mini_add_lamports( env->mini, &xid, pubkey, lamports );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( env->mini, env->bank_idx );
+  fd_svm_mini_add_lamports( env->mini, fork_id, pubkey, lamports );
 }
 
 static ulong
 test_read_lamports( test_env_t *        env,
                     fd_pubkey_t const * pubkey ) {
-  fd_xid_t xid = fd_svm_mini_xid( env->mini, env->bank_idx );
-  fd_accdb_ro_t ro[1];
-  FD_TEST( fd_accdb_open_ro( env->mini->accdb, ro, &xid, pubkey ) );
-  ulong lamports = fd_accdb_ref_lamports( ro );
-  fd_accdb_close_ro( env->mini->accdb, ro );
-  return lamports;
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( env->mini, env->bank_idx );
+  return fd_accdb_lamports( env->mini->runtime->accdb, fork_id, pubkey->uc );
 }
 
 static fd_stem_context_t *
@@ -381,11 +376,13 @@ test_execrp_run( test_env_t * env,
 }
 
 FD_UNIT_TEST( execrp_seccomp ) {
-  int   out_fds[2];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 2UL, out_fds );
-  FD_TEST( nfds>=1 && nfds<=2 );
+  int   out_fds[3];
+  ulong nfds = populate_allowed_fds( NULL, NULL, 3UL, out_fds );
+  FD_TEST( nfds>=2 && nfds<=3 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
-  if( nfds==2 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  /* logfile fd is optional; the accounts db fd is always last */
+  FD_TEST( out_fds[ nfds-1UL ]==FD_ACCDB_FD_RW );
+  if( nfds==3 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ 32 ];
   populate_allowed_seccomp( NULL, NULL, 32UL, filter );
@@ -596,6 +593,7 @@ main( int     argc,
   limits->max_txn_per_slot    = MAX_TXN_PER_SLOT;
   limits->max_txn_write_locks = MAX_TX_ACCOUNT_LOCKS;
   limits->wksp_addl_sz        = 5UL<<30;
+  limits->accdb_joiner_cnt    = 2UL; /* mini's runtime join + the exec tile join */
 
   mini = fd_svm_test_boot( &argc, &argv, limits );
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );

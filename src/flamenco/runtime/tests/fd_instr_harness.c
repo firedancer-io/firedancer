@@ -8,7 +8,6 @@
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
@@ -20,15 +19,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
-  /* Generate unique ID for funk txn */
+  /* Create temporary fork for account loading */
 
-  fd_funk_txn_xid_t xid[1] = {{ .ul={ LONG_MAX, LONG_MAX } }};
-
-  /* Create temporary funk transaction and txn / slot / epoch contexts */
-
-  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
   runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
+  runner->bank->accdb_fork_id     = fd_accdb_attach_child( runner->accdb, runner->root_fork_id );
 
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
@@ -42,7 +36,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ctx->txn_out = txn_out;
   ctx->txn_in  = txn_in;
 
-  memset( txn_out->accounts.account, 0, sizeof(fd_accdb_rw_t) * MAX_TX_ACCOUNT_LOCKS );
+  memset( txn_out->accounts.account, 0, sizeof(fd_acc_t) * MAX_TX_ACCOUNT_LOCKS );
 
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
@@ -132,7 +126,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load accounts from input */
 
-  fd_account_meta_t * metas[MAX_TX_ACCOUNT_LOCKS] = {0};
   txn_out->accounts.cnt = test_ctx->accounts_count;
 
   int has_program_id = 0;
@@ -143,18 +136,22 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     memcpy( &(txn_out->accounts.keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     runtime->accounts.refcnt[j] = 0UL;
 
-    uchar *             data     = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-    fd_account_meta_t * meta     = (fd_account_meta_t *)data;
     uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
-    if( test_ctx->accounts[j].data ) {
-      fd_memcpy( meta+1, test_ctx->accounts[j].data->bytes, dlen );
+    uchar * data_buf = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
+    if( test_ctx->accounts[j].data && dlen ) {
+      fd_memcpy( data_buf, test_ctx->accounts[j].data->bytes, dlen );
     }
-    meta->dlen = dlen;
-    meta->lamports = test_ctx->accounts[j].lamports;
-    meta->executable = test_ctx->accounts[j].executable;
-    fd_memcpy( meta->owner, test_ctx->accounts[j].owner, sizeof(fd_pubkey_t) );
-    metas[j] = meta;
-    fd_accdb_rw_init_nodb( &txn_out->accounts.account[j], acc_key, metas[j], FD_RUNTIME_ACC_SZ_MAX );
+
+    /* Initialize entry with in-memory account data (no DB backing) */
+    fd_acc_t * acc = &txn_out->accounts.account[j];
+    memcpy( acc->pubkey, acc_key->key, 32 );
+    memcpy( acc->owner, test_ctx->accounts[j].owner, 32 );
+    acc->lamports   = test_ctx->accounts[j].lamports;
+    acc->executable = test_ctx->accounts[j].executable;
+    acc->data_len   = dlen;
+    acc->data       = data_buf;
+    acc->_writable  = 1;
+    acc->commit     = 0;
     txn_out->accounts.keys[j] = *acc_key;
 
     if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
@@ -169,8 +166,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
 
-    fd_account_meta_t * meta  = txn_out->accounts.account[i].meta;
-    fd_pubkey_t const * owner = fd_type_pun_const( meta->owner );
+    fd_acc_t * acc            = &txn_out->accounts.account[i];
+    fd_pubkey_t const * owner = fd_type_pun_const( acc->owner );
 
     if( !fd_executor_pubkey_is_bpf_loader( owner ) ) {
       continue;
@@ -178,7 +175,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     if( FD_UNLIKELY( !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       fd_bpf_state_t program_loader_state[1];
-      int err = fd_bpf_loader_program_get_state( meta, program_loader_state );
+      int err = fd_bpf_loader_program_get_state( acc, program_loader_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         continue;
       }
@@ -189,24 +186,26 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
 
-      meta = NULL;
+      fd_acc_t * pd_ent = NULL;
       for( ulong j=0UL; j<test_ctx->accounts_count; j++ ) {
         if( !memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
-          meta = txn_out->accounts.account[j].meta;
+          pd_ent = &txn_out->accounts.account[j];
           break;
         }
       }
-      if( FD_UNLIKELY( meta==NULL ) ) {
+      if( FD_UNLIKELY( pd_ent==NULL ) ) {
         continue;
       }
 
       FD_TEST( runtime->accounts.executable_cnt < MAX_TX_ACCOUNT_LOCKS );
-      fd_accdb_ro_t * ro = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
-      fd_accdb_ro_init_nodb( ro, programdata_acc, meta );
+      fd_acc_t * exe = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
+      memcpy( exe->pubkey, programdata_acc->key, 32 );
+      memcpy( exe->owner,  pd_ent->owner, 32 );
+      exe->lamports   = pd_ent->lamports;
+      exe->executable = pd_ent->executable;
+      exe->data_len   = pd_ent->data_len;
+      exe->data       = pd_ent->data;
       runtime->accounts.executable_cnt++;
-    } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
-                            !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      meta = txn_out->accounts.account[i].meta;
     }
   }
 
@@ -221,7 +220,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sysvar_cache_t * sysvar_cache = &runner->bank->f.sysvar_cache;
   ctx->sysvar_cache = sysvar_cache;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    fd_sysvar_cache_restore_from_ref( sysvar_cache, txn_out->accounts.account[i].ro );
+    fd_sysvar_cache_restore_from_ref( sysvar_cache, &txn_out->accounts.account[i] );
   }
 
   ctx->runtime = runtime;
@@ -231,8 +230,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( clock );
   runner->bank->f.slot = clock->slot;
 
-  fd_funk_txn_xid_t exec_xid[1] = { fd_bank_xid( runner->bank ) };
-  fd_accdb_attach_child( runner->accdb_admin, xid, exec_xid );
   runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, runner->bank->progcache_fork_id );
 
   fd_epoch_schedule_t epoch_schedule_[1];
@@ -293,13 +290,18 @@ void
 fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_accdb_v1_clear( runner->accdb_admin );
+
   fd_progcache_reset( runner->progcache->join );
 
-  /* In order to check for leaks in the workspace, we need to compact the
-     allocators. Without doing this, empty superblocks may be retained
-     by the fd_alloc instance, which mean we cannot check for leaks. */
-  fd_alloc_compact( fd_accdb_admin_v1_funk( runner->accdb_admin )->alloc );
+  /* Purge the fork attached in ctx_create so the accdb fork pool slot
+     is released back for reuse.  Without this, repeated harness
+     invocations (e.g. under a fuzzer) exhaust max_live_slots. */
+  fd_accdb_purge( runner->accdb, runner->bank->accdb_fork_id );
+  int charge_busy = 0;
+  fd_accdb_background( runner->accdb, &charge_busy );
+
+  /* Compact the progcache allocator so empty superblocks are returned
+     to the workspace.  Required for the leak check to pass. */
   fd_alloc_compact( runner->progcache->join->alloc );
 }
 
@@ -365,8 +367,8 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   for( ulong j=0UL; j < ctx->txn_out->accounts.cnt; j++ ) {
     fd_pubkey_t * acc_key = &ctx->txn_out->accounts.keys[j];
-    fd_account_meta_t * acc = ctx->txn_out->accounts.account[j].meta;
-    if( !acc ) {
+    fd_acc_t * acc = &ctx->txn_out->accounts.account[j];
+    if( !acc->data ) {
       continue;
     }
 
@@ -379,16 +381,16 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
     memcpy( out_acct->address, acc_key, sizeof(fd_pubkey_t) );
     out_acct->lamports = acc->lamports;
-    if( acc->dlen>0UL ) {
+    if( acc->data_len>0UL ) {
       out_acct->data =
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->dlen ) );
+                                    PB_BYTES_ARRAY_T_ALLOCSIZE( acc->data_len ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
         fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
         return 0UL;
       }
-      out_acct->data->size = (pb_size_t)acc->dlen;
-      fd_memcpy( out_acct->data->bytes, fd_account_data( acc ), acc->dlen );
+      out_acct->data->size = (pb_size_t)acc->data_len;
+      fd_memcpy( out_acct->data->bytes, acc->data, acc->data_len );
     }
 
     out_acct->executable = acc->executable;
