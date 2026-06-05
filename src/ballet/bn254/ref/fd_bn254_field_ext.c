@@ -1,4 +1,4 @@
-#include "./fd_bn254.h"
+#include "../fd_bn254.h"
 
 /* Extension Fields Fp2, Fp6, Fp12.
 

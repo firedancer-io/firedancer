@@ -1,4 +1,4 @@
-#include "./fd_bn254.h"
+#include "../fd_bn254.h"
 
 /* G1 */
 

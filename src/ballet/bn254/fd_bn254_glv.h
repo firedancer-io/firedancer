@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_ballet_bn254_fd_bn254_glv_h
+#define HEADER_fd_src_ballet_bn254_fd_bn254_glv_h
+
 /* Included by fd_bn254_g1.c and fd_bn254_g2.c, should not be used elsewhere. */
 
 /* Rundown of the BN254 GLV implementation:
@@ -210,3 +213,5 @@ fd_bn254_glv_negate4( ulong v[ 4 ] ) {
     carry  = (ulong)(sum >> 64);
   }
 }
+
+#endif /* HEADER_fd_src_ballet_bn254_fd_bn254_glv_h */

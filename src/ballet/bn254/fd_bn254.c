@@ -1,13 +1,18 @@
 #include "./fd_bn254_internal.h"
 
-#include "./fd_bn254_field.c"
-#include "./fd_bn254_field_ext.c"
-#include "./fd_bn254_glv.h"
-#include "./fd_bn254_g1.c"
-#include "./fd_bn254_g2.c"
-#include "./fd_bn254_pairing.c"
+/* Dispatch: choose between AVX-512 IFMA and reference implementation.
+   Both paths implement the same internal functions (field ops, point ops,
+   pairing) that are used by the syscall/compress/decompress code below. */
 
-/* Compress/Decompress */
+#if FD_HAS_AVX512
+#include "avx512/fd_bn254.c"
+#else
+#include "ref/fd_bn254.c"
+#endif
+
+/* Compress/Decompress
+   These operate on byte buffers and fd_uint256_t, which are common
+   to both backends. */
 
 uchar *
 fd_bn254_g1_compress( uchar       out[32],
@@ -301,6 +306,9 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz,
                                  int         big_endian ) {
+#if 0 /* FD_HAS_AVX512 -- disabled pending pairing pipeline debugging */
+  return fd_bn254_pairing_is_one_syscall_avx512( out, in, in_sz, big_endian );
+#else
   /* https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/pairing.rs#L79 */
   if( FD_UNLIKELY( (in_sz % 192UL) != 0 ) ) {
     return -1; /* Invalid input length */
@@ -352,4 +360,5 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
     out[ big_endian ? 31 : 0 ] = 1;
   }
   return 0;
+#endif
 }

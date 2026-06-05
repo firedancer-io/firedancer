@@ -1,5 +1,5 @@
-#include "./fd_bn254.h"
-#include "../fiat-crypto/bn254_64.c"
+#include "../fd_bn254.h"
+#include "../../fiat-crypto/bn254_64.c"
 
 /* Fp = base field */
 
