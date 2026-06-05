@@ -2,11 +2,9 @@
 #define HEADER_fd_src_discof_replay_fd_sched_h
 
 #include "fd_rdisp.h"
+#include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
-#include "../../disco/pack/fd_microblock.h" /* for fd_txn_p_t */
-
 #include "../../flamenco/accdb/fd_accdb_user.h"
-#include "../../util/spad/fd_spad.h" /* for ALUTs */
 
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the
@@ -170,6 +168,21 @@ struct fd_sched_task {
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
+
+struct __attribute__((packed)) fd_microblock_hdr {
+  /* Number of PoH hashes between this and last microblock */
+  /* 0x00 */ ulong hash_cnt;
+
+  /* PoH state after evaluating this microblock (including all
+     appends and mixin). The input to the poh calculation of the first
+     microblock is the last hash of the parent block, otherwise it is the
+     hash of the previous microblock. */
+  /* 0x08 */ uchar hash[32];
+
+  /* Number of transactions in this microblock */
+  /* 0x28 */ ulong txn_cnt;
+};
+typedef struct fd_microblock_hdr fd_microblock_hdr_t;
 
 FD_PROTOTYPES_BEGIN
 

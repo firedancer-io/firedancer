@@ -4,8 +4,8 @@
 #include "fd_sched.h"
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../util/math/fd_stat.h" /* for sorted search */
-#include "../../ballet/block/fd_microblock.h"
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
+#include "../../disco/fd_txn_p.h"
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
 #include "../../disco/pack/fd_chkdup.h"
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
