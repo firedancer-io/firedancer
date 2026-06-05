@@ -326,6 +326,9 @@ static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block );
 
 static void
+subtree_release_refcnt( fd_sched_t * sched, fd_sched_block_t * block );
+
+static void
 subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx );
 
 static void
@@ -446,22 +449,6 @@ block_should_deactivate( fd_sched_block_t * block ) {
 static inline int
 block_is_prunable( fd_sched_block_t * block ) {
   return !block->in_rdisp && !block_is_in_flight( block );
-}
-
-static int
-subtree_is_prunable( fd_sched_t * sched, fd_sched_block_t * block ) {
-  if( FD_UNLIKELY( !block_is_prunable( block ) ) ) return 0;
-
-  ulong child_idx = block->child_idx;
-  while( child_idx!=ULONG_MAX ) {
-    fd_sched_block_t * child_block = block_pool_ele( sched, child_idx );
-    if( FD_UNLIKELY( !subtree_is_prunable( sched, child_block ) ) ) {
-      return 0;
-    }
-    child_idx = child_block->sibling_idx;
-  }
-
-  return 1;
 }
 
 static inline ulong
@@ -857,9 +844,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
          dispatcher. */
       sched->metrics->block_added_dead_ood_cnt++;
 
+      /* Release the refcnt right away since we don't intend to replay
+         it at all.  We do this so its bank does not linger and stall
+         root advancement until the next root notify. */
+      subtree_release_refcnt( sched, block );
+
       /* Ignore the FEC set for a dead block. */
       sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-      return 1;
+      return 0;
     }
 
     /* Try to find a staging lane for this block. */
@@ -1130,7 +1122,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable nor has anything in-flight", sched->active_bank_idx ));
+    FD_LOG_CRIT(( "invariant violation: active block %lu:%lu is not activatable nor has anything in-flight", block->slot, sched->active_bank_idx ));
   }
 
   block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
@@ -1376,18 +1368,18 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
 
   if( FD_UNLIKELY( !block->in_sched ) ) {
-    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, slot %lu, parent slot %lu, idx %lu",
-                  block->slot, block->parent_slot, bank_idx ));
+    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
   if( FD_UNLIKELY( !block->staged ) ) {
     /* Invariant: only staged blocks can have in-flight transactions. */
-    FD_LOG_CRIT(( "invariant violation: block->staged==0, slot %lu, parent slot %lu",
-                  block->slot, block->parent_slot ));
+    FD_LOG_CRIT(( "invariant violation: block->staged==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
   if( FD_UNLIKELY( !block->in_rdisp ) ) {
     /* Invariant: staged blocks must be in the dispatcher. */
-    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, parent slot %lu",
-                  block->slot, block->parent_slot ));
+    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
 
   block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
@@ -1514,10 +1506,10 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 
   if( FD_UNLIKELY( block->dying && !block_is_in_flight( block ) ) ) {
     if( FD_UNLIKELY( sched->active_bank_idx==bank_idx ) ) {
-      FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
-                    bank_idx, block->slot, block->parent_slot ));
+      FD_LOG_CRIT(( "invariant violation: active block %lu:%lu shouldn't be dying, parent slot %lu",
+                    block->slot, bank_idx, block->parent_slot ));
     }
-    FD_LOG_DEBUG(( "dying block %lu drained", block->slot ));
+    FD_LOG_DEBUG(( "dying block %lu:%lu drained", block->slot, bank_idx ));
     subtree_abandon( sched, block );
     try_activate_block( sched );
     return 0;
@@ -1543,17 +1535,38 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( !block->in_sched ) ) {
-    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, slot %lu, parent slot %lu, idx %lu",
-                  block->slot, block->parent_slot, bank_idx ));
+    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
 
-  FD_LOG_INFO(( "abandoning block %lu slot %lu", bank_idx, block->slot ));
+  FD_LOG_INFO(( "abandoning block %lu:%lu", block->slot, bank_idx ));
   sched->print_buf_sz = 0UL;
   print_all( sched, block );
   FD_LOG_DEBUG(( "%s", sched->print_buf ));
 
   subtree_abandon( sched, block );
   try_activate_block( sched );
+}
+
+void
+fd_sched_cancel( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_UNLIKELY( !block->in_sched ) ) return;
+  FD_LOG_INFO(( "canceling subtree at block %lu:%lu", block->slot, bank_idx ));
+  fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
+  if( FD_LIKELY( parent ) ) {
+    /* Splice the block out of its parent's children list. */
+    ulong block_idx = block_to_idx( sched, block );
+    ulong * idx_p = &parent->child_idx;
+    while( *idx_p!=block_idx ) {
+      idx_p = &(block_pool_ele( sched, *idx_p )->sibling_idx);
+    }
+    *idx_p = block->sibling_idx;
+  }
+  subtree_prune( sched, bank_idx, ULONG_MAX );
 }
 
 void
@@ -2763,37 +2776,58 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
   }
 }
 
-/* It's safe to call this function more than once on the same block.
-   The final call is when there are no more in-flight tasks for this
-   block, at which point the block will be pruned from sched. */
+/* This function tells sched that the subtree is no longer worth
+   replaying.  It can happen as a result of one of the following.
+     - Bad block at head of lane.
+     - Bad block at tail of lane.
+     - Root notify.
+
+   It's safe to call this function more than once on the same block. */
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   subtree_mark_and_maybe_prune_rdisp( sched, block );
-  /* subtree_abandon can happen as a result of one of the following
-       - Bad block at head of lane
-       - Bad block at tail of lane
-       - Root advance
-       - Root notify
+  /* We do not gate refcnt releases on the entire subtree being
+     prunable.  In the root notify case there can be in-flight tasks in
+     the middle of a subtree, and gating on whole-subtree prunability
+     would defer the release of an otherwise prunable block, e.g. an
+     inactive sibling of an in-flight block, to a later abandon such as
+     a subsequent root notify.  That could stall bank reclamation.
 
-     In the case of bad blocks, it suffices to check the in-flight task
-     count of the block that is bad.  In the case of root advance, the
-     refcnt on the bank is checked and that includes the in-flight task
-     count.  It is only in the case of root notify that there could
-     potentially be a non-zero in-flight count in the middle of a
-     subtree.  To be safe, we check the entire subtree here before
-     pruning. */
-  if( subtree_is_prunable( sched, block ) ) {
-    fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
-    if( FD_LIKELY( parent ) ) {
-      /* Splice the block out of its parent's children list. */
-      ulong block_idx = block_to_idx( sched, block );
-      ulong * idx_p = &parent->child_idx;
-      while( *idx_p!=block_idx ) {
-        idx_p = &(block_pool_ele( sched, *idx_p )->sibling_idx);
-      }
-      *idx_p = block->sibling_idx;
-    }
-    subtree_prune( sched, block_to_idx( sched, block ), ULONG_MAX );
+     The sched fork tree still stays in sync with the banks tree.  This
+     is to prevent attacks targeting lifetime discrepancy.  So while we
+     know that the subtree can be pruned from sched at this point, we
+     only release refcnts here and stop short of actually pruning, which
+     remains solely initiated by banks. */
+  subtree_release_refcnt( sched, block );
+}
+
+/* Release the bank refcnt for every block in the subtree that sched is
+   done with.  This is evaluated per block.  A block's refcnt is
+   released as soon as that block individually qualifies, independent of
+   whether its siblings or descendants still have in-flight tasks.  This
+   is safe because the actual pruning is initiated separately by banks,
+   and gated on the whole subtree's refcnts reaching zero.  Releasing
+   refcnts eagerly per block get us there sooner.  Blocks that are still
+   in-flight will be released when their last task drains.  This
+   function is idempotent. */
+static void
+subtree_release_refcnt( fd_sched_t * sched, fd_sched_block_t * block ) {
+  FD_TEST( block->in_sched );
+  if( block->refcnt && block_is_prunable( block ) ) {
+    FD_TEST( block->dying ); /* The happy path releases the refcnt on full replay.  Only bad blocks end up here. */
+    FD_TEST( !block->block_end_done ); /* Implied by an outstanding refcnt.  The happy path releases the refcnt on full replay. */
+    block->refcnt = 0;
+    FD_TEST( ref_q_avail( sched->ref_q ) );
+    ref_q_push_tail( sched->ref_q, block_to_idx( sched, block ) );
+    if( FD_LIKELY( block->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, releasing refcnt without full replay", block->slot, block_to_idx( sched, block ) ));
+    else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, releasing refcnt without any replay", block->slot, block_to_idx( sched, block ) ));
+  }
+
+  ulong child_idx = block->child_idx;
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child_block = block_pool_ele( sched, child_idx );
+    subtree_release_refcnt( sched, child_block );
+    child_idx = child_block->sibling_idx;
   }
 }
 
@@ -2804,14 +2838,9 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
   fd_sched_block_t * tail = head;
 
   while( head ) {
+    FD_TEST( !head->refcnt );
     FD_TEST( head->in_sched );
     head->in_sched = 0;
-    if( head->refcnt ) {
-      FD_TEST( !head->block_end_done );
-      head->refcnt = 0;
-      if( FD_UNLIKELY( !ref_q_avail( sched->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
-      ref_q_push_tail( sched->ref_q, block_to_idx( sched, head ) );
-    }
 
     ulong child_idx = head->child_idx;
     while( child_idx!=ULONG_MAX ) {
@@ -2827,13 +2856,20 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     }
 
     /* Prune the current block.  We will never publish halfway into a
-       staging lane, because anything on the rooted fork should have
-       finished replaying gracefully and be out of the dispatcher.  In
-       fact, anything that we are publishing away should be out of the
-       dispatcher at this point.  And there should be no more in-flight
-       transactions. */
+       staging lane, because anything that we are publishing away should
+       be out of the dispatcher at this point, much less staged.
+         - Anything on the rooted fork should have finished replaying
+           gracefully and be out of the dispatcher.
+         - Anything on minority forks should have been marked dying and
+           be taken out of the dispatcher.
+
+       There should be no more in-flight tasks either.  Prunes are
+       initiated by banks, and the refcnt on the bank won't drop to zero
+       unless all in-flight tasks have been drained.  So the fact that
+       we're pruning implies that the bank thinks there's nothing more
+       in-flight. */
     if( FD_UNLIKELY( block_is_in_flight( head ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has transactions in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
+      FD_LOG_CRIT(( "invariant violation: block has tasks in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
                     head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->slot, head->parent_slot ));
     }
     if( FD_UNLIKELY( head->in_rdisp ) ) {
@@ -3096,7 +3132,7 @@ demote_lane( fd_sched_t * sched, int lane_idx ) {
 
     int ret = fd_rdisp_demote_block( sched->rdisp, bank_idx );
     if( FD_UNLIKELY( ret!=0 ) ) {
-      FD_LOG_CRIT(( "fd_rdisp_demote_block failed for slot %lu, bank_idx %lu, lane %d", block->slot, bank_idx, lane_idx ));
+      FD_LOG_CRIT(( "fd_rdisp_demote_block failed for block %lu:%lu, lane %d", block->slot, bank_idx, lane_idx ));
     }
     FD_LOG_DEBUG(( "block %lu:%lu exited lane %lu: demote", block->slot, bank_idx, block->staging_lane ));
     block->staged = 0;
