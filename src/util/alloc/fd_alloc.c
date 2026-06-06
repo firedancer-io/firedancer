@@ -2,6 +2,8 @@
 #include "fd_alloc_cfg.h"
 #include "../sanitize/fd_asan.h"
 #include "../sanitize/fd_msan.h"
+#include "../wksp/fd_wksp_private.h"
+
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
    should only be used single threaded in those use cases.  (The code
    does imitate at a very low level the operations required by
@@ -1100,6 +1102,43 @@ fd_alloc_free( fd_alloc_t * join,
 
     return;
   }
+}
+
+int
+fd_alloc_trim( fd_alloc_t * join,
+               void *       laddr,
+               ulong        sz ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  if( FD_UNLIKELY( (!alloc) | (!laddr) | (!sz) ) ) return FD_WKSP_ERR_INVAL;
+
+  fd_alloc_hdr_t hdr       = fd_alloc_hdr_load( laddr );
+  ulong          sizeclass = fd_alloc_hdr_sizeclass( hdr );
+
+  if( FD_LIKELY( sizeclass!=FD_ALLOC_SIZECLASS_LARGE ) ) return FD_WKSP_SUCCESS;
+
+  fd_wksp_t * wksp        = fd_alloc_private_wksp( alloc );
+  ulong       alloc_gaddr = fd_wksp_gaddr_fast( wksp, laddr );
+
+  ulong                     part_max = wksp->part_max;
+  fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
+
+  ulong alloc_lo;
+
+  if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) return FD_WKSP_ERR_FAIL; /* logs details */
+
+  ulong i = fd_wksp_private_used_treap_query( alloc_gaddr, wksp, pinfo );
+  if( FD_UNLIKELY( i>=part_max ) ) {
+    fd_wksp_private_unlock( wksp );
+    return FD_WKSP_ERR_INVAL;
+  }
+
+  alloc_lo = pinfo[ i ].gaddr_lo;
+  fd_wksp_private_unlock( wksp );
+
+  ulong prefix = alloc_gaddr - alloc_lo;
+  if( FD_UNLIKELY( sz > ULONG_MAX-prefix ) ) return FD_WKSP_ERR_INVAL;
+
+  return fd_wksp_trim( wksp, alloc_gaddr, prefix + sz );
 }
 
 void

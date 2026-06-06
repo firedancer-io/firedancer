@@ -357,6 +357,11 @@ void
 fd_alloc_free( fd_alloc_t * join,
                void *       laddr );
 
+int
+fd_alloc_trim( fd_alloc_t * join,
+               void *       laddr,
+               ulong        sz );
+
 /* fd_alloc_compact frees all wksp allocations that are not required
    for any outstanding user mallocs (note that fd_alloc_free lazily
    returns unused memory from the underlying wksp to accelerate
