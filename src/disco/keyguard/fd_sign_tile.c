@@ -229,6 +229,8 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
     if( needs_second_sign ) {
       ulong authority_idx = (sig >> 33) & 0xFUL;
+      if( FD_UNLIKELY( authority_idx>=ctx->authorized_voters_cnt ) )
+        FD_LOG_CRIT(( "invalid sign request from in_idx=%lu: authority_idx=%lu out of range (authorized_voters_cnt=%lu)", in_idx, authority_idx, ctx->authorized_voters_cnt ));
       fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
     }
     break;
