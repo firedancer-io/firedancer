@@ -541,8 +541,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   bank->vote_stakes_fork_id      = fd_vote_stakes_get_root_idx( vote_stakes );
 
-  bank->state  = FD_BANK_STATE_FROZEN;
-  bank->refcnt = 0UL;
+  bank->state     = FD_BANK_STATE_FROZEN;
+  bank->refcnt    = 0UL;
+  bank->is_leader = 0;
 
   banks->root_idx = bank->idx;
 
@@ -1145,9 +1146,9 @@ fd_banks_get_frontier_private( fd_bank_t * bank_pool,
 }
 
 void
-fd_banks_get_frontier( fd_banks_t * banks,
-                       ulong *      frontier_indices_out,
-                       ulong *      frontier_cnt_out ) {
+fd_banks_get_replay_frontier( fd_banks_t * banks,
+                              ulong *      frontier_indices_out,
+                              ulong *      frontier_cnt_out ) {
   *frontier_cnt_out = 0UL;
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_get_frontier_private( bank_pool, banks->root_idx, frontier_indices_out, frontier_cnt_out );

@@ -566,17 +566,17 @@ test_bank_frontier( void * mem ) {
   ulong frontier_indices[32];
   ulong frontier_cnt = 0UL;
 
-  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==5UL );
 
   fd_banks_mark_bank_dead( banks, bank_I->idx, NULL, NULL );
 
-  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==4UL );
 
   fd_banks_mark_bank_frozen( bank_J );
 
-  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==3UL );
 }
 
