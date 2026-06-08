@@ -162,7 +162,7 @@ repair_load_manifest( fd_topo_t *  topo,
       aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
   FD_TEST( parser );
   fd_ssmanifest_parser_init( parser, manifest );
-  int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
+  int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz );
   FD_TEST( parser_err!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
   FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
   free( parser );

@@ -84,7 +84,7 @@ struct fd_snapin_tile {
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;
 
-  fd_ssparse_t *           ssparse;
+  fd_ssparse_t             ssparse[1];
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
 
@@ -205,7 +205,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),      sizeof(fd_snapin_tile_t)                                     );
-  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),             fd_ssparse_footprint( 1UL<<24UL )                            );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots )         );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                             );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                             );
@@ -908,9 +907,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         int parser_res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
                                                        result->manifest.data,
-                                                       result->manifest.data_sz,
-                                                       result->manifest.acc_vec_map,
-                                                       result->manifest.acc_vec_pool );
+                                                       result->manifest.data_sz );
         if( FD_UNLIKELY( parser_res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
           FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
@@ -1093,7 +1090,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->blockhash_offsets_len   = 0UL;
       ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
-      fd_ssparse_reset( ctx->ssparse );
+      fd_ssparse_init( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
@@ -1317,7 +1314,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),      sizeof(fd_snapin_tile_t)                                     );
-  void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),             fd_ssparse_footprint( 1UL<<24UL )                            );
   void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots )         );
   void * _accdb           = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),               fd_accdb_footprint( tile->snapin.max_live_slots )            );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                             );
@@ -1343,9 +1339,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->txncache_entries_len = 0UL;
   ctx->blockhash_offsets_len = 0UL;
 
-  ctx->ssparse = fd_ssparse_new( _ssparse, 1UL<<24UL, ctx->seed );
-  FD_TEST( ctx->ssparse );
-
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );
 
@@ -1364,7 +1357,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
-  fd_ssparse_reset( ctx->ssparse );
+  fd_ssparse_init( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
 
