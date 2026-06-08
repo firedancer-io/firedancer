@@ -1364,7 +1364,13 @@ run_lane_policy_case( uchar const * data,
   FD_TEST( fd_sched_is_drained( sched ) );
 
   state = fd_sched_get_state_cstr( sched );
-  FD_TEST( strstr( state, "active_idx ULONG_MAX, staged_bitset 1," ) );
+  /* Block 6 finished its start-of-block work but, being an empty
+     partial block, has nothing more to dispatch, so it is deactivated
+     (active_bank_idx==ULONG_MAX) while staying staged on its lane
+     (staged_bitset 1). */
+  char expect_active[ 64 ];
+  fd_cstr_printf( expect_active, sizeof(expect_active), NULL, "active_idx %lu, staged_bitset 1,", ULONG_MAX );
+  FD_TEST( strstr( state, expect_active ) );
 
   fd_sched_delete( fd_sched_leave( sched ) );
   free( mem );
