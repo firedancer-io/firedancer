@@ -124,6 +124,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
+  fd_accdb_shmem_set_has_accdb_tile( accdb_shmem );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

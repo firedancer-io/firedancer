@@ -490,6 +490,11 @@ struct fd_accdb_shmem_private {
      joiner_cnt, every reservation succeeds trivially). */
   ulong joiner_cnt_max;
 
+  /* Per-joiner worst-case cache reservation, set at construction.
+     Used by fd_accdb_reset to replicate the cache_class_used sentinel
+     logic from fd_accdb_shmem_new. */
+  ulong cache_min_reserved;
+
   ulong partition_pool_off;
 
   /* compaction_dlist_off[k] is the byte offset (from shmem base) of
@@ -529,12 +534,14 @@ struct fd_accdb_shmem_private {
      Padded to its own cache line to avoid false sharing with the
      hot epoch / joiner_epochs fields above. */
 
-#define FD_ACCDB_CMD_IDLE         (0U)
-#define FD_ACCDB_CMD_ADVANCE_ROOT (1U)
-#define FD_ACCDB_CMD_PURGE        (2U)
+#define FD_ACCDB_CMD_IDLE            (0U)
+#define FD_ACCDB_CMD_ADVANCE_ROOT    (1U)
+#define FD_ACCDB_CMD_PURGE           (2U)
+#define FD_ACCDB_CMD_CLEAR_DEFERRED  (3U)
 
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */
+  int    has_accdb_tile;                            /* accdb tile exists */
 
   /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
      accs that have been CAS-unlinked from their map chains in the
