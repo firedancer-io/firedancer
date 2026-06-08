@@ -64,6 +64,7 @@ export FD_LOG_PATH="$LOG_PATH/solfuzz.log"
   "$WORK_DIR/syscall/fixtures" \
   "$WORK_DIR/txn/fixtures" \
   "$WORK_DIR/elf_loader/fixtures" \
-  "$WORK_DIR/instr/fixtures"
+  "$WORK_DIR/instr/fixtures" \
+  "$WORK_DIR/shred/fixtures"
 
 echo "Test vectors success"
