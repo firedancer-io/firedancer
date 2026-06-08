@@ -307,14 +307,23 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
    abandoned blocks for execution.  This should only be invoked on an
    actively replayed block, and should only be invoked once on it.
 
-   An abandoned block will be pruned from sched as soon as, and only if,
-   the block has no more in-flight tasks associated with it.  No sooner,
-   no later.  In the immediate ensuing stem run loop,
-   sched_pruned_next() will return the index for the corresponding bank
-   so the refcnt can be decremented for sched.  After that point, the
-   bank_idx may be recycled for another block. */
+   For the purposes of bank lifetime management, sched is a subsidiary
+   of banks.  So while sched sets things in motion for a bad block to be
+   eagerly pruned, banks/replay is the sole initiator of actual pruning.
+   The way this works is that an abandoned block will have its refcnt
+   queued for release by sched as soon as, and only if, the block has no
+   more in-flight tasks associated with it.  No sooner, no later.  In
+   the immediate ensuing stem run loop, sched_pruned_next() will return
+   the index for the corresponding bank so the refcnt can be decremented
+   for sched.  After that point, banks will eventually instruct sched to
+   prune the block, when all other components release their refcnts on
+   said bank.  Then the bank_idx may be recycled for another block. */
 void
 fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
+
+/* Prune the given block including descendants of it. */
+void
+fd_sched_cancel( fd_sched_t * sched, ulong bank_idx );
 
 /* Add a block as immediately done to the scheduler.  This is useful for
    installing the snapshot slot, or for informing the scheduler of a

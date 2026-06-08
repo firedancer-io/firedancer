@@ -338,7 +338,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* HACKY: hacky way of checking if we should send a null parent block
      id */
   fd_hash_t parent_block_id = {0};
-  if( FD_UNLIKELY( !is_initial ) ) {
+  if( FD_LIKELY( !is_initial ) ) {
     parent_block_id = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
   }
 
@@ -1502,7 +1502,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
     FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
     FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
-    return 0;
+    return 1;
   }
 
   long now = fd_log_wallclock();
@@ -1510,7 +1510,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   /* Assign parent bank idx + seq no to the FEC */
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
   fd_bank_t * parent_bank    = fd_banks_bank_query( ctx->banks, reasm_fec->parent_bank_idx );
-  reasm_fec->parent_bank_seq = parent_bank->bank_seq;
 
   if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* Provision new bank if not leader.  Assign bank idx and seq no
@@ -1531,7 +1530,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
-    reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
+    reasm_fec->bank_seq = parent_bank->bank_seq;
 
     FD_TEST( reasm_fec->bank_idx!=ULONG_MAX );
 
@@ -1798,8 +1797,17 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
       fd_accdb_cancel( ctx->accdb_admin, &xid );
       __attribute__((fallthrough));
     }
-    case 1: /* pruning bank + no cancellation is needed */
+    case 1: { /* pruning bank + no cancellation is needed */
+      /* A sched block exists, and can be marked dead, for a bank as
+         soon as its first FEC has been ingested, which can happen
+         before the bank ever set itself up for actual execution (e.g. a
+         block that parses as bad on its very first FEC).  So always
+         instruct sched to prune the block whenever banks prunes the
+         bank.  The txncache/progcache/accdb forks, on the other hand,
+         are only created once the bank started actual execution. */
+      fd_sched_cancel( ctx->sched, cancel_info->bank_idx );
       return 1;
+    }
     case 0: /* no bank to prune */
       return 0;
     default:
