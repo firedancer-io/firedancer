@@ -1818,12 +1818,13 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
   int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
   switch( pruned ) {
-    case 2: /* pruning bank + cancellation is needed */
+    case 2: { /* pruning bank + cancellation is needed */
       fd_txncache_cancel_fork( ctx->txncache,  cancel_info->txncache_fork_id );
       fd_progcache_cancel_fork( ctx->progcache, cancel_info->progcache_fork_id );
       fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
       fd_accdb_cancel( ctx->accdb_admin, &xid );
       __attribute__((fallthrough));
+    }
     case 1: /* pruning bank + no cancellation is needed */
       return 1;
     case 0: /* no bank to prune */
