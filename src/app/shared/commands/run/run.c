@@ -297,30 +297,32 @@ main_pid_namespace( void * _args ) {
       }
     }
 
-    int tile_uses_accdb    = 0;
-    int tile_uses_accdb_ro = 0;
-    for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
-      fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
-      if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
-        if( FD_UNLIKELY( tile->uses_obj_mode[ i ]==FD_SHMEM_JOIN_MODE_READ_ONLY ) ) tile_uses_accdb_ro = 1;
-        else                                                                        tile_uses_accdb    = 1;
-        break;
+    if( FD_LIKELY( config->is_firedancer ) ) {
+      int tile_uses_accdb    = 0;
+      int tile_uses_accdb_ro = 0;
+      for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+        fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
+        if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
+          if( FD_UNLIKELY( tile->uses_obj_mode[ i ]==FD_SHMEM_JOIN_MODE_READ_ONLY ) ) tile_uses_accdb_ro = 1;
+          else                                                                        tile_uses_accdb    = 1;
+          break;
+        }
       }
-    }
 
-    /* snapwr writes accdb pwrite()s without joining accdb shmem, so
-       it needs the RW fd despite not appearing as an accdb obj user
-       in the topology. */
-    if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
-      if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else {
-      if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    }
+      /* snapwr writes accdb pwrite()s without joining accdb shmem, so
+         it needs the RW fd despite not appearing as an accdb obj user
+         in the topology. */
+      if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
 
-    if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
-      if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else {
-      if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
     }
 
     int pipefd[ 2 ];
@@ -351,8 +353,10 @@ main_pid_namespace( void * _args ) {
     }
   }
 
-  if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( config->is_firedancer ) ) {
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -794,6 +798,8 @@ run_firedancer_init( config_t * config,
 
 void
 initialize_accdb_fd( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+
   /* TODO: O_TRUNC is a lot slower here, because it means we have to
      write out extents for the whole file instead of just marking them
      as free.  Figure out performance implications of this and maybe

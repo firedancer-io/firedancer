@@ -5,6 +5,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../accdb/fd_accdb.h"
+#include "fd_sysvar_base.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
 #define FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND ( 160UL )
@@ -28,6 +29,15 @@ void
 fd_sysvar_clock_init( fd_bank_t *        bank,
                       fd_accdb_t *       accdb,
                       fd_capture_ctx_t * capture_ctx );
+
+/* fd_sysvar_clock_read reads the current value of the clock sysvar at
+   fork_id into *clock.  Returns clock on success, NULL if the account
+   is missing or too small. */
+
+fd_sol_sysvar_clock_t *
+fd_sysvar_clock_read( fd_accdb_t *            accdb,
+                      fd_accdb_fork_id_t      fork_id,
+                      fd_sol_sysvar_clock_t * clock );
 
 /* fd_sysvar_clock_update updates the clock sysvar account.  Runs
    fd_calculate_stake_weighted_timestamp under the hood.  Should be

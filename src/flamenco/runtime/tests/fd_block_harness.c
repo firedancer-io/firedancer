@@ -384,29 +384,34 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
     /* Sequential transaction execution.  Continue processing
        transactions even if a prior one was uncommitable. */
     int has_err = 0;
+    /* fd_txn_out_t is ~10 MiB (inlined rollback/sysvar buffers), which
+       overflows a tile's 8 MiB stack (FD_TILE_PRIVATE_STACK_SZ) when run
+       under the multi-tile sol_compat harness.  Allocate it from the
+       per-runner spad instead (one buffer, reused each iteration).  Must
+       be the spad, not static, since runner tiles execute concurrently. */
+    fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = &txn_ptrs[i];
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
       fd_txn_in_t  txn_in = { .txn = txn, .bundle.is_bundle = 0 };
-      fd_txn_out_t txn_out;
       fd_runtime_t * runtime = runner->runtime;
       fd_log_collector_t log[1];
       runtime->log.log_collector = log;
-      fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &res, &txn_out, 1 );
-      txn_out.err.exec_err = res;
+      fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &res, txn_out, 1 );
+      txn_out->err.exec_err = res;
 
-      if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
-        fd_runtime_cancel_txn( runtime, &txn_out );
+      if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
+        fd_runtime_cancel_txn( runtime, txn_out );
         has_err = 1;
         continue;
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, &txn_out );
+      fd_runtime_commit_txn( runtime, runner->bank, txn_out );
 
-      if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
+      if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         has_err = 1;
         continue;
       }

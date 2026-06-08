@@ -174,6 +174,11 @@ firedancer_dev_test_run( int     argc,
 
       static config_t config[1];
       fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
+
+      config->firedancer.accounts.max_accounts  = 30000000UL;
+      config->firedancer.runtime.max_live_slots = 512UL;
+      config->firedancer.runtime.max_fork_width = 16UL;
+
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->frankendancer.consensus.poh_speed_test = 0;
