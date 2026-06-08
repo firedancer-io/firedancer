@@ -432,6 +432,11 @@ struct fd_gui_peers_ctx {
       fd_vote_stake_weight_t manifest_vote_weights[ FD_VOTE_ACCOUNTS_MAX ];
     };
     fd_gui_peers_voter_t voters_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    struct {
+      fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
+      fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
+      ulong viewport_cnt;
+    };
   } scratch;
 
 #if FD_HAS_ZSTD
