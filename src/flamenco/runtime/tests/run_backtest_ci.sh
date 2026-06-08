@@ -17,12 +17,14 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907-v4.1.0-bet
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646-v4.1.0-beta.1 4 -m 2000000 -e 331691647
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v4.1.0-beta.1 5 -m 2000000 -e 336218683
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v4.1.0-beta.1 5 -m 2000000 -e 340269872
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v4.1.0-beta.1 10 -m 2000000 -e 390056406
+# Disabled, as it had increase_tx_account_lock_limit enabled which is no longer supported
+# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v4.1.0-beta.1 10 -m 2000000 -e 390056406
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.1.0-beta.1 16 -m 10000000 -e 254462598
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.1.0-beta.1 3 -m 2000000 -e 346556337
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v4.1.0-beta.1 3 -m 2000000 -e 380592006
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 1 -m 3000 -e 1352 -g
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842-v4.1.0-beta.1 1 -m 2000000 -e 422969848
+# Disabled, as it had increase_tx_account_lock_limit enabled which is no longer supported
+# src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842-v4.1.0-beta.1 1 -m 2000000 -e 422969848
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.1.0-beta.1 1 -m 2000000 -e 385786452
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.1.0-beta.1 1 -m 3000 -e 1000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.1.0-beta.1 1 -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
