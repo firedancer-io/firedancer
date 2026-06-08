@@ -186,6 +186,46 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
 
+/* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
+   Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
+   accdb state across an incremental snapshot attempt. */
+
+struct fd_accdb_snapshot_recovery {
+  ulong whead_val;             /* whead[0].val */
+  int   has_partition;         /* has_partition[0] */
+  ulong partition_max;         /* partition_max */
+  ulong disk_current_bytes;    /* disk_current_bytes metric */
+  ulong savepoint_bytes_freed; /* bytes_freed of the save-point partition */
+};
+
+typedef struct fd_accdb_snapshot_recovery fd_accdb_snapshot_recovery_t;
+
+/* fd_accdb_snapshot_save_whead captures the current layer-0 write head,
+   partition state, and disk_current_bytes metric into the provided
+   recovery struct.  Also captures the save-point partition's
+   bytes_freed. */
+
+void
+fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
+                              fd_accdb_snapshot_recovery_t * out );
+
+/* fd_accdb_snapshot_revert_whead restores the layer-0 write head to a
+   previously saved position.
+
+   It internally waits for the pending background purge command to
+   complete on T2 before releasing partitions, so the caller does not
+   need to insert a separate wait_cmd barrier.
+
+   Previously allocated partitions (with indices in the range
+   [saved_partition_max, current partition_max)) are released back
+   to the partition pool.  disk_current_bytes is restored to the saved
+   value rather than computed per-partition, and the save-point
+   partition's bytes_freed and write_offset are reset. */
+
+void
+fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
+                                fd_accdb_snapshot_recovery_t const * recover );
+
 /* fd_accdb_attach_child allocates a new fork as a child of
    parent_fork_id and returns the new fork's id.  This must be done
    any time a new fork is being inserted into the accounts database,
@@ -438,6 +478,17 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey );
 
+/* fd_accdb_reset reinitializes the accdb to the state immediately after
+   fd_accdb_new.  All in-memory index state is cleared and all pool
+   joins are re-established.  The caller is responsible for truncating
+   the on-disk file separately (e.g. via the snapwr tile).
+
+   The caller must guarantee that no other thread is concurrently
+   accessing the accdb (no outstanding acquires, no background work). */
+
+void
+fd_accdb_reset( fd_accdb_t * accdb );
+
 /* fd_accdb_snapshot_write_one inserts or replaces an account during
    snapshot loading.  Returns -1 if the write was ignored (an existing
    acc has a higher slot), 1 if a new acc was inserted, 2 if an
@@ -448,16 +499,31 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
    slot must be <= UINT_MAX.  The slot is held in a 32-bit scratch field
    during snapshot loading; the accdb format must be widened before
    Solana reaches slot 2^32.  Passing a larger slot crashes the
-   process. */
+   process.
+
+   fork_id controls recovery behavior:
+
+     USHORT_MAX, full-snapshot mode.  Existing entries with the same
+                 pubkey are replaced in-place.  No txn entries are
+                 created.
+
+     other,      incremental-snapshot mode.  Cross-snapshot overrides
+                 (existing entry from a different fork) insert a NEW
+                 acc_pool entry alongside the old one and create a txn
+                 record on fork_id, so fd_accdb_purge can revert the
+                 incremental writes on failure.  Intra-fork duplicates
+                 (same pubkey from the same fork) are still replaced
+                 in-place. */
 
 int
-fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
-                             uchar const * pubkey,
-                             ulong         slot,
-                             ulong         lamports,
-                             ulong         data_len,
-                             int           executable,
-                             ulong *       out_replaced_lamports );
+fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
+                             fd_accdb_fork_id_t fork_id,
+                             uchar const *      pubkey,
+                             ulong              slot,
+                             ulong              lamports,
+                             ulong              data_len,
+                             int                executable,
+                             ulong *            out_replaced_lamports );
 
 /* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
@@ -473,10 +539,15 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
    malformed).  Output counters are not meaningful when -1 is returned.
 
    Each slots[i] must be <= UINT_MAX (see fd_accdb_snapshot_write_one
-   for the rationale).  Passing a larger slot crashes the process. */
+   for the rationale).  Passing a larger slot crashes the process.
+
+   fork_id has the same semantics as in fd_accdb_snapshot_write_one:
+   USHORT_MAX for full-snapshot mode, otherwise incremental mode with
+   txn tracking on the specified fork. */
 
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
+                               fd_accdb_fork_id_t  fork_id,
                                ulong               cnt,
                                uchar const * const pubkeys[],
                                ulong  const        slots[],

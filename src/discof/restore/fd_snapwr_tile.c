@@ -55,6 +55,11 @@ struct fd_snapwr_tile {
   fd_snapwr_out_t ct_out;
 
   struct {
+    ulong accounts_off;
+    ulong flush_off;
+  } recovery;
+
+  struct {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
     ulong bytes_written;
@@ -287,6 +292,8 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->recovery.accounts_off = ctx->accounts_off;
+      ctx->recovery.flush_off    = ctx->flush_off;
       break;
     }
 
@@ -304,8 +311,10 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->write_buf_used = 0UL;
+      ctx->accounts_off = ctx->full ? 0UL : ctx->recovery.accounts_off;
+      ctx->flush_off    = ctx->full ? 0UL : ctx->recovery.flush_off;
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      FD_LOG_ERR((( "TODO: UNIMPLEMENTED: snapshot load failure handling (TODO: reset accdb to last known good state, etc)" )));
       break;
     }
 
@@ -413,10 +422,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->partition_sz = tile->snapwr.partition_sz;
   if( FD_UNLIKELY( !ctx->partition_sz ) ) FD_LOG_ERR(( "tile `" NAME "` partition_sz is 0" ));
 
-  ctx->accounts_off    = 0UL;
-  ctx->flush_off       = 0UL;
-  ctx->write_buf       = _write_buf;
-  ctx->write_buf_used  = 0UL;
+  ctx->accounts_off          = 0UL;
+  ctx->flush_off             = 0UL;
+  ctx->recovery.accounts_off = 0UL;
+  ctx->recovery.flush_off    = 0UL;
+  ctx->write_buf             = _write_buf;
+  ctx->write_buf_used        = 0UL;
 
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );
