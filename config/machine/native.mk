@@ -42,7 +42,7 @@ else ifdef FD_USING_CLANG
 include config/extra/with-clang.mk
 endif
 
-BUILDDIR?=native/$(notdir $(CC))
+BUILDDIR?=native/$(notdir $(firstword $(CC)))
 CPPFLAGS+=-march=native -mtune=native
 RUSTFLAGS+=-C target-cpu=native
 
