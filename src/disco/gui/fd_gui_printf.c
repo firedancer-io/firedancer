@@ -2411,62 +2411,58 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
   jsonp_open_envelope( peers->http, "gossip", "view_update" );
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "changes" );
+        FD_TEST( peers->scratch.viewport_cnt<=FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
 
-        /* loop over latest viewport */
-        FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
-        if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu ws_conn_id=%lu peers->active_ws_conn_id=%lu", peers->client_viewports[ ws_conn_id ].row_cnt, ws_conn_id, peers->active_ws_conn_id ));
-
-        for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
-             !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
-             iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
-          if( FD_LIKELY( j<peers->client_viewports[ ws_conn_id ].start_row ) ) continue;
-          fd_gui_peers_node_t const * cur = fd_gui_peers_live_table_fwd_iter_ele_const( iter, peers->contact_info_table );
-          fd_gui_peers_row_t * ref = &peers->client_viewports[ ws_conn_id ].viewport[ j-peers->client_viewports[ ws_conn_id ].start_row ];
+        ulong start_row = peers->client_viewports[ ws_conn_id ].start_row;
+        for( ulong i=0UL; i<peers->scratch.viewport_cnt; i++ ) {
+          ulong j = start_row + i;
+          fd_gui_peers_row_t const * cur = &peers->scratch.viewport[ i ];
+          fd_gui_peers_row_t const * ref = &peers->scratch.viewport_ref[ i ];
 
           /* This code should be kept in sync with updates to
              fd_gui_peers_live_table */
-          if( FD_UNLIKELY( cur->row.stake!=ref->stake ) ) {
+          if( FD_UNLIKELY( cur->stake!=ref->stake ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Stake" );
 
-              if( FD_UNLIKELY( cur->row.stake==ULONG_MAX ) ) jsonp_long ( peers->http, "new_value", -1 );
-              else                                       jsonp_ulong( peers->http, "new_value", cur->row.stake );
+              if( FD_UNLIKELY( cur->stake==ULONG_MAX ) ) jsonp_long ( peers->http, "new_value", -1 );
+              else                                       jsonp_ulong( peers->http, "new_value", cur->stake );
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( strncmp( cur->row.name, ref->name, sizeof(ref->name) ) ) ) {
+          if( FD_UNLIKELY( strncmp( cur->name, ref->name, sizeof(ref->name) ) ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Name" );
-              jsonp_string( peers->http, "new_value", cur->row.name );
+              jsonp_string( peers->http, "new_value", cur->name );
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( cur->row.country_code_idx!=ref->country_code_idx ) ) {
+          if( FD_UNLIKELY( cur->country_code_idx!=ref->country_code_idx ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Country" );
-              if( FD_LIKELY( cur->row.country_code_idx!=UCHAR_MAX ) ) {
-                jsonp_string( peers->http, "new_value", peers->dbip.country_code[ cur->row.country_code_idx ] );
+              if( FD_LIKELY( cur->country_code_idx!=UCHAR_MAX ) ) {
+                jsonp_string( peers->http, "new_value", peers->dbip.country_code[ cur->country_code_idx ] );
               } else {
                 jsonp_null( peers->http, "new_value" );
               }
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( memcmp( cur->row.pubkey.uc, ref->pubkey.uc, 32UL ) ) ) {
+          if( FD_UNLIKELY( memcmp( cur->pubkey.uc, ref->pubkey.uc, 32UL ) ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Pubkey" );
 
               char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
-              fd_base58_encode_32( cur->row.pubkey.uc, NULL, pubkey_base58 );
+              fd_base58_encode_32( cur->pubkey.uc, NULL, pubkey_base58 );
               jsonp_string( peers->http, "new_value", pubkey_base58 );
             jsonp_close_object( peers->http );
           }
 
-          uint ip4_after  = cur->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          uint ip4_after  = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           uint ip4_before = ref->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : ref->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           if( FD_UNLIKELY( ip4_after!=ip4_before ) ) {
             jsonp_open_object( peers->http, NULL );
@@ -2479,13 +2475,13 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          long cur_egress_push_bps           = cur->row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
           long ref_egress_push_bps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_ingress_push_bps          = cur->row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
           long ref_ingress_push_bps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_egress_pull_response_bps  = cur->row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
           long ref_egress_pull_response_bps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long cur_ingress_pull_response_bps = cur->row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
           long ref_ingress_pull_response_bps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
           if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_bps!=ref_ingress_pull_response_bps ) ) {
@@ -2534,42 +2530,39 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
   jsonp_open_envelope( peers->http, "gossip", key );
     jsonp_ulong( peers->http, "id", request_id );
     jsonp_open_object( peers->http, "value" );
-
-      FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
-      if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu ws_conn_id=%lu peers->active_ws_conn_id=%lu", peers->client_viewports[ ws_conn_id ].row_cnt, ws_conn_id, peers->active_ws_conn_id ));
-      for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
-           !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
-           iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
-        if( FD_LIKELY( j<peers->client_viewports[ ws_conn_id ].start_row ) ) continue;
-        fd_gui_peers_node_t const * cur = fd_gui_peers_live_table_fwd_iter_ele_const( iter, peers->contact_info_table );
+      FD_TEST( peers->scratch.viewport_cnt<=FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
+      ulong start_row = peers->client_viewports[ ws_conn_id ].start_row;
+      for( ulong i=0UL; i<peers->scratch.viewport_cnt; i++ ) {
+        ulong j = start_row + i;
+        fd_gui_peers_row_t const * cur = &peers->scratch.viewport[ i ];
 
         char row_index_cstr[ 32 ];
         FD_TEST( fd_cstr_printf_check( row_index_cstr, sizeof(row_index_cstr), NULL, "%lu", + j ) );
         jsonp_open_object( peers->http, row_index_cstr );
           /* This code should be kept in sync with updates to
             fd_gui_peers_live_table */
-          if( FD_UNLIKELY( cur->row.stake==ULONG_MAX ) ) jsonp_long ( peers->http, "Stake", -1 );
-          else                                           jsonp_ulong( peers->http, "Stake", cur->row.stake );
+          if( FD_UNLIKELY( cur->stake==ULONG_MAX ) ) jsonp_long ( peers->http, "Stake", -1 );
+          else                                       jsonp_ulong( peers->http, "Stake", cur->stake );
 
           char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( cur->row.pubkey.uc, NULL, pubkey_base58 );
+          fd_base58_encode_32( cur->pubkey.uc, NULL, pubkey_base58 );
           jsonp_string( peers->http, "Pubkey", pubkey_base58 );
-          jsonp_string( peers->http, "Name", cur->row.name );
-          if( FD_LIKELY( cur->row.country_code_idx!=UCHAR_MAX ) ) {
-            jsonp_string( peers->http, "Country", peers->dbip.country_code[ cur->row.country_code_idx ] );
+          jsonp_string( peers->http, "Name", cur->name );
+          if( FD_LIKELY( cur->country_code_idx!=UCHAR_MAX ) ) {
+            jsonp_string( peers->http, "Country", peers->dbip.country_code[ cur->country_code_idx ] );
           } else {
             jsonp_null( peers->http, "Country" );
           }
 
-          uint ip4 = cur->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          uint ip4 = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
-          long cur_egress_push_bps           = cur->row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_ingress_push_bps          = cur->row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_egress_pull_response_bps  = cur->row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long cur_ingress_pull_response_bps = cur->row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
           jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_bps );
           jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_bps );

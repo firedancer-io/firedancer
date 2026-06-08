@@ -1210,6 +1210,7 @@ fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers ) {
 static void
 fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
   FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
+  peers->scratch.viewport_cnt = 0UL;
   if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt==0UL ) ) return; /* empty viewport */
   if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
 
@@ -1221,10 +1222,15 @@ fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
 
     ulong viewport_idx = j-peers->client_viewports[ ws_conn_id ].start_row;
     FD_TEST( viewport_idx<FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
-    fd_gui_peers_row_t * ref = &peers->client_viewports[ ws_conn_id ].viewport[ viewport_idx ];
-
-    *ref = cur->row;
+    peers->scratch.viewport[ viewport_idx ] = cur->row;
+    peers->scratch.viewport_cnt             = viewport_idx+1UL;
   }
+
+  /* Capture the old baseline as the diff reference, then commit the new
+     rows as the new baseline.  Both happen here, before any formatting,
+     so fd_gui_printf_peers_viewport_update reads only from scratch. */
+  fd_memcpy( peers->scratch.viewport_ref, peers->client_viewports[ ws_conn_id ].viewport, peers->scratch.viewport_cnt*sizeof(fd_gui_peers_row_t) );
+  fd_memcpy( peers->client_viewports[ ws_conn_id ].viewport, peers->scratch.viewport, peers->scratch.viewport_cnt*sizeof(fd_gui_peers_row_t) );
 }
 
 static int
@@ -1256,13 +1262,8 @@ fd_gui_peers_request_scroll( fd_gui_peers_ctx_t * peers,
   peers->client_viewports[ ws_conn_id ].start_row = _start_row;
   peers->client_viewports[ ws_conn_id ].row_cnt   = _row_cnt;
 
-  fd_gui_printf_peers_viewport_request( peers, "query_scroll", ws_conn_id, request_id );
-
-  /* The full response just formatted establishes the new baseline for
-     the client.  Re-snapshot so the next periodic view_update diff is
-     computed against the rows we just sent. This must happen before
-     fd_http_server_ws_send, which can close the connection. */
   fd_gui_peers_viewport_snap( peers, ws_conn_id );
+  fd_gui_printf_peers_viewport_request( peers, "query_scroll", ws_conn_id, request_id );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
   return 0;
 }
@@ -1313,13 +1314,8 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
   fd_gui_peers_live_table_sort_key_remove( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key );
   peers->client_viewports[ ws_conn_id ].sort_key = sort_key;
 
-  fd_gui_printf_peers_viewport_request( peers, "query_sort", ws_conn_id, request_id );
-
-  /* The full response just formatted establishes the new baseline for
-     the client.  Re-snapshot so the next periodic view_update diff is
-     computed against the rows we just sent. This must happen before
-     fd_http_server_ws_send, which can close the connection. */
   fd_gui_peers_viewport_snap( peers, ws_conn_id );
+  fd_gui_printf_peers_viewport_request( peers, "query_sort", ws_conn_id, request_id );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
   return 0;
 }
@@ -1385,8 +1381,7 @@ fd_gui_peers_ws_message( fd_gui_peers_ctx_t * peers,
 static void
 fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
                            ulong                 ws_conn_id) {
-
-  FD_TEST( peers->client_viewports[ ws_conn_id ].row_cnt<=FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
+  FD_TEST( peers->scratch.viewport_cnt<=FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ );
 
   char out[ 1<<14 ];
   char * p = fd_cstr_init( out );
@@ -1396,28 +1391,25 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
     "+-------+----------------+----------------+----------------+----------------+----------------------------------------------------+-----------------+\n"
     "| Row # | RX Push (bps)  | RX Pull (bps)  | TX Push (bps)  | TX Pull (bps)  | Pubkey                                             | IP Address      |\n"
     "+-------+----------------+----------------+----------------+----------------+----------------------------------------------------+-----------------+\n",
-    fd_gui_peers_live_table_ele_cnt( peers->live_table ), peers->client_viewports[ ws_conn_id ].row_cnt );
+    fd_gui_peers_live_table_ele_cnt( peers->live_table ), peers->scratch.viewport_cnt );
 
-  FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
-  for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0UL;
-       !fd_gui_peers_live_table_fwd_iter_done(iter) && j < peers->client_viewports[ ws_conn_id ].start_row + peers->client_viewports[ ws_conn_id ].row_cnt;
-       iter = fd_gui_peers_live_table_fwd_iter_next(iter, peers->contact_info_table), j++ ) {
-    if( FD_LIKELY( j < peers->client_viewports[ ws_conn_id ].start_row ) ) continue;
-
-    fd_gui_peers_node_t const * cur = fd_gui_peers_live_table_fwd_iter_ele_const( iter, peers->contact_info_table );
+  ulong start_row = peers->client_viewports[ ws_conn_id ].start_row;
+  for( ulong i=0UL; i<peers->scratch.viewport_cnt; i++ ) {
+    ulong j = start_row + i;
+    fd_gui_peers_row_t const * cur = &peers->scratch.viewport[ i ];
 
     char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( cur->row.pubkey.uc, NULL, pubkey_base58 );
+    fd_base58_encode_32( cur->pubkey.uc, NULL, pubkey_base58 );
 
     char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
-    uint ip4 = cur->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : cur->row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+    uint ip4 = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
     FD_TEST(fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT,
                                   FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
 
-    long cur_egress_push_bps           = cur->row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-    long cur_ingress_push_bps          = cur->row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-    long cur_egress_pull_response_bps  = cur->row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-    long cur_ingress_pull_response_bps = cur->row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+    long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+    long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+    long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+    long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
     p = fd_cstr_append_printf( p,
                                "| %5lu | %14ld | %14ld | %14ld | %14ld | %-50s | %-15s |\n",
@@ -1493,24 +1485,20 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 
   /* update client viewports in a round-robin */
   if( FD_UNLIKELY( fd_gui_peers_ws_conn_rr_advance( peers, now ) ) ) {
-    FD_TEST( peers->client_viewports[ peers->active_ws_conn_id ].connected );
-    if( FD_LIKELY( peers->client_viewports[ peers->active_ws_conn_id ].row_cnt ) ) {
-      /* broadcast the diff as cell updates */
-      fd_gui_printf_peers_viewport_update( peers, peers->active_ws_conn_id );
+    ulong ws_conn_id = peers->active_ws_conn_id;
+    FD_TEST( peers->client_viewports[ ws_conn_id ].connected );
+    if( FD_LIKELY( peers->client_viewports[ ws_conn_id ].row_cnt ) ) {
+      /* broadcast the diff as cell updates.  fd_http_server_ws_send
+         tolerates ws_conn_id having already been closed during
+         formatting above. */
+      fd_gui_peers_viewport_snap( peers, ws_conn_id );
+      fd_gui_printf_peers_viewport_update( peers, ws_conn_id );
+      FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
 
 #if LOGGING
-      /* log the diff */
-      fd_gui_peers_viewport_log( peers, peers->active_ws_conn_id );
+      fd_gui_peers_viewport_log( peers, ws_conn_id );
 #endif
       (void)fd_gui_peers_viewport_log;
-
-      /* update client state to the latest viewport */
-      fd_gui_peers_viewport_snap( peers, peers->active_ws_conn_id );
-
-      /* In rare cases, fd_http_server_ws_send can close the websocket
-      connection. Since fd_gui_peers_viewport_snap assumes the connected
-      peer has not disconnected, we call it before. */
-      FD_TEST( !fd_http_server_ws_send( peers->http, peers->active_ws_conn_id ) );
     }
 
     /* fd_http_server_ws_send above can close the websocket connection,
