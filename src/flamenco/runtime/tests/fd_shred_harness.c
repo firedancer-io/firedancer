@@ -48,6 +48,12 @@ typedef struct {
   uchar *   payload;
 } fd_shred_completed_fec_t;
 
+#define SORT_NAME                sort_completed_fec
+#define SORT_KEY_T               fd_shred_completed_fec_t
+#define SORT_BEFORE(a,b)         ( (a).slot<(b).slot || ( (a).slot==(b).slot && (a).fec_set_idx<(b).fec_set_idx ) )
+#define SORT_QUICK_SWAP_MINIMIZE 1 /* ~240B key; skip no-op swaps */
+#include "../../../util/tmpl/fd_sort.c"
+
 /* Return reasm's evicted single-child chain to the pool. */
 static void
 release_evicted_chain( fd_reasm_t *     reasm,
@@ -273,8 +279,19 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     fd_shred_completed_fec_t * rec = &completed[ completed_cnt ];
     capture_completed_fec( runner->spad, out_fec_set, rec );
 
-    /* Lazily init reasm off the first completed FEC to determine the
-       root block id and initialize with the root slot. */
+    /* Buffer the completion; reasm runs after the shred loop in
+       (slot, fec_set_idx) order. */
+    completed_cnt++;
+  }
+
+  /* Sort by (slot, fec_set_idx) so set 0 anchors the reasm root
+     before any successor inserts. */
+  sort_completed_fec_inplace( completed, completed_cnt );
+
+  for( ulong k=0UL; k<completed_cnt; k++ ) {
+    fd_shred_completed_fec_t * rec = &completed[ k ];
+
+    /* Lazily init reasm off the first (lowest slot/fec_set_idx) FEC to set the root block id. */
     if( FD_UNLIKELY( !reasm_initialized ) ) {
       fd_reasm_fec_t * root = fd_reasm_init( reasm, &rec->cmr, input->root_slot );
       if( FD_UNLIKELY( !root ) ) {
@@ -308,13 +325,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     release_evicted_chain( reasm, evicted );
 
     /* Step 4: fd_reasm_pop() and fd_fec_set_ingest() while there are
-       completed FEC sets remaining.  Only commit the cache slot once
-       reasm has accepted the FEC, so a failed insert does not leave a
-       ghost entry in completed[]. */
-    completed_cnt++;
-
-    /* Drain ready FECs from reasm, record effects, and pass them
-       into sched. */
+       completed FEC sets remaining. */
     fd_reasm_fec_t * popped;
     while( FD_LIKELY( (popped = fd_reasm_pop( reasm )) ) ) {
       /* Query our "store"-adjacent structure (completed) for the FEC
