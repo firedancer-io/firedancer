@@ -92,16 +92,16 @@
 #define FD_RUST_LONG_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 63 ) ))
 
 
-# define FD_VM_INTERP_INSTR_EXEC                                                                 \
-  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
-  instr   = text[ pc ];                  /* Guaranteed in-bounds */                              \
-  opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                      \
-  dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                      \
-  src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                      \
-  offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                 \
-  imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
-  reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
-  reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
+# define FD_VM_INTERP_INSTR_EXEC                                                                                    \
+  if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost; /* Note: untaken branches don't consume BTB */ \
+  instr   = text[ pc ];                  /* Guaranteed in-bounds */                                                 \
+  opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                                         \
+  dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                                         \
+  src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                                         \
+  offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                                    \
+  imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                                        \
+  reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                                                 \
+  reg_src = reg[ src ];                  /* Guaranteed in-bounds */                                                 \
   goto *version_interp_jump_table[ opcode ]      /* Guaranteed in-bounds */
 
 /* FD_VM_INTERP_SYSCALL_EXEC
@@ -230,6 +230,30 @@
   ulong pc0           = pc;
   ulong ic_correction = 0UL;
 
+  /* Compute the text limit for a basic block. This bounds the number
+     of instructions that the basic block can execute linearly.
+
+     There are two factors: the remaining CU budget as of the start of
+     the basic block, and the text_cnt. The tightest bound is the
+     lesser of the two.
+
+     We use 2*(the remaining CU budget) because each LDDW instruction
+     costs 1 CU, but occupies two text words, so in the worst case (a
+     block full of LDDW instructions) the block text limit should be
+     doubled.
+
+     It is safe to not use saturating addition here.  Both addends are
+     bounded far below ULONG_MAX before any block executes:
+
+       pc0 <= text_cnt <= 1310720 (see fd_sbpf_loader.h)
+       cu  <= 1400000             (FD_MAX_COMPUTE_UNIT_LIMIT)
+
+       pc0 + cu + cu + 1 < 1310720 + 1400000 + 1400000 + 1 < ULONG_MAX */
+
+# define FD_VM_INTERP_BLOCK_TEXT_LIMIT fd_ulong_min( text_cnt, pc0+cu+cu+1UL )
+
+  ulong block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT;
+
 # define FD_VM_INTERP_BRANCH_BEGIN(opcode)                                                              \
   interp_##opcode:                                                                                      \
     /* Bill linear text segment and this branch instruction as per the above */                         \
@@ -244,15 +268,17 @@
      instruction implementations do it in their code path. */
 
 # ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~4% faster in some benchmarks, slower in others but more code footprint */
-# define FD_VM_INTERP_BRANCH_END               \
-    pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
+# define FD_VM_INTERP_BRANCH_END                      \
+    pc++;                                             \
+    pc0 = pc; /* Start a new linear segment */        \
+    block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT; \
     FD_VM_INTERP_INSTR_EXEC
 # else /* Use this version when tracing or optimizing code footprint */
-# define FD_VM_INTERP_BRANCH_END               \
-    pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
-    /* FIXME: TEST sigsplit HERE */            \
+# define FD_VM_INTERP_BRANCH_END                      \
+    pc++;                                             \
+    pc0 = pc; /* Start a new linear segment */        \
+    block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT; \
+    /* FIXME: TEST sigsplit HERE */                   \
     goto interp_exec
 # endif
 
@@ -298,7 +324,7 @@ interp_exec:
   /* Note: when tracing or optimizing for code footprint, all
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
-  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext;
+  if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost;
   fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
 # endif
 
@@ -1214,6 +1240,14 @@ interp_exec:
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; \
   cu -= fd_ulong_min( ic_correction, cu )
 
+sigtext_or_sigcost:
+  /* If the block text limit is exceeded, sigtext_or_sigcost will be
+     thrown. This could either be because the pc has exceeded the text
+     section, or we have exhausted our CU budget. The block text limit
+     is used to combine both of these checks into one, primarily for
+     performance reasons. We then disambiguate the scenarios in this
+     signal handler, as hitting either of these cases is rare. */
+  if( pc<text_cnt ) goto sigcost; else goto sigtext;
 sigtext:     err = FD_VM_ERR_EBPF_EXECUTION_OVERRUN;                                     FD_VM_INTERP_FAULT;                    goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT;                             /* ic current */     /* cu current */  goto interp_halt;
 sigstack:    err = FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED;                                   /* ic current */     /* cu current */  goto interp_halt;
@@ -1243,6 +1277,8 @@ interp_halt:
 
 # undef FD_VM_INTERP_BRANCH_END
 # undef FD_VM_INTERP_BRANCH_BEGIN
+
+# undef FD_VM_INTERP_BLOCK_TEXT_LIMIT
 
 # undef FD_VM_INTERP_INSTR_END
 # undef FD_VM_INTERP_INSTR_BEGIN

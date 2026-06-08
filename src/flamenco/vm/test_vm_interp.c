@@ -20,10 +20,12 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
   return 0;
 }
 
-static void
-test_program_exec( char *                test_case_name,
+/* Returns the number of instructions executed */
+static ulong
+test_program_exec( char *                   test_case_name,
                       ulong                 expected_result,
                       int                   expected_err,
+                      ulong                 cu_limit,
                       ulong                 sbpf_version,
                       ulong const *         text,
                       ulong                 text_cnt,
@@ -41,7 +43,7 @@ test_program_exec( char *                test_case_name,
       /* vm                                     */ vm,
       /* instr_ctx                              */ instr_ctx,
       /* heap_max                               */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                               */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* entry_cu                               */ cu_limit,
       /* rodata                                 */ (uchar *)text,
       /* rodata_sz                              */ 8UL*text_cnt,
       /* text                                   */ text,
@@ -103,6 +105,8 @@ test_program_exec( char *                test_case_name,
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
 //FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.ic ));
 //FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.ic / (double) dt)));
+
+  return vm->ic;
 }
 
 
@@ -379,6 +383,78 @@ test_0cu_exit( fd_runtime_t * runtime ) {
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
+static ulong
+build_alu_block( ulong * text,
+                 ulong   n_alu ) {
+  for( ulong i=0UL; i<n_alu; i++ ) text[ i ] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 );
+  text[ n_alu ] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+  return n_alu + 1UL;
+}
+
+static ulong
+build_lddw_block( ulong * text,
+                  ulong   n_lddw ) {
+  for( ulong i=0UL; i<n_lddw; i++ ) {
+    text[ 2UL*i     ] = fd_vm_instr( FD_SBPF_OP_LDDW,     0, 0, 0, 0 );
+    text[ 2UL*i+1UL ] = fd_vm_instr( FD_SBPF_OP_ADDL_IMM, 0, 0, 0, 0 );
+  }
+  text[ 2UL*n_lddw ] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+  return 2UL*n_lddw + 1UL;
+}
+
+/* Tests for the tighter block_text_limit:
+   - If a block fits into the CU budget, it always succeeds. Including
+     when the CU budget is the maximum FD_VM_COMPUTE_UNIT_LIMIT.
+   - A block succeeds when the CU budget is exactly its cost,
+     and fails when the CU budget is one short.
+   - This is the case for LDDW instructions too: each LDDW costs one
+     CU but occupies two text words, so the block_text_limit must be
+     2*(remaining cu budget).
+   - Blocks which have a large amount of instructions but a small amount
+     of remaining CU fail early, instead of scanning to the end. */
+
+static void
+test_block_text_limit( fd_sbpf_syscalls_t *  syscalls,
+                       fd_exec_instr_ctx_t * instr_ctx ) {
+  static ulong text[ 65536 ];
+  ulong        ver      = TEST_VM_DEFAULT_SBPF_VERSION;
+  ulong        text_cnt = 0UL;
+  ulong        ic       = 0UL;
+
+  /* If a block fits into the CU budget, it always succeeds.  Including
+     when the CU budget is the maximum FD_VM_COMPUTE_UNIT_LIMIT. */
+
+  text_cnt = build_alu_block( text, 4999UL ); /* 5000 instructions */
+  test_program_exec( "btl-fits",     0UL, FD_VM_SUCCESS, 5001UL,                   ver, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "btl-fits-max", 0UL, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, ver, text, text_cnt, syscalls, instr_ctx );
+
+  /* A block succeeds when the CU budget is exactly its cost, and fails
+     when the CU budget is one short. */
+
+  ic = test_program_exec( "btl-exact", 0UL, FD_VM_SUCCESS, 5000UL, ver, text, text_cnt, syscalls, instr_ctx );
+  FD_TEST( ic==5000UL );
+  test_program_exec( "btl-short", 0UL, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 4999UL, ver, text, text_cnt, syscalls, instr_ctx );
+
+  /* This is the case for LDDW instructions too: each LDDW costs one CU but
+     occupies two text words, so the block_text_limit must be
+     2*(remaining cu budget). */
+
+  text_cnt = build_lddw_block( text, 4000UL ); /* 4001 instructions, 8001 text words */
+  ic = test_program_exec( "btl-lddw-exact", 0UL, FD_VM_SUCCESS, 4001UL, ver, text, text_cnt, syscalls, instr_ctx );
+  FD_TEST( ic==4001UL );
+  test_program_exec( "btl-lddw-short", 0UL, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 4000UL, ver, text, text_cnt, syscalls, instr_ctx );
+
+  /* Blocks which have a large amount of instructions but a small amount of
+     remaining CU fail early, instead of scanning to the end. */
+
+  text_cnt = build_alu_block( text, 60000UL );
+  ic = test_program_exec( "btl-fail-early", 0UL, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 100UL, ver, text, text_cnt, syscalls, instr_ctx );
+  FD_TEST( ic<=2UL*100UL+2UL ); /* stopped near the limit       */
+  FD_TEST( ic< text_cnt      ); /* did not scan the whole block */
+
+  FD_LOG_NOTICE(( "test_block_text_limit: ok" ));
+}
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -418,19 +494,19 @@ main( int     argc,
 
 # define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do {         \
     ulong _text[ text_cnt ] = { __VA_ARGS__ };                                               \
-    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS,                 \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, \
                           TEST_VM_DEFAULT_SBPF_VERSION, _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
 # define TEST_V3_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
     ulong _text[ text_cnt ] = { __VA_ARGS__ };                                  \
-    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS,    \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, \
                           FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
 # define TEST_V3_ERROR( test_case_name, expected_err, text_cnt, ... ) do {    \
     ulong _text[ text_cnt ] = { __VA_ARGS__ };                                \
-    test_program_exec( (test_case_name), 0UL, (expected_err),              \
+    test_program_exec( (test_case_name), 0UL, (expected_err), FD_VM_COMPUTE_UNIT_LIMIT, \
                           FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
@@ -1838,19 +1914,21 @@ main( int     argc,
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_exec( "alu_bench", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_exec( "alu64_bench", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   text_cnt = 1024UL;
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_exec( "alu_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench_short", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   test_0cu_exit( runtime );
+
+  test_block_text_limit( syscalls, instr_ctx );
 
   free( text );
 
