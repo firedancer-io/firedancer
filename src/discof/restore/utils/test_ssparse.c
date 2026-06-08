@@ -4,8 +4,7 @@
 #include "../../../util/archive/fd_tar.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/fd_system_ids_pp.h"
-
-#include <stdlib.h>
+#include "../../../util/tmpl/fd_unit_test.c"
 
 static uchar tar_buf[ 65536 ];
 
@@ -141,23 +140,22 @@ build_account_header( uchar * hdr,
   hdr[96] = (uchar)executable;
 }
 
-static void
-test_truncated_tar( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing truncated tar" ));
+FD_UNIT_TEST( test_truncated_tar ) {
+  fd_ssparse_t p[1];
   ulong sz;
 
   /* Complete tar stream with EOF blocks. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
 
   /* Missing both EOF blocks. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 0 );
   FD_TEST( feed_all( p, tar_buf, sz )!=FD_SSPARSE_ADVANCE_DONE );
 
   /* Only one zero block (partial EOF). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 0 );
   FD_TEST( sz + 512UL <= sizeof(tar_buf) );
   fd_memset( tar_buf+sz, 0, 512UL );
@@ -165,17 +163,17 @@ test_truncated_tar( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, sz )!=FD_SSPARSE_ADVANCE_DONE );
 
   /* Byte-by-byte feeding (complete). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_bytewise( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
 
   /* Byte-by-byte feeding (missing EOF). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 0 );
   FD_TEST( feed_bytewise( p, tar_buf, sz )!=FD_SSPARSE_ADVANCE_DONE );
 
   /* Byte-by-byte feeding (partial EOF). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 0 );
   FD_TEST( sz + 512UL <= sizeof(tar_buf) );
   fd_memset( tar_buf+sz, 0, 512UL );
@@ -183,20 +181,19 @@ test_truncated_tar( fd_ssparse_t * p ) {
   FD_TEST( feed_bytewise( p, tar_buf, sz )!=FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_tar_header_errors( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing tar header errors" ));
+FD_UNIT_TEST( test_tar_header_errors ) {
+  fd_ssparse_t p[1];
   ulong off;
   fd_ssparse_advance_result_t result[1];
   int res;
 
   /* Bad magic (non-zero, non-ustar). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   fd_memset( tar_buf, 0x41, 512UL ); /* all 'A' bytes */
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Valid tar header after a zero frame. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   fd_memset( tar_buf, 0, 512UL );
   off += 512UL;
@@ -205,90 +202,87 @@ test_tar_header_errors( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Directory entry with non-zero size. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header_typed( tar_buf, "somedir", 100UL, FD_TAR_TYPE_DIR );
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Directory entry with zero size should be skipped. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header_typed( tar_buf, "somedir", 0UL, FD_TAR_TYPE_DIR );
   /* Should return AGAIN (skip), not ERROR */
   res = fd_ssparse_advance( p, tar_buf, 512UL, result );
   FD_TEST( res==FD_SSPARSE_ADVANCE_AGAIN );
 
   /* Unsupported typeflag (symlink). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header_typed( tar_buf, "version", 5UL, FD_TAR_TYPE_SYM_LINK );
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Regular file with zero size. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header( tar_buf, "version", 0UL );
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Unknown file name. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header( tar_buf, "dummy", 10UL );
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 }
 
-static void
-test_version( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing version" ));
+FD_UNIT_TEST( test_version ) {
+  fd_ssparse_t p[1];
   ulong off;
 
   /* Wrong version string. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version", (uchar const *)"2.0.0", 5UL );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Wrong version size (4 bytes). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header( tar_buf, "version", 4UL );
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Wrong version size (6 bytes). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header( tar_buf, "version", 6UL );
   FD_TEST( feed_all( p, tar_buf, 512UL )==FD_SSPARSE_ADVANCE_ERROR );
 }
 
-static void
-test_duplicates( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing duplicates" ));
+FD_UNIT_TEST( test_duplicates ) {
+  fd_ssparse_t p[1];
   ulong off;
 
   /* Duplicate version. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version", (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version", (uchar const *)"1.2.0", 5UL );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Duplicate manifest. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB", 1UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/200", (uchar const *)"\xAB", 1UL );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Duplicate status cache. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD", 1UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD", 1UL );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 }
 
-static void
-test_ordering( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing ordering" ));
+FD_UNIT_TEST( test_ordering ) {
+  fd_ssparse_t p[1];
   ulong off;
   uchar acc_content[136+8];
 
   /* Accounts before manifest. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version", (uchar const *)"1.2.0", 5UL );
   build_account_header( acc_content, 8UL, 0 );
@@ -297,7 +291,7 @@ test_ordering( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Premature EOF: missing version. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB", 1UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD", 1UL );
@@ -305,7 +299,7 @@ test_ordering( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Premature EOF: missing manifest. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
@@ -313,7 +307,7 @@ test_ordering( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Premature EOF: missing status_cache. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -321,7 +315,7 @@ test_ordering( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Valid ordering: manifest -> version -> status_cache. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
@@ -330,7 +324,7 @@ test_ordering( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 
   /* Valid ordering: status_cache -> manifest -> version. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
@@ -339,17 +333,13 @@ test_ordering( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_account_header( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing account header" ));
+FD_UNIT_TEST( test_account_header ) {
+  fd_ssparse_t p[1];
   ulong off;
-  ulong slots[2], ids[2], fsz[2];
   uchar acc[512];
 
   /* Account with data_len exceeding FD_RUNTIME_ACC_SZ_MAX. */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = 136UL + 8UL;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -359,9 +349,7 @@ test_account_header( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Account with invalid executable flag. */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = 136UL + 8UL;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -372,12 +360,9 @@ test_account_header( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Account with executable = 0 and 1 (both valid). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   ulong fsz0 = 136UL + 4UL;
   ulong fsz1 = 136UL + 4UL;
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = fsz0;
-  slots[1] = 0UL; ids[1] = 1UL; fsz[1] = fsz1;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 2UL )==0 );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -396,82 +381,17 @@ test_account_header( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_acc_vec_map( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing acc vec map" ));
+FD_UNIT_TEST( test_account_data ) {
+  fd_ssparse_t p[1];
   ulong off;
-  ulong slots[2], ids[2], fsz[2];
-  uchar acc[512];
-
-  /* acc_vec_map is empty, allow any AppendVec */
-  fd_ssparse_reset( p );
-  off = 0UL;
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
-  fd_memset( acc, 0, sizeof(acc) );
-  build_account_header( acc, 8UL, 0 );
-  fd_memset( acc+136, 0, 8UL );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/99.99", acc, 136UL + 8UL );
-  FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ACCOUNT_DATA );
-
-  /* Account file not in acc_vec_map. */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = 2000UL;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
-  off = 0UL;
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
-  fd_memset( acc, 0, sizeof(acc) );
-  build_account_header( acc, 8UL, 0 );
-  fd_memset( acc+136, 0, 8UL );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/99.99", acc, 136UL + 8UL );
-  FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
-
-  /* acc_vec file_sz > tar file_bytes. */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = 2000UL;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
-  off = 0UL;
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
-  fd_memset( acc, 0, sizeof(acc) );
-  build_account_header( acc, 8UL, 0 );
-  fd_memset( acc+136, 0, 8UL );
-  /* Tar entry says only 200 bytes, but acc_vec says 2000. */
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/0.0", acc, 200UL );
-  FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
-
-  /* Invalid account name (no dot). */
-  fd_ssparse_reset( p );
-  off = 0UL;
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
-  fd_memset( acc, 0, sizeof(acc) );
-  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/100", acc, 144UL );
-  FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
-
-  /* Duplicate key in populate. */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = 144UL;
-  slots[1] = 0UL; ids[1] = 0UL; fsz[1] = 144UL; /* duplicate (0,0) */
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 2UL )==-1 );
-}
-
-static void
-test_account_data( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing account data" ));
-  ulong off;
-  ulong slots[1], ids[1], fsz[1];
   uchar acc[512];
 
   /* Complete snapshot with one account (acc_vec_bytes < tar file_bytes,
      producing garbage region). */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   ulong data_len   = 16UL;
   ulong acc_vec_sz = 136UL + data_len;
   ulong tar_sz     = acc_vec_sz + 48UL; /* 48 bytes of garbage at end */
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = acc_vec_sz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -485,10 +405,8 @@ test_account_data( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 
   /* Account with zero data_len. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   acc_vec_sz = 136UL; /* header only, no data */
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = acc_vec_sz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -500,42 +418,39 @@ test_account_data( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_reset( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing reset" ));
+FD_UNIT_TEST( test_reset ) {
+  fd_ssparse_t p[1];
   ulong off;
   ulong sz;
 
   /* Parse, reset, parse again. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
 
   /* Mid-stream reset. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version", (uchar const *)"1.2.0", 5UL );
   feed_all( p, tar_buf, off );
   /* Reset mid-stream and parse a fresh complete snapshot. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_fragmentation( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing fragmentation" ));
+FD_UNIT_TEST( test_fragmentation ) {
+  fd_ssparse_t p[1];
   ulong off;
   ulong sz;
-  ulong slots[1], ids[1], fsz[1];
   uchar acc[256];
   fd_ssparse_advance_result_t result[1];
   int res;
 
   /* Feed tar header in two halves. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   res = fd_ssparse_advance( p, tar_buf, 256UL, result );
   FD_TEST( res==FD_SSPARSE_ADVANCE_AGAIN );
@@ -544,11 +459,9 @@ test_fragmentation( fd_ssparse_t * p ) {
   FD_TEST( res==FD_SSPARSE_ADVANCE_DONE );
 
   /* Feed entire snapshot byte-by-byte with accounts. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   ulong data_len   = 8UL;
   ulong acc_vec_sz = 136UL + data_len;
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = acc_vec_sz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -561,16 +474,15 @@ test_fragmentation( fd_ssparse_t * p ) {
   FD_TEST( feed_bytewise( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_advance_after_done( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing advance after done" ));
+FD_UNIT_TEST( test_advance_after_done ) {
+  fd_ssparse_t p[1];
   ulong sz;
   uchar extra[512];
   fd_ssparse_advance_result_t result[1];
   int res;
 
   /* Feed zeros after DONE. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
   fd_memset( extra, 0, sizeof(extra) );
@@ -578,7 +490,7 @@ test_advance_after_done( fd_ssparse_t * p ) {
   FD_TEST( res==FD_SSPARSE_ADVANCE_DONE );
 
   /* Feed valid header after DONE. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
   write_tar_header( extra, "version", 5UL );
@@ -586,7 +498,7 @@ test_advance_after_done( fd_ssparse_t * p ) {
   FD_TEST( res==FD_SSPARSE_ADVANCE_ERROR );
 
   /* Feed garbage after DONE. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   sz = build_minimal_snapshot( tar_buf, sizeof(tar_buf), 1 );
   FD_TEST( feed_all( p, tar_buf, sz )==FD_SSPARSE_ADVANCE_DONE );
   fd_memset( extra, 0x41, sizeof(extra) );
@@ -594,16 +506,14 @@ test_advance_after_done( fd_ssparse_t * p ) {
   FD_TEST( res==FD_SSPARSE_ADVANCE_ERROR );
 }
 
-static void
-test_truncation_mid_content( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing truncation mid content" ));
+FD_UNIT_TEST( test_truncation_mid_content ) {
+  fd_ssparse_t p[1];
   ulong off;
-  ulong slots[1], ids[1], fsz[1];
   uchar acc[136+32];
   int res;
 
   /* Truncated mid-version. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header( tar_buf, "version", 5UL );
   fd_memcpy( tar_buf+512, "1.2", 3UL );
   res = feed_all( p, tar_buf, 512UL + 3UL );
@@ -611,7 +521,7 @@ test_truncation_mid_content( fd_ssparse_t * p ) {
   FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
 
   /* Truncated mid-manifest */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version", (uchar const *)"1.2.0", 5UL );
   write_tar_header( tar_buf+off, "snapshots/100", 100UL );
@@ -622,11 +532,9 @@ test_truncation_mid_content( fd_ssparse_t * p ) {
   FD_TEST( res!=FD_SSPARSE_ADVANCE_DONE );
 
   /* Truncated mid-account-data. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   ulong data_len   = 64UL;
   ulong acc_vec_sz = 136UL + data_len;
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = acc_vec_sz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -643,7 +551,7 @@ test_truncation_mid_content( fd_ssparse_t * p ) {
   FD_TEST( res!=FD_SSPARSE_ADVANCE_DONE );
 
   /* Truncated mid-status-cache. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -655,25 +563,22 @@ test_truncation_mid_content( fd_ssparse_t * p ) {
   FD_TEST( res!=FD_SSPARSE_ADVANCE_DONE );
 
   /* Truncated mid-tar-header. */
-  fd_ssparse_reset( p );
+  fd_ssparse_init( p );
   write_tar_header( tar_buf, "version", 5UL );
   res = feed_all( p, tar_buf, 256UL );
   FD_TEST( res!=FD_SSPARSE_ADVANCE_DONE );
   FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
 }
 
-static void
-test_multi_account_non_aligned( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing multi account non aligned" ));
-
+FD_UNIT_TEST( test_multi_account_non_aligned ) {
   /* Two accounts in one acc_vec with non-8-aligned data_len.
      Exercises advance_account_padding with real padding bytes
      and the PADDING -> ACCOUNT_HEADER loop. */
+  fd_ssparse_t p[1];
   ulong dl1  = 5UL, dl2 = 3UL;
   ulong a1   = fd_ulong_align_up( 136UL+dl1, 8UL ); /* 144 */
   ulong avsz = a1 + 136UL + dl2;                     /* 283 */
   ulong off;
-  ulong slots[1], ids[1], fsz[1];
 
   uchar acc[512];
   fd_memset( acc, 0, sizeof(acc) );
@@ -689,30 +594,20 @@ test_multi_account_non_aligned( fd_ssparse_t * p ) {
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
   off = append_eof( tar_buf, sizeof(tar_buf), off );
 
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = avsz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
+  fd_ssparse_init( p );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = avsz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
+  fd_ssparse_init( p );
   FD_TEST( feed_bytewise( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_account_garbage_partial_header( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing account garbage partial header" ));
-
+FD_UNIT_TEST( test_account_garbage_partial_header ) {
   /* acc_vec_bytes extends into a partial second header, with garbage
      bytes beyond.  Exercises SCROLL_ACCOUNT_GARBAGE via partial header
      path in advance_account_header. */
-  fd_ssparse_reset( p );
+  fd_ssparse_t p[1];
   ulong acc_vec_sz = 136UL + 8UL + 4UL; /* 1 account (144) + 4 partial header bytes */
   ulong tar_sz     = acc_vec_sz + 52UL;  /* plus garbage */
-  ulong slots[1], ids[1], fsz[1];
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = acc_vec_sz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
 
   uchar acc[256];
   fd_memset( acc, 0, sizeof(acc) );
@@ -725,20 +620,15 @@ test_account_garbage_partial_header( fd_ssparse_t * p ) {
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/0.0",           acc, tar_sz );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
   off = append_eof( tar_buf, sizeof(tar_buf), off );
+  fd_ssparse_init( p );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 }
 
-static void
-test_account_data_overflow( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing account data overflow" ));
-
+FD_UNIT_TEST( test_account_data_overflow ) {
   /* Account header claims data_len=16 but acc_vec only has 8 bytes of
      room for data.  Exercises error in advance_account_data. */
-  fd_ssparse_reset( p );
+  fd_ssparse_t p[1];
   ulong acc_vec_sz = 136UL + 8UL;
-  ulong slots[1], ids[1], fsz[1];
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = acc_vec_sz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
 
   uchar acc[256];
   fd_memset( acc, 0, sizeof(acc) );
@@ -749,23 +639,19 @@ test_account_data_overflow( fd_ssparse_t * p ) {
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/0.0",  acc, acc_vec_sz );
+  fd_ssparse_init( p );
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ERROR );
 }
 
-static void
-test_batch( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing batch" ));
-
+FD_UNIT_TEST( test_batch ) {
+  fd_ssparse_t p[1];
   ulong n    = FD_SSPARSE_ACC_BATCH_MAX; /* 8 */
   ulong avsz = n * 136UL;               /* 1088 */
   ulong off;
-  ulong slots[1], ids[1], fsz[1];
   uchar acc[1088];
 
   /* Successful batch with 8 zero-data accounts. */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = avsz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
+  fd_ssparse_init( p );
   fd_ssparse_batch_enable( p, 1 );
   fd_memset( acc, 0, sizeof(acc) );
   for( ulong i=0; i<n; i++ ) build_account_header( acc+i*136UL, 0UL, 0 );
@@ -778,9 +664,7 @@ test_batch( fd_ssparse_t * p ) {
   FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_DONE );
 
   /* ConfigProgram-owned account at front aborts batch (slow path). */
-  fd_ssparse_reset( p );
-  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = avsz;
-  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
+  fd_ssparse_init( p );
   fd_ssparse_batch_enable( p, 1 );
   fd_memset( acc, 0, sizeof(acc) );
   for( ulong i=0; i<n; i++ ) build_account_header( acc+i*136UL, 0UL, 0 );
@@ -797,10 +681,8 @@ test_batch( fd_ssparse_t * p ) {
   fd_ssparse_batch_enable( p, 0 );
 }
 
-static void
-test_parse_name_edge_cases( fd_ssparse_t * p ) {
-  FD_LOG_NOTICE(( "testing parse name edge cases" ));
-
+FD_UNIT_TEST( test_parse_name_edge_cases ) {
+  fd_ssparse_t p[1];
   uchar dummy[256];
   fd_memset( dummy, 0, sizeof(dummy) );
 
@@ -813,7 +695,7 @@ test_parse_name_edge_cases( fd_ssparse_t * p ) {
 
   ulong off;
   for( ulong i=0; i<4UL; i++ ) {
-    fd_ssparse_reset( p );
+    fd_ssparse_init( p );
     off = 0UL;
     off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
     off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
@@ -827,31 +709,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  void * parser_mem = aligned_alloc( fd_ssparse_align(), fd_ssparse_footprint( 64UL ) );
-  FD_TEST( parser_mem );
+  fd_unit_tests( argc, argv );
 
-  fd_ssparse_t * p = fd_ssparse_join( fd_ssparse_new( parser_mem, 64UL, 42UL ) );
-  FD_TEST( p );
-
-  test_truncated_tar( p );
-  test_tar_header_errors( p );
-  test_version( p );
-  test_duplicates( p );
-  test_ordering( p );
-  test_account_header( p );
-  test_acc_vec_map( p );
-  test_account_data( p );
-  test_reset( p );
-  test_fragmentation( p );
-  test_advance_after_done( p );
-  test_truncation_mid_content( p );
-  test_multi_account_non_aligned( p );
-  test_account_garbage_partial_header( p );
-  test_account_data_overflow( p );
-  test_batch( p );
-  test_parse_name_edge_cases( p );
-
-  free( fd_ssparse_delete( fd_ssparse_leave( p ) ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

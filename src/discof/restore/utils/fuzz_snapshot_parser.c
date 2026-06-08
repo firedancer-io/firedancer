@@ -9,8 +9,6 @@
 
 #define MAX_ACC_VEC_CNT (64UL)
 
-static void * parser_mem;
-
 int
 LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
@@ -21,10 +19,6 @@ LLVMFuzzerInitialize( int  *   argc,
   atexit( fd_halt );
   fd_log_level_core_set   ( 4 );
   fd_log_level_logfile_set( 4 );
-
-  parser_mem = aligned_alloc( fd_ssparse_align(), fd_ssparse_footprint( 1024UL ) );
-  assert( parser_mem );
-
   return 0;
 }
 
@@ -301,10 +295,8 @@ end:
 int
 LLVMFuzzerTestOneInput( uchar const * const data,
                         ulong         const size ) {
-  fd_ssparse_t * parser = fd_ssparse_new( parser_mem, 1024UL, 42UL );
-  assert( parser );
-
-  fd_ssparse_reset( parser );
+  fd_ssparse_t ssparse[1];
+  fd_ssparse_init( ssparse );
 
   if( FD_UNLIKELY( size<sizeof(ulong) ) ) return -1;
   ulong acc_vec_cnt = *(ulong *)data;
@@ -312,17 +304,6 @@ LLVMFuzzerTestOneInput( uchar const * const data,
 
   ulong offset_to_padding = 8UL + 24UL*acc_vec_cnt;
   if( FD_UNLIKELY( size<offset_to_padding ) ) return -1;
-
-  ulong slots[ MAX_ACC_VEC_CNT ];
-  ulong ids[ MAX_ACC_VEC_CNT ];
-  ulong file_szs[ MAX_ACC_VEC_CNT ];
-  for( ulong i=0UL; i<acc_vec_cnt; i++ ) {
-    slots[ i ]    = *(ulong *)(data+8UL+24UL*i);
-    ids[ i ]      = *(ulong *)(data+8UL+24UL*i+8UL);
-    file_szs[ i ] = *(ulong *)(data+8UL+24UL*i+16UL);
-  }
-
-  if( FD_UNLIKELY( fd_ssparse_populate_acc_vec_map( parser, slots, ids, file_szs, acc_vec_cnt ) ) ) return -1;
 
   ulong offset_to_input = fd_ulong_align_up( offset_to_padding, 512UL );
   if( FD_UNLIKELY( size<offset_to_input ) ) return -1;
@@ -332,7 +313,7 @@ LLVMFuzzerTestOneInput( uchar const * const data,
   uchar const * data_ptr = data + offset_to_input;
   ulong         data_sz  = size - offset_to_input;
   for (;;) {
-    int res = fd_ssparse_advance( parser, data_ptr, data_sz, result );
+    int res = fd_ssparse_advance( ssparse, data_ptr, data_sz, result );
     if( res==FD_SSPARSE_ADVANCE_DONE || res==FD_SSPARSE_ADVANCE_ERROR ) break;
     data_ptr += result->bytes_consumed;
     data_sz  -= result->bytes_consumed;

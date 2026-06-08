@@ -41,7 +41,7 @@ struct fd_snapwr_tile {
 
   ulong seed;
 
-  fd_ssparse_t * ssparse;
+  fd_ssparse_t ssparse[1];
   fd_ssmanifest_parser_t * manifest_parser;
 
   struct {
@@ -87,7 +87,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapwr_tile_t),    sizeof(fd_snapwr_tile_t)         );
-  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24 )  );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
   l = FD_LAYOUT_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ           );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -209,9 +208,7 @@ handle_data_frag( fd_snapwr_tile_t *  ctx,
         case FD_SSPARSE_ADVANCE_MANIFEST_DONE: {
           int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
                                                 result->manifest.data,
-                                                result->manifest.data_sz,
-                                                result->manifest.acc_vec_map,
-                                                result->manifest.acc_vec_pool );
+                                                result->manifest.data_sz );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
           FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
@@ -267,7 +264,7 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      fd_ssparse_reset( ctx->ssparse );
+      fd_ssparse_init( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -407,7 +404,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapwr_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapwr_tile_t),    sizeof(fd_snapwr_tile_t)          );
-  void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24UL ) );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint()  );
   void * _write_buf       = FD_SCRATCH_ALLOC_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ            );
 
@@ -422,10 +418,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->write_buf       = _write_buf;
   ctx->write_buf_used  = 0UL;
 
-  ctx->ssparse = fd_ssparse_new( _ssparse, 1UL<<24UL, ctx->seed );
-  FD_TEST( ctx->ssparse );
-  fd_ssparse_batch_enable( ctx->ssparse, 0 );
-
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );
 
@@ -435,7 +427,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ct_out = out1( topo, tile, "snapwr_ct" );
   if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapwr_ct`" ));
 
-  fd_ssparse_reset( ctx->ssparse );
+  fd_ssparse_init( ctx->ssparse );
+  fd_ssparse_batch_enable( ctx->ssparse, 0 );
   fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];

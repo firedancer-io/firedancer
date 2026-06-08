@@ -408,7 +408,6 @@ struct fd_ssmanifest_parser_private {
   ulong   account_data_start;
 
   ulong acc_vec_slot;
-  ulong acc_vec_id;
   ulong acc_vec_file_sz;
 
   ulong seed;
@@ -1053,7 +1052,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_ACCOUNTS_DB_STORAGES_LENGTH:                                                                   return (uchar*)&parser->length1;
     case STATE_ACCOUNTS_DB_STORAGES_SLOT:                                                                     return (uchar*)&parser->acc_vec_slot;
     case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH:                                                      return (uchar*)&parser->length2;
-    case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_ID:                                                          return (uchar*)&parser->acc_vec_id;
+    case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_ID:                                                          return NULL;
     case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ:                                                     return (uchar*)&parser->acc_vec_file_sz;
     case STATE_ACCOUNTS_DB_STORAGES_DUMMY:                                                                    return NULL;
     case STATE_ACCOUNTS_DB_VERSION:                                                                           return NULL;
@@ -1711,33 +1710,12 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
 }
 
 static inline int
-state_process( fd_ssmanifest_parser_t * parser,
-               acc_vec_map_t *          acc_vec_map,
-               acc_vec_t *              acc_vec_pool ) {
+state_process( fd_ssmanifest_parser_t * parser ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   if( FD_UNLIKELY( parser->state==STATE_DONE ) ) {
     FD_LOG_WARNING(( "manifest parser re-entered after completion" ));
     return -1;
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ && acc_vec_map && acc_vec_pool ) ) {
-    if( FD_UNLIKELY( !acc_vec_pool_free( acc_vec_pool ) ) ) {
-      FD_LOG_WARNING(( "acc_vec_pool is full, cannot insert new account vec" ));
-      return -1;
-    }
-
-    acc_vec_key_t key = { .slot=parser->acc_vec_slot, .id=parser->acc_vec_id };
-    if( FD_UNLIKELY( acc_vec_map_ele_query( acc_vec_map, &key, NULL, acc_vec_pool ) ) ) {
-      FD_LOG_WARNING(( "duplicate account vec with slot %lu and id %lu", parser->acc_vec_slot, parser->acc_vec_id ));
-      return -1;
-    }
-
-    acc_vec_t * acc_vec = acc_vec_pool_ele_acquire( acc_vec_pool );
-    acc_vec->key.id = parser->acc_vec_id;
-    acc_vec->key.slot = parser->acc_vec_slot;
-    acc_vec->file_sz = parser->acc_vec_file_sz;
-    acc_vec_map_ele_insert( acc_vec_map, acc_vec, acc_vec_pool );
   }
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_SCHEDULE_FIRST_NORMAL_SLOT ) ) {
@@ -2064,9 +2042,7 @@ state_is_optional_extras_field( fd_ssmanifest_parser_t * parser ) {
 int
 fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
-                              ulong                    bufsz,
-                              acc_vec_map_t *          acc_vec_map,
-                              acc_vec_t *              acc_vec_pool ) {
+                              ulong                    bufsz ) {
 #if SSMANIFEST_DEBUG
   int state = parser->state;
 #endif
@@ -2100,7 +2076,7 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
         FD_LOG_WARNING(("state_validate failed"));
         return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
       }
-      if( FD_UNLIKELY( -1==state_process( parser, acc_vec_map, acc_vec_pool ) ) ) {
+      if( FD_UNLIKELY( -1==state_process( parser ) ) ) {
         FD_LOG_WARNING(("state_process failed"));
         return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
       }
