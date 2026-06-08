@@ -559,6 +559,87 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     bank->f.total_epoch_stake += stake;
   }
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
+
+  /* Handle the case where VAT has just been activated.  In this case,
+     we need to move the vote stakes for t-1 to t-2, but we don't need
+     to add any t-1 stakes in.
+
+     The VAT branch is taken as soon as the feature is active
+     (FD_FEATURE_ACTIVE_BANK, i.e. epoch>=vat_epoch), but the clock
+     (accum_vote_stakes_no_vat) and the current-epoch leader schedule
+     (fd_stake_weights_by_node with vat_enabled==0) only switch from the
+     vote stakes structure to the top votes structure at vat_epoch+1.
+     So during the single activation epoch (epoch==vat_epoch) those
+     consumers still read the vote stakes t-2 snapshot, which must hold
+     the unfiltered end-of-(vat_epoch-2) stakes -- this matches Agave's
+     epoch_stakes[vat_epoch], which was built one epoch before VAT and is
+     therefore NOT VAT filtered.
+
+     The VAT branch above does not create a new vote stakes child, so the
+     t-1 -> t-2 shift that normally happens at an epoch boundary never
+     occurs for this epoch; without this the consumers would read a full
+     epoch stale t-2 (end of vat_epoch-3).  Create the child here and
+     shift the parent fork's t-1 into the child's t-2.  t-1 is left empty:
+     at vat_epoch the syscall and next-epoch leader schedule read
+     top_votes_t_1 (the feature is active), and from vat_epoch+1 on this
+     fork is only queried for its t-2 (the t-3 commission fallback), so
+     its t-1 is never read. */
+  if( FD_UNLIKELY( bank->f.epoch==vat_epoch ) ) {
+
+    /* Collect the parent fork's accounts so they can be re-queried for
+       their t-1 once the fork iterator (which holds a write lock) has
+       been released.  stake_accum_map already holds the delegated
+       accounts from the accumulation loop above; accounts only present
+       in the parent fork (e.g. currently zero-staked vote accounts that
+       were staked at the end of vat_epoch-2) are added here so their
+       t-2 is not dropped from the clock/leader-schedule stake set. */
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) vs_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vote_stakes, parent_idx, vs_iter_mem );
+         !fd_vote_stakes_fork_iter_done( vote_stakes, parent_idx, vs_iter );
+         fd_vote_stakes_fork_iter_next( vote_stakes, parent_idx, vs_iter ) ) {
+      fd_pubkey_t vs_pubkey;
+      fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+      if( FD_UNLIKELY( !fd_stake_accum_map_ele_query( stake_accum_map, &vs_pubkey, NULL, stake_accum_pool ) ) ) {
+        if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+          FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
+        }
+        fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+        sa->pubkey = vs_pubkey;
+        sa->stake  = 0UL;
+        fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
+        staked_accounts++;
+      }
+    }
+    fd_vote_stakes_fork_iter_fini( vote_stakes );
+
+    ushort vs_child_idx       = fd_vote_stakes_new_child( vote_stakes );
+    bank->vote_stakes_fork_id = vs_child_idx;
+
+    for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
+         !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
+         iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
+      fd_stake_accum_t * stake_accum = fd_stake_accum_map_iter_ele( iter, stake_accum_map, stake_accum_pool );
+
+      /* Shift the parent fork's t-1 into this child's t-2.  Accounts not
+         present in the parent's t-1 are not part of end-of-(vat_epoch-2)
+         and are skipped. */
+      fd_pubkey_t node_account_t_2 = {0};
+      ulong       stake_t_2        = 0UL;
+      ushort      commission_t_2   = 0;
+      if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 ) ) ) {
+        continue;
+      }
+
+      fd_pubkey_t node_account_t_1 = {0};
+      fd_vote_stakes_insert(
+          vote_stakes, vs_child_idx, &stake_accum->pubkey,
+          &node_account_t_1, &node_account_t_2,
+          0UL, stake_t_2,
+          0, commission_t_2,
+          0, 1,
+          bank->f.epoch );
+    }
+  }
 }
 
 static void
