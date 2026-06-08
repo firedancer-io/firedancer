@@ -1,7 +1,6 @@
 #include "fd_solfuzz.h"
 #include "fd_solfuzz_private.h"
 #include "fd_sol_compat.h"
-#include "../../capture/fd_solcap_writer.h"
 #include "fd_gossip_harness.h"
 #include "fd_cost_harness.h"
 
@@ -21,45 +20,6 @@
 
 static fd_wksp_t *           wksp   = NULL;
 static fd_solfuzz_runner_t * runner = NULL;
-
-static fd_solfuzz_runner_t *
-sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
-  runner = fd_solfuzz_runner_new( wksp, 3UL, options );
-  if( FD_UNLIKELY( !runner ) ) {
-    FD_LOG_ERR(( "fd_solfuzz_runner_new() failed" ));
-    return NULL;
-  }
-
-  char const * solcap_path = getenv( "FD_SOLCAP" );
-  if( solcap_path ) {
-    int fd = open( solcap_path, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
-    if( FD_UNLIKELY( fd == -1 ) ) {
-      FD_LOG_ERR(( "open($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
-    }
-    runner->solcap_file = (void *)(ulong)fd;
-    FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
-
-    void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
-    runner->solcap = fd_solcap_writer_init( solcap_mem, fd );
-    FD_TEST( runner->solcap );
-  }
-
-  return runner;
-}
-
-static void
-sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
-  /* Cleanup test runner */
-  if( runner->solcap ) {
-    fd_wksp_free_laddr( ( runner->solcap ) );
-    runner->solcap = NULL;
-    if( runner->solcap_file ) {
-      close( (int)(ulong)runner->solcap_file );
-      runner->solcap_file = NULL;
-    }
-  }
-  fd_solfuzz_runner_delete( runner );
-}
 
 void
 sol_compat_init( int log_level ) {
@@ -89,8 +49,8 @@ sol_compat_init( int log_level ) {
   wksp = fd_wksp_demand_paged_new( "sol_compat", 42U, part_max, data_max );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_demand_paged_new() failed" ));
 
-  runner = sol_compat_setup_runner( &options );
-  if( FD_UNLIKELY( !runner ) ) FD_LOG_ERR(( "sol_compat_setup_runner() failed" ));
+  runner = fd_solfuzz_runner_new( wksp, 3UL, &options );
+  if( FD_UNLIKELY( !runner ) ) FD_LOG_ERR(( "fd_solfuzz_runner_new() failed" ));
 
   fd_log_level_logfile_set( log_level );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
@@ -98,7 +58,7 @@ sol_compat_init( int log_level ) {
 
 void
 sol_compat_fini( void ) {
-  sol_compat_cleanup_runner( runner );
+  fd_solfuzz_runner_delete( runner );
   fd_wksp_delete_anonymous( wksp );
   wksp   = NULL;
   runner = NULL;

@@ -14,8 +14,6 @@
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
 #include "generated/block.pb.h"
-#include "../../capture/fd_capture_ctx.h"
-#include "../../capture/fd_solcap_writer.h"
 
 /* Templatized leader schedule sort helper functions */
 typedef struct {
@@ -349,42 +347,15 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
-    fd_capture_ctx_t * capture_ctx = NULL;
-
-    if( runner->solcap ) {
-      void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
-      capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
-      if( FD_UNLIKELY( !capture_ctx ) ) {
-        FD_LOG_ERR(( "Failed to initialize capture_ctx" ));
-      }
-
-      fd_capture_link_file_t * capture_link_file =
-        fd_spad_alloc( runner->spad, alignof(fd_capture_link_file_t), sizeof(fd_capture_link_file_t) );
-      if( FD_UNLIKELY( !capture_link_file ) ) {
-        FD_LOG_ERR(( "Failed to allocate capture_link_file" ));
-      }
-
-      capture_link_file->base.vt = &fd_capture_link_file_vt;
-
-      int solcap_fd = (int)(ulong)runner->solcap_file;
-      capture_link_file->fd          = solcap_fd;
-      capture_ctx->capture_link      = &capture_link_file->base;
-      capture_ctx->capctx_type.file  = capture_link_file;
-      capture_ctx->solcap_start_slot = runner->bank->f.slot;
-      capture_ctx->capture_solcap    = 1;
-
-      fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
-    }
-
     /* TODO: Make sure this is able to work with booting up inside
        the partitioned epoch rewards distribution phase. */
     fd_funk_txn_xid_t xid = fd_bank_xid( runner->bank );
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, NULL );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_execute_prepare( runner->banks, runner->bank, runner->accdb, runner->runtime_stack, capture_ctx, &is_epoch_boundary );
+    fd_runtime_block_execute_prepare( runner->banks, runner->bank, runner->accdb, runner->runtime_stack, NULL, &is_epoch_boundary );
 
     /* Sequential transaction execution.  Continue processing
        transactions even if a prior one was uncommitable. */
@@ -422,7 +393,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
        updated in the blockhash queue. */
     runner->bank->f.poh = *poh;
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, NULL );
 
     return !has_err;
   } FD_SPAD_FRAME_END;
