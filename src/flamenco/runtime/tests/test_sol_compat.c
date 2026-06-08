@@ -31,6 +31,7 @@ static uint shutdown_signal __attribute__((aligned(64)));
 #define FIXTURE_TYPE_PB_BLOCK      0x04
 #define FIXTURE_TYPE_PB_ELF_LOADER 0x05
 #define FIXTURE_TYPE_PB_BUNDLE     0x06
+#define FIXTURE_TYPE_PB_SHRED      0x07
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
@@ -68,6 +69,7 @@ run_test1( fd_solfuzz_runner_t * runner,
     else if( strstr( path, "/syscall/fixtures/"       ) ) type = FIXTURE_TYPE_PB_SYSCALL;
     else if( strstr( path, "/block/fixtures/"         ) ) type = FIXTURE_TYPE_PB_BLOCK;
     else if( strstr( path, "/bundle/fixtures/"        ) ) type = FIXTURE_TYPE_PB_BUNDLE;
+    else if( strstr( path, "/shred/fixtures/"         ) ) type = FIXTURE_TYPE_PB_SHRED;
     else {
       FD_LOG_WARNING(( "Unsupported test type: %s", path ));
       return 0;
@@ -92,6 +94,9 @@ run_test1( fd_solfuzz_runner_t * runner,
     break;
   case FIXTURE_TYPE_PB_BUNDLE:
     ok = fd_solfuzz_pb_bundle_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_SHRED:
+    ok = fd_solfuzz_pb_shred_fixture( runner, buf, file_sz );
     break;
   default:
     FD_LOG_CRIT(( "unsupported fixture type" ));
@@ -434,7 +439,7 @@ main( int     argc,
         "  --wksp         [file path]               Reuse existing workspace\n"
         "  --wksp-tag     1                         Workspace allocation tag\n"
         "  --fail-fast    1                         Stop executing after first failure?\n"
-        "  --type         pb_{instr,txn,bundle,elf_loader,syscall,block}\n"
+        "  --type         pb_{instr,txn,bundle,elf_loader,syscall,block,shred}\n"
         "\n",
         stderr );
     return 0;
@@ -510,6 +515,7 @@ main( int     argc,
     else if( 0==strcmp( type_str, "pb_syscall"    ) ) g_type_override = FIXTURE_TYPE_PB_SYSCALL;
     else if( 0==strcmp( type_str, "pb_block"      ) ) g_type_override = FIXTURE_TYPE_PB_BLOCK;
     else if( 0==strcmp( type_str, "pb_bundle"     ) ) g_type_override = FIXTURE_TYPE_PB_BUNDLE;
+    else if( 0==strcmp( type_str, "pb_shred"      ) ) g_type_override = FIXTURE_TYPE_PB_SHRED;
     else if( FD_UNLIKELY( type_str ) ) {
       FD_LOG_ERR(( "Unsupported --type %s", type_str ));
     }
