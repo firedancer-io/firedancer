@@ -5,7 +5,6 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -86,7 +85,7 @@ typedef struct test_parser test_parser_t;
 static void
 parse_advance( test_parser_t * p,
                ulong           n ) {
-  assert( p->cur+n <= p->end );
+  FD_TEST( p->cur+n <= p->end );
   for( ulong i=0UL; i<n; i++ ) {
     if( p->cur[i]=='\n' ) {
       p->line++;
@@ -133,7 +132,7 @@ parse_hex_buf( test_parser_t * p,
   }
 
   uchar * buf = malloc( sz );
-  assert( buf );
+  FD_TEST( buf );
 
   /* Second pass: Deserialize */
 
@@ -276,7 +275,7 @@ parse_token( test_parser_t *  p,
 
     parse_assign_sep( p );
     ulong op = parse_hex_int( p );
-    assert( op <= UCHAR_MAX );
+    FD_TEST( op <= UCHAR_MAX );
     p->input.op = (uchar)op;
 
   } else if( 0==strncmp( word, "dst", word_len ) ) {
@@ -295,7 +294,7 @@ parse_token( test_parser_t *  p,
 
     parse_assign_sep( p );
     ulong off = parse_hex_int( p );
-    assert( off <= USHORT_MAX );
+    FD_TEST( off <= USHORT_MAX );
     p->input.off = (ushort)off;
 
   } else if( 0==strncmp( word, "imm", word_len ) ) {
@@ -324,7 +323,7 @@ parse_token( test_parser_t *  p,
   } else if( word_len >= 2 && word[0] == 'r' && fd_isdigit( word[1] ) ) {
 
     ulong reg = fd_cstr_to_uchar( word+1 );
-    assert( reg < REG_CNT );
+    FD_TEST( reg < REG_CNT );
     parse_assign_sep( p );
 
     ulong * out = p->state == PARSE_STATE_ASSERT ? p->effects.reg : p->input.reg;
@@ -403,7 +402,7 @@ run_input( test_input_t const * input,
   /* Set up VM */
 
   uchar * input_copy = malloc( input->input_sz );
-  assert( input_copy );
+  FD_TEST( input_copy );
   memcpy( input_copy, input->input, input->input_sz );
 
   /* Turn input into a single memory region */
@@ -473,7 +472,7 @@ run_input( test_input_t const * input,
       /* dump_syscall_to_pb                     */ 0,
       /* r2_initial_value                       */ 0UL
   );
-  assert( vm_ok );
+  FD_TEST( vm_ok );
 
   for( uint i=0; i<REG_CNT; i++ ) {
     vm->reg[i] = input->reg[i];
@@ -548,7 +547,7 @@ handle_file( char const * file_path,
   }
 
   char * buf = malloc( (ulong)st.st_size );
-  assert( buf );
+  FD_TEST( buf );
 
   if( FD_UNLIKELY( st.st_size!=read( fd, buf, (ulong)st.st_size ) ) ) {
     FD_LOG_ERR(( "read(%s) failed (%d-%s)", file_path, errno, fd_io_strerror( errno ) ));

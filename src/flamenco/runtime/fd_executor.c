@@ -26,7 +26,6 @@
 
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
 
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>   /* snprintf(3) */
 #include <fcntl.h>   /* openat(2) */

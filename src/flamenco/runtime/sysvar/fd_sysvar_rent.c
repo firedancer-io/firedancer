@@ -4,8 +4,6 @@
 #include "fd_sysvar_base.h"
 #include "../../accdb/fd_accdb_sync.h"
 
-#include <assert.h>
-
 void
 fd_sysvar_rent_write( fd_bank_t *               bank,
                       fd_accdb_user_t *         accdb,

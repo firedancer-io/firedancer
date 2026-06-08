@@ -10,7 +10,6 @@
 #include "generated/shred.pb.h"
 
 #include "../fd_executor_err.h"
-#include <assert.h>
 
 /*
  * fixtures
@@ -62,7 +61,9 @@ static int
 _diff_txn_acct( fd_exec_test_acct_state_t * expected,
                 fd_exec_test_acct_state_t * actual ) {
   /* AcctState -> address (This must hold true when calling this function!) */
-  assert( fd_memeq( expected->address, actual->address, sizeof(fd_pubkey_t) ) );
+  if( FD_UNLIKELY( !fd_memeq( expected->address, actual->address, sizeof(fd_pubkey_t) ) ) ) {
+    FD_LOG_CRIT(( "diff algorithm error" ));
+  }
 
   /* AcctState -> lamports */
   if( expected->lamports != actual->lamports ) {

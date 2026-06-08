@@ -4,7 +4,6 @@
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
-#include <assert.h>
 #include <stdio.h>
 
 /* ELF loader, part 1 **************************************************

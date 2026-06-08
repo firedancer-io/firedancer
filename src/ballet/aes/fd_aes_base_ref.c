@@ -39,7 +39,6 @@
 /* Note: rewritten a little bit to provide error control and an OpenSSL-
    compatible API */
 
-#include <assert.h>
 #include <stdlib.h>
 #include "fd_aes_gcm_ref.h"
 
@@ -660,7 +659,7 @@ fd_aes_ref_encrypt_core( uchar const *            in,
                          uchar *                  out,
                          fd_aes_key_ref_t const * key ) {
 
-  assert(in && out && key);
+  FD_DCHECK_CRIT( in && out && key, "invalid params" );
   ulong const * rk = (ulong *)fd_type_pun_const( key->rd_key );
 
   Cipher(in, out, rk, key->rounds);
@@ -675,7 +674,7 @@ fd_aes_ref_decrypt_core( uchar const *            in,
                          uchar *                  out,
                          fd_aes_key_ref_t const * key ) {
 
-  assert(in && out && key);
+  FD_DCHECK_CRIT( in && out && key, "invalid params" );
   ulong const * rk = (ulong const *)fd_type_pun_const( key->rd_key );
 
   InvCipher(in, out, rk, key->rounds );

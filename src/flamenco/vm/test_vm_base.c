@@ -3,7 +3,6 @@
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include <stddef.h>
-#include <assert.h>
 
 FD_STATIC_ASSERT( FD_VM_FOOTPRINT                       == sizeof( fd_vm_t ), vm_struct );
 FD_STATIC_ASSERT( FD_VM_ALIGN                           == alignof( fd_vm_t ), vm_struct );
