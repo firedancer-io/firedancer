@@ -26,10 +26,11 @@ static ulong const RESOLVER_DONE_DEPTH     = 256UL;
    above: large enough to cover any reasonable fuzz input while keeping
    spad footprint bounded. */
 static ulong const REASM_POOL_MAX       = 1024UL;
-/* Sizes the scheduler's txn + microblock pools; must fit a worst-case
-   FEC set.  Mirrors the production replay tile default. */
-static ulong const SCHED_DEPTH          = 65536UL;
-static ulong const SCHED_BLOCK_CNT_MAX  = 2048UL;
+
+/* Scheduler txn/block pool sizes, bounded to the fuzz input so
+   fd_sched_new's per-run free-list init stays cheap. */
+static ulong const SCHED_DEPTH          = 4096UL;
+static ulong const SCHED_BLOCK_CNT_MAX  = 128UL;
 static ulong const SCHED_EXEC_CNT       = 4UL;
 
 typedef struct {
