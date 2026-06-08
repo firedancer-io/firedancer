@@ -722,8 +722,10 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
    marked as dead.  It will not prune a dead bank that has a non-zero
    reference count.  Returns 0 if nothing was pruned, 1 if a bank was
    pruned but no accdb/txncache cancellation is needed, or 2 if a bank
-   was pruned and cancellation is needed, in which case opt_cancel will
-   be populated if non-NULL. */
+   was pruned and cancellation is needed.  Whenever a bank is pruned
+   (returns 1 or 2), cancel->bank_idx is populated if cancel is
+   non-NULL.  The remaining cancel fields are only populated if
+   available. */
 
 int
 fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
