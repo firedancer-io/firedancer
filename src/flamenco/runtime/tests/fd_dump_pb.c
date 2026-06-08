@@ -1188,9 +1188,17 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
     }
 
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+      /* When the nonce account is also the fee payer, the rollback must
+         reflect the fee debit (the fee is still charged on a failed
+         nonce txn).  prior_lamports is the pre-fee balance, so use the
+         post-fee fee_payer_rollback_lamports for that account instead. */
+      ulong nonce_rollback_lamports =
+        ( txn_out->accounts.nonce_idx_in_txn==FD_FEE_PAYER_TXN_IDX )
+          ? txn_out->accounts.fee_payer_rollback_lamports
+          : txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_lamports;
       write_account_to_result1(
         txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn].uc,
-        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_lamports,
+        nonce_rollback_lamports,
         txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_owner,
         txn_out->accounts.nonce_rollback_data_len,
         txn_out->accounts.nonce_rollback_data,

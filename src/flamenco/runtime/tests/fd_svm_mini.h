@@ -243,6 +243,21 @@ void
 fd_svm_mini_freeze( fd_svm_mini_t * mini,
                     ulong           bank_idx );
 
+/* fd_svm_mini_register_blockhash makes blockhash resolvable by the
+   status cache when executing transactions on the bank identified by
+   bank_idx (otherwise the fd_txncache_query/insert FD_TEST(blockcache)
+   in the executor's pre-execute checks fails).  It registers blockhash
+   on bank_idx's PARENT txncache fork, because a fork can only query
+   blockhashes registered on a fork it descends from (a fork's
+   descends-set holds its ancestors, not itself).  bank_idx must
+   therefore have a parent, and that parent fork must not already be
+   finalized (each txncache fork carries at most one blockhash). */
+
+void
+fd_svm_mini_register_blockhash( fd_svm_mini_t *   mini,
+                                ulong             bank_idx,
+                                fd_hash_t const * blockhash );
+
 /* fd_svm_mini_cancel_fork cancels the subtree of the fork graph
    identified by bank_idx (i.e. the bank_idx node and all its children,
    transitively). */

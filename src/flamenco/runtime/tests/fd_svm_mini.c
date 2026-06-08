@@ -23,12 +23,11 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-/* Cache footprint for tests: must be large enough to cover the
-   minimum 1300 slots per class (class 7 is 10 MiB each). */
-#define TEST_CACHE_FOOTPRINT   (16UL<<30UL)
-#define TEST_PARTITION_CNT     (8192UL)
-#define TEST_PARTITION_SZ      (1UL<<30UL)
-#define TEST_WRITES_PER_SLOT   (8192UL)
+#define TEST_CACHE_MIN_RESERVED (191UL)
+#define TEST_CACHE_FOOTPRINT    (4UL<<30UL)
+#define TEST_PARTITION_CNT      (8192UL)
+#define TEST_PARTITION_SZ       (1UL<<30UL)
+#define TEST_WRITES_PER_SLOT    (8192UL)
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
@@ -113,7 +112,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                                                    TEST_CACHE_FOOTPRINT, 640UL, joiner_cnt );
+                                                    TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, joiner_cnt );
   ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
 
 # define WKSP_ALLOC(a,s) fd_ulong_align_up( fd_ulong_max((s),1UL), fd_ulong_max((a),FD_WKSP_ALIGN_DEFAULT) )
@@ -153,7 +152,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                                                    TEST_CACHE_FOOTPRINT, 640UL, joiner_cnt );
+                                                    TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, joiner_cnt );
   ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
 
   /* Allocate objects */
@@ -185,7 +184,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, limits->max_accounts, limits->max_live_slots,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 640UL, 0, 42UL, joiner_cnt ) );
+                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, joiner_cnt ) );
   FD_TEST( shmem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
   FD_TEST( accdb );
@@ -433,7 +432,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( mini->accdb_shmem_mem, mini->accdb_max_accounts, mini->accdb_max_live_slots,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 640UL, 0, 42UL, mini->accdb_joiner_cnt ) );
+                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, mini->accdb_joiner_cnt ) );
   FD_TEST( shmem );
 
   /* Re-truncate memfd */
@@ -670,6 +669,26 @@ fd_svm_mini_freeze( fd_svm_mini_t * mini,
   FD_TEST( block_hash );
   fd_txncache_finalize_fork( mini->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
   fd_banks_mark_bank_frozen( bank );
+}
+
+void
+fd_svm_mini_register_blockhash( fd_svm_mini_t *   mini,
+                                ulong             bank_idx,
+                                fd_hash_t const * blockhash ) {
+  fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
+  /* A txncache query for blockhash B from fork F succeeds only if F
+     descends from the fork B is registered on; a fork's descends-set
+     contains its ancestors, NOT itself.  So register B on bank_idx's
+     PARENT fork — the bank then executes as a descendant and the
+     status-cache query resolves B. */
+  fd_bank_t * parent = fd_banks_get_parent( mini->banks, bank );
+  if( FD_UNLIKELY( !parent ) ) FD_LOG_ERR(( "bank_idx has no parent fork to register the blockhash on" ));
+  /* finalize_fork (not attach_blockhash): the status-cache query
+     requires the carrier fork to be fully finalized (frozen==2), which
+     attach_blockhash (frozen==1) does not satisfy.  finalize_fork
+     registers the blockhash in the map and sets frozen==2. */
+  fd_txncache_finalize_fork( mini->txncache, parent->txncache_fork_id, 0UL, blockhash->uc );
 }
 
 static void

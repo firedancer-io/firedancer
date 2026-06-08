@@ -885,17 +885,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
   }
 
-  /* If we have finished distributing rewards, set the status to inactive
-     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L116-L135 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L110-L114 */
   if( FD_LIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
     ulong partition_idx = block_height-distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( stake_rewards, partition_idx, bank, accdb, capture_ctx );
+  }
 
-
-    if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
-      fd_sysvar_epoch_rewards_set_inactive( bank, accdb, capture_ctx );
-      bank->stake_rewards_fork_id = UCHAR_MAX;
-    }
+  /* If we have finished distributing rewards, set the status to inactive
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L116-L135 */
+  if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
+    fd_sysvar_epoch_rewards_set_inactive( bank, accdb, capture_ctx );
+    bank->stake_rewards_fork_id = UCHAR_MAX;
   }
 }
 

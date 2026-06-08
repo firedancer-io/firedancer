@@ -954,6 +954,12 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
                            fd_capture_ctx_t *  capture_ctx ) {
+  if( FD_UNLIKELY( !acc->lamports ) ) {
+    acc->data_len   = 0UL;
+    acc->executable = 0;
+    memset( acc->owner, 0, sizeof(acc->owner) );
+  }
+
   fd_lthash_value_t lthash_prev[1];
   if( FD_LIKELY( acc->prior_data ) ) {
     fd_hashes_account_lthash_simple( pubkey->uc, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len, lthash_prev );

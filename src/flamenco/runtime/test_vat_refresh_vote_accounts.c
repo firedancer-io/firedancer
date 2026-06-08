@@ -19,6 +19,7 @@
       filtered out at vat_epoch+1.  This also exercises the t-1 -> t-2
       carry-forward that the VAT activation epoch performs. */
 
+#define _GNU_SOURCE
 #include "fd_runtime.h"
 #include "fd_runtime_stack.h"
 #include "fd_bank.h"
@@ -29,13 +30,18 @@
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
-#include "../accdb/fd_accdb_admin_v1.h"
-#include "../accdb/fd_accdb_impl_v1.h"
-#include "../accdb/fd_accdb_sync.h"
+#include "../accdb/fd_accdb.h"
+#include "../accdb/fd_accdb_shmem.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_types.h"
 #include "../stakes/fd_top_votes.h"
 #include "../stakes/fd_vote_stakes.h"
+
+#include <sys/mman.h>
+#include <unistd.h>
+#include <errno.h>
+
+#define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
 #define TEST_SLOTS_PER_EPOCH (3UL)
 #define TEST_VAT_EPOCH       (3UL)
@@ -72,11 +78,10 @@ struct test_env {
   ulong                tag;
   fd_banks_t *         banks;
   fd_bank_t *          bank;
-  void *               funk_mem;
-  void *               funk_locks;
-  fd_accdb_admin_t     accdb_admin[1];
-  fd_accdb_user_t      accdb[1];
-  fd_funk_txn_xid_t    xid;
+  fd_accdb_t *         accdb;
+  void *               accdb_shmem;
+  void *               accdb_join;
+  int                  accdb_fd;
   fd_runtime_stack_t * runtime_stack;
 };
 typedef struct test_env test_env_t;
@@ -120,7 +125,7 @@ static void
 init_rent_sysvar( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
   env->bank->f.rent = rent;
-  fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
+  fd_sysvar_rent_write( env->bank, env->accdb, NULL, &rent );
 }
 
 static void
@@ -133,7 +138,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_slot           = 0UL
   };
   env->bank->f.epoch_schedule = epoch_schedule;
-  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
+  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, NULL, &epoch_schedule );
 }
 
 static void
@@ -185,13 +190,14 @@ put_vote_account_v4( test_env_t *        env,
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, vote_account, sizeof(vote_state_data), FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( env->accdb, rw, vote_state_data, sizeof(vote_state_data) );
-  fd_accdb_ref_lamports_set( rw, lamports );
-  fd_accdb_ref_exec_bit_set( rw, 0 );
-  fd_memcpy( rw->meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  fd_accdb_close_rw( env->accdb, rw );
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->bank->accdb_fork_id, vote_account->uc );
+  acc.lamports   = lamports;
+  acc.executable = 0;
+  fd_memcpy( acc.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
+  acc.data_len   = sizeof(vote_state_data);
+  fd_memcpy( acc.data, vote_state_data, sizeof(vote_state_data) );
+  acc.commit     = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 static void
@@ -199,13 +205,12 @@ add_delegated_stake_account( test_env_t *        env,
                              fd_pubkey_t const * stake_account,
                              fd_pubkey_t const * vote_account,
                              ulong               stake ) {
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, stake_account, FD_STAKE_STATE_SZ, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_lamports_set( rw, stake + VOTE_ACCOUNT_LAMPORTS );
-  fd_accdb_ref_exec_bit_set( rw, 0 );
-  fd_memcpy( rw->meta->owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
-  fd_accdb_ref_data_sz_set( env->accdb, rw, FD_STAKE_STATE_SZ, 0 );
-  FD_STORE( fd_stake_state_t, fd_accdb_ref_data( rw ), ((fd_stake_state_t) {
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->bank->accdb_fork_id, stake_account->uc );
+  acc.lamports   = stake + VOTE_ACCOUNT_LAMPORTS;
+  acc.executable = 0;
+  fd_memcpy( acc.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
+  acc.data_len   = FD_STAKE_STATE_SZ;
+  FD_STORE( fd_stake_state_t, acc.data, ((fd_stake_state_t) {
     .stake_type = FD_STAKE_STATE_STAKE,
     .stake = {
       .meta = { .staker = *stake_account, .withdrawer = *stake_account },
@@ -220,7 +225,8 @@ add_delegated_stake_account( test_env_t *        env,
       }
     }
   }) );
-  fd_accdb_close_rw( env->accdb, rw );
+  acc.commit     = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 static void
@@ -241,13 +247,14 @@ add_feature_account( test_env_t * env, fd_feature_id_t const * id, ulong activat
   fd_feature_t feature = { .is_active = 1, .activation_slot = activation_slot };
   uchar feature_data[ sizeof(fd_feature_t) ];
   fd_memcpy( feature_data, &feature, sizeof(feature) );
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, &id->id, sizeof(feature_data), FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( env->accdb, rw, feature_data, sizeof(feature_data) );
-  fd_accdb_ref_lamports_set( rw, 1UL );
-  fd_accdb_ref_exec_bit_set( rw, 0 );
-  fd_memcpy( rw->meta->owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
-  fd_accdb_close_rw( env->accdb, rw );
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->bank->accdb_fork_id, id->id.uc );
+  acc.lamports   = 1UL;
+  acc.executable = 0;
+  fd_memcpy( acc.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+  acc.data_len   = sizeof(feature_data);
+  fd_memcpy( acc.data, feature_data, sizeof(feature_data) );
+  acc.commit     = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 static void
@@ -287,17 +294,29 @@ prep_votes( test_env_t * env, ulong for_epoch ) {
 static void
 set_vote_account_owner_valid( test_env_t * env, ulong i, int valid ) {
   fd_pubkey_t v = vote_key( i );
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, &v, 0UL, 0 ) ); /* open existing */
-  fd_memcpy( rw->meta->owner,
+  /* Open the existing account; write_one returns its current fields, so
+     lamports/data are preserved and we only overwrite the owner. */
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->bank->accdb_fork_id, v.uc );
+  fd_memcpy( acc.owner,
              valid ? fd_solana_vote_program_id.key : fd_solana_system_program_id.key,
              sizeof(fd_pubkey_t) );
-  fd_accdb_close_rw( env->accdb, rw );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 /* ---------------------------------------------------------------- */
 /* env lifecycle                                                    */
 /* ---------------------------------------------------------------- */
+
+/* The new accdb dispatches advance_root/purge work to a background
+   thread (T2) and attach_child spins (wait_cmd) until that work
+   completes.  This test is single-threaded, so pump the background work
+   on the calling thread after each command-issuing op. */
+static void
+drain_background( fd_accdb_t * accdb ) {
+  int charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+}
 
 static test_env_t *
 test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_slot ) {
@@ -305,20 +324,40 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   env->wksp = wksp;
   env->tag  = 1UL;
 
-  ulong const txn_max         = 8UL;
-  ulong const rec_max         = 256UL;
   ulong const max_total_banks = 8UL;
   ulong const max_fork_width  = 4UL;
 
-  env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), env->tag );
-  FD_TEST( env->funk_mem );
-  env->funk_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), env->tag );
-  FD_TEST( env->funk_locks );
-  FD_TEST( fd_funk_shmem_new( env->funk_mem, env->tag, 17UL, txn_max, rec_max ) );
-  FD_TEST( fd_funk_locks_new( env->funk_locks, txn_max, rec_max ) );
+  /* accdb sizing -- kept small; this is a unit test. */
+  ulong const accdb_max_accounts   = 1024UL;
+  ulong const accdb_max_live_slots = 16UL;
+  ulong const accdb_writes_per_slot = 256UL;
+  ulong const accdb_partition_cnt  = 8UL;
+  ulong const accdb_partition_sz   = 1UL<<26UL; /* 64 MiB */
+  ulong const accdb_cache_footprint   = 4UL<<30UL; /* 4 GiB (cache minimum) */
+  ulong const accdb_cache_min_reserved = 191UL;   /* single-txn worst case */
+  ulong const accdb_joiner_cnt     = 1UL;
 
-  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, env->funk_locks ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, env->funk_locks, txn_max ) );
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( accdb_max_accounts, accdb_max_live_slots,
+                                                   accdb_writes_per_slot, accdb_partition_cnt,
+                                                   accdb_cache_footprint, accdb_cache_min_reserved,
+                                                   accdb_joiner_cnt );
+  ulong accdb_join_sz  = fd_accdb_footprint( accdb_max_live_slots );
+
+  env->accdb_shmem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_sz, env->tag );
+  FD_TEST( env->accdb_shmem );
+  env->accdb_join  = fd_wksp_alloc_laddr( wksp, fd_accdb_align(), accdb_join_sz, env->tag );
+  FD_TEST( env->accdb_join );
+
+  env->accdb_fd = memfd_create( "vat_test", 0 );
+  if( FD_UNLIKELY( env->accdb_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( env->accdb_shmem, accdb_max_accounts, accdb_max_live_slots,
+                          accdb_writes_per_slot, accdb_partition_cnt, accdb_partition_sz,
+                          accdb_cache_footprint, accdb_cache_min_reserved, 0, 42UL, accdb_joiner_cnt ) );
+  FD_TEST( shmem );
+  env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL ) );
+  FD_TEST( env->accdb );
 
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
   FD_TEST( banks_mem );
@@ -337,15 +376,12 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   FD_TEST( env->runtime_stack );
   FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
 
-  fd_funk_txn_xid_t root[1];
-  fd_funk_txn_xid_set_root( root );
-  env->xid = fd_bank_xid( env->bank );
-  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
+  env->bank->accdb_fork_id = fd_accdb_attach_child( env->accdb, SENTINEL );
 
   init_rent_sysvar( env );
   init_epoch_schedule_sysvar( env );
-  fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_clock_init( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
+  fd_sysvar_clock_init( env->bank, env->accdb, NULL );
   init_blockhash_queue( env );
 
   fd_bank_top_votes_t_2_modify( env->bank );
@@ -377,7 +413,9 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   enable_feature( env, offsetof( fd_features_t, warp_timestamp_again ),            0UL );
   enable_feature( env, offsetof( fd_features_t, validator_admission_ticket ),      vat_activation_slot );
 
-  fd_accdb_advance_root( env->accdb_admin, &env->xid );
+  /* The fork created by attach_child(SENTINEL) is already the root; it
+     must not be advance_root'd (its parent is the sentinel, not a prior
+     root).  Genesis state is written directly onto it above. */
   return env;
 }
 
@@ -390,10 +428,9 @@ static void
 test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->runtime_stack );
   fd_wksp_free_laddr( env->banks );
-  fd_accdb_admin_fini( env->accdb_admin );
-  fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( fd_funk_delete( env->funk_mem ) );
-  fd_wksp_free_laddr( env->funk_locks );
+  fd_wksp_free_laddr( env->accdb_join );
+  fd_wksp_free_laddr( env->accdb_shmem );
+  if( FD_LIKELY( env->accdb_fd>=0 ) ) close( env->accdb_fd );
   fd_memset( env, 0, sizeof(test_env_t) );
 }
 
@@ -425,11 +462,8 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
   new_bank->f.parent_slot = parent_slot;
   new_bank->f.epoch       = fd_slot_to_epoch( &new_bank->f.epoch_schedule, slot, NULL );
 
-  fd_funk_txn_xid_t xid        = fd_bank_xid( new_bank    );
-  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
-  fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
+  new_bank->accdb_fork_id = fd_accdb_attach_child( env->accdb, parent_bank->accdb_fork_id );
 
-  env->xid  = xid;
   env->bank = new_bank;
 
   int is_epoch_boundary = 0;
@@ -442,7 +476,8 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
   }
 
   fd_banks_mark_bank_frozen( new_bank );
-  fd_accdb_advance_root( env->accdb_admin, &xid );
+  fd_accdb_advance_root( env->accdb, new_bank->accdb_fork_id );
+  drain_background( env->accdb );
   fd_banks_advance_root( env->banks, new_bank_idx );
 }
 
@@ -458,7 +493,7 @@ top_votes_t1_cnt( fd_bank_t * bank ) {
 static long
 clock_delta( test_env_t * env ) {
   fd_sol_sysvar_clock_t clock[1];
-  FD_TEST( fd_sysvar_clock_read( env->accdb, &env->xid, clock ) );
+  FD_TEST( fd_sysvar_clock_read( env->accdb, env->bank->accdb_fork_id, clock ) );
   return clock->unix_timestamp - clock->epoch_start_timestamp;
 }
 
@@ -655,7 +690,7 @@ main( int argc, char ** argv ) {
   if( cpu_idx > fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 6UL );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
   ulong        page_sz  = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));

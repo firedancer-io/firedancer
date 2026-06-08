@@ -10,11 +10,8 @@
 
 #define TEST_SLOTS_PER_EPOCH (32UL)
 #define TEST_PARENT_SLOT     (9UL)
-#define TEST_MID_SLOT        (10UL)
-#define TEST_CHILD_SLOT      (11UL)
-
-/* Recent blockhash referenced by the test transactions. */
-#define TEST_BLOCKHASH "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17"
+#define TEST_CHILD_SLOT      (10UL)
+#define TEST_GRANDCHILD_SLOT (11UL)
 
 struct test_env {
   fd_svm_mini_t * mini;
@@ -68,26 +65,31 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini ) {
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   root_bank->f.epoch = 4UL;
 
-  /* The test transactions reference TEST_BLOCKHASH as their recent
-     blockhash (see setup_*_txn).  fd_executor's status-cache query
-     (fd_txncache_query) requires that blockhash to live on a finalized
-     (frozen==2) ancestor of the fork that executes the txn.  Build
-     root -> mid -> child (executes) and finalize mid's txncache fork
-     directly with TEST_BLOCKHASH (fd_svm_mini_freeze cannot be used: it
-     registers a fresh poh-derived hash, not our fixed blockhash).  mid
-     also carries TEST_BLOCKHASH in its block_hash_queue so the child
-     inherits it for the recent-blockhash account check. */
-  ulong mid_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_MID_SLOT );
-  fd_bank_t * mid_bank = fd_svm_mini_bank( mini, mid_idx );
-  fd_hash_t blockhash[1];
-  fd_hex_decode( blockhash, TEST_BLOCKHASH, 32UL );
-  fd_blockhashes_push_new( &mid_bank->f.block_hash_queue, blockhash );
-  fd_txncache_finalize_fork( mini->txncache, mid_bank->txncache_fork_id, 0UL, blockhash->uc );
+  /* Two fork levels below the (frozen) root: an intermediate fork that
+     carries the test blockhash, and the grandchild we actually execute
+     on.  fd_svm_mini_register_blockhash registers the blockhash on the
+     executing bank's PARENT (the intermediate), which the grandchild
+     descends from, so the status-cache query resolves.
 
-  ulong child_idx = fd_svm_mini_attach_child( mini, mid_idx, TEST_CHILD_SLOT );
+     The intermediate bank must be marked frozen before the grandchild
+     can be cloned from it (fd_banks_clone_from_parent requires a frozen
+     parent).  We mark only the BANK state frozen here, not the full
+     fd_svm_mini_freeze: the intermediate's txncache fork is finalized
+     later by register_blockhash with the test blockhash, and that
+     finalize requires the fork to not already be frozen. */
+  ulong inter_idx = fd_svm_mini_attach_child( mini, root_idx,  TEST_CHILD_SLOT      );
+  fd_banks_mark_bank_frozen( fd_svm_mini_bank( mini, inter_idx ) );
+  ulong child_idx = fd_svm_mini_attach_child( mini, inter_idx, TEST_GRANDCHILD_SLOT );
   env->bank = fd_svm_mini_bank( mini, child_idx );
 
   fd_features_enable_cleaned_up( &env->bank->f.features );
+
+  /* The block_hash_queue is empty after reset; push a dummy. */
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, 12345UL );
+  fd_hash_t dummy_hash = {0};
+  fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
+  fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
+  info->lamports_per_signature = 0UL;
 }
 
 static void
@@ -119,8 +121,12 @@ setup_account_initialize_txn( test_env_t * env ) {
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
-  /* The blockhash (TEST_BLOCKHASH) is already on the bank's inherited
-     queue, registered on the finalized mid fork in setup_test. */
+  /* add the blockhash (and register it with the txncache fork so the
+     status-cache query/insert during execution can find it) */
+  fd_hash_t blockhash[1];
+  fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
+  fd_blockhashes_push_new( &env->bank->f.block_hash_queue, blockhash );
+  fd_svm_mini_register_blockhash( env->mini, env->bank->idx, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -180,8 +186,12 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
   fd_hex_decode( env->txn_p->payload, hex, txn_sz );
   FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
 
-  /* The blockhash (TEST_BLOCKHASH) is already on the bank's inherited
-     queue, registered on the finalized mid fork in setup_test. */
+  /* add the blockhash (and register it with the txncache fork so the
+     status-cache query/insert during execution can find it) */
+  fd_hash_t blockhash[1];
+  fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
+  fd_blockhashes_push_new( &env->bank->f.block_hash_queue, blockhash );
+  fd_svm_mini_register_blockhash( env->mini, env->bank->idx, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -224,8 +234,7 @@ test_account_initialize_simd_0387( fd_svm_mini_t * mini ) {
   setup_test( env, mini );
   setup_account_initialize_txn( env );
 
-  /* vote_state_v4 is a cleaned-up feature, already enabled by setup_test
-     via fd_features_enable_cleaned_up. */
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
@@ -246,8 +255,7 @@ test_account_initialize_v2_invalid_proof( fd_svm_mini_t * mini ) {
   ulong proof_off = env->txn_p->payload_sz - 32-2 - 32-2 - 32 - 96;
   env->txn_p->payload[ proof_off ] = 0xFF;
 
-  /* vote_state_v4 is a cleaned-up feature, already enabled by setup_test
-     via fd_features_enable_cleaned_up. */
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );

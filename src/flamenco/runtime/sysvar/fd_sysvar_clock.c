@@ -67,7 +67,7 @@ fd_sysvar_clock_write( fd_bank_t *                   bank,
   fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
 }
 
-static fd_sol_sysvar_clock_t *
+fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_t *            accdb,
                       fd_accdb_fork_id_t      fork_id,
                       fd_sol_sysvar_clock_t * clock ) {

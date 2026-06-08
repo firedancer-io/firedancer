@@ -1,5 +1,7 @@
 /* Unit test for fd_runtime_load_txn_address_lookup_tables */
 
+#define _GNU_SOURCE /* MAP_ANONYMOUS */
+
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_helpers.h"
@@ -10,6 +12,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include <string.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 
 /* Test configuration */
 #define TEST_SLOT         (100000UL)
@@ -2217,10 +2220,10 @@ main( int argc, char ** argv ) {
   /* The test_setup() function uses a workspace for small allocations
      (test_ctx_t, txn buffers, slot-hash deques).  Back it with normal
      pages so the test does not require pinned huge pages. */
-  ulong       wksp_footprint = fd_ulong_align_up( 16UL<<30, FD_SHMEM_NORMAL_PAGE_SZ );
+  ulong       wksp_footprint = fd_ulong_align_up( 256UL<<20, FD_SHMEM_NORMAL_PAGE_SZ );
   ulong       wksp_part_max  = fd_wksp_part_max_est( wksp_footprint, 64UL<<10 );  FD_TEST( wksp_part_max );
   ulong       wksp_data_max  = fd_wksp_data_max_est( wksp_footprint, wksp_part_max ); FD_TEST( wksp_data_max );
-  void *      wksp_mem       = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, wksp_footprint ); FD_TEST( wksp_mem );
+  void *      wksp_mem       = mmap( NULL, wksp_footprint, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 ); FD_TEST( wksp_mem!=MAP_FAILED );
   fd_wksp_t * wksp           = fd_wksp_new( wksp_mem, "test_runtime_alut_wksp", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
   fd_shmem_join_anonymous( "test_runtime_alut_wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, wksp_footprint>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
 
