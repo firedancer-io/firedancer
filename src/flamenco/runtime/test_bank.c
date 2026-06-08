@@ -57,7 +57,7 @@ test_bank_advancing( void * mem ) {
   ulong bank_idx_P = bank_P->idx;
 
   /* Create Q branch from P. */
-  fd_bank_t * bank_Q = fd_banks_new_bank( banks, bank_idx_P, 0L );
+  fd_bank_t * bank_Q = fd_banks_new_bank( banks, bank_idx_P, 0L, 0 );
   ulong bank_idx_Q = bank_Q->idx;
   bank_Q = fd_banks_clone_from_parent( banks, bank_idx_Q );
   FD_TEST( bank_Q );  /* Q slot = 101 */
@@ -68,7 +68,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( fd_banks_bank_query( banks, bank_idx_Q ) == bank_Q );
 
   /* Create A branch from P - this is on the rooted fork. */
-  fd_bank_t * bank_A = fd_banks_new_bank( banks, bank_idx_P, 0L );
+  fd_bank_t * bank_A = fd_banks_new_bank( banks, bank_idx_P, 0L, 0 );
   ulong bank_idx_A = bank_A->idx;
   bank_A = fd_banks_clone_from_parent( banks, bank_idx_A );
   FD_TEST( bank_A );  /* A slot = 102 */
@@ -78,7 +78,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_A );
 
   /* Create X branch from A. */
-  fd_bank_t * bank_X = fd_banks_new_bank( banks, bank_idx_A, 0L );
+  fd_bank_t * bank_X = fd_banks_new_bank( banks, bank_idx_A, 0L, 0 );
   ulong bank_idx_X = bank_X->idx;
   bank_X = fd_banks_clone_from_parent( banks, bank_idx_X );
   FD_TEST( bank_X );  /* X slot = 103 */
@@ -88,7 +88,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_X );
 
   /* Create Y branch from X. */
-  fd_bank_t * bank_Y = fd_banks_new_bank( banks, bank_idx_X, 0L );
+  fd_bank_t * bank_Y = fd_banks_new_bank( banks, bank_idx_X, 0L, 0 );
   ulong bank_idx_Y = bank_Y->idx;
   bank_Y = fd_banks_clone_from_parent( banks, bank_idx_Y );
   FD_TEST( bank_Y );  /* Y slot = 104 */
@@ -98,7 +98,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_Y );
 
   /* Create B branch from A - this is on the rooted fork. */
-  fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_idx_A, 0L );
+  fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_idx_A, 0L, 0 );
   ulong bank_idx_B = bank_B->idx;
   bank_B = fd_banks_clone_from_parent( banks, bank_idx_B );
   FD_TEST( bank_B );  /* B slot = 105 */
@@ -108,7 +108,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_B );
 
   /* Create C branch from A. */
-  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_idx_A, 0L );
+  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_idx_A, 0L, 0 );
   ulong bank_idx_C = bank_C->idx;
   bank_C = fd_banks_clone_from_parent( banks, bank_idx_C );
   FD_TEST( bank_C );  /* C slot = 106 */
@@ -118,7 +118,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_C );
 
   /* Create M branch from B - this is on the rooted fork. */
-  fd_bank_t * bank_M = fd_banks_new_bank( banks, bank_idx_B, 0L );
+  fd_bank_t * bank_M = fd_banks_new_bank( banks, bank_idx_B, 0L, 0 );
   ulong bank_idx_M = bank_M->idx;
   bank_M = fd_banks_clone_from_parent( banks, bank_idx_M );
   FD_TEST( bank_M );  /* M slot = 107 */
@@ -128,7 +128,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_M );
 
   /* Create R branch from B. */
-  fd_bank_t * bank_R = fd_banks_new_bank( banks, bank_idx_B, 0L );
+  fd_bank_t * bank_R = fd_banks_new_bank( banks, bank_idx_B, 0L, 0 );
   ulong bank_idx_R = bank_R->idx;
   bank_R = fd_banks_clone_from_parent( banks, bank_idx_R );
   FD_TEST( bank_R );  /* R slot = 108 */
@@ -138,7 +138,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_R );
 
   /* Create D branch from M. */
-  fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_idx_M, 0L );
+  fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_idx_M, 0L, 0 );
   ulong bank_idx_D = bank_D->idx;
   bank_D = fd_banks_clone_from_parent( banks, bank_idx_D );
   FD_TEST( bank_D );  /* D slot = 109 */
@@ -148,7 +148,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_D );
 
   /* Create T branch from M - this is on the rooted fork. */
-  fd_bank_t * bank_T = fd_banks_new_bank( banks, bank_idx_M, 0L );
+  fd_bank_t * bank_T = fd_banks_new_bank( banks, bank_idx_M, 0L, 0 );
   ulong bank_idx_T = bank_T->idx;
   bank_T = fd_banks_clone_from_parent( banks, bank_idx_T );
   FD_TEST( bank_T );  /* T slot = 110 */
@@ -158,7 +158,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_T );
 
   /* Create J branch from R. */
-  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_idx_R, 0L );
+  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_idx_R, 0L, 0 );
   ulong bank_idx_J = bank_J->idx;
   bank_J = fd_banks_clone_from_parent( banks, bank_idx_J );
   FD_TEST( bank_J );  /* J slot = 111 */
@@ -168,7 +168,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_mark_bank_frozen( bank_J );
 
   /* Create L branch from R. */
-  fd_bank_t * bank_L = fd_banks_new_bank( banks, bank_idx_R, 0L );
+  fd_bank_t * bank_L = fd_banks_new_bank( banks, bank_idx_R, 0L, 0 );
   ulong bank_idx_L = bank_L->idx;
   bank_L = fd_banks_clone_from_parent( banks, bank_idx_L );
   FD_TEST( bank_L );  /* L slot = 112 */
@@ -323,7 +323,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: isolated dead bank that gets pruned. */
-  fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_P->idx, 0L );
+  fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   bank_D = fd_banks_clone_from_parent( banks, bank_D->idx );
   FD_TEST( bank_D );
@@ -349,7 +349,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: started-replaying dead bank can be pruned without requesting cancellation info. */
-  fd_bank_t * bank_N = fd_banks_new_bank( banks, bank_P->idx, 0L );
+  fd_bank_t * bank_N = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   bank_N = fd_banks_clone_from_parent( banks, bank_N->idx );
   FD_TEST( bank_N );
@@ -360,7 +360,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: multiple isolated dead banks get pruned at once. */
-  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_P->idx, 0L );
+  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   bank_C = fd_banks_clone_from_parent( banks, bank_C->idx );
   FD_TEST( bank_C );
@@ -369,7 +369,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   fd_banks_mark_bank_frozen( bank_C );
 
-  fd_bank_t * bank_R = fd_banks_new_bank( banks, bank_P->idx, 0L );
+  fd_bank_t * bank_R = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
   bank_R = fd_banks_clone_from_parent( banks, bank_R->idx );
   FD_TEST( bank_R );
@@ -377,7 +377,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
-  fd_bank_t * bank_Y = fd_banks_new_bank( banks, bank_P->idx, 0L );
+  fd_bank_t * bank_Y = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
   bank_Y = fd_banks_clone_from_parent( banks, bank_Y->idx );
   FD_TEST( bank_Y );
@@ -385,7 +385,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
 
-  fd_bank_t * bank_Z = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  fd_bank_t * bank_Z = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
   bank_Z = fd_banks_clone_from_parent( banks, bank_Z->idx );
   FD_TEST( bank_Z );
@@ -402,21 +402,21 @@ test_bank_dead_eviction( void * mem ) {
 
   /* Case: dead banks that are siblings of non pruned banks. Make sure
      that sibling links are updated correctly. */
-  fd_bank_t * bank_G = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  fd_bank_t * bank_G = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
   bank_G = fd_banks_clone_from_parent( banks, bank_G->idx );
   FD_TEST( bank_G );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
 
-  fd_bank_t * bank_W = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  fd_bank_t * bank_W = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
   bank_W = fd_banks_clone_from_parent( banks, bank_W->idx );
   FD_TEST( bank_W );
 
-  fd_bank_t * bank_I = fd_banks_new_bank( banks, bank_W->idx, 0L );
+  fd_bank_t * bank_I = fd_banks_new_bank( banks, bank_W->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
 
-  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_W->idx, 0L );
+  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_W->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==7UL );
 
   ulong dead_bank_idxs[3];
@@ -435,12 +435,12 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
   FD_TEST( bank_G->sibling_idx==ULONG_MAX );
 
-  bank_W = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  bank_W = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
   bank_W = fd_banks_clone_from_parent( banks, bank_W->idx );
   FD_TEST( bank_W );
 
-  bank_I = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  bank_I = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
   bank_I = fd_banks_clone_from_parent( banks, bank_I->idx );
   FD_TEST( bank_I );
@@ -456,12 +456,12 @@ test_bank_dead_eviction( void * mem ) {
 
   /* Case: dead banks get pruned when advancing the root.  Make sure
      that double frees don't happen. */
-  bank_W = fd_banks_new_bank( banks, bank_P->idx, 0L );
+  bank_W = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
   bank_W = fd_banks_clone_from_parent( banks, bank_W->idx );
   FD_TEST( bank_W );
 
-  bank_Z = fd_banks_new_bank( banks, bank_W->idx, 0L );
+  bank_Z = fd_banks_new_bank( banks, bank_W->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==7UL );
   fd_banks_mark_bank_dead( banks, bank_Z->idx, NULL, NULL );
 
@@ -476,12 +476,12 @@ test_bank_dead_eviction( void * mem ) {
 
   /* Case: don't prune dead banks if there is an outstanding reference
      to them. */
-  bank_D = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  bank_D = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
   bank_D = fd_banks_clone_from_parent( banks, bank_D->idx );
   FD_TEST( bank_D );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
 
-  bank_W = fd_banks_new_bank( banks, bank_D->idx, 0L );
+  bank_W = fd_banks_new_bank( banks, bank_D->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
 
   bank_D->refcnt = 1UL;
@@ -495,13 +495,13 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
   /* Case: dead bank is the left-most child of the parent. */
-  bank_D = fd_banks_new_bank( banks, bank_C->idx, 0L );
+  bank_D = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
 
   fd_banks_advance_root( banks, bank_G->idx );
 
-  bank_W = fd_banks_new_bank( banks, bank_G->idx, 0L );
-  bank_I = fd_banks_new_bank( banks, bank_G->idx, 0L );
-  bank_C = fd_banks_new_bank( banks, bank_G->idx, 0L );
+  bank_W = fd_banks_new_bank( banks, bank_G->idx, 0L, 0 );
+  bank_I = fd_banks_new_bank( banks, bank_G->idx, 0L, 0 );
+  bank_C = fd_banks_new_bank( banks, bank_G->idx, 0L, 0 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
 }
 
@@ -523,60 +523,60 @@ test_bank_frontier( void * mem ) {
   fd_bank_t * bank_A = fd_banks_init_bank( banks );
   FD_TEST( bank_A );
 
-  fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_A->idx, 0L );
+  fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_A->idx, 0L, 0 );
   bank_B = fd_banks_clone_from_parent( banks, bank_B->idx );
   FD_TEST( bank_B );
   fd_banks_mark_bank_frozen( bank_B );
 
-  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_A->idx, 0L );
+  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_A->idx, 0L, 0 );
   bank_C = fd_banks_clone_from_parent( banks, bank_C->idx );
   FD_TEST( bank_C );
 
-  fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_B->idx, 0L );
+  fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_B->idx, 0L, 0 );
   bank_D = fd_banks_clone_from_parent( banks, bank_D->idx );
   FD_TEST( bank_D );
   fd_banks_mark_bank_frozen( bank_D );
 
-  fd_bank_t * bank_E = fd_banks_new_bank( banks, bank_B->idx, 0L );
+  fd_bank_t * bank_E = fd_banks_new_bank( banks, bank_B->idx, 0L, 0 );
   bank_E = fd_banks_clone_from_parent( banks, bank_E->idx );
   FD_TEST( bank_E );
 
-  fd_bank_t * bank_F = fd_banks_new_bank( banks, bank_B->idx, 0L );
+  fd_bank_t * bank_F = fd_banks_new_bank( banks, bank_B->idx, 0L, 0 );
   bank_F = fd_banks_clone_from_parent( banks, bank_F->idx );
   FD_TEST( bank_F );
   fd_banks_mark_bank_frozen( bank_F );
 
-  fd_bank_t * bank_G = fd_banks_new_bank( banks, bank_F->idx, 0L );
+  fd_bank_t * bank_G = fd_banks_new_bank( banks, bank_F->idx, 0L, 0 );
   bank_G = fd_banks_clone_from_parent( banks, bank_G->idx );
   FD_TEST( bank_G );
   fd_banks_mark_bank_frozen( bank_G );
 
-  fd_bank_t * bank_H = fd_banks_new_bank( banks, bank_G->idx, 0L );
+  fd_bank_t * bank_H = fd_banks_new_bank( banks, bank_G->idx, 0L, 0 );
   bank_H = fd_banks_clone_from_parent( banks, bank_H->idx );
   FD_TEST( bank_H );
 
-  fd_bank_t * bank_I = fd_banks_new_bank( banks, bank_D->idx, 0L );
+  fd_bank_t * bank_I = fd_banks_new_bank( banks, bank_D->idx, 0L, 0 );
   bank_I = fd_banks_clone_from_parent( banks, bank_I->idx );
   FD_TEST( bank_I );
 
-  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_D->idx, 0L );
+  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_D->idx, 0L, 0 );
   bank_J = fd_banks_clone_from_parent( banks, bank_J->idx );
   FD_TEST( bank_J );
 
   ulong frontier_indices[32];
   ulong frontier_cnt = 0UL;
 
-  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==5UL );
 
   fd_banks_mark_bank_dead( banks, bank_I->idx, NULL, NULL );
 
-  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==4UL );
 
   fd_banks_mark_bank_frozen( bank_J );
 
-  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==3UL );
 }
 
@@ -629,7 +629,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   /* Frontier overlays root with deltas during query; base root state is unchanged once query ends. */
   FD_TEST( test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_0 ) );
 
-  fd_bank_t * child_bank = fd_banks_new_bank( banks_small, root_bank->idx, 0L );
+  fd_bank_t * child_bank = fd_banks_new_bank( banks_small, root_bank->idx, 0L, 0 );
   ulong child_bank_idx = child_bank->idx;
   child_bank = fd_banks_clone_from_parent( banks_small, child_bank_idx );
   FD_TEST( child_bank );
@@ -692,14 +692,14 @@ test_bank_new_votes_lifecycle( void * mem ) {
   FD_TEST( new_votes );
   FD_TEST( fd_new_votes_cnt( new_votes )==0UL );
 
-  fd_bank_t * keep_child = fd_banks_new_bank( banks, root->idx, 0L );
+  fd_bank_t * keep_child = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   ulong keep_child_idx = keep_child->idx;
   keep_child = fd_banks_clone_from_parent( banks, keep_child_idx );
   FD_TEST( keep_child );
   FD_TEST( fd_bank_new_votes( keep_child )==new_votes );
   FD_TEST( keep_child->new_votes_fork_id!=USHORT_MAX );
 
-  fd_bank_t * drop_child = fd_banks_new_bank( banks, root->idx, 0L );
+  fd_bank_t * drop_child = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   ulong drop_child_idx = drop_child->idx;
   drop_child = fd_banks_clone_from_parent( banks, drop_child_idx );
   FD_TEST( drop_child );
@@ -739,19 +739,19 @@ test_bank_new_votes_fork_indices( void * mem ) {
   FD_TEST( cnt==0UL );
 
   /* A -> B -> C chain, each cloned from parent. */
-  fd_bank_t * A = fd_banks_new_bank( banks, root->idx, 0L );
+  fd_bank_t * A = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   ulong A_idx = A->idx;
   A = fd_banks_clone_from_parent( banks, A_idx );
   FD_TEST( A->new_votes_fork_id!=USHORT_MAX );
   fd_banks_mark_bank_frozen( A );
 
-  fd_bank_t * B = fd_banks_new_bank( banks, A_idx, 0L );
+  fd_bank_t * B = fd_banks_new_bank( banks, A_idx, 0L, 0 );
   ulong B_idx = B->idx;
   B = fd_banks_clone_from_parent( banks, B_idx );
   FD_TEST( B->new_votes_fork_id!=USHORT_MAX );
   fd_banks_mark_bank_frozen( B );
 
-  fd_bank_t * C = fd_banks_new_bank( banks, B_idx, 0L );
+  fd_bank_t * C = fd_banks_new_bank( banks, B_idx, 0L, 0 );
   ulong C_idx = C->idx;
   C = fd_banks_clone_from_parent( banks, C_idx );
   FD_TEST( C->new_votes_fork_id!=USHORT_MAX );
@@ -785,13 +785,13 @@ test_bank_clear( void * mem ) {
   root->f.slot           = 100UL;
   root->f.capitalization = 5000UL;
 
-  fd_bank_t * child_A = fd_banks_new_bank( banks, root->idx, 0L );
+  fd_bank_t * child_A = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   ulong child_A_idx = child_A->idx;
   child_A = fd_banks_clone_from_parent( banks, child_A_idx );
   child_A->f.slot = 101UL;
   fd_banks_mark_bank_frozen( child_A );
 
-  fd_bank_t * child_B = fd_banks_new_bank( banks, root->idx, 0L );
+  fd_bank_t * child_B = fd_banks_new_bank( banks, root->idx, 0L, 0 );
   ulong child_B_idx = child_B->idx;
   child_B = fd_banks_clone_from_parent( banks, child_B_idx );
   child_B->f.slot = 102UL;
@@ -813,7 +813,7 @@ test_bank_clear( void * mem ) {
   new_root->f.slot = 200UL;
   FD_TEST( new_root->f.slot == 200UL );
 
-  fd_bank_t * new_child = fd_banks_new_bank( banks, new_root->idx, 0L );
+  fd_bank_t * new_child = fd_banks_new_bank( banks, new_root->idx, 0L, 0 );
   ulong new_child_idx = new_child->idx;
   new_child = fd_banks_clone_from_parent( banks, new_child_idx );
   FD_TEST( new_child );
@@ -901,7 +901,7 @@ main( int argc, char ** argv ) {
 
   /* Create some additional ancestry */
 
-  fd_bank_t * bank2 = fd_banks_new_bank( banks, bank_idx, 0L );
+  fd_bank_t * bank2 = fd_banks_new_bank( banks, bank_idx, 0L, 0 );
   ulong bank_idx2 = bank2->idx;
   bank2 = fd_banks_clone_from_parent( banks, bank_idx2 );
   FD_TEST( bank2 );
@@ -940,7 +940,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank2 );
 
-  fd_bank_t * bank3 = fd_banks_new_bank( banks, bank_idx, 0L );
+  fd_bank_t * bank3 = fd_banks_new_bank( banks, bank_idx, 0L, 0 );
   ulong bank_idx3 = bank3->idx;
   bank3 = fd_banks_clone_from_parent( banks, bank_idx3 );
   FD_TEST( bank3 );
@@ -971,7 +971,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank3 );
 
-  fd_bank_t * bank4 = fd_banks_new_bank( banks, bank_idx3, 0L );
+  fd_bank_t * bank4 = fd_banks_new_bank( banks, bank_idx3, 0L, 0 );
   ulong bank_idx4 = bank4->idx;
   bank4 = fd_banks_clone_from_parent( banks, bank_idx4 );
   FD_TEST( bank4 );
@@ -980,7 +980,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank4 );
 
-  fd_bank_t * bank5 = fd_banks_new_bank( banks, bank_idx4, 0L );
+  fd_bank_t * bank5 = fd_banks_new_bank( banks, bank_idx4, 0L, 0 );
   ulong bank_idx5 = bank5->idx;
   bank5 = fd_banks_clone_from_parent( banks, bank_idx5 );
   FD_TEST( bank5 );
@@ -991,7 +991,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank5 );
 
-  fd_bank_t * bank6 = fd_banks_new_bank( banks, bank_idx2, 0L );
+  fd_bank_t * bank6 = fd_banks_new_bank( banks, bank_idx2, 0L, 0 );
   ulong bank_idx6 = bank6->idx;
   bank6 = fd_banks_clone_from_parent( banks, bank_idx6 );
   FD_TEST( bank6 );
@@ -1003,7 +1003,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank6 );
 
-  fd_bank_t * bank7 = fd_banks_new_bank( banks, bank_idx6, 0L );
+  fd_bank_t * bank7 = fd_banks_new_bank( banks, bank_idx6, 0L, 0 );
   ulong bank_idx7 = bank7->idx;
   bank7 = fd_banks_clone_from_parent( banks, bank_idx7 );
   FD_TEST( bank7 );
@@ -1034,7 +1034,7 @@ main( int argc, char ** argv ) {
      2. 1 -> 3 -> 4
      3. 1 -> 3 -> 5 */
 
-  fd_bank_t * bank8 = fd_banks_new_bank( banks, bank_idx7, 0L );
+  fd_bank_t * bank8 = fd_banks_new_bank( banks, bank_idx7, 0L, 0 );
   ulong bank_idx8 = bank8->idx;
   bank8 = fd_banks_clone_from_parent( banks, bank_idx8 );
   FD_TEST( bank8 );
@@ -1052,7 +1052,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank8 );
 
-  fd_bank_t * bank9 = fd_banks_new_bank( banks, bank_idx7, 0L );
+  fd_bank_t * bank9 = fd_banks_new_bank( banks, bank_idx7, 0L, 0 );
   ulong bank_idx9 = bank9->idx;
   bank9 = fd_banks_clone_from_parent( banks, bank_idx9 );
   FD_TEST( bank9 );
@@ -1124,7 +1124,7 @@ main( int argc, char ** argv ) {
 
   /* Create some new children */
 
-  fd_bank_t * bank10 = fd_banks_new_bank( banks, bank_idx7, 0L );
+  fd_bank_t * bank10 = fd_banks_new_bank( banks, bank_idx7, 0L, 0 );
   ulong bank_idx10 = bank10->idx;
   bank10 = fd_banks_clone_from_parent( banks, bank_idx10 );
   FD_TEST( bank10 );
@@ -1133,7 +1133,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_mark_bank_frozen( bank10 );
 
-  fd_bank_t * bank11 = fd_banks_new_bank( banks, bank_idx9, 0L );
+  fd_bank_t * bank11 = fd_banks_new_bank( banks, bank_idx9, 0L, 0 );
   ulong bank_idx11 = bank11->idx;
   bank11 = fd_banks_clone_from_parent( banks, bank_idx11 );
   FD_TEST( bank11 );

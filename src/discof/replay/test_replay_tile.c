@@ -48,7 +48,8 @@ mock_banks_bank_query_fn( fd_banks_t * banks FD_PARAM_UNUSED,
 fd_bank_t *
 mock_banks_new_bank_fn( fd_banks_t * banks FD_PARAM_UNUSED,
                         ulong        parent_bank_idx FD_PARAM_UNUSED,
-                        long         now FD_PARAM_UNUSED ) {
+                        long         now FD_PARAM_UNUSED,
+                        uchar        is_leader FD_PARAM_UNUSED ) {
   FD_TEST( mock_banks_next < MOCK_BANKS_MAX );
   ulong idx = mock_banks_next++;
   fd_bank_t * bank = &mock_banks_arr[ idx ];
@@ -59,11 +60,11 @@ mock_banks_new_bank_fn( fd_banks_t * banks FD_PARAM_UNUSED,
   return bank;
 }
 
-int   mock_banks_is_full_fn   ( fd_banks_t * b FD_PARAM_UNUSED ) { return 0; }
-void  mock_banks_mark_dead_fn ( fd_banks_t * b FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED, ulong * dead_idxs FD_PARAM_UNUSED, ulong * dead_idxs_cnt FD_PARAM_UNUSED ) {}
-ulong mock_banks_pool_used_fn ( fd_banks_t * b FD_PARAM_UNUSED ) { return 0; }
-int   mock_banks_prune_one_fn ( fd_banks_t * b FD_PARAM_UNUSED, fd_banks_prune_cancel_info_t * ci FD_PARAM_UNUSED ) { return 0; }
-void  mock_banks_get_frontier_fn( fd_banks_t * b FD_PARAM_UNUSED, ulong * out FD_PARAM_UNUSED, ulong * cnt FD_PARAM_UNUSED ) { *cnt = 0; }
+int   mock_banks_is_full_fn( fd_banks_t * b FD_PARAM_UNUSED ) { return 0; }
+void  mock_banks_mark_dead_fn( fd_banks_t * b FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED, ulong * dead_idxs FD_PARAM_UNUSED, ulong * dead_idxs_cnt FD_PARAM_UNUSED ) {}
+ulong mock_banks_pool_used_fn( fd_banks_t * b FD_PARAM_UNUSED ) { return 0; }
+int   mock_banks_prune_one_fn( fd_banks_t * b FD_PARAM_UNUSED, fd_banks_prune_cancel_info_t * ci FD_PARAM_UNUSED ) { return 0; }
+void  mock_banks_get_replay_frontier_fn( fd_banks_t * b FD_PARAM_UNUSED, ulong * out FD_PARAM_UNUSED, ulong * cnt FD_PARAM_UNUSED ) { *cnt = 0; }
 
 fd_bank_t *
 mock_banks_clone_fn( fd_banks_t * banks FD_PARAM_UNUSED, ulong bank_idx ) {
@@ -76,7 +77,7 @@ mock_banks_clone_fn( fd_banks_t * banks FD_PARAM_UNUSED, ulong bank_idx ) {
 #define fd_banks_mark_bank_dead      mock_banks_mark_dead_fn
 #define fd_banks_pool_used_cnt       mock_banks_pool_used_fn
 #define fd_banks_prune_one_dead_bank mock_banks_prune_one_fn
-#define fd_banks_get_frontier        mock_banks_get_frontier_fn
+#define fd_banks_get_replay_frontier mock_banks_get_replay_frontier_fn
 #define fd_banks_clone_from_parent   mock_banks_clone_fn
 
 /* ---- Mock store ---- */
