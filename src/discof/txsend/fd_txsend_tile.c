@@ -299,11 +299,9 @@ after_credit( fd_txsend_tile_t *  ctx,
 
   for( ulong i=0UL; i<7UL; i++ ) {
     ulong target_slot = ctx->voted_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
+    /* leaders[i] may be NULL if target_slot lands in an epoch whose
+       schedule isn't published yet; the loops below skip NULL entries. */
     leaders[ i ] = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    if( FD_UNLIKELY( !leaders[ i ] ) ) {
-      FD_LOG_WARNING(( "no leader found for slot %lu", target_slot ));
-      continue;
-    }
   }
 
   /* Disconnect any QUIC connection to a leader that does not have a
@@ -312,7 +310,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   for( ulong i=0UL; i<conn_cnt; ) {
     int keep_conn = 0;
     for( ulong j=0UL; j<7UL; j++ ) {
-      if( fd_pubkey_eq( &ctx->conns[ i ].pubkey, leaders[ j ] ) ) {
+      if( leaders[j] && fd_pubkey_eq( &ctx->conns[ i ].pubkey, leaders[ j ] ) ) {
         keep_conn = 1;
         break;
       }
@@ -326,6 +324,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   /* Connect to any leader that does not have a connection yet. */
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_pubkey_t const * leader = leaders[ i ];
+    if( FD_UNLIKELY( !leader ) ) continue;
     peer_entry_t * peer = peer_map_ele_query( ctx->peer_map, leader, NULL, ctx->peers );
     if( FD_UNLIKELY( !peer ) ) continue; /* no contact info */
 
