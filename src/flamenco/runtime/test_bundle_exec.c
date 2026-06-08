@@ -222,7 +222,7 @@ process_slot( test_env_t * env,
 
 FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
+  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L, 0 )->idx;
   fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 

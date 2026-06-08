@@ -541,8 +541,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   bank->vote_stakes_fork_id      = fd_vote_stakes_get_root_idx( vote_stakes );
 
-  bank->state  = FD_BANK_STATE_FROZEN;
-  bank->refcnt = 0UL;
+  bank->state     = FD_BANK_STATE_FROZEN;
+  bank->refcnt    = 0UL;
+  bank->is_leader = 0;
 
   banks->root_idx = bank->idx;
 
@@ -941,7 +942,8 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
                    ulong        parent_bank_idx,
-                   long         now ) {
+                   long         now,
+                   uchar        is_leader ) {
 
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   FD_CRIT( fd_banks_pool_free( bank_pool )!=0UL, "invariant violation: no free bank indices available" );
@@ -959,6 +961,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->next        = null_idx;
   child_bank->state       = FD_BANK_STATE_INIT;
   child_bank->refcnt      = 0UL;
+  child_bank->is_leader   = is_leader;
 
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
@@ -1132,7 +1135,7 @@ fd_banks_get_frontier_private( fd_bank_t * bank_pool,
   fd_bank_t * bank = fd_banks_pool_ele( bank_pool, bank_idx );
 
   if( bank->child_idx==fd_banks_pool_idx_null( bank_pool ) ) {
-    if( bank->state!=FD_BANK_STATE_FROZEN && bank->state!=FD_BANK_STATE_DEAD ) {
+    if( bank->state!=FD_BANK_STATE_FROZEN && bank->state!=FD_BANK_STATE_DEAD && !bank->is_leader ) {
       frontier_indices_out[*frontier_cnt_out] = bank->idx;
       (*frontier_cnt_out)++;
     }
@@ -1143,9 +1146,9 @@ fd_banks_get_frontier_private( fd_bank_t * bank_pool,
 }
 
 void
-fd_banks_get_frontier( fd_banks_t * banks,
-                       ulong *      frontier_indices_out,
-                       ulong *      frontier_cnt_out ) {
+fd_banks_get_replay_frontier( fd_banks_t * banks,
+                              ulong *      frontier_indices_out,
+                              ulong *      frontier_cnt_out ) {
   *frontier_cnt_out = 0UL;
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_get_frontier_private( bank_pool, banks->root_idx, frontier_indices_out, frontier_cnt_out );
