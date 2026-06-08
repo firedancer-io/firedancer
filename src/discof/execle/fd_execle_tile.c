@@ -451,10 +451,12 @@ handle_bundle( fd_execle_tile_t *  ctx,
   ulong failed_idx        = ULONG_MAX;
 
   /* Acquire all accdb resources in order to execute the bundle. */
+  int setup_bundle = 1;
   int err = fd_runtime_prepare_bundle_accounts( ctx->runtime, bank, ctx->txn_in, ctx->txn_out, txn_cnt );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     execution_success = 0;
-    failed_idx = 0;
+    failed_idx        = 0;
+    setup_bundle      = 0;
   }
 
   /* Every transaction in the bundle should be executed in order against
@@ -589,7 +591,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     }
   }
 
-  fd_runtime_fini_bundle( ctx->runtime );
+  if( FD_LIKELY( setup_bundle ) ) fd_runtime_fini_bundle( ctx->runtime );
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
