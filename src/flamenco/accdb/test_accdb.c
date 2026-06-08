@@ -1010,6 +1010,211 @@ test_acquire_b_refund_accounting( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_reset: after populating accounts across forks, fd_accdb_reset
+   must zero the gauges (except accounts_capacity), make old accounts
+   invisible, and leave the accdb fully operational for new writes. */
+static void
+test_reset( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  ulong lamports;
+  uchar d;
+  ulong data_len;
+  uchar owner[ 32UL ];
+
+  uchar pk_a[ 32UL ] = { 0xA1 };
+  uchar pk_b[ 32UL ] = { 0xA2 };
+  uchar pk_c[ 32UL ] = { 0xA3 };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  accdb_write( accdb, root, pk_a, 100UL, NULL, 0UL, owner2 );
+  accdb_write( accdb, root, pk_b, 200UL, NULL, 0UL, owner2 );
+
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  accdb_write( accdb, child, pk_c, 300UL, NULL, 0UL, owner3 );
+
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  FD_TEST( shmetrics->accounts_total>0UL );
+  FD_TEST( shmetrics->accounts_capacity==1024UL );
+
+  /* Reset the accdb. */
+  fd_accdb_reset( accdb );
+  drain_background( accdb );
+
+  /* Post-reset invariants. */
+  FD_TEST( shmetrics->accounts_total      == 0UL );
+  FD_TEST( shmetrics->accounts_capacity   == 1024UL );
+  FD_TEST( shmetrics->disk_current_bytes  == 0UL );
+  FD_TEST( shmetrics->disk_allocated_bytes== 0UL );
+  FD_TEST( shmetrics->disk_used_bytes     == 0UL );
+  FD_TEST( shmetrics->in_compaction       == 0 );
+
+  /* Create a new root fork and verify old accounts are gone. */
+  fd_accdb_fork_id_t new_root = fd_accdb_attach_child( accdb, SENTINEL );
+  FD_TEST( !accdb_read( accdb, new_root, pk_a, NULL, NULL, NULL, owner ) );
+  FD_TEST( !accdb_read( accdb, new_root, pk_b, NULL, NULL, NULL, owner ) );
+  FD_TEST( !accdb_read( accdb, new_root, pk_c, NULL, NULL, NULL, owner ) );
+
+  /* Write a new account and read it back, accdb is operational. */
+  uchar pk_new[ 32UL ] = { 0xBE };
+  accdb_write( accdb, new_root, pk_new, 999UL, NULL, 0UL, owner3 );
+  FD_TEST( accdb_read( accdb, new_root, pk_new, &lamports, &d, &data_len, owner ) );
+  FD_TEST( lamports==999UL );
+  FD_TEST( !memcmp( owner, owner3, 32UL ) );
+
+  test_teardown( accdb, fd );
+}
+
+/* test_revert_whead: revert_whead releases partitions and restores
+   disk_current_bytes.  Use a partition size close to the minimum and
+   large account writes to deterministically allocate additional
+   partitions during the incremental phase so the partition release
+   logic is exercised. */
+static void
+test_revert_whead( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL; /* 11 MiB, just above ~10 MiB minimum */
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, psz );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+
+  /* Create root fork. */
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* Full-snapshot load: write 5 accounts with 4 MiB data each.
+     Total ~20 MiB spans multiple 11 MiB partitions, so
+     partition_max grows beyond 1. */
+  fd_accdb_snapshot_load_begin( accdb );
+  uchar snap_pks[ 5 ][ 32UL ];
+  ulong replaced = 0UL;
+  for( ulong i=0UL; i<5UL; i++ ) {
+    fd_memset( snap_pks[ i ], 0, 32UL );
+    snap_pks[ i ][ 0 ] = (uchar)( 0xF0+i );
+    fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pks[ i ],
+                                 10UL, (i+1UL)*100UL, 4UL<<20UL, 0, &replaced );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Capture savepoint. */
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+  ulong saved_partition_max  = recovery.partition_max;
+  ulong saved_disk_current   = recovery.disk_current_bytes;
+
+  FD_TEST( saved_partition_max>0UL );
+  FD_TEST( saved_disk_current>0UL );
+
+  /* Create an incremental fork. */
+  fd_accdb_fork_id_t incr_fork = fd_accdb_attach_child( accdb, root );
+
+  /* Incremental snapshot load: write 5 more 4 MiB accounts.
+     Forces allocation of additional partitions beyond the savepoint. */
+  fd_accdb_snapshot_load_begin( accdb );
+  uchar incr_pks[ 5 ][ 32UL ];
+  for( ulong i=0UL; i<5UL; i++ ) {
+    fd_memset( incr_pks[ i ], 0, 32UL );
+    incr_pks[ i ][ 0 ] = (uchar)( 0xE0+i );
+    fd_accdb_snapshot_write_one( accdb, incr_fork, incr_pks[ i ],
+                                 20UL, (i+1UL)*1000UL, 4UL<<20UL, 0, &replaced );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Verify disk_current_bytes grew from the incremental writes. */
+  FD_TEST( shmetrics->disk_current_bytes>saved_disk_current );
+
+  /* Purge the incremental fork, then drain to process the purge
+     command.  drain_background only calls fd_accdb_background once,
+     which processes the purge and returns before reaching compaction. */
+  fd_accdb_purge( accdb, incr_fork );
+  drain_background( accdb );
+
+  /* Revert. */
+  fd_accdb_snapshot_revert_whead( accdb, &recovery );
+
+  /* Post-revert invariants. */
+  FD_TEST( fd_accdb_shmem_partition_max( test_shmem_mem ) == saved_partition_max );
+  FD_TEST( shmetrics->disk_current_bytes == saved_disk_current );
+  FD_TEST( shmetrics->disk_allocated_bytes == saved_partition_max*psz );
+
+  /* Full-snapshot accounts are still readable on the root fork. */
+  ulong lamports;
+  ulong data_len;
+  uchar owner[ 32UL ];
+  for( ulong i=0UL; i<5UL; i++ ) {
+    FD_TEST( accdb_read( accdb, root, snap_pks[ i ], &lamports, NULL, &data_len, owner ) );
+    FD_TEST( lamports==(i+1UL)*100UL );
+  }
+
+  test_teardown( accdb, fd );
+}
+
+/* test_incremental_cross_fork_override verifies that incremental
+   cross-fork overrides create new acc_pool entries with txn records,
+   and that purging the incremental fork + revert_whead fully restores
+   the original full-snapshot state. */
+static void
+test_incremental_cross_fork_override( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+
+  ulong lamports;
+  ulong data_len;
+  uchar owner[ 32UL ];
+
+  uchar pk0[ 32UL ] = { 0xD0 };
+  uchar pk1[ 32UL ] = { 0xD1 };
+  uchar pk2[ 32UL ] = { 0xD2 };
+
+  /* Create root fork. */
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* Full-snapshot load: write 3 accounts with 1 KiB data each. */
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong replaced = 0UL;
+  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk0, 10UL, 100UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk1, 10UL, 200UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk2, 10UL, 300UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Save whead. */
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+
+  /* Create incremental fork. */
+  fd_accdb_fork_id_t incr_fork = fd_accdb_attach_child( accdb, root );
+
+  /* Incremental snapshot load: override pk0 and pk1 with new lamports. */
+  fd_accdb_snapshot_load_begin( accdb );
+  fd_accdb_snapshot_write_one( accdb, incr_fork, pk0, 20UL, 111UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_write_one( accdb, incr_fork, pk1, 20UL, 222UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Verify accounts_total reflects the cross-fork overrides: 3 original
+     entries + 2 cross-fork entries = 5. */
+  FD_TEST( shmetrics->accounts_total==5UL );
+
+  /* Simulate failure: purge the incremental fork. */
+  fd_accdb_purge( accdb, incr_fork );
+  drain_background( accdb );
+
+  /* Revert whead. */
+  fd_accdb_snapshot_revert_whead( accdb, &recovery );
+
+  /* Assert prior state restored on root fork. */
+  FD_TEST( accdb_read( accdb, root, pk0, &lamports, NULL, &data_len, owner ) );
+  FD_TEST( lamports==100UL );
+  FD_TEST( accdb_read( accdb, root, pk1, &lamports, NULL, &data_len, owner ) );
+  FD_TEST( lamports==200UL );
+  FD_TEST( accdb_read( accdb, root, pk2, &lamports, NULL, &data_len, owner ) );
+  FD_TEST( lamports==300UL );
+
+  /* The cross-fork override entries should be removed by purge. */
+  FD_TEST( shmetrics->accounts_total==3UL );
+
+  test_teardown( accdb, fd );
+}
+
 /* test_sentinel_index_wrap is a regression for issue #543: at the
    maximum partition_cnt==8192 the initial write-head sentinel's packed
    partition index (partition_cnt) does not fit in the 13-bit index
@@ -1143,6 +1348,15 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_sentinel_index_wrap ..." ));
   test_sentinel_index_wrap();
+
+  FD_LOG_NOTICE(( "test_reset ..." ));
+  test_reset();
+
+  FD_LOG_NOTICE(( "test_revert_whead ..." ));
+  test_revert_whead();
+
+  FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
+  test_incremental_cross_fork_override();
 
   FD_LOG_NOTICE(( "success" ));
 

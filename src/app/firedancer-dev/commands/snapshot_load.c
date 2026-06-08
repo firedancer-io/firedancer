@@ -30,6 +30,7 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 snapshot_load_topo( config_t * config ) {
+  config->firedancer.layout.resolv_tile_count = 0;
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -49,7 +50,7 @@ snapshot_load_topo( config_t * config ) {
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
-      1UL );
+      2UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -85,6 +86,7 @@ snapshot_load_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "diag" );
   fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
+  fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", ULONG_MAX, 0, 0, 0 );
 
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
@@ -122,6 +124,7 @@ snapshot_load_topo( config_t * config ) {
 
   fd_topob_tile_uses( topo, snapin_tile, txncache_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapin_tile, accdb_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, accdb_tile,  accdb_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.accdb_obj_id    = accdb_obj->id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
