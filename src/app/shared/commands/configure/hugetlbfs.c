@@ -206,7 +206,10 @@ warn_mount_users( char const * mount_path ) {
     char path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/maps", pid ) );
     FILE * fp = fopen( path, "r" );
-    if( FD_UNLIKELY( !fp && errno!=ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( !fp ) ) {
+      if( errno==ENOENT ) continue;
+      FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    }
 
     char self_cmdline[ PATH_MAX ];
     cmdline( self_cmdline, PATH_MAX );
