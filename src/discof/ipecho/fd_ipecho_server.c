@@ -213,7 +213,9 @@ is_expected_network_error( int err ) {
     err==ENETRESET ||
     err==ECONNABORTED ||
     err==ECONNRESET ||
-    err==EPIPE;
+    err==EPIPE ||
+    err==EPERM || /* iptables */
+    err==ENOMEM; /* net stack OOM */
 }
 
 static void
