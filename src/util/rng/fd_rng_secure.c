@@ -21,6 +21,7 @@ fd_rng_secure( void * d,
     }
     if( FD_UNLIKELY( (ulong)res > sz ) ) FD_LOG_CRIT(( "invalid getrandom() return value" ));
     sz -= (ulong)res;
+    out += (ulong)res;
   }
   return d;
 }
