@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_topo_fd_cpu_topo_h
 
 #include "../fd_disco_base.h"
+#include "../../util/tile/fd_tile.h"
 
 struct fd_topo_cpu {
   ulong idx;
@@ -16,7 +17,7 @@ struct fd_topo_cpus {
   ulong         numa_node_cnt;
 
   ulong         cpu_cnt;
-  fd_topo_cpu_t cpu[ 1024 ];
+  fd_topo_cpu_t cpu[ FD_TILE_MAX ];
 };
 
 typedef struct fd_topo_cpus fd_topo_cpus_t;
