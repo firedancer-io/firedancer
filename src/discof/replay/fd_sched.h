@@ -351,6 +351,15 @@ fd_sched_pruned_block_next( fd_sched_t * sched );
 void
 fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
 
+/* fd_sched_block_verify_ticks sets the tick window and verifies
+   ticks on bank_idx (shred fuzz harness, no exec); 0 if valid. */
+int
+fd_sched_block_verify_ticks( fd_sched_t * sched,
+                             ulong        bank_idx,
+                             ulong        tick_height,
+                             ulong        max_tick_height,
+                             ulong        hashes_per_tick );
+
 /* fd_sched_set_bypass_poh_verify configures whether the per-microblock
    PoH end_hash comparison in maybe_mixin is bypassed.  This is intended
    for test and fuzz harnesses: the expected end_hash is carried in the
