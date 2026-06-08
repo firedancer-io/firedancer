@@ -172,6 +172,15 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version );
 
+/* fd_fec_resolver_set_bypass_verify configures whether Merkle proof and
+   leader signature verification are bypassed in add_shred.  This is
+   intended for test and fuzz harnesses that focus on parser/replay
+   behavior and do not carry enough context to validate signatures.
+   Production call sites should leave this disabled. */
+void
+fd_fec_resolver_set_bypass_verify( fd_fec_resolver_t * resolver,
+                                   int                 bypass_verify );
+
 /* fd_fec_resolver_set_discard_unexpected_data_complete_shreds updates
    the activation slot used by the FEC resolver for the
    discard_unexpected_data_complete_shreds feature. */

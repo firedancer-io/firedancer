@@ -351,6 +351,21 @@ fd_sched_pruned_block_next( fd_sched_t * sched );
 void
 fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
 
+/* fd_sched_set_bypass_poh_verify configures whether the per-microblock
+   PoH end_hash comparison in maybe_mixin is bypassed.  This is intended
+   for test and fuzz harnesses: the expected end_hash is carried in the
+   shred payload, so comparing it would reject any mutated input before
+   the deeper parse/tick logic is exercised.  Production call sites
+   should leave this disabled. */
+void
+fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify );
+
+/* fd_sched_set_bypass_alut_resolution bypasses ALUT resolution during
+   parsing (test/fuzz: no accounts DB).  ALUT txns become serializing.
+   Production call sites should leave this disabled. */
+void
+fd_sched_set_bypass_alut_resolution( fd_sched_t * sched, int bypass_alut_resolution );
+
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );
 

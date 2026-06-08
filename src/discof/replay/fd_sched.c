@@ -236,6 +236,8 @@ struct fd_sched {
   ulong                 depth;         /* Immutable. */
   ulong                 block_cnt_max; /* Immutable. */
   ulong                 exec_cnt;      /* Immutable. */
+  int                   bypass_poh_verify; /* Test/fuzz: skip the PoH end_hash compare in maybe_mixin. */
+  int                   bypass_alut_resolution; /* Test/fuzz: skip ALUT resolution (no accdb). */
   long                  txn_in_flight_last_tick;
   long                  next_ready_last_tick;
   ulong                 next_ready_last_bank_idx;
@@ -700,15 +702,17 @@ fd_sched_new( void *     mem,
   sched->next_ready_last_tick     = LONG_MAX;
   sched->next_ready_last_bank_idx = ULONG_MAX;
 
-  sched->canary               = FD_SCHED_MAGIC;
-  sched->depth                = depth;
-  sched->block_cnt_max        = block_cnt_max;
-  sched->exec_cnt             = exec_cnt;
-  sched->root_idx             = ULONG_MAX;
-  sched->active_bank_idx      = ULONG_MAX;
-  sched->last_active_bank_idx = ULONG_MAX;
-  sched->staged_bitset        = 0UL;
-  sched->staged_popcnt_wmk    = 0UL;
+  sched->canary                 = FD_SCHED_MAGIC;
+  sched->depth                  = depth;
+  sched->block_cnt_max          = block_cnt_max;
+  sched->exec_cnt               = exec_cnt;
+  sched->bypass_poh_verify      = 0;
+  sched->bypass_alut_resolution = 0;
+  sched->root_idx               = ULONG_MAX;
+  sched->active_bank_idx        = ULONG_MAX;
+  sched->last_active_bank_idx   = ULONG_MAX;
+  sched->staged_bitset          = 0UL;
+  sched->staged_popcnt_wmk      = 0UL;
 
   sched->txn_exec_ready_bitset[ 0 ]  = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
@@ -1724,6 +1728,18 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
   #endif
 }
 
+void
+fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  sched->bypass_poh_verify = !!bypass_poh_verify;
+}
+
+void
+fd_sched_set_bypass_alut_resolution( fd_sched_t * sched, int bypass_alut_resolution ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  sched->bypass_alut_resolution = !!bypass_alut_resolution;
+}
+
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
@@ -2227,20 +2243,25 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* Try to expand ALUTs. */
   int serializing = 0;
   if( alt_cnt>0UL ) {
-    fd_accdb_ro_t ro[1];
-    if( FD_LIKELY( fd_accdb_open_ro( alut_ctx->accdb, ro, alut_ctx->xid, &fd_sysvar_slot_hashes_id ) ) ) {
-      fd_slot_hashes_t slot_hashes_view[1];
-      if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view,
-                                                 fd_accdb_ref_data_const( ro ),
-                                                 fd_accdb_ref_data_sz( ro ) ) ) ) {
-        serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hashes_view, sched->aluts );
-        sched->metrics->alut_success_cnt += (uint)!serializing;
+    if( FD_UNLIKELY( sched->bypass_alut_resolution ) ) {
+      /* test/fuzz: no accdb to query, so treat ALUT txns as serializing. */
+      serializing = 1;
+    } else {
+      fd_accdb_ro_t ro[1];
+      if( FD_LIKELY( fd_accdb_open_ro( alut_ctx->accdb, ro, alut_ctx->xid, &fd_sysvar_slot_hashes_id ) ) ) {
+        fd_slot_hashes_t slot_hashes_view[1];
+        if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view,
+                                                   fd_accdb_ref_data_const( ro ),
+                                                   fd_accdb_ref_data_sz( ro ) ) ) ) {
+          serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hashes_view, sched->aluts );
+          sched->metrics->alut_success_cnt += (uint)!serializing;
+        } else {
+          serializing = 1;
+        }
+        fd_accdb_close_ro( alut_ctx->accdb, ro );
       } else {
         serializing = 1;
       }
-      fd_accdb_close_ro( alut_ctx->accdb, ro );
-    } else {
-      serializing = 1;
     }
   }
 
@@ -2458,7 +2479,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     fd_memcpy( mixin_buf+32UL, root, 32UL );
     fd_sha256_hash( mixin_buf, 64UL, mblk->curr_hash );
     free_mblk( sched, block, (uint)mblk_idx );
-    if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
+    /* Bypass PoH verification for fuzzing/testing throughput. */
+    if( FD_UNLIKELY( !sched->bypass_poh_verify && memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
       FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
       FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, mblk->start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
