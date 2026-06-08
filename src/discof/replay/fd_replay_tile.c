@@ -555,7 +555,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: parent bank not found for bank index %lu", parent_bank_idx ));
   }
 
-  ctx->leader_bank = fd_banks_new_bank( ctx->banks, parent_bank_idx, now );
+  ctx->leader_bank = fd_banks_new_bank( ctx->banks, parent_bank_idx, now, 1 );
   if( FD_UNLIKELY( !ctx->leader_bank ) ) {
     FD_LOG_CRIT(( "invariant violation: leader bank is NULL for slot %lu", slot ));
   }
@@ -620,14 +620,19 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   fd_vote_tracker_reset( ctx->vote_tracker );
 }
 
-static void
-fini_leader_bank( fd_replay_tile_t *  ctx,
-                  fd_stem_context_t * stem ) {
+static int
+try_fini_leader( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem ) {
 
-  FD_TEST( ctx->leader_bank!=NULL );
-  FD_TEST( ctx->is_leader );
-  FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen );
-  FD_TEST( ctx->recv_poh );
+  /* If we are leader, we can only unbecome the leader iff we have
+     received the poh hash from the poh tile and block id from reasm.
+     We have to do an additional check against the slot of the leader
+     bank because we lazily remove entries from the block id arr. */
+
+  if( FD_LIKELY( !ctx->is_leader ) ) return 0;
+  if( !ctx->recv_poh ) return 0;
+  if( !ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) return 0;
+  if( ctx->block_id_arr[ ctx->leader_bank->idx ].slot!=ctx->leader_bank->f.slot ) return 0;
 
   ctx->leader_bank->last_transaction_finished_nanos = fd_log_wallclock();
 
@@ -661,6 +666,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   maybe_switch_identity( ctx );
 
+  return 1;
 }
 
 static void
@@ -806,8 +812,8 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 }
 
 static inline int
-maybe_become_leader( fd_replay_tile_t *  ctx,
-                     fd_stem_context_t * stem ) {
+try_become_leader( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) {
     return 0;
@@ -1087,7 +1093,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   }
 
   ctx->is_booted = 1;
-  maybe_become_leader( ctx, stem );
+  try_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
   fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
@@ -1356,8 +1362,6 @@ static void
 mark_bank_dead( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
                 ulong               bank_idx ) {
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-  FD_TEST( bank );
   ulong dead_idxs[ FD_BANKS_MAX_BANKS ];
   ulong dead_idxs_cnt = 0UL;
   fd_banks_mark_bank_dead( ctx->banks, bank_idx, dead_idxs, &dead_idxs_cnt );
@@ -1372,7 +1376,6 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
   }
 }
 
-/* Returns 1 if charge_busy. */
 static int
 replay( fd_replay_tile_t *  ctx,
         fd_stem_context_t * stem ) {
@@ -1407,8 +1410,6 @@ replay( fd_replay_tile_t *  ctx,
       break;
     }
     case FD_SCHED_TT_MARK_DEAD: {
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->mark_dead->bank_idx );
-      FD_TEST( bank );
       mark_bank_dead( ctx, stem, task->mark_dead->bank_idx );
       break;
     }
@@ -1423,21 +1424,29 @@ replay( fd_replay_tile_t *  ctx,
 static int
 can_process_fec( fd_replay_tile_t * ctx,
                  int *              evict_banks_out ) {
-  fd_reasm_fec_t * fec;
+  /* We can process a FEC set if a few conditions are met:
+     - sched has capacity
+     - reasm has a FEC in its out queue ready to be processed */
+
   if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
+    FD_TEST( !fd_sched_is_drained( ctx->sched ) );
     ctx->metrics.sched_full++;
     return 0;
   }
 
+  fd_reasm_fec_t * fec;
   if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) {
     ctx->metrics.reasm_empty++;
     return 0;
   }
 
+  fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, fec );
+  FD_TEST( parent ); /* FEC must be connected */
+
   ctx->metrics.reasm_latest_slot    = fec->slot;
   ctx->metrics.reasm_latest_fec_idx = fec->fec_set_idx;
 
-  if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && fd_reasm_parent( ctx->reasm, fec )->bank_idx==ctx->leader_bank->idx ) ) {
+  if( FD_UNLIKELY( ctx->is_leader && fec->fec_set_idx==0U && parent->bank_idx==ctx->leader_bank->idx ) ) {
     /* This guards against a rare race where we receive the FEC set for
        the slot right after our leader rotation before we freeze the
        bank for the last slot in our leader rotation.  Leader slot
@@ -1456,57 +1465,88 @@ can_process_fec( fd_replay_tile_t * ctx,
     return 0;
   }
 
-  /* If fec_set_idx is 0, we need a new bank for a new slot.  Banks must
-     not be full in this case. */
-  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) {
+  /* Should we evict banks if there are no more free banks?  The answer
+     is it depends.  Eviction should only happen if we can make no
+     forward replay progress.  This can only happen if:
+     1. banks are full
+     2. sched is drained: pending txns could complete a block and
+        eventually advance the root.
+     AND
+     3. next reasm FEC start a new block.  A fec that chains off of a
+        bank that is already allocated can be processed.  A FEC can
+        trigger a new block in two ways:
+        - fec_set_idx==0: we don't have any free banks to provision a new
+          bank for this FEC.
+        - equivocation: a FEC may be in the middle of a block, but if
+          it's the first equivocating FEC detected, we need to allocate a
+          new bank for the version of the block.  */
+  int is_new_block = fec->fec_set_idx==0;
+  int is_eqvoc     = fec->eqvoc && !parent->eqvoc;
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && (is_new_block || is_eqvoc) ) ) {
     ctx->metrics.banks_full++;
-    /* We only want to evict banks if sched is drained and banks is no
-       longer making progress.  Otherwise, sched might not release
-       refcnts on the frontier/leaf banks immediately, and the eviction
-       will have to wait for sched to drain anyways. */
     if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
     return 0;
   }
 
   /* Otherwise, banks may not be full, so we can always create a new
      bank if needed.  Or, if banks are full, the current fec set's
-     ancestor (idx 0) already created a bank for this slot.*/
+     ancestor (idx 0) already created a bank for this slot. */
   return 1;
 }
 
 /* Returns 0 on successful FEC ingestion, 1 if the block got marked
-   dead. */
+   dead.  insert_fec_set assumes that all FECs that are inserted are
+   directly connected to a parent FEC.  Every block that is replayed
+   has initial fec set idx 0 up to and including a FEC with
+   slot_complete set.  The caller is responsible for ensuring this. */
 static int
 insert_fec_set( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
                 fd_reasm_fec_t *    reasm_fec ) {
 
+  /* First, read FEC set from the store.  If it's not there that means
+     that the FEC is on a minority fork which has been pruned away.
+     This means we shouldn't have a bank for the corresponding block so
+     we should just ignore and discard the FEC set. */
+
+  ulong wait = (ulong)fd_log_wallclock();
+  ulong work = wait;
+  FD_STORE_SLOCK_BEGIN( ctx->store ) {
+  ctx->metrics.store_query_acquire++;
+  work = (ulong)fd_log_wallclock();
+  fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
+
+  fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
+  ctx->metrics.store_query_cnt++;
+  if( FD_UNLIKELY( !store_fec && !reasm_fec->is_leader ) ) {
+    /* The only case in which a FEC is not found in the store is either
+       if the FEC is from our own leader block or after repair has
+       notified is if the FEC was on a minority fork that has already
+       been published away.  In this case we abandon the entire slice
+       because it is no longer relevant.  If the FEC is from our own
+       leader block, process the FEC so we can unbecome leader. */
+    ctx->metrics.store_query_missing_cnt++;
+    ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
+    FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+    FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
+    return 0;
+  }
+
   long now = fd_log_wallclock();
 
+  /* Assign parent bank idx + seq no to the FEC */
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
-
-  fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, reasm_fec->parent_bank_idx );
-  FD_TEST( parent_bank );
+  fd_bank_t * parent_bank    = fd_banks_bank_query( ctx->banks, reasm_fec->parent_bank_idx );
   reasm_fec->parent_bank_seq = parent_bank->bank_seq;
 
   if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
-    /* If the first FEC set for a slot is observed, provision a new bank
-       if you are not the leader.  Remove any stale block id map entry
-       and update the block id entry. */
-    fd_bank_t * bank = NULL;
-    if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
-      bank = ctx->leader_bank;
-    } else {
-      bank = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now );
-    }
-
+    /* Provision new bank if not leader.  Assign bank idx and seq no
+       to the FEC.  Remove stale block id map entry if any and update
+       pool element. */
+    fd_bank_t * bank = reasm_fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now, 0 );
     reasm_fec->bank_idx = bank->idx;
     reasm_fec->bank_seq = bank->bank_seq;
 
-    /* At this point remove any stale entry in the block id map if it
-       exists and set the block id as not having been seen yet.  This is
-       safe because we know that the old entry for this bank index has
-       already been pruned away. */
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr )==block_id_ele ) ) {
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) );
@@ -1515,23 +1555,20 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
-  } else {
-    /* We are continuing to execute through a slot that we already have
-       a bank index for. */
+  } else { /* FEC for the middle or end of a block */
+    /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
 
     FD_TEST( reasm_fec->bank_idx!=ULONG_MAX );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    if( FD_UNLIKELY( block_id_ele->latest_fec_idx>=reasm_fec->fec_set_idx ) ) {
-      FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is at least as old as the latest FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->slot, reasm_fec->fec_set_idx, block_id_ele->slot, block_id_ele->latest_fec_idx ));
-      return 0;
-    }
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
   }
 
+  /* If the FEC set is a slot complete, this means we have finally seen
+     the block id (block's last mr). */
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     block_id_ele->block_id_seen  = 1;
@@ -1540,7 +1577,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
-  /* If we are the leader, we don't need to process the FEC set. */
+  /* For leader FECs, don't insert the FEC into the scheduler. */
   if( FD_UNLIKELY( reasm_fec->is_leader ) ) return 0;
 
   /* Forks form a partial ordering over FEC sets. The Repair tile
@@ -1554,63 +1591,32 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, key_b58, cmr_b58 ));
 # endif
 
-  sched_fec->shred_cnt              = reasm_fec->data_cnt;
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->bank_idx               = reasm_fec->bank_idx;
-  sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
-  sched_fec->slot                   = reasm_fec->slot;
-  sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
-  sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  fd_funk_txn_xid_t const root = fd_accdb_root_get( ctx->accdb_admin );
+  sched_fec->shred_cnt          = reasm_fec->data_cnt;
+  sched_fec->is_last_in_batch   = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block   = !!reasm_fec->slot_complete;
+  sched_fec->bank_idx           = reasm_fec->bank_idx;
+  sched_fec->parent_bank_idx    = reasm_fec->parent_bank_idx;
+  sched_fec->slot               = reasm_fec->slot;
+  sched_fec->parent_slot        = reasm_fec->slot - reasm_fec->parent_off;
+  sched_fec->is_first_in_block  = reasm_fec->fec_set_idx==0U;
+  sched_fec->fec                = store_fec;
+  sched_fec->data               = fd_store_fec_data( ctx->store, store_fec );
+  fd_funk_txn_xid_t const root  = fd_accdb_root_get( ctx->accdb_admin );
   fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, &root );
-  sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
+  sched_fec->alut_ctx->accdb[0] = ctx->accdb[0];
+  sched_fec->alut_ctx->els      = ctx->published_root_slot;
 
-  /* Read FEC set from the store.  This should happen before we try to
-     ingest the FEC set.  This allows us to filter out frags that were
-     in-flight when we published away minority forks that the frags land
-     on.  These frags would have no bank to execute against, because
-     their corresponding banks, or parent banks, have also been pruned
-     during publishing.  A query against store will rightfully tell us
-     that the underlying data is not found, implying that this is for a
-     minority fork that we can safely ignore. */
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+  if( sched_fec->is_first_in_block ) {
+    bank->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+  }
 
-  ulong wait = (ulong)fd_log_wallclock();
-  ulong work = wait;
-  FD_STORE_SLOCK_BEGIN( ctx->store ) {
-    ctx->metrics.store_query_acquire++;
-    work = (ulong)fd_log_wallclock();
-    fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
+  if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
+    mark_bank_dead( ctx, stem, sched_fec->bank_idx );
+    return 1;
+  }
 
-    fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
-    ctx->metrics.store_query_cnt++;
-    if( FD_UNLIKELY( !store_fec ) ) {
-
-      /* The only case in which a FEC is not found in the store after
-         repair has notified is if the FEC was on a minority fork that
-         has already been published away.  In this case we abandon the
-         entire slice because it is no longer relevant.  */
-
-      ctx->metrics.store_query_missing_cnt++;
-      ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
-      FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
-      return 0;
-    }
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
-    FD_TEST( bank );
-    if( sched_fec->is_first_in_block ) {
-      bank->refcnt++;
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
-    }
-
-    sched_fec->fec  = store_fec;
-    sched_fec->data = fd_store_fec_data( ctx->store, store_fec );
-    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
-      mark_bank_dead( ctx, stem, sched_fec->bank_idx );
-      return 1;
-    }
   } FD_STORE_SLOCK_END;
 
   ctx->metrics.store_query_release++;
@@ -1623,15 +1629,15 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    fd_reasm_fec_t *    reasm_fec ) {
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
-  if( FD_UNLIKELY( !parent ) ) {
-    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is unconnected in reasm", reasm_fec->slot, reasm_fec->fec_set_idx ));
-    return;
-  }
+  FD_TEST( !!parent );
 
   fd_reasm_fec_t * path[ FD_BANKS_MAX_BANKS ];
   ulong            path_cnt = 0UL;
   path[ path_cnt++ ] = reasm_fec;
 
+  /* Collect all of the slot completes starting from the current FEC
+     iterating through the tree until we hit a FEC that is a slot
+     complete that corresponds to a valid bank. */
   for( fd_reasm_fec_t * curr = reasm_fec;; ) {
     curr = fd_reasm_parent( ctx->reasm, curr );
     FD_TEST( curr );
@@ -1644,6 +1650,10 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
     path[ path_cnt++ ] = curr;
   }
 
+  /* For each bank's worth of FECs, insert all of the FECs into the
+     scheduler.  Ensure that only a full bank's worth of FECs are
+     inserted at a time.  If there's no capacity in the banks or the
+     scheduler, backoff for now and try again later. */
   for( ulong i=path_cnt; i>0UL; i-- ) {
     fd_reasm_fec_t * leaf = path[ i-1 ];
 
@@ -1675,11 +1685,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
                  fd_reasm_fec_t *    reasm_fec ) {
 
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
-  if( FD_UNLIKELY( !parent ) ) {
-    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is unconnected in reasm", reasm_fec->slot, reasm_fec->fec_set_idx ));
-    return;
-  }
-
   if( FD_UNLIKELY( parent->bank_dead ) ) {
     /* Inherit the dead flag from the parent.  If a dead slot is
        completed, we publish the slot as dead.  Don't insert FECs for
@@ -1692,20 +1697,21 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   /* An invariant from reasm is that if we receive a FEC set that is
      both with eqvoc and confirmed set, we know that we must replay the
-     slot associated with this FEC. */
+     slot associated with this FEC.  equivocation when fec_set_idx == 0
+     gets handled cleanly. */
   int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc && !parent->eqvoc);
   if( FD_UNLIKELY( eqvoc_detected ) ) FD_TEST( reasm_fec->confirmed && parent->confirmed );
 
-  /* If the bank associated with the parent FEC set is not valid, or if
-     the bank has been recycled, that means that we have evicted the
-     bank associated with this FEC.  This happens if the bank has been
-     evicted. */
+  /* We can detect if a bank has been evicted if the bank index tagged
+     to the FEC set is no longer valid or the bank sequence number for
+     the same bank is different (the bank has been recycled).  */
   fd_bank_t * parent_fec_bank = fd_banks_bank_query( ctx->banks, parent->bank_idx );
   int has_evicted = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
-  /* If the parent FEC has a valid corresponding bank and there has been
-     no mid-slot equivocation detected so far, we can insert the FEC
-     set.  Otherwise, we need to backfill any missing FEC sets. */
+  /* If the upcoming FEC is either the start of an equivocating chain or
+     would chain off of a bank that was evicted, we must backfill any
+     FECs into the scheduler.  This backfill must start from a FEC with
+     fec_set_idx==0 with a parent FEC corresponding to a valid bank. */
   if( FD_LIKELY( !has_evicted && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
@@ -1741,7 +1747,9 @@ accdb_advance_root( fd_replay_tile_t * ctx,
 }
 
 static int
-advance_published_root( fd_replay_tile_t * ctx ) {
+try_advance_published_root( fd_replay_tile_t * ctx ) {
+
+  if( FD_LIKELY( ctx->consensus_root_bank_idx==ctx->published_root_bank_idx ) ) return 0;
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
@@ -1791,106 +1799,88 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   return 1;
 }
 
-static void
-after_credit( fd_replay_tile_t *  ctx,
-              fd_stem_context_t * stem,
-              int *               opt_poll_in,
-              int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
-
-  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
-  /* If we are leader, we can only unbecome the leader iff we have
-     received the poh hash from the poh tile and block id from reasm.
-     We have to do an additional check against the slot of the leader
-     bank because we lazily remove entries from the block id arr. */
-  if( FD_UNLIKELY( ctx->is_leader &&
-                   ctx->recv_poh &&
-                   ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen &&
-                   ctx->block_id_arr[ ctx->leader_bank->idx ].slot==ctx->leader_bank->f.slot ) ) {
-
-    fini_leader_bank( ctx, stem );
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
+static int
+try_prune_sched( fd_replay_tile_t * ctx ) {
   ulong bank_idx;
-  while( (bank_idx=fd_sched_pruned_block_next( ctx->sched ))!=ULONG_MAX ) {
+  int   pruned = 0;
+  while( (bank_idx=fd_sched_pruned_block_next( ctx->sched ) )!=ULONG_MAX ) {
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
     FD_TEST( bank );
     bank->refcnt--;
     FD_LOG_DEBUG(( "bank (idx=%lu) refcnt decremented to %lu for sched", bank->idx, bank->refcnt ));
+    pruned = 1;
   }
+  return pruned;
+}
 
-  /* If the published_root is not caught up to the consensus root, then
-     we should try to advance the published root. */
-  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
+static int
+try_prune_bank( fd_replay_tile_t * ctx ) {
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
   int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
-  if( FD_UNLIKELY( pruned==2 ) ) {
-    fd_txncache_cancel_fork ( ctx->txncache,  cancel_info->txncache_fork_id  );
-    fd_progcache_cancel_fork( ctx->progcache, cancel_info->progcache_fork_id );
-    fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
-    fd_accdb_cancel    ( ctx->accdb_admin, &xid );
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
+  switch( pruned ) {
+    case 2: { /* pruning bank + cancellation is needed */
+      fd_txncache_cancel_fork( ctx->txncache,  cancel_info->txncache_fork_id );
+      fd_progcache_cancel_fork( ctx->progcache, cancel_info->progcache_fork_id );
+      fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
+      fd_accdb_cancel( ctx->accdb_admin, &xid );
+      __attribute__((fallthrough));
+    }
+    case 1: /* pruning bank + no cancellation is needed */
+      return 1;
+    case 0: /* no bank to prune */
+      return 0;
+    default:
+      __builtin_unreachable();
   }
+}
 
-  /* if reasm evicted is set, publish starting from reasm_evicted down
-     to the leaf node to repair so repair can re-request for it. */
-  if( FD_UNLIKELY( ctx->reasm_evicted ) ) {
-    fd_replay_fec_evicted_t evicted = (fd_replay_fec_evicted_t){ .mr = ctx->reasm_evicted->key, .slot = ctx->reasm_evicted->slot, .fec_set_idx = ctx->reasm_evicted->fec_set_idx, .bank_idx = ctx->reasm_evicted->bank_idx };
-    fd_memcpy( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ), &evicted, sizeof(fd_replay_fec_evicted_t) );
-    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_REASM_EVICTED, ctx->replay_out->chunk,  sizeof(fd_replay_fec_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_fec_evicted_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+static int
+try_evict_reasm( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem ) {
 
-    /* eviction policy only evicts chains of nodes until there is a
-       fork, so guaranteed that the evict path is always the left-child */
-    fd_reasm_pool_release( ctx->reasm, ctx->reasm_evicted );
-    ctx->reasm_evicted = fd_reasm_child( ctx->reasm, ctx->reasm_evicted ); /* indexes into pool, safe to use */
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
+  /* if reasm_evicted is set, publish starting from reasm_evicted down
+     to the leaf node to repair so repair can re-request for it.
+     reasm_evicted gets set when reasm tries to insert a FEC and there
+     is no remaining capacity. */
+  if( FD_LIKELY( !ctx->reasm_evicted ) ) return 0;
 
+  /* Publish a notification to the repair tile that the Replay tile no
+     longer has the FEC that was evicted.  This will make sure that the
+     repair tile will re-request the FEC if it eventually gets
+     confirmed so that Replay can still make forward progress. */
+  fd_replay_fec_evicted_t evicted = (fd_replay_fec_evicted_t){ .mr = ctx->reasm_evicted->key, .slot = ctx->reasm_evicted->slot, .fec_set_idx = ctx->reasm_evicted->fec_set_idx, .bank_idx = ctx->reasm_evicted->bank_idx };
+  fd_memcpy( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ), &evicted, sizeof(fd_replay_fec_evicted_t) );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_REASM_EVICTED, ctx->replay_out->chunk,  sizeof(fd_replay_fec_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_fec_evicted_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  /* eviction policy only evicts chains of nodes until there is a
+     fork, so guaranteed that the evict path is always the left-child
+     TODO: This should be abstracted away. */
+  fd_reasm_pool_release( ctx->reasm, ctx->reasm_evicted );
+  ctx->reasm_evicted = fd_reasm_child( ctx->reasm, ctx->reasm_evicted ); /* indexes into pool, safe to use */
+  return 1;
+}
+
+static int
+try_evict_frontier( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem ) {
   /* Mark a frontier eviction victim bank as dead.  As refcnts on said
-     banks are drained, they will be pruned away.  The list of frontier
-     banks may be stale: don't evict leader banks or frozen banks. */
-  if( FD_UNLIKELY( ctx->frontier_cnt ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    bank_idx = ctx->frontier_indices[ --ctx->frontier_cnt ];
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-    if( FD_UNLIKELY( !bank || bank->child_idx!=ULONG_MAX ) ) return;
-    if( FD_UNLIKELY( ctx->is_leader && bank_idx==ctx->leader_bank->idx ) ) return;
-    if( FD_UNLIKELY( bank->state==FD_BANK_STATE_FROZEN ) ) return; /* only possible if leader bank races */
-    mark_bank_dead( ctx, stem, bank->idx );
-    fd_sched_block_abandon( ctx->sched, bank->idx );
-    return;
-  }
+     banks are drained, they will be pruned away.  If we are trying to
+     mark dead (evict) the frontier it is important that no replay is
+     occurring; otherwise, our list of banks to evict will be stale. */
+  if( FD_UNLIKELY( !ctx->frontier_cnt ) ) return 0;
 
-  /* Try to dispatch some work before we try to ingest more FEC sets.
-     If FEC ingestion takes precedence, exec tiles can be left idle for
-     an extended period of time during catchup due to the burstiness of
-     reassembled FEC delivery.  It's better to keep the exec tiles busy
-     with potentially suboptimal scheduling than to leave them idle
-     while a burst of FEC sets gets ingested. */
-  if( FD_LIKELY( replay( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
+  ulong bank_idx = ctx->frontier_indices[ --ctx->frontier_cnt ];
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+  FD_TEST( !!bank && bank->child_idx==ULONG_MAX );
+  mark_bank_dead( ctx, stem, bank->idx );
+  fd_sched_block_abandon( ctx->sched, bank->idx );
+  return 1;
+}
+
+static int
+try_process_fec( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem ) {
 
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler.
@@ -1910,18 +1900,96 @@ after_credit( fd_replay_tile_t *  ctx,
      time.  In the reasm full case, this is so we don't prematurely
      trigger eviction. */
   int evict_banks = 0;
-  if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt||ctx->is_leader||fd_reasm_free( ctx->reasm )<=1UL) && can_process_fec( ctx, &evict_banks ) ) ) {
+  if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt || ctx->is_leader || fd_reasm_free( ctx->reasm )<=1UL) &&
+                 can_process_fec( ctx, &evict_banks ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
     process_fec_set( ctx, stem, fec );
+    ctx->execrp_idle_cnt = 0UL;
+    return 1;
+  }
+
+  /* If we need to evict banks, just gather the frontier set of banks.
+     Eventually these banks will be marked dead and pruned away. */
+  if( FD_UNLIKELY( evict_banks ) ) {
+    FD_LOG_WARNING(( "banks are full and partially executed frontier banks are being evicted" ));
+    fd_banks_get_replay_frontier( ctx->banks, ctx->frontier_indices, &ctx->frontier_cnt );
+    return 1;
+  }
+
+  return 0;
+}
+
+static void
+after_credit( fd_replay_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
+
+  /* The overall priority for the replay tile in order is:
+     1. Make sure replay has room to progress:
+        a. evicting pending FECs from the reassembler
+        b. queueing up frontier banks for frontier eviction if needed
+        c. clearing any pending bank eviction victims.
+     2. Drain outstanding bank references from the scheduler.  This
+        happens after a block gets completed or a fork gets pruned.
+     3. Advance the root.  If the consensus root has been advanced, but
+        the storage root is behind, to advance it.
+     4. Replay.  If there is work to do for replay, do it.  This is
+        more important than ingesting more FEC sets.
+     5. If replay has nothing to do, ingest more FEC sets.
+     WARNING: The ordering here is VERY load bearing and it should not
+     be changed without extreme caution. */
+
+  if( FD_UNLIKELY( try_evict_reasm( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
-    ctx->execrp_idle_cnt = 0UL;
     return;
   }
 
-  if( FD_UNLIKELY( evict_banks ) ) {
-    FD_LOG_WARNING(( "banks are full and partially executed frontier banks are being evicted" ));
-    fd_banks_get_frontier( ctx->banks, ctx->frontier_indices, &ctx->frontier_cnt );
+  if( FD_UNLIKELY( try_evict_frontier( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_prune_bank( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_become_leader( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_fini_leader( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_prune_sched( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_advance_published_root( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_LIKELY( replay( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_LIKELY( try_process_fec( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2101,7 +2169,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   }
 
   FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, replay_slot=%lu, root_slot=%lu, seqno=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->replay_slot, msg->root_slot, seq ));
-  maybe_become_leader( ctx, stem );
+  try_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
 

@@ -588,7 +588,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( child_slot<=parent_slot ) ) FD_LOG_ERR(( "child_slot (%lu) <= parent_slot (%lu)", child_slot, parent_slot ));
   fd_xid_t parent_xid = fd_bank_xid( parent_bank );
 
-  fd_bank_t * bank = fd_banks_new_bank( mini->banks, parent_bank_idx, 0L );
+  fd_bank_t * bank = fd_banks_new_bank( mini->banks, parent_bank_idx, 0L, 0 );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_new_bank failed" ));
   bank = fd_banks_clone_from_parent( mini->banks, bank->idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_clone_from_parent failed" ));
