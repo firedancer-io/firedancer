@@ -96,12 +96,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 }
 
 static void
-fd_solfuzz_bundle_cancel_txns( fd_runtime_t * runtime,
-                               fd_txn_out_t * txn_outs,
-                               ulong          txn_cnt ) {
+fd_solfuzz_bundle_mark_uncommittable( fd_txn_out_t * txn_outs,
+                                      ulong          txn_cnt ) {
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     txn_outs[i].err.is_committable = 0;
-    fd_runtime_cancel_txn( runtime, &txn_outs[i] );
   }
 }
 
@@ -187,8 +185,12 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
     if( exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) {
       saw_exec_err = 1;
-      if( is_bundle ) fd_solfuzz_bundle_cancel_txns( runtime, txn_outs, ran_cnt );
-      else            fd_solfuzz_bundle_cancel_txns( runtime, &txn_outs[i], 1UL );
+      if( is_bundle ) {
+        fd_solfuzz_bundle_mark_uncommittable( txn_outs, ran_cnt );
+      } else {
+        txn_outs[i].err.is_committable = 0;
+        fd_runtime_cancel_txn( runtime, &txn_outs[i] );
+      }
       break;
     }
 
