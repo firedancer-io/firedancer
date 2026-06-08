@@ -15,7 +15,6 @@
 #include "generated/vm_serialization.pb.h"
 #include "generated/shred.pb.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>

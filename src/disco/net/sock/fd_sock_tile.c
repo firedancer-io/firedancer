@@ -6,7 +6,6 @@
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
 
-#include <assert.h> /* assert */
 #include <stdalign.h> /* alignof */
 #include <errno.h>
 #include <fcntl.h> /* fcntl */
@@ -164,8 +163,7 @@ privileged_init( fd_topo_t const *      topo,
   struct sockaddr_in * batch_sa   = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   struct mmsghdr *     batch_msg  = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
   uchar *              tx_scratch = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,              tx_scratch_footprint()                );
-
-  assert( scratch==ctx );
+  FD_DCHECK_CRIT( scratch==ctx, "invalid layout" );
 
   fd_memset( ctx,       0, sizeof(fd_sock_tile_t)                );
   fd_memset( batch_iov, 0, STEM_BURST*sizeof(struct iovec)       );
@@ -591,7 +589,7 @@ during_frag( fd_sock_tile_t * ctx,
   ulong msg_sz = sizeof(fd_udp_hdr_t) + payload_sz;
 
   ulong batch_idx = ctx->batch_cnt;
-  assert( batch_idx<STEM_BURST );
+  FD_DCHECK_CRIT( batch_idx<STEM_BURST, "flow control error" );
   struct mmsghdr *     msg  = ctx->batch_msg + batch_idx;
   struct sockaddr_in * sa   = ctx->batch_sa  + batch_idx;
   struct iovec   *     iov  = ctx->batch_iov + batch_idx;

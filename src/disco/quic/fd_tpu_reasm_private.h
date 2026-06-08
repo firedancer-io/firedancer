@@ -3,8 +3,6 @@
 
 #include "fd_tpu.h"
 
-#include <assert.h>
-
 /* fd_tpu_reasm_private.h contains reusable logic of fd_tpu_reasm such
    that it can be included in test cases. */
 
@@ -180,14 +178,8 @@ slotq_remove( fd_tpu_reasm_t *      reasm,
     return;
   }
 
-  assert( lru_prev < reasm->slot_cnt );
-  assert( lru_next < reasm->slot_cnt );
-  if( FD_UNLIKELY( lru_prev >= reasm->slot_cnt ) ) {
-    FD_LOG_ERR(( "OOB lru_prev (lru_prev=%u, slot_cnt=%u)", lru_prev, reasm->slot_cnt ));
-  }
-  if( FD_UNLIKELY( lru_next >= reasm->slot_cnt ) ) {
-    FD_LOG_ERR(( "OOB lru_next (lru_next=%u, slot_cnt=%u)", lru_next, reasm->slot_cnt ));
-  }
+  FD_DCHECK_CRIT( lru_prev < reasm->slot_cnt, "memory corruption detected" );
+  FD_DCHECK_CRIT( lru_next < reasm->slot_cnt, "memory corruption detected" );
   prev->lru_next = lru_next;
   next->lru_prev = lru_prev;
 }
