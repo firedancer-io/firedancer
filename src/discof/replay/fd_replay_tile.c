@@ -1569,13 +1569,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
-  } else if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    block_id_ele->block_id_seen  = 1;
-    block_id_ele->latest_mr      = reasm_fec->key;
-    block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
-    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
-  } else { /* FEC for the middle of a block */
+  } else { /* FEC for the middle or end of a block */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
 
@@ -1588,6 +1582,16 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     }
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
+  }
+
+  /* If the FEC set is a slot complete, this means we have finally seen
+     the block id (block's last mr). */
+  if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    block_id_ele->block_id_seen  = 1;
+    block_id_ele->latest_mr      = reasm_fec->key;
+    block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
   /* If we are the leader, we don't need to process the FEC set. */
