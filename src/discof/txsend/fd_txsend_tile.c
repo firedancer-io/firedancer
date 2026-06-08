@@ -300,7 +300,10 @@ after_credit( fd_txsend_tile_t *  ctx,
   for( ulong i=0UL; i<7UL; i++ ) {
     ulong target_slot = ctx->voted_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
     leaders[ i ] = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    FD_TEST( leaders[ i ] );
+    if( FD_UNLIKELY( !leaders[ i ] ) ) {
+      FD_LOG_WARNING(( "no leader found for slot %lu", target_slot ));
+      continue;
+    }
   }
 
   /* Disconnect any QUIC connection to a leader that does not have a
@@ -534,7 +537,10 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   for( ulong i=0UL; i<3UL; i++ ) {
     ulong target_slot = slot_done->vote_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    FD_TEST( leader );
+    if( FD_UNLIKELY( !leader ) ) {
+      FD_LOG_WARNING(( "no leader found for slot %lu", target_slot ));
+      continue;
+    }
     send_vote_to_leader( ctx, leader, payload, slot_done->vote_txn_sz );
   }
 
