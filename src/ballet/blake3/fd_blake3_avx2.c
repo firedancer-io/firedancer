@@ -5,7 +5,6 @@
 #include "fd_blake3.h"
 #include "fd_blake3_private.h"
 #include "../../util/simd/fd_avx.h"
-#include <assert.h>
 
 #define wu_rot16 wb_exch_adj_pair
 

@@ -1,6 +1,5 @@
 #include "fd_chacha_rng.h"
 #include "../../util/simd/fd_avx.h"
-#include <assert.h>
 
 #define wu_rol16(a) wb_exch_adj_pair( (a) )
 #define wu_rol12(a) wu_rol( (a), 12 )

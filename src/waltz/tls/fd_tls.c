@@ -4,8 +4,6 @@
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/hmac/fd_hmac.h"
 
-#include <assert.h>
-
 /* Pre-generated keys */
 
 char const fd_tls13_cli_sign_prefix[ 98 ] =

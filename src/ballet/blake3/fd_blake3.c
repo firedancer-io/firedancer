@@ -1,6 +1,5 @@
 #include "fd_blake3.h"
 #include "fd_blake3_private.h"
-#include <assert.h>
 
 /* Hash state machine *************************************************/
 
@@ -160,7 +159,7 @@ fd_blake3_prepare_branch( fd_blake3_pos_t * restrict s,
   if( !fd_blake3_seek_branch( s, buf, tick ) )
     return NULL;
 
-  assert( s->layer < FD_BLAKE3_ROW_CNT );
+  FD_DCHECK_CRIT( s->layer < FD_BLAKE3_ROW_CNT, "invariant violation" );
 
   uchar const * msg = buf->slots[ s->layer-1U ][ s->tail.uc[ s->layer-1U ] ];
   uchar       * out = buf->slots[ s->layer    ][ s->head.uc[ s->layer    ] ];
@@ -226,7 +225,7 @@ fd_blake3_prepare( fd_blake3_pos_t * restrict s,
                    fd_blake3_op_t *  restrict op,
                    ulong                      tick ) {
 
-  assert( s->layer < FD_BLAKE3_ROW_CNT );
+  FD_DCHECK_CRIT( s->layer < FD_BLAKE3_ROW_CNT, "invariant violation" );
 
   if( fd_blake3_is_finished( s, tick ) )
     return NULL;

@@ -11,7 +11,6 @@
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../progcache/fd_prog_load.h"
 #include "../vm/fd_vm.h"
-#include <assert.h>
 
 static fd_pubkey_t
 get_program_data_address( fd_pubkey_t const * program_addr ) {
@@ -621,7 +620,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   ulong new_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->data_sz, new_target_program_data->data_sz, &new_data_sz ) ) ) return;
 
-  assert( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE );
+  FD_DCHECK_CRIT( new_target_program_data->data_sz >= PROGRAMDATA_METADATA_SIZE, "undersize account" );
   /* FIXME call fd_directly_invoke_loader_v3_deploy */
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L267-L281 */

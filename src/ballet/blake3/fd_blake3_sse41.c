@@ -5,7 +5,6 @@
 #include "fd_blake3.h"
 #include "fd_blake3_private.h"
 #include "../../util/simd/fd_sse.h"
-#include <assert.h>
 
 #define _mm_shuffle_ps2(a, b, c)                                       \
   (_mm_castps_si128(                                                   \
@@ -257,7 +256,7 @@ fd_blake3_sse_compress1( uchar * restrict       out,
                          uchar const * restrict in_chain ) {
   FD_BLAKE3_TRACE(( "fd_blake3_sse_compress1(out=%p,msg=%p,sz=%u,counter=%lu,flags=%02x)",
                     (void *)out, (void *)msg, msg_sz, counter, flags ));
-  assert( msg_sz<=FD_BLAKE3_CHUNK_SZ );
+  FD_DCHECK_CRIT( msg_sz<=FD_BLAKE3_CHUNK_SZ, "internal error" );
 
   uint cv[8] = { FD_BLAKE3_IV[0], FD_BLAKE3_IV[1], FD_BLAKE3_IV[2], FD_BLAKE3_IV[3],
                  FD_BLAKE3_IV[4], FD_BLAKE3_IV[5], FD_BLAKE3_IV[6], FD_BLAKE3_IV[7] };

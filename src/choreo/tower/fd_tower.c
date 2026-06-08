@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1181,7 +1180,7 @@ fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_
                                  ulong              data_sz ) {
   fd_vote_acc_desc_t desc[1];
   if( FD_UNLIKELY( !fd_vote_acc_desc( desc, data, data_sz ) ) ) return 0UL;
-  assert( desc->vote_cnt <= FD_TOWER_VOTE_MAX );
+  FD_DCHECK_CRIT( desc->vote_cnt <= FD_TOWER_VOTE_MAX, "invalid vote account" );
   switch( desc->kind ) {
   case FD_VOTE_ACC_V2: {
     for( ulong i=0UL; i<desc->vote_cnt; i++ ) {

@@ -1,5 +1,4 @@
 #include "fd_utf8.h"
-#include <assert.h>
 
 struct fd_utf8_test_vector {
   char const * input;
@@ -88,7 +87,7 @@ test_glyph_pairs( void ) {
       char  input[8];
       ulong input_sz = 0UL;
 
-      assert( vec0->sz + vec1->sz <= sizeof(input) );
+      FD_TEST( vec0->sz + vec1->sz <= sizeof(input) );
 
       fd_memcpy( input, vec0->input, vec0->sz );
       input_sz += vec0->sz;

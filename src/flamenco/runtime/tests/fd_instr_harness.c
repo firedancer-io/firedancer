@@ -11,7 +11,6 @@
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
-#include <assert.h>
 
 void
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
@@ -371,7 +370,9 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     }
 
     ulong modified_idx = effects->modified_accounts_count;
-    assert( modified_idx < modified_acct_cnt );
+    if( FD_UNLIKELY( modified_idx >= modified_acct_cnt ) ) {
+      FD_LOG_CRIT(( "invalid modified account index" ));
+    }
 
     fd_exec_test_acct_state_t * out_acct = &effects->modified_accounts[ modified_idx ];
     memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );

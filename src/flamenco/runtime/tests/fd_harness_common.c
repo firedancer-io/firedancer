@@ -5,7 +5,6 @@
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
 #include "../../accdb/fd_accdb_sync.h"
-#include <assert.h>
 
 void
 fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
