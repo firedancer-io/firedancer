@@ -212,6 +212,7 @@ struct fd_config_net {
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
     char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
+    int  listen_gre;
     int  native_bond;
   } xdp;
 
@@ -289,6 +290,8 @@ struct fd_config {
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
 
+    /* The IPv4 addr that [gossip.host] resolves to. */
+    uint          resolved_host;
     ushort        port;
   } gossip;
 

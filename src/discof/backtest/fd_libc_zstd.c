@@ -53,9 +53,9 @@ rstream_read( void * cookie,
 }
 
 static int
-rstream_seek( void *    cookie,
-              off64_t * pos,
-              int       w ) {
+rstream_seek( void * cookie,
+              long * pos,
+              int    w ) {
   fd_zstd_rstream_t * zs = cookie;
   if( FD_UNLIKELY( *pos ) ) {
     FD_LOG_WARNING(( "Invalid seek(%ld,%i) on fd_libc_zstd_rstream handle", *pos, w ));
@@ -203,9 +203,9 @@ cleanup:
 }
 
 static int
-wstream_seek( void *    cookie,
-              off64_t * pos,
-              int       w ) {
+wstream_seek( void * cookie,
+              long * pos,
+              int    w ) {
   fd_zstd_wstream_t * zs = cookie;
   if( FD_UNLIKELY( !( w==SEEK_CUR && *pos==0 ) ) ) {
     FD_LOG_WARNING(( "Attempted to seek in fd_libc_zstd_wstream handle" ));

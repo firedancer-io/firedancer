@@ -26,9 +26,6 @@ union __attribute__((aligned(16))) fd_neigh4_entry {
     #define FD_NEIGH4_PROBE_SUPPRESS_UNTIL_GET(entry) \
       (long)(((entry)->probe_suppress_until)<<FD_NEIGH4_PROBE_SUPPRESS_SHIFT)
   };
-#if FD_HAS_INT128
-  uint128 uf[1];
-#endif
 #if FD_HAS_X86
   __m128i xmm[1];
 #endif
@@ -45,8 +42,6 @@ fd_neigh4_entry_atomic_st( fd_neigh4_entry_t       * dst,
                            fd_neigh4_entry_t const * src ) {
 # if FD_HAS_X86
   FD_VOLATILE( dst->xmm[0] ) = src->xmm[0];
-# elif FD_HAS_INT128
-  FD_VOLATILE( dst->uf[0] )  = src->uf[0];
 # else
   memcpy( dst->mac_addr, src->mac_addr, 6 );
   dst->probe_suppress_until     = src->probe_suppress_until;
@@ -62,8 +57,6 @@ fd_neigh4_entry_atomic_ld( fd_neigh4_entry_t       * dst,
                            fd_neigh4_entry_t const * src ) {
 # if FD_HAS_X86
   dst->xmm[0] = FD_VOLATILE_CONST( src->xmm[0] );
-# elif FD_HAS_INT128
-  dst->uf[0] = FD_VOLATILE_CONST( src->uf[0] );
 # else
   memcpy( dst->mac_addr, src->mac_addr, 6 );
   dst->probe_suppress_until = src->probe_suppress_until;

@@ -25,9 +25,6 @@ union __attribute__((aligned(16))) fd_fib4_hmap_entry {
     uint hash;
     fd_fib4_hop_t next_hop; /* 16 bytes */
   };
-#if FD_HAS_INT128
-  uint128 uf[2];
-#endif
 #if FD_HAS_X86
   __m128i xmm[2];
 #endif
@@ -46,12 +43,6 @@ fd_fib4_hmap_entry_st( fd_fib4_hmap_entry_t       * dst,
                        fd_fib4_hmap_entry_t const * src ) {
 # if FD_HAS_AVX
   FD_VOLATILE( dst->avx[0] ) = src->avx[0];
-# elif FD_HAS_X86
-  FD_VOLATILE( dst->xmm[0] ) = src->xmm[0];
-  FD_VOLATILE( dst->xmm[1] ) = src->xmm[1];
-# elif FD_HAS_INT128
-  FD_VOLATILE( dst->uf[0] )  = src->uf[0];
-  FD_VOLATILE( dst->uf[1] )  = src->uf[1];
 # else
   FD_VOLATILE( dst->dst_addr ) = src->dst_addr;
   FD_VOLATILE( dst->hash     ) = src->hash;
@@ -71,9 +62,6 @@ fd_fib4_hmap_entry_ld( fd_fib4_hmap_entry_t       * dst,
 # elif FD_HAS_X86
   dst->xmm[0] = FD_VOLATILE_CONST( src->xmm[0] );
   dst->xmm[1] = FD_VOLATILE_CONST( src->xmm[1] );
-# elif FD_HAS_INT128
-  dst->uf[0] = FD_VOLATILE_CONST( src->uf[0] );
-  dst->uf[1] = FD_VOLATILE_CONST( src->uf[1] );
 # else
   dst->dst_addr = FD_VOLATILE_CONST( src->dst_addr );
   dst->hash     = FD_VOLATILE_CONST( src->hash );

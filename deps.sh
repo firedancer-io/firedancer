@@ -243,10 +243,12 @@ check_alpine_pkgs () {
     build-base       # C/C++ compiler
     curl             # download rustup
     linux-headers    # base dependency
-    libucontext-dev  # base dependency
     patch            # build system
     zstd             # build system
     gzip             # build system
+    grep             # build system
+    make             # build system
+    perl             # OpenSSL
   )
   if [[ $DEVMODE == 1 ]]; then
     REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )

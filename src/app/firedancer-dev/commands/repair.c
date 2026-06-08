@@ -10,7 +10,6 @@
 #include "../../../util/tile/fd_tile_private.h"
 
 #include "../../firedancer/topology.h"
-#include "../../firedancer/topology.c"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
@@ -22,6 +21,10 @@
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/monitor/helper.h"
 #include "../../../disco/metrics/fd_metrics.h"
+#include "../../../discof/restore/utils/fd_ssmanifest_parser.h"
+#include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../../flamenco/stakes/fd_stake_weight.h"
+#include "../../../flamenco/leaders/fd_leaders_base.h"
 #include "../../../discof/repair/fd_repair_tile.c"
 
 #include "gossip.h"
@@ -55,8 +58,197 @@ restore_terminal( void ) {
   (void)tcsetattr( STDIN_FILENO, TCSANOW, &termios_backup );
 }
 
+extern fd_topo_obj_callbacks_t * CALLBACKS[];
+
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
+
+void
+resolve_gossip_entrypoints( config_t * config );
+
+#define MANIFEST_LOAD_MAX_SZ (2UL * FD_SHMEM_GIGANTIC_PAGE_SZ)
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
+static int
+repair_verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+
+  ulong min_required_epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong max_required_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+
+  for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
+      if( manifest->epoch_stakes[j].epoch==i ) {
+        found = 1;
+        break;
+      }
+    }
+    if( FD_UNLIKELY( !found ) ) {
+      FD_LOG_WARNING(( "stakes not found for epoch %lu in manifest", i ));
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static inline ulong
+repair_generate_epoch_info_msg( ulong                                       epoch,
+                                fd_epoch_schedule_t const *                 epoch_schedule,
+                                fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                ulong *                                     epoch_info_msg_out ) {
+  fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
+  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
+
+  epoch_info_msg->epoch             = epoch;
+  epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  epoch_info_msg->excluded_id_stake = 0UL;
+
+  fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
+
+  ulong idx = 0UL;
+  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
+    ulong stake = epoch_stakes->vote_stakes[ i ].stake;
+    if( FD_UNLIKELY( !stake ) ) continue;
+    stake_weights[ idx ].stake = stake;
+    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+    idx++;
+  }
+  epoch_info_msg->staked_vote_cnt = idx;
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
+
+  fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
+  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
+  FD_TEST( idx<=MAX_SHRED_DESTS );
+
+  epoch_info_msg->epoch_schedule = *epoch_schedule;
+  return fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
+}
+
+/* repair_load_manifest loads the snapshot manifest from disk and
+   pre-populates the snapin_manif and replay_epoch dcache links so
+   that consumer tiles see the data on their first poll cycle. */
+static void
+repair_load_manifest( fd_topo_t *  topo,
+                      char const * manifest_path ) {
+  if( FD_UNLIKELY( !manifest_path || !manifest_path[0] ) ) return;
+
+  /* Parse manifest */
+
+  int fd = open( manifest_path, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(%s) failed (%d-%s)", manifest_path, errno, fd_io_strerror( errno ) ));
+
+  fd_snapshot_manifest_t * manifest = aligned_alloc( alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  FD_TEST( manifest );
+  for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) manifest->epoch_stakes[i].epoch = ULONG_MAX;
+
+  uchar * buf = aligned_alloc( 128UL, MANIFEST_LOAD_MAX_SZ );
+  FD_TEST( buf );
+  ulong buf_sz = 0;
+  FD_TEST( !fd_io_read( fd, buf, 0UL, MANIFEST_LOAD_MAX_SZ-1UL, &buf_sz ) );
+  close( fd );
+
+  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new(
+      aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
+  FD_TEST( parser );
+  fd_ssmanifest_parser_init( parser, manifest );
+  int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
+  FD_TEST( parser_err!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
+  FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
+  free( parser );
+  free( buf );
+
+  FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->slot ));
+  FD_TEST( !repair_verify_epoch_stakes( manifest ) );
+
+  /* Update root_slot fseq */
+
+  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
+  if( FD_LIKELY( root_slot_obj_id!=ULONG_MAX ) ) {
+    ulong * root_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+    FD_TEST( root_fseq );
+    fd_fseq_update( root_fseq, manifest->slot );
+  }
+
+  /* Publish manifest to snapin_manif dcache */
+
+  ulong snap_link_idx = fd_topo_find_link( topo, "snapin_manif", 0UL );
+  FD_TEST( snap_link_idx!=ULONG_MAX );
+  fd_topo_link_t * snap_link = &topo->links[ snap_link_idx ];
+  fd_wksp_t *      snap_mem  = topo->workspaces[ topo->objs[ snap_link->dcache_obj_id ].wksp_id ].wksp;
+  ulong snap_chunk0 = fd_dcache_compact_chunk0( snap_mem, snap_link->dcache );
+  ulong snap_wmark  = fd_dcache_compact_wmark ( snap_mem, snap_link->dcache, snap_link->mtu );
+  ulong snap_chunk  = snap_chunk0;
+
+  uchar * snap_dst = fd_chunk_to_laddr( snap_mem, snap_chunk );
+  memcpy( snap_dst, manifest, sizeof(fd_snapshot_manifest_t) );
+  fd_mcache_publish( snap_link->mcache, snap_link->depth, 0UL,
+                     fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL ),
+                     snap_chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+  snap_chunk = fd_dcache_compact_next( snap_chunk, sizeof(fd_snapshot_manifest_t), snap_chunk0, snap_wmark );
+
+  fd_mcache_publish( snap_link->mcache, snap_link->depth, 1UL,
+                     fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+
+  /* Publish epoch stake weights to replay_epoch dcache */
+
+  ulong epoch_link_idx = fd_topo_find_link( topo, "replay_epoch", 0UL );
+  FD_TEST( epoch_link_idx!=ULONG_MAX );
+  fd_topo_link_t * epoch_link = &topo->links[ epoch_link_idx ];
+  fd_wksp_t *      epoch_mem  = topo->workspaces[ topo->objs[ epoch_link->dcache_obj_id ].wksp_id ].wksp;
+  ulong epoch_chunk0 = fd_dcache_compact_chunk0( epoch_mem, epoch_link->dcache );
+  ulong epoch_wmark  = fd_dcache_compact_wmark ( epoch_mem, epoch_link->dcache, epoch_link->mtu );
+  ulong epoch_chunk  = epoch_chunk0;
+  ulong epoch_seq    = 0UL;
+
+  /* Construct fd_epoch_schedule_t field-by-field rather than type-punning
+     from the unpacked manifest struct (fd_epoch_schedule_t is packed). */
+  fd_epoch_schedule_t schedule_local;
+  schedule_local.slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch;
+  schedule_local.leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset;
+  schedule_local.warmup                      = manifest->epoch_schedule_params.warmup;
+  schedule_local.first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch;
+  schedule_local.first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
+  fd_epoch_schedule_t const * schedule = &schedule_local;
+  ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
+
+  ulong epoch_stakes_base      = epoch > 0UL ? epoch - 1UL : 0UL;
+  ulong leader_schedule_epoch  = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
+  ulong cur_idx = epoch - epoch_stakes_base;
+  FD_TEST( cur_idx < FD_EPOCH_STAKES_LEN );
+
+  ulong * epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
+  ulong epoch_sz = repair_generate_epoch_info_msg( epoch, schedule, &manifest->epoch_stakes[cur_idx], epoch_dst );
+  fd_mcache_publish( epoch_link->mcache, epoch_link->depth, epoch_seq,
+                     4UL, epoch_chunk, epoch_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  epoch_chunk = fd_dcache_compact_next( epoch_chunk, epoch_sz, epoch_chunk0, epoch_wmark );
+  epoch_seq++;
+  FD_LOG_NOTICE(( "sending current epoch stake weights - epoch: %lu", epoch ));
+
+  if( leader_schedule_epoch >= epoch + 1UL ) {
+    ulong next_idx = epoch + 1UL - epoch_stakes_base;
+    FD_TEST( next_idx < FD_EPOCH_STAKES_LEN );
+
+    epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
+    epoch_sz = repair_generate_epoch_info_msg( epoch + 1UL, schedule, &manifest->epoch_stakes[next_idx], epoch_dst );
+    fd_mcache_publish( epoch_link->mcache, epoch_link->depth, epoch_seq,
+                       4UL, epoch_chunk, epoch_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    epoch_chunk = fd_dcache_compact_next( epoch_chunk, epoch_sz, epoch_chunk0, epoch_wmark );
+    epoch_seq++;
+    FD_LOG_NOTICE(( "sending next epoch stake weights - epoch: %lu", epoch + 1UL ));
+  }
+  (void)epoch_chunk;
+
+  free( manifest );
+}
 
 /* repair_topo is a subset of "src/app/firedancer/topology.c" at commit
    0d8386f4f305bb15329813cfe4a40c3594249e96, slightly modified to work
@@ -134,7 +326,6 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "fec_sets"     );
   fd_topob_wksp( topo, "snapin_manif" );
 
-  fd_topob_wksp( topo, "slot_fseqs"   ); /* fseqs for marked slots eg. turbine slot */
   fd_topob_wksp( topo, "genesi_out"   ); /* mock genesi_out for ipecho */
 
   fd_topob_wksp( topo, "tower_out"    ); /* mock tower_out for confirmation msgs. Not needed for any topo except eqvoc. */
@@ -195,11 +386,6 @@ repair_topo( config_t * config ) {
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ];
   fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  /* root_slot is an fseq marking the validator's current Tower root. */
-
-  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "slot_fseqs" );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
 
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
@@ -269,25 +455,6 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_tile_in ( topo, "ipecho", 0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
-  if( 1 ) {
-    fd_topob_wksp( topo, "scap" );
-
-    fd_topo_tile_t * scap_tile = fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-
-    fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    for( ulong j=0UL; j<net_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    }
-    for( ulong j=0UL; j<shred_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "shred_out", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    }
-    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-    fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_out( topo, "scap", 0UL, "replay_epoch", 0UL );
-    fd_topob_tile_out( topo, "scap", 0UL, "snapin_manif", 0UL );
-  }
-
   /* Repair and shred share a secret they use to generate the nonces.
     It's not super security sensitive, but for good hygiene, we make it
     an object. */
@@ -302,11 +469,13 @@ repair_topo( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, rnonce_ss_obj->id, "rnonce_ss" ) );
   }
 
-  FD_TEST( fd_link_permit_no_producers( topo, "quic_net"     ) == quic_tile_cnt );
-  FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
-  FD_TEST( fd_link_permit_no_producers( topo, "txsend_out"   ) == 1UL           );
-  FD_TEST( fd_link_permit_no_producers( topo, "genesi_out"   ) == 1UL           );
-  FD_TEST( fd_link_permit_no_producers( topo, "tower_out"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "quic_net"      ) == quic_tile_cnt );
+  FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"     ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "txsend_out"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "genesi_out"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "tower_out"     ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "replay_epoch"  ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "snapin_manif"  ) == 1UL           );
   FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == net_tile_cnt  );
   FD_TEST( fd_link_permit_no_consumers( topo, "repair_out"   ) == 1UL           );
 
@@ -502,16 +671,16 @@ print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
 
   ulong peer_cnt = sort_peers_by_latency( peers_map, peers_dlist, peers_wlist, peers_arr );
   printf("\nPeer Location/Latency Information\n");
-  printf( "| %-46s | %-7s | %-8s | %-8s | %-7s | %12s | %s\n", "Pubkey", "Req Cnt", "Req B/s", "Rx B/s", "Rx Rate", "Avg Latency", "Location Info" );
+  printf( "     | %-46s | %-7s | %-8s | %-8s | %-7s | %-7s | %-12s | %s\n", "Pubkey", "Req Cnt", "Req B/s", "Rx B/s", "Rx Rate", "Avg Latency", "Ewma Latency", "Location Info" );
   for( uint i = 0; i < peer_cnt; i++ ) {
     fd_policy_peer_t const * active = fd_policy_peer_map_ele_query( peers_map, &peers_copy[ i ], NULL, peers_arr );
     if( FD_LIKELY( active && active->res_cnt > 0 ) ) {
       fd_location_info_t * info = fd_location_table_query( location_table, active->ip4, NULL );
-      char * geolocation = info ? info->location : "Unknown";
+      char * geolocation = info ? info->location : "";
       double peer_bps    = (double)(active->res_cnt * FD_SHRED_MIN_SZ) / ((double)(active->last_resp_ts - active->first_resp_ts) / 1e9);
       double req_bps     = (double)active->req_cnt * 202 / ((double)(active->last_req_ts - active->first_req_ts) / 1e9);
       FD_BASE58_ENCODE_32_BYTES( active->key.key, key_b58 );
-      printf( "%-5u | %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", i, key_b58, active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, geolocation );
+      printf( "%-5u | %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %10.3fms | %s\n", i, key_b58, active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, (double)active->ewma_lat / 1e6, geolocation );
     }
   }
   printf("\n");
@@ -620,6 +789,12 @@ print_tile_metrics( volatile ulong * shred_metrics,
             (double)backpressure_ticks/(double)total_ticks*100.0 );
 #undef DIFFX
   fflush( stdout );
+
+  printf( " Block failed insert: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, BLK_FAILED_INSERT ) ] );
+  printf( " Block evicted: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, BLK_EVICTED ) ] );
+  printf( " slot evicted: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_EVICTED ) ] );
+  printf( " slot evicted by: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_EVICTED_BY ) ] );
+  printf( " slot failed insert: %lu\n", repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_FAILED_INSERT ) ] );
   for( ulong i=0UL; i<FD_METRICS_TOTAL_SZ/sizeof(ulong); i++ ) repair_metrics_prev[ i ] = repair_metrics[ i ];
 }
 
@@ -677,6 +852,8 @@ repair_cmd_fn_catchup( args_t *   args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   fd_topo_fill( &config->topo );
+
+  repair_load_manifest( &config->topo, args->repair.manifest_path );
 
   /* Access repair workspace memory and metrics */
 
@@ -802,6 +979,9 @@ repair_cmd_fn_eqvoc( args_t *   args,
   run_firedancer_init( config, 1, 0 );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
+
+  repair_load_manifest( &config->topo, args->repair.manifest_path );
+
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
   fd_topo_tile_t * repair_tile = &config->topo.tiles[ repair_tile_idx ];
   volatile ulong * repair_metrics = fd_metrics_tile( repair_tile->metrics );
@@ -936,6 +1116,8 @@ repair_cmd_fn_inflight( args_t *   args,
 
   for( ;; ) {
     fd_inflights_print( inflights->outstanding_dl, inflight_pool );
+    printf("popped count: %lu\n", inflights->popped_cnt);
+    fd_inflights_print( inflights->popped_dl, inflight_pool );
     sleep( 1 );
   }
 }
@@ -1060,6 +1242,59 @@ repair_cmd_fn_waterfall( args_t *   args,
   }
 }
 
+#define PEERS_DISPLAY_MAX 20
+
+static void
+print_peer_dlist( fd_policy_peer_dlist_t *     dlist,
+                  fd_policy_peer_t *           pool,
+                  fd_policy_peer_dlist_iter_t  cursor,
+                  char const *                 label ) {
+  ulong cnt = 0;
+  for( fd_policy_peer_dlist_iter_t it = fd_policy_peer_dlist_iter_fwd_init( dlist, pool );
+       !fd_policy_peer_dlist_iter_done( it, dlist, pool );
+       it = fd_policy_peer_dlist_iter_fwd_next( it, dlist, pool ) ) cnt++;
+
+  printf( "%s (%lu peers)\n", label, cnt );
+  if( !cnt || fd_policy_peer_dlist_iter_done( cursor, dlist, pool ) ) {
+    printf( "  (empty or iterator not initialized)\n\n" );
+    return;
+  }
+
+  printf( "     | %-8s | %-12s | %-12s | %-8s | %-8s\n",
+          "Idx", "Pubkey", "Ewma Lat", "Avg Lat", "Req/Res" );
+  printf( "-----+----------+--------------+--------------+----------+---------\n" );
+
+  fd_policy_peer_dlist_iter_t it = cursor;
+  for( ulong i = 0; i < PEERS_DISPLAY_MAX && i < cnt; i++ ) {
+    fd_policy_peer_t * peer = fd_policy_peer_dlist_iter_ele( it, dlist, pool );
+
+    FD_BASE58_ENCODE_32_BYTES( peer->key.key, b58 );
+    char pubkey_short[13];
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( pubkey_short ), b58, 12 ) );
+
+    double avg_lat_ms  = peer->res_cnt ? ((double)peer->total_lat / (double)peer->res_cnt) / 1e6 : 0.0;
+    double ewma_lat_ms = (double)peer->ewma_lat / 1e6;
+
+    printf( " %s%c%s | %-8lu | %-12s | %9.3fms | %9.3fms | %lu/%lu\n",
+            i == 0 ? "\033[1;33m" : "",
+            i == 0 ? '>' : ' ',
+            i == 0 ? "\033[0m"    : "",
+            fd_policy_peer_pool_idx( pool, peer ),
+            pubkey_short,
+            ewma_lat_ms,
+            avg_lat_ms,
+            peer->req_cnt,
+            peer->res_cnt );
+
+    it = fd_policy_peer_dlist_iter_fwd_next( it, dlist, pool );
+    if( fd_policy_peer_dlist_iter_done( it, dlist, pool ) ) {
+      it = fd_policy_peer_dlist_iter_fwd_init( dlist, pool );
+    }
+  }
+  if( cnt > PEERS_DISPLAY_MAX ) printf( "  ... (%lu more)\n", cnt - PEERS_DISPLAY_MAX );
+  printf( "\n" );
+}
+
 static void
 repair_cmd_fn_peers( args_t *   args,
                      config_t * config ) {
@@ -1069,30 +1304,30 @@ repair_cmd_fn_peers( args_t *   args,
 
   fd_policy_t * policy = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->policy ) );
 
-  fd_policy_peer_dlist_t *  best_dlist  = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.fast ) );
-  fd_policy_peer_dlist_t *  worst_dlist = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.slow ) );
-  fd_policy_peer_t *        pool        = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.pool ) );
+  fd_policy_peer_dlist_t * fast_dlist = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.fast ) );
+  fd_policy_peer_dlist_t * slow_dlist = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.slow ) );
+  fd_policy_peer_t *       pool       = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, policy->peers.pool ) );
 
-  printf("FAST REPAIR PEERS (latency < 80ms)\n");
-  int i = 1;
-  for( fd_policy_peer_dlist_iter_t iter = fd_policy_peer_dlist_iter_fwd_init( best_dlist, pool );
-        !fd_policy_peer_dlist_iter_done( iter, best_dlist, pool );
-        iter = fd_policy_peer_dlist_iter_fwd_next( iter, best_dlist, pool ) ) {
-      fd_policy_peer_t * peer = fd_policy_peer_dlist_iter_ele( iter, best_dlist, pool );
-      FD_BASE58_ENCODE_32_BYTES( peer->key.key, p );
-      printf(" %d. %s\n", i, p );
-      i++;
-  }
+  long last_print = 0;
+  for( ;; ) {
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now - last_print > 1e9L ) ) {
+      last_print = now;
+      printf( "\033[2J\033[H" );
 
-  printf("SLOW REPAIR PEERS (latency > 80ms)\n");
-  i = 1;
-  for( fd_policy_peer_dlist_iter_t iter = fd_policy_peer_dlist_iter_fwd_init( worst_dlist, pool );
-        !fd_policy_peer_dlist_iter_done( iter, worst_dlist, pool );
-        iter = fd_policy_peer_dlist_iter_fwd_next( iter, worst_dlist, pool ) ) {
-      fd_policy_peer_t * peer = fd_policy_peer_dlist_iter_ele( iter, worst_dlist, pool );
-      FD_BASE58_ENCODE_32_BYTES( peer->key.key, p );
-      printf(" %d. %s\n", i, p);
-      i++;
+      char fast_label[64];
+      char slow_label[64];
+      snprintf( fast_label, sizeof(fast_label), "FAST PEERS (ewma < %ldms)", (long)(FD_POLICY_LATENCY_THRESH / 1e6L) );
+      snprintf( slow_label, sizeof(slow_label), "SLOW PEERS (ewma >= %ldms or no responses)", (long)(FD_POLICY_LATENCY_THRESH / 1e6L) );
+      print_peer_dlist( fast_dlist, pool, policy->peers.select.fast_iter, fast_label );
+      print_peer_dlist( slow_dlist, pool, policy->peers.select.slow_iter, slow_label );
+
+      printf( "select cnt: %u / %u (fast per slow)\n", policy->peers.select.cnt, FD_POLICY_FAST_PER_SLOW );
+      printf( "pool used: %lu / %lu\n", fd_policy_peer_pool_used( pool ), fd_policy_peer_pool_max( pool ) );
+
+      fflush( stdout );
+    }
+
   }
 }
 

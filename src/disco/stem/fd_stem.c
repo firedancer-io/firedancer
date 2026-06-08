@@ -165,10 +165,6 @@
    This callback is not called when an overrun is detected in
    during_frag. */
 
-#if !FD_HAS_ALLOCA
-#error "fd_stem requires alloca"
-#endif
-
 #include "../../util/log/fd_log.h"
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
@@ -823,6 +819,8 @@ STEM_(run)( fd_topo_t *      topo,
 
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
 
+  uchar __attribute__((aligned(FD_STEM_SCRATCH_ALIGN))) stem_scratch[ STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ];
+
   STEM_(run1)( polled_in_cnt,
                in_mcache,
                in_fseq,
@@ -835,7 +833,7 @@ STEM_(run)( fd_topo_t *      topo,
                STEM_BURST,
                STEM_LAZY,
                rng,
-               fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
+               stem_scratch,
                ctx );
 
 #ifdef STEM_CALLBACK_METRICS_WRITE

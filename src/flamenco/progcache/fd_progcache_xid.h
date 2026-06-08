@@ -14,7 +14,7 @@
 
 #if FD_HAS_INT128
 
-/* If the target supports uint128, fd_progcache_rec_key_hash is seeded
+/* If the target has fast uint128, fd_progcache_rec_key_hash is seeded
    xxHash3 with 64-bit output size. (open source BSD licensed) */
 
 static inline ulong

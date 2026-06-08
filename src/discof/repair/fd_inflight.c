@@ -86,7 +86,7 @@ fd_inflights_request_insert( fd_inflights_t *    table,
 }
 
 long
-fd_inflights_request_remove( fd_inflights_t * table,
+fd_inflights_request_match( fd_inflights_t * table,
                              ulong            nonce,
                              ulong            slot,
                              ulong            shred_idx,

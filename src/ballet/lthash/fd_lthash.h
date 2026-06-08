@@ -65,22 +65,6 @@ fd_lthash_sub( fd_lthash_value_t * restrict       r,
   return r;
 }
 
-#define FD_LTHASH_ENC_32_BUF( _x, _y ) __extension__({                   \
-  if( FD_UNLIKELY( _x == NULL ) ) {                                      \
-    strcpy(_y, "<NULL>");                                                \
-  } else {                                                               \
-    uchar _blake3_hash[FD_HASH_FOOTPRINT];                               \
-    fd_blake3_hash(_x, FD_LTHASH_LEN_BYTES, _blake3_hash );              \
-    fd_base58_encode_32( _blake3_hash, NULL, _y );                       \
-  }                                                                      \
-})
-
-#define FD_LTHASH_ENC_32_ALLOCA( x ) __extension__({                     \
-  char *_out = (char *)fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );  \
-  FD_LTHASH_ENC_32_BUF(x, _out);                                         \
-  _out;                                                                  \
-})
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_lthash_fd_lthash_h */

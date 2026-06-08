@@ -43,6 +43,8 @@ struct fd_diag_tile {
   fd_cpuset_t cpu_has_tile[ fd_cpuset_word_cnt ];
   int         proc_interrupts_fd;
   int         proc_softirqs_fd;
+  ulong       device_irq_baseline[ FD_TILE_MAX ];
+  ulong       softirq_baseline[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ];
 
   ulong volatile * metrics    [ FD_TILE_MAX ];
   ushort           cpu_to_tile[ FD_TILE_MAX ];
@@ -358,17 +360,19 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
 static void
 irq_metrics( fd_diag_tile_t * ctx ) {
   if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong softirq_cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->irq_cnt );
+  if( FD_UNLIKELY( !softirq_cpu_cnt ) ) return; /* parse fail */
+
   ulong volatile * softirq_total     = &fd_metrics_tl[ MIDX( COUNTER, DIAG, SOFTIRQS_TOTAL     ) ];
   ulong volatile * softirq_undesired = &fd_metrics_tl[ MIDX( COUNTER, DIAG, SOFTIRQS_UNDESIRED ) ];
-  ulong cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->irq_cnt );
-  if( FD_UNLIKELY( !cpu_cnt ) ) return; /* parse fail */
   for( ulong j=0UL; j<FD_METRICS_ENUM_SOFTIRQ_CNT; j++ ) {
     ulong tot_cnt       = 0UL;
     ulong undesired_cnt = 0UL;
-    for( ulong i=0UL; i<cpu_cnt; i++ ) {
-      tot_cnt += ctx->irq_cnt[ j ][ i ];
+    for( ulong i=0UL; i<softirq_cpu_cnt; i++ ) {
+      ulong since = fd_ulong_sat_sub( ctx->irq_cnt[ j ][ i ], ctx->softirq_baseline[ j ][ i ] );
+      tot_cnt += since;
       if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
-        undesired_cnt += ctx->irq_cnt[ j ][ i ];
+        undesired_cnt += since;
       }
     }
     softirq_total    [ j ] = tot_cnt;
@@ -377,24 +381,24 @@ irq_metrics( fd_diag_tile_t * ctx ) {
 
   ulong * cpu_irq = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
   if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
-  cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, cpu_irq );
-  if( FD_UNLIKELY( !cpu_cnt ) ) return; /* parse fail */
-  do {
-    ulong tot_cnt       = 0UL;
-    ulong undesired_cnt = 0UL;
-    for( ulong i=0UL; i<cpu_cnt; i++ ) {
-      tot_cnt += cpu_irq[ i ];
-      if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
-        undesired_cnt += cpu_irq[ i ];
-      }
-      ulong tile_id = ctx->cpu_to_tile[ i ];
-      if( tile_id!=USHORT_MAX ) {
-        ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_IRQ_COUNT_OFF ] = cpu_irq[ i ];
-      }
+  ulong device_cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, cpu_irq );
+  if( FD_UNLIKELY( !device_cpu_cnt ) ) return; /* parse fail */
+
+  ulong tot_cnt       = 0UL;
+  ulong undesired_cnt = 0UL;
+  for( ulong i=0UL; i<device_cpu_cnt; i++ ) {
+    ulong since = fd_ulong_sat_sub( cpu_irq[ i ], ctx->device_irq_baseline[ i ] );
+    tot_cnt += since;
+    if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
+      undesired_cnt += since;
     }
-    FD_MCNT_SET( DIAG, DEVICE_IRQS_TOTAL,     tot_cnt       );
-    FD_MCNT_SET( DIAG, DEVICE_IRQS_UNDESIRED, undesired_cnt );
-  } while(0);
+    ulong tile_id = ctx->cpu_to_tile[ i ];
+    if( tile_id!=USHORT_MAX ) {
+      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_IRQ_COUNT_OFF ] = since;
+    }
+  }
+  FD_MCNT_SET( DIAG, DEVICE_IRQS_TOTAL,     tot_cnt       );
+  FD_MCNT_SET( DIAG, DEVICE_IRQS_UNDESIRED, undesired_cnt );
 }
 
 static void
@@ -586,6 +590,18 @@ unprivileged_init( fd_topo_t const *      topo,
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   ctx->next_report_nanos = fd_log_wallclock();
+
+  /* Snapshot the cumulative-since-boot /proc interrupt/softirq counters
+     so the metrics we report are counted since process startup. */
+  memset( ctx->softirq_baseline,    0, sizeof( ctx->softirq_baseline ) );
+  memset( ctx->device_irq_baseline, 0, sizeof( ctx->device_irq_baseline ) );
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong softirq_cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->softirq_baseline );
+  if( FD_UNLIKELY( !softirq_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read softirq baseline from /proc/softirqs" ));
+
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong device_cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, ctx->device_irq_baseline );
+  if( FD_UNLIKELY( !device_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read device IRQ baseline from /proc/interrupts" ));
 
   /* Read starttime (field 22) once at init for idle time calculation.
      CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns. */

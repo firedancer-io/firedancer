@@ -170,13 +170,17 @@ rx_deltas_aggregated( volatile ulong * gossip_metrics,
   /* Pull response metrics */
   deltas.pull_response_rx =
     (aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) ) +
+     aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_LOOPBACK ) ) +
      aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) )) -
     (aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) ) +
+     aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_LOOPBACK ) ) +
      aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) ));
 
   deltas.pull_response_rx_drop =
-    aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) ) -
-    aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
+    (aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_LOOPBACK ) ) +
+     aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) )) -
+    (aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_LOOPBACK ) ) +
+     aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) ));
 
   deltas.pull_response_tx = gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PULL_RESPONSE ) ] -
                             gossip_prev[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PULL_RESPONSE ) ];
@@ -184,20 +188,26 @@ rx_deltas_aggregated( volatile ulong * gossip_metrics,
                                   gossip_prev[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PULL_RESPONSE ) ];
   deltas.pull_response_rx_bytes =
     (aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_RESPONSE ) ) +
+     aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_LOOPBACK ) ) +
      aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) )) -
     (aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PULL_RESPONSE ) ) +
+     aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_LOOPBACK ) ) +
      aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) ));
 
   /* Push metrics */
   deltas.push_rx =
     (aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PUSH ) ) +
+     aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_LOOPBACK ) ) +
      aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) )) -
     (aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PUSH ) ) +
+     aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_LOOPBACK ) ) +
      aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) ));
 
   deltas.push_rx_drop =
-    aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) ) -
-    aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) );
+    (aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_LOOPBACK ) ) +
+     aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) )) -
+    (aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_LOOPBACK ) ) +
+     aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PUSH_NO_VALID_CRDS ) ));
 
   deltas.push_tx = gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PUSH ) ] -
                    gossip_prev[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PUSH ) ];
@@ -205,8 +215,10 @@ rx_deltas_aggregated( volatile ulong * gossip_metrics,
                          gossip_prev[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PUSH ) ];
   deltas.push_rx_bytes =
     (aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PUSH ) ) +
+     aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_LOOPBACK ) ) +
      aggregate_gossvf_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_NO_VALID_CRDS ) )) -
     (aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_SUCCESS_PUSH ) ) +
+     aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_LOOPBACK ) ) +
      aggregate_gossvf_prev_counter( gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_NO_VALID_CRDS ) ));
 
   /* Prune metrics */

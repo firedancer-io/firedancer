@@ -1,7 +1,5 @@
 $(call add-hdrs,fd_gossip.h fd_gossip_message.h fd_crds.h fd_gossip_out.h fd_gossip_txbuild.h fd_gossip_purged.h fd_prune_finder.h)
-ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_gossip fd_gossip_message fd_gossip_out fd_gossip_txbuild fd_gossip_purged fd_prune_finder,fd_flamenco)
-endif
 
 $(call add-hdrs,fd_bloom.h fd_gossip_wsample.h)
 $(call add-objs,fd_bloom fd_crds fd_active_set fd_ping_tracker fd_gossip_wsample,fd_flamenco)

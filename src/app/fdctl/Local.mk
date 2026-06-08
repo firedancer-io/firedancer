@@ -18,9 +18,12 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 # Always generate a version file
 include src/app/fdctl/version.h
 
+# version
+$(call make-lib,fdctl_version)
+$(call add-objs,version,fdctl_version)
+
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
 
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
@@ -36,10 +39,6 @@ ifdef FD_HAS_THREADS
 # fdctl commands
 $(call add-objs,commands/run_agave,fd_fdctl)
 $(call add-objs,commands/set_identityh,fd_fdctl)
-
-# version
-$(call make-lib,fdctl_version)
-$(call add-objs,version,fdctl_version)
 
 $(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco fd_choreo agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
 
@@ -139,7 +138,6 @@ $(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 
-endif
 endif
 endif
 endif
