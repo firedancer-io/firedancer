@@ -27,5 +27,12 @@ fsync: (eq (arg 0) logfile_fd)
 # arg 0 is the file descriptor to write to.
 pwrite64: (eq (arg 0) accounts_fd)
 
+# accounts database: truncate on full snapshot failure
+#
+# snapwr truncates the accounts database file to zero bytes to reclaim
+# disk space when a full snapshot load fails and needs to be retried.
+ftruncate: (and (eq (arg 0) accounts_fd)
+                (eq (arg 1) 0))
+
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)

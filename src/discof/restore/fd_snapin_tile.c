@@ -106,8 +106,9 @@ struct fd_snapin_tile {
   ulong manifest_capitalization; /* capitalization according to the current snapshot manifest */
 
   struct {
-    ulong capitalization;
-  } recovery; /* stores the capitalization value from the last full snapshot */
+    ulong                        capitalization;
+    fd_accdb_snapshot_recovery_t accdb_metadata;
+  } recovery; /* stores state from the last full snapshot for incremental revert */
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
@@ -116,6 +117,7 @@ struct fd_snapin_tile {
   fd_sstxncache_entry_t * txncache_entries;
 
   fd_accdb_fork_id_t accdb_root_fork_id;
+  fd_accdb_fork_id_t accdb_incr_fork_id; /* child fork for incremental writes (purge on failure) */
   fd_txncache_fork_id_t txncache_root_fork_id;
 
   struct {
@@ -202,11 +204,11 @@ scratch_align( void ) {
 
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),      sizeof(fd_snapin_tile_t)                                     );
   l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),             fd_ssparse_footprint( 1UL<<24UL )                            );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots )         );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),               fd_accdb_footprint( tile->snapin.max_live_slots )            );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                             );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                             );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
@@ -787,7 +789,12 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   }
 
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-  if( FD_UNLIKELY( fd_accdb_snapshot_write_batch( ctx->accdb, cnt, pubkeys, slots, lamports, data_lens, executables, &accounts_ignored, &accounts_replaced, &accounts_loaded, &replaced_lamports, &ignored_lamports ) ) ) return -1;
+  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
+  if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
+                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
+                                                     &replaced_lamports, &ignored_lamports ) ) ) {
+    return -1;
+  }
   ctx->metrics.accounts_ignored  += accounts_ignored;
   ctx->metrics.accounts_replaced += accounts_replaced;
   ctx->metrics.accounts_loaded   += accounts_loaded;
@@ -809,7 +816,9 @@ static int
 process_account_header( fd_snapin_tile_t * ctx,
                         fd_ssparse_advance_result_t * result ) {
   ulong replaced_lamports = 0UL;
+  fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
   int account = fd_accdb_snapshot_write_one( ctx->accdb,
+                                             fork_id,
                                              result->account_header.pubkey,
                                              result->account_header.slot,
                                              result->account_header.lamports,
@@ -1110,6 +1119,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->dup_capitalization                 = 0UL;
         ctx->recovery.capitalization            = 0UL;
 
+        fd_accdb_reset( ctx->accdb );
         fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
 
@@ -1125,6 +1135,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         ctx->capitalization     = ctx->recovery.capitalization;
         ctx->dup_capitalization = 0UL;
+
+        /* Discard stale capture so the retry's sysvar is snooped fresh */
+        ctx->slot_history.captured  = 0;
+        ctx->slot_history.capturing = 0;
+
+        /* Create a child fork for incremental writes.  On failure,
+           fd_accdb_purge(child) reverts just the incremental changes.
+           On success, fd_accdb_advance_root(child) promotes them. */
+        ctx->accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->accdb_root_fork_id );
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
@@ -1172,6 +1191,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->recovery.capitalization = ctx->capitalization;
+      fd_accdb_snapshot_save_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
 
       /* Backup metric counters */
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
@@ -1199,6 +1219,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
+      if( !ctx->full ) {
+        fd_accdb_advance_root( ctx->accdb, ctx->accdb_incr_fork_id );
+        ctx->accdb_root_fork_id = ctx->accdb_incr_fork_id;
+      }
+
       fd_accdb_snapshot_load_end( ctx->accdb );
 
       /* Notify replay when snapshot is fully loaded and verified. */
@@ -1214,8 +1239,14 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      if( ctx->full ) {
+        fd_accdb_reset( ctx->accdb );
+      } else {
+        fd_accdb_purge( ctx->accdb, ctx->accdb_incr_fork_id ); /* this fork and subsequent children */
+        fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
+        ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+      }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      FD_LOG_ERR((( "TODO: UNIMPLEMENTED: snapshot load failure handling (TODO: reset accdb to last known good state, etc)" )));
       break;
     }
 
@@ -1388,7 +1419,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->manifest_capitalization            = 0UL;
   ctx->capitalization                     = 0UL;
   ctx->dup_capitalization                 = 0UL;
-  ctx->recovery.capitalization            = 0UL;
+  ctx->recovery.capitalization = 0UL;
+  memset( &ctx->recovery.accdb_metadata, 0, sizeof(ctx->recovery.accdb_metadata) );
+
+  ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
   ctx->boot_timestamp = fd_log_wallclock();
