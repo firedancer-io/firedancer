@@ -369,6 +369,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->max_accounts     = max_accounts;
   accdb->max_account_writes_per_slot = max_account_writes_per_slot;
   accdb->joiner_cnt_max   = joiner_cnt;
+  accdb->cache_min_reserved = cache_min_reserved;
   accdb->partition_cnt    = partition_cnt;
   accdb->partition_sz     = partition_sz;
   accdb->partition_max    = 0UL;
