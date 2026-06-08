@@ -780,29 +780,6 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 
   fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, &xid, ctx->runtime_stack, ctx->capture_ctx );
 
-  ulong snapshot_slot = bank->f.slot;
-  if( FD_UNLIKELY( !snapshot_slot ) ) {
-    /* Genesis-specific setup. */
-    /* FIXME: This branch does not set up a new block exec ctx
-       properly. Needs to do whatever prepare_new_block_execution
-       does, but just hacking that in breaks stuff. */
-    fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
-    fd_runtime_update_leaders( bank, ctx->runtime_stack );
-
-    ulong hashcnt_per_slot = bank->f.hashes_per_tick * bank->f.ticks_per_slot;
-    fd_hash_t * poh = &bank->f.poh;
-    while( hashcnt_per_slot-- ) {
-      fd_sha256_hash( poh->hash, 32UL, poh->hash );
-    }
-
-    int is_epoch_boundary = 0;
-    fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
-    FD_TEST( !is_epoch_boundary );
-    fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
-
-    snapshot_slot = 0UL;
-  }
-
   /* Signals fd_sleep_until_replay_started */
   FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
 }
