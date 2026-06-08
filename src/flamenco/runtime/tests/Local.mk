@@ -1,6 +1,8 @@
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_solfuzz.h)
-$(call add-objs,fd_solfuzz fd_solfuzz_exec,fd_flamenco_test)
+$(call add-objs,fd_solfuzz,fd_flamenco_test)
+$(call add-objs,fd_solfuzz_exec,fd_flamenco_test)
+$(call add-objs,fd_sol_compat,fd_flamenco_test)
 
 $(call add-hdrs,fd_dump_pb.h)
 $(call add-objs,fd_dump_pb,fd_flamenco)
@@ -16,8 +18,8 @@ $(call add-objs,generated/context.pb generated/instr.pb generated/txn.pb generat
 
 ifdef FD_HAS_HOSTED
 SOL_COMPAT_FLAGS:=-Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol_compat.map
-$(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_discof fd_flamenco fd_disco fd_reedsol fd_tango fd_funk fd_ballet fd_util)
-$(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_discof fd_flamenco fd_disco fd_reedsol fd_funk fd_ballet fd_util,$(SOL_COMPAT_FLAGS))
+$(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_discof fd_flamenco fd_disco fd_reedsol fd_tango fd_ballet fd_util)
+$(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_discof fd_flamenco fd_disco fd_reedsol fd_ballet fd_util,$(SOL_COMPAT_FLAGS))
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 endif
 
@@ -27,8 +29,8 @@ $(call make-unit-test,test_svm_elfgen,test_svm_elfgen,fd_flamenco_test fd_flamen
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_svm_mini.h)
 $(call add-objs,fd_svm_mini,fd_flamenco_test)
-$(call make-unit-test,test_svm_mini,test_svm_mini,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
-$(call make-unit-test,test_accdb_svm,test_accdb_svm,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call make-unit-test,test_svm_mini,test_svm_mini,fd_flamenco_test fd_flamenco fd_tango fd_ballet fd_util fd_disco)
+$(call make-unit-test,test_accdb_svm,test_accdb_svm,fd_flamenco_test fd_flamenco fd_tango fd_ballet fd_util fd_disco)
 endif
 
 run-runtime-backtest: $(OBJDIR)/bin/firedancer-dev

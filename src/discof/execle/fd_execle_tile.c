@@ -9,11 +9,9 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
-#include "../../discof/fd_accdb_topo.h"
 #include "../../discof/fd_startup.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include <time.h>
@@ -55,8 +53,8 @@ struct fd_execle_tile {
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   fd_banks_t * banks;
+  fd_accdb_t * accdb;
 
-  fd_accdb_user_t accdb[1];
   fd_progcache_t  progcache[1];
 
   fd_runtime_t runtime[1];
@@ -104,6 +102,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,             FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -127,6 +126,8 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
   FD_MCNT_SET( EXECLE, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECLE, VM_REGIME_INTERPRETER, exec_ticks                            );
+
+  FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }
 
 static int
@@ -440,11 +441,21 @@ handle_bundle( fd_execle_tile_t *  ctx,
      These were copied in during_frag from the source fd_txn_e_t,
      resolved by fd_resolv_tile. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    writable_alt[i] = ctx->_alt_accts[i];
+    writable_alt[i]                   = ctx->_alt_accts[i];
+    ctx->txn_in[ i ].txn              = &txns[ i ];
+    ctx->txn_in[ i ].bundle.is_bundle = 1;
   }
+
 
   int   execution_success = 1;
   ulong failed_idx        = ULONG_MAX;
+
+  /* Acquire all accdb resources in order to execute the bundle. */
+  int err = fd_runtime_prepare_bundle_accounts( ctx->runtime, bank, ctx->txn_in, ctx->txn_out, txn_cnt );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    execution_success = 0;
+    failed_idx = 0;
+  }
 
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
@@ -510,10 +521,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
                       cost_tracker->remove_simple_vote_from_cost_model ));
       }
 
-      uint actual_execution_cus               = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-      uint actual_acct_data_cus               = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
-      uint non_execution_cus                  = txns[ i ].pack_cu.non_execution_cus;
-      uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
+      uint actual_execution_cus              = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
+      uint actual_acct_data_cus              = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
+      uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
+      uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
 
       int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload );
       if( FD_UNLIKELY( is_simple_vote && !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
@@ -577,6 +588,8 @@ handle_bundle( fd_execle_tile_t *  ctx,
       else                ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX            ]++;
     }
   }
+
+  fd_runtime_fini_bundle( ctx->runtime );
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
@@ -695,6 +708,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * blake3          = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
+  void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots ) );
   void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
 #define NONNULL( x ) (__extension__({                                        \
@@ -709,9 +723,9 @@ unprivileged_init( fd_topo_t const *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile->execle.accdb_max_depth );
-
-  fd_progcache_init_from_topo( ctx->progcache, topo, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  FD_TEST( fd_progcache_join( ctx->progcache,
+      fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id ),
+      pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -719,9 +733,11 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
 
-
-  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->execle.acc_pool_obj_id ) );
-  FD_TEST( acc_pool );
+  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execle.accdb_obj_id );
+  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  FD_TEST( ctx->accdb );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
@@ -731,12 +747,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
-  ctx->runtime->acc_pool                 = acc_pool;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
+  ctx->runtime->accounts.account_cnt     = 0UL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -773,7 +789,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW );
   return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
@@ -785,12 +801,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+
   return out_cnt;
 }
 

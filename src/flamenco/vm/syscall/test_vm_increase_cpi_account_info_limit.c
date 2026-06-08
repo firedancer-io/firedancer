@@ -44,9 +44,6 @@ struct test_env {
   fd_txn_out_t            txn_out[1];
   fd_instr_info_t         instr[1];
   uchar                   rodata[100];
-  fd_account_meta_t *     source_meta;
-  fd_account_meta_t *     dest_meta;
-  fd_account_meta_t *     sysprog_meta;
   fd_vm_acc_region_meta_t acc_region_metas[3];
   fd_log_collector_t      log_collector[1];
 };
@@ -184,27 +181,32 @@ test_env_create( test_env_t * env,
   features->loosen_cpi_size_restriction = 0UL;
 
   env->txn_out->accounts.cnt = 3;
+  fd_memset( env->txn_out->accounts.keys,    0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( env->runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    env->txn_out->accounts.account[i] = &env->runtime->accounts.account[ i ];
+  }
 
   memcpy( &env->txn_out->accounts.keys[0], &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
-  env->sysprog_meta = fd_wksp_alloc_laddr( wksp, alignof(fd_account_meta_t), sizeof(fd_account_meta_t), TEST_WKSP_TAG );
-  memset( env->sysprog_meta, 0, sizeof(fd_account_meta_t) );
-  memcpy( env->sysprog_meta->owner, &fd_solana_native_loader_id, sizeof(fd_pubkey_t) );
-  env->sysprog_meta->executable = 1;
-  env->txn_out->accounts.account[0].meta = env->sysprog_meta;
+  fd_acc_t * sysprog_ent = env->txn_out->accounts.account[0];
+  memset( sysprog_ent, 0, sizeof(fd_acc_t) );
+  memcpy( sysprog_ent->pubkey, fd_solana_system_program_id.key, 32 );
+  memcpy( sysprog_ent->owner, fd_solana_native_loader_id.key, 32 );
+  sysprog_ent->executable = 1;
 
   memcpy( &env->txn_out->accounts.keys[1], &test_transfer_from_pubkey, sizeof(fd_pubkey_t) );
-  env->source_meta = fd_wksp_alloc_laddr( wksp, alignof(fd_account_meta_t), sizeof(fd_account_meta_t), TEST_WKSP_TAG );
-  memset( env->source_meta, 0, sizeof(fd_account_meta_t) );
-  memcpy( env->source_meta->owner, &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
-  env->source_meta->lamports = 1000000UL;
-  env->txn_out->accounts.account[1].meta = env->source_meta;
+  fd_acc_t * source_ent = env->txn_out->accounts.account[1];
+  memset( source_ent, 0, sizeof(fd_acc_t) );
+  memcpy( source_ent->pubkey, test_transfer_from_pubkey.key, 32 );
+  memcpy( source_ent->owner, fd_solana_system_program_id.key, 32 );
+  source_ent->lamports = 1000000UL;
 
   memcpy( &env->txn_out->accounts.keys[2], &test_transfer_to_pubkey, sizeof(fd_pubkey_t) );
-  env->dest_meta = fd_wksp_alloc_laddr( wksp, alignof(fd_account_meta_t), sizeof(fd_account_meta_t), TEST_WKSP_TAG );
-  memset( env->dest_meta, 0, sizeof(fd_account_meta_t) );
-  memcpy( env->dest_meta->owner, &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
-  env->dest_meta->lamports = 0UL;
-  env->txn_out->accounts.account[2].meta = env->dest_meta;
+  fd_acc_t * dest_ent = env->txn_out->accounts.account[2];
+  memset( dest_ent, 0, sizeof(fd_acc_t) );
+  memcpy( dest_ent->pubkey, test_transfer_to_pubkey.key, 32 );
+  memcpy( dest_ent->owner, fd_solana_system_program_id.key, 32 );
+  dest_ent->lamports = 0UL;
 
   env->runtime->accounts.refcnt[0] = 0UL;
   env->runtime->accounts.refcnt[1] = 0UL;
@@ -221,13 +223,13 @@ test_env_create( test_env_t * env,
   memset( env->acc_region_metas, 0, sizeof(env->acc_region_metas) );
   env->acc_region_metas[0].region_idx        = 0;
   env->acc_region_metas[0].original_data_len = 0UL;
-  env->acc_region_metas[0].meta              = env->sysprog_meta;
+  env->acc_region_metas[0].acc             = env->txn_out->accounts.account[0];
   env->acc_region_metas[1].region_idx        = 0;
   env->acc_region_metas[1].original_data_len = 0UL;
-  env->acc_region_metas[1].meta              = env->source_meta;
+  env->acc_region_metas[1].acc             = env->txn_out->accounts.account[1];
   env->acc_region_metas[2].region_idx        = 0;
   env->acc_region_metas[2].original_data_len = 0UL;
-  env->acc_region_metas[2].meta              = env->dest_meta;
+  env->acc_region_metas[2].acc             = env->txn_out->accounts.account[2];
 
   memset( env->rodata, 0, sizeof(env->rodata) );
   int vm_ok = !!fd_vm_init(
@@ -264,9 +266,6 @@ test_env_destroy( test_env_t * env ) {
   test_vm_clear_txn_ctx_err( env->instr_ctx->txn_out );
   fd_vm_delete( fd_vm_leave( env->vm ) );
   fd_sha256_delete( fd_sha256_leave( env->sha ) );
-  fd_wksp_free_laddr( env->sysprog_meta );
-  fd_wksp_free_laddr( env->source_meta );
-  fd_wksp_free_laddr( env->dest_meta );
   fd_wksp_free_laddr( env->runtime );
 
   ulong           tag = TEST_WKSP_TAG;
@@ -283,7 +282,7 @@ run_test( fd_wksp_t * wksp,
           ulong       num_infos,
           int         expected_err,
           ulong       expected_cus ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   test_env_create( env, wksp, increase_cpi_account_info_limit, increase_tx_account_lock_limit );
 
   ulong initial_cu = env->vm->cu;

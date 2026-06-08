@@ -2,33 +2,31 @@
 
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
+#include "fd_runtime_helpers.h"
 #include "fd_alut.h"
-#include "../accdb/fd_accdb_impl_v1.h"
-#include "../accdb/fd_accdb_sync.h"
 #include "fd_system_ids.h"
+#include "tests/fd_svm_mini.h"
+#include "../accdb/fd_accdb.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../funk/fd_funk.h"
-#include "../../funk/fd_funk_txn.h"
-#include "../../funk/fd_funk_rec.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* Test configuration */
-#define TEST_FUNK_REC_CNT (1024UL)
 #define TEST_SLOT         (100000UL)
 #define MAX_ALUT_ADDRS    (256UL)
 #define SLOT_HASH_CNT     (512UL)  /* Max slot hash entries */
 
+/* The accdb-fork machinery requires a slot >= the parent root slot.
+   Use TEST_SLOT for the child fork; root is one less. */
+#define TEST_PARENT_SLOT  (TEST_SLOT-1UL)
+
+static fd_svm_mini_t * g_mini;
+
 /* Test context structure */
 typedef struct {
   fd_wksp_t *         wksp;
-  void *              funk_mem;
-  void *              funk_shmem;
-  void *              funk_locks;
-  fd_funk_t           funk_join[1];
-  fd_funk_t *         funk;
-  fd_accdb_user_t     accdb[1];
-  fd_funk_txn_xid_t   xid;
-  fd_funk_txn_t *     funk_txn;
+  fd_accdb_t *        accdb;
+  fd_accdb_fork_id_t  fork_id;
 } test_ctx_t;
 
 /* Setup function for each test */
@@ -36,44 +34,16 @@ static test_ctx_t *
 test_setup( fd_wksp_t * wksp ) {
   test_ctx_t * ctx = fd_wksp_alloc_laddr( wksp, alignof(test_ctx_t), sizeof(test_ctx_t), 1UL );
   FD_TEST( ctx );
-
   ctx->wksp = wksp;
 
-  /* Setup funk */
-  ulong txn_max        = 10;
-  ulong rec_max        = TEST_FUNK_REC_CNT;
-  ulong funk_align     = fd_funk_align();
-  ulong funk_footprint = fd_funk_shmem_footprint( txn_max, rec_max );
-  ulong lock_footprint = fd_funk_locks_footprint( txn_max, rec_max );
-  ctx->funk_mem = fd_wksp_alloc_laddr( wksp, funk_align, funk_footprint, 1UL );
-  FD_TEST( ctx->funk_mem );
-  ctx->funk_locks = fd_wksp_alloc_laddr( wksp, funk_align, lock_footprint, 1UL );
-  FD_TEST( ctx->funk_locks );
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->root_slot = TEST_PARENT_SLOT;
+  ulong root_idx  = fd_svm_mini_reset( g_mini, params );
+  ulong child_idx = fd_svm_mini_attach_child( g_mini, root_idx, TEST_SLOT );
 
-  ctx->funk_shmem = fd_funk_shmem_new( ctx->funk_mem, 1UL, 1234UL /* seed */, txn_max, rec_max );
-  FD_TEST( ctx->funk_shmem );
-  FD_TEST( fd_funk_locks_new( ctx->funk_locks, txn_max, rec_max ) );
-
-  /* Check alignment before join */
-  FD_TEST( fd_ulong_is_aligned( (ulong)ctx->funk_shmem, funk_align ) );
-
-  ctx->funk = fd_funk_join( ctx->funk_join, ctx->funk_shmem, ctx->funk_locks );
-  FD_TEST( ctx->funk );
-
-  /* Set up accdb interface */
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, ctx->funk_shmem, ctx->funk_locks, txn_max ) );
-
-  /* Set up root transaction and target transaction ID */
-  fd_funk_txn_xid_t root_xid;
-  fd_funk_txn_xid_set_root( &root_xid );
-
-  ctx->xid.ul[0] = 0x1234567890ABCDEFULL;  /* Test transaction ID - arbitrary unique value */
-  ctx->xid.ul[1] = 0xFEDCBA0987654321ULL;  /* Test transaction ID - arbitrary unique value */
-
-  /* Prepare the transaction with root as parent */
-  fd_funk_txn_prepare( ctx->funk, &root_xid, &ctx->xid );
-  ctx->funk_txn = NULL; /* We don't actually need to store this for the test */
-
+  ctx->accdb   = g_mini->runtime->accdb;
+  ctx->fork_id = fd_svm_mini_fork_id( g_mini, child_idx );
   return ctx;
 }
 
@@ -81,32 +51,28 @@ test_setup( fd_wksp_t * wksp ) {
 static void
 test_teardown( test_ctx_t * ctx ) {
   if( !ctx ) return;
-
-  void * shfunk = NULL;
-  fd_funk_leave( ctx->funk, &shfunk, NULL );
-  fd_funk_delete( shfunk );
-  fd_wksp_free_laddr( ctx->funk_locks );
-  fd_wksp_free_laddr( ctx->funk_mem );
   fd_wksp_free_laddr( ctx );
 }
 
-/* Helper function to create test account using fd_txn_account API */
+/* Helper function to create test account using accdb v4 API */
 static void
 create_test_account( test_ctx_t *              ctx,
-                     fd_funk_txn_xid_t const * xid,
+                     fd_accdb_fork_id_t        fork_id,
                      void const *              pubkey,
                      void const *              owner,
                      void const *              data,
                      ulong                     data_len,
                      ulong                     lamports,
                      uchar                     executable ) {
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( ctx->accdb, rw, xid, pubkey, data_len, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
-  fd_accdb_ref_data_set( ctx->accdb, rw, data, data_len );
-  fd_accdb_ref_lamports_set( rw, lamports );
-  fd_accdb_ref_exec_bit_set( rw, executable );
-  fd_accdb_ref_owner_set   ( rw, owner );
-  fd_accdb_close_rw( ctx->accdb, rw );
+  fd_acc_t acc = fd_accdb_write_one( ctx->accdb, fork_id, (uchar const *)pubkey );
+  if( data && data_len ) memcpy( acc.data, data, data_len );
+  acc.data_len   = (uint)data_len;
+  acc.lamports   = lamports;
+  acc.executable = executable;
+  if( owner ) memcpy( acc.owner, owner, 32UL );
+  else        memset( acc.owner, 0,     32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( ctx->accdb, &acc );
 }
 
 /* Helper to allocate transaction with flexible array member */
@@ -225,7 +191,7 @@ test_non_v0_transaction( fd_wksp_t * wksp ) {
 
   /* Call function - should return immediately for non-V0 */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -265,7 +231,7 @@ test_v0_no_alts( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed immediately with no ALTs */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -297,7 +263,7 @@ test_alt_not_found( fd_wksp_t * wksp ) {
   ulong            readonly_counts[] = { 1 };
   create_test_transaction( txn, payload, FD_TXN_V0, 1, writable_counts, readonly_counts );
 
-  /* Don't add the ALT account to funk - it should not be found */
+  /* Don't add the ALT account to accdb - it should not be found */
   fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
@@ -308,7 +274,7 @@ test_alt_not_found( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with not found error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
 
@@ -359,8 +325,8 @@ test_invalid_alt_owner( fd_wksp_t * wksp ) {
   uchar alt_data[256];
   memset( alt_data, 0, sizeof(alt_data) );
 
-  /* Add account to funk with wrong owner */
-  create_test_account( ctx, &ctx->xid, alt_addr, &invalid_owner, alt_data, 56, 1000000, 0 );
+  /* Add account to accdb with wrong owner */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &invalid_owner, alt_data, 56, 1000000, 0 );
 
   fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
@@ -372,7 +338,7 @@ test_invalid_alt_owner( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid owner error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER );
 
@@ -420,8 +386,8 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
   uchar alt_data[40];  /* Less than 56 bytes minimum */
   memset( alt_data, 0, sizeof(alt_data) );
 
-  /* Add account to funk with correct owner but insufficient data */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb with correct owner but insufficient data */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
@@ -434,7 +400,7 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -508,8 +474,8 @@ test_invalid_discriminant( fd_wksp_t * wksp ) {
 
   /* The rest can be zeros - it will decode successfully as an uninitialized variant */
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, 256, 1000000, 0 );
 
   fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
@@ -522,7 +488,7 @@ test_invalid_discriminant( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -556,8 +522,8 @@ test_alt_data_not_aligned( fd_wksp_t * wksp ) {
   memset( alt_data, 0, sizeof(alt_data) );
   create_valid_alt_data( alt_data, 0 );  /* Create valid metadata */
 
-  /* Add account to funk with misaligned data size */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb with misaligned data size */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
@@ -570,7 +536,7 @@ test_alt_data_not_aligned( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -617,8 +583,8 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
     addrs[i].b[0] = (uchar)(0xA0 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, FD_LOOKUP_TABLE_META_SIZE + 5 * 32, 1000000, 0 );
 
   /* Set up slot hashes without the deactivation slot */
@@ -633,7 +599,7 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should fail because ALT is deactivated */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
 
@@ -683,8 +649,8 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
     addrs[i].b[0] = (uchar)(0xB0 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, FD_LOOKUP_TABLE_META_SIZE + 10 * 32, 1000000, 0 );
 
   /* Set up slot hashes */
@@ -699,7 +665,7 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid index error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
 
@@ -735,8 +701,8 @@ test_invalid_readonly_index( fd_wksp_t * wksp ) {
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 8 * 32];
   create_valid_alt_data( alt_data, 8 );
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, FD_LOOKUP_TABLE_META_SIZE + 8 * 32, 1000000, 0 );
 
   /* Set up slot hashes */
@@ -751,7 +717,7 @@ test_invalid_readonly_index( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid index error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
 
@@ -786,8 +752,8 @@ test_valid_single_alt( fd_wksp_t * wksp ) {
   uchar                            alt_data[56 + 10 * 32];  /* Meta + 10 addresses */
   create_valid_alt_data( alt_data, num_addresses );
 
-  /* Add valid ALT account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add valid ALT account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, alt_data_size, 1000000, 0 );
 
   /* Set up slot hashes (needed for active address calculation) */
@@ -807,7 +773,7 @@ test_valid_single_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -857,7 +823,7 @@ test_multiple_alts( fd_wksp_t * wksp ) {
   fd_pubkey_t *                    alt_addr1 = (fd_pubkey_t *)(payload + luts[0].addr_off);
   uchar alt_data1[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
   create_valid_alt_data( alt_data1, 10 );
-  create_test_account( ctx, &ctx->xid, alt_addr1, &fd_solana_address_lookup_table_program_id,
+  create_test_account( ctx, ctx->fork_id, alt_addr1, &fd_solana_address_lookup_table_program_id,
                        alt_data1, sizeof(alt_data1), 1000000, 0 );
 
   /* Second ALT with 8 addresses */
@@ -870,7 +836,7 @@ test_multiple_alts( fd_wksp_t * wksp ) {
     addrs2[i].b[0] = (uchar)(0xC0 + i);
     addrs2[i].b[1] = (uchar)(0xD0 + i);
   }
-  create_test_account( ctx, &ctx->xid, alt_addr2, &fd_solana_address_lookup_table_program_id,
+  create_test_account( ctx, ctx->fork_id, alt_addr2, &fd_solana_address_lookup_table_program_id,
                        alt_data2, sizeof(alt_data2), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -885,7 +851,7 @@ test_multiple_alts( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -951,8 +917,8 @@ test_partial_activation( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0xF0 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -967,7 +933,7 @@ test_partial_activation( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with only first 5 addresses active */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1021,8 +987,8 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0x80 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes including the deactivation slot */
@@ -1037,7 +1003,7 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed because ALT is still deactivating */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1078,8 +1044,8 @@ test_bincode_decode_failure( fd_wksp_t * wksp ) {
   alt_data[0] = 1;  /* Valid discriminant */
   /* Leave rest as 0xFF which will cause decode failure */
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, 256, 1000000, 0 );
 
   fd_slot_hashes_t * hashes = create_slot_hashes_view( wksp, 10 );
@@ -1092,7 +1058,7 @@ test_bincode_decode_failure( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -1140,8 +1106,8 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0x20 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1156,7 +1122,7 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all 10 addresses active */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1218,8 +1184,8 @@ test_growing_alt( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0x40 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1234,7 +1200,7 @@ test_growing_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with only first 15 addresses accessible */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1289,8 +1255,8 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0x60 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes including current slot */
@@ -1305,7 +1271,7 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed because ALT is still active at deactivation slot */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1358,8 +1324,8 @@ test_alt_max_addresses( fd_wksp_t * wksp ) {
   addrs[100].b[0] = 0x64; addrs[100].b[1] = 0x65;
   addrs[200].b[0] = 0xC8; addrs[200].b[1] = 0xC9;
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, alt_data_size, 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1374,7 +1340,7 @@ test_alt_max_addresses( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1429,8 +1395,8 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0xA0 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1445,7 +1411,7 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed (authority doesn't affect loading) */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1502,8 +1468,8 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0xC0 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1518,7 +1484,7 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid index error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
 
@@ -1555,7 +1521,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
     addrs1[i].b[0] = (uchar)(0x10 + i);
     addrs1[i].b[1] = (uchar)(0x20 + i);
   }
-  create_test_account( ctx, &ctx->xid, alt_addr1, &fd_solana_address_lookup_table_program_id,
+  create_test_account( ctx, ctx->fork_id, alt_addr1, &fd_solana_address_lookup_table_program_id,
                        alt_data1, sizeof(alt_data1), 1000000, 0 );
 
   /* ALT 2: Partially active (20 addresses but only 10 active) */
@@ -1574,7 +1540,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
     addrs2[i].b[0] = (uchar)(0x30 + i);
     addrs2[i].b[1] = (uchar)(0x40 + i);
   }
-  create_test_account( ctx, &ctx->xid, alt_addr2, &fd_solana_address_lookup_table_program_id,
+  create_test_account( ctx, ctx->fork_id, alt_addr2, &fd_solana_address_lookup_table_program_id,
                        alt_data2, sizeof(alt_data2), 1000000, 0 );
 
   /* ALT 3: Deactivating but still in slot_hashes */
@@ -1593,7 +1559,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
     addrs3[i].b[0] = (uchar)(0x50 + i);
     addrs3[i].b[1] = (uchar)(0x60 + i);
   }
-  create_test_account( ctx, &ctx->xid, alt_addr3, &fd_solana_address_lookup_table_program_id,
+  create_test_account( ctx, ctx->fork_id, alt_addr3, &fd_solana_address_lookup_table_program_id,
                        alt_data3, sizeof(alt_data3), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1608,7 +1574,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all valid addresses loaded */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1649,8 +1615,8 @@ test_alt_zero_addresses( fd_wksp_t * wksp ) {
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE];  /* Exactly 56 bytes */
   create_valid_alt_data( alt_data, 0 );  /* Zero addresses */
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1665,7 +1631,7 @@ test_alt_zero_addresses( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with no addresses loaded */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1716,8 +1682,8 @@ test_alt_duplicate_indices( fd_wksp_t * wksp ) {
   addrs[3].b[0] = 0xD3; addrs[3].b[1] = 0xD3;
   addrs[5].b[0] = 0xD5; addrs[5].b[1] = 0xD5;
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1732,7 +1698,7 @@ test_alt_duplicate_indices( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with duplicates */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1779,8 +1745,8 @@ test_alt_all_writable( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0xF1 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1795,7 +1761,7 @@ test_alt_all_writable( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all addresses in writable section */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1846,8 +1812,8 @@ test_alt_all_readonly( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0xE1 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
@@ -1862,7 +1828,7 @@ test_alt_all_readonly( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all addresses in readonly section */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1921,8 +1887,8 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
     addrs[i].b[1] = (uchar)(0x81 + i);
   }
 
-  /* Add account to funk */
-  create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+  /* Add account to accdb */
+  create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes with exactly 10 entries */
@@ -1937,7 +1903,7 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed (still deactivating at boundary) */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1993,8 +1959,8 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
       addrs[i].b[1] = (uchar)(0x20 + alt_idx);
     }
 
-    /* Add account to funk */
-    create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
+    /* Add account to accdb */
+    create_test_account( ctx, ctx->fork_id, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
   }
 
@@ -2010,7 +1976,7 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all ALTs loaded */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -2137,7 +2103,11 @@ test_wire_decode_24_byte_none_payload( void ) {
 static void
 test_wire_encode_none_matches_agave( void ) {
   FD_LOG_NOTICE(( "Wire test: encode None matches Agave layout" ));
-  uchar expected[ FD_LOOKUP_TABLE_META_SIZE ];
+  /* fd_alut_state_encode writes only 24 bytes for the None variant
+     (4 disc + 8 deact + 8 last_ext + 1 idx + 1 tag + 2 padding); the
+     account-data zero padding up to FD_LOOKUP_TABLE_META_SIZE comes
+     from the on-chain data length, not the encoder. */
+  uchar expected[ 24 ];
   build_none_authority_buf( expected, sizeof(expected), 1234UL, 5678UL, 9, 0 );
 
   fd_alut_meta_t meta = {
@@ -2148,6 +2118,7 @@ test_wire_encode_none_matches_agave( void ) {
     .has_authority                  = 0,
   };
   uchar actual[ FD_LOOKUP_TABLE_META_SIZE ];
+  fd_memset( actual, 0xCC, sizeof(actual) );
   FD_TEST( fd_alut_state_encode( &meta, actual, sizeof(actual) ) == 0 );
   FD_TEST( fd_memeq( actual, expected, sizeof(expected) ) );
 }
@@ -2217,7 +2188,9 @@ test_wire_encoded_field_offsets( void ) {
     .last_extended_slot_start_index = 0x42,
     .has_authority                  = 0,
   };
-  uchar buf[ FD_LOOKUP_TABLE_META_SIZE ];
+  /* Encoder writes 24 bytes for None; bytes 24..56 are not touched by
+     the encoder (they come from the on-chain account-data zero pad). */
+  uchar buf[ 24 ];
   FD_TEST( fd_alut_state_encode( &meta, buf, sizeof(buf) ) == 0 );
   FD_TEST( FD_LOAD( uint,   buf +  0 ) == FD_ALUT_STATE_DISC_LOOKUP_TABLE );
   FD_TEST( FD_LOAD( ulong,  buf +  4 ) == 0x1122334455667788UL            );
@@ -2225,12 +2198,13 @@ test_wire_encoded_field_offsets( void ) {
   FD_TEST( buf[20] == 0x42 );
   FD_TEST( buf[21] == 0    );
   FD_TEST( FD_LOAD( ushort, buf + 22 ) == 0 );
-  for( ulong i=24UL; i<FD_LOOKUP_TABLE_META_SIZE; i++ ) FD_TEST( buf[i] == 0 );
 }
 
 int
 main( int argc, char ** argv ) {
-  fd_boot( &argc, &argv );
+  fd_svm_mini_limits_t limits[1];
+  fd_svm_mini_limits_default( limits );
+  g_mini = fd_svm_test_boot( &argc, &argv, limits );
 
   /* Wire-format tests (no workspace needed). */
   test_wire_rejects_invalid_authority_tag();
@@ -2240,15 +2214,15 @@ main( int argc, char ** argv ) {
   test_wire_rejects_truncated_padding();
   test_wire_encoded_field_offsets();
 
-  /* Create workspace */
-  char * _page_sz = "gigantic";
-  ulong numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                            16UL,
-                                            fd_shmem_cpu_idx( numa_idx ),
-                                            "test_runtime_alut_wksp",
-                                            0UL );
-  FD_TEST( wksp );
+  /* The test_setup() function uses a workspace for small allocations
+     (test_ctx_t, txn buffers, slot-hash deques).  Back it with normal
+     pages so the test does not require pinned huge pages. */
+  ulong       wksp_footprint = fd_ulong_align_up( 16UL<<30, FD_SHMEM_NORMAL_PAGE_SZ );
+  ulong       wksp_part_max  = fd_wksp_part_max_est( wksp_footprint, 64UL<<10 );  FD_TEST( wksp_part_max );
+  ulong       wksp_data_max  = fd_wksp_data_max_est( wksp_footprint, wksp_part_max ); FD_TEST( wksp_data_max );
+  void *      wksp_mem       = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, wksp_footprint ); FD_TEST( wksp_mem );
+  fd_wksp_t * wksp           = fd_wksp_new( wksp_mem, "test_runtime_alut_wksp", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
+  fd_shmem_join_anonymous( "test_runtime_alut_wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, wksp_footprint>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
 
   /* Run test cases */
   test_non_v0_transaction( wksp );
@@ -2283,7 +2257,6 @@ main( int argc, char ** argv ) {
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
-
-  fd_halt();
+  fd_svm_test_halt( g_mini );
   return 0;
 }

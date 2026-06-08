@@ -1,6 +1,11 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+#
+# accounts_fd: The file descriptor for the accounts database.  Execution
+#              tiles may need to pull accounts into the cache from disk,
+#              or purge out of cache to the disk to make forward
+#              progress.
+unsigned int logfile_fd, unsigned int accounts_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -19,3 +24,25 @@ fsync: (eq (arg 0) logfile_fd)
 
 # startup: sleep until snapshot loaded
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
+
+# accounts database: write to the accounts database
+#
+# Users of the accounts database may need to write data to persistent
+# storage if the cache is full (to complete an eviction).
+#
+# arg 0 is the file descriptor to write to.
+pwritev2: (eq (arg 0) accounts_fd)
+
+# accounts database: read from the accounts database
+#
+# Users of the accounts database may need to read data into the cache.
+#
+# arg 0 is the file descriptor to read from
+preadv2: (eq (arg 0) accounts_fd)
+
+# accounts database: allocate more space from the disk
+#
+# The accounts database allocates more space from the underlying storage
+# device in chunks, as it runs out.
+fallocate: (and (eq (arg 0) accounts_fd)
+                (eq (arg 1) 0))

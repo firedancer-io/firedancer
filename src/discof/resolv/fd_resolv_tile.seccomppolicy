@@ -1,6 +1,10 @@
-# logfile_fd: It can be disabled by configuration, but typically tiles
-#             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+# logfile_fd:  It can be disabled by configuration, but typically tiles
+#              will open a log file on boot and write all messages there.
+#
+# accdb_ro_fd: Read-only file descriptor onto the accdb data file.  The
+#              resolv tile uses preadv2 against this fd to load address
+#              lookup table accounts on cache miss.
+unsigned int logfile_fd, unsigned int accdb_ro_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -19,3 +23,8 @@ fsync: (eq (arg 0) logfile_fd)
 
 # startup: sleep until snapshot loaded
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
+
+# accounts database: serving address lookup table reads on cache miss
+#
+# arg 0 is the file descriptor to read from.
+preadv2: (eq (arg 0) accdb_ro_fd)

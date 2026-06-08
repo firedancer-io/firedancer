@@ -341,12 +341,12 @@ static insert_params_t *
 insert_params( insert_params_t *          p,
                fd_pubkey_t const *        prog_addr,
                fd_prog_load_env_t const * env,
-               fd_accdb_ro_t *            prog_ro,
+               fd_acc_t const *           prog_ro,
                fd_prog_info_t const *     info ) {
   memset( p, 0, sizeof(insert_params_t) );
 
   /* Derive executable info */
-  uchar const * bin    = (uchar const *)fd_accdb_ref_data_const( prog_ro ) + info->elf_off;
+  uchar const * bin    = (uchar const *)prog_ro->data + info->elf_off;
   ulong         bin_sz = info->elf_sz;
 
   /* Pre-flight checks, determine required buffer size */
@@ -543,7 +543,7 @@ fd_progcache_pull( fd_progcache_t *           cache,
                    fd_progcache_fork_id_t     fork_id,
                    fd_pubkey_t const *        prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_ro_t *            prog_ro ) {
+                   fd_acc_t const *           prog_ro ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
   fd_progcache_load_fork( cache, fork_id );

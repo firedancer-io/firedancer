@@ -5,7 +5,6 @@
 #include "fd_runtime_err.h"
 #include "fd_executor.h"
 #include "fd_system_ids.h"
-#include "../accdb/fd_accdb_ref.h"
 #include "../features/fd_features.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -18,25 +17,25 @@ set_gate( fd_bank_t * bank, int on ) {
 }
 
 static void
-setup_env( fd_svm_mini_t * mini,
-           int             feature_on,
-           fd_bank_t **    out_bank,
-           fd_xid_t *      out_xid,
-           fd_pubkey_t *   out_fee_payer ) {
+setup_env( fd_svm_mini_t *      mini,
+           int                  feature_on,
+           fd_bank_t **         out_bank,
+           fd_accdb_fork_id_t * out_fork_id,
+           fd_pubkey_t *        out_fee_payer ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   ulong root_idx = fd_svm_mini_reset( mini, params );
   ulong bank_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid ( mini, bank_idx );
+  fd_bank_t *        bank    = fd_svm_mini_bank( mini, bank_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, bank_idx );
 
   set_gate( bank, feature_on );
 
   fd_pubkey_t fee_payer; fd_memset( &fee_payer, 0x11, sizeof(fd_pubkey_t) );
-  fd_svm_mini_add_lamports( mini, &xid, &fee_payer, 1000000000UL );
+  fd_svm_mini_add_lamports( mini, fork_id, &fee_payer, 1000000000UL );
 
   *out_bank      = bank;
-  *out_xid       = xid;
+  *out_fork_id   = fork_id;
   *out_fee_payer = fee_payer;
 }
 
@@ -68,17 +67,14 @@ put_account( fd_svm_mini_t *     mini,
              uchar const *       data,
              fd_pubkey_t const * owner,
              uchar               executable ) {
-  fd_account_meta_t meta[1] = {{
-    .lamports   = lamports,
-    .slot       = 0UL,
-    .dlen       = dlen,
-    .executable = executable,
-  }};
-  fd_memcpy( meta->owner, owner->uc, 32UL );
-
-  fd_accdb_ro_t ro[1];
-  fd_accdb_ro_init_nodb_oob( ro, pubkey, meta, data );
-  fd_svm_mini_put_account_rooted( mini, ro );
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, pubkey->uc, 32UL );
+  fd_memcpy( acc.owner,  owner->uc,  32UL );
+  acc.lamports   = lamports;
+  acc.executable = executable;
+  acc.data_len   = dlen;
+  acc.data       = (uchar *)data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
 }
 
 static void
@@ -127,6 +123,7 @@ build_minimal_fees_only_txn( fd_bank_t const *   bank,
                              fd_txn_in_t *       txn_in,
                              fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -160,6 +157,7 @@ build_limit_exceeded_txn( fd_bank_t const *   bank,
                           fd_txn_in_t *       txn_in,
                           fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -200,6 +198,7 @@ build_separate_nonce_txn( fd_pubkey_t const * fee_payer,
                           fd_txn_in_t *       txn_in,
                           fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -247,6 +246,7 @@ build_same_nonce_txn( fd_pubkey_t const * fee_payer,
                       fd_txn_in_t *       txn_in,
                       fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -297,6 +297,7 @@ build_separate_nonce_with_limit_txn( fd_pubkey_t const * fee_payer,
                                      fd_txn_in_t *       txn_in,
                                      fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -345,8 +346,8 @@ build_separate_nonce_with_limit_txn( fd_pubkey_t const * fee_payer,
 /* CASE 1 — feature OFF, no nonce: expects fee_payer.dlen (= 0). */
 static void
 test_off_no_nonce_bad_program( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/0, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/0, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t bad_program; fd_memset( &bad_program, 0x22, sizeof(fd_pubkey_t) );
 
@@ -366,8 +367,8 @@ test_off_no_nonce_bad_program( fd_svm_mini_t * mini ) {
    (= 64 + 0) since the bad program contributes 0 to the accumulator. */
 static void
 test_on_no_nonce_bad_program( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/1, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/1, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t bad_program; fd_memset( &bad_program, 0x22, sizeof(fd_pubkey_t) );
 
@@ -388,8 +389,8 @@ test_on_no_nonce_bad_program( fd_svm_mini_t * mini ) {
    is overwritten regardless of the requested limit. */
 static void
 test_off_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/0, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/0, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t large_acct; fd_memset( &large_acct, 0x33, sizeof(fd_pubkey_t) );
   uchar large_data[ 5000 ] = {0};
@@ -412,8 +413,8 @@ test_off_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
    accumulator clamped to the requested limit. */
 static void
 test_on_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/1, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/1, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t large_acct; fd_memset( &large_acct, 0x33, sizeof(fd_pubkey_t) );
   uchar large_data[ 5000 ] = {0};
@@ -437,8 +438,8 @@ test_on_no_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
    fee_payer.dlen + nonce.dlen (= 0 + 80). */
 static void
 test_off_separate_nonce_bad_program( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/0, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/0, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t nonce_key;   fd_memset( &nonce_key,   0x77, sizeof(fd_pubkey_t) );
   fd_pubkey_t bad_program; fd_memset( &bad_program, 0x22, sizeof(fd_pubkey_t) );
@@ -466,8 +467,8 @@ test_off_separate_nonce_bad_program( fd_svm_mini_t * mini ) {
    prevents double-counting via rollback_nonce->dlen). */
 static void
 test_off_same_nonce_bad_program( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/0, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/0, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t bad_program; fd_memset( &bad_program, 0x22, sizeof(fd_pubkey_t) );
 
@@ -494,8 +495,8 @@ test_off_same_nonce_bad_program( fd_svm_mini_t * mini ) {
    would produce fee_payer.dlen + nonce.dlen instead. */
 static void
 test_on_separate_nonce_limit_exceeded( fd_svm_mini_t * mini ) {
-  fd_bank_t * bank; fd_xid_t xid; fd_pubkey_t fee_payer;
-  setup_env( mini, /*feature_on=*/1, &bank, &xid, &fee_payer );
+  fd_bank_t * bank; fd_accdb_fork_id_t fork_id; fd_pubkey_t fee_payer;
+  setup_env( mini, /*feature_on=*/1, &bank, &fork_id, &fee_payer );
 
   fd_pubkey_t nonce_key;   fd_memset( &nonce_key,   0x77, sizeof(fd_pubkey_t) );
   fd_pubkey_t bad_program; fd_memset( &bad_program, 0x22, sizeof(fd_pubkey_t) );

@@ -121,29 +121,6 @@ void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PAR
 
 #include "fd_replay_tile.c"
 
-/* ---- Mock accdb vtable (defined after include so types are complete) ---- */
-
-static fd_funk_txn_xid_t
-mock_accdb_root_get_fn( fd_accdb_admin_t const * admin FD_PARAM_UNUSED ) {
-  return (fd_funk_txn_xid_t){ .ul = { 0UL, 0UL } };
-}
-
-static void mock_accdb_attach_child_fn( fd_accdb_admin_t * a FD_PARAM_UNUSED,
-    fd_funk_txn_xid_t const * b FD_PARAM_UNUSED, fd_funk_txn_xid_t const * c FD_PARAM_UNUSED ) {}
-static void mock_accdb_advance_root_fn( fd_accdb_admin_t * a FD_PARAM_UNUSED,
-    fd_funk_txn_xid_t const * b FD_PARAM_UNUSED ) {}
-static void mock_accdb_cancel_fn( fd_accdb_admin_t * a FD_PARAM_UNUSED,
-    fd_funk_txn_xid_t const * b FD_PARAM_UNUSED ) {}
-static void mock_accdb_fini_fn( fd_accdb_admin_t * a FD_PARAM_UNUSED ) {}
-
-static fd_accdb_admin_vt_t const mock_accdb_vt = {
-  .fini         = mock_accdb_fini_fn,
-  .root_get     = mock_accdb_root_get_fn,
-  .attach_child = mock_accdb_attach_child_fn,
-  .advance_root = mock_accdb_advance_root_fn,
-  .cancel       = mock_accdb_cancel_fn,
-};
-
 /* ---- Test setup ---- */
 
 static void
@@ -180,10 +157,6 @@ setup_ctx( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   mock_store.store_gaddr   = (ulong)&mock_store;
   mock_store_fec.data_gaddr = (ulong)mock_store_data;
   ctx->store = &mock_store;
-
-  /* Mock accdb admin */
-
-  ctx->accdb_admin->base.vt = &mock_accdb_vt;
 
   /* Mock banks — initialize root bank at index 0 */
 

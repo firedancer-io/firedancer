@@ -1,7 +1,16 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
+#include "fd_runtime_const.h"
+#include "fd_runtime_stack.h"
+#include "fd_compute_budget_details.h"
 #include "fd_runtime_helpers.h"
+#include "fd_txncache.h"
+#include "program/vote/fd_vote_codec.h"
+#include "program/fd_system_program.h"
+#include "context/fd_exec_instr_ctx.h"
+#include "../fd_flamenco_base.h"
+#include "../accdb/fd_accdb.h"
 
 /* The general structure for executing transactions in Firedancer can
    be thought as a state maching where transaction execution is a
@@ -63,10 +72,9 @@
 */
 
 struct fd_runtime {
-  fd_accdb_user_t * accdb;
-  fd_txncache_t *   status_cache;
-  fd_progcache_t *  progcache;
-  fd_acc_pool_t *   acc_pool;
+  fd_accdb_t *     accdb;
+  fd_txncache_t *  status_cache;
+  fd_progcache_t * progcache;
 
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
@@ -93,20 +101,20 @@ struct fd_runtime {
   } instr;
 
   struct {
-    /* The sysvar instructions account is a special account that is
-       modified through the course of transaction execution, but its
-       results are not committed to the bank or accounts database. */
-    uchar                     sysvar_instructions_mem[ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+    /* fd_txn_out_t only stores pointers into this runtime-owned memory.
+       Bundle txns execute before any txn_out is committed/canceled, so
+       the whole bundle's accounts are kept opened (deduplicated) in
+       these flat arrays until commit/cancel. */
 
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong                     executable_cnt;                            /* Number of BPF upgradeable loader accounts. */
-    fd_accdb_ro_t             executable[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of BPF upgradeable loader program data accounts */
+    ulong    executable_cnt;
+    fd_acc_t executable[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
 
-    ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
-    ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
-    ulong                     refcnt[ MAX_TX_ACCOUNT_LOCKS ];            /* Reference count for each account */
+    ulong    account_cnt;
+    ulong    refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 
   struct {
@@ -192,18 +200,7 @@ struct fd_runtime {
     ulong cpi_setup_cum_ticks;
     ulong cpi_commit_cum_ticks;
 
-    /* Number of user txn account transitions */
-
-#   define FD_RUNTIME_SAVE_UNCHANGED_NONEXIST 0  /* non-existent account not modified */
-#   define FD_RUNTIME_SAVE_CREATE             1  /* account previously non-existent, non-zero balance after txn */
-#   define FD_RUNTIME_SAVE_DELETE             2  /* account previously existed,      non-existent     after txn */
-#   define FD_RUNTIME_SAVE_MODIFY             3  /* existing account modified */
-#   define FD_RUNTIME_SAVE_UNCHANGED          4  /* existing account not modified */
-#   define FD_RUNTIME_SAVE_MAX                5  /* enum variant count */
-    ulong txn_account_save[ FD_RUNTIME_SAVE_MAX ];
-
     ulong cu_cum;
-
   } metrics;
 
   struct {
@@ -258,6 +255,7 @@ struct fd_txn_out {
     ulong                       tips;                      /* Jito tips paid during execution */
 
     ulong                       signature_count;           /* Number of signatures in the transaction */
+    fd_signature_t              signature;                 /* First transaction signature */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
   } details;
 
@@ -270,34 +268,41 @@ struct fd_txn_out {
     /* is_setup is set to 1 if account data buffer resources have been
        acquired for the transaction and 0 if they have not.  If the flag
        has been set, memory resources must be released. */
-    int           is_setup;
-    ulong         cnt;
-    fd_pubkey_t   keys        [ MAX_TX_ACCOUNT_LOCKS ];
-    fd_accdb_rw_t account     [ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
-    uchar         is_writable [ MAX_TX_ACCOUNT_LOCKS ];
+    int         is_setup;
+    /* is_bundle is set to 1 if this txn is part of a bundle.  For bundle
+       txns the accounts are acquired once for the whole bundle (see
+       fd_runtime_prepare_bundle_accounts) and released once via
+       fd_runtime_fini_bundle, so commit/cancel must NOT release
+       per-txn. */
+    int         is_bundle;
+    ulong       cnt;
+    fd_pubkey_t keys[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t *  account[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ];
+
+    ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
+    fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
+    uchar      executable_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */
-    uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar stake_update[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar vote_update [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
-    /* The fee payer and nonce accounts are treated differently than
-       other accounts: if an on-transaction fails they are still
-       committed to the accounts database.  However, they are saved at
-       the point right after a fee is debited or the nonce is advanced
-       respectively.  The rollback accounts store this state because a
-       failed transaction could have potentially modified the state of
-       these two accounts.
+    ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
+    ulong nonce_rollback_data_len;
+    uchar nonce_rollback_data[ FD_RUNTIME_ACC_SZ_MAX ];
+    ulong fee_payer_rollback_lamports;
 
-       The memory for the nonce and fee payer is always provisioned when
-       the transaction is prepared, but isn't necessarily used. */
-    uchar *             rollback_fee_payer_mem;
-    uchar *             rollback_nonce_mem;
-
-    ulong               nonce_idx_in_txn; /* !=ULONG_MAX if exists */
-    fd_account_meta_t * rollback_nonce;
-    fd_account_meta_t * rollback_fee_payer;
+    /* Backing buffer for the sysvar instructions account.  This account
+       is constructed on-the-fly by the SVM and never persisted to the
+       accounts database, so the accdb returns data=NULL for it. */
+    uchar sysvar_instructions_data[ FD_SYSVAR_INSTRUCTIONS_FOOTPRINT ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;
@@ -316,7 +321,7 @@ FD_PROTOTYPES_BEGIN
 void
 fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
-                                  fd_accdb_user_t  *   accdb,
+                                  fd_accdb_t  *        accdb,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary );
@@ -328,7 +333,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *        bank,
-                                   fd_accdb_user_t  * accdb,
+                                   fd_accdb_t  *      accdb,
                                    fd_capture_ctx_t * capture_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
@@ -365,6 +370,27 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 void
 fd_runtime_cancel_txn( fd_runtime_t * runtime,
                        fd_txn_out_t * txn_out );
+
+/* fd_runtime_prepare_bundle_accounts is called before executing a
+   bundle.  It is responsible for acquiring the union of all accounts
+   referenced by all transactions in the bundle.  This is required
+   to make sure account acquisition does not get torn across tiles and
+   cause a resource acquisition deadlock. */
+
+int
+fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
+                                    fd_bank_t *         bank,
+                                    fd_txn_in_t const * txn_ins,
+                                    fd_txn_out_t *      txn_outs,
+                                    ulong               txn_cnt );
+
+/* fd_runtime_fini_bundle must be called unconditionally after
+   attempting to execute a bundle regardless of success or failure.
+   Under the hood it is responsible for freeing any account references
+   that were acquired for the bundle. */
+
+void
+fd_runtime_fini_bundle( fd_runtime_t * runtime );
 
 FD_PROTOTYPES_END
 
