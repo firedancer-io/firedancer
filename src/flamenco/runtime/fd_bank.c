@@ -596,6 +596,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->f.failed_txn_count         = 0UL;
   child_bank->f.nonvote_failed_txn_count = 0UL;
   child_bank->f.identity_vote_idx        = ULONG_MAX;
+  child_bank->f.slot_params              = parent_bank->f.slot_params;
 
   child_bank->state = FD_BANK_STATE_REPLAYABLE;
 

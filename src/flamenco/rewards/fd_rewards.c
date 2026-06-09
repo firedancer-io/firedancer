@@ -80,8 +80,11 @@ get_inflation_num_slots( fd_bank_t const *           bank,
 static double
 slot_in_year_for_inflation( fd_bank_t const * bank ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong num_slots = get_inflation_num_slots( bank, epoch_schedule, bank->f.slot );
-  return (double)num_slots / (double)bank->f.slots_per_year;
+  ulong num_slots       = get_inflation_num_slots( bank, epoch_schedule, bank->f.slot );
+  ulong cur_epoch_slot0 = fd_epoch_slot0( epoch_schedule, fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL ) );
+  ulong inflation_start = cur_epoch_slot0 - num_slots;
+  return fd_slot_params_slot_range_duration_years( &bank->f.features, epoch_schedule,
+                                                   inflation_start, inflation_start+num_slots );
 }
 
 /* For a given stake and vote_state, calculate how many points were earned (credits * stake) and new value
@@ -287,8 +290,11 @@ get_slots_in_epoch( ulong                       epoch,
 static double
 epoch_duration_in_years( fd_bank_t const * bank,
                          ulong             prev_epoch ) {
-  ulong slots_in_epoch = get_slots_in_epoch( prev_epoch, &bank->f.epoch_schedule );
-  return (double)slots_in_epoch / (double)bank->f.slots_per_year;
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong slots_in_epoch = get_slots_in_epoch( prev_epoch, epoch_schedule );
+  double slots_per_year = fd_slot_params_at_slot( &bank->f.features, epoch_schedule,
+                                                  fd_epoch_slot0( epoch_schedule, prev_epoch ) ).slots_per_year;
+  return (double)slots_in_epoch / slots_per_year;
 }
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
@@ -313,14 +319,15 @@ calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   
 static uint
 get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
                                     ulong                       slot,
-                                    ulong                       total_stake_accounts ) {
+                                    ulong                       total_stake_accounts,
+                                    ulong                       stake_account_stores_per_block ) {
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1250-L1267 */
   if( epoch_schedule->warmup &&
       fd_slot_to_epoch( epoch_schedule, slot, NULL ) < epoch_schedule->first_normal_epoch ) {
     return 1UL;
   }
 
-  ulong num_chunks = total_stake_accounts / (ulong)STAKE_ACCOUNT_STORES_PER_BLOCK + (total_stake_accounts % STAKE_ACCOUNT_STORES_PER_BLOCK != 0);
+  ulong num_chunks = total_stake_accounts / stake_account_stores_per_block + (total_stake_accounts % stake_account_stores_per_block != 0);
   num_chunks       = fd_ulong_max( num_chunks, 1UL );
   num_chunks       = fd_ulong_min( num_chunks,
                                    fd_ulong_max( epoch_schedule->slots_per_epoch / (ulong)MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, 1UL ) );
@@ -330,8 +337,9 @@ get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
 uint
 fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
                                                ulong                       slot,
-                                               ulong                       total_stake_accounts ) {
-  return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts );
+                                               ulong                       total_stake_accounts,
+                                               ulong                       stake_account_stores_per_block ) {
+  return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts, stake_account_stores_per_block );
 }
 
 /* Calculates epoch reward points from stake/vote accounts.
@@ -625,7 +633,8 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   ulong             starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
   uint              num_partitions        = get_reward_distribution_num_blocks( &bank->f.epoch_schedule,
                                                                                 bank->f.slot,
-                                                                                runtime_stack->stakes.stake_rewards_cnt );
+                                                                                runtime_stack->stakes.stake_rewards_cnt,
+                                                                                bank->f.slot_params.partitioned_epoch_rewards_stake_account_stores_per_block );
 
   setup_stake_partitions(
       bank,
