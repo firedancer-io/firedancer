@@ -298,9 +298,10 @@ after_credit( fd_txsend_tile_t *  ctx,
   fd_pubkey_t const * leaders[ 7UL ];
 
   for( ulong i=0UL; i<7UL; i++ ) {
+    /* It's possible for leaders[i] to be NULL if target slot is two
+       epochs ahead of the replay root.  This is not possible on mainnet
+       but can occur on local clusters during warmup epochs. */
     ulong target_slot = ctx->voted_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
-    /* leaders[i] may be NULL if target_slot lands in an epoch whose
-       schedule isn't published yet; the loops below skip NULL entries. */
     leaders[ i ] = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
   }
 
