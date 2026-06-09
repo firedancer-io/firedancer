@@ -2,6 +2,44 @@
 #include "fd_chacha.h"
 #include "fd_chacha_rng.h"
 
+#if FD_HAS_NEON
+
+static void
+test_neon_refill_matches_block_fn( void * (* block_fn)( void *, void const *, void const * ),
+                                   void   (* refill_fn)( fd_chacha_rng_t * ),
+                                   int       algo ) {
+  fd_chacha_rng_t rng_[1];
+  fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( rng_, FD_CHACHA_RNG_MODE_MOD ) );
+
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) key[i] = (uchar)( i*13UL + 7UL );
+
+  static ulong const idx_case[] = { 0UL, 4UL, 28UL, (1UL<<32) + 48UL };
+  for( ulong case_idx=0UL; case_idx<sizeof(idx_case)/sizeof(idx_case[0]); case_idx++ ) {
+    ulong idx = idx_case[ case_idx ];
+    ulong pos = idx * FD_CHACHA_BLOCK_SZ;
+
+    FD_TEST( fd_chacha_rng_init( rng, key, algo ) );
+    rng->buf_off  = pos;
+    rng->buf_fill = pos;
+    refill_fn( rng );
+    FD_TEST( rng->buf_fill == pos + 4UL*FD_CHACHA_BLOCK_SZ );
+
+    for( ulong lane=0UL; lane<4UL; lane++ ) {
+      uchar expect[ 64 ] __attribute__((aligned(64)));
+      uint idx_nonce[ 4 ] __attribute__((aligned(16))) = {
+        (uint)(idx+lane), (uint)((idx+lane)>>32), 0U, 0U
+      };
+      block_fn( expect, key, idx_nonce );
+      FD_TEST( !memcmp( rng->buf + lane*FD_CHACHA_BLOCK_SZ, expect, FD_CHACHA_BLOCK_SZ ) );
+    }
+  }
+
+  FD_TEST( (ulong)fd_chacha_rng_delete( fd_chacha_rng_leave( rng ) )==(ulong)rng_ );
+}
+
+#endif /* FD_HAS_NEON */
+
 
 int
 main( int     argc,
@@ -97,6 +135,10 @@ main( int     argc,
   REFILL_TEST( fd_chacha8_rng_refill_avx,      8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
   REFILL_TEST( fd_chacha20_rng_refill_avx,     8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 # endif
+# if FD_HAS_NEON
+  REFILL_TEST( fd_chacha8_rng_refill_neon,     4*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
+  REFILL_TEST( fd_chacha20_rng_refill_neon,    4*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
+# endif
   REFILL_TEST( fd_chacha8_rng_refill_seq,      1*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
   REFILL_TEST( fd_chacha20_rng_refill_seq,     1*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
@@ -158,8 +200,21 @@ main( int     argc,
     FD_TEST( !memcmp( rng->buf, ref_block, 64 ) );
 #   endif
 
+#   if FD_HAS_NEON
+    FD_TEST( fd_chacha_rng_init( rng, key_ref, FD_CHACHA_RNG_ALGO_CHACHA20 ) );
+    rng->buf_off  = pos;
+    rng->buf_fill = pos;
+    fd_chacha20_rng_refill_neon( rng );
+    FD_TEST( !memcmp( rng->buf, ref_block, 64 ) );
+#   endif
+
     FD_LOG_NOTICE(( "OK: 64-bit counter" ));
   }
+
+# if FD_HAS_NEON
+  test_neon_refill_matches_block_fn( fd_chacha8_block,  fd_chacha8_rng_refill_neon,  FD_CHACHA_RNG_ALGO_CHACHA8  );
+  test_neon_refill_matches_block_fn( fd_chacha20_block, fd_chacha20_rng_refill_neon, FD_CHACHA_RNG_ALGO_CHACHA20 );
+# endif
 
   /* Test leave/delete */
 
