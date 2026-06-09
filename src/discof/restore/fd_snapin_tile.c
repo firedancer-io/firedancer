@@ -1136,6 +1136,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->capitalization     = ctx->recovery.capitalization;
         ctx->dup_capitalization = 0UL;
 
+        /* Discard stale capture so the retry's sysvar is snooped fresh */
+        ctx->slot_history.captured  = 0;
+        ctx->slot_history.capturing = 0;
+
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
            On success, fd_accdb_advance_root(child) promotes them. */
