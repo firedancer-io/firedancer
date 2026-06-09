@@ -1,7 +1,7 @@
 $(call make-lib,fd_util)
 $(call add-hdrs,fd_util_base.h fd_util.h)
 $(call add-objs,fd_hash fd_util,fd_util)
-$(call add-hdrs,fd_version.h,fd_util)
+$(call add-hdrs,fd_version.h)
 $(call add-objs,fd_version,fd_util)
 $(call make-unit-test,test_util,test_util,fd_util)
 $(call run-unit-test,test_util)
