@@ -160,7 +160,10 @@ fd_sshttp_init( fd_sshttp_t * http,
 #endif
   }
 
-  if( hops!=ULONG_MAX ) http->hops = hops;
+  if( hops!=ULONG_MAX ) {
+    http->hops = hops;
+    fd_cstr_fini( http->snapshot_name ); /* clear stale name from prior attempt */
+  }
   http->request_sent = 0UL;
   int fmt_ok;
   if( FD_LIKELY( is_https ) ) {
