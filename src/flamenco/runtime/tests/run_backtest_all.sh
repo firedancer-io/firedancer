@@ -134,3 +134,5 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_po
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot-v4.1.0-beta.1 -y 1 -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l disable_sbpf_v0_v1_v2_deployment-v4.1.0-beta.1 -y 1 -m 10000 -e 625
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l define_ltds_fee_only_semantics-v4.1.0-beta.1 -y 1 -m 1000 -e 330
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader_v3_minimum_extend_program_size -y 1 -m 1000 -e 590
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_sha512_syscall -y 1 -m 1000 -e 611
