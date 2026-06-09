@@ -304,14 +304,14 @@ test_duplicate_content_length_different_close( void ) {
 void
 test_ws_bad_key_close( void ) {
   FD_LOG_NOTICE(( "Testing WebSocket bad Sec-WebSocket-Key" ));
-  /* Key is 24 chars but has invalid base64 (padding in wrong
-     place), so fd_base64_decode returns != 16. */
+  /* Key is 24 chars but unpadded, so it decodes to 18 bytes and
+     fd_base64_decode returns != 16 (regression test for decoded_key). */
   test_close_reason(
       "GET / HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
       "Connection: Upgrade\r\n"
-      "Sec-WebSocket-Key: ====aGVsbG8gd29ybGQ=\r\n"
+      "Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAAAA\r\n"
       "Sec-WebSocket-Version: 13\r\n"
       "\r\n",
       FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY,
