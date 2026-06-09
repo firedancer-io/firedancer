@@ -565,41 +565,33 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
      vote stakes) to the t-2 vote stakes. */
   if( FD_UNLIKELY( bank->f.epoch==vat_epoch ) ) {
 
+    fd_stake_accum_t * scratch     = stake_accum_pool;
+    ulong              scratch_cnt = 0UL;
+
     uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) vs_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
     for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vote_stakes, parent_idx, vs_iter_mem );
          !fd_vote_stakes_fork_iter_done( vote_stakes, parent_idx, vs_iter );
          fd_vote_stakes_fork_iter_next( vote_stakes, parent_idx, vs_iter ) ) {
-      fd_pubkey_t vs_pubkey;
-      fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
-      if( FD_UNLIKELY( !fd_stake_accum_map_ele_query( stake_accum_map, &vs_pubkey, NULL, stake_accum_pool ) ) ) {
-        if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
-          FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
-        }
-        fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-        sa->pubkey = vs_pubkey;
-        sa->stake  = 0UL;
-        fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
-        staked_accounts++;
+      if( FD_UNLIKELY( scratch_cnt>=runtime_stack->max_vote_accounts ) ) {
+        FD_LOG_ERR(( "invariant violation: scratch_cnt >= max_vote_accounts" ));
       }
+      fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, vs_iter, &scratch[ scratch_cnt ].pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+      scratch_cnt++;
     }
     fd_vote_stakes_fork_iter_fini( vote_stakes );
 
     ushort vs_child_idx       = fd_vote_stakes_new_child( vote_stakes );
     bank->vote_stakes_fork_id = vs_child_idx;
 
-    for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
-         !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
-         iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
-      fd_stake_accum_t * stake_accum = fd_stake_accum_map_iter_ele( iter, stake_accum_map, stake_accum_pool );
-
+    for( ulong i=0UL; i<scratch_cnt; i++ ) {
       fd_pubkey_t node_account_t_2 = {0};
       ulong       stake_t_2        = 0UL;
       ushort      commission_t_2   = 0;
-      if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 ) ) ) continue;
+      if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &scratch[i].pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 ) ) ) continue;
 
       fd_pubkey_t node_account_t_1 = {0};
       fd_vote_stakes_insert(
-          vote_stakes, vs_child_idx, &stake_accum->pubkey,
+          vote_stakes, vs_child_idx, &scratch[i].pubkey,
           &node_account_t_1, &node_account_t_2,
           0UL, stake_t_2, 0, commission_t_2, 0, 1, bank->f.epoch );
     }
