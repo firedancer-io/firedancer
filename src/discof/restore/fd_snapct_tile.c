@@ -1586,6 +1586,11 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
+      } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
+                               ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ) ) {
+        /* Late ack: ERROR short-circuited flush_ack before this link
+           delivered its INIT_FULL ack.  Safe to ignore; the RESET
+           handler counts FAIL acks instead. */
       } else FD_LOG_WARNING(( "unexpected control frag %lu (%s) in state %d (%s)", sig, fd_ssctrl_msg_ctrl_str( sig ), ctx->state, fd_snapct_state_str( ctx->state ) ));
       break;
 
@@ -1594,6 +1599,11 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
+      } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
+                               ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
+        /* Late ack: ERROR short-circuited flush_ack before this link
+           delivered its INIT_INCR ack.  Safe to ignore; the RESET
+           handler counts FAIL acks instead. */
       } else FD_LOG_WARNING(( "unexpected control frag %lu (%s) in state %d (%s)", sig, fd_ssctrl_msg_ctrl_str( sig ), ctx->state, fd_snapct_state_str( ctx->state ) ));
       break;
 
