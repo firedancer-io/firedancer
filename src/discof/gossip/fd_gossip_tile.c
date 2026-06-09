@@ -2,7 +2,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
-#include "../../ballet/hex/fd_hex.h"
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/gossip/fd_active_set.h"
