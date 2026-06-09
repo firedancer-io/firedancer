@@ -25,9 +25,6 @@
 
 #include "generated/fd_bundle_tile_seccomp.h"
 
-/* Provided by fdctl/firedancer version.c */
-extern char const fdctl_version_string[];
-
 #define IN_KIND_REPLAY_OUT (1)
 
 #define STEM_BURST (5UL)
@@ -570,7 +567,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !ctx->grpc_client ) ) {
     FD_LOG_CRIT(( "fd_grpc_client_new failed" )); /* unreachable */
   }
-  fd_grpc_client_set_version( ctx->grpc_client, fdctl_version_string, strlen( fdctl_version_string ) );
+  fd_grpc_client_set_version( ctx->grpc_client, fd_version_cstr, strlen( fd_version_cstr ) );
   fd_grpc_client_set_authority( ctx->grpc_client, ctx->server_sni, ctx->server_sni_len, ctx->server_tcp_port );
 
   fd_histf_new( ctx->metrics.msg_rx_delay,

@@ -9,16 +9,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topob.h"
 
-#ifdef __has_include
-#if __has_include("../../app/fdctl/version.h")
-#include "../../app/fdctl/version.h"
-#endif
-#endif
-
-#ifndef FDCTL_COMMIT_REF_CSTR
-#define FDCTL_COMMIT_REF_CSTR "0000000000000000000000000000000000000000"
-#endif
-
 static void
 jsonp_strip_trailing_comma( fd_http_server_t * http ) {
   if( FD_LIKELY( !http->stage_err &&
@@ -205,7 +195,7 @@ fd_gui_printf_cluster( fd_gui_t * gui ) {
 void
 fd_gui_printf_commit_hash( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "commit_hash" );
-    jsonp_string( gui->http, "value", FDCTL_COMMIT_REF_CSTR );
+    jsonp_string( gui->http, "value", fd_commit_ref_cstr );
   jsonp_close_envelope( gui->http );
 }
 

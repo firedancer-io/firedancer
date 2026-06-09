@@ -47,22 +47,7 @@
 #endif /* defined(__FreeBSD__) */
 
 #include "../tile/fd_tile_private.h"
-
-#ifdef __has_include
-#if __has_include("../../app/fdctl/version.h")
-#include "../../app/fdctl/version.h"
-#endif
-#endif
-
-#ifndef FDCTL_MAJOR_VERSION
-#define FDCTL_MAJOR_VERSION 0
-#endif
-#ifndef FDCTL_MINOR_VERSION
-#define FDCTL_MINOR_VERSION 0
-#endif
-#ifndef FDCTL_PATCH_VERSION
-#define FDCTL_PATCH_VERSION 0
-#endif
+#include "../fd_version.h"
 
 #ifdef FD_BUILD_INFO
 FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
@@ -1006,9 +991,9 @@ fd_log_private_open_path( int          cmdline,
     char tag[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     fd_log_wallclock_cstr( fd_log_wallclock(), tag );
     for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
-    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
-                              FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION,
-                              fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
+    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%lu.%lu.%lu_%lu_%s_%s_%s",
+                               fd_major_version, fd_minor_version, fd_patch_version,
+                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
     if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
   else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */

@@ -2,6 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
+#include "../../ballet/hex/fd_hex.h"
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
 #include "../../flamenco/gossip/fd_active_set.h"
@@ -19,12 +20,6 @@
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_TOWER         (5)
 #define IN_KIND_SNAPIN_MANIF  (6)
-
-/* Symbols exported by version.c */
-extern ulong const firedancer_major_version;
-extern ulong const firedancer_minor_version;
-extern ulong const firedancer_patch_version;
-extern uint  const firedancer_commit_ref;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -613,10 +608,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->my_contact_info->outset = (ulong)FD_NANOSEC_TO_MICRO( tile->gossip.boot_timestamp_nanos );
 
   ctx->my_contact_info->version.client      = FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER;
-  ctx->my_contact_info->version.major       = (ushort)firedancer_major_version;
-  ctx->my_contact_info->version.minor       = (ushort)firedancer_minor_version;
-  ctx->my_contact_info->version.patch       = (ushort)firedancer_patch_version;
-  ctx->my_contact_info->version.commit      = firedancer_commit_ref;
+  ctx->my_contact_info->version.major       = (ushort)fd_major_version;
+  ctx->my_contact_info->version.minor       = (ushort)fd_minor_version;
+  ctx->my_contact_info->version.patch       = (ushort)fd_patch_version;
+  ctx->my_contact_info->version.commit      = fd_commit_ref_u32;
   ctx->my_contact_info->version.feature_set = FD_FEATURE_SET_ID;
 
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };

@@ -62,6 +62,7 @@ fd_dev_main( int                        argc,
              int                        is_firedancer,
              fd_config_file_t * const * configs,
              void (* topo_init )( config_t * config ) ) {
+  fd_version_private_boot( &argc, &_argv );
   /* save original arguments list in case we need to respawn the process
      as privileged */
   int    orig_argc = argc;

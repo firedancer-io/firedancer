@@ -36,8 +36,6 @@
 
 #define GRPC_BUF_MAX (2048UL<<10UL) /* 2 MiB */
 
-extern char const firedancer_version_string[];
-
 #define IN_KIND_SHRED  (0)
 #define IN_KIND_DEDUP  (1)
 #define IN_KIND_SIGN   (2)
@@ -478,7 +476,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                            2*(1UL<<20UL) /* 2 MiB */,
                                                            url_buf,
                                                            ctx->identity_pubkey,
-                                                           firedancer_version_string,
+                                                           fd_version_cstr,
                                                            tile->event.action,
                                                            ctx->instance_id,
                                                            ctx->boot_id,

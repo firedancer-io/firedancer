@@ -237,6 +237,7 @@ fd_main( int                        argc,
          int                        is_firedancer,
          fd_config_file_t * const * configs,
          void (* topo_init )( config_t * config ) ) {
+  fd_version_private_boot( &argc, &_argv );
   char ** argv = _argv;
   argc--; argv++;
 
