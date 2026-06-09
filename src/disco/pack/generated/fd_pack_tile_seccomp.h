@@ -29,7 +29,7 @@
 #define FD_SECCOMP_ARG_HI_OFFSET(argno) ( offsetof( struct seccomp_data, args[(argno)] ) + 4U )
 
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
-#define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(uint)(int)(x) >> 32) & 0xffffffffUL))
+#define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
 static const uint sock_filter_policy_fd_pack_tile_instr_cnt = 16;
 
