@@ -659,7 +659,7 @@ def render_header(out, src_path, sigline, filter_name, prog):
             "#define FD_SECCOMP_ARG_HI_OFFSET(argno) ( offsetof( struct seccomp_data, args[(argno)] ) + 4U )",
             "",
             "#define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))",
-            "#define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(uint)(int)(x) >> 32) & 0xffffffffUL))",
+            "#define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))",
             "",
             f"static const uint sock_filter_policy_{filter_name}_instr_cnt = {instr_cnt};",
             "",
