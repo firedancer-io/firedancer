@@ -38,6 +38,8 @@ typedef struct fd_snapld_tile {
   int   load_full;
   int   load_file;
   int   sent_meta;
+  int   is_redirect;
+  ulong gossip_slot;
 
   ulong  bytes_in_batch;
   double download_speed_mibs;
@@ -339,6 +341,41 @@ after_credit( fd_snapld_tile_t *  ctx,
             fd_sshttp_cancel( ctx->sshttp );
             break;
           }
+
+          /* Populate resolved redirect fields in META */
+          meta->resolved_slot    = 0UL;
+          meta->snapshot_name[0] = '\0';
+          fd_memset( meta->resolved_hash, 0, FD_HASH_FOOTPRINT );
+
+          if( ctx->is_redirect ) {
+            char const * resolved_name = fd_sshttp_snapshot_name( ctx->sshttp );
+            if( resolved_name && resolved_name[0]!='\0' ) {
+              ulong full_slot       = ULONG_MAX;
+              ulong incremental_slot = ULONG_MAX;
+              uchar parsed_hash[ FD_HASH_FOOTPRINT ];
+              int   is_zstd = 0;
+              if( FD_UNLIKELY( fd_ssarchive_parse_filename( resolved_name, &full_slot, &incremental_slot, parsed_hash, &is_zstd ) ) ) {
+                FD_LOG_WARNING(( "failed to parse resolved snapshot filename `%s`", resolved_name ));
+                transition_malformed( ctx, stem );
+                fd_sshttp_cancel( ctx->sshttp );
+                break;
+              }
+              ulong resolved_slot = (incremental_slot!=ULONG_MAX) ? incremental_slot : full_slot;
+              if( FD_UNLIKELY( resolved_slot<ctx->gossip_slot ) ) {
+                FD_LOG_WARNING(( "resolved snapshot slot %lu is older than gossip slot %lu for %s snapshot, rejecting",
+                                 resolved_slot, ctx->gossip_slot, ctx->load_full ? "full" : "incremental" ));
+                transition_malformed( ctx, stem );
+                fd_sshttp_cancel( ctx->sshttp );
+                break;
+              }
+              meta->resolved_slot = resolved_slot;
+              fd_memcpy( meta->resolved_hash, parsed_hash, FD_HASH_FOOTPRINT );
+              fd_cstr_ncpy( meta->snapshot_name, resolved_name, PATH_MAX );
+              FD_LOG_NOTICE(( "redirect resolved to `%s` (slot %lu) for %s snapshot",
+                              resolved_name, resolved_slot, ctx->load_full ? "full" : "incremental" ));
+            }
+          }
+
           ctx->sent_meta = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
@@ -426,9 +463,11 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
       fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
-      ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->load_file = msg_in->file;
-      ctx->sent_meta = 0;
+      ctx->load_full   = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->load_file   = msg_in->file;
+      ctx->sent_meta   = 0;
+      ctx->gossip_slot = msg_in->slot;
+      ctx->is_redirect = msg_in->is_redirect;
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;

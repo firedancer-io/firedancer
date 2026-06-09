@@ -497,17 +497,16 @@ init_load( fd_snapct_tile_t *  ctx,
     else       fd_memcpy( out->snapshot_hash, ctx->peer.incr_hash, FD_HASH_FOOTPRINT );
   }
 
+  out->is_redirect = !file; /* always use redirect for HTTP downloads */
+
   if( !file ) {
     out->addr = ctx->peer.addr;
-    char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
     if( full ) {
-      fd_base58_encode_32( ctx->peer.full_hash, NULL, encoded_hash );
-      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, encoded_hash ) );
-      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, encoded_hash ) );
+      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
+      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
     } else {
-      fd_base58_encode_32( ctx->peer.incr_hash, NULL, encoded_hash );
-      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
-      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
+      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
+      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot.tar.bz2" ) );
     }
 
     out->is_https = 0; /* if not found in the config list, it's not https */
@@ -554,31 +553,18 @@ init_load( fd_snapct_tile_t *  ctx,
     }
   }
 
-  /* Regardless of whether we load the snapshot from a file or download
-     it, we know the name of the snapshot and can publish it to the gui
-     here. */
-  if( full ) {
-    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
-      if( file ) {
-        fd_cstr_fini( ctx->http_full_snapshot_name );
-        snapshot_path_gui_publish( ctx, stem, ctx->local_in.full_snapshot_path, 1 );
-      }
-      else {
-        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
-        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ) );
-        snapshot_path_gui_publish( ctx, stem, snapshot_path, 1 );
-      }
-    }
-  } else {
-    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
-      if( file ) {
-        fd_cstr_fini( ctx->http_incr_snapshot_name );
-        snapshot_path_gui_publish( ctx, stem, ctx->local_in.incremental_snapshot_path, 0 );
-      } else {
-        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
-        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ) );
-        snapshot_path_gui_publish( ctx, stem, snapshot_path, 0 );
-      }
+  /* For file-based loads we know the final name now; publish to GUI.
+     For HTTP redirect-based downloads, we defer the GUI publish until
+     the META message arrives with the resolved filename.  Publishing
+     the placeholder redirect path here would crash the GUI tile which
+     expects a parseable snapshot filename with slot and hash. */
+  if( FD_LIKELY( !!ctx->out_gui.mem && file ) ) {
+    if( full ) {
+      fd_cstr_fini( ctx->http_full_snapshot_name );
+      snapshot_path_gui_publish( ctx, stem, ctx->local_in.full_snapshot_path, 1 );
+    } else {
+      fd_cstr_fini( ctx->http_incr_snapshot_name );
+      snapshot_path_gui_publish( ctx, stem, ctx->local_in.incremental_snapshot_path, 0 );
     }
   }
 }
@@ -1411,6 +1397,21 @@ snapld_frag( fd_snapct_tile_t *  ctx,
 
     if( full ) ctx->metrics.full.bytes_total        = meta->total_sz;
     else       ctx->metrics.incremental.bytes_total = meta->total_sz;
+
+    /* If the META contains a resolved snapshot name (from a redirect),
+       update the local snapshot name and republish the path to the GUI. */
+    if( meta->snapshot_name[0]!='\0' ) {
+      if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->snapshot_name, PATH_MAX );
+      else       fd_cstr_ncpy( ctx->http_incr_snapshot_name, meta->snapshot_name, PATH_MAX );
+
+      if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+        char snapshot_path[ PATH_MAX+30UL ];
+        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                 FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ),
+                 full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ) );
+        snapshot_path_gui_publish( ctx, stem, snapshot_path, full );
+      }
+    }
 
     return;
   }

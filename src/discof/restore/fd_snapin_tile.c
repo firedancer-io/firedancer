@@ -76,7 +76,8 @@ typedef struct fd_snapin_out_link fd_snapin_out_link_t;
 
 struct fd_snapin_tile {
   int  state;
-  uint full      : 1;       /* loading a full snapshot? */
+  uint full        : 1;     /* loading a full snapshot? */
+  uint is_redirect : 1;     /* using well-known redirect path? */
 
   ulong seed;
   long boot_timestamp;
@@ -648,13 +649,15 @@ process_manifest( fd_snapin_tile_t *  ctx,
                   fd_stem_context_t * stem ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
-  if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
-    /* SnapshotError::MismatchedSlot
-       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
-    FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
-                     manifest->slot, ctx->advertised_slot ));
-    transition_malformed( ctx, stem );
-    return;
+  if( FD_LIKELY( !ctx->is_redirect ) ) {
+    if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
+      /* SnapshotError::MismatchedSlot
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
+      FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
+                       manifest->slot, ctx->advertised_slot ));
+      transition_malformed( ctx, stem );
+      return;
+    }
   }
 
   if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
@@ -673,14 +676,16 @@ process_manifest( fd_snapin_tile_t *  ctx,
   FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
                 manifest->slot, sum_enc, hash32_enc ));
 
-  if( FD_UNLIKELY( memcmp( ctx->advertised_hash, hash32, FD_HASH_FOOTPRINT ) ) ) {
-    /* SnapshotError::MismatchedHash
-        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
-    FD_BASE58_ENCODE_32_BYTES( ctx->advertised_hash, advertised_hash_enc );
-    FD_LOG_WARNING(( "snapshot manifest accounts lthash %s does not match advertised hash from snapshot peer %s",
-                     hash32_enc, advertised_hash_enc ));
-    transition_malformed( ctx, stem );
-    return;
+  if( FD_LIKELY( !ctx->is_redirect ) ) {
+    if( FD_UNLIKELY( memcmp( ctx->advertised_hash, hash32, FD_HASH_FOOTPRINT ) ) ) {
+      /* SnapshotError::MismatchedHash
+          https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
+      FD_BASE58_ENCODE_32_BYTES( ctx->advertised_hash, advertised_hash_enc );
+      FD_LOG_WARNING(( "snapshot manifest accounts lthash %s does not match advertised hash from snapshot peer %s",
+                       hash32_enc, advertised_hash_enc ));
+      transition_malformed( ctx, stem );
+      return;
+    }
   }
 
   ctx->bank_slot = manifest->slot;
@@ -1153,6 +1158,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          separate fd_ssctrl_meta_t message below. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
+      ctx->is_redirect     = !!msg->is_redirect;
       fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       break;
     }
