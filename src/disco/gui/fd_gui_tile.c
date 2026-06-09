@@ -110,7 +110,7 @@ typedef struct {
      here to handle those cases until fd_clock is more widely adopted. */
   long ref_wallclock;
   long ref_tickcount;
-  const double tick_per_ns;
+  double tick_per_ns;
 
   fd_clock_tile_t clock[1];
 
@@ -738,7 +738,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->ref_wallclock = fd_log_wallclock();
   ctx->ref_tickcount = fd_tickcount();
-  *(double *)&ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   ctx->topo = topo;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, fd_clock_tile_now( ctx->clock ) ) );
