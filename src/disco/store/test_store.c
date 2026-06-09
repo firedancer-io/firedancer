@@ -344,7 +344,7 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                     );
   if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "--page-cnt must be at least 1" ));
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
