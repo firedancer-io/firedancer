@@ -720,6 +720,24 @@ fd_wksp_new_anonymous( ulong         page_sz,
 
 static inline void fd_wksp_delete_anonymous( fd_wksp_t * wksp ) { fd_wksp_delete_anon( wksp ); }
 
+/* fd_wksp_new_anonymous_from_env parses --page-sz, --page-cnt, --numa-idx
+   from the command line (falling back to defaults) and creates an anonymous
+   workspace. */
+
+static inline fd_wksp_t *
+fd_wksp_new_anonymous_from_env( int *        pargc,
+                                char ***     pargv,
+                                char const * default_page_sz,
+                                ulong        default_page_cnt,
+                                char const * name,
+                                ulong        opt_part_max ) {
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz  );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, default_page_cnt );
+  if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "--page-cnt must be at least 1" ));
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
+  return fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), name, opt_part_max );
+}
+
 /* fd_wksp_attach attach to the workspace held by the shared memory
    region with the given name.  If there are regions with the same name
    backed by different page sizes, defaults to the region backed by the

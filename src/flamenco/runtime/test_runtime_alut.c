@@ -2240,16 +2240,7 @@ main( int argc, char ** argv ) {
   test_wire_rejects_truncated_padding();
   test_wire_encoded_field_offsets();
 
-  /* Create workspace */
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 16UL                    );
-  if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "--page-cnt must be at least 1" ));
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                            page_cnt,
-                                            fd_shmem_cpu_idx( numa_idx ),
-                                            "test_runtime_alut_wksp",
-                                            0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous_from_env( &argc, &argv, "gigantic", 16UL, "test_runtime_alut_wksp", 0UL );
   FD_TEST( wksp );
 
   /* Run test cases */
