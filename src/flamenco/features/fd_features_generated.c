@@ -1111,7 +1111,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xf9\xb8\x13\x4b\x8e\x66\x1b\x40\x28\x1c\xed\xbe\x7c\x78\x8c\x99\x1b\x93\x96\x34\xd6\xc9\x0b\xde\xae\xb8\xdb\x5a\x06\x7d\x87\x8e"},
                                  /* HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR */
     .name                      = "last_restart_slot_sysvar",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, reduce_stake_warmup_cooldown)>>3,
@@ -1656,7 +1656,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x60\x72\xd6\xf8\xba\xbf\xe3\xa9\x21\x5b\x69\xfe\xc0\xa5\x38\xd5\xb2\xf6\xdf\x47\xd8\xa8\x64\xfe\x01\x57\x49\x68\xd3\xf6\xb9\x84"},
                                  /* 7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm */
     .name                      = "require_static_nonce_account",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_vote_address_leader_schedule)>>3,
@@ -1676,7 +1676,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0a\x79\xe3\x9b\x1a\xcc\x64\x5c\x8c\xdf\x47\xad\x61\x25\x63\x73\xdd\xf4\xc7\x34\x54\x57\x6d\x36\x90\xbe\xfd\xd7\x75\x72\x01\x7f"},
                                  /* htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8 */
     .name                      = "raise_account_cu_limit",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, syscall_parameter_address_restrictions)>>3,
@@ -1721,14 +1721,14 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x34\x2b\x0f\xf3\x77\x8f\xe3\x99\x3b\x5a\xc5\xab\x87\xb5\x93\xeb\xbe\x0c\xcc\xdd\x77\x66\x11\x5d\x6c\xfc\xa1\x1e\x9b\x0e\x0f\xac"},
                                  /* 4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99 */
     .name                      = "relax_intrabatch_account_locks",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, provide_instruction_data_offset_in_vm_r2)>>3,
     .id                        = {"\x49\xa8\x3f\xba\xb8\x02\x48\x7c\x34\x1e\x07\x66\xab\xd9\x59\xba\x04\xfd\xce\xcc\xe6\xbf\xdf\xd4\xc6\xe1\x62\xec\x0b\x10\x26\x6f"},
                                  /* 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL */
     .name                      = "provide_instruction_data_offset_in_vm_r2",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enforce_fixed_fec_set)>>3,
@@ -1742,7 +1742,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xef\x31\xcf\xa8\x88\x28\x79\x55\xd9\xb1\x72\x19\xda\x33\x5d\x8e\x8b\x8f\x5e\x3f\x41\x49\xe5\x9a\x94\x65\xa6\x44\xef\x9c\xa2\xf6"},
                                  /* H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5 */
     .name                      = "increase_cpi_account_info_limit",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, deprecate_rent_exemption_threshold)>>3,
@@ -1762,7 +1762,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xec\xfa\x3a\xf2\xab\xa3\x21\x89\x19\xf4\xc3\x4c\x05\xdf\x88\xf0\x79\x57\x48\xf1\x3e\x35\x12\x0b\x7b\x56\xaa\xae\x3f\xe9\x98\x58"},
                                  /* Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ */
     .name                      = "vote_state_v4",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, alt_bn128_little_endian)>>3,
