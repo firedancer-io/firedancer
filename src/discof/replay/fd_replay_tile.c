@@ -271,6 +271,12 @@ replay_block_start( fd_replay_tile_t * ctx,
   bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
 
+  ulong new_epoch  = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, slot, NULL );
+  ulong root_epoch = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, ctx->published_root_slot, NULL );
+  if( FD_UNLIKELY( new_epoch>root_epoch+1UL ) ) {
+    FD_LOG_CRIT(( "firedancer replay does not support replaying more than one epoch ahead of the current root" ));
+  }
+
   /* Create a new funk txn for the block. */
 
   fd_funk_txn_xid_t xid        = fd_bank_xid( bank        );

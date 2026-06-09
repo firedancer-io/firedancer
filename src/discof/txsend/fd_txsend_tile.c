@@ -298,9 +298,11 @@ after_credit( fd_txsend_tile_t *  ctx,
   fd_pubkey_t const * leaders[ 7UL ];
 
   for( ulong i=0UL; i<7UL; i++ ) {
+    /* It's possible for leaders[i] to be NULL if target slot is two
+       epochs ahead of the replay root.  This is not possible on mainnet
+       but can occur on local clusters during warmup epochs. */
     ulong target_slot = ctx->voted_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
     leaders[ i ] = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    FD_TEST( leaders[ i ] );
   }
 
   /* Disconnect any QUIC connection to a leader that does not have a
@@ -309,7 +311,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   for( ulong i=0UL; i<conn_cnt; ) {
     int keep_conn = 0;
     for( ulong j=0UL; j<7UL; j++ ) {
-      if( fd_pubkey_eq( &ctx->conns[ i ].pubkey, leaders[ j ] ) ) {
+      if( leaders[j] && fd_pubkey_eq( &ctx->conns[ i ].pubkey, leaders[ j ] ) ) {
         keep_conn = 1;
         break;
       }
@@ -323,6 +325,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   /* Connect to any leader that does not have a connection yet. */
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_pubkey_t const * leader = leaders[ i ];
+    if( FD_UNLIKELY( !leader ) ) continue;
     peer_entry_t * peer = peer_map_ele_query( ctx->peer_map, leader, NULL, ctx->peers );
     if( FD_UNLIKELY( !peer ) ) continue; /* no contact info */
 
@@ -534,7 +537,10 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   for( ulong i=0UL; i<3UL; i++ ) {
     ulong target_slot = slot_done->vote_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    FD_TEST( leader );
+    if( FD_UNLIKELY( !leader ) ) {
+      FD_LOG_WARNING(( "no leader found for slot %lu", target_slot ));
+      continue;
+    }
     send_vote_to_leader( ctx, leader, payload, slot_done->vote_txn_sz );
   }
 
