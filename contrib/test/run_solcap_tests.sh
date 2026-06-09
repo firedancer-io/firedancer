@@ -7,7 +7,7 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-406545575-solcap"
+LEDGER="mainnet-424669000-solcap"
 REDOWNLOAD=1
 
 while [[ $# -gt 0 ]]; do
@@ -61,7 +61,7 @@ cd "$ORIG_DIR"
 export ledger_dir=$(realpath $DUMP/$LEDGER)
 export dump_dir=$(realpath $DUMP)
 
-cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
+cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
 
 [snapshots]
     incremental_snapshots = false
@@ -95,19 +95,19 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
     snapshots = "${ledger_dir}"
 
 [capture]
-    solcap_capture = "${dump_dir}/mainnet-406545575.solcap"
+    solcap_capture = "${dump_dir}/mainnet-424669000.solcap"
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
 [development.ledger_input]
     path = "${ledger_dir}/rocksdb"
-    end_slot = 406545600
+    end_slot = 424669025
 EOF
 
 $OBJDIR/bin/firedancer-dev configure fini all
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-406545575-solcap_current.toml
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
 
 # Run solcap-tools diff and check the summary for zero differences
-DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/mainnet-406545575.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
+DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/mainnet-424669000.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
 echo "$DIFF_OUTPUT"
 
 SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3) > /dev/null 2>&1
