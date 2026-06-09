@@ -152,7 +152,7 @@ fetch () {
   checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo lz4     https://github.com/lz4/lz4                  "v1.10.0"
-    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.0.4"
+    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.1.1"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
   fi
 }
@@ -177,9 +177,6 @@ check_fedora_pkgs () {
   )
   if [[ $DEVMODE == 1 ]]; then
     REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel lcov )
-    if [[ "${ID_LIKE:-}" == *rhel* ]]; then
-      REQUIRED_RPMS+=( llvm-toolset )
-    fi
   fi
 
   echo "[~] Checking for required RPM packages"
@@ -569,6 +566,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
+  ROCKSDB_USE_IO_URING=0 \
   CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread -fPIC $EXTRA_CXXFLAGS" \
   make -j $NJOBS \
     LITE=1 \
