@@ -987,12 +987,14 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
 
-  if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start ) ) {
+  if( FD_UNLIKELY( ctx->lagged_consecutive_leader_start || ctx->reset_slot!=slot ) ) {
     /* If we are mirroring Agave behavior, the wall clock gets reset
        here so we don't count time spent waiting for a bank to freeze
        or replay stage to actually start the slot towards our 400ms.
 
-       See extended comments in the config file on this option. */
+       See extended comments in the config file on this option.
+
+       We must also reset the wall clock if we skipped a slot. */
     ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
   }
 
