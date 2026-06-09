@@ -2013,6 +2013,26 @@ verify_ticks_final( fd_sched_block_t * block ) {
   return verify_ticks_eager( block );
 }
 
+int
+fd_sched_block_verify_ticks( fd_sched_t * sched,
+                             ulong        bank_idx,
+                             ulong        tick_height,
+                             ulong        max_tick_height,
+                             ulong        hashes_per_tick ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  FD_TEST( max_tick_height>tick_height );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  /* Set the tick window directly; skip fd_sched_set_poh_params
+     PoH fixup, unneeded here and unsafe to repeat per FEC set. */
+  block->tick_height     = tick_height;
+  block->max_tick_height = max_tick_height;
+  block->hashes_per_tick = hashes_per_tick;
+  /* fec_eos => slot fully ingested, so the TOO_FEW check is meaningful
+     too. */
+  return block->fec_eos ? verify_ticks_final( block ) : verify_ticks_eager( block );
+}
+
 #define CHECK( cond )  do {             \
   if( FD_UNLIKELY( !(cond) ) ) {        \
     return FD_SCHED_AGAIN_LATER;        \

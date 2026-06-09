@@ -33,6 +33,13 @@ static ulong const SCHED_DEPTH          = 4096UL;
 static ulong const SCHED_BLOCK_CNT_MAX  = 128UL;
 static ulong const SCHED_EXEC_CNT       = 4UL;
 
+/* Tick-verification parameters passed to fd_sched_block_verify_ticks.
+   ticks_per_slot=64 (tick_height 0, max_tick_height 64) and
+   hashes_per_tick=62500 to match mainnet and solfuzz-agave's reference
+   bank. */
+static ulong const SLOT_MAX_TICK_HEIGHT = 64UL;
+static ulong const SLOT_HASHES_PER_TICK = 62500UL;
+
 typedef struct {
   fd_hash_t mr;
   fd_hash_t cmr;
@@ -402,6 +409,12 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       FD_TEST( fd_sched_fec_can_ingest( sched, &sched_fec ) );
       if( !fd_sched_fec_ingest( sched, &sched_fec ) ) {
         effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
+      } else if( FD_LIKELY( bank_idx!=0UL ) ) {
+        /* Harness stops at FEC ingest, so verify this slot's tick
+           window here; skip bank_idx 0 (reasm/sched root). */
+        if( fd_sched_block_verify_ticks( sched, bank_idx, 0UL, SLOT_MAX_TICK_HEIGHT, SLOT_HASHES_PER_TICK ) ) {
+          effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
+        }
       }
     }
   }
