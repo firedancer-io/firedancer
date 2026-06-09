@@ -2247,19 +2247,26 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
       /* test/fuzz: no accdb to query, so treat ALUT txns as serializing. */
       serializing = 1;
     } else {
+      /* Read slot_hashes into a local copy and release immediately.
+         fd_runtime_load_txn_address_lookup_tables does its own
+         fd_accdb_read_one calls, so slot_hashes must not be held. */
+      uchar sh_buf[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
+      fd_slot_hashes_t slot_hashes_view[1];
+      int have_sh = 0;
+      /* acquire / copy / release */
       fd_acc_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
-      if( FD_LIKELY( ro.lamports ) ) {
-        fd_slot_hashes_t slot_hashes_view[1];
-        if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view, ro.data, ro.data_len ) ) ) {
-          serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
-          sched->metrics->alut_success_cnt += (uint)!serializing;
-        } else {
-          serializing = 1;
-        }
+      if( FD_LIKELY( ro.lamports && ro.data_len<=sizeof(sh_buf) ) ) {
+        fd_memcpy( sh_buf, ro.data, ro.data_len );
+        have_sh = !!fd_sysvar_slot_hashes_view( slot_hashes_view, sh_buf, ro.data_len );
+      }
+      fd_accdb_unread_one( alut_ctx->accdb, &ro );
+
+      if( FD_LIKELY( have_sh ) ) {
+        serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
+        sched->metrics->alut_success_cnt += (uint)!serializing;
       } else {
         serializing = 1;
       }
-      fd_accdb_unread_one( alut_ctx->accdb, &ro );
     }
   }
 
