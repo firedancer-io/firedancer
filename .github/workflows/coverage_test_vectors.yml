@@ -62,7 +62,7 @@ jobs:
         run: |
           source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
           make clean --silent >/dev/null
-          FIREDANCER_CI_COMMIT=none contrib/make-j all unit-test
+          contrib/make-j all unit-test
 
       - name: Run test vectors (base)
         run: |
@@ -93,7 +93,7 @@ jobs:
         run: |
           source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
           make clean --silent >/dev/null
-          FIREDANCER_CI_COMMIT=none contrib/make-j all unit-test
+          contrib/make-j all unit-test
 
       - name: Run test vectors (PR)
         run: |

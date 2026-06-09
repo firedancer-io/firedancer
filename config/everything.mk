@@ -293,40 +293,42 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
+$(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
+
 DEPFLAGS=-MD -MP -MF $(basename $@).d -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
 
-$(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
+$(OBJDIR)/obj/%.o : src/%.c
 	@echo -e "CC\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.o : src/%.cxx
 	@echo -e "CXX\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
+$(OBJDIR)/obj/%.o : src/%.S
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
+$(OBJDIR)/obj/%.S : src/%.c
 	$(MKDIR) $(dir $@) && \
 $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.S : src/%.cxx
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
+$(OBJDIR)/obj/%.i : src/%.c
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.i : src/%.cxx
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -E $< -o $@
 

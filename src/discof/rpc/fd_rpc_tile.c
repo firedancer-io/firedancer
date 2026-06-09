@@ -256,8 +256,6 @@ struct fd_rpc_tile {
 
   long next_poll_deadline;
 
-  char version_string[ 64UL ];
-
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
 
@@ -1714,7 +1712,7 @@ getVersion( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
   CSTR_JSON( id, id_cstr );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", ctx->version_string, FD_FEATURE_SET_ID, id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", fd_version_cstr, FD_FEATURE_SET_ID, id_cstr );
 }
 
 UNIMPLEMENTED(getVoteAccounts) // TODO: Used by solana-exporter
@@ -1942,8 +1940,6 @@ privileged_init( fd_topo_t const *      topo,
   FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port ));
 }
 
-extern char const fdctl_version_string[];
-
 static inline fd_rpc_out_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
@@ -2010,8 +2006,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->banks = _banks;
   ctx->max_live_slots = tile->rpc.max_live_slots;
   for( ulong i=0UL; i<ctx->max_live_slots; i++ ) ctx->banks[ i ].slot = ULONG_MAX;
-
-  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0; i<tile->in_cnt; i++ ) {

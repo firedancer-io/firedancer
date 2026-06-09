@@ -3,6 +3,7 @@
 
 //#include "fd_util_base.h"          /* includes stdalign.h string.h limits.h float.h */
 //#include "sanitize/fd_sanitize.h"  /* includes fd_util_base.h (fd_asan.h fd_msan.h) */
+#include "fd_version.h"              /* includes fd_util_base.h */
 //#include "bits/fd_bits.h"          /* includes sanitize/fd_sanitize.h (fd_bits_find_lsb.h fd_bits_find_msb.h fd_bits_tg.h) */
 //#include "io/fd_io.h"              /* includes bits/fd_bits.h */
 //#include "cstr/fd_cstr.h"          /* includes bits/fd_bits.h */

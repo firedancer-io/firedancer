@@ -179,8 +179,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   }
   ctx->has_genesis_hash = FETCH_TYPE( uchar ) % 2;
 
-  fd_cstr_ncpy( ctx->version_string, "0.1.1", sizeof(ctx->version_string) );
-
   fd_http_server_request_t req[ 1 ];
   req->ctx = ctx;
   req->connection_id = 0UL;

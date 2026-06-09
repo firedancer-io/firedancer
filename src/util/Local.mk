@@ -1,6 +1,8 @@
 $(call make-lib,fd_util)
 $(call add-hdrs,fd_util_base.h fd_util.h)
 $(call add-objs,fd_hash fd_util,fd_util)
+$(call add-hdrs,fd_version.h,fd_util)
+$(call add-objs,fd_version,fd_util)
 $(call make-unit-test,test_util,test_util,fd_util)
 $(call run-unit-test,test_util)
 
@@ -16,3 +18,13 @@ ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_hash,fuzz_hash,fd_util)
 endif
 endif
+
+$(file >src/util/fd_version_generated1.h,#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse HEAD)")
+ifneq ($(shell cmp -s src/util/fd_version_generated.h src/util/fd_version_generated1.h && echo "same"),same)
+src/util/fd_version_generated.h: src/util/fd_version_generated1.h
+	cp -f src/util/fd_version_generated1.h $@
+endif
+$(OBJDIR)/info: src/util/fd_version_generated.h
+$(OBJDIR)/obj/util/fd_version.o:     src/util/fd_version_generated.h
+$(OBJDIR)/obj/util/fd_version.d:     src/util/fd_version_generated.h
+$(OBJDIR)/obj/util/fd_version.check: src/util/fd_version_generated.h

@@ -1,7 +1,5 @@
 #include "test_bundle_common.c"
 
-__attribute__((weak)) char const fdctl_version_string[] = "0.0.0";
-
 static long g_clock = 1L;
 
 __attribute__((weak)) long
