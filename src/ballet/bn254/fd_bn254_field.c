@@ -3,6 +3,10 @@
 #if FD_HAS_S2NBIGNUM
 #include <s2n-bignum.h>
 #endif
+#if FD_HAS_X86
+#include <immintrin.h>
+#endif
+
 
 /* Fp = base field */
 
@@ -158,7 +162,7 @@ fd_bn254_fp_set( fd_bn254_fp_t * r,
   return r;
 }
 
-/* fd_bn254_fp_add: r = a + b mod p, output in [0, p).  Used everywhere. */
+/* r = a + b mod p, output in [0, p). */
 INLINE fd_bn254_fp_t *
 fd_bn254_fp_add( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
@@ -167,12 +171,9 @@ fd_bn254_fp_add( fd_bn254_fp_t * r,
   return r;
 }
 
-/* fd_bn254_fp_add_lazy: r = a + b, output in [0, 2p) (NO conditional sub).
-   Safe ONLY if the result feeds a Mont mul (the CIOS reduction tolerates
-   inputs up to 2p for BN254 since p_limbs[3] < (2^64-1)/2-1).  Do NOT
-   feed lazy outputs to fp_sub, fp_neg, fp_eq, frombytes, halve, etc.
-   On non-x86 builds we fall back to the (eager) fp_add: still correct,
-   just no perf win. */
+/* r = a + b, output in [0, 2p).
+   Safe only if the result feeds into a multiplication, but should not
+   be fed into fp_sub, fp_neg, fp_eq, frombytes, halve, etc. */
 INLINE fd_bn254_fp_t *
 fd_bn254_fp_add_lazy( fd_bn254_fp_t * r,
                       fd_bn254_fp_t const * a,
@@ -191,6 +192,8 @@ fd_bn254_fp_add_lazy( fd_bn254_fp_t * r,
   r->limbs[3] = (ulong)t3;
   return r;
 #else
+  /* We find no performance improvement on non-x86 targets, so we
+     fallback to the original fp_add. */
   return fd_bn254_fp_add( r, a, b );
 #endif
 }
@@ -250,19 +253,17 @@ fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
   return r;
 }
 
-/* fd_bn254_fp_inv computes r = 1 / a.  a MUST not be 0.
-   With s2n-bignum: bignum_modinv (Bernstein-Yang divsteps), ~10x faster
-   than Fermat's little theorem.  Without: a^{p-2} via square-and-multiply. */
+/* r = 1 / a mod p. a MUST not be 0. */
 static inline fd_bn254_fp_t *
 fd_bn254_fp_inv( fd_bn254_fp_t * r,
                   fd_bn254_fp_t const * a ) {
 #if FD_HAS_S2NBIGNUM
-  /* a is in Mont form: a_limbs = a*R mod p.
-     bignum_modinv treats inputs as canonical residues, so it computes
-       z = (a*R)^{-1} = a^{-1} * R^{-1}    (non-Mont form).
-     Two fiat_bn254_to_montgomery calls multiply by R each, giving
-       r = a^{-1} * R^{-1} * R * R = a^{-1} * R = (a^{-1})_mont. */
-  ulong tmp[12]; /* bignum_modinv needs 3*k temporary */
+  /* a is in montgomery form, giving a' = a*R mod p.
+     bignum_modinv treats its inputs as canonical residues, so it computes:
+      z = (a*R)^{-1} = a^{-1} * R^{-1}
+     We can apply to_montgomery twice, each time multiplying by R, giving:
+      r = a^{-1} * R^{-1} * R * R = a^{-1} * R = (a^{-1})' */
+  ulong tmp[12];
   ulong z[4];
   bignum_modinv( 4, z, a->limbs, fd_bn254_const_p->limbs, tmp );
   fiat_bn254_to_montgomery( r->limbs, z );

@@ -187,17 +187,6 @@ fd_bn254_fp2_add( fd_bn254_fp2_t * r,
   return r;
 }
 
-/* Same as above but skips reduction: r in [0, 2p)^2.  Only safe if r is
-   consumed by an fp2_mul/fp2_sqr next.  See fd_bn254_fp_add_lazy. */
-static inline fd_bn254_fp2_t *
-fd_bn254_fp2_add_lazy( fd_bn254_fp2_t * r,
-                       fd_bn254_fp2_t const * a,
-                       fd_bn254_fp2_t const * b ) {
-  fd_bn254_fp_add_lazy( &r->el[0], &a->el[0], &b->el[0] );
-  fd_bn254_fp_add_lazy( &r->el[1], &a->el[1], &b->el[1] );
-  return r;
-}
-
 /* fd_bn254_fp2_sub computes r = a - b in Fp2. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_sub( fd_bn254_fp2_t * r,
@@ -234,7 +223,7 @@ fd_bn254_fp2_mul( fd_bn254_fp2_t * r,
   fd_bn254_fp_t * r1 = &r->el[1];
   fd_bn254_fp_t a0b0[1], a1b1[1], sa[1], sb[1];
 
-  /* sa, sb consumed only by fp_mul -> safe lazy. */
+  /* sa, sb are lazy additions as they're only consumed by fp_mul */
   fd_bn254_fp_add_lazy( sa, a0, a1 );
   fd_bn254_fp_add_lazy( sb, b0, b1 );
 
@@ -255,7 +244,7 @@ static inline fd_bn254_fp2_t *
 fd_bn254_fp2_sqr( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_t p[1], m[1];
-  /* p is consumed only by fp_mul -> lazy ok. */
+  /* p is a lazy addition as it's only consumed by fp_mul */
   fd_bn254_fp_add_lazy( p, &a->el[0], &a->el[1] );
   fd_bn254_fp_sub     ( m, &a->el[0], &a->el[1] );
   /* r1 = 2 a0*a1 */
@@ -316,10 +305,11 @@ fd_bn254_fp2_pow( fd_bn254_fp2_t * restrict r,
 }
 
 /* fd_bn254_fp2_sqrt computes r = sqrt(a) in Fp2.
-   "Complex method" / Adj-Lindqvist Alg. 8 of https://eprint.iacr.org/2012/685.
-   For BN254 the non-residue is i with i^2 = -1, so norm(c) = c0^2 + c1^2.
-   Cost is 2 (avg ~2.25) fp_sqrt + 1 fp_inv + a handful of fp_mul/sqr,
-   vs the 2 fp2_pow of Alg. 9 (each ~3x the cost of an fp_pow). */
+   https://eprint.iacr.org/2012/685, Alg. 8.
+
+   For bn254 the non-residue is i with i^2 = -1, so norm(c) = c0^2 + c1^2.
+   This method costs us 2 fp_sqrt + 1 fp_inv + a few fp_mul/sqr.
+   The method described in Alg. 9 is 2 fp2_pow, which is more expensive. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
                    fd_bn254_fp2_t const * a ) {
@@ -328,7 +318,7 @@ fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
   fd_bn254_fp_t norm[1], alpha[1], delta[1], tmp[1];
   fd_bn254_fp_t x[1], y[1], xinv[1];
 
-  /* c1 == 0: sqrt reduces to Fp sqrt on c0 (or sqrt(-c0) shifted to imag). */
+  /* c1 == 0, sqrt reduces to Fp sqrt on c0 (or sqrt(-c0) shifted to imaginary). */
   if( FD_UNLIKELY( fd_bn254_fp_is_zero( c1 ) ) ) {
     if( fd_bn254_fp_sqrt( x, c0 ) ) {
       fd_bn254_fp_set( &r->el[0], x );
@@ -350,8 +340,9 @@ fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
   /* alpha = sqrt(norm); NULL means a is a non-square in Fp2. */
   if( !fd_bn254_fp_sqrt( alpha, norm ) ) return NULL;
 
-  /* delta = (alpha + c0)/2; if not a QR, use (c0 - alpha)/2 instead.
-     We probe by trying sqrt(delta) directly. */
+  /* delta = (alpha + c0) / 2
+     If delta is not a quadratic residue, use (c0 - alpha) / 2 instead.
+     We test this by trying sqrt(delta) first. */
   fd_bn254_fp_add( delta, alpha, c0 );
   fd_bn254_fp_halve( delta, delta );
 
@@ -427,16 +418,6 @@ fd_bn254_fp6_add( fd_bn254_fp6_t * r,
 }
 
 static inline fd_bn254_fp6_t *
-fd_bn254_fp6_add_lazy( fd_bn254_fp6_t * r,
-                       fd_bn254_fp6_t const * a,
-                       fd_bn254_fp6_t const * b ) {
-  fd_bn254_fp2_add_lazy( &r->el[0], &a->el[0], &b->el[0] );
-  fd_bn254_fp2_add_lazy( &r->el[1], &a->el[1], &b->el[1] );
-  fd_bn254_fp2_add_lazy( &r->el[2], &a->el[2], &b->el[2] );
-  return r;
-}
-
-static inline fd_bn254_fp6_t *
 fd_bn254_fp6_sub( fd_bn254_fp6_t * r,
                   fd_bn254_fp6_t const * a,
                   fd_bn254_fp6_t const * b ) {
@@ -477,8 +458,8 @@ fd_bn254_fp6_mul( fd_bn254_fp6_t * r,
   fd_bn254_fp2_mul( a1b1, a1, b1 );
   fd_bn254_fp2_mul( a2b2, a2, b2 );
 
-  /* NOT lazy: fp2_mul has its own internal lazy adds; compounding would
-     push intermediate values past Mont mul's <2p precondition. */
+  /* fp2_mul has its own internal lazy additions, so we cannot compound
+     here as it would push intermediate values past our [0, 2p) bound. */
   fd_bn254_fp2_add( sa, a1, a2 );
   fd_bn254_fp2_add( sb, b1, b2 );
   fd_bn254_fp2_mul( r0, sa, sb );
@@ -528,7 +509,7 @@ fd_bn254_fp6_sqr( fd_bn254_fp6_t * r,
 
   fd_bn254_fp2_sqr( c3, a0 );
   fd_bn254_fp2_sub( c4, a0, a1 );
-  /* NOT lazy: fp2_sqr internally lazy-adds, compounding would overflow. */
+  /* not lazy for the same reasons as fd_bn254_fp6_mul. */
   fd_bn254_fp2_add( c4, c4, a2 );
 
   fd_bn254_fp2_mul( c5, a1, a2 );
@@ -693,7 +674,7 @@ fd_bn254_fp12_mul_sparse( fd_bn254_fp12_t *       r,
   fd_bn254_fp6_mul_by_01( a1b1, &a->el[1], c3, c4 );
 
   /* r1 = (a0+a1) * (c0+c3, c4, 0) - a0b0 - a1b1 : 5 Fp2_mul.
-     NOT lazy: same compounding issue as fp12_mul. */
+     not lazy for the same reasons as fd_bn254_fp6_mul */
   fd_bn254_fp6_add( sa, &a->el[0], &a->el[1] );
   fd_bn254_fp2_add( sc0, c0, c3 );
   fd_bn254_fp6_mul_by_01( &r->el[1], sa, sc0, c4 );
@@ -719,8 +700,7 @@ fd_bn254_fp12_mul( fd_bn254_fp12_t * r,
   fd_bn254_fp6_t * r1 = &r->el[1];
   fd_bn254_fp6_t a0b0[1], a1b1[1], sa[1], sb[1];
 
-  /* NOT lazy: fp6_mul internally uses fp2_mul which lazy-adds its inputs;
-     a lazy_add here would compound and overflow Mont mul's <2p precondition. */
+  /* not lazy for the same reasons as fd_bn254_fp6_mul */
   fd_bn254_fp6_add( sa, a0, a1 );
   fd_bn254_fp6_add( sb, b0, b1 );
 
