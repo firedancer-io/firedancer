@@ -124,11 +124,16 @@ typedef struct fd_ssctrl_init {
   char          path[ PATH_MAX ];
   ulong         path_len;
   int           is_https;
+  int           is_redirect; /* 1 if using well-known redirect path */
+  ulong         file_sz;     /* file size in bytes (file loads only, 0 for HTTP) */
 } fd_ssctrl_init_t;
 
 /* Sent by snapld to tell snapct metadata about a downloaded snapshot. */
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
+  ulong resolved_slot;
+  uchar resolved_hash[ FD_HASH_FOOTPRINT ];
+  char  resolved_name[ PATH_MAX ];
 } fd_ssctrl_meta_t;
 
 struct fd_snapshot_account_hdr {

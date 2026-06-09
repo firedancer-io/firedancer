@@ -26,6 +26,12 @@ fd_sshttp_snapshot_name( fd_sshttp_t const * http );
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http );
 
+ulong
+fd_sshttp_resolved_slot( fd_sshttp_t const * http );
+
+uchar const *
+fd_sshttp_resolved_hash( fd_sshttp_t const * http );
+
 /* fd_sshttp_init initializes an sshttp connection to the given server.
    addr is the resolved IP address and port.  hostname is a
    null-terminated string used for the Host header and TLS SNI.
