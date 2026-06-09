@@ -70,6 +70,12 @@ ready_cmd_fn( args_t *   args,
   FD_LOG_NOTICE(( "all tiles ready" ));
 }
 
+static void
+ready_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--ready-slot", "<slot>", "After all tiles are ready, also block until the replay tile's reset\n"
+                                                     "slot reaches at least <slot> (default 0, which waits for tiles only)" );
+}
+
 action_t fd_action_ready = {
   .name           = "ready",
   .args           = ready_cmd_args,
@@ -77,4 +83,11 @@ action_t fd_action_ready = {
   .require_config = 1,
   .perm           = NULL,
   .description    = "Wait for all tiles to be running",
+  .detail         = "Connects to a running validator and blocks until every tile (except\n"
+                    "Agave-hosted tiles) reports a running status, then exits 0.  A tile is a\n"
+                    "single thread pinned to a CPU core that performs one part of the validator's\n"
+                    "work.  Useful in scripts that must wait for the validator to finish booting\n"
+                    "before proceeding.",
+  .usage          = "ready [OPTIONS]",
+  .args_help      = ready_args_help,
 };

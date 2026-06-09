@@ -68,4 +68,7 @@ action_t fd_action_netconf = {
   .require_config = 1,
   .perm           = NULL,
   .description    = "Print network configuration",
+  .detail         = "Connects to a running validator and prints the networking state its\n"
+                    "net tiles have discovered, including the routing (FIB), interface (MIB), and\n"
+                    "neighbor (ARP) tables.",
 };

@@ -696,43 +696,43 @@ void
 fdctl_check_configure( config_t const * config ) {
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
+    FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `%s configure init hugetlbfs` "
                  "to create the mounts correctly. This must be done after every system restart before running "
-                 "Firedancer.", check.message ));
+                 "Firedancer.", check.message, FD_BINARY_NAME ));
 
   if( FD_LIKELY( 0==strcmp( config->net.provider, "xdp" ) ) ) {
     if( fd_cfg_stage_bonding.enabled( config ) ) {
       check = fd_cfg_stage_bonding.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
       if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-        FD_LOG_ERR(( "Bonded network device is not configured correctly: %s. You can run `fdctl configure init bonding` "
-                    "to configure the bonding driver.", check.message ));
+        FD_LOG_ERR(( "Bonded network device is not configured correctly: %s. You can run `%s configure init bonding` "
+                    "to configure the bonding driver.", check.message, FD_BINARY_NAME ));
     }
 
     check = fd_cfg_stage_ethtool_channels.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
-                  "network device correctly.", check.message ));
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-channels` to set the number of channels on the "
+                  "network device correctly.", check.message, FD_BINARY_NAME ));
 
     check = fd_cfg_stage_ethtool_offloads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-offloads` to disable features "
-                  "as required.", check.message ));
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-offloads` to disable features "
+                  "as required.", check.message, FD_BINARY_NAME ));
 
     check = fd_cfg_stage_ethtool_loopback.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-loopback` to disable tx-udp-segmentation "
-                  "on the loopback device.", check.message ));
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-loopback` to disable tx-udp-segmentation "
+                  "on the loopback device.", check.message, FD_BINARY_NAME ));
   }
 
   check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
-                 "to set kernel parameters correctly.", check.message ));
+    FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `%s configure init sysctl` "
+                 "to set kernel parameters correctly.", check.message, FD_BINARY_NAME ));
 
   check = fd_cfg_stage_hyperthreads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
-                 "to configure hyperthreading correctly.", check.message ));
+    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `%s configure init hyperthreads` "
+                 "to configure hyperthreading correctly.", check.message, FD_BINARY_NAME ));
 }
 
 void
@@ -741,7 +741,7 @@ run_firedancer_init( config_t * config,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new %s --config <toml>`", config->paths.identity_key, config->paths.identity_key ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
@@ -909,12 +909,28 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   run_firedancer( config, -1, 1 );
 }
 
+static void
+run1_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<tile-name>", NULL,   "Type of tile to run (e.g. `net`, `quic`, `replay`).  A tile is a single\n"
+                                                  "thread pinned to a CPU core that performs one part of the validator's work" );
+  fd_action_help_arg( help, "<kind-id>",   NULL,   "Zero-based index selecting which instance of that tile type to run\n"
+                                                  "when the topology has more than one" );
+  fd_action_help_arg( help, "--pipe-fd",   "<fd>", "Internal use: file descriptor over which the parent supervisor process\n"
+                                                  "communicates with this tile (default -1, standalone)" );
+}
+
 action_t fd_action_run1 = {
   .name        = "run1",
   .args        = run1_cmd_args,
   .fn          = run1_cmd_fn,
   .perm        = NULL,
-  .description = "Start up a single Firedancer tile"
+  .description = "Start up a single Firedancer tile",
+  .detail      = "Runs one tile of the validator topology in the current process.  A tile is a\n"
+                 "single thread pinned to a CPU core that performs one part of the validator's\n"
+                 "work.  This is primarily an internal command used by `run` to spawn individual\n"
+                 "tiles; most operators should use `run` instead.",
+  .usage       = "run1 <tile-name> <kind-id> [OPTIONS]",
+  .args_help   = run1_args_help,
 };
 
 action_t fd_action_run = {
@@ -924,6 +940,11 @@ action_t fd_action_run = {
   .require_config = 1,
   .perm           = run_cmd_perm,
   .description    = "Start up a Firedancer validator",
+  .detail         = "Boots and runs the full validator described by the configuration file.  This\n"
+                    "is the main command operators use to run Firedancer.  It must be started with\n"
+                    "sufficient privileges to perform boot-time setup, after which it drops\n"
+                    "privileges to the configured user.",
+  .usage          = "run [OPTIONS]",
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
                     "to start Firedancer as the root user, but you can also start it "
                     "with the missing capabilities listed above. The program only needs "

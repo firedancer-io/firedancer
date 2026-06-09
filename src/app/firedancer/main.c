@@ -2,6 +2,7 @@
 #include "config.h"
 #include "../shared/boot/fd_boot.h"
 #include "../shared/commands/configure/configure.h"
+#include "../shared/fd_action.h"
 
 char const * FD_APP_NAME    = "Firedancer";
 char const * FD_BINARY_NAME = "firedancer";

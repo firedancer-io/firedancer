@@ -204,14 +204,88 @@ firedancer_dev_test_run( int     argc,
       NULL
     };
 
-    return fd_dev_main( argc, argv, 0, configs, fd_topo_initialize );
+    return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
   }
 
   return 0;
 }
 
 static int
+run_dev_main( char const * const * argv,
+              int                  argc ) {
+  int pid = fork();
+  if( FD_UNLIKELY( -1==pid ) ) FD_LOG_ERR(( "fork failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( !pid ) {
+    fd_config_file_t _default = (fd_config_file_t){
+      .name    = "default",
+      .data    = firedancer_default_config,
+      .data_sz = firedancer_default_config_sz,
+    };
+    fd_config_file_t * configs[] = { &_default, NULL };
+
+    /* fd_dev_main takes a non-const argv (it rewrites the array in
+       place while stripping flags), so copy the literals into a mutable
+       array first. */
+    char * mut_argv[ 16 ];
+    FD_TEST( argc<(int)( sizeof( mut_argv )/sizeof( mut_argv[ 0 ] ) ) );
+    for( int i=0; i<argc; i++ ) mut_argv[ i ] = (char *)argv[ i ];
+    mut_argv[ argc ] = NULL;
+
+    int ret = fd_dev_main( argc, mut_argv, 1, configs, fd_topo_initialize );
+    fd_sys_util_exit_group( ret );
+  }
+
+  int wstatus;
+  for(;;) {
+    int exited_pid = waitpid( pid, &wstatus, __WALL );
+    if( FD_UNLIKELY( -1==exited_pid && errno==EINTR ) ) continue;
+    if( FD_UNLIKELY( -1==exited_pid ) ) FD_LOG_ERR(( "waitpid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    break;
+  }
+
+  if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) FD_LOG_ERR(( "`firedancer-dev` exited with signal %d (%s)", WTERMSIG( wstatus ), strsignal( WTERMSIG( wstatus ) ) ));
+  return WEXITSTATUS( wstatus );
+}
+
+static void
+test_help_config_orderings( void ) {
+  fd_log_thread_set( "help-config" );
+
+  struct {
+    char const * name;
+    char const * argv[ 8 ];
+    int          argc;
+  } cases[] = {
+    /* help with no subcommand */
+    { "--help",                          { "firedancer-dev", "--help" },                                  2 },
+    { "-h",                              { "firedancer-dev", "-h" },                                      2 },
+    /* subcommand then help */
+    { "<cmd> --help",                    { "firedancer-dev", "dev", "--help" },                           3 },
+    { "<cmd> -h",                        { "firedancer-dev", "dev", "-h" },                               3 },
+    /* --config before --help, no subcommand */
+    { "--config X --help",               { "firedancer-dev", "--config", "/fake/path", "--help" },        4 },
+    { "--help --config X",               { "firedancer-dev", "--help", "--config", "/fake/path" },        4 },
+    /* --config and a subcommand, help in various positions */
+    { "--config X <cmd> --help",         { "firedancer-dev", "--config", "/fake/path", "dev", "--help" }, 5 },
+    { "<cmd> --config X --help",         { "firedancer-dev", "dev", "--config", "/fake/path", "--help" }, 5 },
+    { "<cmd> --help --config X",         { "firedancer-dev", "dev", "--help", "--config", "/fake/path" }, 5 },
+    { "--config X <cmd> -h",             { "firedancer-dev", "--config", "/fake/path", "dev", "-h" },     5 },
+    /* --version is also handled before the config is loaded */
+    { "--config X --version",            { "firedancer-dev", "--config", "/fake/path", "--version" },     4 },
+  };
+
+  for( ulong i=0UL; i<sizeof( cases )/sizeof( cases[ 0 ] ); i++ ) {
+    int status = run_dev_main( cases[ i ].argv, cases[ i ].argc );
+    if( FD_UNLIKELY( status ) ) FD_LOG_ERR(( "`firedancer-dev %s` exited %d, expected 0", cases[ i ].name, status ));
+    FD_LOG_NOTICE(( "ok: `firedancer-dev %s`", cases[ i ].name ));
+  }
+}
+
+static int
 test_firedancer_dev( config_t * config ) {
+  test_help_config_orderings();
+
   struct child_info configure = fork_child( "firedancer-dev configure", config, firedancer_dev_configure );
   wait_children( &configure, 1UL, 15UL );
   struct child_info wksp = fork_child( "firedancer-dev wksp", config, firedancer_dev_wksp );
@@ -223,6 +297,8 @@ test_firedancer_dev( config_t * config ) {
   struct child_info children[ 2 ] = { ready, dev };
   ulong exited = wait_children( children, 2UL, 30UL );
   if( FD_UNLIKELY( exited!=0UL ) ) FD_LOG_ERR(( "`%s` exited unexpectedly", children[ exited ].name ));
+
+  FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
 

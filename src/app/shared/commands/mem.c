@@ -146,11 +146,27 @@ mem_cmd_fn( args_t *   args,
   fd_topo_print_log( 1, &config->topo );
 }
 
+static void
+mem_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--topo", "<command>", "Build the topology from another subcommand (e.g. `gossip`) instead of\n"
+                                                   "the default validator topology.  <command> is the name of a subcommand\n"
+                                                   "that builds its own topology" );
+  fd_action_help_arg( help, "--sort", NULL,        "List objects largest first, with per object and cumulative memory\n"
+                                                   "footprint, instead of the default per memory region layout" );
+}
+
 action_t fd_action_mem = {
   .name           = "mem",
   .args           = mem_cmd_args,
   .fn             = mem_cmd_fn,
   .require_config = 1,
   .perm           = NULL,
-  .description    = "Print workspace memory and tile topology information",
+  .description    = "Print the validator's memory regions and tile layout",
+  .detail         = "Prints the shared memory regions and tiles that the validator topology\n"
+                    "allocates, including how much memory each object reserves.  A tile is a\n"
+                    "single thread pinned to a CPU core that performs one part of the validator's\n"
+                    "work.  This is computed from the configuration without attaching to a\n"
+                    "running validator.",
+  .usage          = "mem [OPTIONS]",
+  .args_help      = mem_args_help,
 };

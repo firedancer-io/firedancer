@@ -110,9 +110,10 @@ ipecho_server_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_ipecho_server = {
-  .name = NAME,
-  .args = NULL,
-  .perm = ipecho_server_cmd_perm,
-  .fn   = ipecho_server_cmd_fn,
-  .topo = ipecho_server_cmd_topo,
+  .name        = NAME,
+  .args        = NULL,
+  .perm        = ipecho_server_cmd_perm,
+  .fn          = ipecho_server_cmd_fn,
+  .topo        = ipecho_server_cmd_topo,
+  .description = "Run a standalone IP echo protocol server for testing",
 };

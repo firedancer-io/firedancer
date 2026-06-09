@@ -612,6 +612,21 @@ monitor_cmd_fn( args_t *   args,
   exit( 0 ); /* gracefully exit */
 }
 
+static void
+monitor_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--dt-min",   "<ns>",      "Minimum nanoseconds between screen refreshes (default 6666667, ~150 Hz)" );
+  fd_action_help_arg( help, "--dt-max",   "<ns>",      "Maximum nanoseconds between screen refreshes (default 133333333, ~7.5 Hz);\n"
+                                                       "the refresh interval is jittered between dt-min and dt-max" );
+  fd_action_help_arg( help, "--duration", "<ns>",      "Run for this many nanoseconds then exit (default 0, run until interrupted)" );
+  fd_action_help_arg( help, "--seed",     "<seed>",    "Seed for the refresh-interval jitter RNG (default derived from the CPU\n"
+                                                       "tick counter)" );
+  fd_action_help_arg( help, "--bench",    NULL,        "Also show the benchmark transaction generator tiles in the view" );
+  fd_action_help_arg( help, "--sankey",   NULL,        "Show the Sankey diagram of the transaction processing pipeline" );
+  fd_action_help_arg( help, "--topo",     "<command>", "Build the topology from another subcommand (e.g. `gossip`) instead of\n"
+                                                       "the default validator topology.  <command> is the name of a subcommand\n"
+                                                       "that builds its own topology" );
+}
+
 action_t fd_action_monitor = {
   .name           = "monitor",
   .args           = monitor_cmd_args,
@@ -619,4 +634,10 @@ action_t fd_action_monitor = {
   .require_config = 1,
   .perm           = monitor_cmd_perm,
   .description    = "Monitor a locally running Firedancer instance with a terminal GUI",
+  .detail         = "Connects to a running validator and continuously renders a terminal\n"
+                    "dashboard of tile activity and the message passing links between them.  A\n"
+                    "tile is a single thread pinned to a CPU core that performs one part of the\n"
+                    "validator's work.  The validator must be running.",
+  .usage          = "monitor [OPTIONS]",
+  .args_help      = monitor_args_help,
 };

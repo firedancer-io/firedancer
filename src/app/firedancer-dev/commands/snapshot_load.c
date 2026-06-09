@@ -133,28 +133,6 @@ static void
 snapshot_load_args( int *    pargc,
                     char *** pargv,
                     args_t * args ) {
-  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( pargc, pargv, "--help" ) ) ) {
-    fputs(
-      "\nUsage: firedancer-dev snapshot-load [GLOBAL FLAGS] [FLAGS]\n"
-      "\n"
-      "Global Flags:\n"
-      "  --mainnet            Use Solana mainnet-beta defaults\n"
-      "  --testnet            Use Solana testnet defaults\n"
-      "  --devnet             Use Solana devnet defaults\n"
-      "\n"
-      "Flags:\n"
-      "  --snapshot-dir PATH  Load/save snapshots from this directory\n"
-      "  --offline            Do not attempt to download snapshots\n"
-      "  --no-incremental     Disable incremental snapshot loading\n"
-      "  --no-watch           Do not print periodic progress updates\n"
-      "  --db-sz <bytes>      Database size in bytes (e.g. 10e9 -> 10 GB)\n"
-      "  --db-rec-max <num>   Database max record/account count (e.g. 10e6 -> 10M accounts)\n"
-      "  --fsck               After loading, run database integrity checks\n"
-      "  --accounts-hist      After loading, analyze account size distribution\n"
-      "\n",
-      stderr );
-    exit( 0 );
-  }
   memset( &args->snapshot_load, 0, sizeof(args->snapshot_load) );
 
   char const * snapshot_dir  = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--snapshot-dir", NULL, NULL   );
@@ -286,12 +264,12 @@ accounts_hist_print( accounts_hist_t const * hist ) {
     ulong hist_bin_avg      = hist->bin_cnt[ i ] > 0 ? hist->bin_acc[ i ] / hist->bin_cnt[ i ] : 0UL;
     /* log */
     char buf[256];
-    char * p = fd_cstr_init( buf );
-    p = fd_cstr_append_printf( p, "%12lu %s sz <= %12lu |", hist_bin_tlo, i==0? "<=" : "< ", hist_bin_thi );
-    p = fd_cstr_append_printf( p, " %8.1f K (%6.1f %%) |", hist_bin_cnt_K, sum_cnt_p );
-    p = fd_cstr_append_printf( p, " %8.1f MiB (%6.1f %%) |", hist_bin_acc_MiB, sum_acc_p );
-    p = fd_cstr_append_printf( p, " %12lu | %12lu | %12lu |", hist_bin_min, hist_bin_max, hist_bin_avg );
-    p = fd_cstr_append_printf( p, "\n" );
+    FD_TEST( fd_cstr_printf_check( buf, sizeof(buf), NULL,
+                                  "%12lu %s sz <= %12lu | %8.1f K (%6.1f %%) | %8.1f MiB (%6.1f %%) | %12lu | %12lu | %12lu |\n",
+                                  hist_bin_tlo, i==0? "<=" : "< ", hist_bin_thi,
+                                  hist_bin_cnt_K, sum_cnt_p,
+                                  hist_bin_acc_MiB, sum_acc_p,
+                                  hist_bin_min, hist_bin_max, hist_bin_avg ) );
     printf( "%s", buf );
   }
   printf( "\n" );
@@ -519,10 +497,28 @@ snapshot_load_cmd_fn( args_t *   args,
   }
 }
 
+static void
+snapshot_load_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--snapshot-dir",   "<path>",  "Load/save snapshots from this directory" );
+  fd_action_help_arg( help, "--offline",        NULL,      "Do not attempt to download snapshots" );
+  fd_action_help_arg( help, "--no-incremental", NULL,      "Disable incremental snapshot loading" );
+  fd_action_help_arg( help, "--no-watch",       NULL,      "Do not print periodic progress updates" );
+  fd_action_help_arg( help, "--db-sz",          "<bytes>", "Database size in bytes (e.g. 10e9 -> 10 GB)" );
+  fd_action_help_arg( help, "--db-rec-max",     "<num>",   "Database max record/account count (e.g. 10e6 -> 10M accounts)" );
+  fd_action_help_arg( help, "--fsck",           NULL,      "After loading, run database integrity checks" );
+  fd_action_help_arg( help, "--accounts-hist",  NULL,      "After loading, analyze account size distribution" );
+}
+
 action_t fd_action_snapshot_load = {
-  .name = NAME,
-  .topo = snapshot_load_topo1,
-  .perm = dev_cmd_perm,
-  .args = snapshot_load_args,
-  .fn   = snapshot_load_cmd_fn
+  .name        = NAME,
+  .topo        = snapshot_load_topo1,
+  .perm        = dev_cmd_perm,
+  .args        = snapshot_load_args,
+  .fn          = snapshot_load_cmd_fn,
+  .description = "Load a snapshot into a database and optionally inspect it",
+  .detail      = "Boots a reduced topology that downloads (or reads from disk) a full and\n"
+                 "optional incremental snapshot, loads the accounts into a funk database, and\n"
+                 "can then run integrity checks or analyze the account size distribution.",
+  .usage       = NAME " [OPTIONS]",
+  .args_help   = snapshot_load_args_help,
 };

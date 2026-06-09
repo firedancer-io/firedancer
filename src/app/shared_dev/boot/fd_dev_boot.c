@@ -56,6 +56,22 @@ execve_as_root( int     argc,
 
 config_t config;
 
+void
+fd_global_options_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--config",           "<path>",  "Path to a configuration TOML file" );
+  fd_action_help_arg( help, "--mainnet",          NULL,      "Use Solana mainnet defaults" );
+  fd_action_help_arg( help, "--testnet",          NULL,      "Use Solana testnet defaults" );
+  fd_action_help_arg( help, "--devnet",           NULL,      "Use Solana devnet defaults" );
+  fd_action_help_arg( help, "--mainnet-jito",     NULL,      "Use Solana mainnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--testnet-jito",     NULL,      "Use Solana testnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--log-path",         "<path>",  "Path to write the log file to" );
+  fd_action_help_arg( help, "--log-level-stderr", "<level>", "Minimum log level to print to stderr" );
+  fd_action_help_arg( help, "--no-sandbox",       NULL,      "Disable the security sandbox (development only)" );
+  fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
+  fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
+  fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );
+}
+
 int
 fd_dev_main( int                        argc,
              char **                    _argv,
@@ -91,7 +107,7 @@ fd_dev_main( int                        argc,
   if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--version" ) ) ) {
     action_name = "version";
     argc--; argv++;
-  } else if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--help" ) ) ) {
+  } else if( FD_LIKELY( argc > 0 && ( !strcmp( argv[ 0 ], "--help" ) || !strcmp( argv[ 0 ], "-h" ) ) ) ) {
     action_name = "help";
     argc--; argv++;
   } else if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
@@ -114,6 +130,13 @@ fd_dev_main( int                        argc,
   if( FD_UNLIKELY( !action ) ) {
     fprintf( stderr, "unknown subcommand `%s`\n", action_name );
     exit( 1 );
+  }
+
+  int help_argc = argc; char ** help_argv = argv;
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &help_argc, &help_argv, "--help" ) ||
+                    fd_env_strip_cmdline_contains( &help_argc, &help_argv, "-h"     ) ) ) {
+    fd_action_help_print( action );
+    return 0;
   }
 
 # if !FD_HAS_ASAN && !FD_HAS_MSAN

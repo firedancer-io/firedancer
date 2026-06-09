@@ -295,8 +295,9 @@ send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 action_t fd_action_send_test = {
-  .name = "send_test",
-  .args = send_test_cmd_args,
-  .fn   = send_test_cmd_fn,
-  .perm = send_test_cmd_perm,
+  .name        = "send_test",
+  .args        = send_test_cmd_args,
+  .fn          = send_test_cmd_fn,
+  .perm        = send_test_cmd_perm,
+  .description = "Exercise the send tile in isolation using gossip/stake fixtures or live gossip",
 };

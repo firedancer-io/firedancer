@@ -3,6 +3,15 @@
 
 #include "../platform/fd_cap_chk.h"
 
+/* FD_APP_NAME and FD_BINARY_NAME identify the control binary at run time
+   (e.g. "Firedancer"/"firedancer", "Frankendancer"/"fddev").  They are
+   defined once per binary in its main translation unit.  Commands
+   shared across binaries should reference these instead of hard-coding
+   a binary name in help text or usage messages. */
+
+extern char const * FD_APP_NAME;
+extern char const * FD_BINARY_NAME;
+
 union fdctl_args {
   struct {
     char  tile_name[ 7UL ];
@@ -181,10 +190,32 @@ union fdctl_args {
 
 typedef union fdctl_args args_t;
 
+struct fd_action_help;
+typedef struct fd_action_help fd_action_help_t;
+
+/* fd_action_help_arg emits one argument into the help builder.  name is
+   the flag or positional placeholder (e.g. "--topo" or "<keypair>").
+   value is the value placeholder for flags taking an argument (e.g.
+   "<name>"), or NULL.  description is the human readable description,
+   which may contain embedded newlines to wrap onto continuation lines. */
+
+void
+fd_action_help_arg( fd_action_help_t * help,
+                    char const *       name,
+                    char const *       value,
+                    char const *       description );
+
 struct fd_action {
   char const * name;
-  char const * description;
+  char const * description;     /* one-line summary shown in the subcommand list */
   char const * permission_err;
+
+  char const * usage;     /* usage synopsis line (e.g. "keys <new|pubkey> <path>"), or NULL to derive from name */
+  char const * detail;    /* multi-line long-form description, or NULL */
+
+  /* args_help, if non-NULL, emits the accepted flags / positional
+     arguments for `--help`. */
+  void (*args_help)( fd_action_help_t * help );
 
   int          is_help;
   int          is_immediate;
@@ -200,5 +231,19 @@ struct fd_action {
 };
 
 typedef struct fd_action action_t;
+
+/* fd_action_help_print prints the help message for a single subcommand
+   to stdout. */
+
+void
+fd_action_help_print( action_t const * action );
+
+/* fd_global_options_help emits the global command-line options accepted
+   by every subcommand of the binary.  These differ depending on how the
+   binary boots: fd_boot.c provides a weak default, and fd_dev_boot.c
+   provides a strong override listing additional development flags. */
+
+void
+fd_global_options_help( fd_action_help_t * help );
 
 #endif /* HEADER_fd_src_app_shared_fd_action_h */
