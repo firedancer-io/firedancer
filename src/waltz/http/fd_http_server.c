@@ -609,7 +609,7 @@ read_conn_http( fd_http_server_t * http,
         /* RFC 6455 s4.2.1: Sec-WebSocket-Key must base64-decode to
            exactly 16 bytes.  fd_base64_decode also validates the
            alphabet and padding rules. */
-        uchar decoded_key[ 16 ];
+        uchar decoded_key[ FD_BASE64_DEC_SZ( 24UL ) ];
         if( FD_UNLIKELY( 16L!=fd_base64_decode( decoded_key, sec_websocket_key, 24UL ) ) ) {
           close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY );
           return;
