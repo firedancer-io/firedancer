@@ -600,8 +600,9 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   int         found_authority = deser_auth_vtr( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, found, authority, &authority_idx );
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX && found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
     msg->has_vote_txn = 1;
-    fd_txn_p_t          txn[1];
-    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, &out->vote_block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
+    fd_txn_p_t        txn[1];
+    fd_hash_t const * root_blockhash = fd_type_pun_const( fd_tower_blocks_query( ctx->tower, ctx->tower->root )->block_hash.uc );
+    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, root_blockhash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
