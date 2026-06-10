@@ -613,10 +613,10 @@ fd_spad_publish_impl( fd_spad_t * spad,
 }
 
 /* fn definitions */
-#if defined(FD_SPAD_USE_HANDHOLDING)
-#define SELECT_IMPL(fn) fn##_debug
-#elif (FD_HAS_DEEPASAN || FD_HAS_MSAN)
+#if (FD_HAS_DEEPASAN || FD_HAS_MSAN)
 #define SELECT_IMPL(fn) fn##_sanitizer_impl
+#elif FD_DCHECK_STYLE>0
+#define SELECT_IMPL(fn) fn##_debug
 #else
 #define SELECT_IMPL(fn) fn##_impl
 #endif

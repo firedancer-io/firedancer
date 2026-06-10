@@ -1,6 +1,3 @@
-#undef FD_SPAD_USE_HANDHOLDING
-#define FD_SPAD_USE_HANDHOLDING 1
-
 #include "fd_solfuzz_private.h"
 #include "fd_gossip_harness.h"
 #include "../../gossip/fd_gossip_message.h"
