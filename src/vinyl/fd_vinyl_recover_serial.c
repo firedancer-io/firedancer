@@ -191,7 +191,7 @@ fd_vinyl_recover_serial( fd_vinyl_t * vinyl ) {
 
         fd_vinyl_meta_remove_fast( ele0, ele_max, lock, lock_shift, line, line_cnt, ele_idx );
 
-        FD_CRIT( pair_cnt, "corruption detected" );
+        FD_DCHECK_CRIT( pair_cnt, "corruption detected" );
         pair_cnt--;
 
       }

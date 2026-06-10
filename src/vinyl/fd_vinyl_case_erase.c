@@ -39,7 +39,7 @@
            acquired for read or modify, fail with AGAIN.  Otherwise,
            evict it. */
 
-        FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
+        FD_DCHECK_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
         fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
 
@@ -70,7 +70,7 @@
 
       } else {
 
-        FD_CRIT( line_idx==ULONG_MAX, "corruption detected" );
+        FD_DCHECK_CRIT( line_idx==ULONG_MAX, "corruption detected" );
 
       }
 
@@ -95,7 +95,7 @@
       fd_vinyl_meta_remove_fast( ele0, ele_max, lock, lock_shift, line, line_cnt, ele_idx );
 
       ulong pair_cnt = vinyl->pair_cnt;
-      FD_CRIT( pair_cnt, "corruption detected" );
+      FD_DCHECK_CRIT( pair_cnt, "corruption detected" );
       vinyl->pair_cnt = pair_cnt - 1UL;
 
       FD_COMPILER_MFENCE();

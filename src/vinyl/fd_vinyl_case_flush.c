@@ -30,8 +30,8 @@
          line the LRU.  If pair key is currently acquired, that's as
          much as we can do now. */
 
-      FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
-      FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
+      FD_DCHECK_CRIT( line_idx<line_cnt,                 "corruption detected" );
+      FD_DCHECK_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
       fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
 

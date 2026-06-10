@@ -164,7 +164,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
       if( FD_UNLIKELY( (seq_future - seq_part) > vinyl->part_thresh ) ) {
 
         ulong seq = fd_vinyl_io_append_part( io, seq_part, accum_dead_cnt, accum_move_cnt, NULL, 0UL );
-        FD_CRIT( fd_vinyl_seq_eq( seq, seq_future ), "corruption detected" );
+        FD_DCHECK_CRIT( fd_vinyl_seq_eq( seq, seq_future ), "corruption detected" );
         seq_part = seq + FD_VINYL_BSTREAM_BLOCK_SZ;
 
         accum_dead_cnt = 0UL;
@@ -527,7 +527,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
       ulong           client_laddr1 = client->laddr1;
       ulong           quota_rem     = client->quota_rem;
 
-      FD_CRIT( quota_rem<=client->quota_max, "corruption detected" );
+      FD_DCHECK_CRIT( quota_rem<=client->quota_max, "corruption detected" );
 
       fd_vinyl_comp_t * comp = MAP_REQ_GADDR( comp_gaddr, fd_vinyl_comp_t, 1UL );
       if( FD_UNLIKELY( (!comp) & (!!comp_gaddr) ) ) {
@@ -569,7 +569,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
         fd_vinyl_data_obj_t * cobj = (fd_vinyl_data_obj_t *)fd_ulong_align_dn( (ulong)rd, FD_VINYL_BSTREAM_BLOCK_SZ );
 
-        FD_CRIT( cphdr==fd_vinyl_data_obj_phdr( cobj ), "corruption detected" );
+        FD_DCHECK_CRIT( cphdr==fd_vinyl_data_obj_phdr( cobj ), "corruption detected" );
 
         ulong cpair_ctl = cphdr->ctl;
 
@@ -577,8 +577,8 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
         int   cpair_style   = fd_vinyl_bstream_ctl_style( cpair_ctl );
         ulong cpair_val_esz = fd_vinyl_bstream_ctl_sz   ( cpair_ctl );
 
-        FD_CRIT( cpair_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR,            "corruption detected" );
-        FD_CRIT( cpair_sz  ==fd_vinyl_bstream_pair_sz( cpair_val_esz ), "corruption detected" );
+        FD_DCHECK_CRIT( cpair_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR,            "corruption detected" );
+        FD_DCHECK_CRIT( cpair_sz  ==fd_vinyl_bstream_pair_sz( cpair_val_esz ), "corruption detected" );
 
         schar * rd_err = cobj->rd_err;
 
@@ -587,8 +587,8 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
         ulong line_idx = obj->line_idx;
 
-        FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
-        FD_CRIT( line[ line_idx ].obj==obj,         "corruption detected" );
+        FD_DCHECK_CRIT( line_idx<line_cnt,                 "corruption detected" );
+        FD_DCHECK_CRIT( line[ line_idx ].obj==obj,         "corruption detected" );
 
         ulong ele_idx = line[ line_idx ].ele_idx;
 
@@ -606,13 +606,13 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
         char * val    = (char *)fd_vinyl_data_obj_val( obj );
         ulong  val_sz = (ulong)cphdr->info.val_sz;
 
-        FD_CRIT( val_sz <= FD_VINYL_VAL_MAX,                 "corruption detected" );
-        FD_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz, "corruption detected" );
+        FD_DCHECK_CRIT( val_sz <= FD_VINYL_VAL_MAX,                 "corruption detected" );
+        FD_DCHECK_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz, "corruption detected" );
 
         if( FD_LIKELY( cpair_style==FD_VINYL_BSTREAM_CTL_STYLE_RAW ) ) {
 
-          FD_CRIT( obj==cobj,             "corruption detected" );
-          FD_CRIT( cpair_val_esz==val_sz, "corruption detected" );
+          FD_DCHECK_CRIT( obj==cobj,             "corruption detected" );
+          FD_DCHECK_CRIT( cpair_val_esz==val_sz, "corruption detected" );
 
         } else {
 
