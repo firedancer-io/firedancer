@@ -2690,6 +2690,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
+  ctx->reasm_evicted = NULL;
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
