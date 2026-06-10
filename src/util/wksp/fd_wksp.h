@@ -739,12 +739,14 @@ fd_wksp_attach( char const * name );
 int
 fd_wksp_detach( fd_wksp_t * wksp );
 
-/* fd_wksp_from_env parses --wksp, --page-sz, --page-cnt, --numa-idx from
-   the command line.  If --wksp is given, attaches to the named workspace
-   and sets *opt_is_anon to 0.  Otherwise creates an anonymous workspace
-   and sets *opt_is_anon to 1.  opt_is_anon may be NULL.  The workspace
-   size is --page-cnt pages of --page-sz each; if --page-cnt is omitted it
-   defaults to default_page_cnt*default_page_sz bytes scaled to --page-sz. */
+/* fd_wksp_from_env parses --wksp, --page-sz, --page-cnt, --numa-idx, and
+   --near-cpu from the command line.  If --wksp is given, attaches to the
+   named workspace and sets *opt_is_anon to 0.  Otherwise creates an
+   anonymous workspace and sets *opt_is_anon to 1.  opt_is_anon may be NULL.
+   The workspace size is --page-cnt pages of --page-sz each; if --page-cnt is
+   omitted it defaults to default_page_cnt*default_page_sz bytes scaled to
+   --page-sz.  --near-cpu specifies the NUMA node by CPU index; if both
+   --near-cpu and --numa-idx are absent, defaults to NUMA node 0. */
 
 static inline fd_wksp_t *
 fd_wksp_from_env( int *        pargc,
@@ -754,10 +756,12 @@ fd_wksp_from_env( int *        pargc,
                   char const * name,
                   ulong        opt_part_max,
                   int *        opt_is_anon ) {
-  char const * _wksp      = fd_env_strip_cmdline_cstr ( pargc, pargv, "--wksp",     NULL, NULL                    );
-  char const * _page_sz   = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz          );
-  ulong        numa_idx   = fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
-  ulong        page_cnt_arg = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL );
+  char const * _wksp        = fd_env_strip_cmdline_cstr ( pargc, pargv, "--wksp",     NULL, NULL           );
+  char const * _page_sz     = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz );
+  ulong        page_cnt_arg = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL             );
+  ulong        near_cpu     = fd_env_strip_cmdline_ulong( pargc, pargv, "--near-cpu", NULL, ULONG_MAX       );
+  ulong        numa_idx     = (near_cpu!=ULONG_MAX) ? fd_shmem_numa_idx( near_cpu )
+                            : fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   if( _wksp ) {
     FD_LOG_NOTICE(( "Attaching to --wksp %s", _wksp ));
     if( opt_is_anon ) *opt_is_anon = 0;
