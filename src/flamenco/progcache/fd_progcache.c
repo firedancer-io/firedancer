@@ -307,7 +307,7 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
   void * shele = fd_wksp_laddr_fast( wksp, shmem->rec.ele_gaddr );
   fd_prog_recm_t rec_map[1];
   if( FD_UNLIKELY( !fd_prog_recm_join( rec_map, shmap, shele, 0UL ) ) ) {
-    FD_LOG_ERR(( "failed to join rec_map (corrupt funk?)" ));
+    FD_LOG_ERR(( "failed to join rec_map (corrupt progcache?)" ));
     return NULL;
   }
   ulong chain_cnt = fd_prog_recm_chain_cnt( rec_map );

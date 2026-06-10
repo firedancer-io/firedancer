@@ -22,9 +22,9 @@ struct test_env {
 
 typedef struct test_env test_env_t;
 
-/* test_env_create allocates a new account database (funk) and loaded
-   program cache from a wksp.  Joins an admin and user client to the
-   program cache, as well as a database client. */
+/* test_env_create allocates a new account database and program cache
+   from a wksp.  Joins an admin and user client to the program cache, as
+   well as a database client. */
 
 static test_env_t *
 test_env_create( fd_wksp_t * wksp ) {
@@ -60,7 +60,7 @@ FD_IMPORT_BINARY( valid_program_data,        "src/ballet/sbpf/fixtures/hello_sol
 FD_IMPORT_BINARY( bigger_valid_program_data, "src/ballet/sbpf/fixtures/clock_sysvar_program.so" );
 FD_IMPORT_BINARY( invalid_program_data,      "src/ballet/sbpf/fixtures/malformed_bytecode.so"   );
 
-/* query_rec_exact fetches a funk record at a precise xid:key pair. */
+/* query_rec_exact fetches a program record at a precise xid:key pair. */
 
 static fd_progcache_rec_t const *
 query_rec_exact( test_env_t *           env,

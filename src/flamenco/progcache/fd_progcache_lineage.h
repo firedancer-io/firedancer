@@ -15,7 +15,7 @@ struct fd_progcache_lineage {
 
   uint txn_idx[ FD_PROGCACHE_DEPTH_MAX ];
 
-  /* Current funk txn cache */
+  /* Cache of XIDs on fork */
   ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
 
   ulong max_depth;

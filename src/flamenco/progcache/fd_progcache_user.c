@@ -266,7 +266,7 @@ fd_progcache_push( fd_progcache_join_t * cache,
   fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
   int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
   if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
+    FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
   }
   fd_racesan_hook( "prog_push:post_chain_lock" );
 
