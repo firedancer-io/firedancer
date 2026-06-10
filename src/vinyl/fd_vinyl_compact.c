@@ -47,8 +47,8 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
     if( FD_UNLIKELY( (past_sz_new <= gc_thresh                ) |
                      (garbage_sz  <= (past_sz_new >> gc_eager)) |
                      (fd_vinyl_seq_ge( seq, seq_present )     ) ) ) {
-      FD_CRIT( fd_vinyl_seq_le( seq, seq_present ), "corruption detected" );
-      if( FD_UNLIKELY( fd_vinyl_seq_eq( seq, seq_present ) ) ) FD_CRIT( !garbage_sz, "corruption detected" );
+      FD_DCHECK_CRIT( fd_vinyl_seq_le( seq, seq_present ), "corruption detected" );
+      if( FD_UNLIKELY( fd_vinyl_seq_eq( seq, seq_present ) ) ) FD_DCHECK_CRIT( !garbage_sz, "corruption detected" );
       break;
     }
 
@@ -102,7 +102,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
       int bad_esz   = (pair_val_esz > FD_VINYL_VAL_MAX);
       int bad_sz    = (pair_val_sz  > FD_VINYL_VAL_MAX);
 
-      FD_CRIT( !(truncated | bad_esz | bad_sz), truncated ? "truncated pair"                     :
+      FD_DCHECK_CRIT( !(truncated | bad_esz | bad_sz), truncated ? "truncated pair"                     :
                                                 bad_esz   ? "unexpected pair value encoded size" :
                                                             "pair value size too large" );
 
@@ -146,7 +146,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
                version of pair key that exists at bstream seq_present.
                Validate the metadata. */
 
-            FD_CRIT( !memcmp( &ele0[ ele_idx ].phdr, &block->phdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
+            FD_DCHECK_CRIT( !memcmp( &ele0[ ele_idx ].phdr, &block->phdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
 
             /* If the pair is cached and not acquired for modify, append
                the cached copy in the target style.  Otherwise, append a
@@ -162,8 +162,8 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
 
             if( FD_LIKELY( line_idx!=ULONG_MAX )  ) { /* Pair is in cache */
 
-              FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
-              FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
+              FD_DCHECK_CRIT( line_idx<line_cnt,                 "corruption detected" );
+              FD_DCHECK_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
               fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
 
@@ -270,7 +270,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
             /* The version of the pair at bstream seq was replaced.  The
                most recent version of this pair is at pair_seq. */
 
-            FD_CRIT( fd_vinyl_seq_gt( pair_seq, seq ), "corruption detected" );
+            FD_DCHECK_CRIT( fd_vinyl_seq_gt( pair_seq, seq ), "corruption detected" );
 
             garbage_sz -= pair_sz;
 

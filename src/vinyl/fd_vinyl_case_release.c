@@ -81,11 +81,11 @@
         line_idx = ele0[ ele_idx ].line_idx;
 
         if( FD_UNLIKELY( line_idx>=line_cnt ) ) { /* Pair key exists but is not cached ... can't have been acquired */
-          FD_CRIT( line_idx==ULONG_MAX, "corruption detected" );
+          FD_DCHECK_CRIT( line_idx==ULONG_MAX, "corruption detected" );
           DONE( FD_VINYL_ERR_INVAL );
         }
 
-        FD_CRIT( ele_idx==line[ line_idx ].ele_idx, "corruption detected" );
+        FD_DCHECK_CRIT( ele_idx==line[ line_idx ].ele_idx, "corruption detected" );
 
         obj = line[ line_idx ].obj;
 
@@ -116,11 +116,11 @@
 
         if( FD_UNLIKELY( req_flag_modify ) ) FD_LOG_CRIT(( "client modified read only acquire" ));
 
-        FD_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
+        FD_DCHECK_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                   FD_VINYL_BSTREAM_CTL_STYLE_RAW,
                                                   (ulong)ele0[ ele_idx ].phdr.info.val_sz ),  "corruption detected" );
-        FD_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                    "corruption detected" );
-        FD_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
+        FD_DCHECK_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                    "corruption detected" );
+        FD_DCHECK_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -144,11 +144,11 @@
            could have modified info so we only validate ctl and key
            (FIXME: consider validating memo too?). */
 
-        FD_CRIT( (!modifying_existing) |
+        FD_DCHECK_CRIT( (!modifying_existing) |
                  (phdr_ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                   FD_VINYL_BSTREAM_CTL_STYLE_RAW,
                                                   (ulong)ele0[ ele_idx ].phdr.info.val_sz )), "corruption detected" );
-        FD_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                    "corruption detected" );
+        FD_DCHECK_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                    "corruption detected" );
 
         ulong val_sz_after = (ulong)phdr->info.val_sz;
 
@@ -159,7 +159,7 @@
 
         if( FD_UNLIKELY( szc_before!=szc_after ) ) {
 
-          FD_CRIT( szc_after<szc_before, "corruption detected" );
+          FD_DCHECK_CRIT( szc_after<szc_before, "corruption detected" );
 
           fd_vinyl_data_obj_t * obj_after = fd_vinyl_data_alloc( data, szc_after );
           if( FD_UNLIKELY( !obj_after ) ) FD_LOG_CRIT(( "increase data cache size" ));
@@ -262,7 +262,7 @@
 
         if( FD_UNLIKELY( szc_before!=szc_after ) ) {
 
-          FD_CRIT( szc_before<szc_after, "corruption detected" );
+          FD_DCHECK_CRIT( szc_before<szc_after, "corruption detected" );
 
           fd_vinyl_data_obj_t * obj_before = fd_vinyl_data_alloc( data, szc_before );
           if( FD_UNLIKELY( !obj_before ) ) FD_LOG_CRIT(( "increase data cache size" ));
@@ -335,7 +335,7 @@
         fd_vinyl_meta_remove_fast( ele0, ele_max, lock, lock_shift, line, line_cnt, ele_idx );
 
         ulong pair_cnt = vinyl->pair_cnt;
-        FD_CRIT( (0UL<pair_cnt) & (pair_cnt<=pair_max), "corruption detected" );
+        FD_DCHECK_CRIT( (0UL<pair_cnt) & (pair_cnt<=pair_max), "corruption detected" );
         vinyl->pair_cnt = pair_cnt - 1UL;
       }
 
