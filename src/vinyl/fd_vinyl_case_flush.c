@@ -35,9 +35,9 @@
 
       fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
 
-      FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
-      FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
-      FD_CRIT ( !obj->rd_active,                                 "corruption detected" );
+      FD_DCHECK_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
+      FD_DCHECK_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
+      FD_DCHECK_CRIT ( !obj->rd_active,                                 "corruption detected" );
 
       fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, FD_VINYL_LINE_EVICT_PRIO_LRU );
 

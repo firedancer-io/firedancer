@@ -343,7 +343,7 @@ fd_accdb_publish_recs( fd_accdb_admin_v1_t * accdb,
     /* Root or reclaim record */
     uint next = rec->next_idx;
     fd_account_meta_t const * meta = fd_funk_val( rec, funk_wksp );
-    FD_CRIT( meta && rec->val_sz>=sizeof(fd_account_meta_t), "invalid funk record value" );
+    FD_DCHECK_CRIT( meta && rec->val_sz>=sizeof(fd_account_meta_t), "invalid funk record value" );
     if( !meta->lamports ) {
       /* Remove record */
       fd_accdb_chain_reclaim( accdb, rec );

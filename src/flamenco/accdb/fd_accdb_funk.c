@@ -39,9 +39,9 @@ fd_accdb_funk_prep_create( fd_accdb_rw_t *       rw,
                            void *                val,
                            ulong                 val_sz,
                            ulong                 val_max ) {
-  FD_CRIT( val_sz >=sizeof(fd_account_meta_t), "invalid val_sz"  );
-  FD_CRIT( val_max>=sizeof(fd_account_meta_t), "invalid val_max" );
-  FD_CRIT( val_sz<=val_max, "invalid val_max" );
+  FD_DCHECK_CRIT( val_sz >=sizeof(fd_account_meta_t), "invalid val_sz"  );
+  FD_DCHECK_CRIT( val_max>=sizeof(fd_account_meta_t), "invalid val_max" );
+  FD_DCHECK_CRIT( val_sz<=val_max, "invalid val_max" );
   fd_account_meta_t * meta = val;
 
   fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( funk->rec_pool );
