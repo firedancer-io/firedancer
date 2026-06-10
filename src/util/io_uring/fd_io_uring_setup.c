@@ -123,8 +123,8 @@ fd_io_uring_init_rings(
   ulong sqe_laddr = (ulong)sqe_mem;
   ulong cq_laddr  = (ulong)cq_mem;
 
-  FD_CRIT( fd_ulong_is_pow2( params->sq_entries ), "invalid params->sq_entries" );
-  FD_CRIT( fd_ulong_is_pow2( params->cq_entries ), "invalid params->cq_entries" );
+  FD_CHECK_ERR( fd_ulong_is_pow2( params->sq_entries ), "invalid params->sq_entries" );
+  FD_CHECK_ERR( fd_ulong_is_pow2( params->cq_entries ), "invalid params->cq_entries" );
 
   *sq = (fd_io_uring_sq_t) {
     /* Confusingly, in Linux io_uring, submission queue registers are

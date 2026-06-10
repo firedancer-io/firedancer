@@ -152,7 +152,7 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_tickcount = fd_tickcount();
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting" ));
-    FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
+    FD_CHECK_CRIT( ctx->is_halting_signing, "state machine corruption" );
     /* Defer the actual set_identity call to after_credit, because it
        may incur a stem frag publish. */
     ctx->is_pending_set_identity = 1;

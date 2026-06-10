@@ -250,14 +250,14 @@ replay_block_start( fd_replay_tile_t * ctx,
   long before = fd_log_wallclock();
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-  FD_CRIT( bank, "invariant violation: bank is NULL" );
-  FD_CRIT( bank->state==FD_BANK_STATE_INIT, "invariant violation: bank is not in correct state" );
+  FD_CHECK_CRIT( bank, "invariant violation: bank is NULL" );
+  FD_CHECK_CRIT( bank->state==FD_BANK_STATE_INIT, "invariant violation: bank is not in correct state" );
 
   bank->preparation_begin_nanos = before;
 
   fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
-  FD_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
-  FD_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN, "invariant violation: parent bank is not in correct state" );
+  FD_CHECK_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
+  FD_CHECK_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN, "invariant violation: parent bank is not in correct state" );
 
   /* Clone the bank from the parent.  We must special case the first
      slot that is executed as the snapshot does not provide a parent
@@ -2830,7 +2830,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 static inline void
 during_housekeeping( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-    FD_CRIT( ctx->halt_leader, "state machine corruption" );
+    FD_CHECK_CRIT( ctx->halt_leader, "state machine corruption" );
     FD_LOG_DEBUG(( "keyswitch: unhalting leader" ));
     ctx->halt_leader = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );

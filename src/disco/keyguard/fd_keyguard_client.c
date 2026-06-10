@@ -75,8 +75,8 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
                                   ulong                  authority_idx,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len ) {
-  FD_CRIT( sign_data_len<=client->request_mtu, "the request is too large and will not fit in the mtu" );
-  FD_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
+  FD_CHECK_CRIT( sign_data_len<=client->request_mtu, "the request is too large and will not fit in the mtu" );
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
 
   uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
 

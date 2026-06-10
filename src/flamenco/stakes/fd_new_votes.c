@@ -231,11 +231,11 @@ fd_new_votes_root_insert( fd_new_votes_t *    new_votes,
     return;
   }
 
-  FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
+  FD_CHECK_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
   fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
   ele->pubkey       = *pubkey;
   ele->is_tombstone = 0;
-  FD_CRIT( nv_map_ele_insert( map, ele, pool ), "unable to insert new vote into root map" );
+  FD_CHECK_CRIT( nv_map_ele_insert( map, ele, pool ), "unable to insert new vote into root map" );
 
   FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_out );
   FD_LOG_DEBUG(( "root_insert: pubkey=%s", pubkey_out ));
@@ -256,7 +256,7 @@ fd_new_votes_new_fork( fd_new_votes_t * new_votes ) {
   fd_rwlock_write( &new_votes->lock );
 
   nv_fork_pool_ele_t * fork_pool = get_fork_pool( new_votes );
-  FD_CRIT( nv_fork_pool_free( fork_pool ), "no free forks in new votes fork pool" );
+  FD_CHECK_CRIT( nv_fork_pool_free( fork_pool ), "no free forks in new votes fork pool" );
   ushort fork_idx = (ushort)nv_fork_pool_idx_acquire( fork_pool );
 
   fd_rwlock_unwrite( &new_votes->lock );
@@ -291,7 +291,7 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
   fd_new_vote_ele_t * pool  = get_pool( new_votes );
   nv_dlist_t *        dlist = get_dlist( new_votes, fork_idx );
 
-  FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
+  FD_CHECK_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
   fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
   ele->pubkey       = *pubkey;
   ele->is_tombstone = 0;
@@ -311,7 +311,7 @@ fd_new_votes_remove( fd_new_votes_t *    new_votes,
   fd_new_vote_ele_t * pool  = get_pool( new_votes );
   nv_dlist_t *        dlist = get_dlist( new_votes, fork_idx );
 
-  FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
+  FD_CHECK_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
   fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
   ele->pubkey       = *pubkey;
   ele->is_tombstone = 1;

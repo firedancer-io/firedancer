@@ -30,7 +30,7 @@ fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
   } else {
     mem = fd_alloc_malloc_at_least( join->alloc, val_align, val_footprint, &val_max );
     if( FD_UNLIKELY( !mem ) ) return NULL;
-    FD_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
+    FD_CHECK_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
     gaddr = fd_wksp_gaddr_fast( join->data_base, mem );
   }
   rec->data_gaddr = gaddr;
