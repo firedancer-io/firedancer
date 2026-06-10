@@ -34,6 +34,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
 #define IN_KIND_POH_PACK      ( 1UL)
@@ -575,10 +576,12 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/slotDetails" ) ||
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip") ||
+                     !strcmp( request->path, "/accounts") ||
                      !strncmp( request->path, "/?", strlen("/?") ) ||
                      !strncmp( request->path, "/slotDetails?", strlen("/slotDetails?") ) ||
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
-                     !strncmp( request->path, "/gossip?", strlen("/gossip?") );
+                     !strncmp( request->path, "/gossip?", strlen("/gossip?") ) ||
+                     !strncmp( request->path, "/accounts?", strlen("/accounts?") );
 
   FD_TEST( STATIC_FILES );
   for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
@@ -742,7 +745,19 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->topo = topo;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, fd_clock_tile_now( ctx->clock ) ) );
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, fd_clock_tile_now( ctx->clock ) ) );
+  /* The accounts database is a full-client (Firedancer) feature only.
+     Frankendancer has no accdb, so its topology leaves accdb_obj_id
+     unset (ULONG_MAX) and the gui tile joins no accdb shmem.  The gui
+     only reads partition stats from the shmem; it never reads account
+     data from disk, so it does not join the accdb fd. */
+  fd_accdb_shmem_t * accdb_shmem = NULL;
+  if( FD_LIKELY( tile->gui.accdb_obj_id!=ULONG_MAX ) ) {
+    void * accdb_shmem_raw = fd_topo_obj_laddr( topo, tile->gui.accdb_obj_id );
+    FD_TEST( accdb_shmem_raw );
+    accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
+    FD_TEST( accdb_shmem );
+  }
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
