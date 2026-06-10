@@ -3,17 +3,6 @@
 
    Follows the pattern of test_repair_tile.c and test_tower_tile.c:
    mock heavy dependencies via #define before including the tile .c. */
-
-#include "../../disco/topo/fd_topo.h" /* pulls in fd_stem.h */
-
-/* ---- Mock fd_stem_publish ---- */
-
-static ulong mock_stem_publish_cnt;
-#undef  fd_stem_publish
-#define fd_stem_publish( stem, out_idx, sig, chunk, sz, ctl, tsorig, tspub ) \
-  do { (void)(stem); (void)(out_idx); (void)(sig); (void)(chunk); (void)(sz); \
-       (void)(ctl); (void)(tsorig); (void)(tspub); mock_stem_publish_cnt++; } while(0)
-
 /* ---- Mock store lock macros ----
    Include fd_store.h first to get the type definitions, then override
    the lock macros to no-ops. */
@@ -31,54 +20,9 @@ static ulong mock_stem_publish_cnt;
 #include "../../flamenco/runtime/fd_bank.h"
 #include "fd_sched.h"
 
-/* ---- Mock banks ---- */
-
-#define MOCK_BANKS_MAX 16
-
-static fd_bank_t   mock_banks_arr[ MOCK_BANKS_MAX ];
-static ulong       mock_banks_next = 1UL; /* 0 is reserved for root */
-
-fd_bank_t *
-mock_banks_bank_query_fn( fd_banks_t * banks FD_PARAM_UNUSED,
-                          ulong        bank_idx ) {
-  if( FD_UNLIKELY( bank_idx>=MOCK_BANKS_MAX ) ) return NULL;
-  return &mock_banks_arr[ bank_idx ];
-}
-
-fd_bank_t *
-mock_banks_new_bank_fn( fd_banks_t * banks FD_PARAM_UNUSED,
-                        ulong        parent_bank_idx FD_PARAM_UNUSED,
-                        long         now FD_PARAM_UNUSED,
-                        uchar        is_leader FD_PARAM_UNUSED ) {
-  FD_TEST( mock_banks_next < MOCK_BANKS_MAX );
-  ulong idx = mock_banks_next++;
-  fd_bank_t * bank = &mock_banks_arr[ idx ];
-  memset( bank, 0, sizeof(fd_bank_t) );
-  bank->idx      = idx;
-  bank->bank_seq = idx;
-  bank->state    = FD_BANK_STATE_FROZEN;
-  return bank;
-}
-
-int   mock_banks_is_full_fn( fd_banks_t * b FD_PARAM_UNUSED ) { return 0; }
-void  mock_banks_mark_dead_fn( fd_banks_t * b FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED, ulong * dead_idxs FD_PARAM_UNUSED, ulong * dead_idxs_cnt FD_PARAM_UNUSED ) {}
-ulong mock_banks_pool_used_fn( fd_banks_t * b FD_PARAM_UNUSED ) { return 0; }
-int   mock_banks_prune_one_fn( fd_banks_t * b FD_PARAM_UNUSED, fd_banks_prune_cancel_info_t * ci FD_PARAM_UNUSED ) { return 0; }
-void  mock_banks_get_replay_frontier_fn( fd_banks_t * b FD_PARAM_UNUSED, ulong * out FD_PARAM_UNUSED, ulong * cnt FD_PARAM_UNUSED ) { *cnt = 0; }
-
-fd_bank_t *
-mock_banks_clone_fn( fd_banks_t * banks FD_PARAM_UNUSED, ulong bank_idx ) {
-  return &mock_banks_arr[ bank_idx ];
-}
-
-#define fd_banks_bank_query          mock_banks_bank_query_fn
-#define fd_banks_new_bank            mock_banks_new_bank_fn
-#define fd_banks_is_full             mock_banks_is_full_fn
-#define fd_banks_mark_bank_dead      mock_banks_mark_dead_fn
-#define fd_banks_pool_used_cnt       mock_banks_pool_used_fn
-#define fd_banks_prune_one_dead_bank mock_banks_prune_one_fn
-#define fd_banks_get_replay_frontier mock_banks_get_replay_frontier_fn
-#define fd_banks_clone_from_parent   mock_banks_clone_fn
+#define TEST_BANKS_MAX 16UL
+#define TEST_OUT_CNT   3UL
+#define TEST_REPAIR_IN_IDX 0UL
 
 /* ---- Mock store ---- */
 
@@ -96,11 +40,11 @@ mock_store_query_fn( fd_store_t *      store FD_PARAM_UNUSED,
 /* ---- Mock sched ---- */
 
 static fd_sched_fec_t mock_sched_last_fec;
-static int            mock_sched_fec_ingest_called;
+static ulong          mock_sched_fec_ingest_cnt;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_fec_t * f ) {
   mock_sched_last_fec = *f;
-  mock_sched_fec_ingest_called = 1;
+  mock_sched_fec_ingest_cnt++;
   return 1;
 }
 ulong mock_sched_can_ingest_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
@@ -109,6 +53,7 @@ void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PAR
 ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
+ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
 
 #define fd_sched_fec_ingest        mock_sched_fec_ingest_fn
 #define fd_sched_can_ingest_cnt    mock_sched_can_ingest_fn
@@ -117,12 +62,87 @@ void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PAR
 #define fd_sched_pruned_block_next mock_sched_pruned_fn
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
+#define fd_sched_task_next_ready   mock_sched_task_next_fn
 
 /* ---- Include the tile under test ---- */
 
 #include "fd_replay_tile.c"
 
 /* ---- Test setup ---- */
+
+static fd_frag_meta_t * test_stem_mcaches[ TEST_OUT_CNT ];
+static ulong            test_stem_seqs[ TEST_OUT_CNT ];
+static ulong            test_stem_depths[ TEST_OUT_CNT ];
+static ulong            test_stem_cr_avail[ TEST_OUT_CNT ];
+static ulong            test_stem_min_cr_avail[ 1 ];
+static int              test_stem_out_reliable[ TEST_OUT_CNT ];
+static fd_stem_context_t test_stem[ 1 ];
+
+static void
+setup_repair_input( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
+  ulong const depth = 128UL;
+  ulong const mtu   = sizeof(fd_fec_complete_t);
+  ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  ctx->in_cnt = 1UL;
+  ctx->in_kind[ TEST_REPAIR_IN_IDX ] = IN_KIND_REPAIR;
+  ctx->in[ TEST_REPAIR_IN_IDX ].mem    = wksp;
+  ctx->in[ TEST_REPAIR_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
+  ctx->in[ TEST_REPAIR_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu );
+  ctx->in[ TEST_REPAIR_IN_IDX ].mtu    = mtu;
+}
+
+static void
+setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
+  ulong const depth = 128UL;
+  ulong const mtu   = FD_TPU_PARSED_MTU;
+
+  for( ulong i=0UL; i<TEST_OUT_CNT; i++ ) {
+    void * mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL );
+    FD_TEST( mcache_mem );
+    test_stem_mcaches[ i ] = fd_mcache_join( fd_mcache_new( mcache_mem, depth, 0UL, 0UL ) );
+    FD_TEST( test_stem_mcaches[ i ] );
+
+    ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+    void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+    FD_TEST( dcache_mem );
+    void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+    FD_TEST( dcache );
+
+    test_stem_seqs[ i ]         = 0UL;
+    test_stem_depths[ i ]       = depth;
+    test_stem_cr_avail[ i ]    = ULONG_MAX;
+    test_stem_out_reliable[ i ] = 1;
+
+    fd_replay_out_link_t out = {
+      .idx    = i,
+      .mem    = wksp,
+      .chunk0 = fd_dcache_compact_chunk0( wksp, dcache ),
+      .wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu ),
+      .chunk  = fd_dcache_compact_chunk0( wksp, dcache )
+    };
+
+    if( i==0UL )      *ctx->replay_out = out;
+    else if( i==1UL ) *ctx->exec_out   = out;
+    else              *ctx->epoch_out  = out;
+  }
+
+  *test_stem_min_cr_avail = ULONG_MAX;
+  *test_stem = (fd_stem_context_t) {
+    .mcaches             = test_stem_mcaches,
+    .seqs                = test_stem_seqs,
+    .depths              = test_stem_depths,
+    .cr_avail            = test_stem_cr_avail,
+    .min_cr_avail        = test_stem_min_cr_avail,
+    .cr_decrement_amount = 0UL,
+    .out_reliable        = test_stem_out_reliable
+  };
+}
 
 static void
 setup_ctx( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
@@ -138,7 +158,7 @@ setup_ctx( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
 
   /* Block-id map */
 
-  ulong bid_cnt   = MOCK_BANKS_MAX;
+  ulong bid_cnt   = TEST_BANKS_MAX;
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( bid_cnt );
 
   ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t) * bid_cnt, 1UL );
@@ -159,21 +179,90 @@ setup_ctx( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   mock_store_fec.data_gaddr = (ulong)mock_store_data;
   ctx->store = &mock_store;
 
-  /* Mock banks — initialize root bank at index 0 */
+  /* Real banks — initialize root bank. */
 
-  memset( mock_banks_arr, 0, sizeof(mock_banks_arr) );
-  mock_banks_next = 1UL;
-  mock_banks_arr[ 0 ].idx      = 0;
-  mock_banks_arr[ 0 ].bank_seq = 0;
-  mock_banks_arr[ 0 ].state    = FD_BANK_STATE_FROZEN;
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, 8UL, 2048UL, 2048UL ), 1UL );
+  FD_TEST( banks_mem );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, TEST_BANKS_MAX, 8UL, 2048UL, 2048UL, 0, 42UL ) );
+  FD_TEST( ctx->banks );
+  fd_bank_t * root_bank = fd_banks_init_bank( ctx->banks );
+  FD_TEST( root_bank );
 
   ctx->is_booted    = 1;
   ctx->wfs_complete = 1;
   ctx->is_leader    = 0;
+  ctx->block_id_len = bid_cnt;
   ctx->consensus_root_slot     = ULONG_MAX;
-  ctx->consensus_root_bank_idx = ULONG_MAX;
+  ctx->consensus_root_bank_idx = root_bank->idx;
   ctx->published_root_slot     = ULONG_MAX;
-  ctx->published_root_bank_idx = ULONG_MAX;
+  ctx->published_root_bank_idx = root_bank->idx;
+
+  setup_stem( ctx, wksp );
+  setup_repair_input( ctx, wksp );
+}
+
+static fd_reasm_fec_t *
+init_root_fec( fd_replay_tile_t * ctx,
+               fd_hash_t const *  mr_root ) {
+  fd_reasm_fec_t * f_root = fd_reasm_init( ctx->reasm, mr_root, 0 );
+  FD_TEST( f_root );
+
+  fd_bank_t * root_bank = fd_banks_root( ctx->banks );
+  FD_TEST( root_bank );
+  f_root->bank_idx = root_bank->idx;
+  f_root->bank_seq = root_bank->bank_seq;
+  return f_root;
+}
+
+static fd_reasm_fec_t *
+ingest_fec_complete( fd_replay_tile_t * ctx,
+                     fd_hash_t const *  merkle_root,
+                     fd_hash_t const *  chained_merkle_root,
+                     ulong              slot,
+                     uint               fec_set_idx,
+                     ushort             parent_off,
+                     ushort             data_cnt,
+                     int                data_complete,
+                     int                slot_complete ) {
+  ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
+  fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  memset( complete_msg, 0, sizeof(fd_fec_complete_t) );
+
+  complete_msg->merkle_root         = *merkle_root;
+  complete_msg->chained_merkle_root = *chained_merkle_root;
+  complete_msg->last_shred_hdr.slot        = slot;
+  complete_msg->last_shred_hdr.fec_set_idx = fec_set_idx;
+  complete_msg->last_shred_hdr.idx         = fec_set_idx + (uint)data_cnt - 1U;
+  complete_msg->last_shred_hdr.data.parent_off = parent_off;
+  complete_msg->last_shred_hdr.data.flags =
+    (uchar)( fd_uchar_if( data_complete, FD_SHRED_DATA_FLAG_DATA_COMPLETE, 0U ) |
+             fd_uchar_if( slot_complete, FD_SHRED_DATA_FLAG_SLOT_COMPLETE, 0U ) );
+
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+                             sizeof(fd_fec_complete_t), 0UL, 0UL,
+                             fd_frag_meta_ts_comp( fd_tickcount() ), test_stem ) );
+
+  fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, merkle_root );
+  FD_TEST( fec );
+  return fec;
+}
+
+static fd_reasm_fec_t *
+drive_one_fec( fd_replay_tile_t * ctx,
+               ulong              slot,
+               uint               fec_set_idx ) {
+  fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
+  FD_TEST( fec && fec->slot==slot && fec->fec_set_idx==fec_set_idx );
+
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  ctx->execrp_idle_cnt = 2UL*ctx->in_cnt;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+
+  FD_TEST( charge_busy );
+  FD_TEST( !opt_poll_in );
+  FD_TEST( fec->popped );
+  return fec;
 }
 
 static void
@@ -191,56 +280,40 @@ test_eqvoc_last_fec( fd_wksp_t * wksp ) {
   fd_hash_t mr1_32_eqvoc = { .ul = { 999 } };
   fd_hash_t mr2_0        = { .ul = { 400 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
-
   /* 1. Insert root FEC (slot 0).  chained_merkle_root is NULL for the
      very first FEC in a reasm instance.  The root is automatically
      marked popped=1, confirmed=1 by fd_reasm_insert. */
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-
-  /* Assign bank state on the root so child FECs see a valid parent. */
-
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
+  init_root_fec( ctx, &mr_root );
 
   /* 2. Insert FEC 0 of slot 1 (chained off root). */
 
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0 );
-  FD_TEST( !*ev );
 
   /* 3. Insert FEC 32 of slot 1 (slot_complete, chained off FEC 0). */
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 1 );
   FD_TEST( f1_32 );
-  FD_TEST( !*ev );
 
   /* 4. Pop FEC 0 and process it through the replay tile path. */
 
-  fd_reasm_fec_t * fec = fd_reasm_pop( reasm );
-  FD_TEST( fec );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
   /* 5. Pop FEC 32 and process it. */
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==1 );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  ulong first_bank_idx = fec->bank_idx;
+  FD_TEST( first_bank_idx!=fd_banks_root( ctx->banks )->idx );
 
   /* 6. Insert equivocating FEC 32 — same (slot, fec_set_idx) but
      different merkle root.  Reasm detects the equivocation. */
 
-  fd_reasm_fec_t * f1_32_eq = fd_reasm_insert( reasm, &mr1_32_eqvoc, &mr1_0,
-      1, 32, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32_eq = ingest_fec_complete( ctx, &mr1_32_eqvoc, &mr1_0,
+      1, 32, 1, 32, 1, 1 );
   FD_TEST( f1_32_eq );
-  FD_TEST( !*ev );
 
   /* 7. Verify: the equivocating FEC is NOT delivered.  The eqvoc flag
      is set and confirmed==0, so the gate blocks delivery. */
@@ -252,31 +325,23 @@ test_eqvoc_last_fec( fd_wksp_t * wksp ) {
 
   fd_reasm_confirm( reasm, &mr1_32_eqvoc );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==32 );
-
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );                             /* new bank is allocated */
-  FD_TEST( fd_reasm_query( reasm, &mr1_0 )->bank_idx==2 ); /* bank idx is updated for fec 0 */
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  ulong eqvoc_bank_idx = fec->bank_idx;
+  FD_TEST( eqvoc_bank_idx!=first_bank_idx );                         /* new bank is allocated */
+  FD_TEST( fd_reasm_query( reasm, &mr1_0 )->bank_idx==eqvoc_bank_idx ); /* bank idx is updated for fec 0 */
 
   /* latest mr is updated */
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ fec->bank_idx ];
   FD_TEST( memcmp( &block_id_ele->latest_mr, &mr1_32_eqvoc, sizeof(fd_hash_t) ) == 0 ); /* so bad lol */
 
-  fd_block_id_ele_t * block_id_ele_0 = &ctx->block_id_arr[ 1 ];
+  fd_block_id_ele_t * block_id_ele_0 = &ctx->block_id_arr[ first_bank_idx ];
   FD_TEST( memcmp( &block_id_ele_0->latest_mr, &mr1_32, sizeof(fd_hash_t) ) == 0 );
 
-  fd_reasm_fec_t * f2_0 = fd_reasm_insert( reasm, &mr2_0, &mr1_32_eqvoc,
-      2, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f2_0 = ingest_fec_complete( ctx, &mr2_0, &mr1_32_eqvoc,
+      2, 0, 1, 32, 1, 0 );
   FD_TEST( f2_0 );
-  FD_TEST( !*ev );
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec );
-  FD_TEST( fec->slot==2 && fec->fec_set_idx==0 );
-
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==3 ); /* used to bank hash mismatch */
+  fec = drive_one_fec( ctx, 2UL, 0U );
+  FD_TEST( fec->bank_idx!=first_bank_idx && fec->bank_idx!=eqvoc_bank_idx ); /* used to bank hash mismatch */
 
   FD_LOG_NOTICE(( "pass: test_eqvoc_fec_gate" ));
 }
@@ -291,40 +356,31 @@ test_eqvoc_first_fec( fd_wksp_t * wksp ) {
   fd_hash_t mr1_0   = { .ul = { 200 } };
   fd_hash_t mr1_32  = { .ul = { 300 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
+  init_root_fec( ctx, &mr_root );
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
-
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0 );
-  FD_TEST( !*ev );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
   FD_TEST( f1_32 );
 
-  fd_reasm_fec_t * fec = fd_reasm_pop( reasm );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==1 );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  ulong first_bank_idx = fec->bank_idx;
+  FD_TEST( first_bank_idx!=fd_banks_root( ctx->banks )->idx );
 
   /* Insert equivocating version */
   fd_hash_t mr1_32_ = { .ul = { 32, 1 } };
   fd_hash_t mr1_0_  = { .ul = { 0,  1 } };
-  fd_reasm_fec_t * f1_32_eq = fd_reasm_insert( reasm, &mr1_32_, &mr1_0_,
-      1, 32, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32_eq = ingest_fec_complete( ctx, &mr1_32_, &mr1_0_,
+      1, 32, 1, 32, 1, 1 );
   FD_TEST( f1_32_eq->eqvoc );
 
-  fd_reasm_fec_t * fd_1_0_eq = fd_reasm_insert( reasm, &mr1_0_, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * fd_1_0_eq = ingest_fec_complete( ctx, &mr1_0_, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( fd_1_0_eq->eqvoc );
 
   /* no delivery of eqvoc */
@@ -334,15 +390,12 @@ test_eqvoc_first_fec( fd_wksp_t * wksp ) {
   fd_reasm_confirm( reasm, &mr1_32_ );
 
   /* delivery of confirmed version */
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );
+  fec = drive_one_fec( ctx, 1UL, 0U );
+  ulong eqvoc_bank_idx = fec->bank_idx;
+  FD_TEST( eqvoc_bank_idx!=first_bank_idx );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  FD_TEST( fec->bank_idx==eqvoc_bank_idx );
 
   FD_TEST( fd_reasm_peek( reasm )==NULL );
 
@@ -365,53 +418,41 @@ test_confirm( fd_wksp_t * wksp ) {
   fd_hash_t mr1_64  = { .ul = { 400 } };
   fd_hash_t mr1_96  = { .ul = { 500 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
-
   /* Root FEC (slot 0). */
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
+  init_root_fec( ctx, &mr_root );
 
   /* Slot 1: 4 FECs chained sequentially. */
 
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0 );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
   FD_TEST( f1_32 );
 
-  fd_reasm_fec_t * f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
-      1, 64, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_64 = ingest_fec_complete( ctx, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 0 );
   FD_TEST( f1_64 );
 
-  fd_reasm_fec_t * f1_96 = fd_reasm_insert( reasm, &mr1_96, &mr1_64,
-      1, 96, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_96 = ingest_fec_complete( ctx, &mr1_96, &mr1_64,
+      1, 96, 1, 32, 1, 1 );
   FD_TEST( f1_96 );
 
   /* Pop and process all 4 FECs. */
 
-  fd_reasm_fec_t * fec;
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
+  ulong bank_idx = fec->bank_idx;
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  FD_TEST( fec->bank_idx==bank_idx );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 64U );
+  FD_TEST( fec->bank_idx==bank_idx );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
-  process_fec_set( ctx, NULL, fec );
-
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==96 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==1 );
+  fec = drive_one_fec( ctx, 1UL, 96U );
+  FD_TEST( fec->bank_idx==bank_idx );
 
   /* Queue should be empty. */
 
@@ -445,51 +486,36 @@ test_stale_redeliver( fd_wksp_t * wksp ) {
   fd_hash_t mr1_32  = { .ul = { 300 } };
   fd_hash_t mr1_64  = { .ul = { 400 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
-
   /* 1. Insert root FEC (slot 0). */
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
+  init_root_fec( ctx, &mr_root );
 
   /* 2. Insert 3 FEC sets for slot 1. */
 
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0 );
-  FD_TEST( !*ev );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
   FD_TEST( f1_32 );
-  FD_TEST( !*ev );
 
-  fd_reasm_fec_t * f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
-      1, 64, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_64 = ingest_fec_complete( ctx, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 1 );
   FD_TEST( f1_64 );
-  FD_TEST( !*ev );
 
   /* 3. Pop and process all 3. */
 
-  fd_reasm_fec_t * fec;
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 32U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 64U );
 
   /* After processing, bank 1 should have been allocated. */
-  FD_TEST( fec->bank_idx==1 );
-  FD_TEST( mock_banks_next==2UL );
+  ulong first_bank_idx = fec->bank_idx;
+  FD_TEST( first_bank_idx!=fd_banks_root( ctx->banks )->idx );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==2UL );
 
   /* Queue should be empty. */
   FD_TEST( fd_reasm_peek( reasm )==NULL );
@@ -519,44 +545,35 @@ test_stale_redeliver( fd_wksp_t * wksp ) {
 
   /* 5. Reinsert the same 3 FECs. */
 
-  f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0 );
-  FD_TEST( !*ev );
 
-  f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
   FD_TEST( f1_32 );
-  FD_TEST( !*ev );
 
-  f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
-      1, 64, 1, 32, 1, 1, 0, NULL, ev );
+  f1_64 = ingest_fec_complete( ctx, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 1 );
   FD_TEST( f1_64 );
-  FD_TEST( !*ev );
 
   /* 6. Pop and process all 3 again. */
 
-  mock_sched_fec_ingest_called = 0;
+  ulong sched_ingest_cnt_before = mock_sched_fec_ingest_cnt;
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 0U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 32U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 64U );
 
   /* 7. A NEW bank should have been allocated (fec_set_idx==0 always
      allocates a new bank in insert_fec_set). */
-  FD_TEST( fec->bank_idx==2 );
-  FD_TEST( mock_banks_next==3UL );
+  FD_TEST( fec->bank_idx!=first_bank_idx );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==3UL );
 
   /* 8. Execution was scheduled for the reinserted FECs. */
-  FD_TEST( mock_sched_fec_ingest_called );
+  FD_TEST( mock_sched_fec_ingest_cnt>sched_ingest_cnt_before );
 
   /* Queue should be drained. */
   FD_TEST( fd_reasm_peek( reasm )==NULL );
@@ -589,49 +606,34 @@ test_eqvoc_mid_slot_evicted( fd_wksp_t * wksp ) {
   fd_hash_t mr1_32_prime  = { .ul = { 500 } };
   fd_hash_t mr1_64_prime  = { .ul = { 600 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
-
   /* 1. Insert root FEC (slot 0). */
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
+  init_root_fec( ctx, &mr_root );
 
   /* 2. Insert 3 FEC sets for slot 1 version A. */
 
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0 );
-  FD_TEST( !*ev );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
   FD_TEST( f1_32 );
-  FD_TEST( !*ev );
 
-  fd_reasm_fec_t * f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
-      1, 64, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_64 = ingest_fec_complete( ctx, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 1 );
   FD_TEST( f1_64 );
-  FD_TEST( !*ev );
 
   /* 3. Pop and process all 3 FEC sets.  After this, bank 1 is allocated
      for slot 1. */
 
-  fd_reasm_fec_t * fec;
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 1UL, 32U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==1 );
+  fec = drive_one_fec( ctx, 1UL, 64U );
+  ulong version_a_bank_idx = fec->bank_idx;
+  FD_TEST( version_a_bank_idx!=fd_banks_root( ctx->banks )->idx );
 
   FD_TEST( fd_reasm_peek( reasm )==NULL );
 
@@ -658,45 +660,37 @@ test_eqvoc_mid_slot_evicted( fd_wksp_t * wksp ) {
      original was evicted, reasm does not detect equivocation.  Pop and
      process it: allocates a new bank (bank_idx=2). */
 
-  fd_reasm_fec_t * f1_0_new = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_0_new = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
   FD_TEST( f1_0_new );
-  FD_TEST( !*ev );
   FD_TEST( !f1_0_new->eqvoc );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );
+  fec = drive_one_fec( ctx, 1UL, 0U );
+  ulong version_b_bank_idx = fec->bank_idx;
+  FD_TEST( version_b_bank_idx!=version_a_bank_idx );
 
   /* 6. Insert version B's FEC 32' and 64' (different merkle roots from
      version A) chaining off the reinserted FEC 0.  Reasm does NOT
      detect equivocation because version A was evicted. */
 
-  fd_reasm_fec_t * f1_32p = fd_reasm_insert( reasm, &mr1_32_prime, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  fd_reasm_fec_t * f1_32p = ingest_fec_complete( ctx, &mr1_32_prime, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
   FD_TEST( f1_32p );
-  FD_TEST( !*ev );
   FD_TEST( !f1_32p->eqvoc );
 
-  fd_reasm_fec_t * f1_64p = fd_reasm_insert( reasm, &mr1_64_prime, &mr1_32_prime,
-      1, 64, 1, 32, 1, 1, 0, NULL, ev );
+  fd_reasm_fec_t * f1_64p = ingest_fec_complete( ctx, &mr1_64_prime, &mr1_32_prime,
+      1, 64, 1, 32, 1, 1 );
   FD_TEST( f1_64p );
-  FD_TEST( !*ev );
   FD_TEST( !f1_64p->eqvoc );
 
   /* 7. Pop and process version B's FEC sets.  They should inherit the
      fresh bank (bank_idx=2) from the reinserted FEC 0. */
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  FD_TEST( fec->bank_idx==version_b_bank_idx );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );
+  fec = drive_one_fec( ctx, 1UL, 64U );
+  FD_TEST( fec->bank_idx==version_b_bank_idx );
 
   FD_TEST( fd_reasm_peek( reasm )==NULL );
 
@@ -716,7 +710,6 @@ test_banks_evict_backfill( fd_wksp_t * wksp ) {
 
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
-  fd_reasm_t * reasm = ctx->reasm;
 
   fd_hash_t mr_root = { .ul = { 100 } };
   fd_hash_t mr1_0   = { .ul = { 200 } };
@@ -724,61 +717,50 @@ test_banks_evict_backfill( fd_wksp_t * wksp ) {
   fd_hash_t mr2_0   = { .ul = { 400 } };
   fd_hash_t mr2_32  = { .ul = { 500 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
-
   /* 1. Root FEC (slot 0). */
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
+  init_root_fec( ctx, &mr_root );
 
   /* 2. Insert slot 1: 2 FECs (0 and 32), slot_complete on FEC 32. */
 
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
-  FD_TEST( f1_0 && !*ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
+  FD_TEST( f1_0 );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 1, 0, NULL, ev );
-  FD_TEST( f1_32 && !*ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 1 );
+  FD_TEST( f1_32 );
 
   /* 3. Insert slot 2: 2 FECs (0 and 32), slot_complete on FEC 32. */
 
-  fd_reasm_fec_t * f2_0 = fd_reasm_insert( reasm, &mr2_0, &mr1_32,
-      2, 0, 1, 32, 1, 0, 0, NULL, ev );
-  FD_TEST( f2_0 && !*ev );
+  fd_reasm_fec_t * f2_0 = ingest_fec_complete( ctx, &mr2_0, &mr1_32,
+      2, 0, 1, 32, 1, 0 );
+  FD_TEST( f2_0 );
 
-  fd_reasm_fec_t * f2_32 = fd_reasm_insert( reasm, &mr2_32, &mr2_0,
-      2, 32, 1, 32, 1, 1, 0, NULL, ev );
-  FD_TEST( f2_32 && !*ev );
+  fd_reasm_fec_t * f2_32 = ingest_fec_complete( ctx, &mr2_32, &mr2_0,
+      2, 32, 1, 32, 1, 1 );
+  FD_TEST( f2_32 );
 
   /* 4. Pop and process all of slot 1 → bank 1. */
 
-  fd_reasm_fec_t * fec;
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
-
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==1 );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  ulong slot1_bank_idx = fec->bank_idx;
+  FD_TEST( slot1_bank_idx!=fd_banks_root( ctx->banks )->idx );
 
   /* 5. Pop and process first FEC of slot 2 → bank 2. */
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==2 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==2 );
+  fec = drive_one_fec( ctx, 2UL, 0U );
+  ulong slot2_bank_idx = fec->bank_idx;
+  FD_TEST( slot2_bank_idx!=slot1_bank_idx );
 
   /* 6. Simulate banks evicting both bank 1 and bank 2 by bumping their
      bank_seq.  Now the replay tile will see a seq mismatch and treat
      them as evicted. */
 
-  mock_banks_arr[ 1 ].bank_seq = 999UL;
-  mock_banks_arr[ 2 ].bank_seq = 999UL;
+  fd_banks_bank_query( ctx->banks, slot1_bank_idx )->bank_seq = 999UL;
+  fd_banks_bank_query( ctx->banks, slot2_bank_idx )->bank_seq = 999UL;
 
   /* 7. Pop the second FEC of slot 2 and process it.  The parent
      (slot 2, FEC 0) has bank_idx=2 whose bank_seq no longer matches,
@@ -791,23 +773,24 @@ test_banks_evict_backfill( fd_wksp_t * wksp ) {
      Then replays top-down: slot 1 gets new bank 3, slot 2 gets new
      bank 4. */
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==2 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
+  fec = drive_one_fec( ctx, 2UL, 32U );
 
   /* 8. Verify: slot 1 was backfilled with a new bank (bank 3). */
 
-  FD_TEST( f1_0->bank_idx==3 );
-  FD_TEST( f1_32->bank_idx==3 );
+  ulong new_slot1_bank_idx = f1_32->bank_idx;
+  FD_TEST( new_slot1_bank_idx!=slot1_bank_idx );
+  FD_TEST( f1_0->bank_idx==new_slot1_bank_idx );
 
   /* 9. Verify: slot 2 was backfilled with a new bank (bank 4). */
 
-  FD_TEST( f2_0->bank_idx==4 );
-  FD_TEST( f2_32->bank_idx==4 );
+  ulong new_slot2_bank_idx = f2_32->bank_idx;
+  FD_TEST( new_slot2_bank_idx!=slot2_bank_idx );
+  FD_TEST( new_slot2_bank_idx!=new_slot1_bank_idx );
+  FD_TEST( f2_0->bank_idx==new_slot2_bank_idx );
 
-  /* 10. Verify mock_banks_next advanced past bank 4. */
+  /* 10. Verify banks allocated two replacement banks. */
 
-  FD_TEST( mock_banks_next==5UL );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==5UL );
 
   FD_LOG_NOTICE(( "pass: test_banks_evict_backfill" ));
 }
@@ -834,49 +817,39 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
   fd_hash_t mr1_64  = { .ul = { 400 } };
   fd_hash_t mr1_96  = { .ul = { 500 } };
 
-  fd_reasm_fec_t * ev[ 1 ];
-
   /* 1. Root FEC (slot 0). */
 
-  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
-  FD_TEST( f_root );
-  f_root->bank_idx = 0;
-  f_root->bank_seq = 0;
+  init_root_fec( ctx, &mr_root );
 
   /* 2. Insert 4 FECs for slot 1.  Crucially, FEC 96 is NOT
      slot_complete — the slot is still incomplete, making FEC 96 a valid
      eviction candidate via the unconfirmed frontier leaf path. */
 
-  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
-      1, 0, 1, 32, 1, 0, 0, NULL, ev );
-  FD_TEST( f1_0 && !*ev );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0 );
+  FD_TEST( f1_0 );
 
-  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
-      1, 32, 1, 32, 1, 0, 0, NULL, ev );
-  FD_TEST( f1_32 && !*ev );
+  fd_reasm_fec_t * f1_32 = ingest_fec_complete( ctx, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0 );
+  FD_TEST( f1_32 );
 
-  fd_reasm_fec_t * f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
-      1, 64, 1, 32, 1, 0, 0, NULL, ev );
-  FD_TEST( f1_64 && !*ev );
+  fd_reasm_fec_t * f1_64 = ingest_fec_complete( ctx, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 0 );
+  FD_TEST( f1_64 );
 
-  fd_reasm_fec_t * f1_96 = fd_reasm_insert( reasm, &mr1_96, &mr1_64,
-      1, 96, 1, 32, 1, 0, 0, NULL, ev );
-  FD_TEST( f1_96 && !*ev );
+  fd_reasm_fec_t * f1_96 = ingest_fec_complete( ctx, &mr1_96, &mr1_64,
+      1, 96, 1, 32, 1, 0 );
+  FD_TEST( f1_96 );
 
   /* 3. Pop and process only the first 2 FECs.  After this, FEC 0 and
      32 have bank_idx=1.  FECs 64 and 96 remain in the delivery queue
      with bank_idx=ULONG_MAX. */
 
-  fd_reasm_fec_t * fec;
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 1UL, 0U );
 
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
-  process_fec_set( ctx, NULL, fec );
-
-  fec = fd_reasm_pop( reasm );
-  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
-  process_fec_set( ctx, NULL, fec );
-  FD_TEST( fec->bank_idx==1 );
+  fec = drive_one_fec( ctx, 1UL, 32U );
+  ulong partial_bank_idx = fec->bank_idx;
+  FD_TEST( partial_bank_idx!=fd_banks_root( ctx->banks )->idx );
 
   /* Verify FECs 64 and 96 have NOT been processed. */
 
@@ -894,7 +867,7 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
 
   /* Release evicted chain back to pool. */
 
-  ulong evict_order[ 4 ] = { 1, 1, ULONG_MAX, ULONG_MAX };
+  ulong evict_order[ 4 ] = { partial_bank_idx, partial_bank_idx, ULONG_MAX, ULONG_MAX };
   uint  evict_idx        = 0;
 
   while( evicted ) {
