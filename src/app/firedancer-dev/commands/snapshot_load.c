@@ -537,7 +537,7 @@ action_t fd_action_snapshot_load = {
   .fn          = snapshot_load_cmd_fn,
   .description = "Load a snapshot into a database and optionally inspect it",
   .detail      = "Boots a reduced topology that downloads (or reads from disk) a full and\n"
-                 "optional incremental snapshot, loads the accounts into a funk database, and\n"
+                 "optional incremental snapshot, loads the accounts into a database, and\n"
                  "can then run integrity checks or analyze the account size distribution.",
   .usage       = NAME " [OPTIONS]",
   .args_help   = snapshot_load_args_help,

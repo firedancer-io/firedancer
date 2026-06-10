@@ -39,7 +39,7 @@ fd_progcache_attach_child( fd_progcache_join_t *  cache,
                            fd_progcache_fork_id_t parent_fork_id );
 
 /* fd_progcache_advance_root advances the fork graph root to the
-   given xid.  (In funk terminology, this is the "last publish")
+   given xid.
 
    Assumes that the xid's parent is the fork graph root. */
 

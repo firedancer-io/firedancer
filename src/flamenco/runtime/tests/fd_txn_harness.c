@@ -82,7 +82,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_features_t * features_bm = &runner->bank->f.features;
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
-  /* Load account states into funk (note this is different from the account keys):
+  /* Load account states into accdb (note this is different from the account keys):
     Account state = accounts to populate Funk
     Account keys = account keys that the transaction needs */
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
