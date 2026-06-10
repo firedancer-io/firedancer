@@ -275,6 +275,22 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
         FD_LOAD( ulong, entry+32UL );
   }
 
+  /* Agave compiles the instruction into a message, OR-ing duplicate
+     accounts' writable/signer flags. */
+  uchar instr_is_writable[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  uchar instr_is_signer  [ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  int   bpf_upgradeable_present = !memcmp( test_ctx->program_id, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) );
+  for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
+    uint index = test_ctx->instr_accounts[j].index;
+    if( FD_UNLIKELY( index >= test_ctx->accounts_count ) ) continue;
+
+    instr_is_writable[index] = (uchar)( instr_is_writable[index] | test_ctx->instr_accounts[j].is_writable );
+    instr_is_signer[index]   = (uchar)( instr_is_signer[index]   | test_ctx->instr_accounts[j].is_signer );
+    if( !memcmp( test_ctx->accounts[index].address, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      bpf_upgradeable_present = 1;
+    }
+  }
+
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
@@ -283,14 +299,21 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                    index, test_ctx->instr_accounts_count ));
     }
 
+    /* A program account is demoted to read-only unless the upgradeable
+       loader is present. */
+    uchar is_writable = instr_is_writable[index];
+    if( !bpf_upgradeable_present && !memcmp( test_ctx->accounts[index].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+      is_writable = 0;
+    }
+
     /* Setup instruction accounts */
     fd_instr_info_setup_instr_account( info,
                                        acc_idx_seen,
                                        (ushort)index,
                                        (ushort)j,
                                        (ushort)j,
-                                       test_ctx->instr_accounts[j].is_writable,
-                                       test_ctx->instr_accounts[j].is_signer );
+                                       is_writable,
+                                       instr_is_signer[index] );
   }
   info->acct_cnt          = (ushort)test_ctx->instr_accounts_count;
 
@@ -340,6 +363,23 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Execute the test */
   int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
+
+  /* Agave only updates the instructions sysvar when it is a referenced
+     account; restore it otherwise. */
+  for( ulong j=0UL; j<input->accounts_count; j++ ) {
+    if( memcmp( input->accounts[j].address, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) continue;
+
+    int referenced = 0;
+    for( ulong k=0UL; k<input->instr_accounts_count; k++ ) {
+      if( input->instr_accounts[k].index==j ) {
+        referenced = 1;
+        break;
+      }
+    }
+    if( !referenced && input->accounts[j].data ) {
+      fd_memcpy( ctx->txn_out->accounts.account[j]->data, input->accounts[j].data->bytes, input->accounts[j].data->size );
+    }
+  }
 
   /* Allocate space to capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;
