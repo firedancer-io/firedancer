@@ -26,13 +26,6 @@ FD_PROTOTYPES_BEGIN
    In reality, the cost is slightly higher because of transaction fees
    and various CU costs to create the vote and stake accounts.
 
-   For stake accounts, the limit is set to 241M because the rent exempt
-   reserve of creating a valid stake account is
-   241,000,000 accounts * 0.00228 SOL = 549,480 SOL.
-   If you just consider the transaction fee of 0.000005 per account
-   241,000,000 * 0.000005 = 1,205 SOL.
-   This brings our total cost to 550,685 SOL.
-
    For stake accounts, the rent exempt reserve is 0.00228 SOL.  However,
    new stake accounts must have a minimum balance of 1 SOL as of the
    feature upgrade_bpf_stake_program_to_v5.  Stake accounts created
