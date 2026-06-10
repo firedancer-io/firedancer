@@ -3,7 +3,6 @@
 #include "fd_sol_compat.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "fd_gossip_harness.h"
-#include "fd_cost_harness.h"
 
 #include "generated/block.pb.h"
 #include "generated/instr.pb.h"
@@ -215,11 +214,12 @@ sol_compat_txn_cost_v1( uchar *       out,
   void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_cost_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
+  int ok = 0;
   fd_spad_push( runner->spad );
-  fd_exec_test_cost_result_t output_msg = FD_EXEC_TEST_COST_RESULT_INIT_ZERO;
-  int ok = fd_solfuzz_pb_cost_run( runner, input, &output_msg );
-  if( FD_LIKELY( ok ) ) {
-    ok = !!sol_compat_encode( out, out_sz, &output_msg, &fd_exec_test_cost_result_t_msg );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_cost_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_cost_result_t_msg );
   }
   fd_spad_pop( runner->spad );
 
