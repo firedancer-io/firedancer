@@ -325,14 +325,6 @@
 #error "unknown FD_DCHECK_STYLE"
 #endif
 
-/* FIXME: THESE ARE TEMP SCAFFOLDING ... ALL USAGES OF THESE SHOULD BE
-   ELIMINATED FROM THE CODE IN FAVOR OF THE GIVEN EXPANSIONS.
-   FD_{CRIT,ALERT} SHOULD BE FD_CHECK_{CRIT,ALERT} OUTSIDE OF VINYL. */
-
-#define FD_PARANOID    FD_DCHECK_STYLE
-#define FD_CRIT        FD_DCHECK_CRIT
-#define FD_ALERT       FD_DCHECK_ALERT
-
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
 

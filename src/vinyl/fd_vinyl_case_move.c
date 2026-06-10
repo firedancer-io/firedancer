@@ -103,8 +103,8 @@
 
         obj_src = line[ line_idx_src ].obj;
 
-        FD_ALERT( fd_vinyl_data_is_valid_obj( obj_src, vol, vol_cnt ), "corruption detected" );
-        FD_CRIT ( obj_src->line_idx==line_idx_src,                     "corruption detected" );
+        FD_DCHECK_ALERT( fd_vinyl_data_is_valid_obj( obj_src, vol, vol_cnt ), "corruption detected" );
+        FD_DCHECK_CRIT ( obj_src->line_idx==line_idx_src,                     "corruption detected" );
 
         phdr_src = fd_vinyl_data_obj_phdr( obj_src );
 
@@ -137,7 +137,7 @@
 
         /* Verify data integrity */
 
-        FD_ALERT( !fd_vinyl_bstream_pair_test( io_seed, seq_src, (fd_vinyl_bstream_block_t *)cphdr, cpair_sz ),
+        FD_DCHECK_ALERT( !fd_vinyl_bstream_pair_test( io_seed, seq_src, (fd_vinyl_bstream_block_t *)cphdr, cpair_sz ),
                   "corruption detected" );
 
         /* Decode the pair */
@@ -213,8 +213,8 @@
 
           fd_vinyl_data_obj_t * obj_dst = line[ line_idx_dst ].obj;
 
-          FD_ALERT( fd_vinyl_data_is_valid_obj( obj_dst, vol, vol_cnt ), "corruption detected" );
-          FD_CRIT ( obj_dst->line_idx==line_idx_dst,                     "corruption detected" );
+          FD_DCHECK_ALERT( fd_vinyl_data_is_valid_obj( obj_dst, vol, vol_cnt ), "corruption detected" );
+          FD_DCHECK_CRIT ( obj_dst->line_idx==line_idx_dst,                     "corruption detected" );
 
           ulong line_ctl_dst = line[ line_idx_dst ].ctl;
 

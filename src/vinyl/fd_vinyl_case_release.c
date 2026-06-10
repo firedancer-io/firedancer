@@ -89,9 +89,9 @@
 
         obj = line[ line_idx ].obj;
 
-        FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
-        FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
-        FD_CRIT ( !obj->rd_active,                                 "corruption detected" );
+        FD_DCHECK_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
+        FD_DCHECK_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
+        FD_DCHECK_CRIT ( !obj->rd_active,                                 "corruption detected" );
 
         ulong ctl = line[ line_idx ].ctl;
 

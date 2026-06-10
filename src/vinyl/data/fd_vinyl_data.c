@@ -181,7 +181,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
   if( FD_LIKELY( superblock ) ) {
 
-    FD_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
+    FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
 
     *_active = NULL;
 
@@ -191,7 +191,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
     if( FD_LIKELY( superblock ) ) {
 
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
 
       *_inactive_top = fd_vinyl_data_obj_ptr( laddr0, superblock->next_off );
 
@@ -264,7 +264,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
     if( FD_UNLIKELY( displaced_superblock ) ) {
 
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
 
       displaced_superblock->next_off = fd_vinyl_data_obj_off( laddr0, *_inactive_top );
       *_inactive_top                 = displaced_superblock;
@@ -340,7 +340,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
   fd_vinyl_data_obj_t * superblock = (fd_vinyl_data_obj_t *)
     ((ulong)obj - sizeof(fd_vinyl_data_obj_t) - idx*fd_vinyl_data_szc_obj_footprint( szc ));
 
-  FD_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
+  FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
 
   ulong free_blocks = superblock->free_blocks;
   ulong block       = 1UL << idx;
@@ -376,7 +376,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
     if( displaced_superblock ) {
 
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
 
       displaced_superblock->next_off       = fd_vinyl_data_obj_off( data->laddr0, data->superblock[ szc ].inactive_top );
       data->superblock[ szc ].inactive_top = displaced_superblock;
@@ -393,7 +393,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
       if( FD_UNLIKELY( candidate_superblock ) ) {
 
-        FD_ALERT( !fd_vinyl_data_superblock_test( data, candidate_superblock, szc ), "corruption detected" );
+        FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, candidate_superblock, szc ), "corruption detected" );
 
         if( FD_UNLIKELY( candidate_superblock->free_blocks==all_blocks ) ) {
 

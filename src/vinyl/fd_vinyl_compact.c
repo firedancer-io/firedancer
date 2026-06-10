@@ -113,7 +113,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
       if( FD_UNLIKELY( pair_sz <= FD_VINYL_BSTREAM_BLOCK_SZ ) ) ftr = block;
       else fd_vinyl_io_read_imm( io, seq + pair_sz - FD_VINYL_BSTREAM_BLOCK_SZ, ftr, FD_VINYL_BSTREAM_BLOCK_SZ );
 
-      FD_ALERT( !fd_vinyl_bstream_pair_test_fast( io_seed, seq, block, ftr ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_bstream_pair_test_fast( io_seed, seq, block, ftr ), "corruption detected" );
 #     endif
 
       /* At this point, we appear to have a valid pair.  Query the
@@ -167,9 +167,9 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
 
               fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
 
-              FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
-              FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
-              FD_CRIT ( !obj->rd_active,                                 "corruption detected" );
+              FD_DCHECK_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
+              FD_DCHECK_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
+              FD_DCHECK_CRIT ( !obj->rd_active,                                 "corruption detected" );
 
               ulong line_ctl = line[ line_idx ].ctl;
 
@@ -177,7 +177,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
 
                 fd_vinyl_bstream_phdr_t * phdr = fd_vinyl_data_obj_phdr( obj );
 
-                FD_ALERT( !memcmp( phdr, &block->phdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
+                FD_DCHECK_ALERT( !memcmp( phdr, &block->phdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
 
                 pair_seq_new = fd_vinyl_io_append_pair_inplace( io, style, phdr, &pair_style_new, &pair_val_esz_new );
 
@@ -334,7 +334,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
 
          We validate the block because we already have the data anyway.  */
 
-      FD_ALERT( !fd_vinyl_bstream_block_test( io_seed, block ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_bstream_block_test( io_seed, block ), "corruption detected" );
 
       garbage_sz -= FD_VINYL_BSTREAM_BLOCK_SZ;
       seq        += FD_VINYL_BSTREAM_BLOCK_SZ;
@@ -352,7 +352,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
          don't control when they get created (and thus can't easily
          update garbage_sz to account for them when they are created). */
 
-      FD_ALERT( !fd_vinyl_bstream_zpad_test( io_seed, seq, block ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_bstream_zpad_test( io_seed, seq, block ), "corruption detected" );
 
       seq += FD_VINYL_BSTREAM_BLOCK_SZ;
       break;
