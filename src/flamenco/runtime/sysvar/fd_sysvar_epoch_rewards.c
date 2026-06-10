@@ -2,11 +2,12 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
+#include "../../rewards/fd_rewards_base.h"
 
 static int
 validate( fd_sysvar_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->active!=0 && epoch_rewards->active!=1;
-
+  return (epoch_rewards->active!=0 && epoch_rewards->active!=1) ||
+         epoch_rewards->num_partitions>MAX_PARTITIONS_PER_EPOCH;
 }
 
 static void
