@@ -39,38 +39,38 @@ static inline void
 metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( ctx->accdb );
 
-  FD_MGAUGE_SET( ACCDB, ACCOUNTS_TOTAL,         metrics->accounts_total );
-  FD_MGAUGE_SET( ACCDB, ACCOUNTS_CAPACITY,      metrics->accounts_capacity );
-  FD_MCNT_SET( ACCDB, ACCOUNTS_RELOCATED,       metrics->accounts_relocated );
+  FD_MGAUGE_SET( ACCDB, ACCOUNT_COUNT,          metrics->accounts_total );
+  FD_MGAUGE_SET( ACCDB, ACCOUNT_CAPACITY,       metrics->accounts_capacity );
+  FD_MCNT_SET( ACCDB, ACCOUNT_RELOCATED,        metrics->accounts_relocated );
   FD_MGAUGE_SET( ACCDB, DISK_ALLOCATED_BYTES,   metrics->disk_allocated_bytes );
   FD_MGAUGE_SET( ACCDB, DISK_CURRENT_BYTES,     metrics->disk_current_bytes );
   FD_MGAUGE_SET( ACCDB, DISK_USED_BYTES,        metrics->disk_used_bytes );
   FD_MGAUGE_SET( ACCDB, IN_COMPACTION,          (ulong)metrics->in_compaction );
-  FD_MCNT_SET( ACCDB, COMPACTIONS_REQUESTED,    metrics->compactions_requested );
-  FD_MCNT_SET( ACCDB, COMPACTIONS_COMPLETED,    metrics->compactions_completed );
-  FD_MCNT_SET( ACCDB, ACCOUNTS_RELOCATED_BYTES, metrics->accounts_relocated_bytes );
+  FD_MCNT_SET( ACCDB, COMPACTION_REQUESTED,     metrics->compactions_requested );
+  FD_MCNT_SET( ACCDB, COMPACTION_COMPLETED,     metrics->compactions_completed );
+  FD_MCNT_SET( ACCDB, ACCOUNT_RELOCATED_BYTES,  metrics->accounts_relocated_bytes );
 
   fd_accdb_metrics_t const * rt = fd_accdb_metrics( ctx->accdb );
-  FD_MCNT_ENUM_COPY( ACCDB, ACCDB_ACCOUNTS_PREEVICTED, rt->accounts_preevicted_per_class );
-  FD_MCNT_SET( ACCDB, ACCDB_BYTES_READ,        rt->bytes_read        );
-  FD_MCNT_SET( ACCDB, ACCDB_BYTES_WRITTEN,     rt->bytes_written     );
-  FD_MCNT_SET( ACCDB, ACCDB_WRITE_OPS,         rt->write_ops         );
-  FD_MCNT_SET( ACCDB, ACCDB_COPY_OPS,          rt->copy_ops          );
-  FD_MCNT_SET( ACCDB, ACCDB_ACCOUNTS_DELETED,  rt->accounts_deleted  );
+  FD_MCNT_ENUM_COPY( ACCDB, ACCOUNT_PREEVICTED, rt->accounts_preevicted_per_class );
+  FD_MCNT_SET( ACCDB, BYTES_READ,        rt->bytes_read        );
+  FD_MCNT_SET( ACCDB, BYTES_WRITTEN,     rt->bytes_written     );
+  FD_MCNT_SET( ACCDB, WRITE_OPERATION,   rt->write_ops         );
+  FD_MCNT_SET( ACCDB, COPY_OPERATION,    rt->copy_ops          );
+  FD_MCNT_SET( ACCDB, ACCOUNT_DELETED,   rt->accounts_deleted  );
 
   ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_reserved[ FD_ACCDB_CACHE_CLASS_CNT ];
   fd_accdb_cache_class_occupancy( ctx->accdb, cache_used, cache_max, cache_reserved );
-  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_USED,     cache_used     );
-  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_MAX,      cache_max      );
-  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_RESERVED, cache_reserved );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_USED,     cache_used     );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_MAX,      cache_max      );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_RESERVED, cache_reserved );
 
   ulong cache_target_used[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_lwm_used   [ FD_ACCDB_CACHE_CLASS_CNT ];
   fd_accdb_cache_class_thresholds( ctx->accdb, cache_target_used, cache_lwm_used );
-  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_TARGET_USED,    cache_target_used );
-  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_LOW_WATER_USED, cache_lwm_used    );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_TARGET_USED,    cache_target_used );
+  FD_MGAUGE_ENUM_COPY( ACCDB, CACHE_CLASS_LOW_WATER_USED, cache_lwm_used    );
 }
 
 static inline void

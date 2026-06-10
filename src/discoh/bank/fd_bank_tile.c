@@ -78,13 +78,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_RESULT,  ctx->metrics.transaction_result );
+  FD_MCNT_ENUM_COPY( BANK, TXN_LOAD_ADDRESS_TABLE, ctx->metrics.txn_load_address_lookup_tables );
+  FD_MCNT_ENUM_COPY( BANK, TXN_RESULT,  ctx->metrics.transaction_result );
 
-  FD_MCNT_SET( BANK, PROCESSING_FAILED,            ctx->metrics.processing_failed );
-  FD_MCNT_SET( BANK, FEE_ONLY_TRANSACTIONS,        ctx->metrics.fee_only          );
-  FD_MCNT_SET( BANK, EXECUTED_FAILED_TRANSACTIONS, ctx->metrics.exec_failed       );
-  FD_MCNT_SET( BANK, SUCCESSFUL_TRANSACTIONS,      ctx->metrics.success           );
+  FD_MCNT_SET( BANK, TXN_PROCESSING_FAILED,        ctx->metrics.processing_failed );
+  FD_MCNT_SET( BANK, TXN_FEE_ONLY,                 ctx->metrics.fee_only          );
+  ulong txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_CNT ];
+  txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_SUCCESS_IDX ] = ctx->metrics.success;
+  txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_FAILED_IDX  ] = ctx->metrics.exec_failed;
+  FD_MCNT_ENUM_COPY( BANK, TXN_EXECUTED, txn_executed );
 }
 
 static int
@@ -195,7 +197,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TRANSACTION_LOAD_ADDRESS_TABLES_CNT+result-1L) ]++;
+    ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LOAD_ADDRESS_TABLE_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
@@ -405,7 +407,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[  (ulong)((long)FD_METRICS_COUNTER_BANK_TRANSACTION_LOAD_ADDRESS_TABLES_CNT+result-1L) ]++;
+    ctx->metrics.txn_load_address_lookup_tables[  (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LOAD_ADDRESS_TABLE_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       execution_success = 0;
       continue;

@@ -2,5 +2,5 @@
 #include "fd_metrics_benchs.h"
 
 const fd_metrics_meta_t FD_METRICS_BENCHS[FD_METRICS_BENCHS_TOTAL] = {
-    DECLARE_METRIC( BENCHS_TRANSACTIONS_SENT, COUNTER ),
+    DECLARE_METRIC( BENCHS_TXN_TX, COUNTER ),
 };

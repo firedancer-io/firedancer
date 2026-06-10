@@ -3126,7 +3126,7 @@ fd_quic_conn_can_acquire_pkt_meta( fd_quic_conn_t             * conn,
     if( !pool_free ) {
       metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_EMPTY_POOL_IDX]++;
     } else {
-      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_CONN_MAX_IDX]++;
+      metrics->frame_tx_alloc_cnt[FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_V_FAIL_CONNECTION_MAX_IDX]++;
     }
     return 0;
   }

@@ -191,7 +191,7 @@ static ulong
 total_crds( ulong const * metrics ) {
   ulong sum = 0UL;
   for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) {
-    sum += metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V1 )+i ];
+    sum += metrics[ MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V1 )+i ];
   }
   return sum;
 }
@@ -366,7 +366,7 @@ write_snapshots( config_t const * config,
   ulong state = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ];
 
   ulong bytes_read = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ];
-  ulong bytes_total = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
+  ulong bytes_total = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
 
   double progress = 0.0;
   switch( state ) {
@@ -473,49 +473,49 @@ static void
 accdb_per_tile_offsets( char const * name,
                         ulong *      offs /* 11 entries: acquired, writable, missed, waited, rd, wr, cp, evicted_class_base, preevicted_class_base, committed_new_class_base, committed_overwrite_class_base */ ) {
   if(      !strcmp( name, "execle" ) ) {
-    offs[0] =MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2] =MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_NOT_FOUND        ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_WAITED          );
+    offs[0] =MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_WRITABLE_ACQUIRED);
+    offs[2] =MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_NOT_FOUND        ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_WAITED          );
     offs[4] =MIDX(COUNTER,EXECLE,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_WRITTEN            );
-    offs[6] =MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED         );
-    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_NEW   );
-    offs[10]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
+    offs[6] =MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_EVICTED         );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_COMMITTED_NEW   );
+    offs[10]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNT_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "execrp" ) ) {
-    offs[0] =MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2] =MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_NOT_FOUND        ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_WAITED          );
+    offs[0] =MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_WRITABLE_ACQUIRED);
+    offs[2] =MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_NOT_FOUND        ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_WAITED          );
     offs[4] =MIDX(COUNTER,EXECRP,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_WRITTEN            );
-    offs[6] =MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED         );
-    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_NEW   );
-    offs[10]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
+    offs[6] =MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_EVICTED         );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_COMMITTED_NEW   );
+    offs[10]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNT_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "replay" ) ) {
-    offs[0] =MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2] =MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_NOT_FOUND        ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_WAITED          );
+    offs[0] =MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_ACQUIRED         ); offs[1]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_WRITABLE_ACQUIRED);
+    offs[2] =MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_NOT_FOUND        ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_WAITED          );
     offs[4] =MIDX(COUNTER,REPLAY,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_WRITTEN            );
-    offs[6] =MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED         );
-    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_NEW   );
-    offs[10]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
+    offs[6] =MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_EVICTED         );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_COMMITTED_NEW   );
+    offs[10]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNT_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "tower" ) ) {
-    offs[0] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
-    offs[2] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_NOT_FOUND         ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_WAITED            );
+    offs[0] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_ACQUIRED          ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_WRITABLE_ACQUIRED );
+    offs[2] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_NOT_FOUND         ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_WAITED            );
     offs[4] =MIDX(COUNTER,TOWER,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_BYTES_WRITTEN              );
-    offs[6] =MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED           );
-    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_NEW     );
-    offs[10]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
+    offs[6] =MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_EVICTED           );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_COMMITTED_NEW     );
+    offs[10]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNT_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "accdb" ) ) {
     /* The accdb tile only runs background work (compact, preevict,
        advance_root, purge); it never acquires/releases.  Sentinel
        everything that comes from the acquire/release path. */
     offs[0] =ULONG_MAX                                            ; offs[1]=ULONG_MAX                                            ;
     offs[2] =ULONG_MAX                                            ; offs[3]=ULONG_MAX                                            ;
-    offs[4] =MIDX(COUNTER,ACCDB,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_WRITTEN              );
+    offs[4] =MIDX(COUNTER,ACCDB,BYTES_READ                       ); offs[5]=MIDX(COUNTER,ACCDB,BYTES_WRITTEN                    );
     offs[6] =ULONG_MAX                                            ; offs[7]=ULONG_MAX                                            ;
-    offs[8] =MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED        ); offs[9]=ULONG_MAX                                            ;
+    offs[8] =MIDX(COUNTER,ACCDB,ACCOUNT_PREEVICTED               ); offs[9]=ULONG_MAX                                            ;
     offs[10]=ULONG_MAX;
   } else if( !strcmp( name, "rpc" ) ) {
     /* RPC is a read-only accdb consumer.  It only emits the subset
        of counters that fd_accdb_read_one_nocache touches; everything
        else is sentinel and skipped by sample_accdb. */
-    offs[0] =MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_ACQUIRED); offs[1]=ULONG_MAX;
-    offs[2] =MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_NOT_FOUND); offs[3]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_WAITED);
+    offs[0] =MIDX(COUNTER,RPC,ACCDB_ACCOUNT_ACQUIRED); offs[1]=ULONG_MAX;
+    offs[2] =MIDX(COUNTER,RPC,ACCDB_ACCOUNT_NOT_FOUND); offs[3]=MIDX(COUNTER,RPC,ACCDB_ACCOUNT_WAITED);
     offs[4] =MIDX(COUNTER,RPC,ACCDB_BYTES_READ       ); offs[5]=ULONG_MAX;
     offs[6] =MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED     ); offs[7]=ULONG_MAX;
     offs[8] =ULONG_MAX;                                 offs[9]=ULONG_MAX;
@@ -523,8 +523,8 @@ accdb_per_tile_offsets( char const * name,
   } else if( !strcmp( name, "resolv" ) ) {
     /* Resolv is a read-only accdb consumer (address lookup table
        reads on the receive path).  Same RO subset as RPC. */
-    offs[0] =MIDX(COUNTER,RESOLV,ACCDB_ACCOUNTS_ACQUIRED ); offs[1]=ULONG_MAX;
-    offs[2] =MIDX(COUNTER,RESOLV,ACCDB_ACCOUNTS_NOT_FOUND); offs[3]=MIDX(COUNTER,RESOLV,ACCDB_ACCOUNTS_WAITED);
+    offs[0] =MIDX(COUNTER,RESOLV,ACCDB_ACCOUNT_ACQUIRED ); offs[1]=ULONG_MAX;
+    offs[2] =MIDX(COUNTER,RESOLV,ACCDB_ACCOUNT_NOT_FOUND); offs[3]=MIDX(COUNTER,RESOLV,ACCDB_ACCOUNT_WAITED);
     offs[4] =MIDX(COUNTER,RESOLV,ACCDB_BYTES_READ        ); offs[5]=ULONG_MAX;
     offs[6] =MIDX(COUNTER,RESOLV,ACCDB_BYTES_COPIED      ); offs[7]=ULONG_MAX;
     offs[8] =ULONG_MAX;                                     offs[9]=ULONG_MAX;
@@ -615,14 +615,14 @@ write_accdb( config_t const * config,
   double accdb_idle_pct  = 100.0*(double)diff_tile( config, "accdb", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG  ) )/(double)accdb_total_ticks;
   double accdb_busy_pct  = 100.0 - accdb_backp_pct - accdb_idle_pct;
 
-  ulong acct_cnt        = t[ MIDX( GAUGE,   ACCDB, ACCOUNTS_TOTAL        ) ];
-  ulong acct_cap        = t[ MIDX( GAUGE,   ACCDB, ACCOUNTS_CAPACITY     ) ];
+  ulong acct_cnt        = t[ MIDX( GAUGE,   ACCDB, ACCOUNT_COUNT         ) ];
+  ulong acct_cap        = t[ MIDX( GAUGE,   ACCDB, ACCOUNT_CAPACITY      ) ];
   ulong used_bytes      = t[ MIDX( GAUGE,   ACCDB, DISK_USED_BYTES       ) ];
   ulong current_bytes   = t[ MIDX( GAUGE,   ACCDB, DISK_CURRENT_BYTES    ) ];
   ulong alloc_bytes     = t[ MIDX( GAUGE,   ACCDB, DISK_ALLOCATED_BYTES  ) ];
   ulong in_compaction   = t[ MIDX( GAUGE,   ACCDB, IN_COMPACTION         ) ];
-  ulong compact_req     = t[ MIDX( COUNTER, ACCDB, COMPACTIONS_REQUESTED ) ];
-  ulong compact_done    = t[ MIDX( COUNTER, ACCDB, COMPACTIONS_COMPLETED ) ];
+  ulong compact_req     = t[ MIDX( COUNTER, ACCDB, COMPACTION_REQUESTED  ) ];
+  ulong compact_done    = t[ MIDX( COUNTER, ACCDB, COMPACTION_COMPLETED  ) ];
 
   ulong  frag_bytes  = current_bytes>used_bytes ? current_bytes-used_bytes : 0UL;
   double data_gb     = (double)alloc_bytes/1e9;
@@ -756,8 +756,8 @@ write_accdb( config_t const * config,
     commit_new_class_str[6], commit_overwrite_class_str[6],
     commit_new_class_str[7], commit_overwrite_class_str[7] );
 
-  ulong cache_used_off = MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_USED );
-  ulong cache_max_off  = MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_MAX  );
+  ulong cache_used_off = MIDX( GAUGE, ACCDB, CACHE_CLASS_USED );
+  ulong cache_max_off  = MIDX( GAUGE, ACCDB, CACHE_CLASS_MAX  );
   char * cache_used_str[ 8 ];
   char * cache_max_str [ 8 ];
   double cache_pct     [ 8 ];
@@ -788,7 +788,7 @@ write_accdb( config_t const * config,
     cache_used_str[6], cache_max_str[6], cache_pct[6],
     cache_used_str[7], cache_max_str[7], cache_pct[7] );
 
-  ulong cache_resv_off = MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_RESERVED );
+  ulong cache_resv_off = MIDX( GAUGE, ACCDB, CACHE_CLASS_RESERVED );
   char * cache_resv_str[ 8 ];
   for( ulong c=0UL; c<8UL; c++ ) {
     ulong resv = t[ cache_resv_off + c ];
@@ -817,7 +817,7 @@ write_wfs( config_t const * config,
   ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
   if( FD_UNLIKELY( gossip_tile_idx==ULONG_MAX ) ) return 0U;
 
-  int wfs_state = (int)cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STATE ) ];
+  int wfs_state = (int)cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STATE ) ];
   if( FD_LIKELY( wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) return 0U;
 
   char const * state_str;
@@ -828,10 +828,10 @@ write_wfs( config_t const * config,
     default:                          return 0U;
   }
 
-  ulong _stake_online = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKE_ONLINE ) ];
-  ulong _stake_total  = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKE_TOTAL  ) ];
-  ulong peers_online = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_ONLINE ) ];
-  ulong peers_total  = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_TOTAL  ) ];
+  ulong _stake_online = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE ) ];
+  ulong _stake_total  = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL  ) ];
+  ulong peers_online  = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_ONLINE ) ];
+  ulong peers_total   = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL  ) ];
 
   ulong ipecho_tile_idx = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
   ulong shred_ver       = 0UL;
@@ -870,7 +870,7 @@ write_gossip( config_t const * config,
               ulong const *    prev_link ) {
   ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
   if( gossip_tile_idx==ULONG_MAX ) return 0U;
-  char * contact_info = COUNT( cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] );
+  char * contact_info = COUNT( cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_OCCUPIED_CONTACT_INFO_V2 ) ] );
 
   ulong gossip_total_ticks = total_regime( &cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] );
   gossip_total_ticks = fd_ulong_max( gossip_total_ticks, 1UL );
@@ -885,8 +885,8 @@ write_gossip( config_t const * config,
          " " BOLD "PEERS" UNBOLD " %s"
          " " BOLD "BUSY"  UNBOLD " %3.0f%%"
          " " BOLD "BACKP" UNBOLD " %3.0f%%" CLEARLN "\n",
-    DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
-    DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
+    DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+    DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
     contact_info,
     gossip_busy_pct,
@@ -901,15 +901,15 @@ write_repair( config_t const * config,
               ulong const *    prev_link ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
   if( repair_tile_idx==ULONG_MAX ) return 0U;
-  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
-  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, CURRENT_SLOT ) ];
+  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
+  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
   PRINT( "🧱 " BOLD RED "REPAIR......" RESET UNBOLD
          " " BOLD "RX"            UNBOLD " %s"
          " " BOLD "TX"            UNBOLD " %s"
          " " BOLD "REPAIR SLOT"   UNBOLD " %lu (%02ld)"
          " " BOLD "TURBINE SLOT"  UNBOLD " %lu" CLEARLN "\n",
-    DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
-    DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
+    DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+    DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     repair_slot,
     (long)repair_slot-(long)turbine_slot,
     turbine_slot );
@@ -930,7 +930,7 @@ write_replay( config_t const * config,
 
   ulong turbine_slot;
   if( repair_tile_idx!=ULONG_MAX ) {
-    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, CURRENT_SLOT ) ];
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
   } else {
     turbine_slot = reset_slot;
   }
@@ -941,7 +941,7 @@ write_replay( config_t const * config,
   else FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "never" ) );
 
   ulong root_distance = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_DISTANCE ) ];
-  ulong live_banks    = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LIVE_BANKS    ) ];
+  ulong live_banks    = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, BANK_LIVE     ) ];
 
   ulong sps_sum = 0UL;
   ulong num_sps_samples = fd_ulong_min( sps_samples_idx, sizeof(sps_samples)/sizeof(sps_samples[0]));
@@ -986,8 +986,8 @@ write_gui( config_t const * config,
   ulong gui_tile_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
   if( gui_tile_idx==ULONG_MAX ) return 0U;
 
-  ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONNECTION_COUNT ) ]+
-                           cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONNECTION_COUNT ) ];
+  ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONN_ACTIVE ) ]+
+                           cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONN_ACTIVE ) ];
 
   ulong gui_total_ticks = total_regime( &cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] );
   gui_total_ticks = fd_ulong_max( gui_total_ticks, 1UL );
@@ -995,9 +995,9 @@ write_gui( config_t const * config,
   double gui_idle_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gui_total_ticks;
   double gui_busy_pct = 100.0 - gui_backp_pct - gui_idle_pct;
 
-  long sent_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_SENT ) );
+  long sent_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAME_TX ) );
   char * sent_frame_count_s = COUNT( (ulong)sent_frame_count );
-  long received_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_RECEIVED ) );
+  long received_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAME_RX ) );
 
   PRINT( "👁  " BOLD CYAN "GUI........." RESET UNBOLD
          " " BOLD "CONNS"  UNBOLD " %lu"
@@ -1019,7 +1019,7 @@ write_event( config_t const * config,
   ulong event_tile_idx = fd_topo_find_tile( &config->topo, "event", 0UL );
   if( event_tile_idx==ULONG_MAX ) return 0U;
 
-  ulong connection_state = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, CONNECTION_STATE ) ];
+  ulong connection_state = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, CONN_STATE ) ];
   char const * connection_state_str;
   switch( connection_state ) {
     case 0UL: connection_state_str = "disconnected";    break;
@@ -1030,10 +1030,10 @@ write_event( config_t const * config,
     default:  connection_state_str = "unknown";         break;
   }
 
-  ulong event_queue_count = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_COUNT ) ];
-  ulong event_queue_drops = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, EVENT, EVENT_QUEUE_DROPS ) ];
-  ulong event_queue_bytes_used = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_BYTES_USED ) ];
-  ulong event_queue_bytes_capacity = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_BYTES_CAPACITY ) ];
+  ulong event_queue_count = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_DEPTH ) ];
+  ulong event_queue_drops = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, EVENT, QUEUE_DROPPED ) ];
+  ulong event_queue_bytes_used = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_BYTES_USED ) ];
+  ulong event_queue_bytes_capacity = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_BYTES_CAPACITY ) ];
 
   double event_queue_pct_full = event_queue_bytes_capacity>0UL ? 100.0*(double)event_queue_bytes_used/(double)event_queue_bytes_capacity : 0.0;
 
@@ -1216,27 +1216,27 @@ run( config_t const * config,
       snap_tiles( &config->topo, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
       snap_links( &config->topo, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
 
-      tps_sent_samples[ tps_sent_samples_idx%(sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0])) ] = (ulong)diff_tile( config, "benchs", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, BENCHS, TRANSACTIONS_SENT ) );
+      tps_sent_samples[ tps_sent_samples_idx%(sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0])) ] = (ulong)diff_tile( config, "benchs", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, BENCHS, TXN_TX ) );
       tps_sent_samples_idx++;
 
-      sps_samples[ sps_samples_idx%(sizeof(sps_samples)/sizeof(sps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, SLOTS_TOTAL ) );
+      sps_samples[ sps_samples_idx%(sizeof(sps_samples)/sizeof(sps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, SLOT_REPLAYED ) );
       sps_samples_idx++;
-      tps_samples[ tps_samples_idx%(sizeof(tps_samples)/sizeof(tps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, TRANSACTIONS_TOTAL ) );
+      tps_samples[ tps_samples_idx%(sizeof(tps_samples)/sizeof(tps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, TXN_PROCESSED ) );
       tps_samples_idx++;
       cups_samples[ cups_samples_idx%(sizeof(cups_samples)/sizeof(cups_samples[0])) ] =
-          (ulong)diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, COMPUTE_UNITS_TOTAL ) ) +
-          (ulong)diff_tile( config, "execle", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECLE, COMPUTE_UNITS_TOTAL ) );
+          (ulong)diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, CU_EXECUTED ) ) +
+          (ulong)diff_tile( config, "execle", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECLE, CU_EXECUTED ) );
       cups_samples_idx++;
       snapshot_rx_samples[ snapshot_rx_idx%(sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0])) ] = (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ) +
                                                                                                             (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) );
       snapshot_rx_idx++;
-      snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED ) );
+      snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) );
       snapshot_acc_idx++;
       snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = (ulong)diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
       snapshot_wr_idx++;
-      events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, EVENTS_SENT ) );
+      events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, SENT ) );
       events_sent_samples_idx++;
-      events_acked_samples[ events_acked_samples_idx%(sizeof(events_acked_samples)/sizeof(events_acked_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, EVENTS_ACKED ) );
+      events_acked_samples[ events_acked_samples_idx%(sizeof(events_acked_samples)/sizeof(events_acked_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, ACKED ) );
       events_acked_samples_idx++;
       event_bytes_written_samples[ event_bytes_written_samples_idx%(sizeof(event_bytes_written_samples)/sizeof(event_bytes_written_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_WRITTEN ) );
       event_bytes_written_samples_idx++;

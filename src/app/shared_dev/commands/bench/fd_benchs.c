@@ -206,7 +206,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_benchs_ctx_t * ctx ) {
-  FD_MCNT_SET( BENCHS, TRANSACTIONS_SENT, ctx->packet_cnt );
+  FD_MCNT_SET( BENCHS, TXN_TX, ctx->packet_cnt );
 }
 
 static inline int

@@ -109,23 +109,23 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
-  FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_RESULT, ctx->metrics.txn_result );
-  FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_LANDED, ctx->metrics.txn_landed );
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
 
-  FD_MCNT_SET( EXECLE, COMPUTE_UNITS_TOTAL, ctx->runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 
-  FD_MCNT_SET( EXECLE, TXN_REGIME_SETUP,  ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
-  FD_MCNT_SET( EXECLE, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
-  FD_MCNT_SET( EXECLE, TXN_REGIME_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_check_cum_ticks+ctx->metrics.txn_load_cum_ticks );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks + runtime->metrics.cpi_commit_cum_ticks;
   ulong exec_ticks = fd_ulong_sat_sub( runtime->metrics.vm_exec_cum_ticks, cpi_ticks );
-  FD_MCNT_SET( EXECLE, VM_REGIME_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
-  FD_MCNT_SET( EXECLE, VM_REGIME_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
-  FD_MCNT_SET( EXECLE, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
-  FD_MCNT_SET( EXECLE, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
-  FD_MCNT_SET( EXECLE, VM_REGIME_INTERPRETER, exec_ticks                            );
+  FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
+  FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
+  FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
+  FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
+  FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }

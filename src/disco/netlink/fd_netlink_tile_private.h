@@ -48,7 +48,7 @@ struct fd_netlink_tile_ctx {
   struct {
     ulong link_full_syncs;
     ulong route_full_syncs;
-    ulong update_cnt[ FD_METRICS_COUNTER_NETLNK_UPDATES_CNT ];
+    ulong update_cnt[ FD_METRICS_COUNTER_NETLNK_UPDATE_PROCESSED_CNT ];
     ulong neigh_solicits_sent;
     ulong neigh_solicits_fails;
   } metrics;

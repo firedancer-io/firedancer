@@ -130,15 +130,15 @@ render_status( ulong volatile const * net_metrics ) {
     /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_PREFRAG        ) ];
     /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG      ) ];
     /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG       ) ];
-    ulong rx_ok_now     = net_metrics[ MIDX( COUNTER, NET, RX_PKT_CNT           ) ];
-    ulong rx_byte_now   = net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL       ) ];
-    ulong rx_drop_now   = net_metrics[ MIDX( COUNTER, NET, RX_FILL_BLOCKED_CNT  ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, RX_BACKPRESSURE_CNT  ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_DROPPED_OTHER ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCS ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL     ) ];
-    ulong tx_ok_now     = net_metrics[ MIDX( COUNTER, NET, TX_COMPLETE_CNT      ) ];
-    ulong tx_byte_now   = net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL       ) ];
+    ulong rx_ok_now     = net_metrics[ MIDX( COUNTER, NET, PKT_RX                    ) ];
+    ulong rx_byte_now   = net_metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES              ) ];
+    ulong rx_drop_now   = net_metrics[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL       ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE       ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED      ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL          ) ];
+    ulong tx_ok_now     = net_metrics[ MIDX( COUNTER, NET, PKT_TX_COMPLETED          ) ];
+    ulong tx_byte_now   = net_metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES              ) ];
 
     ulong cum_idle_delta = cum_idle_now-cum_idle_last;
     ulong cum_tick_delta = cum_tick_now-cum_tick_last;
@@ -165,10 +165,10 @@ render_status( ulong volatile const * net_metrics ) {
     tx_byte_last         = tx_byte_now;
   }
 
-  ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_IDLE_CNT ) ];
-  ulong rx_busy = net_metrics[ MIDX( GAUGE, NET, RX_BUSY_CNT ) ];
-  ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_IDLE_CNT ) ];
-  ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUSY_CNT ) ];
+  ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_BUFFER_IDLE ) ];
+  ulong rx_busy = net_metrics[ MIDX( GAUGE, NET, RX_BUFFER_BUSY ) ];
+  ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_BUFFER_IDLE ) ];
+  ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUFFER_BUSY ) ];
   printf( "\033[2K" "  Net busy: %.2f%%\n"
           "\033[2K" "  RX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX drop: %10.3e pps\n"

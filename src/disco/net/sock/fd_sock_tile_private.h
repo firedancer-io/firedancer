@@ -27,7 +27,7 @@
 
 struct fd_sock_tile_metrics {
   ulong sys_recvmmsg_cnt;
-  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_CNT ];
+  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_CNT ];
   ulong rx_pkt_cnt;
   ulong tx_pkt_cnt;
   ulong tx_drop_cnt;
