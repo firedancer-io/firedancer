@@ -546,7 +546,7 @@ fd_repair_send_sign_request( ctx_t                 * ctx,
 
   if( FD_UNLIKELY( msg->kind == FD_REPAIR_KIND_PONG ) ) {
     uchar pre_image[FD_REPAIR_PONG_PREIMAGE_SZ];
-    preimage_pong( &opt_pong_data->hash, pre_image, sizeof(pre_image) );
+    preimage_pong( &opt_pong_data->hash, pre_image );
     preimage_sz = FD_REPAIR_PONG_PREIMAGE_SZ;
     fd_memcpy( dst, pre_image, preimage_sz );
     sig = ((ulong)pending->key << 32) | (uint)FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519;

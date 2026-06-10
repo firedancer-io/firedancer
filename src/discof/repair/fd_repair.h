@@ -66,13 +66,6 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
-/* FD_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
-#ifndef FD_REPAIR_USE_HANDHOLDING
-#define FD_REPAIR_USE_HANDHOLDING 1
-#endif
-
 /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} specify discriminant
    values the protocol uses to distinguish message types. */
 
@@ -267,17 +260,11 @@ fd_repair_sz( fd_repair_msg_t const * msg ) {
    }
 }
 
-/* preimage_pong takes a pong and takes the token in a ping and a
-   FD_REPAIR_PONG_PREIMAGE_SZ-byte buffer and returns a pointer to a
-   preimage that can be signed. */
+/* preimage_pong creates the signing payload for a pong message. */
 
 static inline uchar *
-preimage_pong( fd_hash_t const * ping_token, uchar * preimage_buf, ulong preimage_sz ) {
-# if FD_REPAIR_USE_HANDHOLDING
-  if( FD_UNLIKELY( preimage_sz != FD_REPAIR_PONG_PREIMAGE_SZ ) ) {
-    FD_LOG_ERR(( "preimage_sz %lu must be %lu", preimage_sz, FD_REPAIR_PONG_PREIMAGE_SZ ));
-  }
-# endif
+preimage_pong( fd_hash_t const * ping_token,
+               uchar             preimage_buf[ static FD_REPAIR_PONG_PREIMAGE_SZ ] ) {
   ulong prefix_sz = sizeof(FD_REPAIR_PONG_PREIMAGE_PREFIX) - 1 /* subtract NUL */;
   memcpy( preimage_buf,             FD_REPAIR_PONG_PREIMAGE_PREFIX, prefix_sz         );
   memcpy( preimage_buf + prefix_sz, ping_token,                     sizeof(fd_hash_t) );

@@ -236,7 +236,7 @@ struct fd_crds_entry_private {
 #define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; }))
 #define TREAP_IDX_T     ulong
 
-#if FD_GOSSIP_USE_HANDHOLDING
+#if FD_DCHECK_STYLE>0
 #define TREAP_LT(a,b)   (__extension__({ \
   FD_TEST( (a)->crds_entry ); \
   FD_TEST( (b)->crds_entry ); \
