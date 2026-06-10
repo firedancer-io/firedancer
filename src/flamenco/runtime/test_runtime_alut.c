@@ -2240,7 +2240,7 @@ main( int argc, char ** argv ) {
   test_wire_rejects_truncated_padding();
   test_wire_encoded_field_offsets();
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous_from_env( &argc, &argv, "gigantic", 16UL, "test_runtime_alut_wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 16UL, "test_runtime_alut_wksp", 0UL );
   FD_TEST( wksp );
 
   /* Run test cases */

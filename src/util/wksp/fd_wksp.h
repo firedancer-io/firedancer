@@ -720,22 +720,30 @@ fd_wksp_new_anonymous( ulong         page_sz,
 
 static inline void fd_wksp_delete_anonymous( fd_wksp_t * wksp ) { fd_wksp_delete_anon( wksp ); }
 
-/* fd_wksp_new_anonymous_from_env parses --page-sz, --page-cnt, --numa-idx
-   from the command line (falling back to defaults) and creates an anonymous
-   workspace. */
+/* fd_wksp_new_anon_from_env parses --page-sz and --numa-idx from the
+   command line (falling back to defaults) and creates an anonymous workspace.
+   The workspace size is fixed at default_page_cnt*default_page_sz bytes;
+   --page-sz controls the page type used to back it (the page count is
+   scaled accordingly).  --page-cnt is consumed from argv but ignored so
+   that the test runner's budget does not inflate the workspace beyond what
+   the test actually needs. */
 
 static inline fd_wksp_t *
-fd_wksp_new_anonymous_from_env( int *        pargc,
-                                char ***     pargv,
-                                char const * default_page_sz,
-                                ulong        default_page_cnt,
-                                char const * name,
-                                ulong        opt_part_max ) {
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz  );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, default_page_cnt );
-  if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "--page-cnt must be at least 1" ));
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
-  return fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), name, opt_part_max );
+fd_wksp_new_anon_from_env( int *        pargc,
+                           char ***     pargv,
+                           char const * default_page_sz,
+                           ulong        default_page_cnt,
+                           char const * name,
+                           ulong        opt_part_max ) {
+  char const * _page_sz    = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz          );
+  ulong        numa_idx    = fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
+  fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL ); /* consume to keep argv clean */
+  ulong        page_sz     = fd_cstr_to_shmem_page_sz( _page_sz );
+  ulong        def_page_sz = fd_cstr_to_shmem_page_sz( default_page_sz );
+  ulong        page_cnt    = (default_page_cnt * def_page_sz + page_sz - 1UL) / page_sz;
+  ulong        cpu_idx     = fd_shmem_cpu_idx( numa_idx );
+  if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "invalid page size for requested workspace" ));
+  return fd_wksp_new_anon( name, page_sz, 1UL, &page_cnt, &cpu_idx, 0U, opt_part_max );
 }
 
 /* fd_wksp_attach attach to the workspace held by the shared memory

@@ -681,7 +681,7 @@ main( int     argc,
 
   test_count_vote_txn();
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous_from_env( &argc, &argv, "gigantic", 4UL, "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 4UL, "wksp", 0UL );
   FD_TEST( wksp );
 
   test_fixture_replay( wksp );

@@ -2403,7 +2403,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
 
   uint rng_seed = fd_env_strip_cmdline_uint( &argc, &argv, "--seed", NULL, 3714951721/* arbitrary seed, reproducible CI */ );
   if( FD_UNLIKELY( !rng_seed ) ) rng_seed = (uint)fd_log_wallclock(); /* random seed, used for development */

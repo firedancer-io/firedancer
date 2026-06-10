@@ -74,24 +74,12 @@ main( int     argc,
 
   test_funk_val_shrink_compacts();
 
-  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,            NULL );
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
-  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
   ulong        seed     = fd_env_strip_cmdline_ulong( &argc, &argv, "--seed",      NULL,          5678UL );
   ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,        262144UL );
   uint         rec_max  = fd_env_strip_cmdline_uint(  &argc, &argv, "--rec-max",   NULL,          262144 );
 
-  fd_wksp_t * wksp;
-  if( name ) {
-    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
-    wksp = fd_wksp_attach( name );
-  } else {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
-                    _page_sz, page_cnt, near_cpu ));
-    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
-  }
+  fd_wksp_t *  wksp     = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
@@ -155,8 +143,7 @@ main( int     argc,
 
   fd_wksp_free_laddr( shlocks );
   fd_wksp_free_laddr( shmem );
-  if( name ) fd_wksp_detach( wksp );
-  else       fd_wksp_delete_anonymous( wksp );
+  fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
