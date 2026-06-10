@@ -18,6 +18,8 @@
    will be a no-op. ---- */
 
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 #include "fd_sched.h"
 
 #define TEST_BANKS_MAX 16UL
@@ -50,6 +52,7 @@ int mock_sched_fec_ingest_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_fec_t * f
 ulong mock_sched_can_ingest_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 int   mock_sched_is_drained_fn  ( fd_sched_t * s FD_PARAM_UNUSED ) { return 1; }
 void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) {}
+void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) {}
 ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
@@ -59,10 +62,59 @@ ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_
 #define fd_sched_can_ingest_cnt    mock_sched_can_ingest_fn
 #define fd_sched_is_drained        mock_sched_is_drained_fn
 #define fd_sched_block_abandon     mock_sched_abandon_fn
+#define fd_sched_cancel            mock_sched_cancel_fn
 #define fd_sched_pruned_block_next mock_sched_pruned_fn
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn
+
+/* ---- Mock leader setup dependencies ---- */
+
+static ulong mock_next_leader_slot = ULONG_MAX;
+static ulong mock_txncache_fork_id_next;
+static ulong mock_progcache_fork_id_next;
+static ushort mock_accdb_fork_id_next;
+
+ulong
+mock_multi_epoch_leaders_next_slot_fn( fd_multi_epoch_leaders_t const * mleaders FD_PARAM_UNUSED,
+                                       ulong                            start_slot,
+                                       fd_pubkey_t const *              leader_q FD_PARAM_UNUSED ) {
+  return mock_next_leader_slot>=start_slot ? mock_next_leader_slot : ULONG_MAX;
+}
+
+fd_txncache_fork_id_t
+mock_txncache_attach_child_fn( fd_txncache_t *       tc FD_PARAM_UNUSED,
+                               fd_txncache_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
+  return (fd_txncache_fork_id_t){ .val=(ushort)++mock_txncache_fork_id_next };
+}
+
+fd_progcache_fork_id_t
+mock_progcache_attach_child_fn( fd_progcache_join_t *  cache FD_PARAM_UNUSED,
+                                fd_progcache_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
+  return ++mock_progcache_fork_id_next;
+}
+
+fd_accdb_fork_id_t
+mock_accdb_attach_child_fn( fd_accdb_t *       accdb FD_PARAM_UNUSED,
+                            fd_accdb_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
+  return (fd_accdb_fork_id_t){ .val=++mock_accdb_fork_id_next };
+}
+
+void
+mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSED,
+                                       fd_bank_t *          bank FD_PARAM_UNUSED,
+                                       fd_accdb_t *         accdb FD_PARAM_UNUSED,
+                                       fd_runtime_stack_t * runtime_stack FD_PARAM_UNUSED,
+                                       fd_capture_ctx_t *   capture_ctx FD_PARAM_UNUSED,
+                                       int *                is_epoch_boundary ) {
+  *is_epoch_boundary = 0;
+}
+
+#define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn
+#define fd_txncache_attach_child             mock_txncache_attach_child_fn
+#define fd_progcache_attach_child            mock_progcache_attach_child_fn
+#define fd_accdb_attach_child                mock_accdb_attach_child_fn
+#define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
 
 /* ---- Include the tile under test ---- */
 
@@ -187,15 +239,39 @@ setup_ctx( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   FD_TEST( ctx->banks );
   fd_bank_t * root_bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( root_bank );
+  root_bank->f.slot            = 0UL;
+  root_bank->f.parent_slot     = ULONG_MAX;
+  root_bank->f.ticks_per_slot  = 64UL;
+  root_bank->f.hashes_per_tick = 4UL;
+  fd_epoch_schedule_derive( &root_bank->f.epoch_schedule, 128UL, 128UL, 0 );
+  fd_hash_t genesis_hash = { .ul = { 1UL } };
+  fd_blockhashes_init( &root_bank->f.block_hash_queue, 42UL );
+  fd_blockhash_info_t * bh_info = fd_blockhashes_push_new( &root_bank->f.block_hash_queue, &genesis_hash );
+  FD_TEST( bh_info );
+  bh_info->lamports_per_signature = 5000UL;
 
   ctx->is_booted    = 1;
   ctx->wfs_complete = 1;
   ctx->is_leader    = 0;
+  ctx->supports_leader = 1;
+  ctx->identity_vote_rooted = 1;
+  ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+  ctx->reset_slot            = 0UL;
+  ctx->reset_bank            = root_bank;
+  ctx->slot_duration_nanos   = 400000000.0;
+  ctx->slot_duration_ticks   = 1000000.0;
   ctx->block_id_len = bid_cnt;
   ctx->consensus_root_slot     = ULONG_MAX;
   ctx->consensus_root_bank_idx = root_bank->idx;
   ctx->published_root_slot     = ULONG_MAX;
   ctx->published_root_bank_idx = root_bank->idx;
+
+  mock_next_leader_slot       = ULONG_MAX;
+  mock_txncache_fork_id_next  = 0UL;
+  mock_progcache_fork_id_next = 0UL;
+  mock_accdb_fork_id_next     = 0U;
 
   setup_stem( ctx, wksp );
   setup_repair_input( ctx, wksp );
@@ -211,6 +287,15 @@ init_root_fec( fd_replay_tile_t * ctx,
   FD_TEST( root_bank );
   f_root->bank_idx = root_bank->idx;
   f_root->bank_seq = root_bank->bank_seq;
+
+  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ root_bank->idx ];
+  block_id_ele->block_id_seen  = 1;
+  block_id_ele->slot           = root_bank->f.slot;
+  block_id_ele->latest_fec_idx = 0U;
+  block_id_ele->latest_mr      = *mr_root;
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+
+  ctx->reset_block_id = *mr_root;
   return f_root;
 }
 
@@ -247,6 +332,15 @@ ingest_fec_complete( fd_replay_tile_t * ctx,
   return fec;
 }
 
+static int
+drive_after_credit_once( fd_replay_tile_t * ctx ) {
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  ctx->execrp_idle_cnt = 2UL*ctx->in_cnt;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  return charge_busy;
+}
+
 static fd_reasm_fec_t *
 drive_one_fec( fd_replay_tile_t * ctx,
                ulong              slot,
@@ -254,15 +348,34 @@ drive_one_fec( fd_replay_tile_t * ctx,
   fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
   FD_TEST( fec && fec->slot==slot && fec->fec_set_idx==fec_set_idx );
 
-  int opt_poll_in = 1;
-  int charge_busy = 0;
-  ctx->execrp_idle_cnt = 2UL*ctx->in_cnt;
-  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
-
-  FD_TEST( charge_busy );
-  FD_TEST( !opt_poll_in );
+  FD_TEST( drive_after_credit_once( ctx ) );
   FD_TEST( fec->popped );
   return fec;
+}
+
+static fd_bank_t *
+drive_become_leader( fd_replay_tile_t * ctx,
+                     fd_hash_t const *  reset_block_id,
+                     ulong              leader_slot ) {
+  fd_bank_t * reset_bank = fd_banks_root( ctx->banks );
+  FD_TEST( reset_bank );
+
+  mock_next_leader_slot = leader_slot;
+  ctx->reset_bank       = reset_bank;
+  ctx->reset_slot       = reset_bank->f.slot;
+  ctx->reset_block_id   = *reset_block_id;
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, leader_slot, ctx->identity_pubkey );
+  FD_TEST( ctx->next_leader_slot==leader_slot );
+  ctx->next_leader_tickcount = 0L;
+
+  FD_TEST( drive_after_credit_once( ctx ) );
+
+  FD_TEST( ctx->is_leader );
+  FD_TEST( ctx->leader_bank );
+  FD_TEST( ctx->leader_bank->is_leader );
+  FD_TEST( ctx->leader_bank->f.slot==leader_slot );
+  FD_TEST( ctx->leader_bank->parent_idx==reset_bank->idx );
+  return ctx->leader_bank;
 }
 
 static void
@@ -881,6 +994,77 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_partial_exec_evict" ));
 }
 
+/* Banks full eviction: fill the bank pool with sibling leaves, then ingest
+   another slot.  Replay should evict the non-leader frontier leaf banks and
+   prune them once scheduler refs are drained, but leave a leader leaf alone. */
+
+static void
+test_banks_full_prune_leaf( fd_wksp_t * wksp ) {
+
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root = { .ul = { 100 } };
+  init_root_fec( ctx, &mr_root );
+
+  ulong leaf_bank_idxs[ TEST_BANKS_MAX ];
+  ulong leaf_cnt = 0UL;
+
+  fd_bank_t * leader_bank = drive_become_leader( ctx, &mr_root, 1UL );
+  ulong const leader_leaf_idx = leader_bank->idx;
+
+  /* Fill the rest of the bank pool with sibling child slots. */
+
+  for( ulong slot=2UL; slot<TEST_BANKS_MAX; slot++ ) {
+    fd_hash_t mr = { .ul = { 1000UL+slot } };
+    ingest_fec_complete( ctx, &mr, &mr_root, slot, 0U, (ushort)slot, 32U, 1, 1 );
+    fd_reasm_fec_t * fec = drive_one_fec( ctx, slot, 0U );
+    leaf_bank_idxs[ leaf_cnt++ ] = fec->bank_idx;
+
+    /* Simulate scheduler draining its ref on the block. */
+    fd_banks_bank_query( ctx->banks, fec->bank_idx )->refcnt = 0UL;
+  }
+
+  FD_TEST( fd_banks_is_full( ctx->banks ) );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==TEST_BANKS_MAX );
+  FD_TEST( leaf_cnt>1UL );
+
+  ulong frontier[ TEST_BANKS_MAX ];
+  ulong frontier_cnt = 0UL;
+  fd_banks_get_replay_frontier( ctx->banks, frontier, &frontier_cnt );
+  FD_TEST( frontier_cnt==leaf_cnt );
+
+  for( ulong i=0UL; i<leaf_cnt; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<frontier_cnt; j++ ) found |= (frontier[ j ]==leaf_bank_idxs[ i ]);
+    FD_TEST( found );
+  }
+  for( ulong j=0UL; j<frontier_cnt; j++ ) FD_TEST( frontier[ j ]!=leader_leaf_idx );
+
+  ulong const used_before     = fd_banks_pool_used_cnt( ctx->banks );
+
+  /* Ingest a new slot that needs a fresh bank. */
+
+  fd_hash_t mr_next = { .ul = { 2000 } };
+  ingest_fec_complete( ctx, &mr_next, &mr_root, TEST_BANKS_MAX, 0U, (ushort)TEST_BANKS_MAX, 32U, 1, 0 );
+
+  for( ulong i=0UL; i<64UL; i++ ) {
+    ulong remaining_leaf_cnt = 0UL;
+    for( ulong j=0UL; j<leaf_cnt; j++ ) remaining_leaf_cnt += !!fd_banks_bank_query( ctx->banks, leaf_bank_idxs[ j ] );
+    if( !remaining_leaf_cnt ) break;
+    FD_TEST( drive_after_credit_once( ctx ) );
+  }
+
+  for( ulong i=0UL; i<leaf_cnt; i++ ) FD_TEST( !fd_banks_bank_query( ctx->banks, leaf_bank_idxs[ i ] ) );
+  leader_bank = fd_banks_bank_query( ctx->banks, leader_leaf_idx );
+  FD_TEST( leader_bank );
+  FD_TEST( leader_bank->is_leader );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )<=used_before-leaf_cnt );
+  FD_TEST( !fd_banks_is_full( ctx->banks ) );
+
+  FD_LOG_NOTICE(( "pass: test_banks_full_prune_leaf" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -892,6 +1076,7 @@ main( int     argc,
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_banks_full_prune_leaf( wksp );
   test_banks_evict_backfill( wksp );
   test_partial_exec_evict( wksp );
   test_eqvoc_mid_slot_evicted( wksp );
