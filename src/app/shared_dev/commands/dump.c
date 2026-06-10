@@ -2,6 +2,8 @@
 #include "../../shared/fd_action.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/fd_clock_tile.h"
+#include "../../../disco/net/fd_net_tile.h"
+#include "../../../disco/shred/fd_fec_set.h"
 #include "../../../util/clock/fd_clock.h"
 #include "../../../util/net/fd_pcap.h"
 
@@ -11,14 +13,22 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#define FD_DUMP_FLAGS_NO_DATA     1
+#define FD_DUMP_FLAGS_NET_RX      2
+#define FD_DUMP_FLAGS_OVERRIDE_SZ 4 /* high 24 bits give size */
+
 struct dump_ctx {
   fd_io_buffered_ostream_t ostream;
   ulong                    pending_sz;
 
   struct link {
     fd_topo_link_t const * topo;
-    void const *           dcache_base;
+    union {
+      void const *           dcache_base;
+      fd_net_rx_bounds_t     net_rx_bounds[1];
+    };
     uint                   link_hash;
+    int                    flags; /* FD_DUMP_FLAGS_* */
   }                        links[ FD_TOPO_MAX_LINKS ];
   ulong                    link_cnt;
 
@@ -45,6 +55,21 @@ dump_cmd_args( int      * argc,
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->dump.link_name ), link,     sizeof(args->dump.link_name)-1UL ) );
 }
 
+static FD_FN_CONST ulong
+frag_sz( int   flags,
+         ulong line_sz ) {
+  return fd_ulong_if( flags & FD_DUMP_FLAGS_NO_DATA, 0UL,
+                                                     fd_ulong_if( flags & FD_DUMP_FLAGS_OVERRIDE_SZ, ((ulong)flags)>>8, line_sz ) );
+}
+static FD_FN_PURE void const *
+frag_ptr( int                    flags,
+          struct link const *    link,
+          ulong                  chunk,
+          ulong                  ctl ) {
+  if( FD_UNLIKELY( flags & FD_DUMP_FLAGS_NET_RX ) ) return fd_net_rx_translate_frag( link->net_rx_bounds, chunk, ctl, 0UL );
+  else                                              return fd_chunk_to_laddr_const ( link->dcache_base,   chunk           );
+}
+
 static void
 dump_link_once( dump_ctx_t *        ctx,
                 struct link const * link ) {
@@ -55,6 +80,8 @@ dump_link_once( dump_ctx_t *        ctx,
 
   ulong frags = 0UL;
   ulong bytes = 0UL;
+
+  int flags = link->flags;
 
   /* For links that are published reliably, we can trust the value of
      seq_init.  For unreliable links, we'll just publish one whole
@@ -73,15 +100,11 @@ dump_link_once( dump_ctx_t *        ctx,
 
     min_seq_seen = seq;
 
-    if( FD_LIKELY( link->dcache_base ) ) {
-      ulong chunk = line->chunk;
-      ulong sz    = line->sz;
-      void const * buffer = fd_chunk_to_laddr_const( link->dcache_base, chunk );
-      fd_pcap_ostream_pkt( &ctx->ostream, (long)seq, line, sizeof(fd_frag_meta_t), buffer, sz, link->link_hash );
-      bytes += sz;
-    } else {
-      fd_pcap_ostream_pkt( &ctx->ostream, (long)seq, line, sizeof(fd_frag_meta_t), NULL, 0, link->link_hash );
-    }
+    ulong        sz     = frag_sz ( flags, line->sz                     );
+    void const * buffer = frag_ptr( flags, link, line->chunk, line->ctl );
+
+    fd_pcap_ostream_pkt( &ctx->ostream, (long)seq, line, sizeof(fd_frag_meta_t), buffer, sz, link->link_hash );
+    bytes += sz;
     frags++;
   }
 
@@ -99,15 +122,11 @@ dump_link_once( dump_ctx_t *        ctx,
        particular as well. */
     if( FD_UNLIKELY( (fd_seq_le( min_seq_seen, read_seq ) & fd_seq_lt( read_seq, seq_init )) | (line->ctl & (1<<2)) ) ) continue;
 
-    if( FD_LIKELY( link->dcache_base ) ) {
-      ulong chunk = line->chunk;
-      ulong sz    = line->sz;
-      void const * buffer = fd_chunk_to_laddr_const( link->dcache_base, chunk );
-      fd_pcap_ostream_pkt( &ctx->ostream, (long)seq, line, sizeof(fd_frag_meta_t), buffer, sz, link->link_hash );
-      bytes += sz;
-    } else {
-      fd_pcap_ostream_pkt( &ctx->ostream, (long)seq, line, sizeof(fd_frag_meta_t), NULL, 0, link->link_hash );
-    }
+    ulong        sz     = frag_sz ( flags, line->sz                     );
+    void const * buffer = frag_ptr( flags, link, line->chunk, line->ctl );
+
+    fd_pcap_ostream_pkt( &ctx->ostream, (long)seq, line, sizeof(fd_frag_meta_t), buffer, sz, link->link_hash );
+    bytes += sz;
     frags++;
   }
   FD_LOG_NOTICE(( "dumped %lu frags, %lu bytes in total from %s:%lu. Link hash: 0x%x",
@@ -133,7 +152,7 @@ during_frag( dump_ctx_t * ctx,
              ulong        sig FD_PARAM_UNUSED ,
              ulong        chunk,
              ulong        sz,
-             ulong        ctl FD_PARAM_UNUSED ) {
+             ulong        ctl ) {
   /* We have a new candidate fragment to copy into the dump file.
      Because we attach read-only and do not backpressure any producers,
      this fragment could be overrun at any point during this function.
@@ -143,6 +162,12 @@ during_frag( dump_ctx_t * ctx,
      overrun while we were processing it. */
 
   ctx->pending_sz = 0UL;
+
+  struct link const * llink = ctx->links+in_idx;
+  int flags = llink->flags;
+
+  sz = frag_sz( flags, sz );
+
 
   long pcap_sz = fd_pcap_pkt_sz( sizeof(fd_frag_meta_t), sz );
   if( FD_UNLIKELY( pcap_sz < 0L ) ) return;
@@ -155,11 +180,10 @@ during_frag( dump_ctx_t * ctx,
     }
   }
 
-  FD_TEST( (sz==0UL) || (ctx->links[ in_idx ].dcache_base!=NULL) );
 
   fd_topo_link_t const * link      = ctx->links[ in_idx ].topo;
   fd_frag_meta_t const * mline     = link->mcache + fd_mcache_line_idx( seq, fd_mcache_depth( link->mcache ) );
-  void const *           frag_data = fd_chunk_to_laddr_const( ctx->links[ in_idx ].dcache_base, chunk );
+  void const *           frag_data = frag_ptr( flags, llink, chunk, ctl );
 
   fd_pcap_pkt( fd_io_buffered_ostream_peek( &ctx->ostream ),
                0L,
@@ -181,6 +205,8 @@ after_frag( dump_ctx_t *        ctx,
             ulong               tspub,
             fd_stem_context_t * stem FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( !ctx->pending_sz ) ) return;
+
+  sz = frag_sz( ctx->links[ in_idx ].flags, sz );
   long pcap_sz = fd_pcap_pkt_sz( sizeof(fd_frag_meta_t), sz );
   FD_TEST( (ulong)pcap_sz == ctx->pending_sz );
 
@@ -278,6 +304,21 @@ dump_cmd_fn( args_t      * args,
       ctx.links[ ctx.link_cnt ].topo        = link;
       ctx.links[ ctx.link_cnt ].dcache_base = link->mtu ? fd_topo_obj_wksp_base( topo, link->dcache_obj_id ) : NULL;
       ctx.links[ ctx.link_cnt ].link_hash   = (uint)((fd_hash( 17UL, link->name, strlen( link->name ) ) << 8) | link->kind_id);
+
+      int flags = fd_int_if( !link->mtu, FD_DUMP_FLAGS_NO_DATA, 0 );
+      if( FD_UNLIKELY( !strcmp( link->name, "shred_store" ) ) ) {
+        flags |= FD_DUMP_FLAGS_OVERRIDE_SZ | (sizeof(fd_fec_set_t)<<8);
+      }
+      if( FD_UNLIKELY( strstr( link->name, "net_" ) ) ) {
+        flags |= FD_DUMP_FLAGS_NET_RX;
+        /* this overwrites dcache_base since it's part of the union, but
+           that's okay. */
+        uchar * dcache = fd_dcache_join( fd_topo_obj_laddr( topo, link->dcache_obj_id ) );
+        fd_net_rx_bounds_init( ctx.links[ ctx.link_cnt ].net_rx_bounds, dcache );
+        fd_dcache_leave( dcache );
+      }
+      ctx.links[ ctx.link_cnt ].flags = flags;
+
       ctx.link_cnt++;
     }
   }
