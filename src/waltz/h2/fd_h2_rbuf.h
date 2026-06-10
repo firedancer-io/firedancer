@@ -66,9 +66,7 @@ static inline void
 fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
                  void const *   chunk,
                  ulong          chunk_sz ) {
-#ifdef FD_H2_USE_HANDHOLDING
-  FD_TEST( chunk_sz<=fd_h2_rbuf_free_sz( rbuf ) );
-#endif
+  FD_CHECK_CRIT( chunk_sz<=fd_h2_rbuf_free_sz( rbuf ), "out of memory" );
   uchar * buf0 = rbuf->buf0;
   uchar * buf1 = rbuf->buf1;
   uchar * lo   = rbuf->lo;
@@ -198,9 +196,7 @@ static inline uchar *
 fd_h2_rbuf_pop( fd_h2_rbuf_t * rbuf,
                 uchar *        scratch,
                 ulong          n ) {
-#ifdef FD_H2_USE_HANDHOLDING
-  FD_TEST( n<=fd_h2_rbuf_used_sz( rbuf ) );
-#endif
+  FD_CHECK_CRIT( n<=fd_h2_rbuf_used_sz( rbuf ), "invariant violation" );
   uchar * lo    = rbuf->lo;
   uchar * buf0  = rbuf->buf0;
   uchar * buf1  = rbuf->buf1;
@@ -227,9 +223,7 @@ static inline void
 fd_h2_rbuf_pop_copy( fd_h2_rbuf_t * rbuf,
                      void *         out,
                      ulong          n ) {
-#ifdef FD_H2_USE_HANDHOLDING
-  FD_TEST( n<=fd_h2_rbuf_used_sz( rbuf ) );
-#endif
+  FD_CHECK_CRIT( n<=fd_h2_rbuf_used_sz( rbuf ), "invariant violation" );
   uchar * lo    = rbuf->lo;
   uchar * buf0  = rbuf->buf0;
   uchar * buf1  = rbuf->buf1;
@@ -258,36 +252,21 @@ fd_h2_rbuf_is_empty( fd_h2_rbuf_t const * rbuf ) {
 
 static void
 fd_h2_rbuf_validate_private( fd_h2_rbuf_t * rbuf ) {
-#ifndef FD_H2_USE_HANDHOLDING
-  (void)rbuf;
-#endif
-#ifdef FD_H2_USE_HANDHOLDING
   ulong used = fd_h2_rbuf_used_sz( rbuf );
   ulong free = fd_h2_rbuf_free_sz( rbuf );
-
-  if( !( used <= rbuf->bufsz ) ) {
-    FD_LOG_NOTICE(( "used <= rbuf->bufsz failed: rbuf %p used %lu free %lu bufsz %lu", (void *)rbuf, used, free, rbuf->bufsz ));
-  }
-  if( !( free <= rbuf->bufsz ) ) {
-    FD_LOG_NOTICE(( "free <= rbuf->bufsz failed: rbuf %p used %lu free %lu bufsz %lu", (void *)rbuf, used, free, rbuf->bufsz ));
-  }
-  if( !( used + free == rbuf->bufsz ) ) {
-    FD_LOG_NOTICE(( "used + free == rbuf->bufsz failed: rbuf %p used %lu free %lu bufsz %lu", (void *)rbuf, used, free, rbuf->bufsz ));
-  }
-  FD_TEST( used <= rbuf->bufsz );
-  FD_TEST( free <= rbuf->bufsz );
-  FD_TEST( used + free == rbuf->bufsz );
+  FD_DCHECK_CRIT( used <= rbuf->bufsz,        "corrupt h2_rbuf" );
+  FD_DCHECK_CRIT( free <= rbuf->bufsz,        "corrupt h2_rbuf" );
+  FD_DCHECK_CRIT( used + free == rbuf->bufsz, "corrupt h2_rbuf" );
 
   ulong used0, used1;
   uchar * used_p = fd_h2_rbuf_peek_used( rbuf, &used0, &used1 );
-  FD_TEST( used_p == rbuf->lo );
-  FD_TEST( used0 + used1 == used );
+  FD_DCHECK_CRIT( used_p == rbuf->lo,    "corrupt h2_rbuf" );
+  FD_DCHECK_CRIT( used0 + used1 == used, "corrupt h2_rbuf" );
 
   ulong free0, free1;
   uchar * free_p = fd_h2_rbuf_peek_free( rbuf, &free0, &free1 );
-  FD_TEST( free_p == rbuf->hi );
-  FD_TEST( free0 + free1 == free );
-#endif /* FD_H2_USE_HANDHOLDING */
+  FD_DCHECK_CRIT( free_p == rbuf->hi,    "corrupt h2_rbuf" );
+  FD_DCHECK_CRIT( free0 + free1 == free, "corrupt h2_rbuf" );
 }
 
 FD_PROTOTYPES_END

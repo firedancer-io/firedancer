@@ -392,9 +392,7 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
   ele = fd_ptr_if( !ele, fd_forest_consumed_ele_query( consumed, &parent_pool_idx, NULL, conspool ), ele );
   if( FD_UNLIKELY( !ele ) ) return;
 
-# if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( fd_forest_deque_cnt( queue ) == 0 );
-# endif
+  FD_CHECK_CRIT( fd_forest_deque_cnt( queue ) == 0, "invariant violation" );
 
   /* BFS elements as pool idxs.
      Invariant: whatever is in the queue, must be in the consumed map. */
@@ -870,9 +868,7 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
 
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) {
-# if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
-# endif
+  FD_CHECK_CRIT( slot > fd_forest_root_slot( forest ), "invalid argument" );
 
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
@@ -1086,9 +1082,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              fd_hash_t   * cmr ) {
   FD_TEST( shred_idx < FD_SHRED_BLK_MAX );
   fd_forest_blk_t * ele = fd_forest_query( forest, slot );
-# if FD_FOREST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", __func__, slot ));
-# endif
+  FD_CHECK_ERR( !!ele, "ele is not in the forest. data_shred_insert should be preceded by blk_insert" );
 
   /* Pre-filtering on merkle root.
      If we have knowledge of the confirmed merkle root, we can reject
@@ -1199,9 +1193,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
   FD_TEST( last_shred_idx < FD_SHRED_BLK_MAX );
 
   fd_forest_blk_t * ele = fd_forest_query( forest, slot );
-# if FD_FOREST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] ele %lu is not in the forest. fec_insert should be preceded by blk_insert", __func__, slot ));
-# endif
+  FD_CHECK_ERR( !!ele, "ele is not in the forest. fec_insert should be preceded by blk_insert" );
 
   uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
 
@@ -1431,9 +1423,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
 
   /* First, remove the previous root, and add it to a FIFO prune queue.
      head points to the queue head (initialized with old_root_ele). */
-# if FD_FOREST_USE_HANDHOLDING
-  FD_TEST( fd_forest_deque_cnt( queue ) == 0 );
-# endif
+  FD_CHECK_CRIT( fd_forest_deque_cnt( queue ) == 0, "invariant violation" );
 
   /* 2. New root is in forest, and is either in ancestry or frontier
         (means it is part of the main repair tree).  This is the common
@@ -1578,7 +1568,6 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
 
   /* forest->iter.ele_idx should always refer to the head of the
      requests list, unless iter.ele_idx is null (initializing)*/
-# if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( iter->ele_idx != fd_forest_pool_idx_null( pool ) &&
                    iter->ele_idx != fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx ) ) {
     FD_LOG_WARNING(("invariant violation: forest iterator ele_idx %lu != head of request list %lu", iter->ele_idx, fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx));
@@ -1587,9 +1576,8 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
     fd_forest_blk_t const * req_head = fd_forest_pool_ele_const( pool, fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx );
     ulong slot_iter     = ele_iter ? ele_iter->slot : 0;
     ulong slot_req_head = req_head ? req_head->slot : 0;
-    FD_LOG_CRIT(("Forest iterator slot %lu != head of request list slot %lu. Does forest have %lu? %p. Does forest have %lu? %p.", slot_iter, slot_req_head, slot_iter, (void *)fd_forest_query( forest, slot_iter ), req_head->slot, (void *)fd_forest_query( forest, slot_req_head )));
+    FD_LOG_CRIT(( "Forest iterator slot %lu != head of request list slot %lu. Does forest have %lu? %p. Does forest have %lu? %p.", slot_iter, slot_req_head, slot_iter, (void *)fd_forest_query( forest, slot_iter ), req_head->slot, (void *)fd_forest_query( forest, slot_req_head ) ));
   }
-# endif
 
   uint next_shred_idx = iter->shred_idx;
   for(;;) {

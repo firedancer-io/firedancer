@@ -147,13 +147,6 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/hist/fd_histf.h"
 
-/* FD_STORE_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
-#ifndef FD_STORE_USE_HANDHOLDING
-#define FD_STORE_USE_HANDHOLDING 1
-#endif
-
 /* FD_STORE_ALIGN specifies the alignment needed for store.  ALIGN is
    double x86 cache line to mitigate various kinds of false sharing (eg.
    ACLPF adjacent cache line prefetch). */

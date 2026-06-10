@@ -126,15 +126,8 @@
   There may be forks as well, but only one fork can be confirmed.
 */
 
-/* FD_FOREST_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/shred/fd_fec_set.h"
-
-#ifndef FD_FOREST_USE_HANDHOLDING
-#define FD_FOREST_USE_HANDHOLDING 1
-#endif
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
