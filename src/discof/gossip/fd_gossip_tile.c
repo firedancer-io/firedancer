@@ -482,6 +482,7 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
+  fd_memset( ctx, 0, sizeof(fd_gossip_tile_ctx_t) );
 
   if( FD_UNLIKELY( !strcmp( tile->gossip.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -528,12 +529,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
-  ctx->wfs_state  = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
-  memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
-
-  ctx->peer_sat_hwm       = 0UL;
-  ctx->peer_sat_hwm_nanos = 0L;
-  ctx->peer_sat_published = 0;
+  ctx->wfs_state = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;
@@ -541,15 +537,12 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].mem = link_wksp->wksp;
     if( FD_LIKELY( link->mtu ) ) {
       ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
       ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-    } else {
-      ctx->in[ i ].chunk0 = 0UL;
-      ctx->in[ i ].wmark  = 0UL;
     }
-    ctx->in[ i ].mtu    = link->mtu;
+    ctx->in[ i ].mtu = link->mtu;
 
     if( FD_UNLIKELY( !strcmp( link->name, "ipecho_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
@@ -583,10 +576,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];
 
-  ctx->is_pending_set_identity = 0;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-  ctx->is_halting_signing = 0;
 
   if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                        sign_out->mcache,
@@ -601,7 +592,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
 
-  memset( ctx->my_contact_info, 0, sizeof(fd_gossip_contact_info_t) );
   ctx->my_contact_info->shred_version = tile->gossip.shred_version;
 
   ctx->my_contact_info->outset = (ulong)FD_NANOSEC_TO_MICRO( tile->gossip.boot_timestamp_nanos );
