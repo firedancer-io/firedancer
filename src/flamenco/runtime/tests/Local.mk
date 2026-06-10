@@ -28,7 +28,13 @@ ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_svm_mini.h)
 $(call add-objs,fd_svm_mini,fd_flamenco_test)
 $(call make-unit-test,test_svm_mini,test_svm_mini,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_svm_mini)
+ifdef FD_HAS_ALLOCA
+$(call make-unit-test,test_block_validity,test_block_validity,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_block_validity)
+endif
 $(call make-unit-test,test_accdb_svm,test_accdb_svm,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_accdb_svm)
 endif
 
 run-runtime-backtest: $(OBJDIR)/bin/firedancer-dev
