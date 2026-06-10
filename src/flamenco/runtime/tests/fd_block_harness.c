@@ -193,10 +193,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Parent signature count */
   bank->f.parent_signature_cnt = block_bank->parent_signature_count;
 
-  /* Epoch schedule */
-  FD_TEST( block_bank->has_epoch_schedule );
-  fd_solfuzz_pb_restore_epoch_schedule( bank, &block_bank->epoch_schedule );
-
   /* Feature set */
   FD_TEST( block_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &block_bank->features;
@@ -253,16 +249,19 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Refresh top votes after loading accdb. */
   fd_top_votes_refresh( top_votes_t_2, accdb, xid );
 
-  /* Current epoch gets updated in process_new_epoch, so use the epoch
-     from the parent slot */
-  bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
-
   /* reduce_stake_warmup_cooldown is activated on all clusters, so the
      new warmup/cooldown rate (0.09) applies from epoch 0 onwards. */
   bank->f.warmup_cooldown_rate_epoch = 0UL;
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( bank, accdb, xid );
+
+  /* Epoch schedule */
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &bank->f.sysvar_cache, &bank->f.epoch_schedule ) );
+
+  /* Current epoch gets updated in process_new_epoch, so use the epoch
+     from the parent slot */
+  bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
 
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch

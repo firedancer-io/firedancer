@@ -15,9 +15,6 @@ PB_BIND(FD_EXEC_TEST_ACCT_STATE, fd_exec_test_acct_state_t, AUTO)
 PB_BIND(FD_EXEC_TEST_FEE_RATE_GOVERNOR, fd_exec_test_fee_rate_governor_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_EPOCH_SCHEDULE, fd_exec_test_epoch_schedule_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY, fd_exec_test_blockhash_queue_entry_t, AUTO)
 
 

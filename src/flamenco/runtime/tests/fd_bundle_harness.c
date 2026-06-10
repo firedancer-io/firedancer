@@ -62,13 +62,8 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.parent_slot       = slot-1UL;
   runner->bank->f.total_epoch_stake = txn_bank->total_epoch_stake;
 
-  FD_TEST( txn_bank->has_epoch_schedule );
-  fd_solfuzz_pb_restore_epoch_schedule( runner->bank, &txn_bank->epoch_schedule );
-
   FD_TEST( txn_bank->has_features );
   FD_TEST( fd_solfuzz_pb_restore_features( &runner->bank->f.features, &txn_bank->features ) );
-
-  runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   for( ulong i=0UL; i<test_ctx->account_shared_data_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
@@ -78,6 +73,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
 
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );
+
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &runner->bank->f.sysvar_cache, &runner->bank->f.epoch_schedule ) );
+  runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
+
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
