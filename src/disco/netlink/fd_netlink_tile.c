@@ -212,17 +212,17 @@ unprivileged_init( fd_topo_t const *      topo,
 
 static inline void
 metrics_write( fd_netlink_tile_ctx_t * ctx ) {
-  FD_MCNT_SET(       NETLNK, DROP_EVENTS,             fd_netlink_enobufs_cnt            );
-  FD_MCNT_SET(       NETLNK, LINK_FULL_SYNCS,         ctx->metrics.link_full_syncs      );
-  FD_MCNT_SET(       NETLNK, ROUTE_FULL_SYNCS,        ctx->metrics.route_full_syncs     );
-  FD_MCNT_ENUM_COPY( NETLNK, UPDATES,                 ctx->metrics.update_cnt           );
+  FD_MCNT_SET(       NETLNK, EVENT_DROPPED,           fd_netlink_enobufs_cnt            );
+  FD_MCNT_SET(       NETLNK, LINK_FULL_SYNC,          ctx->metrics.link_full_syncs      );
+  FD_MCNT_SET(       NETLNK, ROUTE_FULL_SYNC,         ctx->metrics.route_full_syncs     );
+  FD_MCNT_ENUM_COPY( NETLNK, UPDATE_PROCESSED,        ctx->metrics.update_cnt           );
   FD_MGAUGE_SET(     NETLNK, INTERFACE_COUNT,         ctx->netdev_tbl->hdr->dev_cnt     );
   FD_MGAUGE_SET(     NETLNK, ROUTE_COUNT_LOCAL,       fd_fib4_cnt( ctx->fib4_local )    );
   FD_MGAUGE_SET(     NETLNK, ROUTE_COUNT_MAIN,        fd_fib4_cnt( ctx->fib4_main  )    );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_SENT,        ctx->metrics.neigh_solicits_sent  );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_FAILS,       ctx->metrics.neigh_solicits_fails );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_RATE_LIMIT_HOST,   ctx->prober->local_rate_limited_cnt  );
-  FD_MCNT_SET(       NETLNK, NEIGH_PROBE_RATE_LIMIT_GLOBAL, ctx->prober->global_rate_limited_cnt );
+  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_SENT,     ctx->metrics.neigh_solicits_sent  );
+  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_FAILED,   ctx->metrics.neigh_solicits_fails );
+  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_RATE_LIMIT_HOST,   ctx->prober->local_rate_limited_cnt  );
+  FD_MCNT_SET(       NETLNK, NEIGHBOR_PROBE_RATE_LIMIT_GLOBAL, ctx->prober->global_rate_limited_cnt );
 }
 
 /* netlink_monitor_read calls recvfrom to process a link, route, or
@@ -249,17 +249,17 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
   case RTM_NEWLINK:
   case RTM_DELLINK:
     ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
-    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MSG_V_LINK_IDX ]++;
+    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_LINK_IDX ]++;
     break;
   case RTM_NEWROUTE:
   case RTM_DELROUTE:
     ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
-    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MSG_V_IPV4_ROUTE_IDX ]++;
+    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_IPV4_ROUTE_IDX ]++;
     break;
   case RTM_NEWNEIGH:
   case RTM_DELNEIGH: {
     fd_neigh4_netlink_ingest_message( ctx->neigh4, nlh, ctx->neigh4_ifidx );
-    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MSG_V_NEIGH_IDX ]++;
+    ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_NEIGHBOR_IDX ]++;
     break;
   }
   default:

@@ -27,8 +27,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_verify_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( VERIFY, TRANSACTION_RESULT, ctx->metrics.verify_tile_result );
-  FD_MCNT_SET( VERIFY, GOSSIPED_VOTES_RECEIVED,  ctx->metrics.gossiped_votes_cnt );
+  FD_MCNT_ENUM_COPY( VERIFY, TXN_RESULT, ctx->metrics.verify_tile_result );
+  FD_MCNT_SET( VERIFY, VOTE_GOSSIP_RX,  ctx->metrics.gossiped_votes_cnt );
 }
 
 static int

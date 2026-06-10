@@ -20,6 +20,21 @@ fd_prom_render_create( fd_http_server_t * http ) {
   };
 }
 
+/* Counters are exported with a "_total" suffix per Prometheus naming
+   conventions.  Gauges and histograms keep their bare name (histograms
+   additionally emit the standard _bucket/_sum/_count series). */
+
+static char const *
+metric_export_name( fd_metrics_meta_t const * metric,
+                    char *                    buf,
+                    ulong                     buf_sz ) {
+  if( metric->type==FD_METRICS_TYPE_COUNTER ) {
+    FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%s_total", metric->name ) );
+    return buf;
+  }
+  return metric->name;
+}
+
 static void
 render_header( fd_prom_render_t *        r,
                fd_metrics_meta_t const * metric ) {
@@ -29,7 +44,9 @@ render_header( fd_prom_render_t *        r,
     if( r->last_name_hash ) {
       fd_http_server_printf( r->http, "\n" );
     }
-    fd_http_server_printf( r->http, "# HELP %s %s\n# TYPE %s %s\n", metric->name, metric->desc, metric->name, fd_metrics_meta_type_str( metric ) );
+    char name_buf[ 256 ];
+    char const * name = metric_export_name( metric, name_buf, sizeof(name_buf) );
+    fd_http_server_printf( r->http, "# HELP %s %s\n# TYPE %s %s\n", name, metric->desc, name, fd_metrics_meta_type_str( metric ) );
     r->last_name_hash = hash;
   }
 }
@@ -50,7 +67,9 @@ render_link( fd_prom_render_t *        r,
   default:
     FD_LOG_ERR(( "unknown converter %i", metric->converter ));
   }
-  fd_http_server_printf( r->http, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
+  char name_buf[ 256 ];
+  char const * name = metric_export_name( metric, name_buf, sizeof(name_buf) );
+  fd_http_server_printf( r->http, "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", name, tile->name, tile->kind_id, link->name, link->kind_id, value );
 }
 
 static void
@@ -108,7 +127,9 @@ render_counter( fd_prom_render_t *        r,
   render_header( r, metric );
   ulong raw_value = *(fd_metrics_tile( tile->metrics ) + metric->offset);
 
-  fd_http_server_printf( r->http, "%s{kind=\"%s\",kind_id=\"%lu\"", metric->name, tile->name, tile->kind_id );
+  char name_buf[ 256 ];
+  char const * name = metric_export_name( metric, name_buf, sizeof(name_buf) );
+  fd_http_server_printf( r->http, "%s{kind=\"%s\",kind_id=\"%lu\"", name, tile->name, tile->kind_id );
   if( metric->enum_name ) {
     fd_http_server_printf( r->http, ",%s=\"%s\"", metric->enum_name, metric->enum_variant );
   }

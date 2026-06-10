@@ -569,25 +569,25 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
 
 /* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
    for tile prefix TILE.  TILE must be a tile that declares the
-   AccdbAccountsAcquired/... counters in metrics.xml (e.g. EXECLE,
+   AccdbAccountAcquired/... counters in metrics.xml (e.g. EXECLE,
    EXECRP, REPLAY, TOWER, ACCDB).  m must be a fd_accdb_metrics_t const *
    for the joiner whose counters should be published. */
 
 #define FD_ACCDB_METRICS_WRITE( TILE, m ) do {                                              \
     fd_accdb_metrics_t const * _m = (m);                                                    \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_ACQUIRED,          _m->accounts_acquired_per_class          ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE, _m->writable_accounts_acquired_per_class ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_EVICTED,        _m->accounts_evicted_per_class        ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_NEW,       _m->accounts_committed_new_per_class       ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_OVERWRITE, _m->accounts_committed_overwrite_per_class ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_NOT_FOUND,   _m->accounts_not_found_per_class ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,            _m->accounts_waited            ); \
-    FD_MCNT_SET( TILE, ACCDB_ACQUIRE_CALLS,              _m->acquire_calls              ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_ACQUIRED,          _m->accounts_acquired_per_class          ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_WRITABLE_ACQUIRED, _m->writable_accounts_acquired_per_class ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_EVICTED,        _m->accounts_evicted_per_class        ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_COMMITTED_NEW,       _m->accounts_committed_new_per_class       ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_COMMITTED_OVERWRITE, _m->accounts_committed_overwrite_per_class ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_NOT_FOUND,   _m->accounts_not_found_per_class ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNT_WAITED,             _m->accounts_waited            ); \
+    FD_MCNT_SET( TILE, ACCDB_BATCH_ACQUIRED,             _m->acquire_calls              ); \
     FD_MCNT_SET( TILE, ACCDB_ACQUIRE_FAILED,             _m->acquire_failed             ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_READ,                 _m->bytes_read                 ); \
-    FD_MCNT_SET( TILE, ACCDB_READ_OPS,                   _m->read_ops                   ); \
+    FD_MCNT_SET( TILE, ACCDB_READ_OPERATION,             _m->read_ops                   ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_WRITTEN,              _m->bytes_written              ); \
-    FD_MCNT_SET( TILE, ACCDB_WRITE_OPS,                  _m->write_ops                  ); \
+    FD_MCNT_SET( TILE, ACCDB_WRITE_OPERATION,            _m->write_ops                  ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,               _m->bytes_copied               ); \
   } while(0)
 
@@ -598,12 +598,12 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
 
 #define FD_ACCDB_METRICS_WRITE_RO( TILE, m ) do {                                           \
     fd_accdb_metrics_t const * _m = (m);                                                    \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_ACQUIRED,  _m->accounts_acquired_per_class  ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_NOT_FOUND, _m->accounts_not_found_per_class ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,   _m->accounts_waited   ); \
-    FD_MCNT_SET( TILE, ACCDB_ACQUIRE_CALLS,     _m->acquire_calls     ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_ACQUIRED,  _m->accounts_acquired_per_class  ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNT_NOT_FOUND, _m->accounts_not_found_per_class ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNT_WAITED,    _m->accounts_waited   ); \
+    FD_MCNT_SET( TILE, ACCDB_BATCH_ACQUIRED,    _m->acquire_calls     ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_READ,        _m->bytes_read        ); \
-    FD_MCNT_SET( TILE, ACCDB_READ_OPS,          _m->read_ops          ); \
+    FD_MCNT_SET( TILE, ACCDB_READ_OPERATION,    _m->read_ops          ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,      _m->bytes_copied      ); \
   } while(0)
 

@@ -190,11 +190,11 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_gui_ctx_t * ctx ) {
-  FD_MGAUGE_SET( GUI, CONNECTION_COUNT, ctx->gui_server->metrics.connection_cnt );
-  FD_MGAUGE_SET( GUI, WEBSOCKET_CONNECTION_COUNT, ctx->gui_server->metrics.ws_connection_cnt );
+  FD_MGAUGE_SET( GUI, CONN_ACTIVE, ctx->gui_server->metrics.connection_cnt );
+  FD_MGAUGE_SET( GUI, WEBSOCKET_CONN_ACTIVE, ctx->gui_server->metrics.ws_connection_cnt );
 
-  FD_MCNT_SET( GUI, WEBSOCKET_FRAMES_SENT,     ctx->gui_server->metrics.frames_written );
-  FD_MCNT_SET( GUI, WEBSOCKET_FRAMES_RECEIVED, ctx->gui_server->metrics.frames_read );
+  FD_MCNT_SET( GUI, WEBSOCKET_FRAME_TX,     ctx->gui_server->metrics.frames_written );
+  FD_MCNT_SET( GUI, WEBSOCKET_FRAME_RX, ctx->gui_server->metrics.frames_read );
 
   FD_MCNT_SET( GUI, BYTES_WRITTEN, ctx->gui_server->metrics.bytes_written );
   FD_MCNT_SET( GUI, BYTES_READ,    ctx->gui_server->metrics.bytes_read );
