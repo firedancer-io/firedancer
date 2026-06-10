@@ -376,6 +376,33 @@ main( int     argc,
     FD_TEST( fd_alloc_is_empty( alloc ) );
   } while(0);
 
+  FD_LOG_NOTICE(( "Testing trim" ));
+
+  do {
+    uchar * small = fd_alloc_malloc( alloc, 1UL, 1UL );
+    FD_TEST( small );
+    FD_TEST( fd_alloc_trim( alloc, small, 1UL )==FD_WKSP_SUCCESS );
+    fd_alloc_free( alloc, small );
+
+    ulong large_max;
+    ulong large_sz = 131072UL;
+    uchar * large = fd_alloc_malloc_at_least( alloc, 4096UL, large_sz, &large_max );
+    FD_TEST( large );
+    FD_TEST( large_max>=large_sz );
+
+    ulong trim_sz = 65536UL;
+    FD_TEST( fd_alloc_trim( NULL,  large, trim_sz )==FD_WKSP_ERR_INVAL );
+    FD_TEST( fd_alloc_trim( alloc, NULL,  trim_sz )==FD_WKSP_ERR_INVAL );
+    FD_TEST( fd_alloc_trim( alloc, large, 0UL     )==FD_WKSP_ERR_INVAL );
+
+    FD_TEST( fd_alloc_trim( alloc, large, trim_sz )==FD_WKSP_SUCCESS );
+    FD_TEST( fd_wksp_tag( wksp, fd_wksp_gaddr_fast( wksp, large             ) )==tag );
+    FD_TEST( fd_wksp_tag( wksp, fd_wksp_gaddr_fast( wksp, large+trim_sz-1UL ) )==tag );
+    FD_TEST( fd_wksp_tag( wksp, fd_wksp_gaddr_fast( wksp, large+trim_sz     ) )==0UL );
+
+    fd_alloc_free( alloc, large );
+  } while(0);
+
   FD_LOG_NOTICE(( "Testing max_expand" ));
   do {
 

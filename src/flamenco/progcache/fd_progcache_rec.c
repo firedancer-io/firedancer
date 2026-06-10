@@ -2,6 +2,7 @@
 #include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
 #include "../../util/alloc/fd_alloc.h"
 
+#include <stdatomic.h>
 #include <stdlib.h>
 
 /* Can be overridden by test executables */
@@ -79,6 +80,30 @@ fd_progcache_val_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   return FD_LAYOUT_FINI( l, fd_progcache_val_align() );
 }
 
+void
+fd_progcache_rec_compact( fd_progcache_rec_t *       rec,
+                          fd_progcache_join_t *      join,
+                          fd_sbpf_elf_info_t const * elf_info ) {
+  if( ( !rec->data_gaddr ) | ( rec->rodata_sz >= rec->data_max ) ) {
+    return;
+  }
+
+  /* New alloc params */
+  fd_sbpf_elf_info_t compact_info = *elf_info;
+  compact_info.bin_sz = rec->rodata_sz; /* discard tail region */
+  ulong val_sz = fd_progcache_val_footprint( &compact_info );
+
+  /* Don't reallocate if the space savings are marginal */
+  ulong realloc_threshold = 100000UL;
+  uint overhead = (uint)( rec->data_max - val_sz );
+  if( overhead < realloc_threshold ) return;
+
+  uchar * old_data = fd_wksp_laddr_fast( join->data_base, rec->data_gaddr );
+  if( FD_UNLIKELY( !use_malloc() ) ) { /* test only */
+    fd_alloc_trim( join->alloc, old_data, val_sz );
+  }
+}
+
 /* Program loader wrapper */
 
 fd_progcache_rec_t *
@@ -99,11 +124,11 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   void * val = fd_wksp_laddr_fast( wksp, rec->data_gaddr );
   FD_SCRATCH_ALLOC_INIT( l, val );
-  void *               calldests_mem = NULL;
+  void * calldests_mem = NULL;
   if( has_calldests ) {
-    /*               */calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
+    /* */calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
   }
-  void *               rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
+  void * rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
   FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
   FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
 

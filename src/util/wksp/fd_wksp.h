@@ -514,6 +514,11 @@ void
 fd_wksp_free( fd_wksp_t * wksp,
               ulong       gaddr );
 
+int
+fd_wksp_trim( fd_wksp_t * wksp,
+              ulong       gaddr,
+              ulong       sz );
+
 /* fd_wksp_tag returns the tag associated with an allocation.  gaddr
    is a wksp global address that points to any byte in the allocation.
    This is a fast O(lg wksp_alloc_cnt).  A return of 0 indicates that

@@ -153,6 +153,12 @@ main( int     argc,
     fd_wksp_free( NULL, g   ); /* NULL wksp */
     fd_wksp_free( wksp, 0UL ); /* zero gaddr */
 
+    /* Test fd_wksp_trim edge cases */
+
+    FD_TEST( fd_wksp_trim( NULL, g,   1UL )==FD_WKSP_ERR_INVAL );
+    FD_TEST( fd_wksp_trim( wksp, 0UL, 1UL )==FD_WKSP_ERR_INVAL );
+    FD_TEST( fd_wksp_trim( wksp, g,   0UL )==FD_WKSP_ERR_INVAL );
+
     /* Test fd_wksp_tag_query edge cases */
 
     ulong                    tag_tmp;
@@ -213,6 +219,39 @@ main( int     argc,
 #   endif
     fd_wksp_memset( wksp, g, 255 ); /* memset unallocated */
     FD_TEST( !fd_wksp_tag( wksp, g ) );
+  }
+
+  {
+    /* Test fd_wksp_trim. */
+
+    ulong tag = 3UL;
+    ulong g0;
+    ulong g1;
+    ulong g = fd_wksp_alloc_at_least( wksp, 1UL, 128UL, tag, &g0, &g1 );
+    FD_TEST( g );
+    FD_TEST( g0==g );
+    FD_TEST( g1==g0+128UL );
+    FD_TEST( fd_wksp_tag( wksp, g0        )==tag );
+    FD_TEST( fd_wksp_tag( wksp, g0+127UL  )==tag );
+
+    FD_TEST( fd_wksp_trim( wksp, g0, 129UL )==FD_WKSP_ERR_INVAL );
+    FD_TEST( fd_wksp_trim( wksp, g0, 128UL )==FD_WKSP_SUCCESS   );
+    FD_TEST( fd_wksp_tag ( wksp, g0+127UL  )==tag               );
+
+    FD_TEST( fd_wksp_trim( wksp, g0+96UL, 64UL )==FD_WKSP_SUCCESS );
+    FD_TEST( fd_wksp_tag ( wksp, g0        )==tag                 );
+    FD_TEST( fd_wksp_tag ( wksp, g0+63UL   )==tag                 );
+    FD_TEST( fd_wksp_tag ( wksp, g0+64UL   )==0UL                 );
+    FD_TEST( fd_wksp_trim( wksp, g0,       32UL )==FD_WKSP_SUCCESS );
+    FD_TEST( fd_wksp_tag ( wksp, g0+31UL   )==tag                 );
+    FD_TEST( fd_wksp_tag ( wksp, g0+32UL   )==0UL                 );
+
+    fd_wksp_tag_query_info_t info[1];
+    FD_TEST( fd_wksp_tag_query( wksp, &tag, 1UL, info, 1UL )==1UL );
+    FD_TEST( info[0].gaddr_lo==g0 && info[0].gaddr_hi==g0+32UL && info[0].tag==tag );
+    FD_TEST( !fd_wksp_verify( wksp ) );
+
+    fd_wksp_free( wksp, g0 );
   }
 
   struct { ulong g0; ulong g1; ulong tag; } alloc[ 256 ];
@@ -291,7 +330,7 @@ main( int     argc,
 
     r = fd_rng_uint( rng );
 
-    int op = (r & 3U); r >>= 2;
+    int op = (int)(r % 5U); r /= 5U;
     switch( op ) {
     default:
     case 0: { /* tag */
@@ -340,7 +379,31 @@ main( int     argc,
       break;
     }
 
-    case 3: { /* memset */
+    case 3: { /* trim */
+      if( FD_UNLIKELY( !alloc_cnt ) ) break;
+      ulong alloc_idx = fd_rng_ulong_roll( rng, alloc_cnt );
+      ulong g0        = alloc[ alloc_idx ].g0;
+      ulong g1        = alloc[ alloc_idx ].g1;
+      ulong old_sz    = g1 - g0;
+      ulong g         = g0 + fd_rng_ulong_roll( rng, old_sz );
+      ulong new_sz    = 1UL + fd_rng_ulong_roll( rng, old_sz );
+#     if FD_HAS_DEEPASAN
+      new_sz = fd_ulong_align_up( new_sz, FD_ASAN_ALIGN );
+#     endif
+
+      int err = fd_wksp_trim( wksp, g, new_sz );
+      if( err==FD_WKSP_SUCCESS ) {
+        FD_TEST( new_sz<=old_sz );
+        alloc[ alloc_idx ].g1 = g0 + new_sz;
+        FD_TEST( fd_wksp_tag( wksp, g0+new_sz-1UL )==alloc[ alloc_idx ].tag );
+        if( new_sz<old_sz ) FD_TEST( !fd_wksp_tag( wksp, g0+new_sz ) );
+      } else {
+        FD_TEST( (err==FD_WKSP_ERR_FAIL) | (err==FD_WKSP_ERR_INVAL) );
+      }
+      break;
+    }
+
+    case 4: { /* memset */
       if( FD_UNLIKELY( !alloc_cnt ) ) break;
       ulong alloc_idx = fd_rng_ulong_roll( rng, alloc_cnt );
       ulong g0        = alloc[ alloc_idx ].g0;

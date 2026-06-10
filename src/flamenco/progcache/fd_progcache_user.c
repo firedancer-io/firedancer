@@ -526,6 +526,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
       fd_progcache_val_free( rec, ljoin );
       fd_progcache_rec_nx( rec );
     }
+    fd_progcache_rec_compact( rec, ljoin, elf_info );
     dt += fd_tickcount();
     cache->metrics->cum_load_ticks += (ulong)dt;
   }

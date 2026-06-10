@@ -385,6 +385,90 @@ fd_wksp_free( fd_wksp_t * wksp,
   }
 }
 
+int
+fd_wksp_trim( fd_wksp_t * wksp,
+              ulong       gaddr,
+              ulong       sz ) {
+  if( FD_UNLIKELY( !wksp  ) ) { FD_LOG_WARNING(( "NULL wksp" )); return FD_WKSP_ERR_INVAL; }
+  if( FD_UNLIKELY( !gaddr ) ) { FD_LOG_WARNING(( "bad gaddr" )); return FD_WKSP_ERR_INVAL; }
+  if( FD_UNLIKELY( !sz    ) ) { FD_LOG_WARNING(( "bad sz"    )); return FD_WKSP_ERR_INVAL; }
+
+# if FD_HAS_DEEPASAN
+  if( FD_UNLIKELY( sz > ULONG_MAX-(FD_ASAN_ALIGN-1UL) ) ) { FD_LOG_WARNING(( "sz overflow" )); return FD_WKSP_ERR_INVAL; }
+  sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
+# endif
+
+  ulong                     part_max = wksp->part_max;
+  fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
+
+  int err = FD_WKSP_SUCCESS;
+
+  if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) return FD_WKSP_ERR_FAIL; /* logs details */
+
+  ulong i = fd_wksp_private_used_treap_query( gaddr, wksp, pinfo );
+  if( FD_UNLIKELY( i>=part_max ) ) {
+    err = FD_WKSP_ERR_INVAL;
+    goto done;
+  }
+
+  ulong lo     = pinfo[ i ].gaddr_lo;
+  ulong hi     = pinfo[ i ].gaddr_hi;
+  ulong old_sz = hi - lo;
+
+  if( FD_UNLIKELY( sz>old_sz ) ) {
+    err = FD_WKSP_ERR_INVAL;
+    goto done;
+  }
+
+  if( FD_LIKELY( sz<old_sz ) ) {
+    ulong new_hi = lo + sz;
+
+    ulong n = fd_wksp_private_pinfo_idx( pinfo[ i ].next_cidx );
+    if( FD_LIKELY( n<part_max ) && !pinfo[ n ].tag ) {
+      if( FD_UNLIKELY( fd_wksp_private_free_treap_remove( n, wksp, pinfo ) ) ) {
+        FD_LOG_WARNING(( "corrupt wksp detected" ));
+        err = FD_WKSP_ERR_CORRUPT;
+        goto done;
+      }
+
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( pinfo[ i ].gaddr_hi ) = new_hi;
+      FD_COMPILER_MFENCE();
+
+      pinfo[ n ].gaddr_lo = new_hi;
+
+      if( FD_UNLIKELY( fd_wksp_private_free_treap_insert( n, wksp, pinfo ) ) ) {
+        FD_LOG_WARNING(( "corrupt wksp detected" ));
+        err = FD_WKSP_ERR_CORRUPT;
+        goto done;
+      }
+    } else {
+      if( FD_UNLIKELY( fd_wksp_private_idle_stack_is_empty( wksp ) ) ) {
+        if( !fd_wksp_oom_silent ) FD_LOG_WARNING(( "too few partitions available for trim (part_max %lu)", part_max ));
+        err = FD_WKSP_ERR_FAIL;
+        goto done;
+      }
+
+      ulong j = fd_wksp_private_split_after( i, sz, wksp, pinfo );
+      if( FD_UNLIKELY( fd_wksp_private_free_treap_insert( j, wksp, pinfo ) ) ) {
+        FD_LOG_WARNING(( "corrupt wksp detected" ));
+        err = FD_WKSP_ERR_CORRUPT;
+        goto done;
+      }
+    }
+
+#   if FD_HAS_DEEPASAN
+    fd_asan_poison( fd_wksp_laddr_fast( wksp, new_hi ), hi - new_hi );
+#   endif
+  }
+
+done:
+  fd_wksp_private_unlock( wksp );
+
+  if( FD_UNLIKELY( err==FD_WKSP_ERR_INVAL ) ) FD_LOG_WARNING(( "gaddr does not appear to be a current wksp allocation or sz is invalid" ));
+  return err;
+}
+
 ulong
 fd_wksp_tag( fd_wksp_t * wksp,
              ulong       gaddr ) {
