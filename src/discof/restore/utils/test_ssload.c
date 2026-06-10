@@ -684,7 +684,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL , NULL);
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)fd_wksp_alloc_laddr( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t), 1UL );
@@ -703,7 +704,8 @@ main( int     argc,
 
   fd_wksp_free_laddr( manifest );
 
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach     ( wksp );
 
   FD_LOG_NOTICE(( "all ssload tests passed" ));
 

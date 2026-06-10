@@ -1021,7 +1021,8 @@ main( int     argc,
   cfg->test_version = test_version;
 
   /* Workspace */
-  cfg->wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, NULL );
+  int is_anon;
+  cfg->wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, &is_anon );
   FD_TEST( cfg->wksp );
 
   /* Configure replay fseq */
@@ -1284,7 +1285,8 @@ main( int     argc,
   if( !!v__wd_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v__wd_mcache  ) ) ); }
   if( !!vcheck_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->vcheck_cnc     ) ) ); }
   
-  fd_wksp_delete_anon( cfg->wksp );
+  if( is_anon ) fd_wksp_delete_anon( cfg->wksp );
+  else          fd_wksp_detach     ( cfg->wksp );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

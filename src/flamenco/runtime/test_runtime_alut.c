@@ -2240,7 +2240,8 @@ main( int argc, char ** argv ) {
   test_wire_rejects_truncated_padding();
   test_wire_encoded_field_offsets();
 
-  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 16UL, "test_runtime_alut_wksp", 0UL , NULL);
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 16UL, "test_runtime_alut_wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   /* Run test cases */
@@ -2273,7 +2274,8 @@ main( int argc, char ** argv ) {
   test_alt_duplicate_indices( wksp );
   test_max_transaction_alts( wksp );
 
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach     ( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
 

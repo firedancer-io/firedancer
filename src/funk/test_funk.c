@@ -144,7 +144,7 @@ main( int     argc,
 
   fd_wksp_free_laddr( shlocks );
   fd_wksp_free_laddr( shmem );
-  if( is_anon ) fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
   else          fd_wksp_detach( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

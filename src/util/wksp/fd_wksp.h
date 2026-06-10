@@ -769,6 +769,8 @@ fd_wksp_from_env( int *        pargc,
   }
   ulong page_sz     = fd_cstr_to_shmem_page_sz( _page_sz );
   ulong def_page_sz = fd_cstr_to_shmem_page_sz( default_page_sz );
+  if( FD_UNLIKELY( !page_sz     ) ) FD_LOG_ERR(( "unsupported --page-sz \"%s\"",     _page_sz     ));
+  if( FD_UNLIKELY( !def_page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz \"%s\"",     default_page_sz ));
   ulong page_cnt    = page_cnt_arg ? page_cnt_arg : (default_page_cnt * def_page_sz + page_sz - 1UL) / page_sz;
   ulong cpu_idx     = fd_shmem_cpu_idx( numa_idx );
   if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "invalid page size for requested workspace" ));
