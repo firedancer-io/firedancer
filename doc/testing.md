@@ -178,6 +178,8 @@ strips the following flags from `argv`:
   size defaults to `default_page_cnt * default_page_sz` bytes scaled
   to the requested page type
 - `--numa-idx`: NUMA node on which memory should be allocated
+- `--near-cpu`: CPU index used to select the NUMA node (takes precedence
+  over `--numa-idx` when both are given)
 - Most tests default to 1 "gigantic" page, as per our recommendation to
   use x86 1 GiB pages.
   ```c
