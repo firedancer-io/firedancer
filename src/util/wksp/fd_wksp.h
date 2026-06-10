@@ -720,32 +720,6 @@ fd_wksp_new_anonymous( ulong         page_sz,
 
 static inline void fd_wksp_delete_anonymous( fd_wksp_t * wksp ) { fd_wksp_delete_anon( wksp ); }
 
-/* fd_wksp_new_anon_from_env parses --page-sz and --numa-idx from the
-   command line (falling back to defaults) and creates an anonymous workspace.
-   The workspace size is fixed at default_page_cnt*default_page_sz bytes;
-   --page-sz controls the page type used to back it (the page count is
-   scaled accordingly).  --page-cnt is consumed from argv but ignored so
-   that the test runner's budget does not inflate the workspace beyond what
-   the test actually needs. */
-
-static inline fd_wksp_t *
-fd_wksp_new_anon_from_env( int *        pargc,
-                           char ***     pargv,
-                           char const * default_page_sz,
-                           ulong        default_page_cnt,
-                           char const * name,
-                           ulong        opt_part_max ) {
-  char const * _page_sz    = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz          );
-  ulong        numa_idx    = fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
-  fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL ); /* consume to keep argv clean */
-  ulong        page_sz     = fd_cstr_to_shmem_page_sz( _page_sz );
-  ulong        def_page_sz = fd_cstr_to_shmem_page_sz( default_page_sz );
-  ulong        page_cnt    = (default_page_cnt * def_page_sz + page_sz - 1UL) / page_sz;
-  ulong        cpu_idx     = fd_shmem_cpu_idx( numa_idx );
-  if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "invalid page size for requested workspace" ));
-  return fd_wksp_new_anon( name, page_sz, 1UL, &page_cnt, &cpu_idx, 0U, opt_part_max );
-}
-
 /* fd_wksp_attach attach to the workspace held by the shared memory
    region with the given name.  If there are regions with the same name
    backed by different page sizes, defaults to the region backed by the
@@ -764,6 +738,39 @@ fd_wksp_attach( char const * name );
 
 int
 fd_wksp_detach( fd_wksp_t * wksp );
+
+/* fd_wksp_from_env parses --wksp, --page-sz, --page-cnt, --numa-idx from
+   the command line.  If --wksp is given, attaches to the named workspace
+   and sets *opt_is_anon to 0.  Otherwise creates an anonymous workspace
+   and sets *opt_is_anon to 1.  opt_is_anon may be NULL.  The workspace
+   size is --page-cnt pages of --page-sz each; if --page-cnt is omitted it
+   defaults to default_page_cnt*default_page_sz bytes scaled to --page-sz. */
+
+static inline fd_wksp_t *
+fd_wksp_from_env( int *        pargc,
+                  char ***     pargv,
+                  char const * default_page_sz,
+                  ulong        default_page_cnt,
+                  char const * name,
+                  ulong        opt_part_max,
+                  int *        opt_is_anon ) {
+  char const * _wksp      = fd_env_strip_cmdline_cstr ( pargc, pargv, "--wksp",     NULL, NULL                    );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, default_page_sz          );
+  ulong        numa_idx   = fd_env_strip_cmdline_ulong( pargc, pargv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
+  ulong        page_cnt_arg = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL );
+  if( _wksp ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", _wksp ));
+    if( opt_is_anon ) *opt_is_anon = 0;
+    return fd_wksp_attach( _wksp );
+  }
+  ulong page_sz     = fd_cstr_to_shmem_page_sz( _page_sz );
+  ulong def_page_sz = fd_cstr_to_shmem_page_sz( default_page_sz );
+  ulong page_cnt    = page_cnt_arg ? page_cnt_arg : (default_page_cnt * def_page_sz + page_sz - 1UL) / page_sz;
+  ulong cpu_idx     = fd_shmem_cpu_idx( numa_idx );
+  if( FD_UNLIKELY( page_cnt<1UL ) ) FD_LOG_ERR(( "invalid page size for requested workspace" ));
+  if( opt_is_anon ) *opt_is_anon = 1;
+  return fd_wksp_new_anon( name, page_sz, 1UL, &page_cnt, &cpu_idx, 0U, opt_part_max );
+}
 
 /* fd_wksp_containing maps a fd_wksp local addr to the corresponding
    fd_wksp local join.  Returns NULL if laddr does not appear to be from

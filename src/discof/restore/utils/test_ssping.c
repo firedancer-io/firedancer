@@ -210,7 +210,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL , NULL);
   FD_TEST( wksp );
 
   /* Create a single ssping instance.  max_peers=8 is enough for all

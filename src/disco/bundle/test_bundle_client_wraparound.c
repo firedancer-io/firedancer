@@ -124,7 +124,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "normal", 256UL, "wksp", 16UL );
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "normal", 256UL, "wksp", 16UL, &is_anon );
   FD_TEST( wksp );
 
   test_bundle_msg_oversized_wraparound( wksp );
@@ -133,7 +134,8 @@ main( int     argc,
   FD_TEST( fd_wksp_usage( wksp, NULL, 0UL, &wksp_usage ) );
   FD_TEST( wksp_usage.free_cnt==wksp_usage.total_cnt );
 
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

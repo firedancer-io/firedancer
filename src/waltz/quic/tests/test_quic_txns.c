@@ -208,11 +208,8 @@ main( int argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ,
-                                            1UL << 15,
-                                            fd_shmem_cpu_idx( 0 ),
-                                            "wksp",
-                                            0UL );
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "normal", 32768UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   fd_quic_limits_t quic_limits = {
@@ -249,7 +246,8 @@ main( int argc,
 
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
 
   fd_halt();
 

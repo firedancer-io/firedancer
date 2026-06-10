@@ -21,7 +21,7 @@ int main( int argc, char * argv[] ) {
   fd_pubkey_t node_account_t_1_fork_2 = {.ul = {19}};
   fd_pubkey_t node_account_t_1_fork_3 = {.ul = {20}};
 
-  fd_wksp_t *  wksp     = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  fd_wksp_t *  wksp     = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, NULL );
 
   ulong footprint = fd_vote_stakes_footprint( 64UL, 64UL, 16UL );
 

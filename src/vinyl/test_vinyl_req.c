@@ -846,11 +846,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( fd_tile_cnt() < 2UL ) ) FD_LOG_ERR(( "This test requires at least 2 tiles" ));
 
-  char const * _wksp       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",        NULL,                   NULL );
-  char const * _page_sz    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",     NULL,             "gigantic" );
-  ulong        page_cnt    = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",    NULL,                    8UL );
-  ulong        near_cpu    = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",    NULL,        fd_log_cpu_id() );
-  ulong        tag         = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",         NULL,                    1UL );
+  ulong tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag", NULL, 1UL );
 
   ulong        spad_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--spad-max",    NULL, fd_vinyl_io_spad_est() );
   ulong        dev_sz      = fd_env_strip_cmdline_ulong( &argc, &argv, "--dev-sz",      NULL,              1UL << 30 );
@@ -884,15 +880,8 @@ main( int     argc,
 
   int style = fd_cstr_to_vinyl_bstream_ctl_style( _style );
 
-  fd_wksp_t * wksp;
-  if( _wksp ) {
-    FD_LOG_NOTICE(( "Attaching to --wksp %s", _wksp ));
-    wksp = fd_wksp_attach( _wksp );
-  } else {
-    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace (--page-sz %s --page-cnt %lu --near-cpu %lu)",
-                    _page_sz, page_cnt, near_cpu ));
-    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
-  }
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 8UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   FD_LOG_NOTICE(( "Creating vinyl tile" ));
@@ -1092,8 +1081,8 @@ main( int     argc,
   fd_wksp_free_laddr( _dev     );
   fd_wksp_free_laddr( _io      );
 
-  if( _wksp ) fd_wksp_detach( wksp );
-  else        fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

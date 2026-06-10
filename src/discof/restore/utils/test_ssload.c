@@ -684,7 +684,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL , NULL);
   FD_TEST( wksp );
 
   fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)fd_wksp_alloc_laddr( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t), 1UL );

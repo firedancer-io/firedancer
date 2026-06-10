@@ -21,17 +21,7 @@ main( int     argc,
   if( FD_UNLIKELY( -1==stat( argv[1], &st ) ) ) FD_LOG_ERR(( "stat() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   ulong size = (ulong)st.st_size;
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
-  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                          );
-  ulong        numa_idx   = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
-
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 2UL, "wksp", 0UL, NULL );
   FD_TEST( wksp );
 
   uchar * buffer = fd_wksp_alloc_laddr( wksp, 1UL, size, 1UL );

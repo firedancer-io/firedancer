@@ -95,7 +95,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
-  fd_wksp_t *  wksp     = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 5UL, "wksp", 0UL );
+  fd_wksp_t *  wksp     = fd_wksp_from_env( &argc, &argv, "gigantic", 5UL, "wksp", 0UL, NULL );
 
   fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
   FD_TEST( runtime );

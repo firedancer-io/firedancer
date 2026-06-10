@@ -64,7 +64,7 @@ main( int argc, char * argv[] ) {
   fd_pubkey_t node_L = { .ul = { 212UL } };
   fd_pubkey_t node_M = { .ul = { 213UL } };
 
-  fd_wksp_t *  wksp     = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  fd_wksp_t *  wksp     = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, NULL );
 
   ushort const vote_accounts_max = 4UL;
   ulong  const footprint         = fd_top_votes_footprint( vote_accounts_max );

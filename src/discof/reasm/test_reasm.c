@@ -1264,13 +1264,7 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"        );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL               );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0 ) );
-  ulong        page_sz  = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
-
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, NULL );
   FD_TEST( wksp );
 
   test_insert( wksp );

@@ -79,7 +79,8 @@ main( int     argc,
   ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,        262144UL );
   uint         rec_max  = fd_env_strip_cmdline_uint(  &argc, &argv, "--rec-max",   NULL,          262144 );
 
-  fd_wksp_t *  wksp     = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  int          is_anon;
+  fd_wksp_t *  wksp     = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, &is_anon );
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
@@ -143,7 +144,8 @@ main( int     argc,
 
   fd_wksp_free_laddr( shlocks );
   fd_wksp_free_laddr( shmem );
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anonymous( wksp );
+  else          fd_wksp_detach( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

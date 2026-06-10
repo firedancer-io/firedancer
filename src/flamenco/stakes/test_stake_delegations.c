@@ -74,7 +74,7 @@ int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
   ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,          1234UL );
-  fd_wksp_t *  wksp     = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  fd_wksp_t *  wksp     = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, NULL );
 
   /* Test stake delegations where is_tombstone == 0 */
 

@@ -975,12 +975,6 @@ main( int     argc,
     FD_TEST( fd_replay_tile_scratch_footprint( out_cnt )==FD_REPLAY_TILE_SCRATCH_FOOTPRINT( out_cnt ) );
   }
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",          NULL, "gigantic"                    );
-  ulong        page_cnt         = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",         NULL, 1UL                           );
-  ulong        numa_idx         = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",         NULL, fd_shmem_numa_idx( cpu_idx )  );
   char const * replay_pcap      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--replay-pcap",      NULL, NULL                          );
   ulong        replay_mtu       = fd_env_strip_cmdline_ulong( &argc, &argv, "--replay-mtu",       NULL, 1542UL                        );
   ulong        replay_orig      = fd_env_strip_cmdline_ulong( &argc, &argv, "--replay-orig",      NULL, 0UL                           );
@@ -1003,8 +997,6 @@ main( int     argc,
   int          parser_enabled   = 1;
   int          vcheck_enabled   = 1;
 
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz"  ));
   if( FD_UNLIKELY( !replay_pcap ) ) FD_LOG_ERR(( "--replay-pcap not specified" ));
 
   /* Check minimum number of tiles */
@@ -1029,8 +1021,7 @@ main( int     argc,
   cfg->test_version = test_version;
 
   /* Workspace */
-  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  cfg->wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  cfg->wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, NULL );
   FD_TEST( cfg->wksp );
 
   /* Configure replay fseq */
@@ -1293,7 +1284,7 @@ main( int     argc,
   if( !!v__wd_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v__wd_mcache  ) ) ); }
   if( !!vcheck_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->vcheck_cnc     ) ) ); }
   
-  fd_wksp_delete_anonymous( cfg->wksp );
+  fd_wksp_delete_anon( cfg->wksp );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

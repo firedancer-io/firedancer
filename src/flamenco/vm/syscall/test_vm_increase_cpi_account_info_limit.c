@@ -480,11 +480,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 4UL             );
-  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
-
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 4UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   test_both_enabled_exceeds_limit( wksp );
@@ -500,7 +497,8 @@ main( int     argc,
   test_increase_tx_account_lock_limit_enabled_below_limit( wksp );
   test_neither_enabled_below_limit( wksp );
 
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

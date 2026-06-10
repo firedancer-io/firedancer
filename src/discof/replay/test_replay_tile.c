@@ -940,7 +940,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 2UL, "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 2UL, "wksp", 0UL , NULL);
   FD_TEST( wksp );
 
   test_banks_evict_backfill( wksp );

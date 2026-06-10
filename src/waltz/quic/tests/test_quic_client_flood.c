@@ -238,20 +238,11 @@ main( int argc, char ** argv ) {
 
   fd_clock_tile_init( clock );
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL, "gigantic"                   );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL, 1UL                          );
-  ulong        numa_idx  = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",       NULL, fd_shmem_numa_idx(cpu_idx)   );
-  char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",         NULL, NULL                         );
-  ushort       dst_port  = fd_env_strip_cmdline_ushort( &argc, &argv, "--dst-port",       NULL, 9090U                        );
-  char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",        NULL, "00:00:00:00:00:00"          );
-  uint         batch     = fd_env_strip_cmdline_uint  ( &argc, &argv, "--batch",          NULL, 16U                          );
+  char const * _dst_ip   = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--dst-ip",   NULL, NULL               );
+  ushort       dst_port  = fd_env_strip_cmdline_ushort( &argc, &argv, "--dst-port", NULL, 9090U              );
+  char const * _gateway  = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--gateway",  NULL, "00:00:00:00:00:00" );
+  uint         batch     = fd_env_strip_cmdline_uint  ( &argc, &argv, "--batch",    NULL, 16U                );
   /*         */g_unreliable = (_Bool)fd_env_strip_cmdline_contains( &argc, &argv, "--unreliable" );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   if( FD_UNLIKELY( !_dst_ip  ) ) FD_LOG_ERR(( "missing --dst-ip"   ));
   if( FD_UNLIKELY( !dst_port ) ) FD_LOG_ERR(( "missing --dst-port" ));
@@ -264,8 +255,8 @@ main( int argc, char ** argv ) {
   uint dst_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 
-  FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   fd_quic_limits_t quic_limits = {0};
@@ -298,7 +289,8 @@ main( int argc, char ** argv ) {
 
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
   fd_clock_leave( clock->clock );
   fd_clock_delete( clock->shmem );
   fd_rng_delete( fd_rng_leave( rng ) );

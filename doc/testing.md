@@ -170,26 +170,26 @@ variables.  This has the benefit of better support for some embedded
 targets such as on-chain virtual machines.
 
 **Memory allocation**: If a larger amount of memory is required, tests
-should allocate an anon workspace from shmem given the following flags:
+should allocate a workspace from shmem via `fd_wksp_from_env`, which
+strips the following flags from `argv`:
+- `--wksp`: Name of an existing workspace to attach to (optional)
 - `--page-sz`: Size of memory pages to request (normal/huge/gigantic)
-- `--page-cnt`: Number of pages to request for given type
+- `--page-cnt`: Number of pages to allocate; if omitted, the workspace
+  size defaults to `default_page_cnt * default_page_sz` bytes scaled
+  to the requested page type
 - `--numa-idx`: NUMA node on which memory should be allocated
 - Most tests default to 1 "gigantic" page, as per our recommendation to
   use x86 1 GiB pages.
-- This can be achieved with `fd_wksp_new_anon_from_env`, which reads
-  `--page-sz` and `--numa-idx` from `argv` (falling back to the supplied
-  defaults) and scales the page count so the workspace size stays fixed
-  regardless of page type.  `--page-cnt` is consumed from `argv` but
-  ignored, so the test runner's per-job budget does not inflate the
-  workspace beyond what the test needs.
   ```c
-  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   ...
   /* tests */
   ...
 
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
   ```
 - Using `fd_scratch` over "raw" shmem pages or `static uchar[]` is also fine.

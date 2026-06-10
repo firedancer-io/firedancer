@@ -88,25 +88,16 @@ main( int     argc,
 
   fd_clock_tile_init( clock );
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
 # define FRAG_SZ (1163UL) /* Usable QUIC stream data space FIXME increase IPv4 MTU */
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong ( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
-  float        loss     = fd_env_strip_cmdline_float ( &argc, &argv, "--loss",      NULL, 0.0f                         );
-  float        reorder  = fd_env_strip_cmdline_float ( &argc, &argv, "--reorder",   NULL, 0.0f                         );
-  float        duration = fd_env_strip_cmdline_float ( &argc, &argv, "--duration",  NULL, 10.0f                        );
-  ushort       sz       = fd_env_strip_cmdline_ushort( &argc, &argv, "--sz",        NULL, 1UL<<10                      );
+  float        loss     = fd_env_strip_cmdline_float ( &argc, &argv, "--loss",      NULL, 0.0f    );
+  float        reorder  = fd_env_strip_cmdline_float ( &argc, &argv, "--reorder",   NULL, 0.0f    );
+  float        duration = fd_env_strip_cmdline_float ( &argc, &argv, "--duration",  NULL, 10.0f   );
+  ushort       sz       = fd_env_strip_cmdline_ushort( &argc, &argv, "--sz",        NULL, 1UL<<10 );
   FD_TEST( sz<=FRAG_SZ );
 
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
-
-  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  int is_anon;
+  fd_wksp_t * wksp = fd_wksp_from_env( &argc, &argv, "gigantic", 2UL, "wksp", 0UL, &is_anon );
   FD_TEST( wksp );
 
   /* Tune QUIC client and server such that server ACKs just before
@@ -277,7 +268,8 @@ main( int     argc,
   fd_quic_virtual_pair_fini( &vp );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
-  fd_wksp_delete_anonymous( wksp );
+  if( is_anon ) fd_wksp_delete_anon( wksp );
+  else          fd_wksp_detach( wksp );
   fd_clock_leave( clock->clock );
   fd_clock_delete( clock->shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
