@@ -21,40 +21,48 @@ else
   mkdir -pv "$LOG_PATH"
 fi
 
-mkdir -p dump
+# If WORK_DIR is provided, use it directly and skip the whole
+# git clone/fetch/checkout/cache/rsync dance. The provided directory
+# is expected to already contain the fixtures laid out as
+# <WORK_DIR>/{block,syscall,txn,elf_loader,instr,shred}/fixtures
+if [ -n "${WORK_DIR:-}" ]; then
+  echo "Using provided WORK_DIR: $WORK_DIR"
+else
+  mkdir -p dump
 
-GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
-REPO_URL="https://github.com/firedancer-io/test-vectors.git"
+  GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
+  REPO_URL="https://github.com/firedancer-io/test-vectors.git"
 
-echo "$GIT_REF"
+  echo "$GIT_REF"
 
-CACHE="/data/${USER}/.cache/firedancer/test-vectors"
-WORK_DIR="dump/test-vectors-$$"
+  CACHE="/data/${USER}/.cache/firedancer/test-vectors"
+  WORK_DIR="dump/test-vectors-$$"
 
-mkdir -p "$(dirname "$CACHE")"
+  mkdir -p "$(dirname "$CACHE")"
 
-exec {lockfd}>"$CACHE.lock"
-flock -x "$lockfd"
+  exec {lockfd}>"$CACHE.lock"
+  flock -x "$lockfd"
 
-# Clean up stale git lock files left by killed processes
-rm -f "$CACHE/.git/index.lock"
+  # Clean up stale git lock files left by killed processes
+  rm -f "$CACHE/.git/index.lock"
 
-if [ ! -d "$CACHE" ]; then
-    git clone -q "$REPO_URL" "$CACHE"
+  if [ ! -d "$CACHE" ]; then
+      git clone -q "$REPO_URL" "$CACHE"
+  fi
+
+  git -C "$CACHE" fetch -q --prune
+  git -C "$CACHE" checkout -q "$GIT_REF"
+
+  # Remove stale working copies older than 24 hours (non-fatal)
+  find dump -maxdepth 1 -regex '.*/test-vectors-[0-9]+$' -type d -mtime +0 \
+    -exec echo "  removing stale: {}" \; -exec rm -rf {} \; 2>/dev/null || true
+
+  rm -rf "$WORK_DIR"
+  rsync -a --link-dest="$CACHE" "$CACHE"/ "$WORK_DIR"
+
+  flock -u "$lockfd"
+  exec {lockfd}>&-
 fi
-
-git -C "$CACHE" fetch -q --prune
-git -C "$CACHE" checkout -q "$GIT_REF"
-
-# Remove stale working copies older than 24 hours (non-fatal)
-find dump -maxdepth 1 -regex '.*/test-vectors-[0-9]+$' -type d -mtime +0 \
-  -exec echo "  removing stale: {}" \; -exec rm -rf {} \; 2>/dev/null || true
-
-rm -rf "$WORK_DIR"
-rsync -a --link-dest="$CACHE" "$CACHE"/ "$WORK_DIR"
-
-flock -u "$lockfd"
-exec {lockfd}>&-
 
 SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" --tile-cpus "f,0-$(( NUM_PROCESSES - 1 ))" )
 
