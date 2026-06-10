@@ -19,6 +19,12 @@
 
 #include "fd_secp256r1_table.c"
 
+/* p256_scalarmulbase() with blocksize=6 reads, in constant time, all 32
+   affine points (8 ulongs each) of every window i with 6*i<=256, i.e.
+   43 windows (i=0..42).  A short table is an out-of-bounds read, so pin
+   the size here. */
+FD_STATIC_ASSERT( sizeof(fd_secp256r1_base_point_table)==(43UL*32UL*8UL)*sizeof(ulong), p256_base_table_size );
+
 /* Scalars */
 
 static inline int
