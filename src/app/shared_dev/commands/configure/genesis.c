@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../../shared/commands/configure/configure.h"
 
 #include "../../../platform/fd_file_util.h"

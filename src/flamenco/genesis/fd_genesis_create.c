@@ -1,4 +1,3 @@
-#define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_genesis_create.h"
 
 #include "../runtime/fd_system_ids.h"

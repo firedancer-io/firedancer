@@ -1,6 +1,3 @@
-#ifndef FD_SCRATCH_USE_HANDHOLDING
-#define FD_SCRATCH_USE_HANDHOLDING 1
-#endif
 #include "fd_sbpf_loader.h"
 #include "../../util/fd_util.h"
 
