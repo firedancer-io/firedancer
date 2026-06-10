@@ -11,17 +11,6 @@
 
 #include "../tile/fd_tile.h"
 
-/* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional run-time checks. */
-
-#ifndef FD_SCRATCH_USE_HANDHOLDING
-#if FD_HAS_DEEPASAN
-#define FD_SCRATCH_USE_HANDHOLDING 1
-#else
-#define FD_SCRATCH_USE_HANDHOLDING 0
-#endif
-#endif
-
 /* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for
    allocations.
 
@@ -59,7 +48,7 @@ FD_PROTOTYPES_BEGIN
 
 /* Private APIs *******************************************************/
 
-#if FD_SCRATCH_USE_HANDHOLDING
+#if FD_DCHECK_STYLE>0
 extern FD_TL int     fd_scratch_in_prepare;
 #endif
 
@@ -163,12 +152,12 @@ fd_scratch_attach( void * smem,
                    ulong  smax,
                    ulong  depth ) {
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "already attached" ));
-  if( FD_UNLIKELY( !smem                        ) ) FD_LOG_ERR(( "bad smem"  ));
-  if( FD_UNLIKELY( !fmem                        ) ) FD_LOG_ERR(( "bad fmem"  ));
-  if( FD_UNLIKELY( !smax                        ) ) FD_LOG_ERR(( "bad smax"  ));
-  if( FD_UNLIKELY( !depth                       ) ) FD_LOG_ERR(( "bad depth" ));
+  FD_DCHECK_CRIT( !fd_scratch_private_frame_max, "already attached" );
+  FD_DCHECK_CRIT( !!smem,  "bad smem"  );
+  FD_DCHECK_CRIT( !!fmem,  "bad fmem"  );
+  FD_DCHECK_CRIT( !!smax,  "bad smax"  );
+  FD_DCHECK_CRIT( !!depth, "bad depth" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 0;
 # endif
 
@@ -211,8 +200,8 @@ fd_scratch_attach( void * smem,
 static inline void *
 fd_scratch_detach( void ** _opt_fmem ) {
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_max, "not attached" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 0;
 # endif
 
@@ -273,8 +262,8 @@ static inline ulong fd_scratch_frame_free( void ) { return fd_scratch_private_fr
 
 static inline void
 fd_scratch_reset( void ) {
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_max, "not attached" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_free      = fd_scratch_private_start;
@@ -302,11 +291,9 @@ fd_scratch_reset( void ) {
 
 FD_FN_UNUSED static void /* Work around -Winline */
 fd_scratch_push( void ) {
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max                              ) ) {
-    FD_LOG_ERR(( "not attached" ));
-  }
-  if( FD_UNLIKELY( fd_scratch_private_frame_cnt>=fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "too many frames" ));
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_max, "not attached" );
+  FD_DCHECK_CRIT( fd_scratch_private_frame_cnt < fd_scratch_private_frame_max, "too many frames" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_frame[ fd_scratch_private_frame_cnt++ ] = fd_scratch_private_free;
@@ -337,9 +324,9 @@ fd_scratch_push( void ) {
 
 FD_FN_UNUSED static void /* Work around -Winline */
 fd_scratch_pop( void ) {
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
-  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt ) ) FD_LOG_ERR(( "unmatched pop" ));
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_max, "not attached" );
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_cnt, "unmatched pop" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_free = fd_scratch_private_frame[ --fd_scratch_private_frame_cnt ];
@@ -410,10 +397,8 @@ fd_scratch_pop( void ) {
 FD_FN_UNUSED static void * /* Work around -Winline */
 fd_scratch_prepare( ulong align ) {
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) FD_LOG_ERR(( "unmatched push" ));
-  if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) FD_LOG_ERR(( "bad align (%lu)", align ));
-# endif
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_cnt, "unmatched push" );
+  FD_DCHECK_CRIT( fd_scratch_private_align_is_valid( align ), "bad align" );
 
 # if FD_HAS_DEEPASAN
   /* Need 8 byte alignment. */
@@ -422,10 +407,9 @@ fd_scratch_prepare( ulong align ) {
   ulong true_align = fd_scratch_private_true_align( align );
   ulong smem       = fd_ulong_align_up( fd_scratch_private_free, true_align );
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( smem < fd_scratch_private_free ) ) FD_LOG_ERR(( "prepare align (%lu) overflow", true_align ));
-  if( FD_UNLIKELY( smem > fd_scratch_private_stop ) ) FD_LOG_ERR(( "prepare align (%lu) needs %lu additional scratch",
-                                                                   align, smem - fd_scratch_private_stop ));
+  FD_DCHECK_CRIT( smem >= fd_scratch_private_free, "prepare align overflow" );
+  FD_DCHECK_CRIT( smem <= fd_scratch_private_stop, "prepare overflow" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 1;
 # endif
 
@@ -444,12 +428,13 @@ static inline void
 fd_scratch_publish( void * _end ) {
   ulong end = (ulong)_end;
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_in_prepare        ) ) FD_LOG_ERR(( "unmatched prepare" ));
-  if( FD_UNLIKELY( end < fd_scratch_private_free ) ) FD_LOG_ERR(( "publish underflow" ));
-  if( FD_UNLIKELY( end > fd_scratch_private_stop ) )
-    FD_LOG_ERR(( "publish needs %lu additional scratch", end-fd_scratch_private_stop ));
-  fd_scratch_in_prepare   = 0;
+# if FD_DCHECK_STYLE>0
+  FD_DCHECK_CRIT( !!fd_scratch_in_prepare, "unmatched prepare" );
+# endif
+  FD_DCHECK_CRIT( end >= fd_scratch_private_free, "publish underflow" );
+  FD_DCHECK_CRIT( end <= fd_scratch_private_stop, "publish overflow" );
+# if FD_DCHECK_STYLE>0
+  fd_scratch_in_prepare = 0;
 # endif
 
   /* Poison everything that is trimmed off. Conservatively poison potentially
@@ -475,8 +460,8 @@ fd_scratch_publish( void * _end ) {
 static inline void
 fd_scratch_cancel( void ) {
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_in_prepare ) ) FD_LOG_ERR(( "unmatched prepare" ));
+# if FD_DCHECK_STYLE>0
+  FD_DCHECK_CRIT( !!fd_scratch_in_prepare, "unmatched prepare" );
   fd_scratch_in_prepare = 0;
 # endif
 
@@ -519,9 +504,8 @@ fd_scratch_alloc( ulong align,
   ulong smem = (ulong)fd_scratch_prepare( align );
   ulong end  = smem + sz;
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( (end < smem) | (end > fd_scratch_private_stop) ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
-# endif
+  FD_DCHECK_CRIT( end >= smem, "sz overflow" );
+  FD_DCHECK_CRIT( end <= fd_scratch_private_stop, "sz overflow" );
 
   fd_scratch_publish( (void *)end );
   return (void *)smem;
@@ -563,10 +547,10 @@ static inline void
 fd_scratch_trim( void * _end ) {
   ulong end = (ulong)_end;
 
-# if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt                                      ) ) FD_LOG_ERR(( "unmatched push" ));
-  if( FD_UNLIKELY( end < fd_scratch_private_frame[ fd_scratch_private_frame_cnt-1UL ] ) ) FD_LOG_ERR(( "trim underflow" ));
-  if( FD_UNLIKELY( end > fd_scratch_private_free                                      ) ) FD_LOG_ERR(( "trim overflow" ));
+  FD_DCHECK_CRIT( !!fd_scratch_private_frame_cnt, "unmatched push" );
+  FD_DCHECK_CRIT( end >= fd_scratch_private_frame[ fd_scratch_private_frame_cnt-1UL ], "trim underflow" );
+  FD_DCHECK_CRIT( end <= fd_scratch_private_free, "trim overflow" );
+# if FD_DCHECK_STYLE>0
   fd_scratch_in_prepare = 0;
 # endif
 
@@ -646,7 +630,7 @@ fd_scratch_prepare_is_safe( ulong align ) {
 FD_FN_PURE static inline int
 fd_scratch_publish_is_safe( void * _end ) {
   ulong end = (ulong)_end;
-# if FD_SCRATCH_USE_HANDHOLDING
+# if FD_DCHECK_STYLE>0
   if( FD_UNLIKELY( !fd_scratch_in_prepare        ) ) return 0; /* Not in prepare */
 # endif
   if( FD_UNLIKELY( end < fd_scratch_private_free ) ) return 0; /* Backward */
