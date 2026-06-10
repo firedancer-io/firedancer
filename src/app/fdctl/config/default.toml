@@ -93,7 +93,7 @@ dynamic_port_range = "8900-9000"
 # STDERR and STDOUT from the launcher.  An example log message would
 # look something like:
 #
-#    NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+#    NOTICE  01-23 04:56:07.890123 45678 f0 0 file.c(901): 1 is the loneliest number
 #
 # to the ephemeral log (stderr) and log something like:
 #
