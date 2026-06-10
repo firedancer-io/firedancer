@@ -176,18 +176,14 @@ should allocate an anon workspace from shmem given the following flags:
 - `--numa-idx`: NUMA node on which memory should be allocated
 - Most tests default to 1 "gigantic" page, as per our recommendation to
   use x86 1 GiB pages.
-- This can be achieved with the following pattern:
+- This can be achieved with `fd_wksp_new_anon_from_env`, which reads
+  `--page-sz` and `--numa-idx` from `argv` (falling back to the supplied
+  defaults) and scales the page count so the workspace size stays fixed
+  regardless of page type.  `--page-cnt` is consumed from `argv` but
+  ignored, so the test runner's per-job budget does not inflate the
+  workspace beyond what the test needs.
   ```c
-  ...
-  /* setup */
-  ...
-
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL        );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
-
-  FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anon_from_env( &argc, &argv, "gigantic", 1UL, "wksp", 0UL );
   FD_TEST( wksp );
 
   ...
