@@ -28,12 +28,6 @@ void
 fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
                                          fd_exec_test_fee_rate_governor_t const * fee_rate_governor );
 
-/* Restores the epoch schedule in the bank from the given protobuf
-   epoch schedule. */
-void
-fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
-                                      fd_exec_test_epoch_schedule_t const * epoch_schedule );
-
 /* Initializes the blockhash queue in the bank from the given protobuf
    blockhash queue entries. */
 void

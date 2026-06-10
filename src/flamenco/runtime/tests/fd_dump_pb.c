@@ -371,19 +371,6 @@ dump_fee_rate_governor( fd_bank_t *                        bank,
 }
 
 static void
-dump_epoch_schedule( fd_bank_t *                     bank,
-                     fd_exec_test_epoch_schedule_t * out ) {
-  fd_epoch_schedule_t const * es = &bank->f.epoch_schedule;
-  *out = (fd_exec_test_epoch_schedule_t){
-    .slots_per_epoch             = es->slots_per_epoch,
-    .leader_schedule_slot_offset = es->leader_schedule_slot_offset,
-    .warmup                      = es->warmup,
-    .first_normal_epoch          = es->first_normal_epoch,
-    .first_normal_slot           = es->first_normal_slot,
-  };
-}
-
-static void
 dump_blockhash_queue( fd_bank_t *                             bank,
                       fd_spad_t *                             spad,
                       fd_exec_test_blockhash_queue_entry_t ** entries_out,
@@ -428,10 +415,6 @@ dump_txn_bank( fd_bank_t *                  bank,
 
   /* TxnBank -> total_epoch_stake */
   txn_bank->total_epoch_stake = bank->f.total_epoch_stake;
-
-  /* TxnBank -> epoch_schedule */
-  txn_bank->has_epoch_schedule = true;
-  dump_epoch_schedule( bank, &txn_bank->epoch_schedule );
 
   /* TxnBank -> features */
   txn_bank->has_features = true;
@@ -789,10 +772,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* BlockBank -> parent_signature_count */
   block_bank->parent_signature_count = parent_bank->f.parent_signature_cnt;
-
-  /* BlockBank -> epoch_schedule */
-  block_bank->has_epoch_schedule = true;
-  dump_epoch_schedule( parent_bank, &block_bank->epoch_schedule );
 
   /* BlockBank -> features */
   block_bank->has_features = true;

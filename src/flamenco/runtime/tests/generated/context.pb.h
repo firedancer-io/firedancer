@@ -41,20 +41,6 @@ typedef struct fd_exec_test_fee_rate_governor {
     uint32_t burn_percent;
 } fd_exec_test_fee_rate_governor_t;
 
-typedef struct fd_exec_test_epoch_schedule {
-    /* The maximum number of slots in each epoch. */
-    uint64_t slots_per_epoch;
-    /* A number of slots before beginning of an epoch to calculate
- a leader schedule for that epoch. */
-    uint64_t leader_schedule_slot_offset;
-    /* Whether epochs start short and grow. */
-    bool warmup;
-    /* The first epoch after the warmup period. */
-    uint64_t first_normal_epoch;
-    /* The first slot after the warmup period. */
-    uint64_t first_normal_slot;
-} fd_exec_test_epoch_schedule_t;
-
 /* A single entry in the blockhash queue. */
 typedef struct fd_exec_test_blockhash_queue_entry {
     pb_byte_t blockhash[32];
@@ -70,12 +56,10 @@ extern "C" {
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, {0}}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT {{0}, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO    {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO {{0}, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -90,11 +74,6 @@ extern "C" {
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_MIN_LAMPORTS_PER_SIGNATURE_TAG 3
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_MAX_LAMPORTS_PER_SIGNATURE_TAG 4
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_BURN_PERCENT_TAG 5
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_SLOTS_PER_EPOCH_TAG 1
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_LEADER_SCHEDULE_SLOT_OFFSET_TAG 2
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_WARMUP_TAG   3
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIRST_NORMAL_EPOCH_TAG 4
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIRST_NORMAL_SLOT_TAG 5
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_BLOCKHASH_TAG 1
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_LAMPORTS_PER_SIGNATURE_TAG 2
 
@@ -122,15 +101,6 @@ X(a, STATIC,   SINGULAR, UINT32,   burn_percent,      5)
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_CALLBACK NULL
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_DEFAULT NULL
 
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT64,   slots_per_epoch,   1) \
-X(a, STATIC,   SINGULAR, UINT64,   leader_schedule_slot_offset,   2) \
-X(a, STATIC,   SINGULAR, BOOL,     warmup,            3) \
-X(a, STATIC,   SINGULAR, UINT64,   first_normal_epoch,   4) \
-X(a, STATIC,   SINGULAR, UINT64,   first_normal_slot,   5)
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_CALLBACK NULL
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_DEFAULT NULL
-
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, blockhash,         1) \
 X(a, STATIC,   SINGULAR, UINT64,   lamports_per_signature,   2)
@@ -140,21 +110,18 @@ X(a, STATIC,   SINGULAR, UINT64,   lamports_per_signature,   2)
 extern const pb_msgdesc_t fd_exec_test_feature_set_t_msg;
 extern const pb_msgdesc_t fd_exec_test_acct_state_t_msg;
 extern const pb_msgdesc_t fd_exec_test_fee_rate_governor_t_msg;
-extern const pb_msgdesc_t fd_exec_test_epoch_schedule_t_msg;
 extern const pb_msgdesc_t fd_exec_test_blockhash_queue_entry_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDS &fd_exec_test_feature_set_t_msg
 #define FD_EXEC_TEST_ACCT_STATE_FIELDS &fd_exec_test_acct_state_t_msg
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_FIELDS &fd_exec_test_fee_rate_governor_t_msg
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIELDS &fd_exec_test_epoch_schedule_t_msg
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_FIELDS &fd_exec_test_blockhash_queue_entry_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_FeatureSet_size depends on runtime parameters */
 /* fd_exec_test_AcctState_size depends on runtime parameters */
 #define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_SIZE  45
-#define FD_EXEC_TEST_EPOCH_SCHEDULE_SIZE         46
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_SIZE      50
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_FEE_RATE_GOVERNOR_SIZE
 
@@ -162,17 +129,14 @@ extern const pb_msgdesc_t fd_exec_test_blockhash_queue_entry_t_msg;
 #define org_solana_sealevel_v1_FeatureSet fd_exec_test_FeatureSet
 #define org_solana_sealevel_v1_AcctState fd_exec_test_AcctState
 #define org_solana_sealevel_v1_FeeRateGovernor fd_exec_test_FeeRateGovernor
-#define org_solana_sealevel_v1_EpochSchedule fd_exec_test_EpochSchedule
 #define org_solana_sealevel_v1_BlockhashQueueEntry fd_exec_test_BlockhashQueueEntry
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_DEFAULT FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_DEFAULT FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEE_RATE_GOVERNOR_INIT_DEFAULT FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_EPOCH_SCHEDULE_INIT_DEFAULT FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_ZERO FD_EXEC_TEST_FEATURE_SET_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_ZERO FD_EXEC_TEST_ACCT_STATE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_FEE_RATE_GOVERNOR_INIT_ZERO FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_EPOCH_SCHEDULE_INIT_ZERO FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO
 
 #ifdef __cplusplus

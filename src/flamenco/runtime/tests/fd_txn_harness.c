@@ -77,19 +77,11 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Total epoch stake */
   runner->bank->f.total_epoch_stake = txn_bank->total_epoch_stake;
 
-  /* Epoch schedule */
-  FD_TEST( txn_bank->has_epoch_schedule );
-  fd_solfuzz_pb_restore_epoch_schedule( runner->bank, &txn_bank->epoch_schedule );
-
   /* Features */
   FD_TEST( txn_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &txn_bank->features;
   fd_features_t * features_bm = &runner->bank->f.features;
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
-
-  /* Epoch */
-  ulong epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
-  runner->bank->f.epoch = epoch;
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -105,6 +97,12 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );
+
+  /* Epoch schedule */
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &runner->bank->f.sysvar_cache, &runner->bank->f.epoch_schedule ) );
+
+  /* Epoch */
+  runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   /* Rent */
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
