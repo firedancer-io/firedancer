@@ -92,7 +92,7 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
 
 [paths]
     snapshots = "${ledger_dir}"
-
+    accounts = "${ledger_dir}/accounts.db"
 [capture]
     solcap_capture = "${dump_dir}/mainnet-424669000.solcap"
 [gossip]

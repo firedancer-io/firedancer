@@ -292,6 +292,8 @@ fi
 
 echo "Log for ledger $LEDGER at $LOG"
 
+rm -rf $DUMP/accounts.db
+
 # check that the ledger is not corrupted after a run
 if [[ $SKIP_CHECKSUM -eq 0 ]]; then
   check_ledger_checksum
