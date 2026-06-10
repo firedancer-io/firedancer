@@ -219,6 +219,25 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
                                 void *                output_buf,
                                 ulong                 output_bufsz );
 
+int
+fd_solfuzz_pb_vm_serialize_fixture( fd_solfuzz_runner_t * runner,
+                                    uchar const *         in,
+                                    ulong                 in_sz );
+
+/* Transaction Cost Model */
+
+ulong
+fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
+                        void const *          input_,
+                        void **               output_,
+                        void *                output_buf,
+                        ulong                 output_bufsz );
+
+int
+fd_solfuzz_pb_cost_fixture( fd_solfuzz_runner_t * runner,
+                            uchar const *         in,
+                            ulong                 in_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h */

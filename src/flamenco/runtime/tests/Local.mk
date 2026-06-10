@@ -8,7 +8,7 @@ $(call add-hdrs,fd_dump_pb.h)
 $(call add-objs,fd_dump_pb,fd_flamenco)
 endif
 
-$(call add-hdrs,fd_instr_harness.h fd_txn_harness.h fd_bundle_harness.h fd_gossip_harness.h fd_cost_harness.h)
+$(call add-hdrs,fd_instr_harness.h fd_txn_harness.h fd_bundle_harness.h fd_gossip_harness.h)
 $(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_bundle_harness fd_cost_harness fd_harness_common fd_vm_harness fd_gossip_harness fd_shred_harness,fd_flamenco_test)
 $(call add-objs,fd_block_harness,fd_flamenco_test)
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
