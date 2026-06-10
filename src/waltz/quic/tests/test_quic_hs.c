@@ -184,8 +184,8 @@ test_quic_hs( fd_quic_t * server_quic,
   validate_quic_hs_tls_cache( client_quic );
   validate_quic_hs_tls_cache( server_quic );
 
-  FD_TEST_CUSTOM( sizeof(fd_quic_tls_hs_cache_t) == fd_quic_tls_hs_cache_footprint( ),
-                    "tls hs cache relies on footprint==sizeof, modify that impl" );
+  FD_CHECK_ERR( sizeof(fd_quic_tls_hs_cache_t) == fd_quic_tls_hs_cache_footprint(),
+                "tls hs cache relies on footprint==sizeof, modify that impl" );
 
   FD_LOG_NOTICE(( "Testing TLS cache - within ttl prevents eviction " ));
   client_quic->config.tls_hs_ttl = 5UL;

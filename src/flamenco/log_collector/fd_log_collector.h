@@ -264,7 +264,7 @@ fd_log_collector_printf_dangerous_max_127( fd_exec_instr_ctx_t * ctx,
      We MUST only use fd_log_collector_printf_dangerous_max_127()
      as a convenience method, when we can guarantee that the total
      msg_sz is bound by FD_LOG_COLLECTOR_PRINTF_MAX_1B. */
-  FD_TEST_CUSTOM( res>=0 && res<FD_LOG_COLLECTOR_PRINTF_MAX_1B,
+  FD_CHECK_ERR( res>=0 && res<FD_LOG_COLLECTOR_PRINTF_MAX_1B,
     "A transaction log was truncated unexpectedly. Please report to developers." );
 
   /* Decide if we should include the log or truncate. */
@@ -321,7 +321,7 @@ fd_log_collector_printf_dangerous_128_to_2k( fd_exec_instr_ctx_t * ctx,
      We MUST only use fd_log_collector_printf_dangerous_max_128_to_2k()
      as a convenience method, when we can guarantee that the total
      msg_sz is bound by FD_LOG_COLLECTOR_PRINTF_MAX_2B. */
-  FD_TEST_CUSTOM( res>=FD_LOG_COLLECTOR_PRINTF_MAX_1B && res<FD_LOG_COLLECTOR_PRINTF_MAX_2B,
+  FD_CHECK_ERR( res>=FD_LOG_COLLECTOR_PRINTF_MAX_1B && res<FD_LOG_COLLECTOR_PRINTF_MAX_2B,
     "A transaction log was truncated unexpectedly. Please report to developers." );
 
   /* Decide if we should include the log or truncate. */
@@ -356,7 +356,7 @@ fd_log_collector_printf_inefficient_max_512( fd_exec_instr_ctx_t * ctx,
   int msg_sz = vsnprintf( msg, sizeof(msg), fmt, ap );
   va_end( ap );
 
-  FD_TEST_CUSTOM( msg_sz>=0 && (ulong)msg_sz<sizeof(msg),
+  FD_CHECK_ERR( msg_sz>=0 && (ulong)msg_sz<sizeof(msg),
     "A transaction log was truncated unexpectedly. Please report to developers." );
 
   fd_log_collector_msg( ctx, msg, (ulong)msg_sz );
