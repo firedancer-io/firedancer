@@ -973,16 +973,13 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
-    ulong refcnt = runtime->accounts.refcnt[idx];
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L401-L402 */
-    if( FD_UNLIKELY( refcnt!=0UL ) ) {
+    if( FD_UNLIKELY( runtime->accounts.refcnt[ idx ]!=0UL ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
     }
-    refcnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L403-L406 */
     fd_sysvar_instructions_update_current_instr_idx( txn_out->accounts.account[idx].meta, (ushort)runtime->instr.current_idx );
-    refcnt--;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
