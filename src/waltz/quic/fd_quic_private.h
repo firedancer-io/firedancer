@@ -42,6 +42,11 @@
 
 #define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
 
+/* RFC 9002 retransmit constants */
+
+#define FD_QUIC_K_TIME_THRESHOLD 1.125f
+#define FD_QUIC_K_GRANULARITY_NS 1000000L
+
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
 
@@ -396,33 +401,33 @@ fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ns, long ack_delay ) {
 
 static inline long
 fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven, int is_server ) {
-  /*  For server, we want to be conservative and minimize spam risk, so we stick
-      with the hardcoded 500ms expiry. The following only applies to client.
-
-     If this calculation is ack-driven, use the time threshold:
-     6.1.2 Time Threshold
-     max(kTimeThreshold * max(smoothed_rtt, latest_rtt), kGranularity)
-     The RECOMMENDED time threshold (kTimeThreshold), expressed as an RTT multiplier, is 9/8 */
-     #define FD_QUIC_K_TIME_THRESHOLD 1.125f
-  /* Otherwise, calculate the expiry time according to the PTO spec
-     6.2.1. Computing PTO
-     When an ack-eliciting packet is transmitted, the sender schedules
-     a timer for the PTO period as follows:
-     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay
-
-     Our granularity is O(ns), while recommended is 1ms --> We don't
-     have to worry about kGranularity.
-*/
-
+  /* For server, we want to be conservative and minimize spam risk, so we stick
+     with the hardcoded 500ms expiry. The following only applies to client. */
   if( is_server ) return 500e6L;
+
+  /* If this calculation is ack-driven, use the time threshold:
+
+     > 6.1.2 Time Threshold
+     > max(kTimeThreshold * max(smoothed_rtt, latest_rtt), kGranularity)
+     > The RECOMMENDED time threshold (kTimeThreshold), expressed as an RTT multiplier, is 9/8
+
+     Otherwise, calculate the expiry time according to the PTO spec
+
+     > 6.2.1. Computing PTO
+     > When an ack-eliciting packet is transmitted, the sender schedules
+     > a timer for the PTO period as follows:
+     > PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay */
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
-  long pto_duration  = (long)( rtt->smoothed_rtt     +
-                                (4.0f * rtt->var_rtt) +
-                                conn->peer_max_ack_delay_ns );
+  float pto_rttvar = fmaxf( 4.0f * rtt->var_rtt, (float)FD_QUIC_K_GRANULARITY_NS );
+  long pto_duration = (long)( rtt->smoothed_rtt +
+                              pto_rttvar        +
+                              conn->peer_max_ack_delay_ns );
 
-  long loss_duration = (long)( FD_QUIC_K_TIME_THRESHOLD * fmaxf( rtt->smoothed_rtt, rtt->latest_rtt ) );
+  long loss_duration = fd_long_max(
+      (long)( FD_QUIC_K_TIME_THRESHOLD * fmaxf( rtt->smoothed_rtt, rtt->latest_rtt ) ),
+      FD_QUIC_K_GRANULARITY_NS );
 
   long duration = fd_long_if( ack_driven, loss_duration, pto_duration );
 
