@@ -141,6 +141,7 @@ typedef union {
 typedef struct {
   fd_shredder_t      * shredder;
   fd_fec_resolver_t  * resolver;
+  ulong                shred_limit;
   fd_pubkey_t          identity_key[1]; /* Just the public key */
 
   ulong                round_robin_id;
@@ -771,7 +772,7 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );
+    fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
       ctx->skip_frag = 1;
       return;
@@ -943,7 +944,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
-    fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
+    fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz, ctx->shred_limit );
 
     if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
 
@@ -1365,6 +1366,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                             sign_out->mtu ) ) );
 
   ulong shred_limit = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
+  ctx->shred_limit  = shred_limit;
   fd_fec_set_t * resolver_sets = fec_sets + shred_store_mcache_depth + FD_SHRED_BATCH_FEC_SETS_MAX;
   ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,

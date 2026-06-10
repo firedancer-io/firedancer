@@ -222,7 +222,7 @@ after_credit( fd_forkt_tile_t *   ctx,
     return;
   }
   FD_TEST( shred_sz<=sizeof(shred) );
-  fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz );
+  fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( parsed && parsed->slot > ctx->end_slot ) ) return;
   inject_shred( ctx, stem, shred, shred_sz );
   *charge_busy = 1;
