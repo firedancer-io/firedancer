@@ -44,7 +44,7 @@ FD_PROTOTYPES_BEGIN
    chosen to size various caches and maps: they are not intended to be
    exact as they are not consensus critical values. */
 
-#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2000000UL)
+#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2150000UL)
 #define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
@@ -249,7 +249,7 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
    validate parsed lengths throughout the entire architecture. */
 
 #define FD_VOTE_ACCOUNTS_MAX     (40200UL)
-#define FD_STAKE_DELEGATIONS_MAX (3000000UL)
+#define FD_STAKE_DELEGATIONS_MAX FD_RUNTIME_MAX_STAKE_ACCOUNTS
 #define FD_EPOCH_STAKES_LEN      (3UL)
 #define FD_EPOCH_VOTE_STAKES_MAX (40200UL)
 
