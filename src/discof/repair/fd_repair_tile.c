@@ -1281,7 +1281,7 @@ during_housekeeping( ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting" ));
-    FD_CRIT( ctx->halt_signing, "state machine corruption" );
+    FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     ctx->halt_signing = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }

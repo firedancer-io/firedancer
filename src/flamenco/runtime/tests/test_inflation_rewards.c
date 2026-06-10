@@ -1128,6 +1128,7 @@ test_store_stake_accounts_in_partition( fd_svm_mini_t * mini ) {
     }
   }
 
+  fd_svm_mini_freeze( mini, child_idx0 );
   ulong child_idx1 = fd_svm_mini_attach_child( mini, child_idx0, params->root_slot + 2UL );
   fd_bank_t * bank1 = fd_svm_mini_bank( mini, child_idx1 );
   fd_xid_t xid1 = fd_svm_mini_xid( mini, child_idx1 );

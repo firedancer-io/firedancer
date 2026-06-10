@@ -618,6 +618,7 @@ fd_svm_mini_freeze( fd_svm_mini_t * mini,
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   FD_TEST( block_hash );
   fd_txncache_finalize_fork( mini->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
+  fd_banks_mark_bank_frozen( bank );
 }
 
 static void

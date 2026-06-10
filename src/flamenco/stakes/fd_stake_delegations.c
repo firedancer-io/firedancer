@@ -251,10 +251,10 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
 
   fd_stake_delegation_t * stake_delegation = root_map_ele_query( map, stake_account, NULL, pool );
   if( !stake_delegation ) {
-    FD_CRIT( root_pool_free( pool ), "no free stake delegations in pool" );
+    FD_CHECK_CRIT( root_pool_free( pool ), "no free stake delegations in pool" );
     stake_delegation = root_pool_ele_acquire( pool );
     stake_delegation->stake_account = *stake_account;
-    FD_CRIT( root_map_ele_insert( map, stake_delegation, pool ), "unable to insert stake delegation into map" );
+    FD_CHECK_CRIT( root_map_ele_insert( map, stake_delegation, pool ), "unable to insert stake delegation into map" );
   }
 
   stake_delegation->vote_account         = *vote_account;
@@ -355,7 +355,7 @@ fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {
 ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations ) {
   fork_pool_ele_t * fork_pool = get_fork_pool( stake_delegations );
-  FD_CRIT( fork_pool_free( fork_pool ), "no free forks in pool. The system has forked too wide." );
+  FD_CHECK_CRIT( fork_pool_free( fork_pool ), "no free forks in pool. The system has forked too wide." );
   ushort fork_idx = (ushort)fork_pool_idx_acquire( fork_pool );
 
   return fork_idx;
@@ -374,7 +374,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
   fd_rwlock_write( &stake_delegations->delta_lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
-  FD_CRIT( delta_pool_free( delta_pool ), "no free stake delegations in pool" );
+  FD_CHECK_CRIT( delta_pool_free( delta_pool ), "no free stake delegations in pool" );
 
   fork_dlist_t * dlist = get_fork_dlist( stake_delegations, fork_idx );
 
@@ -405,7 +405,7 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
   fd_rwlock_write( &stake_delegations->delta_lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
-  FD_CRIT( delta_pool_free( delta_pool ), "no free stake delegations in pool" );
+  FD_CHECK_CRIT( delta_pool_free( delta_pool ), "no free stake delegations in pool" );
 
   fd_stake_delegation_t * stake_delegation = delta_pool_ele_acquire( delta_pool );
 

@@ -57,7 +57,7 @@ fd_accdb_ro_pipe_enqueue( fd_accdb_ro_pipe_t * pipe,
 
   memcpy( pipe->addr[ pipe->req_cnt ], address, 32UL );
   pipe->req_cnt++;
-  FD_CRIT( pipe->req_max<=FD_ACCDB_RO_PIPE_MAX, "req_max corrupt" );
+  FD_CHECK_CRIT( pipe->req_max<=FD_ACCDB_RO_PIPE_MAX, "req_max corrupt" );
   if( pipe->req_cnt>=pipe->req_max ) {
     fd_accdb_ro_pipe_flush( pipe );
   }

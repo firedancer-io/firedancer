@@ -35,7 +35,7 @@ rec_reclaim( fd_progcache_join_t * join,
     } else {
       /* Strong CAS failure implies that another thread is already
          unlinking the record (the rooting logic) */
-      FD_CRIT( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX, "concurrency violation" );
+      FD_CHECK_CRIT( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX, "concurrency violation" );
     }
     fd_rwlock_unwrite( &txn->lock );
   }
