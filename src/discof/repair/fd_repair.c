@@ -76,8 +76,8 @@ fd_repair_delete( void * repair ) {
 fd_repair_msg_t *
 fd_repair_pong( fd_repair_t * repair, fd_hash_t * ping_token ) {
   uchar pre_image[FD_REPAIR_PONG_PREIMAGE_SZ];
-  memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
-  memcpy( pre_image+16UL, ping_token->uc, 32UL);
+  memcpy( pre_image,      "SOLANA_PING_PONG", 16UL );
+  memcpy( pre_image+16UL, ping_token->uc,     32UL );
 
   /* Generate response hash token */
   fd_sha256_hash( pre_image, FD_REPAIR_PONG_PREIMAGE_SZ, &repair->msg.pong.hash );

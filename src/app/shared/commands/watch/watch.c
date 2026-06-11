@@ -205,20 +205,24 @@ total_regime( ulong const * metrics ) {
   return sum;
 }
 
+/* Bench */
 static ulong tps_sent_samples_idx = 0UL;
 static ulong tps_sent_samples[ 200UL ];
+/* Replay */
 static ulong cups_samples_idx = 0UL;
 static ulong cups_samples[ 100UL ];
 static ulong sps_samples_idx = 0UL;
 static ulong sps_samples[ 200UL ];
 static ulong tps_samples_idx = 0UL;
 static ulong tps_samples[ 200UL ];
+/* Snapshot */
 static ulong snapshot_rx_idx = 0UL;
 static ulong snapshot_rx_samples[ 100UL ];
 static ulong snapshot_acc_idx = 0UL;
 static ulong snapshot_acc_samples[ 100UL ];
 static ulong snapshot_wr_idx = 0UL;
 static ulong snapshot_wr_samples[ 100UL ];
+/* Event */
 static ulong events_sent_samples_idx = 0UL;
 static ulong events_sent_samples[ 100UL ];
 static ulong events_acked_samples_idx = 0UL;
@@ -227,6 +231,7 @@ static ulong event_bytes_written_samples_idx = 0UL;
 static ulong event_bytes_written_samples[ 100UL ];
 static ulong event_bytes_read_samples_idx = 0UL;
 static ulong event_bytes_read_samples[ 100UL ];
+/* Accounts */
 static ulong accdb_samples_idx = 0UL;
 static ulong accdb_acquired_samples[ 200UL ];
 static ulong accdb_writable_samples[ 200UL ];
@@ -242,6 +247,13 @@ static ulong accdb_preevicted_samples[ 200UL ];
 static ulong accdb_preevicted_class_samples[ 8UL ][ 200UL ];
 static ulong accdb_committed_new_class_samples[ 8UL ][ 200UL ];
 static ulong accdb_committed_overwrite_class_samples[ 8UL ][ 200UL ];
+/* Repair server */
+static ulong shreds_stored_samples_idx = 0UL;
+static ulong shreds_stored_sample[ 200UL ]  ;
+static ulong rserve_rps_valid_samples_idx = 0UL;
+static ulong rserve_rps_valid_samples[ 100UL ];
+static ulong rserve_rps_invalid_samples_idx = 0UL;
+static ulong rserve_rps_invalid_samples[ 100UL ];
 
 #define RESET   "\033[0m"
 #define BOLD    "\033[1m"
@@ -917,6 +929,46 @@ write_repair( config_t const * config,
 }
 
 static uint
+write_rserve( config_t const * config,
+              ulong const * cur_tile,
+              ulong const * cur_link,
+              ulong const * prev_link ) {
+  ulong rserve_tile_idx = fd_topo_find_tile( &config->topo, "rserve", 0UL );
+  if( rserve_tile_idx==ULONG_MAX ) return 0UL;
+
+  (void)cur_tile;
+
+  ulong shreds_stored_sum = 0UL;
+  ulong num_stored_shreds = fd_ulong_min( shreds_stored_samples_idx, sizeof(shreds_stored_sample)/sizeof(shreds_stored_sample[0]));
+  for( ulong i=0UL; i<num_stored_shreds; i++ ) shreds_stored_sum += shreds_stored_sample[ i ];
+  char * shreds_stored = COUNTF( 100.0*(double)shreds_stored_sum/(double)num_stored_shreds );
+
+  ulong valid_sum = 0UL;
+  ulong num_valid_samples = fd_ulong_min( rserve_rps_valid_samples_idx, sizeof(rserve_rps_valid_samples)/sizeof(rserve_rps_valid_samples[0]) );
+  for( ulong i=0UL; i<num_valid_samples; i++ ) valid_sum += rserve_rps_valid_samples[ i ];
+  char * valid_str = COUNTF( 100.0*(double)valid_sum/(double)num_valid_samples );
+
+  ulong invalid_sum = 0UL;
+  ulong num_invalid_samples = fd_ulong_min( rserve_rps_invalid_samples_idx, sizeof(rserve_rps_invalid_samples)/sizeof(rserve_rps_invalid_samples[0]) );
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) invalid_sum += rserve_rps_invalid_samples[ i ];
+  char * invalid_str = COUNTF( 100.0*(double)invalid_sum/(double)num_invalid_samples );
+
+  ulong num_total_samples = fd_ulong_max( num_valid_samples, 1UL );
+  char * total_str = COUNTF( 100.0*(double)(valid_sum+invalid_sum)/(double)num_total_samples );
+
+  PRINT( "🔧 " BOLD GREEN "RSERVE......" RESET UNBOLD
+         " " BOLD "RX" UNBOLD " %s"
+         " " BOLD "TX" UNBOLD " %s"
+         " " BOLD "STORED SHREDS" UNBOLD " %s /s"
+         " " BOLD "RPS" UNBOLD " %s (%s valid, %s invalid) /s" CLEARLN "\n",
+      DIFF_LINK_BYTES( "net_rserve", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+      DIFF_LINK_BYTES( "rserve_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+      shreds_stored,
+      total_str, valid_str, invalid_str );
+  return 1U;
+}
+
+static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
@@ -1126,6 +1178,7 @@ write_summary( config_t const * config,
   lines_printed += write_wfs( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
+  lines_printed += write_rserve( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
   lines_printed += write_gui( config, cur_tile, prev_tile );
   lines_printed += write_event( config, cur_tile );
@@ -1216,9 +1269,11 @@ run( config_t const * config,
       snap_tiles( &config->topo, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
       snap_links( &config->topo, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
 
+      /* Bench */
       tps_sent_samples[ tps_sent_samples_idx%(sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0])) ] = (ulong)diff_tile( config, "benchs", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, BENCHS, TXN_TX ) );
       tps_sent_samples_idx++;
 
+      /* Replay */
       sps_samples[ sps_samples_idx%(sizeof(sps_samples)/sizeof(sps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, SLOT_REPLAYED ) );
       sps_samples_idx++;
       tps_samples[ tps_samples_idx%(sizeof(tps_samples)/sizeof(tps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, TXN_PROCESSED ) );
@@ -1227,6 +1282,8 @@ run( config_t const * config,
           (ulong)diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, CU_EXECUTED ) ) +
           (ulong)diff_tile( config, "execle", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECLE, CU_EXECUTED ) );
       cups_samples_idx++;
+
+      /* Snapshot */
       snapshot_rx_samples[ snapshot_rx_idx%(sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0])) ] = (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ) +
                                                                                                             (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) );
       snapshot_rx_idx++;
@@ -1234,6 +1291,8 @@ run( config_t const * config,
       snapshot_acc_idx++;
       snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = (ulong)diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
       snapshot_wr_idx++;
+
+      /* Events */
       events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, SENT ) );
       events_sent_samples_idx++;
       events_acked_samples[ events_acked_samples_idx%(sizeof(events_acked_samples)/sizeof(events_acked_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, ACKED ) );
@@ -1242,7 +1301,33 @@ run( config_t const * config,
       event_bytes_written_samples_idx++;
       event_bytes_read_samples[ event_bytes_read_samples_idx%(sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_READ ) );
       event_bytes_read_samples_idx++;
+
+      /* Accounts */
       sample_accdb( config, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
+
+      /* Repair server */
+      shreds_stored_sample[ shreds_stored_samples_idx%(sizeof(shreds_stored_sample)/sizeof(shreds_stored_sample[0])) ] = (ulong)diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, RSERVE, SHREDS_CURRENT ) );
+      shreds_stored_samples_idx++;
+
+      rserve_rps_valid_samples[ rserve_rps_valid_samples_idx%(sizeof(rserve_rps_valid_samples)/sizeof(rserve_rps_valid_samples[0])) ] = (ulong)(
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, SENT_RESPONSE_TYPES_PING ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, SENT_RESPONSE_TYPES_WINDOW ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, SENT_RESPONSE_TYPES_HIGHEST_WINDOW ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, SENT_RESPONSE_TYPES_ORPHAN ) ) );
+      rserve_rps_valid_samples_idx++;
+
+      rserve_rps_invalid_samples[ rserve_rps_invalid_samples_idx%(sizeof(rserve_rps_invalid_samples)/sizeof(rserve_rps_invalid_samples[0])) ] = (ulong)(
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_PING ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_WINDOW ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_HIGHEST_WINDOW ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_ORPHAN ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_SIGVERIFY ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_OWN_KEY ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_INVALID_TOKEN ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_NOT_FOR_US ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_OUTDATED ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_INVALID_SHRED_INDEX ) ) );
+      rserve_rps_invalid_samples_idx++;
 
       /* Move cursor to top of dashboard and overwrite in place.
          All output is buffered and flushed in a single write() so
