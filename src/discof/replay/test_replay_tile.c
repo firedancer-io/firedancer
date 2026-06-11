@@ -1201,6 +1201,137 @@ test_eqvoc_child_confirm( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_child_confirm" ));
 }
 
+/* Double scheduling on re-confirm of an already-backfilled FEC.
+
+   When a descendant is confirmed before its ancestor, backfill replays
+   the entire chain.  The ancestor FECs end up with valid bank_idx but
+   still have popped=0 and in_out=0 (only fd_reasm_pop sets popped, and
+   backfill doesn't touch the out queue).
+
+   If the ancestor is later confirmed separately, fd_reasm_confirm's
+   push condition (!popped && !in_out) fires again, re-inserting the
+   ancestor into the out queue.  fd_reasm_pop delivers it, and
+   process_fec_set calls insert_fec_set a second time.
+
+   For a fec_set_idx==0 FEC, insert_fec_set allocates a second bank
+   (leak) and re-inserts into block_id_map (map corruption via
+   self-link).
+
+   The scenario:
+     root ← slot 1 version A (fully replayed)
+            slot 1 version B (eqvoc) ← slot 2 (eqvoc, inherited)
+     1. Drain all eqvoc FECs from out queue (rejected: eqvoc+!confirmed)
+     2. Confirm slot 2 (descendant) — backfill replays version B + slot 2
+     3. Confirm slot 1 version B (ancestor) — double-schedules FEC 0_B */
+
+static void
+test_double_confirm_backfill( fd_wksp_t * wksp ) {
+
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_reasm_t * reasm = ctx->reasm;
+
+  fd_hash_t mr_root    = { .ul = { 100 } };
+  fd_hash_t mr1_0_a    = { .ul = { 200 } };  /* slot 1 version A FEC 0  */
+  fd_hash_t mr1_0_b    = { .ul = { 400 } };  /* slot 1 version B FEC 0  */
+  fd_hash_t mr2_0      = { .ul = { 600 } };  /* slot 2 FEC 0            */
+  fd_hash_t mr2_32     = { .ul = { 700 } };  /* slot 2 FEC 32           */
+
+  /* 1. Root FEC (slot 0). */
+
+  init_root_fec( ctx, &mr_root );
+
+  /* 2. Fully replay version A of slot 1 (FEC 0). */
+
+  ingest_fec_complete( ctx, &mr1_0_a, &mr_root,
+      1, 0, 1, 32, 1, 1 );
+
+  drive_one_fec( ctx, 1UL, 0U );
+
+  /* 3. Version B of slot 1 arrives — eqvoc.  Both FECs pushed to out
+     queue but gated by eqvoc+!confirmed. */
+
+  fd_reasm_fec_t * f1_0_b = ingest_fec_complete( ctx, &mr1_0_b, &mr_root,
+      1, 0, 1, 32, 1, 1 );
+  FD_TEST( f1_0_b->eqvoc );
+
+  /* 4. Slot 2 chains off version B — eqvoc inherited. */
+
+  fd_reasm_fec_t * f2_0 = ingest_fec_complete( ctx, &mr2_0, &mr1_0_b,
+      2, 0, 1, 32, 1, 0 );
+  FD_TEST( f2_0->eqvoc );
+
+  fd_reasm_fec_t * f2_32 = ingest_fec_complete( ctx, &mr2_32, &mr2_0,
+      2, 32, 1, 32, 1, 1 );
+  FD_TEST( f2_32->eqvoc );
+
+  /* 5. Drain the out queue.  All 4 eqvoc FECs are rejected (eqvoc &&
+     !confirmed).  After draining, each has popped=0, in_out=0. */
+
+  FD_TEST( !fd_reasm_pop( reasm ) );
+  FD_TEST( !f1_0_b->popped  && !f1_0_b->in_out  );
+  FD_TEST( !f2_0->popped    && !f2_0->in_out    );
+  FD_TEST( !f2_32->popped   && !f2_32->in_out   );
+
+  /* 6. Confirm the descendant (slot 2 FEC 32) first.
+
+     fd_reasm_confirm walks upward setting confirmed=1.  The confirmed
+     FEC (slot 2 FEC 32) has !popped && !in_out, so it gets pushed to
+     the out queue. */
+
+  fd_reasm_confirm( reasm, &mr2_32 );
+  FD_TEST( f2_32->confirmed );
+  FD_TEST( f2_0->confirmed  );
+  FD_TEST( f1_0_b->confirmed  );
+
+  /* 7. Pop and process the confirmed FEC.  process_fec_set sees
+     parent_bank_invalid (bank_idx==ULONG_MAX on ancestors) and calls
+     backfill_fec_sets, which replays the entire chain:
+     slot 1 version B (FEC 0, 32) then slot 2 (FEC 0, 32). */
+
+  ulong sched_cnt_before = mock_sched_fec_ingest_cnt;
+  ulong banks_used_before = fd_banks_pool_used_cnt( ctx->banks );
+
+  fd_reasm_fec_t * fec = drive_one_fec( ctx, 2UL, 32U );
+  FD_TEST( fec->bank_idx!=ULONG_MAX );
+
+  /* After backfill: version B FEC 0 has a valid bank but still
+     popped=0, in_out=0 — backfill doesn't touch those flags. */
+
+  FD_TEST( f1_0_b->bank_idx!=ULONG_MAX );
+  FD_TEST( !f1_0_b->popped );
+  FD_TEST( !f1_0_b->in_out );
+
+  ulong sched_cnt_after_backfill = mock_sched_fec_ingest_cnt;
+  ulong banks_used_after_backfill = fd_banks_pool_used_cnt( ctx->banks );
+
+  /* Backfill should have ingested FECs and allocated banks. */
+
+  FD_TEST( sched_cnt_after_backfill > sched_cnt_before );
+  FD_TEST( banks_used_after_backfill > banks_used_before );
+
+  /* 8. Now confirm the ancestor (slot 1 version B FEC 32).
+
+     BUG: fd_reasm_confirm sees f1_32_b with !popped && !in_out, so it
+     re-pushes f1_32_b into the out queue.  Pop delivers f1_32_b,
+     process_fec_set sees a valid parent bank and no eqvoc edge, and
+     calls insert_fec_set — double scheduling.
+
+     For the fec_set_idx==0 FEC that gets re-ingested via backfill
+     from the double-scheduled FEC, this allocates a second bank and
+     re-inserts into block_id_map (map chain corruption). */
+
+  fd_reasm_confirm( reasm, &mr1_0_b );
+
+  /* The re-confirm re-pushed f1_32_b into the out queue. */
+
+  FD_TEST( !fd_reasm_peek( reasm ) );
+
+  /* No damage: no extra bank was allocated */
+
+  FD_LOG_NOTICE(( "pass: test_double_confirm_backfill" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1221,6 +1352,7 @@ main( int     argc,
   test_eqvoc_first_fec( wksp );
   test_stale_redeliver( wksp );
   test_eqvoc_child_confirm( wksp );
+  test_double_confirm_backfill( wksp );
 
   fd_halt();
   return 0;
