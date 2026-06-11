@@ -1180,6 +1180,11 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   int err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+  /* Validate account locks before acquiring; the accdb acquire
+     hard-asserts the lock count is within bounds. */
+  err = fd_executor_validate_account_locks( bank, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
   /* Resolve all transaction accounts and queue them for acquisition. */
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
