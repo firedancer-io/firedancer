@@ -141,7 +141,7 @@ before_credit( fd_backt_tile_t *   ctx,
     ulong sz = fd_backtest_src_shred( ctx->src, ctx->pending, FD_SHRED_MAX_SZ );
     if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { ctx->source_exhausted = 1; return; } /* source exhausted */
     ctx->pending_sz = sz;
-    if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz ) ) ) {
+    if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz, FD_SHRED_BLK_MAX ) ) ) {
       FD_LOG_HEXDUMP_WARNING(( "invalid shred", ctx->pending, ctx->pending_sz ));
       FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", ctx->pending_sz ));
     }
@@ -271,7 +271,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         uchar first_buf[ FD_SHRED_MAX_SZ ];
         ulong first_sz = ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) );
         if( FD_LIKELY( first_sz ) ) {
-          fd_shred_t const * first = fd_shred_parse( first_buf, first_sz );
+          fd_shred_t const * first = fd_shred_parse( first_buf, first_sz, FD_SHRED_BLK_MAX );
           if( FD_UNLIKELY( !first ) ) {
             FD_LOG_HEXDUMP_WARNING(( "invalid shred", first_buf, first_sz ));
             FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", first_sz ));

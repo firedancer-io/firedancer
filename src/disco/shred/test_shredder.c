@@ -376,7 +376,7 @@ test_chained_merkle_shreds( void ) {
         FD_TEST( shred->fec_set_idx==setid*32 );
         FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
 
-        FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MIN_SZ ) );
+        FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MIN_SZ, FD_SHRED_BLK_MAX ) );
       }
 
       for( ulong j=0; j<FD_FEC_SHRED_CNT; j++ ) {
@@ -387,7 +387,7 @@ test_chained_merkle_shreds( void ) {
         FD_TEST( shred->fec_set_idx==setid*32 );
         FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
 
-        FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MAX_SZ ) );
+        FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX ) );
       }
     }
   }

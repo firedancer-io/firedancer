@@ -83,7 +83,7 @@ sets_eq( fd_fec_set_t const * a,
 }
 
 #define ADD_SHRED( resolver, shred, expected ) do {                                                                               \
-  fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL );                                                              \
+  fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL, FD_SHRED_BLK_MAX );                                                              \
   fd_fec_resolver_spilled_t spilled = { 0 };                                                                                      \
   int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, 0, pubkey, out_fec, out_shred, out_merkle_root, &spilled ); \
   FD_TEST( !spilled.slot );                                                                                                       \
@@ -92,7 +92,7 @@ sets_eq( fd_fec_set_t const * a,
 } while( 0 )
 
 #define ADD_SHRED_SPILLS( resolver, shred, expected, expected_tslot, expected_tset, expected_tmax ) do {                          \
-  fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL );                                                              \
+  fd_shred_t const * __parsed = fd_shred_parse( (shred).b, 2048UL, FD_SHRED_BLK_MAX );                                                              \
   fd_fec_resolver_spilled_t spilled = { 0 };                                                                                      \
   int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, 0, pubkey, out_fec, out_shred, out_merkle_root, &spilled ); \
   FD_TEST( spilled.slot==expected_tslot );                                                                                        \
@@ -325,7 +325,7 @@ test_new_formats( void ) {
     fd_bmtree_node_t     out_merkle_root[1];
     FD_TEST( 1==fread( shred, shred_sz, 1UL, file ) );
     fd_msan_unpoison( shred, shred_sz );
-    fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz );
+    fd_shred_t const * parsed = fd_shred_parse( shred, shred_sz, FD_SHRED_BLK_MAX );
 
     fd_fec_resolver_spilled_t spilled = { 0 };
     int retval = fd_fec_resolver_add_shred( resolver, parsed, shred_sz, 0, leader, out_fec, out_shred, out_merkle_root, &spilled );
@@ -391,7 +391,7 @@ test_shred_version( void ) {
   uchar                chained_merkle_root[32] = { 0 };
 
   fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
-  fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ 0 ].b, 2048UL );
+  fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ 0 ].b, 2048UL, FD_SHRED_BLK_MAX );
   FD_TEST( shred );
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, 0, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
@@ -457,12 +457,12 @@ test_shred_reject( void ) {
 
 #define SIGN_ACCEPT( shred )                                                                                                             \
   fake_resign( shred, signer_ctx );                                                                                                      \
-  FD_TEST( fd_shred_parse( (uchar const *)shred, 2048UL ) );                                                                             \
+  FD_TEST( fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) );                                                                             \
   FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY==fd_fec_resolver_add_shred( r, shred, 2048UL, 1, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
 #define SIGN_REJECT( shred )                                                                                                                 \
   fake_resign( shred, signer_ctx );                                                                                                          \
-  FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) ||                                                                           \
+  FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) ||                                                                           \
            FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, 1, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
 
   fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
@@ -498,8 +498,8 @@ test_shred_reject( void ) {
   shred->idx = 40U; shred->fec_set_idx = 32U;     SIGN_ACCEPT( shred );
   /* The following two are so malformed that fake_resign chokes on them.
      No matter, because shred_parse rejects them. */
-  shred->idx =  1U; shred->fec_set_idx = 32U;     FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
-  shred->idx = 31U; shred->fec_set_idx = 32U;     FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
+  shred->idx =  1U; shred->fec_set_idx = 32U;     FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) );
+  shred->idx = 31U; shred->fec_set_idx = 32U;     FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) );
 
   /* fec set idx not a multiple of 32 */
   for( uint i=1U; i<32U; i++ ) { shred->idx = i; shred->fec_set_idx = i; SIGN_REJECT( shred ); }
@@ -524,7 +524,7 @@ test_shred_reject( void ) {
   shred->fec_set_idx = shred->idx = MAX- 2UL;  shred->code.data_cnt =  3UL;      SIGN_REJECT( shred );
   /* This one is also so malformed that fake_resign can't sign it.  The
      Merkle tree required to sign an FEC set that large wouldn't fit. */
-  shred->fec_set_idx = UINT_MAX; shred->code.data_cnt = USHORT_MAX; FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
+  shred->fec_set_idx = UINT_MAX; shred->code.data_cnt = USHORT_MAX; FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL, FD_SHRED_BLK_MAX ) );
 
   shred = set->parity_shreds[ 3 ].s;
   shred->idx = 31; shred->code.idx = 31; shred->code.code_cnt = 32;            SIGN_ACCEPT( shred );

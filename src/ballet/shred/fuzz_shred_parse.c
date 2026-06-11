@@ -26,7 +26,7 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
-  fd_shred_t const * shred = fd_shred_parse( data, size );
+  fd_shred_t const * shred = fd_shred_parse( data, size, FD_SHRED_BLK_MAX );
   if( shred==NULL ) return 0;
 
 # define BOUNDS_CHECK( ptr, sz )          \

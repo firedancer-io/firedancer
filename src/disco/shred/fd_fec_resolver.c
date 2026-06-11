@@ -935,8 +935,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* Check that all the fields that are supposed to be consistent across
      an FEC set actually are. */
-  fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ );
-  fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ );
+  fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ, resolver->max_shred_idx );
+  fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ, resolver->max_shred_idx );
   int reject = (!base_data_shred) | (!base_parity_shred);
 
   /* Check idx of base shreds */
@@ -947,7 +947,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     /* Technically, we only need to re-parse the ones we recovered with
        Reedsol, but parsing is pretty cheap and the rest of the
        validation we need to do on all of them. */
-    fd_shred_t const * parsed = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ );
+    fd_shred_t const * parsed = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ, resolver->max_shred_idx );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
     reject |= parsed->variant         != base_data_shred->variant;
     reject |= parsed->slot            != base_data_shred->slot;
@@ -963,7 +963,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   }
 
   for( ulong i=0UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
-    fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ );
+    fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ, resolver->max_shred_idx );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
     reject |= fd_shred_type( parsed->variant )       != fd_shred_swap_type( fd_shred_type( base_data_shred->variant ) );
     reject |= fd_shred_merkle_cnt( parsed->variant ) != fd_shred_merkle_cnt( base_data_shred->variant );

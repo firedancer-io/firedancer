@@ -224,7 +224,7 @@ main( int     argc,
     if( FD_UNLIKELY( sz==ULONG_MAX ) ) break;
     if( FD_UNLIKELY( sz==0UL      ) ) continue;
 
-    fd_shred_t const * shred = fd_shred_parse( raw, sz );
+    fd_shred_t const * shred = fd_shred_parse( raw, sz, FD_SHRED_BLK_MAX );
     if( FD_UNLIKELY( !shred ) ) {
       FD_LOG_WARNING(( "skipping unparseable shred" ));
       continue;

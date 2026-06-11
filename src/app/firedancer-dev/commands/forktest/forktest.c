@@ -70,7 +70,7 @@ forktest_recover_expected_shred_version( config_t const * config ) {
   ulong shred_sz = fd_backtest_src_first_shred( &opts, buf, sizeof(buf) );
   if( FD_UNLIKELY( !shred_sz ) ) FD_LOG_ERR(( "unable to recover shred version from `%s`", opts.path ));
 
-  fd_shred_t const * shred = fd_shred_parse( buf, shred_sz );
+  fd_shred_t const * shred = fd_shred_parse( buf, shred_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred ) ) FD_LOG_ERR(( "unable to parse first shred from `%s`", opts.path ));
 
   FD_LOG_INFO(( "Recovered expected shred version %hu", shred->version ));

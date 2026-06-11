@@ -115,7 +115,7 @@ main( int     argc,
 
       /* Test with min buffer size */
       fd_shred_t const * shred;
-      FD_TEST( (shred = fd_shred_parse( buf, sizeof(buf) ))!=NULL );
+      FD_TEST( (shred = fd_shred_parse( buf, sizeof(buf), FD_SHRED_BLK_MAX ))!=NULL );
       FD_TEST( i==fd_shred_variant( fd_shred_type( shred->variant ), (uchar)fd_shred_merkle_cnt( shred->variant ) ) );
       FD_TEST( fd_shred_header_sz ( shred->variant )==header_sz  );
       FD_TEST( fd_shred_payload_sz( shred          )==payload_sz );
@@ -128,11 +128,11 @@ main( int     argc,
     } else {
       FD_LOG_NOTICE(( "shred type 0x%02x: invalid", i ));
       /* Invalid shred types should always be rejected irrespective of buffer size */
-      FD_TEST( fd_shred_parse( buf, sizeof(buf) )==NULL );
+      FD_TEST( fd_shred_parse( buf, sizeof(buf), FD_SHRED_BLK_MAX )==NULL );
     }
   }
 
-# define PARSE(x) fd_shred_parse( x, sizeof(x) )
+# define PARSE(x) fd_shred_parse( x, sizeof(x), FD_SHRED_BLK_MAX )
 
   /* Parse legacy data shred. */
   shred = PARSE( fixture_legacy_data_shred );

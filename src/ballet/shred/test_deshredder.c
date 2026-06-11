@@ -41,7 +41,7 @@ main( int     argc,
     FD_TEST(( n==(ulong)hdr.filesz ));
 
     /* Parse shred */
-    fd_shred_t const * shred = fd_shred_parse( shred_buf, (ulong)hdr.filesz );
+    fd_shred_t const * shred = fd_shred_parse( shred_buf, (ulong)hdr.filesz, FD_SHRED_BLK_MAX );
 
     /* Refill deshredder with shred */
     fd_shred_t const * shred_list[1] = { shred };
@@ -80,7 +80,7 @@ main( int     argc,
     FD_TEST(( n==(ulong)hdr.filesz ));
 
     /* Parse shred */
-    fd_shred_t const * shred = fd_shred_parse( shred_buf, (ulong)hdr.filesz );
+    fd_shred_t const * shred = fd_shred_parse( shred_buf, (ulong)hdr.filesz, FD_SHRED_BLK_MAX );
 
     /* Refill deshredder with shred */
     fd_shred_t const * shred_list[1] = { shred };
@@ -110,7 +110,7 @@ main( int     argc,
     FD_TEST(( n==(ulong)hdr.filesz ));
 
     /* Parse shred */
-    fd_shred_t const * shred = fd_shred_parse( shred_buf, (ulong)hdr.filesz );
+    fd_shred_t const * shred = fd_shred_parse( shred_buf, (ulong)hdr.filesz, FD_SHRED_BLK_MAX );
     FD_TEST( shred );
 
     /* Refill deshredder with shred */
