@@ -193,14 +193,18 @@ fd_keyguard_authorize_bundle_crank_txn( fd_keyguard_authority_t const * authorit
                                         uchar const *                   data,
                                         ulong                           sz,
                                         int                             sign_type ) {
+  (void)authority;
+
   static const uchar disc1[ 8 ] = { FD_BUNDLE_CRANK_DISC_INIT_TIP_DISTR };
   static const uchar disc2[ 8 ] = { FD_BUNDLE_CRANK_DISC_CHANGE_TIP_RCV };
   static const uchar disc3[ 8 ] = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD };
 
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
-  (void)authority;
-  /* TODO: we can check a lot more bytes */
+  /* We know that this check is not tight enough to prevent signing of
+     transactions with virtually arbitrary effect.  Currently, we take this
+     trade-off to avoid complex transaction parsing logic in keyguard. */
+
   switch( sz ) {
     case (FD_BUNDLE_CRANK_2_SZ-65UL):
       return fd_memeq( data+FD_BUNDLE_CRANK_2_IX1_DISC_OFF-65UL, disc2, 8UL ) &&
