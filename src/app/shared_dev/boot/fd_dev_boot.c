@@ -142,7 +142,7 @@ fd_dev_main( int                        argc,
 # if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
 # endif
-  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, 1 /* dev */ );
   if( FD_LIKELY( load_topo ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
 
   config.development.no_clone = config.development.no_clone || no_clone;

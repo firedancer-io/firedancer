@@ -543,7 +543,8 @@ fd_config_load( int           is_firedancer,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
-                fd_config_t * config );
+                fd_config_t * config,
+                int           dev );
 
 /* Create a memfd and write the raw underlying bytes of the provided
    config struct into it.  On success returns a file descriptor
