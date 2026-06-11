@@ -47,7 +47,7 @@ mock_link_create( fd_topo_t *  topo,
                   char const * name ) {
 #define LINK_DEPTH (16UL)
   fd_topo_link_t * link = fd_topob_link( topo, name, "wksp", LINK_DEPTH, 0UL, 0UL );
-  ulong data_sz = fd_dcache_req_data_sz( FD_TPU_REASM_MTU, LINK_DEPTH, 1UL, 1 );
+  ulong data_sz = fd_dcache_req_data_sz( sizeof(fd_tpu_msg_t), LINK_DEPTH, 1UL, 1 );
   link->mcache  = fd_mcache_join( fd_mcache_new( test_malloc( fd_mcache_align(), fd_mcache_footprint( LINK_DEPTH, 0UL ) ), LINK_DEPTH, 0UL, 0UL ) );
   link->dcache  = fd_dcache_join( fd_dcache_new( test_malloc( fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ) ), data_sz, 0UL ) );
 }
