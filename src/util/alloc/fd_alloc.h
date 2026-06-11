@@ -123,7 +123,7 @@
 
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
-   an integer pointer of 2 and FOOTPRINT is an integer multiple of
+   an integer power of 2 and FOOTPRINT is an integer multiple of
    ALIGN.  These are provided to facilitate compile time declarations. */
 
 #define FD_ALLOC_ALIGN     (128UL)
@@ -226,10 +226,9 @@ fd_alloc_private_wksp( fd_alloc_t * alloc ) {
 
    - level>1 indicates to do a deep cleanup.  This will free all wksp
      locations that match fd_alloc's wksp tag.  IMPORTANT SAFETY TIP!
-     If shalloc was allocated with the same tag, this also will also
-     free shalloc too!  IMPORTANT SAFETY TIP!  Tf any other wksp
-     allocations used this tag, this will also free all those
-     allocations too! */
+     If shalloc was allocated with the same tag, this will also free
+     shalloc too!  IMPORTANT SAFETY TIP!  If any other wksp allocations
+     used this tag, this will also free all those allocations too! */
 
 void *
 fd_alloc_private_delete( void * shalloc,

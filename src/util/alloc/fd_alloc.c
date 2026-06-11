@@ -136,7 +136,7 @@ typedef uint fd_alloc_hdr_t;
 #define FD_ALLOC_HDR_TYPE_NEST_SUPERBLOCK (2) /* This is a superblock contained in a (larger) superblock */
 #define FD_ALLOC_HDR_TYPE_ROOT_SUPERBLOCK (3) /* This is a superblock contained in a workspace partition */
 
-/* fd_alloc_hdr pack a (type,idx,off) tuple into a fd_alloc_hdr_t.
+/* fd_alloc_hdr packs a (type,idx,off) tuple into a fd_alloc_hdr_t.
    fd_alloc_hdr_{type,idx,off} unpack the corresponding field from a
    fd_alloc_hdr_t. */
 
@@ -195,10 +195,10 @@ struct __attribute__((aligned(FD_ALLOC_SUPERBLOCK_ALIGN))) fd_alloc_superblock {
   ushort               sizeclass;   /* superblock sizeclass, in [0,FD_ALLOC_SIZECLASS_CNT) */
   uchar                block_cnt;   /* ==fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt */
   uchar                cgroup_mask; /* ==fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask */
-  fd_alloc_block_set_t free_blocks; /* which blocks in this superblock are allocated */
+  fd_alloc_block_set_t free_blocks; /* which blocks in this superblock are free */
   ulong                next_gaddr;  /* if on the inactive superblock stack, next inactive superblock or NULL, ignored o.w. */
 
-  /* TODO: consider making make a ulong bit packed tuple for
+  /* TODO: consider making a ulong bit-packed tuple for
      (sizeclass,block_cnt,cgroup_mask) and adding a cgroup_hint to it? */
 
   /* Storage for blocks follows */
@@ -1203,7 +1203,7 @@ fd_alloc_is_empty( fd_alloc_t * join ) {
    from concurrent operations changing allocations while they are being
    analyzed by the below).
 
-   IMPORTANT SAFETY TIP!  fd_alloc_printf can generate ASAN errors if
+   IMPORTANT SAFETY TIP!  fd_alloc_fprintf can generate ASAN errors if
    run concurrently under ASAN because concurrent operations might
    poison regions of the wksp as they are being analyzed by the below.
    Hence the below functions are marked as FD_FN_NO_ASAN.  Similar
@@ -1371,6 +1371,7 @@ fd_alloc_private_superblock_fprintf( FILE *            stream,           /* Stre
     }
   }
 
+# undef SB_TEST
 # undef EMIT
 
   return cnt;
@@ -1550,7 +1551,7 @@ fd_alloc_fprintf( fd_alloc_t * join,
            look like a header (in which case, this logic will compute
            the wrong location / max for the user large allocation.  This
            can be avoided by clearing the alignment padding in
-           fd_malloc_align_at_least.  Once we have a plausible location
+           fd_alloc_malloc_at_least.  Once we have a plausible location
            for the user's large alloc, we can compute bounds to how
            large a size was used.  We use the upper bound the size
            estimate for simplicity (it would take a lot more space and
@@ -1602,6 +1603,8 @@ fd_alloc_fprintf( fd_alloc_t * join,
                  "    large alloc byte used %21lu\n",
                  ctr[0], ctr[0] ? " (highly likely spurious if running concurrent and/or with dirty align padding)" : "",
                  ctr[1], ctr[2], ctr[3], ctr[4], ctr[5] ) );
+
+# undef EMIT
 
   return (int)fd_ulong_min( cnt, (ulong)INT_MAX );
 }
