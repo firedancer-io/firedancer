@@ -43,6 +43,7 @@ struct fd_event_client {
   fd_grpc_h2_stream_t * event_stream;
 
   char client_version[ 10UL ];
+  char commit_hash[ 41UL ];
   char action[ 16UL ];
   uchar identity_pubkey[ 32UL ];
 
@@ -124,6 +125,7 @@ fd_event_client_new( void *                 shmem,
                      char const *           _url,
                      uchar const *          identity_pubkey,
                      char const *           client_version,
+                     char const *           commit_hash,
                      char const *           action,
                      ulong                  instance_id,
                      ulong                  boot_id,
@@ -164,6 +166,7 @@ fd_event_client_new( void *                 shmem,
   fd_memcpy( client->identity_pubkey, identity_pubkey, 32UL );
   strncpy( client->client_version, client_version, sizeof( client->client_version ) );
   client->client_version[ sizeof( client->client_version ) - 1UL ] = '\0';
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->commit_hash ), commit_hash, fd_ulong_min( strlen( commit_hash ), sizeof( client->commit_hash )-1UL ) ) );
   fd_cstr_ncpy( client->action, action, sizeof( client->action ) );
 
   client->event_id = 0UL;
@@ -446,12 +449,13 @@ fd_event_client_grpc_conn_established( void * app_ctx ) {
 
   fd_pb_push_bytes( auth_req, 1U, client->identity_pubkey, 32UL );
   fd_pb_push_string( auth_req, 2U, client->client_version, strlen( client->client_version ) );
-  fd_pb_push_bytes( auth_req, 3U, client->genesis_hash, 32UL );
-  fd_pb_push_uint64( auth_req, 4U, client->shred_version );
-  fd_pb_push_uint64( auth_req, 5U, client->instance_id );
-  fd_pb_push_uint64( auth_req, 6U, client->machine_id );
-  fd_pb_push_uint64( auth_req, 7U, client->boot_id );
-  fd_pb_push_string( auth_req, 8U, client->action, strlen( client->action ) );
+  fd_pb_push_string( auth_req, 3U, client->commit_hash, strlen( client->commit_hash ) );
+  fd_pb_push_bytes( auth_req, 4U, client->genesis_hash, 32UL );
+  fd_pb_push_uint64( auth_req, 5U, client->shred_version );
+  fd_pb_push_uint64( auth_req, 6U, client->instance_id );
+  fd_pb_push_uint64( auth_req, 7U, client->machine_id );
+  fd_pb_push_uint64( auth_req, 8U, client->boot_id );
+  fd_pb_push_string( auth_req, 9U, client->action, strlen( client->action ) );
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
       client->grpc_client,
