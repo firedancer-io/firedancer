@@ -41,6 +41,7 @@ typedef struct index_ele index_ele_t;
 #define POOL_T     index_ele_t
 #define POOL_NEXT  next
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               index_map
