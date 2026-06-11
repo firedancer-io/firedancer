@@ -534,6 +534,9 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   ulong         message_sz = slot_done->vote_txn_sz - txn->message_off;
   fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, slot_done->authority_idx, message, message_sz );
 
+  FD_BASE58_ENCODE_64_BYTES( signatures, vote_sig_b58 );
+  FD_LOG_INFO(( "vote txn for slot %lu created: %s", slot_done->vote_slot, vote_sig_b58 ));
+
   for( ulong i=0UL; i<3UL; i++ ) {
     ulong target_slot = slot_done->vote_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
