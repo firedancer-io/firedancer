@@ -32,7 +32,7 @@ verify_state( fd_tpu_reasm_t * reasm,
     fd_frag_meta_t * frag = mcache + i;
     uint slot_idx = pub_slots[ i ];
 
-    FD_TEST( frag->sz < FD_TPU_REASM_MTU );
+    FD_TEST( frag->sz < sizeof(fd_tpu_msg_t) );
 
     FD_TEST( slot_idx<slot_cnt );
 
@@ -90,7 +90,7 @@ main( int     argc,
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0x573dc407UL, 0UL ) );
 
-  FD_TEST( fd_tpu_reasm_align()==FD_TPU_REASM_ALIGN );
+  FD_TEST( fd_tpu_reasm_align()==alignof(fd_tpu_reasm_t) );
 
   /* Test invalid params */
 
@@ -113,7 +113,7 @@ main( int     argc,
   mcache_mem[ FD_MCACHE_FOOTPRINT( depth, 0UL ) ] = {0};
 
   static uchar __attribute__((aligned(FD_DCACHE_ALIGN)))
-  dcache_mem[ FD_DCACHE_FOOTPRINT( FD_TPU_REASM_REQ_DATA_SZ( depth, burst ), 0UL ) ] = {0};
+  dcache_mem[ FD_DCACHE_FOOTPRINT( FD_DCACHE_REQ_DATA_SZ( sizeof(fd_tpu_msg_t), depth, burst, 0 ), 0UL ) ] = {0};
 
   fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( mcache_mem, depth, 0UL, 1UL ) );
   FD_TEST( mcache );
@@ -123,7 +123,7 @@ main( int     argc,
   void * dcache    = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_sz, 0UL ) );
   FD_TEST( dcache );
 
-  static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN))) tpu_reasm_mem[ 9344 ];
+  static uchar __attribute__((aligned(alignof(fd_tpu_reasm_t)))) tpu_reasm_mem[ 9304 ];
   FD_LOG_INFO(( "fd_tpu_reasm_footprint(%lu,%lu)==%lu", depth, burst, fd_tpu_reasm_footprint( depth, burst ) ));
   FD_TEST( sizeof(tpu_reasm_mem)==fd_tpu_reasm_footprint( depth, burst ) );
 
@@ -147,15 +147,16 @@ main( int     argc,
   void * base = (void *)( (ulong)dcache - (4UL<<FD_CHUNK_LG_SZ) );
   do {
     ulong  chunk0 = fd_dcache_compact_chunk0( base, dcache );
-    ulong  wmark  = fd_dcache_compact_wmark ( base, dcache, FD_TPU_REASM_MTU );
+    ulong  wmark  = fd_dcache_compact_wmark ( base, dcache, sizeof(fd_tpu_msg_t) );
     FD_TEST( chunk0<wmark );
 
     /* wmark is aligned to the nearest even chunk (i.e. the nearest
        chunk pair boundary), which is why we round down to the nearest
        even here */
-    FD_TEST( wmark-chunk0 == ((slot_cnt-1UL)*FD_TPU_REASM_CHUNK_MTU & ~1UL) );
+    ulong chunk_mtu = fd_ulong_align_up( sizeof(fd_tpu_msg_t), FD_CHUNK_ALIGN )>>FD_CHUNK_LG_SZ;
+    FD_TEST( wmark-chunk0 == ((slot_cnt-1UL)*chunk_mtu & ~1UL) );
     FD_TEST( fd_chunk_to_laddr( base, chunk0 ) == ((uchar *)dcache) );
-    FD_TEST( (ulong)fd_chunk_to_laddr( base, wmark  ) == (ulong)((uchar *)dcache)+(((slot_cnt-1UL)*FD_TPU_REASM_CHUNK_MTU & ~1UL) << FD_CHUNK_LG_SZ) );
+    FD_TEST( (ulong)fd_chunk_to_laddr( base, wmark  ) == (ulong)((uchar *)dcache)+(((slot_cnt-1UL)*chunk_mtu & ~1UL) << FD_CHUNK_LG_SZ) );
   } while(0);
 
   /* Publish frags */
@@ -165,14 +166,14 @@ main( int     argc,
     FD_TEST( slot );
     uint idx = slot_get_idx( reasm, slot );
 
-    uchar * data = slot_get_data( reasm, idx );
+    uchar * buf = reasm->dcache[ idx ].payload;
 
     int is_zero = 0;
-    for( ulong b=0UL; b<FD_TPU_REASM_MTU; b++ ) is_zero |= data[b];
+    for( ulong b=0UL; b<FD_TPU_MTU; b++ ) is_zero |= buf[b];
     FD_TEST( is_zero==0 );
 
-    memset( data, 0xFF, FD_TPU_REASM_MTU );
-    FD_STORE( ulong, data, j );
+    memset( buf, 0xFF, FD_TPU_MTU );
+    FD_STORE( ulong, buf, j );
     FD_TEST( slot->k.sz==0 );
     slot->k.sz = 8;
   }
@@ -182,9 +183,9 @@ main( int     argc,
   for( ulong j=0UL; j<burst; j++ ) {
     fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_acquire( reasm, 0UL, j, 0UL );
     uint idx = slot_get_idx( reasm, slot );
-    uchar * data = slot_get_data( reasm, idx );
+    fd_tpu_msg_t * data = &reasm->dcache[ idx ];
     FD_TEST( slot->k.sz==8 );
-    FD_TEST( FD_LOAD( ulong, data )==j );
+    FD_TEST( FD_LOAD( ulong, data->payload )==j );
   }
 
   FD_LOG_INFO(( "Test fd_tpu_reasm_reset" ));

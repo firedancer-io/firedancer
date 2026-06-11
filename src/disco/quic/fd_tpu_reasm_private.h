@@ -43,40 +43,6 @@ slot_get_idx( fd_tpu_reasm_t const *      reasm,
   return (uint)slot_idx;
 }
 
-FD_FN_CONST static inline ulong
-slot_get_offset( ulong slot_idx ) {
-  return slot_idx * FD_TPU_REASM_MTU;
-}
-
-/* slot data consists of fd_txn_m_t and a variable size raw transaction
-   payload from the network.
-
-   ###############
-   fd_txn_m_t hdr;
-   uchar pkt_payload[];
-   ###############
-
-   slot_get_data returns a pointer to the fd_txn_m_t header.
-   slot_get_data_pkt_payload returns a pointer to the packet payload.
-   */
-FD_FN_PURE static inline uchar *
-slot_get_data( fd_tpu_reasm_t * reasm,
-               ulong            slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx );
-}
-
-FD_FN_PURE static inline uchar const *
-slot_get_data_const( fd_tpu_reasm_t const * reasm,
-                     ulong                  slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx );
-}
-
-FD_FN_PURE static inline uchar *
-slot_get_data_pkt_payload( fd_tpu_reasm_t * reasm,
-               ulong            slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx ) + sizeof(fd_txn_m_t);
-}
-
 static FD_FN_UNUSED void
 slot_begin( fd_tpu_reasm_slot_t * slot ) {
   memset( slot, 0, sizeof(fd_tpu_reasm_slot_t) );
