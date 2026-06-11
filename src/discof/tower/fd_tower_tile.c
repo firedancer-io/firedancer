@@ -599,9 +599,14 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   fd_pubkey_t authority[1];
   int         found_authority = deser_auth_vtr( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, found, authority, &authority_idx );
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX && found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
+    /* The reason to use a historical blockhash and not the most recent
+       one is because if a vote txn lands on another validator, they
+       may not have finished processing the slot and therefore the
+       newest blockhash may not be available to the leader yet; this is
+       especially true for the first leader block in a rotation. */
     msg->has_vote_txn = 1;
-    fd_txn_p_t        txn[1];
-    fd_tower_blk_t *  parent_tower_blk = fd_tower_blocks_query( ctx->tower, slot_completed->parent_slot );
+    fd_txn_p_t       txn[1];
+    fd_tower_blk_t * parent_tower_blk = fd_tower_blocks_query( ctx->tower, slot_completed->parent_slot );
     FD_TEST( parent_tower_blk );
     fd_hash_t const * recent_blockhash = fd_type_pun_const( parent_tower_blk->block_hash.uc );
     fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, recent_blockhash, ctx->identity_key, authority, ctx->vote_account, txn );
