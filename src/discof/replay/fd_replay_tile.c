@@ -404,7 +404,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
   FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
-  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu)"
+  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu) "
                  "and timings [since parent fini %ld ns, started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
                  bank->f.slot, block_id_b58,
                  bank_hash_b58,
