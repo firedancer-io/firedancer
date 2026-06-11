@@ -6,6 +6,7 @@
 #include "../../tango/fseq/fd_fseq.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <sys/mman.h>
 
 static fd_wksp_t *

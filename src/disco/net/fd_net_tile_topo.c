@@ -1,5 +1,6 @@
 /* Topology support routines for the net tile */
 
+#define _GNU_SOURCE
 #include "fd_net_tile.h"
 #include "../topo/fd_topob.h"
 #include "../netlink/fd_netlink_tile.h"
