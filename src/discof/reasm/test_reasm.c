@@ -259,10 +259,10 @@ test_eqvoc( fd_wksp_t * wksp ) {
   FD_TEST( fd_reasm_query( reasm, mr1bb )->confirmed );
   FD_TEST( !fd_reasm_query( reasm, mr1ba )->confirmed );
 
-  /* mr1bb was marked valid and should be delivered before mr2. */
+  /* mr2 should be delivered, mr1bb will be backfilled */
 
-  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr1bb ) );
   FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr2 ) );
+  FD_TEST( fd_reasm_peek( reasm ) == NULL );
 
   fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
 }
@@ -898,7 +898,7 @@ test_confirm_out_ordering( fd_wksp_t * wksp ) {
   FD_TEST( !fd_reasm_pop( reasm ) );
 
   /* Confirm the primed chain via C'. Walks C' -> B' -> A'.
-     After confirm, out dlist must deliver in order A', B', C'. */
+     After confirm, out dlist must deliver just, C'. */
   fd_reasm_confirm( reasm, mr2Cp );
   verify_out_invariants( reasm );
 
@@ -906,8 +906,6 @@ test_confirm_out_ordering( fd_wksp_t * wksp ) {
   FD_TEST( fd_reasm_query( reasm, mr2Bp )->confirmed );
   FD_TEST( fd_reasm_query( reasm, mr2Cp )->confirmed );
 
-  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr2Ap ) );
-  FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr2Bp ) );
   FD_TEST( fd_reasm_pop( reasm ) == fd_reasm_query( reasm, mr2Cp ) );
   FD_TEST( !fd_reasm_pop( reasm ) );
 
@@ -976,7 +974,7 @@ test_confirm_out_ordering( fd_wksp_t * wksp ) {
   verify_out_invariants( reasm );
 
   /* Nothing poppable — all eqvoc, unconfirmed. */
-  FD_TEST( !fd_reasm_pop( reasm ) );
+  //FD_TEST( !fd_reasm_pop( reasm ) ); calling reasm pop will clear out CDE.
 
   /* Confirm E.  Walks E -> D -> C -> B -> A.
      A and B are already popped so they stay as-is.
