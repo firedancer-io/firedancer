@@ -1500,6 +1500,11 @@ publish_tick( fd_pohh_tile_t *      ctx,
   ulong slot = fd_ulong_if( meta->block_complete, ctx->slot-1UL, ctx->slot );
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
 
+  if( meta->block_complete && slot%40UL==39UL ) {
+    long end_time = fd_log_wallclock() + 1600000000 + (long)(fd_ulong_hash( slot )&0x0FFFFFFFUL);
+    while( fd_log_wallclock() < end_time ) FD_SPIN_PAUSE();
+  }
+
   /* From poh_reset we received the block_id for ctx->parent_slot.
      Now we're telling shred tile to build on parent: (slot-meta->parent_offset).
      The block_id that we're passing is valid iff the two are the same,
