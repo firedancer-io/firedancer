@@ -349,16 +349,25 @@ typedef struct fd_tower_tile fd_tower_tile_t;
 ulong QUERY_TOWERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, fd_ghost_blk_t *, int *, ulong * );
 void  QUERY_VOTERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, ulong );
 
-static int
-deser_auth_vtr( fd_tower_tile_t * ctx,
-                uchar const *     data,
-                ulong             data_sz,
-                ulong             epoch,
-                int               vote_acc_found,
-                fd_pubkey_t *     authority_out,
-                ulong *           authority_idx_out ) {
+/* vote_account_config extracts configuration of this validator's vote
+   account (on-chain state).  data points to the first byte of the
+   vote account's data.  Sets:
+   - *authority_out to the selected authorized voter's public key
+   - *authority_idx_out to the tile's auth_vtr index (matches sign tile)
+     or ULONG_MAX it the authorized voter is the node identity
+     or LONG_MAX if it matches neither
+   - *node_pubkey to the vote account's pubkey
+  Returns 1 if the validator has a key for the found vote authority,
+  and 0 otherwise. */
 
-  if( FD_UNLIKELY( !vote_acc_found ) ) return 0;
+static int
+vote_account_config( fd_tower_tile_t * ctx,
+                     uchar const *     data,
+                     ulong             data_sz,
+                     ulong             epoch,
+                     fd_pubkey_t *     authority_out,
+                     ulong *           authority_idx_out,
+                     fd_pubkey_t *     node_pubkey_out ) {
 
   fd_vote_state_versioned_t vsv[1];
   FD_CHECK_CRIT( fd_vote_state_versioned_deserialize( vsv, data, data_sz ), "unable to decode vote state versioned" );
@@ -366,6 +375,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
   fd_pubkey_t const * auth_vtr_addr = NULL;
   switch( vsv->kind ) {
     case fd_vote_state_versioned_enum_v1_14_11:
+      *node_pubkey_out = vsv->v1_14_11.node_pubkey;
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v1_14_11.authorized_voters.treap, vsv->v1_14_11.authorized_voters.pool );
            !fd_vote_authorized_voters_treap_rev_iter_done( iter );
            iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v1_14_11.authorized_voters.pool ) ) {
@@ -377,6 +387,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     case fd_vote_state_versioned_enum_v3:
+      *node_pubkey_out = vsv->v3.node_pubkey;
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v3.authorized_voters.treap, vsv->v3.authorized_voters.pool );
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v3.authorized_voters.pool ) ) {
@@ -388,6 +399,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     case fd_vote_state_versioned_enum_v4:
+      *node_pubkey_out = vsv->v4.node_pubkey;
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v4.authorized_voters.treap, vsv->v4.authorized_voters.pool );
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v4.authorized_voters.pool ) ) {
@@ -416,6 +428,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
     return 1;
   }
 
+  *authority_idx_out = LONG_MAX;
   return 0;
 }
 
@@ -597,8 +610,16 @@ publish_slot_done( fd_tower_tile_t *            ctx,
 
   ulong       authority_idx = ULONG_MAX;
   fd_pubkey_t authority[1];
-  int         found_authority = deser_auth_vtr( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, found, authority, &authority_idx );
-  if( FD_LIKELY( out->vote_slot!=ULONG_MAX && found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
+  fd_pubkey_t identity[1];
+  /* Refuse to vote if we don't have a matching vote authority key */
+  int found_authority  = found && vote_account_config( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, authority, &authority_idx, identity );
+  /* Refuse to vote if our node identity does not match the one
+     specified in the vote account (hot spare check) */
+  int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
+  if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
+                 found_authority &&
+                 identity_matches &&
+                 !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
     msg->has_vote_txn = 1;
     fd_txn_p_t          txn[1];
     fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, &out->vote_block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
@@ -1041,8 +1062,9 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
 
     fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, pubkey.uc );
     if( FD_LIKELY( ro.lamports ) ) {
+      fd_pubkey_t identity[1];
       ulong dummy_idx;
-      deser_auth_vtr( ctx, ro.data, ro.data_len, epoch, 1, &vtr->auth_vtr, &dummy_idx );
+      vote_account_config( ctx, ro.data, ro.data_len, epoch, &vtr->auth_vtr, &dummy_idx, identity );
       if( update_id_keys_vote_accs ) {
         FD_TEST( 0==fd_vote_account_node_pubkey( ro.data, ro.data_len, &ctx->id_keys[ctx->vtr_cnt] ) ); /* check vote account is not corrupt */
         ctx->vote_accs[ctx->vtr_cnt] = pubkey;
