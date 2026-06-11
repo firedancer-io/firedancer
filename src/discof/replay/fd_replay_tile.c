@@ -1560,7 +1560,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
     FD_TEST( curr );
     if( FD_LIKELY( !curr->slot_complete ) ) continue;
 
-    fd_bank_t * curr_bank = fd_banks_bank_query( ctx->banks, curr->bank_idx );
+    fd_bank_t * curr_bank = curr->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
     if( FD_LIKELY( curr_bank && curr_bank->bank_seq==curr->bank_seq ) ) break;
 
     FD_TEST( path_cnt<FD_BANKS_MAX_BANKS );
@@ -1619,17 +1619,22 @@ process_fec_set( fd_replay_tile_t *  ctx,
   int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc && !parent->eqvoc);
   if( FD_UNLIKELY( eqvoc_detected ) ) FD_TEST( reasm_fec->confirmed && parent->confirmed );
 
-  /* We can detect if a bank has been evicted if the bank index tagged
+  /* We can detect if a bank has not replayed if the bank index tagged
      to the FEC set is no longer valid or the bank sequence number for
-     the same bank is different (the bank has been recycled).  */
-  fd_bank_t * parent_fec_bank = fd_banks_bank_query( ctx->banks, parent->bank_idx );
-  int has_evicted = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
+     the same bank is different (the bank has been recycled).  This is
+     either due to the parent bank being evicted, or in reasm, the
+     parent is marked eqvoc (and not replayed), but the child gets
+     confirmed and delivered. */
+  fd_bank_t * parent_fec_bank = parent->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
-  /* If the upcoming FEC is either the start of an equivocating chain or
-     would chain off of a bank that was evicted, we must backfill any
-     FECs into the scheduler.  This backfill must start from a FEC with
-     fec_set_idx==0 with a parent FEC corresponding to a valid bank. */
-  if( FD_LIKELY( !has_evicted && !eqvoc_detected ) ) {
+  /* If the upcoming FEC is either the start of an equivocating chain,
+     chains off of a bank that was evicted, OR is the child of an
+     equivocating chain whose parent was gated from getting replayed, we
+     must backfill any FECs into the scheduler.  This backfill must
+     start from a FEC with fec_set_idx==0 with a parent FEC
+     corresponding to a valid bank. */
+  if( FD_LIKELY( !parent_bank_invalid && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
     backfill_fec_sets( ctx, stem, reasm_fec );
