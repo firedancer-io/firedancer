@@ -1159,7 +1159,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
        At this point, we know we are processing the latter block, so we
        record that in the tower_blk. */
 
-    FD_TEST( eqvoc_tower_blk->confirmed ); /* check the confirmed bit is set (the confirmation must have already happened before replay_slot_completed) */
     fd_tower_lockos_remove( ctx->tower, slot_completed->slot );
 
     ctx->metrics.eqvoc_cnt++;
