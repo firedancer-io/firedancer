@@ -17,9 +17,6 @@ typedef struct myele myele_t;
 /* Note: macros are deliberately written sloppy (generator should be
    robust against this) */
 
-#undef  FD_TMPL_USE_HANDHOLDING
-#define FD_TMPL_USE_HANDHOLDING 0
-
 #define MAP_NAME             mymap
 #define MAP_ELE_T            myele_t
 #define MAP_KEY_T            uint

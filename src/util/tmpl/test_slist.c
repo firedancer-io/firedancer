@@ -406,7 +406,7 @@ main( int     argc,
   }
 
   /* test handholding */
-#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+#if FD_HAS_HOSTED && FD_DCHECK_STYLE==1
   #define FD_EXPECT_LOG_CRIT( CALL ) do {                          \
     FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
     pid_t pid = fork();                                            \
@@ -433,7 +433,7 @@ main( int     argc,
   FD_EXPECT_LOG_CRIT( tst_slist_idx_peek_tail      ( tst_slist, tst_ele ) );
   FD_EXPECT_LOG_CRIT( tst_slist_idx_pop_head       ( tst_slist, tst_ele ) );
 #else
-  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted and FD_DCHECK_STYLE==1" ));
 #endif
 
   FD_LOG_NOTICE(( "Test destruction" ));
