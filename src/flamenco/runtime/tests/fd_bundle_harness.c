@@ -3,6 +3,7 @@
 #include "fd_txn_harness.h"
 #include "fd_dump_pb.h"
 #include "generated/bundle.pb.h"
+#include "../fd_cost_tracker.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -42,6 +43,9 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
+  /* Initialize bank from input txn bank */
+  fd_banks_clear_bank( runner->banks, runner->bank, 2048UL );
+
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
 
@@ -80,6 +84,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+
+  /* Initialize cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( runner->bank );
+  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, slot );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
   fd_memset( txns, 0, txn_cnt*sizeof(fd_txn_p_t) );
