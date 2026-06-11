@@ -1494,7 +1494,6 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;
     ctx->auth_vtr_path_cnt++;
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-
   }
 
   /* FIXME: Currently, the tower tile doesn't support set-identity with
@@ -1520,6 +1519,8 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
+    FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
+    FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->halt_signing = 1;
     ctx->identity_keyswitch->result  = ctx->out_seq;
@@ -1769,6 +1770,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
   ctx->out_seq    = 0UL;
+
+  FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+  FD_LOG_INFO(( "my vote account: %s", vote_account_b58 ));
+  FD_LOG_INFO(( "my identity key: %s", identity_key_b58 ));
 }
 
 static ulong
