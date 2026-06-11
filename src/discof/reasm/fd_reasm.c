@@ -215,19 +215,13 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
      save ~32 loop iterations.  Punting given the additional complexity
      of bookkeeping and logic this would require. */
 
-  fd_reasm_fec_t * last_inserted = NULL;
+  if( FD_LIKELY( fec && !fec->popped && !fec->in_out ) ) {
+    out_ele_push_tail( reasm->out, fec, pool );
+    fec->in_out = 1;
+  }
+
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
     fec->confirmed = 1;
-
-    if( FD_LIKELY( !fec->popped && !fec->in_out ) ) {
-      /* Let's say that the delivery queue already contains A, and
-         we confirm A - B - C.  We walk upwards from C, but we need to
-         make sure B and C are inserted after A, and in that order. */
-      if( FD_UNLIKELY( !last_inserted ) ) out_ele_push_tail( reasm->out, fec, pool );
-      else                                out_ele_insert_before( reasm->out, fec, last_inserted, pool );
-      fec->in_out = 1;
-      last_inserted = fec;
-    }
     fec = fd_reasm_parent( reasm, fec );
   }
 }
