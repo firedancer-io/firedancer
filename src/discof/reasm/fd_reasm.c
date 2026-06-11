@@ -213,9 +213,20 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
      to confirm every FEC and instead just confirm at the slot-level.
      Given roughly ~1k shreds per slot at 32 shreds per FEC, this would
      save ~32 loop iterations.  Punting given the additional complexity
-     of bookkeeping and logic this would require. */
+     of bookkeeping and logic this would require.
 
-  if( FD_LIKELY( fec && !fec->popped && !fec->in_out ) ) {
+     If this FEC has not been popped, then that means we need to
+     redeliver it for execution.  Reasm could be in a state where by
+     confirming the child of an equivocating chain, the child is
+     confirmed & popped, but the parent of it is confirmed & not
+     *popped*. It was not delivered through the reasm out queue because
+     it was backfilled. In the off chance that the parent confirmation
+     arrives after the child confirmation, we need to make sure to not
+     redeliver the parent again.  The invariant is that if a FEC is
+     already confirmed, either it or its child must have already been
+     delivered for execution. */
+
+  if( FD_LIKELY( fec && !fec->popped && !fec->in_out && !fec->confirmed ) ) {
     out_ele_push_tail( reasm->out, fec, pool );
     fec->in_out = 1;
   }
