@@ -14,7 +14,7 @@ fd_alloc_fprintf( fd_alloc_t * join,
 /* FIXME: ADD INTERPROCESS TESTING MODES TOO. */
 
 FD_STATIC_ASSERT( FD_ALLOC_ALIGN               ==  128UL, unit_test );
-FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==32768UL, unit-test );
+FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==32768UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_MALLOC_ALIGN_DEFAULT==   16UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_HINT_MAX==   15UL, unit_test );
 
@@ -25,7 +25,7 @@ static ulong  _align_max;
 static ulong  _sz_max;
 
 /* This is a torture test for concurrent allocation where free is done
-   on the same that did the alloc. */
+   on the same thread that did the alloc. */
 
 static int
 test_main( int     argc,
@@ -166,7 +166,7 @@ test_main( int     argc,
 }
 
 /* This is a torture test for concurrent allocation where free can
-   be done on a different thread that did the alloc. */
+   be done on a different thread than the one that did the alloc. */
 
 #define TEST2_SLOT_MAX 4096
 
@@ -359,7 +359,7 @@ main( int     argc,
     FD_TEST( (2UL<=block_cnt) & (block_cnt<=64UL)                                               ); /* Valid block_cnt */
     FD_TEST( (cgroup_mask<=FD_ALLOC_JOIN_CGROUP_HINT_MAX) & fd_ulong_is_pow2( cgroup_mask+1UL ) ); /* Valid cgroup_mask */
 
-    /* parent_sizeclass blocks can only a superblock for this sizeclass */
+    /* parent_sizeclass blocks can only hold a superblock for this sizeclass */
     ulong superblock_footprint = 24UL + block_footprint*block_cnt;
     if( FD_LIKELY( (sizeclass<parent_sizeclass) & (parent_sizeclass<FD_ALLOC_SIZECLASS_CNT) ) ) { /* nested superblock */
       FD_TEST( superblock_footprint<=(ulong)fd_alloc_sizeclass_cfg[ parent_sizeclass ].block_footprint );

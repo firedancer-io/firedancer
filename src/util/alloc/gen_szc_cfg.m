@@ -113,7 +113,7 @@ printf( 'static fd_alloc_sizeclass_cfg_t const fd_alloc_sizeclass_cfg[ FD_ALLOC_
 overhead = parent_footprint - obj_cnt.*obj_footprint; % superblock header and superblock trailing padding
 
 for szc=1:szc_cnt,
-  printf( '  /* %3u */ { %10uU, (ushort)%3u, (uchar)%3u, (uchar)%3u }, // parent_footprint %10u (padding %u) %s\n', szc-1, obj_footprint(szc), parent_szc(szc)-1, obj_cnt(szc), cgroup_mask(szc), parent_footprint(szc), overhead(szc) - sb_hdr, ifelse( szc_thresh==szc, ' <-- SMALL_THRESH', '' ) );
+  printf( '  /* %3u */ { %10uU, (ushort)%3u, (uchar)%3u, (uchar)%3u }, // parent_footprint %10u (padding %u)%s\n', szc-1, obj_footprint(szc), parent_szc(szc)-1, obj_cnt(szc), cgroup_mask(szc), parent_footprint(szc), overhead(szc) - sb_hdr, ifelse( szc_thresh==szc, '  <-- SMALL_THRESH', '' ) );
 endfor
 printf( '};\n' );
 
