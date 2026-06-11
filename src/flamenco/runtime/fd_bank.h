@@ -293,7 +293,6 @@ struct fd_bank {
     ulong                  slot;
     ulong                  parent_slot;
     ulong                  capitalization;
-    ulong                  transaction_count;
     ulong                  parent_signature_cnt;
     ulong                  tick_height;
     ulong                  max_tick_height;
