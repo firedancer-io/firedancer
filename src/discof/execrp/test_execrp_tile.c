@@ -1,6 +1,7 @@
 /* test_execrp_tile unit tests replay transaction execution by mocking an
    execrp tile context and using fd_svm_mini for runtime state. */
 
+#define _GNU_SOURCE
 #include "fd_execrp_tile.c"
 #include "../../ballet/txn/fd_txn_build.h"
 #include "../../ballet/txn/fd_compact_u16.h"

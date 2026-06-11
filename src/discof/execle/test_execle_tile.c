@@ -4,6 +4,7 @@
    The execle tile is mostly the same as the execrp tile, except for
    bundle execution. */
 
+#define _GNU_SOURCE
 #include "fd_execle_tile.c"
 #include "../../ballet/txn/fd_txn_build.h"
 #include "../../disco/topo/fd_topob.h"
