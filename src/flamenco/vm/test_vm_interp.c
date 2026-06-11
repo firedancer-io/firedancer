@@ -5,8 +5,9 @@
 #include "../runtime/fd_bank.h"
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include <stdlib.h>  /* malloc */
+#include <stdlib.h>
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
@@ -455,6 +456,9 @@ test_block_text_limit( fd_sbpf_syscalls_t *  syscalls,
   FD_LOG_NOTICE(( "test_block_text_limit: ok" ));
 }
 
+/* NOTE: p-token transfer + mem-load + branch + lazy-zero benchmarks are in bench_vm_interp.c */
+
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -462,11 +466,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
-  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
-  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+  char const * name       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",       NULL, NULL            );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic"      );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 5UL             );
+  ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",   NULL, fd_log_cpu_id() );
+  ulong        wksp_tag   = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",   NULL, 1234UL          );
 
   fd_wksp_t * wksp;
   if( name ) {

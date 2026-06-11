@@ -8,6 +8,7 @@ $(call add-objs,test_vm_util,fd_flamenco)
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
 $(call run-unit-test,test_vm_interp)
+$(call make-unit-test,bench_vm_interp,bench_vm_interp,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(BLST_LIBS))
 endif
 endif
 
