@@ -294,9 +294,12 @@ fd_reasm_peek( fd_reasm_t * reasm );
 /* fd_reasm_pop returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
    the reasm out queue.  Any FEC sets in the out queue are part of a
-   connected ancestry chain to the root therefore a parent is always
-   guaranteed to be returned by consume before its child (see top-level
-   documentation for details). */
+   connected ancestry chain to the root.  reasm_pop does NOT guarantee
+   that the parent has been delivered before its child from the
+   viewpoint of replay; this can occur if banks evicts but reasm
+   doesn't, or if we forward confirm a child on an equivocating chain.
+   In this case the child will be delivered before the parent, and the
+   parent may not have been replayed yet (assigned a bank_idx).  */
 
 fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm );
