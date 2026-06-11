@@ -170,12 +170,22 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
     txn_ins[i].bundle.prev_txn_cnt = is_bundle ? i : 0UL;
     for( ulong j=0UL; is_bundle && j<i; j++ ) txn_ins[i].bundle.prev_txn_outs[j] = &txn_outs[j];
   }
+  /* Mirror fd_execle_tile: a failed bundle prepare acquires nothing, so
+     every txn fails and fd_runtime_fini_bundle must be skipped.  An
+     empty bundle likewise acquires nothing and must skip fini. */
+  int bundle_prep_ok = 1;
   if( is_bundle ) {
     runtime->accdb = runner->accdb;
-    fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
+    if( FD_LIKELY( txn_cnt ) ) {
+      int prepare_err = fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
+      if( FD_UNLIKELY( prepare_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        bundle_prep_ok = 0;
+        saw_exec_err   = 1;
+      }
+    }
   }
 
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
+  for( ulong i=0UL; bundle_prep_ok && i<txn_cnt; i++ ) {
     fd_txn_in_t * txn_in = &txn_ins[i];
 
     int exec_res = 0;
@@ -243,7 +253,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
   /* Release the bundle's shared account pool exactly once now that all of
      its txns have been committed or cancelled. */
-  if( is_bundle ) fd_runtime_fini_bundle( runtime );
+  if( is_bundle && bundle_prep_ok && txn_cnt ) fd_runtime_fini_bundle( runtime );
 
   effects->has_error = saw_exec_err;
   if( saw_exec_err ) {
