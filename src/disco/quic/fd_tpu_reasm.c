@@ -212,7 +212,7 @@ fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
   }
 
   ulong sz1 = sz0 + data_sz;
-  if( FD_UNLIKELY( (sz1<sz0)|(sz1>mtu) ) ) {
+  if( FD_UNLIKELY( (sz1<sz0)|(sz1>mtu - sizeof(fd_txn_m_t)) ) ) {
     fd_tpu_reasm_cancel( reasm, slot );
     return FD_TPU_REASM_ERR_SZ;
   }
@@ -327,7 +327,7 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
                            uchar            source_tpu ) {
 
   ulong depth = reasm->depth;
-  if( FD_UNLIKELY( sz>FD_TPU_REASM_MTU ) ) return FD_TPU_REASM_ERR_SZ;
+  if( FD_UNLIKELY( sz>FD_TPU_REASM_MTU - sizeof(fd_txn_m_t) ) ) return FD_TPU_REASM_ERR_SZ;
 
   /* Acquire least recent slot.  This is our "new slot" */
   fd_tpu_reasm_slot_t * slot = slotq_pop_tail( reasm );
