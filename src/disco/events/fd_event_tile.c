@@ -10,6 +10,8 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../util/cstr/fd_cstr.h"
@@ -42,6 +44,11 @@
 #define IN_KIND_SIGN   (2)
 #define IN_KIND_GENESI (3)
 #define IN_KIND_IPECHO (4)
+#define IN_KIND_TXSEND (5)
+
+#define FD_EVENT_TYPE_TXN         1
+#define FD_EVENT_TYPE_SHRED       2
+#define FD_EVENT_TYPE_SIGNED_VOTE 3
 
 union fd_event_tile_in {
   struct {
@@ -77,6 +84,9 @@ struct fd_event_tile {
   ushort shred_source_port;
   ulong shred_buf_sz;
   uchar shred_buf[ FD_NET_MTU ];
+
+  uchar txn_buf[ FD_TPU_RAW_MTU ]; /* txsend_out mtu */
+  ulong txn_buf_sz;
 
   uchar identity_pubkey[ 32UL ];
 
@@ -166,6 +176,98 @@ before_credit( fd_event_tile_t *   ctx,
   fd_event_client_poll( ctx->client, charge_busy );
 }
 
+/* on_txsend_frag translates a txsend_out frag (a signed vote) into a
+   signed_vote event.  This involves deserializing the generated vote to
+   recover metadata.  Keep in sync with fd_tower_to_vote_txn. */
+
+static int
+on_txsend_frag( fd_event_tile_t * ctx,
+                ulong             tsorig_comp ) {
+
+  /* txsend_out holds vote transactions */
+
+  fd_txn_m_t const * txnm       = fd_type_pun_const( ctx->txn_buf );
+  uchar const *      payload    = fd_txn_m_payload_const( txnm );
+  ulong              payload_sz = txnm->payload_sz;
+  if( FD_UNLIKELY( payload_sz + ( (ulong)payload - (ulong)txnm ) > ctx->txn_buf_sz ) ) {
+    FD_LOG_CRIT(( "txsend_out frag corrupt" ));
+  }
+
+  union {
+    uchar __attribute__((aligned(alignof(fd_txn_t)))) mem[ FD_TXN_MAX_SZ ];
+    fd_txn_t t;
+  } txn;
+  if( FD_UNLIKELY( !fd_txn_parse( payload, payload_sz, txn.mem, NULL ) ) ) return 0;
+  fd_txn_t const * t = &txn.t;
+
+  /* validate vote transaction 'shape' */
+
+  if( FD_UNLIKELY( t->instr_cnt!=1UL ) ) return 0;
+  if( FD_UNLIKELY( t->acct_addr_cnt<3UL || t->acct_addr_cnt>4UL ) ) return 0;
+  fd_txn_instr_t const * instr = &t->instr[ 0 ];
+  fd_acct_addr_t const * addrs = fd_txn_get_acct_addrs( t, payload );
+  if( FD_UNLIKELY( 0!=memcmp( addrs[ instr->program_id ].b, fd_solana_vote_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 0;
+  if( FD_UNLIKELY( instr->acct_cnt!=2UL ) ) return 0;
+  uchar const *            instr_addrs   = fd_txn_get_instr_accts( instr, payload );
+  fd_ed25519_sig_t const * sigs          = fd_txn_get_signatures( t, payload );
+  uchar const *            instr_data    = payload + instr->data_off;
+  ulong                    instr_data_sz = instr->data_sz;
+  if( FD_UNLIKELY( instr_data_sz < sizeof(uint) ) ) return 0;
+  uint instr_kind = FD_LOAD( uint, instr_data );
+  if( FD_UNLIKELY( instr_kind!=FD_VOTE_IX_KIND_TOWER_SYNC ) ) return 0;
+  instr_data += 4; instr_data_sz -= 4;
+
+  /* deserialize vote instruction data */
+
+  fd_compact_tower_sync_serde_t sync[1];
+  if( FD_UNLIKELY( 0!=fd_compact_tower_sync_de( sync, instr_data, instr_data_sz ) ) ) return 0;
+  if( FD_UNLIKELY( sync->lockouts_cnt==0 ) ) return 0;
+
+  fd_acct_addr_t const * fee_payer      = &addrs[ 0 ];
+  fd_acct_addr_t const * vote_acct_addr = &addrs[ instr_addrs[ 0 ] ];
+  fd_acct_addr_t const * vote_auth_addr = &addrs[ instr_addrs[ 1 ] ];
+  uchar const *          rbh            = fd_txn_get_recent_blockhash( t, payload );
+
+  /* Deriving the vote slot is tricky */
+  ulong root_slot = fd_ulong_if( sync->root==ULONG_MAX, 0, sync->root );
+  ulong vote_slot = root_slot;
+  for( ulong i=0UL; i<sync->lockouts_cnt; i++ ) {
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( vote_slot, sync->lockouts[ i ].offset, &vote_slot ) ) ) return 0;
+  }
+
+  /* Generate signed_vote event */
+  ulong event_id = fd_event_client_id_reserve( ctx->client );
+  long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
+    fd_clock_tile_tickcount_decomp( ctx->clock, tsorig_comp ) );
+  uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 4096UL );
+  FD_TEST( buffer );
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, 4096UL );
+
+  FD_TEST( ctx->circq->cursor_push_seq );
+  fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
+  fd_pb_push_uint64( encoder, 2U, event_id );
+  fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
+  fd_pb_submsg_open( encoder, 4U ); /* Event */
+  fd_pb_submsg_open( encoder, FD_EVENT_TYPE_SIGNED_VOTE );
+
+  fd_pb_push_bytes ( encoder, 1U, payload,           payload_sz               );
+  fd_pb_push_bytes ( encoder, 2U, vote_acct_addr,    sizeof(fd_acct_addr_t)   );
+  fd_pb_push_bytes ( encoder, 3U, vote_auth_addr,    sizeof(fd_acct_addr_t)   );
+  fd_pb_push_bytes ( encoder, 4U, fee_payer,         sizeof(fd_acct_addr_t)   );
+  fd_pb_push_bytes ( encoder, 5U, sigs[ 0 ],         sizeof(fd_ed25519_sig_t) );
+  fd_pb_push_uint64( encoder, 6U, vote_slot                                   );
+  fd_pb_push_bytes ( encoder, 7U, sync->hash.uc,     sizeof(fd_hash_t)        );
+  fd_pb_push_bytes ( encoder, 8U, sync->block_id.uc, sizeof(fd_hash_t)        );
+  fd_pb_push_bytes ( encoder, 9U, rbh,               sizeof(fd_hash_t)        );
+
+  fd_pb_submsg_close( encoder );
+  fd_pb_submsg_close( encoder );
+  fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
+
+  return 1;
+}
+
 static void
 during_frag( fd_event_tile_t * ctx,
              ulong             in_idx,
@@ -176,6 +278,7 @@ during_frag( fd_event_tile_t * ctx,
              ulong             ctl ) {
   (void)seq; (void)sig; (void)ctl;
 
+  fd_event_tile_in_t const * in = &ctx->in[ in_idx ];
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
       uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
@@ -191,13 +294,22 @@ during_frag( fd_event_tile_t * ctx,
     case IN_KIND_DEDUP:
     case IN_KIND_GENESI:
     case IN_KIND_IPECHO:
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || sz>in->mtu ) )
+        FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in->chunk0, in->wmark ));
       ctx->chunk = chunk;
       break;
+    case IN_KIND_TXSEND: {
+      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || sz>in->mtu ) )
+        FD_LOG_CRIT(( "chunk %lu corrupt, not in range [%lu,%lu]", chunk, in->chunk0, in->wmark ));
+      if( FD_UNLIKELY( sz > sizeof(ctx->txn_buf ) ) )
+        FD_LOG_CRIT(( "txsend_out frag sz %lu exceeds buf sz %lu", sz, sizeof(ctx->txn_buf) ));
+      uchar const * buf = fd_chunk_to_laddr_const( in->mem, chunk );
+      fd_memcpy( ctx->txn_buf, buf, sz );
+      ctx->txn_buf_sz = sz;
+      break;
+    }
     default:
-      FD_LOG_ERR(( "unexpected in_kind %d %lu", ctx->in_kind[ in_idx ], in_idx ));
+      FD_LOG_CRIT(( "unexpected in_kind %d %lu", ctx->in_kind[ in_idx ], in_idx ));
   }
 }
 
@@ -210,7 +322,7 @@ after_frag( fd_event_tile_t *   ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)seq; (void)sz; (void)tsorig; (void)stem;
+  (void)seq; (void)sz; (void)stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
@@ -323,6 +435,9 @@ after_frag( fd_event_tile_t *   ctx,
     case IN_KIND_IPECHO:
       FD_TEST( sig && sig<=USHORT_MAX );
       fd_event_client_init_shred_version( ctx->client, (ushort)sig );
+      break;
+    case IN_KIND_TXSEND:
+      on_txsend_frag( ctx, tsorig );
       break;
     default:
       FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
@@ -502,10 +617,12 @@ unprivileged_init( fd_topo_t const *      topo,
       fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
       ctx->in_kind[ i ] = IN_KIND_SHRED;
       continue; /* only net_rx needs to be set in this case. */
-    } else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
+    }
+    else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
     else if( FD_LIKELY( !strcmp( link->name, "sign_event"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
+    else if( FD_LIKELY( !strcmp( link->name, "txsend_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else FD_LOG_ERR(( "event tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem = link_wksp->wksp;
