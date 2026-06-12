@@ -19,6 +19,12 @@
 
 #include "fd_secp256r1_table.c"
 
+/* p256_base_table_size is used for p256_scalarmulbase with a blocksize=6.
+   B=2^(6-1)=32, there are 43 blocks i with 6*i<=256 (6*42=252<=256), and
+   43 * 32 * 8 = 11008 entries.
+   https://github.com/awslabs/s2n-bignum/blob/9061e8b76522beafa5ca020f3c8d99b23eba4fbc/x86/p256/p256_scalarmulbase.S#L14-L23 */
+FD_STATIC_ASSERT( sizeof(fd_secp256r1_base_point_table)==(43UL*32UL*8UL)*sizeof(ulong), p256_base_table_size );
+
 /* Scalars */
 
 static inline int
