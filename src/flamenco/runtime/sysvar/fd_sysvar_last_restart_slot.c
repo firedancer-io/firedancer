@@ -64,7 +64,6 @@ fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
   if( !FD_FEATURE_ACTIVE_BANK( bank, last_restart_slot_sysvar ) ) return;
 
   ulong last_restart_slot_want = fd_sysvar_last_restart_slot_derive( bank );
-  bank->f.last_restart_slot = last_restart_slot_want;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
   ulong last_restart_slot_have = fd_sysvar_last_restart_slot_read( accdb, bank->accdb_fork_id, ULONG_MAX );

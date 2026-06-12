@@ -34,21 +34,22 @@ fd_gui_footprint( ulong tile_cnt ) {
 }
 
 void *
-fd_gui_new( void *                shmem,
-            fd_http_server_t *    http,
-            char const *          version,
-            char const *          cluster,
-            uchar const *         identity_key,
-            int                   has_vote_key,
-            uchar const *         vote_key,
-            int                   is_full_client,
-            int                   snapshots_enabled,
-            int                   is_voting,
-            int                   schedule_strategy,
-            char const *          wfs_expected_bank_hash_cstr,
-            ushort                expected_shred_version,
-            fd_topo_t const *     topo,
-            long                  now ) {
+fd_gui_new( void *                   shmem,
+            fd_http_server_t *       http,
+            char const *             version,
+            char const *             cluster,
+            uchar const *            identity_key,
+            int                      has_vote_key,
+            uchar const *            vote_key,
+            int                      is_full_client,
+            int                      snapshots_enabled,
+            int                      is_voting,
+            int                      schedule_strategy,
+            char const *             wfs_expected_bank_hash_cstr,
+            ushort                   expected_shred_version,
+            fd_topo_t const *        topo,
+            fd_accdb_shmem_t const * accdb_shmem,
+            long                     now ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -74,9 +75,11 @@ fd_gui_new( void *                shmem,
   void *                 ingress_maxq_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),     fd_gui_rate_deque_footprint() );
   void *                 egress_maxq_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),     fd_gui_rate_deque_footprint() );
 
-  gui->http     = http;
-  gui->topo     = topo;
-  gui->tile_cnt = tile_cnt;
+  gui->http        = http;
+  gui->topo        = topo;
+  gui->accdb_shmem = accdb_shmem;
+  gui->tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  gui->tile_cnt    = tile_cnt;
 
   gui->summary.tile_timers_snap = tile_timers_snap_mem;
   gui->summary.ingress_maxq     = fd_gui_rate_deque_join( fd_gui_rate_deque_new( ingress_maxq_mem ) );
@@ -203,6 +206,110 @@ fd_gui_new( void *                shmem,
   gui->summary.progcache_hits_1min    = 0UL;
   gui->summary.progcache_lookups_1min = 0UL;
 
+  memset( gui->summary.accounts_stats_reference, 0, sizeof(gui->summary.accounts_stats_reference) );
+  memset( gui->summary.accounts_stats_current,   0, sizeof(gui->summary.accounts_stats_current  ) );
+  gui->summary.accounts_stats_have_reference = 0;
+  gui->summary.accdb_win_idx   = 0UL;
+  gui->summary.accdb_win_count = 0UL;
+  memset( gui->summary.accdb_win_dt_nanos,           0, sizeof(gui->summary.accdb_win_dt_nanos)           );
+  memset( gui->summary.agg_acquired_win,             0, sizeof(gui->summary.agg_acquired_win)             );
+  memset( gui->summary.agg_acquired_writable_win,    0, sizeof(gui->summary.agg_acquired_writable_win)    );
+  memset( gui->summary.agg_bytes_read_win,           0, sizeof(gui->summary.agg_bytes_read_win)           );
+  memset( gui->summary.agg_bytes_copied_win,         0, sizeof(gui->summary.agg_bytes_copied_win)         );
+  memset( gui->summary.agg_bytes_written_win,        0, sizeof(gui->summary.agg_bytes_written_win)        );
+  memset( gui->summary.agg_bytes_written_accdb_win,  0, sizeof(gui->summary.agg_bytes_written_accdb_win)  );
+  memset( gui->summary.agg_read_ops_win,             0, sizeof(gui->summary.agg_read_ops_win)             );
+  memset( gui->summary.agg_write_ops_win,            0, sizeof(gui->summary.agg_write_ops_win)            );
+  memset( gui->summary.agg_relocated_bytes_win,      0, sizeof(gui->summary.agg_relocated_bytes_win)      );
+  memset( gui->summary.agg_misses_win,               0, sizeof(gui->summary.agg_misses_win)               );
+  memset( gui->summary.class_acq_win,                0, sizeof(gui->summary.class_acq_win)                );
+  memset( gui->summary.class_acq_wr_win,             0, sizeof(gui->summary.class_acq_wr_win)             );
+  memset( gui->summary.class_not_found_win,          0, sizeof(gui->summary.class_not_found_win)          );
+  memset( gui->summary.class_evicted_win,            0, sizeof(gui->summary.class_evicted_win)            );
+  memset( gui->summary.class_preevicted_win,         0, sizeof(gui->summary.class_preevicted_win)         );
+  memset( gui->summary.class_commit_new_win,         0, sizeof(gui->summary.class_commit_new_win)         );
+  memset( gui->summary.class_commit_over_win,        0, sizeof(gui->summary.class_commit_over_win)        );
+
+  gui->summary.partition_cnt = 0UL;
+  memset( gui->summary.partition_read_ops_win,        0, sizeof(gui->summary.partition_read_ops_win)        );
+  memset( gui->summary.partition_bytes_read_win,      0, sizeof(gui->summary.partition_bytes_read_win)      );
+  memset( gui->summary.partition_write_ops_win,       0, sizeof(gui->summary.partition_write_ops_win)       );
+  memset( gui->summary.partition_bytes_written_win,   0, sizeof(gui->summary.partition_bytes_written_win)   );
+  memset( gui->summary.partitions,                    0, sizeof(gui->summary.partitions)                    );
+  memset( gui->summary.partition_prev_read_ops,       0, sizeof(gui->summary.partition_prev_read_ops)       );
+  memset( gui->summary.partition_prev_bytes_read,     0, sizeof(gui->summary.partition_prev_bytes_read)     );
+  memset( gui->summary.partition_prev_write_ops,      0, sizeof(gui->summary.partition_prev_write_ops)      );
+  memset( gui->summary.partition_prev_bytes_written,  0, sizeof(gui->summary.partition_prev_bytes_written)  );
+
+  /* Build the per-tile accdb slot table from the topology.  Order
+     matters only for stable JSON ordering: RW joiners first, RO
+     joiners, then snapwr at the end. */
+  gui->summary.accdb_tile_cnt = 0UL;
+  static const struct { char const * name; uchar kind; } accdb_kinds[] = {
+    { "execle", FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "execrp", FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "replay", FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "tower",  FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "rpc",    FD_GUI_ACCDB_TILE_KIND_RO     },
+    { "resolv", FD_GUI_ACCDB_TILE_KIND_RO     },
+    { "snapwr", FD_GUI_ACCDB_TILE_KIND_SNAPWR },
+    { "accdb",  FD_GUI_ACCDB_TILE_KIND_ACCDB  },
+  };
+  for( ulong k=0UL; k<sizeof(accdb_kinds)/sizeof(accdb_kinds[0]); k++ ) {
+    ulong cnt = fd_topo_tile_name_cnt( gui->topo, accdb_kinds[ k ].name );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      ulong t_idx = fd_topo_find_tile( gui->topo, accdb_kinds[ k ].name, i );
+      if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;
+      if( FD_UNLIKELY( gui->summary.accdb_tile_cnt>=FD_GUI_MAX_ACCDB_TILES ) ) {
+        FD_LOG_ERR(( "too many accdb consumer tiles (limit %lu)", FD_GUI_MAX_ACCDB_TILES ));
+      }
+      ulong slot = gui->summary.accdb_tile_cnt++;
+      gui->summary.accdb_tile_topo_idx[ slot ] = (ushort)t_idx;
+      gui->summary.accdb_tile_kind    [ slot ] = accdb_kinds[ k ].kind;
+    }
+  }
+  memset( gui->summary.tile_cur_acquired,           0, sizeof(gui->summary.tile_cur_acquired)           );
+  memset( gui->summary.tile_cur_acquired_writable,  0, sizeof(gui->summary.tile_cur_acquired_writable)  );
+  memset( gui->summary.tile_cur_bytes_read,         0, sizeof(gui->summary.tile_cur_bytes_read)         );
+  memset( gui->summary.tile_cur_bytes_copied,       0, sizeof(gui->summary.tile_cur_bytes_copied)       );
+  memset( gui->summary.tile_cur_bytes_written,      0, sizeof(gui->summary.tile_cur_bytes_written)      );
+  memset( gui->summary.tile_cur_read_ops,           0, sizeof(gui->summary.tile_cur_read_ops)           );
+  memset( gui->summary.tile_cur_write_ops,          0, sizeof(gui->summary.tile_cur_write_ops)          );
+  memset( gui->summary.tile_cur_misses,             0, sizeof(gui->summary.tile_cur_misses)             );
+  memset( gui->summary.tile_cur_evicted,            0, sizeof(gui->summary.tile_cur_evicted)            );
+  memset( gui->summary.tile_cur_committed,          0, sizeof(gui->summary.tile_cur_committed)          );
+  memset( gui->summary.tile_cur_acquire_calls,      0, sizeof(gui->summary.tile_cur_acquire_calls)      );
+  memset( gui->summary.tile_cur_status,             0, sizeof(gui->summary.tile_cur_status)             );
+  memset( gui->summary.tile_prev_acquired,          0, sizeof(gui->summary.tile_prev_acquired)          );
+  memset( gui->summary.tile_prev_acquired_writable, 0, sizeof(gui->summary.tile_prev_acquired_writable) );
+  memset( gui->summary.tile_prev_bytes_read,        0, sizeof(gui->summary.tile_prev_bytes_read)        );
+  memset( gui->summary.tile_prev_bytes_copied,      0, sizeof(gui->summary.tile_prev_bytes_copied)      );
+  memset( gui->summary.tile_prev_bytes_written,     0, sizeof(gui->summary.tile_prev_bytes_written)     );
+  memset( gui->summary.tile_prev_read_ops,          0, sizeof(gui->summary.tile_prev_read_ops)          );
+  memset( gui->summary.tile_prev_write_ops,         0, sizeof(gui->summary.tile_prev_write_ops)         );
+  memset( gui->summary.tile_prev_misses,            0, sizeof(gui->summary.tile_prev_misses)            );
+  memset( gui->summary.tile_prev_evicted,           0, sizeof(gui->summary.tile_prev_evicted)           );
+  memset( gui->summary.tile_prev_committed,         0, sizeof(gui->summary.tile_prev_committed)         );
+  memset( gui->summary.tile_prev_acquire_calls,     0, sizeof(gui->summary.tile_prev_acquire_calls)     );
+  memset( gui->summary.tile_acquired_win,           0, sizeof(gui->summary.tile_acquired_win)           );
+  memset( gui->summary.tile_acquired_writable_win,  0, sizeof(gui->summary.tile_acquired_writable_win)  );
+  memset( gui->summary.tile_bytes_read_win,         0, sizeof(gui->summary.tile_bytes_read_win)         );
+  memset( gui->summary.tile_bytes_copied_win,       0, sizeof(gui->summary.tile_bytes_copied_win)       );
+  memset( gui->summary.tile_bytes_written_win,      0, sizeof(gui->summary.tile_bytes_written_win)      );
+  memset( gui->summary.tile_read_ops_win,           0, sizeof(gui->summary.tile_read_ops_win)           );
+  memset( gui->summary.tile_write_ops_win,          0, sizeof(gui->summary.tile_write_ops_win)          );
+  memset( gui->summary.tile_misses_win,             0, sizeof(gui->summary.tile_misses_win)             );
+  memset( gui->summary.tile_evicted_win,            0, sizeof(gui->summary.tile_evicted_win)            );
+  memset( gui->summary.tile_committed_win,          0, sizeof(gui->summary.tile_committed_win)          );
+  memset( gui->summary.tile_acquire_calls_win,      0, sizeof(gui->summary.tile_acquire_calls_win)      );
+
+  memset( gui->summary.tile_sparkline_bucket_start_nanos, 0, sizeof(gui->summary.tile_sparkline_bucket_start_nanos) );
+  memset( gui->summary.tile_sparkline_acq_bucket,         0, sizeof(gui->summary.tile_sparkline_acq_bucket)         );
+  memset( gui->summary.tile_sparkline_acq_wr_bucket,      0, sizeof(gui->summary.tile_sparkline_acq_wr_bucket)      );
+  memset( gui->summary.tile_sparkline_acq_history,        0, sizeof(gui->summary.tile_sparkline_acq_history)        );
+  memset( gui->summary.tile_sparkline_acq_wr_history,     0, sizeof(gui->summary.tile_sparkline_acq_wr_history)     );
+  memset( gui->summary.tile_sparkline_count,              0, sizeof(gui->summary.tile_sparkline_count)              );
+
   memset( gui->summary.tile_timers_snap,            0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   memset( gui->summary.tile_timers_snap + tile_cnt, 0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   gui->summary.tile_timers_snap_idx    = 2UL;
@@ -304,6 +411,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   if( FD_LIKELY( gui->summary.is_full_client ) ) {
     fd_gui_printf_live_program_cache( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
+    if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
+      fd_gui_printf_accounts_stats( gui );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    }
   }
 
   if( FD_LIKELY( gui->block_engine.has_block_engine ) ) {
@@ -370,14 +482,14 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
 
     cur[ i ].in_backp  = (int)tile_metrics[ MIDX(GAUGE, TILE, IN_BACKPRESSURE) ];
     cur[ i ].status    = (uchar)tile_metrics[ MIDX( GAUGE, TILE, STATUS ) ];
-    cur[ i ].heartbeat = tile_metrics[ MIDX( GAUGE, TILE, HEARTBEAT ) ];
-    cur[ i ].backp_cnt = tile_metrics[ MIDX( COUNTER, TILE, BACKPRESSURE_COUNT ) ];
-    cur[ i ].nvcsw     = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT ) ];
-    cur[ i ].nivcsw    = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT ) ];
-    cur[ i ].minflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MINOR_COUNT ) ];
-    cur[ i ].majflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MAJOR_COUNT ) ];
+    cur[ i ].heartbeat = tile_metrics[ MIDX( GAUGE, TILE, HEARTBEAT_TIMESTAMP_NANOS ) ];
+    cur[ i ].backp_cnt = tile_metrics[ MIDX( COUNTER, TILE, BACKPRESSURE ) ];
+    cur[ i ].nvcsw     = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_VOLUNTARY ) ];
+    cur[ i ].nivcsw    = tile_metrics[ MIDX( COUNTER, TILE, CONTEXT_SWITCH_INVOLUNTARY ) ];
+    cur[ i ].minflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MINOR ) ];
+    cur[ i ].majflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MAJOR ) ];
     cur[ i ].last_cpu  = (ushort)tile_metrics[ MIDX( GAUGE, TILE, LAST_CPU ) ];
-    cur[ i ].interrupts = tile_metrics[ MIDX( COUNTER, TILE, IRQ_COUNT ) ];
+    cur[ i ].interrupts = tile_metrics[ MIDX( COUNTER, TILE, IRQ_PREEMPTED ) ];
   }
 }
 
@@ -394,10 +506,10 @@ fd_gui_scheduler_counts_snap( fd_gui_t * gui, long now ) {
 
   cur->sample_time_ns = now;
 
-  cur->regular     = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS_REGULAR ) ];
-  cur->votes       = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS_VOTES ) ];
-  cur->conflicting = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS_CONFLICTING ) ];
-  cur->bundles     = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS_BUNDLES ) ];
+  cur->regular     = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_REGULAR ) ];
+  cur->votes       = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_VOTES ) ];
+  cur->conflicting = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_CONFLICTING ) ];
+  cur->bundles     = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE_BUNDLES ) ];
 }
 
 static void
@@ -441,10 +553,11 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
 
   cur->in.gossip   = fd_gui_metrics_gossip_total_ingress_bytes( topo, gossvf_tile_cnt );
   cur->out.gossip  = fd_gui_metrics_gosip_total_egress_bytes( topo, gossip_tile_cnt );
-  cur->in.turbine  = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_TURBINE_RCV_BYTES ) );
+  cur->in.turbine  = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_TURBINE_RX_BYTES ) );
 
   cur->out.turbine = 0UL;
   cur->out.repair  = 0UL;
+  cur->out.rserve  = 0UL;
   cur->out.tpu     = 0UL;
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
     ulong net_tile_idx = fd_topo_find_tile( topo, "net", i );
@@ -452,27 +565,42 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * net = &topo->tiles[ net_tile_idx ];
     for( ulong j=0UL; j<net->in_cnt; j++ ) {
       if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "shred_net" ) ) ) {
-          cur->out.turbine += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+          cur->out.turbine += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
 
       if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "repair_net" ) ) ) {
-          cur->out.repair += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+          cur->out.repair += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+      }
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "rserve_net" ) ) ) {
+          cur->out.rserve += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
 
       if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "send_net" ) ) ) {
-          cur->out.tpu += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+          cur->out.tpu += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
     }
   }
 
-  cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_REPAIR_RCV_BYTES ) );
+  cur->in.repair = fd_gui_metrics_sum_tiles_counter( topo, "shred", shred_tile_cnt, MIDX( COUNTER, SHRED, SHRED_REPAIR_RX_BYTES ) );
   ulong repair_tile_idx = fd_topo_find_tile( topo, "repair", 0UL );
   if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * repair = &topo->tiles[ repair_tile_idx ];
 
     for( ulong i=0UL; i<repair->in_cnt; i++ ) {
       if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "net_repair" ) ) ) {
-          cur->in.repair += fd_metrics_link_in( repair->metrics, i )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+          cur->in.repair += fd_metrics_link_in( repair->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+      }
+    }
+  }
+
+  cur->in.rserve = 0UL;
+  ulong rserve_tile_idx = fd_topo_find_tile( topo, "rserve", 0UL );
+  if( FD_LIKELY( rserve_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * rserve = &topo->tiles[ rserve_tile_idx ];
+
+    for( ulong i=0UL; i<rserve->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ rserve->in_link_id[ i ] ].name, "net_rserve" ) ) ) {
+          cur->in.rserve += fd_metrics_link_in( rserve->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       }
     }
   }
@@ -483,14 +611,14 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     if( FD_UNLIKELY( quic_tile_idx==ULONG_MAX ) ) continue;
     fd_topo_tile_t const * quic = &topo->tiles[ quic_tile_idx ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
-    cur->in.tpu += quic_metrics[ MIDX( COUNTER, QUIC, RECEIVED_BYTES ) ];
+    cur->in.tpu += quic_metrics[ MIDX( COUNTER, QUIC, PKT_RX_BYTES ) ];
   }
 
   ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
   if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * bundle = &topo->tiles[ bundle_tile_idx ];
     volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
-    cur->in.tpu += bundle_metrics[ MIDX( COUNTER, BUNDLE, PROTO_RECEIVED_BYTES ) ];
+    cur->in.tpu += bundle_metrics[ MIDX( COUNTER, BUNDLE, PROTOBUF_RX_BYTES ) ];
   }
 
   ulong metric_tile_idx = fd_topo_find_tile( topo, "metric", 0UL );
@@ -597,6 +725,172 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   *prev = *cur;
 }
 
+/* Snapshot accdb statistics by reading the accdb tile's metric page
+   (for gauges) and summing counters across all tiles that join accdb
+   (executors, replay, tower, rpc, resolv, plus the accdb tile itself).
+   The result feeds the GUI "Accounts" page. */
+
+static void
+fd_gui_accounts_stats_snap( fd_gui_t *                gui,
+                            fd_gui_accounts_stats_t * cur ) {
+  fd_topo_t const * topo = gui->topo;
+
+  memset( cur, 0, sizeof(*cur) );
+  cur->sample_time_nanos = fd_log_wallclock();
+
+  ulong accdb_tile_idx = fd_topo_find_tile( topo, "accdb", 0UL );
+  if( FD_UNLIKELY( accdb_tile_idx==ULONG_MAX ) ) return;
+
+  /* Gauges + accdb-tile-only counters. */
+  fd_topo_tile_t const * accdb = &topo->tiles[ accdb_tile_idx ];
+  volatile ulong const * am    = fd_metrics_tile( accdb->metrics );
+
+  cur->accounts_total           = am[ MIDX( GAUGE,   ACCDB, ACCOUNT_COUNT           ) ];
+  cur->accounts_capacity        = am[ MIDX( GAUGE,   ACCDB, ACCOUNT_CAPACITY        ) ];
+  cur->disk_allocated_bytes     = am[ MIDX( GAUGE,   ACCDB, DISK_ALLOCATED_BYTES    ) ];
+  cur->disk_current_bytes       = am[ MIDX( GAUGE,   ACCDB, DISK_CURRENT_BYTES      ) ];
+  cur->disk_used_bytes          = am[ MIDX( GAUGE,   ACCDB, DISK_USED_BYTES         ) ];
+  cur->in_compaction            = am[ MIDX( GAUGE,   ACCDB, IN_COMPACTION           ) ];
+  cur->compactions_requested    = am[ MIDX( COUNTER, ACCDB, COMPACTION_REQUESTED    ) ];
+  cur->compactions_completed    = am[ MIDX( COUNTER, ACCDB, COMPACTION_COMPLETED    ) ];
+  cur->accounts_relocated_bytes = am[ MIDX( COUNTER, ACCDB, ACCOUNT_RELOCATED_BYTES ) ];
+  cur->bytes_written_accdb      = am[ MIDX( COUNTER, ACCDB, BYTES_WRITTEN           ) ];
+
+  /* The accdb tile owns the prewrite and compaction writes; include
+     those in the aggregate bytes_written / write_ops so the IO panel
+     reflects all on-disk write activity, not just consumer-driven
+     commits. */
+  cur->bytes_written += am[ MIDX( COUNTER, ACCDB, BYTES_WRITTEN    ) ];
+  cur->write_ops     += am[ MIDX( COUNTER, ACCDB, WRITE_OPERATION  ) ];
+
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    cur->cache_class_used         [ c ] = am[ MIDX( GAUGE, ACCDB, CACHE_CLASS_USED            ) + c ];
+    cur->cache_class_max          [ c ] = am[ MIDX( GAUGE, ACCDB, CACHE_CLASS_MAX             ) + c ];
+    cur->cache_class_reserved     [ c ] = am[ MIDX( GAUGE, ACCDB, CACHE_CLASS_RESERVED        ) + c ];
+    cur->cache_class_target_used  [ c ] = am[ MIDX( GAUGE, ACCDB, CACHE_CLASS_TARGET_USED     ) + c ];
+    cur->cache_class_low_water_used[c ] = am[ MIDX( GAUGE, ACCDB, CACHE_CLASS_LOW_WATER_USED  ) + c ];
+    cur->preevicted_per_class     [ c ] = am[ MIDX( COUNTER, ACCDB, ACCOUNT_PREEVICTED        ) + c ];
+  }
+
+  /* Walk the per-tile slot table built at init.  Each slot reads its
+     tile's accdb counters according to its kind (RW, RO, or SNAPWR),
+     accumulates into the aggregate (cur->*), and stashes the per-tile
+     cumulative values into gui->summary.tile_cur_* for the per-tile
+     rate window pushes done later in fd_gui_printf_accounts_stats. */
+  for( ulong s=0UL; s<gui->summary.accdb_tile_cnt; s++ ) {
+    ulong t_idx = (ulong)gui->summary.accdb_tile_topo_idx[ s ];
+    uchar kind  = gui->summary.accdb_tile_kind[ s ];
+    volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );
+
+    gui->summary.tile_cur_status[ s ] = (uchar)m[ MIDX( GAUGE, TILE, STATUS ) ];
+
+    ulong t_acq=0UL, t_acw=0UL, t_misses=0UL, t_evicted=0UL, t_committed=0UL;
+    ulong t_bytes_read=0UL, t_bytes_copied=0UL, t_bytes_written=0UL;
+    ulong t_read_ops=0UL, t_write_ops=0UL;
+    ulong t_acquire_calls=0UL;
+
+    switch( kind ) {
+#   define DO_RW( TILE_UPPER )                                                                                                    \
+        t_bytes_read    = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ      ) ];                                                \
+        t_bytes_copied  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED    ) ];                                                \
+        t_bytes_written = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_WRITTEN   ) ];                                                \
+        t_read_ops      = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPERATION  ) ];                                                \
+        t_write_ops     = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_WRITE_OPERATION ) ];                                                \
+        t_acquire_calls = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BATCH_ACQUIRED  ) ];                                                \
+        for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                                                     \
+          ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_ACQUIRED          ) + c ];                                     \
+          ulong _acw = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_WRITABLE_ACQUIRED ) + c ];                                     \
+          ulong _nf  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_NOT_FOUND         ) + c ];                                     \
+          ulong _ev  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_EVICTED           ) + c ];                                     \
+          ulong _cn  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_COMMITTED_NEW        ) + c ];                                  \
+          ulong _co  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_COMMITTED_OVERWRITE  ) + c ];                                  \
+          t_acq+=_acq; t_acw+=_acw; t_misses+=_nf; t_evicted+=_ev; t_committed+=_cn+_co;                                          \
+          cur->acquired_per_class            [ c ] += _acq;                                                                       \
+          cur->acquired_writable_per_class   [ c ] += _acw;                                                                       \
+          cur->not_found_per_class           [ c ] += _nf;                                                                        \
+          cur->evicted_per_class             [ c ] += _ev;                                                                        \
+          cur->committed_new_per_class       [ c ] += _cn;                                                                        \
+          cur->committed_overwrite_per_class [ c ] += _co;                                                                        \
+        }
+      case FD_GUI_ACCDB_TILE_KIND_RW:
+        if(      !strcmp( topo->tiles[ t_idx ].name, "execle" ) ) { DO_RW( EXECLE ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "execrp" ) ) { DO_RW( EXECRP ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "replay" ) ) { DO_RW( REPLAY ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "tower"  ) ) { DO_RW( TOWER  ); }
+        cur->acquired          += t_acq;
+        cur->acquired_writable += t_acw;
+        cur->bytes_read        += t_bytes_read;
+        cur->bytes_copied      += t_bytes_copied;
+        cur->bytes_written     += t_bytes_written;
+        cur->read_ops          += t_read_ops;
+        cur->write_ops         += t_write_ops;
+        break;
+#   undef DO_RW
+
+#   define DO_RO( TILE_UPPER )                                                                                                    \
+        t_bytes_read    = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ     ) ];                                                 \
+        t_bytes_copied  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED   ) ];                                                 \
+        t_read_ops      = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPERATION ) ];                                                 \
+        t_acquire_calls = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BATCH_ACQUIRED ) ];                                                 \
+        for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                                                     \
+          ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_ACQUIRED  ) + c ];                                            \
+          ulong _nf  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNT_NOT_FOUND ) + c ];                                            \
+          t_acq+=_acq; t_misses+=_nf;                                                                                             \
+          cur->acquired_per_class [ c ] += _acq;                                                                                  \
+          cur->not_found_per_class[ c ] += _nf;                                                                                   \
+        }
+      case FD_GUI_ACCDB_TILE_KIND_RO:
+        if( !strcmp( topo->tiles[ t_idx ].name, "rpc"    ) ) { DO_RO( RPC    ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "resolv" ) ) { DO_RO( RESOLV ); }
+        cur->acquired     += t_acq;
+        cur->bytes_read   += t_bytes_read;
+        cur->bytes_copied += t_bytes_copied;
+        cur->read_ops     += t_read_ops;
+        break;
+#   undef DO_RO
+
+      case FD_GUI_ACCDB_TILE_KIND_SNAPWR:
+        /* snapwr writes account data to disk directly during snapshot
+           load.  It does not declare the accdb counter surface, only a
+           BytesWritten gauge.  Include in the aggregate so the IO panel
+           reflects load-time disk activity. */
+        t_bytes_written = m[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
+        cur->bytes_written += t_bytes_written;
+        break;
+
+      case FD_GUI_ACCDB_TILE_KIND_ACCDB:
+        /* The accdb tile owns prewrite and compaction writes.  Its own
+           bytes_written/write_ops were already folded into the aggregate
+           above (see ACCDB_BYTES_WRITTEN / ACCDB_WRITE_OPS reads).  Here
+           we only stash per-slot values so the per-tile row reflects
+           them; do not re-add to cur->* or we'd double-count.  The accdb
+           tile does not expose acquired/not_found/committed (no account
+           joiner) or read_ops/bytes_copied.  Preevicts are owned by the
+           accdb tile's background preevict pass, so map them to the
+           per-tile evicted column for this row. */
+        t_bytes_read    = m[ MIDX( COUNTER, ACCDB, BYTES_READ      ) ];
+        t_bytes_written = m[ MIDX( COUNTER, ACCDB, BYTES_WRITTEN   ) ];
+        t_write_ops     = m[ MIDX( COUNTER, ACCDB, WRITE_OPERATION ) ];
+        for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+          t_evicted += m[ MIDX( COUNTER, ACCDB, ACCOUNT_PREEVICTED ) + c ];
+        }
+        break;
+    }
+
+    gui->summary.tile_cur_acquired         [ s ] = t_acq;
+    gui->summary.tile_cur_acquired_writable[ s ] = t_acw;
+    gui->summary.tile_cur_bytes_read       [ s ] = t_bytes_read;
+    gui->summary.tile_cur_bytes_copied     [ s ] = t_bytes_copied;
+    gui->summary.tile_cur_bytes_written    [ s ] = t_bytes_written;
+    gui->summary.tile_cur_read_ops         [ s ] = t_read_ops;
+    gui->summary.tile_cur_write_ops        [ s ] = t_write_ops;
+    gui->summary.tile_cur_misses           [ s ] = t_misses;
+    gui->summary.tile_cur_evicted          [ s ] = t_evicted;
+    gui->summary.tile_cur_committed        [ s ] = t_committed;
+    gui->summary.tile_cur_acquire_calls    [ s ] = t_acquire_calls;
+  }
+}
+
 /* Snapshot all of the data from metrics to construct a view of the
    transaction waterfall.
 
@@ -614,21 +908,21 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
 
     volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
-    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, SUCCESSFUL_TRANSACTIONS ) ];
+    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, TXN_EXECUTED_SUCCESS ) ];
 
     cur->out.block_fail +=
-        bank_metrics[ MIDX( COUNTER, BANK, EXECUTED_FAILED_TRANSACTIONS ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, FEE_ONLY_TRANSACTIONS        ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, TXN_EXECUTED_FAILED ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_FEE_ONLY        ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_UNINITIALIZED ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_NOT_FOUND ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_OWNER ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_DATA ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_LOOKUP_INDEX  ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_ACCOUNT_UNINITIALIZED ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_ACCOUNT_NOT_FOUND ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_INVALID_ACCOUNT_OWNER ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_INVALID_ACCOUNT_DATA ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, TXN_LOAD_ADDRESS_TABLE_INVALID_LOOKUP_INDEX  ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, TXN_PROCESSING_FAILED ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.execle_tile_cnt; i++ ) {
@@ -636,15 +930,15 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
     volatile ulong const * execle_metrics = fd_metrics_tile( execle->metrics );
 
-    cur->out.block_success += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_SUCCESS ) ];
+    cur->out.block_success += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_LANDED_SUCCESS ) ];
     cur->out.block_fail    +=
-        execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_FEES_ONLY ) ]
-      + execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_FAILED ) ];
-    cur->out.bank_invalid  += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_UNLANDED ) ];
+        execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_LANDED_FEES_ONLY ) ]
+      + execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_LANDED_FAILED ) ];
+    cur->out.bank_invalid  += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_LANDED_UNLANDED ) ];
 
-    cur->out.bank_nonce_already_advanced += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
-    cur->out.bank_nonce_advance_failed   += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
-    cur->out.bank_nonce_wrong_blockhash  += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
+    cur->out.bank_nonce_already_advanced += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_RESULT_NONCE_ALREADY_ADVANCED ) ];
+    cur->out.bank_nonce_advance_failed   += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_RESULT_NONCE_ADVANCE_FAILED ) ];
+    cur->out.bank_nonce_wrong_blockhash  += execle_metrics[ MIDX( COUNTER, EXECLE, TXN_RESULT_NONCE_WRONG_BLOCKHASH ) ];
   }
 
   ulong pack_tile_idx = fd_topo_find_tile( topo, "pack", 0UL );
@@ -653,57 +947,57 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
     cur->out.pack_invalid_bundle =
-        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
+        pack_metrics[ MIDX( COUNTER, PACK, TXN_PARTIAL_BUNDLE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_CREATION_FAILED ) ];
 
     cur->out.pack_invalid =
-        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_INSTR_ACCT_CNT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_CONFLICT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_INVALID_NONCE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_MANY_ACCOUNTS ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_LARGE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ADDR_LUT ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_UNAFFORDABLE ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ]
-      - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
+        pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_INSTR_ACCT_CNT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_NONCE_CONFLICT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_BUNDLE_BLACKLIST ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_INVALID_NONCE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_WRITE_SYSVAR ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_ESTIMATION_FAIL ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_DUPLICATE_ACCOUNT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_TOO_MANY_ACCOUNTS ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_TOO_LARGE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_ADDR_LUT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_UNAFFORDABLE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_DUPLICATE ) ]
+      - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
 
-    cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_EXPIRED ) ] +
-                            pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ] +
-                            pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DELETED ) ] +
-                            pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_PRIORITY ) ];
+    cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_EXPIRED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TXN_EXPIRED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TXN_DELETED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_NONCE_PRIORITY ) ];
 
-    cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_ALREADY_EXECUTED ) ];
+    cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TXN_ALREADY_EXECUTED ) ];
 
-    cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ];
+    cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TXN_INSERTED_PRIORITY ) ];
 
     cur->out.pack_wait_full =
-        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
+        pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_DROPPED ) ];
 
-    cur->out.pack_retained = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
+    cur->out.pack_retained = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE ) ];
 
-    ulong inserted_to_extra = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TO_EXTRA ) ];
-    ulong inserted_from_extra = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_FROM_EXTRA ) ]
-                                + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
+    ulong inserted_to_extra = pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_INSERTED ) ];
+    ulong inserted_from_extra = pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_RETRIEVED ) ]
+                                + pack_metrics[ MIDX( COUNTER, PACK, TXN_EXTRA_DROPPED ) ];
     cur->out.pack_retained += fd_ulong_if( inserted_to_extra>=inserted_from_extra, inserted_to_extra-inserted_from_extra, 0UL );
 
     cur->in.pack_cranked =
-        pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTED ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
-      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
+        pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_INSERTION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_RESULT_CREATION_FAILED ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.resolh_tile_cnt; i++ ) {
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolh", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLH, NO_BANK_DROP ) ];
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_NO_BANK ) ];
     cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLH, BLOCKHASH_EXPIRED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
+                                + resolv_metrics[ MIDX( COUNTER, RESOLH, TXN_BUNDLE_PEER_FAILED  ) ];
     cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
                                 + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
                                 + resolv_metrics[ MIDX( COUNTER, RESOLH, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
@@ -722,9 +1016,9 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_NO_BANK ) ];
     cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TXN_BUNDLE_PEER_FAILED  ) ];
     cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
                                 + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
                                 + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
@@ -744,8 +1038,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * dedup = &topo->tiles[ dedup_tile_idx ];
     volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
 
-    cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_DEDUP_FAILURE ) ]
-                             + dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_BUNDLE_PEER_FAILURE ) ];
+    cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TXN_RESULT_DEDUP_FAILURE ) ]
+                             + dedup_metrics[ MIDX( COUNTER, DEDUP, TXN_RESULT_BUNDLE_PEER_FAILURE ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
@@ -754,38 +1048,38 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
     for( ulong j=0UL; j<gui->summary.quic_tile_cnt; j++ ) {
       /* TODO: Not precise... even if 1 frag gets skipped, it could have been for this verify tile. */
-      cur->out.verify_overrun += fd_metrics_link_in( verify->metrics, j )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / gui->summary.verify_tile_cnt;
-      cur->out.verify_overrun += fd_metrics_link_in( verify->metrics, j )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ];
+      cur->out.verify_overrun += fd_metrics_link_in( verify->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] / gui->summary.verify_tile_cnt;
+      cur->out.verify_overrun += fd_metrics_link_in( verify->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ];
     }
 
-    cur->out.verify_failed    += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_VERIFY_FAILURE ) ] +
-                                 verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_BUNDLE_PEER_FAILURE ) ];
-    cur->out.verify_parse     += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_PARSE_FAILURE ) ];
-    cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_DEDUP_FAILURE ) ];
+    cur->out.verify_failed    += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_VERIFY_FAILURE ) ] +
+                                 verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_BUNDLE_PEER_FAILURE ) ];
+    cur->out.verify_parse     += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_PARSE_FAILURE ) ];
+    cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TXN_RESULT_DEDUP_FAILURE ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_UNDERSZ      ) ];
-    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_OVERSZ       ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_UNDERSZ             ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_OVERSZ              ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSZ              ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_UNDERSIZE    ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_OVERSIZE     ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_UNDERSIZE           ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_OVERSIZE            ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSIZE            ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_CRYPTO_FAILED       ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN             ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_WRONG_SRC           ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_SRC_INVALID         ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NET_HEADER_INVALID  ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_QUIC_HEADER_INVALID ) ];
-    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_ABANDONED          ) ];
-    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_OVERRUN            ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_HEADER_INVALID      ) ];
+    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_ABANDONED           ) ];
+    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERRUN             ) ];
 
     for( ulong j=0UL; j<gui->summary.net_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
       /* TODO: Not precise... even if 1 frag gets skipped, it could have been for this QUIC tile */
-      cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / gui->summary.quic_tile_cnt;
-      cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ];
+      cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] / gui->summary.quic_tile_cnt;
+      cur->out.quic_overrun += fd_metrics_link_in( quic->metrics, j )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ];
     }
   }
 
@@ -794,8 +1088,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
 
     cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL ) ];
-    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_DROPPED_OTHER ) ];
-    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_FILL_RING_EMPTY_DESCS ) ];
+    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED ) ];
+    cur->out.net_overrun += net_metrics[ MIDX( COUNTER, NET, XDP_RX_FILL_RING_EMPTY ) ];
   }
 
   ulong bundle_txns_received = 0UL;
@@ -804,7 +1098,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * bundle = &topo->tiles[ bundle_tile_idx ];
     volatile ulong const * bundle_metrics = fd_metrics_tile( bundle->metrics );
 
-    bundle_txns_received = bundle_metrics[ MIDX( COUNTER, BUNDLE, TRANSACTION_RECEIVED ) ];
+    bundle_txns_received = bundle_metrics[ MIDX( COUNTER, BUNDLE, TXN_RX ) ];
   }
 
   if( FD_UNLIKELY( gui->summary.is_full_client ) ) {
@@ -812,12 +1106,12 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
       fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
       volatile ulong const * verify_metrics = fd_metrics_tile( verify->metrics );
-      cur->in.gossip += verify_metrics[ MIDX( COUNTER, VERIFY, GOSSIPED_VOTES_RECEIVED ) ];
+      cur->in.gossip += verify_metrics[ MIDX( COUNTER, VERIFY, VOTE_GOSSIP_RX ) ];
     }
   } else if( dedup_tile_idx!=ULONG_MAX ) {
     fd_topo_tile_t const * dedup = &topo->tiles[ dedup_tile_idx ];
     volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
-    cur->in.gossip = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
+    cur->in.gossip = dedup_metrics[ MIDX( COUNTER, DEDUP, VOTE_GOSSIP_RX ) ];
   }
 
   cur->in.quic     = cur->out.tpu_quic_invalid +
@@ -831,9 +1125,9 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_RECEIVED_QUIC_FAST ) ];
-    cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_RECEIVED_QUIC_FRAG ) ];
-    cur->in.udp  += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_RECEIVED_UDP       ) ];
+    cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC, TXN_RX_QUIC_FAST ) ];
+    cur->in.quic += quic_metrics[ MIDX( COUNTER, QUIC, TXN_RX_QUIC_FRAG ) ];
+    cur->in.udp  += quic_metrics[ MIDX( COUNTER, QUIC, TXN_RX_UDP       ) ];
   }
 }
 
@@ -851,30 +1145,30 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
     fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
 
-    stats->net_in_rx_bytes  += net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL ) ];
-    stats->net_out_tx_bytes += net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL ) ];
+    stats->net_in_rx_bytes  += net_metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES ) ];
+    stats->net_out_tx_bytes += net_metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.sock_tile_cnt; i++ ) {
     fd_topo_tile_t const * sock = &topo->tiles[ fd_topo_find_tile( topo, "sock", i ) ];
     volatile ulong * sock_metrics = fd_metrics_tile( sock->metrics );
 
-    stats->net_in_rx_bytes  += sock_metrics[ MIDX( COUNTER, SOCK, RX_BYTES_TOTAL ) ];
-    stats->net_out_tx_bytes += sock_metrics[ MIDX( COUNTER, SOCK, TX_BYTES_TOTAL ) ];
+    stats->net_in_rx_bytes  += sock_metrics[ MIDX( COUNTER, SOCK, PKT_RX_BYTES ) ];
+    stats->net_out_tx_bytes += sock_metrics[ MIDX( COUNTER, SOCK, PKT_TX_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONNECTIONS_ALLOC ) ];
+    stats->quic_conn_cnt += quic_metrics[ MIDX( GAUGE, QUIC, CONN_IN_USE ) ];
   }
 
   ulong bundle_tile_idx = fd_topo_find_tile( topo, "bundle", 0UL );
   if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
     fd_topo_tile_t const * bundle = &topo->tiles[ bundle_tile_idx ];
     volatile ulong * bundle_metrics = fd_metrics_tile( bundle->metrics );
-    stats->bundle_rtt_smoothed_nanos = bundle_metrics[ MIDX( GAUGE, BUNDLE, RTT_SMOOTHED ) ];
+    stats->bundle_rtt_smoothed_nanos = bundle_metrics[ MIDX( GAUGE, BUNDLE, RTT_SMOOTHED_NANOS ) ];
 
     fd_histf_new( &stats->bundle_rx_delay_hist, FD_MHIST_MIN( BUNDLE, MESSAGE_RX_DELAY_NANOS ), FD_MHIST_MAX( BUNDLE, MESSAGE_RX_DELAY_NANOS ) );
     stats->bundle_rx_delay_hist.sum = bundle_metrics[ MIDX( HISTOGRAM, BUNDLE, MESSAGE_RX_DELAY_NANOS ) + FD_HISTF_BUCKET_CNT ];
@@ -904,7 +1198,7 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   if( pack_tile_idx!=ULONG_MAX ) {
     fd_topo_tile_t const * pack  = &topo->tiles[ pack_tile_idx ];
     volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
-    stats->pack_buffer_cnt      = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
+    stats->pack_buffer_cnt      = pack_metrics[ MIDX( GAUGE, PACK, TXN_AVAILABLE ) ];
     stats->pack_buffer_capacity = pack->pack.max_pending_transactions;
   }
 
@@ -926,7 +1220,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   volatile ulong * gossip_metrics = fd_metrics_tile( gossip->metrics );
 
   ulong snapshot_phase = snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ];
-  ulong wfs_state      = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STATE ) ];
+  ulong wfs_state      = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STATE ) ];
 
   /* state transitions */
   if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
@@ -980,7 +1274,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: {
       ulong snapshot_idx = fd_ulong_if( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
-      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_DOWNLOAD_RETRIES ) ], snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
+      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_RETRY ) ], snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_RETRY ) ]);
 
       /* reset boot state if necessary */
       if( FD_UNLIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt!=_retry_cnt ) ) {
@@ -988,12 +1282,12 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt = _retry_cnt;
       }
 
-      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ],                snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_TOTAL ) ]                );
+      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ],                snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ]                );
       ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ],                 snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ]                 );
       ulong _decompress_decompressed_bytes = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ], snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ] );
       ulong _decompress_compressed_bytes   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ],      snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ]      );
       ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],                 snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]                 );
-      ulong _insert_accounts               = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED ) ];
+      ulong _insert_accounts               = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED ) ];
 
       /* metadata */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes_compressed = _total_bytes;
@@ -1015,10 +1309,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY: {
-      gui->summary.boot_progress.wfs_total_stake     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKE_TOTAL ) ];
-      gui->summary.boot_progress.wfs_connected_stake = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKE_ONLINE ) ];
-      gui->summary.boot_progress.wfs_total_peers     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_TOTAL ) ];
-      gui->summary.boot_progress.wfs_connected_peers = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_ONLINE ) ];
+      gui->summary.boot_progress.wfs_total_stake     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL ) ];
+      gui->summary.boot_progress.wfs_connected_stake = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE ) ];
+      gui->summary.boot_progress.wfs_total_peers     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL ) ];
+      gui->summary.boot_progress.wfs_connected_peers = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_ONLINE ) ];
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {
@@ -1136,8 +1430,8 @@ fd_gui_progcache_sample( fd_gui_t * gui ) {
     fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
     volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
 
-    lookups += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_LOOKUPS ) ];
-    hits    += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_HITS    ) ];
+    lookups += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_LOOKUP ) ];
+    hits    += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_HIT    ) ];
   }
 
   /* The execrp tile writes lookups before hits in metrics_write, so
@@ -1193,6 +1487,12 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
       fd_gui_progcache_sample( gui );
       fd_gui_printf_live_program_cache( gui );
       fd_http_server_ws_broadcast( gui->http );
+
+      *gui->summary.accounts_stats_reference = *gui->summary.accounts_stats_current;
+      fd_gui_accounts_stats_snap( gui, gui->summary.accounts_stats_current );
+      fd_gui_printf_accounts_stats( gui );
+      fd_http_server_ws_broadcast( gui->http );
+      gui->summary.accounts_stats_have_reference = 1;
     }
 
     if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
@@ -1237,7 +1537,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
       fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
       volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
+      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
       fd_gui_handle_repair_slot( gui, slot, now );
     }
 
@@ -3190,7 +3490,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
     fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
     volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-    ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
+    ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
     fd_gui_handle_repair_slot( gui, slot, now );
   }
 }

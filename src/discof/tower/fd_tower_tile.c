@@ -349,16 +349,25 @@ typedef struct fd_tower_tile fd_tower_tile_t;
 ulong QUERY_TOWERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, fd_ghost_blk_t *, int *, ulong * );
 void  QUERY_VOTERS( fd_tower_tile_t *, fd_replay_slot_completed_t *, ulong );
 
-static int
-deser_auth_vtr( fd_tower_tile_t * ctx,
-                uchar const *     data,
-                ulong             data_sz,
-                ulong             epoch,
-                int               vote_acc_found,
-                fd_pubkey_t *     authority_out,
-                ulong *           authority_idx_out ) {
+/* vote_account_config extracts configuration of this validator's vote
+   account (on-chain state).  data points to the first byte of the
+   vote account's data.  Sets:
+   - *authority_out to the selected authorized voter's public key
+   - *authority_idx_out to the tile's auth_vtr index (matches sign tile)
+     or ULONG_MAX it the authorized voter is the node identity
+     or LONG_MAX if it matches neither
+   - *node_pubkey to the vote account's pubkey
+  Returns 1 if the validator has a key for the found vote authority,
+  and 0 otherwise. */
 
-  if( FD_UNLIKELY( !vote_acc_found ) ) return 0;
+static int
+vote_account_config( fd_tower_tile_t * ctx,
+                     uchar const *     data,
+                     ulong             data_sz,
+                     ulong             epoch,
+                     fd_pubkey_t *     authority_out,
+                     ulong *           authority_idx_out,
+                     fd_pubkey_t *     node_pubkey_out ) {
 
   fd_vote_state_versioned_t vsv[1];
   FD_CHECK_CRIT( fd_vote_state_versioned_deserialize( vsv, data, data_sz ), "unable to decode vote state versioned" );
@@ -366,6 +375,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
   fd_pubkey_t const * auth_vtr_addr = NULL;
   switch( vsv->kind ) {
     case fd_vote_state_versioned_enum_v1_14_11:
+      *node_pubkey_out = vsv->v1_14_11.node_pubkey;
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v1_14_11.authorized_voters.treap, vsv->v1_14_11.authorized_voters.pool );
            !fd_vote_authorized_voters_treap_rev_iter_done( iter );
            iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v1_14_11.authorized_voters.pool ) ) {
@@ -377,6 +387,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     case fd_vote_state_versioned_enum_v3:
+      *node_pubkey_out = vsv->v3.node_pubkey;
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v3.authorized_voters.treap, vsv->v3.authorized_voters.pool );
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v3.authorized_voters.pool ) ) {
@@ -388,6 +399,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     case fd_vote_state_versioned_enum_v4:
+      *node_pubkey_out = vsv->v4.node_pubkey;
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v4.authorized_voters.treap, vsv->v4.authorized_voters.pool );
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v4.authorized_voters.pool ) ) {
@@ -416,6 +428,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
     return 1;
   }
 
+  *authority_idx_out = LONG_MAX;
   return 0;
 }
 
@@ -457,7 +470,7 @@ update_metrics_hfork( fd_tower_tile_t * ctx,
     ctx->metrics.hfork_mismatched_slot = fd_ulong_max( ctx->metrics.hfork_mismatched_slot, slot );
     break;
   case FD_HFORK_ERR_UNKNOWN_VTR:
-    ctx->metrics.hfork[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_UNKNOWN_VTR_IDX ]++;
+    ctx->metrics.hfork[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_UNKNOWN_VOTER_IDX ]++;
     break;
   case FD_HFORK_ERR_ALREADY_VOTED:
     ctx->metrics.hfork[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_ALREADY_VOTED_IDX ]++;
@@ -475,7 +488,7 @@ update_metrics_vote_slot( fd_tower_tile_t * ctx,
                           int               err ) {
   ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_SUCCESS_IDX       ] += (ulong)(err==FD_VOTES_SUCCESS);
   ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_TOO_NEW_IDX       ] += (ulong)(err==FD_VOTES_ERR_VOTE_TOO_NEW);
-  ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_UNKNOWN_VTR_IDX   ] += (ulong)(err==FD_VOTES_ERR_UNKNOWN_VTR);
+  ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_UNKNOWN_VOTER_IDX   ] += (ulong)(err==FD_VOTES_ERR_UNKNOWN_VTR);
   ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_ALREADY_VOTED_IDX ] += (ulong)(err==FD_VOTES_ERR_ALREADY_VOTED);
 }
 
@@ -597,8 +610,16 @@ publish_slot_done( fd_tower_tile_t *            ctx,
 
   ulong       authority_idx = ULONG_MAX;
   fd_pubkey_t authority[1];
-  int         found_authority = deser_auth_vtr( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, found, authority, &authority_idx );
-  if( FD_LIKELY( out->vote_slot!=ULONG_MAX && found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
+  fd_pubkey_t identity[1];
+  /* Refuse to vote if we don't have a matching vote authority key */
+  int found_authority  = found && vote_account_config( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, authority, &authority_idx, identity );
+  /* Refuse to vote if our node identity does not match the one
+     specified in the vote account (hot spare check) */
+  int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
+  if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
+                 found_authority &&
+                 identity_matches &&
+                 !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
     /* The reason to use a historical blockhash and not the most recent
        one is because if a vote txn lands on another validator, they
        may not have finished processing the slot and therefore the
@@ -1049,8 +1070,9 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
 
     fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, pubkey.uc );
     if( FD_LIKELY( ro.lamports ) ) {
+      fd_pubkey_t identity[1];
       ulong dummy_idx;
-      deser_auth_vtr( ctx, ro.data, ro.data_len, epoch, 1, &vtr->auth_vtr, &dummy_idx );
+      vote_account_config( ctx, ro.data, ro.data_len, epoch, &vtr->auth_vtr, &dummy_idx, identity );
       if( update_id_keys_vote_accs ) {
         FD_TEST( 0==fd_vote_account_node_pubkey( ro.data, ro.data_len, &ctx->id_keys[ctx->vtr_cnt] ) ); /* check vote account is not corrupt */
         ctx->vote_accs[ctx->vtr_cnt] = pubkey;
@@ -1258,7 +1280,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( ctx->tower,      ctx->ghost,          ctx->votes,
                                        &out.reset_slot, &out.reset_block_id,
-                                       &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash, &out.vote_block_hash,
+                                       &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
                                        &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) { /* if there is a vote slot we record it. */
     fd_tower_blk_t * vote_tower_blk = fd_tower_blocks_query( ctx->tower, out.vote_slot );
@@ -1502,7 +1524,6 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;
     ctx->auth_vtr_path_cnt++;
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-
   }
 
   /* FIXME: Currently, the tower tile doesn't support set-identity with
@@ -1528,6 +1549,8 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
+    FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
+    FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->halt_signing = 1;
     ctx->identity_keyswitch->result  = ctx->out_seq;
@@ -1536,10 +1559,10 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_tower_tile_t * ctx ) {
-  FD_MCNT_SET( TOWER, NOT_READY, ctx->metrics.not_ready );
+  FD_MCNT_SET( TOWER, FRAG_NOT_READY_DROPPED, ctx->metrics.not_ready );
 
-  FD_MCNT_SET  ( TOWER, IGNORED_CNT,  ctx->metrics.ignored_cnt  );
-  FD_MGAUGE_SET( TOWER, IGNORED_SLOT, ctx->metrics.ignored_slot );
+  FD_MCNT_SET  ( TOWER, FRAG_IGNORED,  ctx->metrics.ignored_cnt  );
+  FD_MGAUGE_SET( TOWER, SLOT_LAST_IGNORED, ctx->metrics.ignored_slot );
 
   FD_MGAUGE_SET( TOWER, REPLAY_SLOT, ctx->metrics.replay_slot    );
   FD_MGAUGE_SET( TOWER, VOTE_SLOT,   ctx->metrics.last_vote_slot );
@@ -1550,19 +1573,21 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( TOWER, FORK_DECISION, ctx->metrics.fork );
   FD_MCNT_ENUM_COPY( TOWER, VOTE_GATE,     ctx->metrics.gate );
 
-  FD_MCNT_ENUM_COPY( TOWER, VOTES,                  ctx->metrics.votes      );
-  FD_MCNT_ENUM_COPY( TOWER, VOTE_SLOTS,             ctx->metrics.vote_slots );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_TXN,               ctx->metrics.votes      );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_SLOT_COUNTED,      ctx->metrics.vote_slots );
   FD_MCNT_ENUM_COPY( TOWER, VOTE_INTERMEDIATE_GATE, ctx->metrics.gate_int   );
 
-  FD_MCNT_SET( TOWER, EQVOC_SUCCESS, ctx->metrics.eqvoc_success );
-  FD_MCNT_SET( TOWER, EQVOC_ERR,     ctx->metrics.eqvoc_err     );
+  ulong eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_CNT ];
+  eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_SUCCESS_IDX ] = ctx->metrics.eqvoc_success;
+  eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_IDX   ] = ctx->metrics.eqvoc_err;
+  FD_MCNT_ENUM_COPY( TOWER, EQVOC_PROOF, eqvoc_proof );
 
-  FD_MCNT_ENUM_COPY( TOWER, GHOST, ctx->metrics.ghost );
+  FD_MCNT_ENUM_COPY( TOWER, GHOST_VOTE, ctx->metrics.ghost );
 
-  FD_MCNT_ENUM_COPY( TOWER, HFORK, ctx->metrics.hfork );
+  FD_MCNT_ENUM_COPY( TOWER, HARD_FORK_VOTE, ctx->metrics.hfork );
 
-  FD_MGAUGE_SET( TOWER, HFORK_MATCHED_SLOT,    ctx->metrics.hfork_matched_slot    );
-  FD_MGAUGE_SET( TOWER, HFORK_MISMATCHED_SLOT, ctx->metrics.hfork_mismatched_slot );
+  FD_MGAUGE_SET( TOWER, HARD_FORK_MATCHED_SLOT,    ctx->metrics.hfork_matched_slot    );
+  FD_MGAUGE_SET( TOWER, HARD_FORK_MISMATCHED_SLOT, ctx->metrics.hfork_mismatched_slot );
 
   FD_ACCDB_METRICS_WRITE( TOWER, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -1775,6 +1800,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
   ctx->out_seq    = 0UL;
+
+  FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+  FD_LOG_INFO(( "my vote account: %s", vote_account_b58 ));
+  FD_LOG_INFO(( "my identity key: %s", identity_key_b58 ));
 }
 
 static ulong

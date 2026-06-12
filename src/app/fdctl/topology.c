@@ -567,6 +567,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = config->development.gui.websocket_compression;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
+    tile->gui.accdb_obj_id              = ULONG_MAX;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 

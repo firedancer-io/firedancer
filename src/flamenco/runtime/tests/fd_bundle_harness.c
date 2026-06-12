@@ -3,6 +3,7 @@
 #include "fd_txn_harness.h"
 #include "fd_dump_pb.h"
 #include "generated/bundle.pb.h"
+#include "../fd_cost_tracker.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -42,6 +43,9 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
+  /* Initialize bank from input txn bank */
+  fd_banks_clear_bank( runner->banks, runner->bank, 2048UL );
+
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
 
@@ -80,6 +84,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
+
+  /* Initialize cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( runner->bank );
+  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, slot );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
   fd_memset( txns, 0, txn_cnt*sizeof(fd_txn_p_t) );
@@ -170,12 +178,22 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
     txn_ins[i].bundle.prev_txn_cnt = is_bundle ? i : 0UL;
     for( ulong j=0UL; is_bundle && j<i; j++ ) txn_ins[i].bundle.prev_txn_outs[j] = &txn_outs[j];
   }
+  /* Mirror fd_execle_tile: a failed bundle prepare acquires nothing, so
+     every txn fails and fd_runtime_fini_bundle must be skipped.  An
+     empty bundle likewise acquires nothing and must skip fini. */
+  int bundle_prep_ok = 1;
   if( is_bundle ) {
     runtime->accdb = runner->accdb;
-    fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
+    if( FD_LIKELY( txn_cnt ) ) {
+      int prepare_err = fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
+      if( FD_UNLIKELY( prepare_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        bundle_prep_ok = 0;
+        saw_exec_err   = 1;
+      }
+    }
   }
 
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
+  for( ulong i=0UL; bundle_prep_ok && i<txn_cnt; i++ ) {
     fd_txn_in_t * txn_in = &txn_ins[i];
 
     int exec_res = 0;
@@ -243,7 +261,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
   /* Release the bundle's shared account pool exactly once now that all of
      its txns have been committed or cancelled. */
-  if( is_bundle ) fd_runtime_fini_bundle( runtime );
+  if( is_bundle && bundle_prep_ok && txn_cnt ) fd_runtime_fini_bundle( runtime );
 
   effects->has_error = saw_exec_err;
   if( saw_exec_err ) {

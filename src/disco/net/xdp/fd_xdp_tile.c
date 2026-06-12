@@ -221,6 +221,9 @@ typedef struct {
   fd_net_out_ctx_t repair_out[1];
   fd_net_out_ctx_t txsend_out[1];
 
+  fd_net_out_ctx_t rserve_out[1];
+  int rserve_enabled;
+
   /* XDP stats refresh timer */
   long xdp_stats_interval_ticks;
   long next_xdp_stats_refresh;
@@ -286,32 +289,32 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_net_ctx_t * ctx ) {
-  FD_MCNT_SET(   NET, RX_PKT_CNT,          ctx->metrics.rx_pkt_cnt          );
-  FD_MCNT_SET(   NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
-  FD_MCNT_SET(   NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
-  FD_MCNT_SET(   NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
-  FD_MCNT_SET(   NET, RX_BACKPRESSURE_CNT, ctx->metrics.rx_backp_cnt        );
-  FD_MGAUGE_SET( NET, RX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, RX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, TX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
-  FD_MGAUGE_SET( NET, TX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
+  FD_MCNT_SET(   NET, PKT_RX,              ctx->metrics.rx_pkt_cnt          );
+  FD_MCNT_SET(   NET, PKT_RX_BYTES,        ctx->metrics.rx_bytes_total      );
+  FD_MCNT_SET(   NET, PKT_RX_UNDERSIZE,    ctx->metrics.rx_undersz_cnt      );
+  FD_MCNT_SET(   NET, PKT_RX_FILL_RING_FULL, ctx->metrics.rx_fill_blocked_cnt );
+  FD_MCNT_SET(   NET, PKT_RX_BACKPRESSURE, ctx->metrics.rx_backp_cnt        );
+  FD_MGAUGE_SET( NET, RX_BUFFER_BUSY, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, RX_BUFFER_IDLE, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUFFER_BUSY, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUFFER_IDLE, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
 
-  FD_MCNT_SET( NET, TX_SUBMIT_CNT,        ctx->metrics.tx_submit_cnt     );
-  FD_MCNT_SET( NET, TX_COMPLETE_CNT,      ctx->metrics.tx_complete_cnt   );
-  FD_MCNT_SET( NET, TX_BYTES_TOTAL,       ctx->metrics.tx_bytes_total    );
-  FD_MCNT_SET( NET, TX_ROUTE_FAIL_CNT,    ctx->metrics.tx_route_fail_cnt );
-  FD_MCNT_SET( NET, TX_NEIGHBOR_FAIL_CNT, ctx->metrics.tx_neigh_fail_cnt );
-  FD_MCNT_SET( NET, TX_FULL_FAIL_CNT,     ctx->metrics.tx_full_fail_cnt  );
+  FD_MCNT_SET( NET, PKT_TX_SUBMITTED,     ctx->metrics.tx_submit_cnt     );
+  FD_MCNT_SET( NET, PKT_TX_COMPLETED,     ctx->metrics.tx_complete_cnt   );
+  FD_MCNT_SET( NET, PKT_TX_BYTES,         ctx->metrics.tx_bytes_total    );
+  FD_MCNT_SET( NET, PKT_TX_NO_ROUTE,    ctx->metrics.tx_route_fail_cnt );
+  FD_MCNT_SET( NET, PKT_TX_NO_NEIGHBOR, ctx->metrics.tx_neigh_fail_cnt );
+  FD_MCNT_SET( NET, PKT_TX_RING_FULL,     ctx->metrics.tx_full_fail_cnt  );
 
-  FD_MCNT_SET( NET, XSK_TX_WAKEUP_CNT,    ctx->metrics.xsk_tx_wakeup_cnt    );
-  FD_MCNT_SET( NET, XSK_RX_WAKEUP_CNT,    ctx->metrics.xsk_rx_wakeup_cnt    );
+  FD_MCNT_SET( NET, XSK_SYSCALL_TX,    ctx->metrics.xsk_tx_wakeup_cnt    );
+  FD_MCNT_SET( NET, XSK_SYSCALL_RX,    ctx->metrics.xsk_rx_wakeup_cnt    );
 
-  FD_MCNT_SET( NET, RX_GRE_CNT,            ctx->metrics.rx_gre_cnt            );
-  FD_MCNT_SET( NET, RX_GRE_INVALID_CNT,    ctx->metrics.rx_gre_inv_pkt_cnt    );
-  FD_MCNT_SET( NET, RX_GRE_IGNORED_CNT,    ctx->metrics.rx_gre_ignored_cnt    );
-  FD_MCNT_SET( NET, TX_GRE_CNT,            ctx->metrics.tx_gre_cnt            );
-  FD_MCNT_SET( NET, TX_GRE_ROUTE_FAIL_CNT, ctx->metrics.tx_gre_route_fail_cnt );
-  FD_MCNT_SET( NET, RX_SRC_ADDR_INVALID_CNT, ctx->metrics.rx_src_addr_invalid_cnt );
+  FD_MCNT_SET( NET, GRE_PKT_RX,            ctx->metrics.rx_gre_cnt            );
+  FD_MCNT_SET( NET, GRE_PKT_RX_INVALID,    ctx->metrics.rx_gre_inv_pkt_cnt    );
+  FD_MCNT_SET( NET, GRE_PKT_RX_IGNORED,    ctx->metrics.rx_gre_ignored_cnt    );
+  FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,            ctx->metrics.tx_gre_cnt            );
+  FD_MCNT_SET( NET, GRE_PKT_TX_NO_ROUTE, ctx->metrics.tx_gre_route_fail_cnt );
+  FD_MCNT_SET( NET, PKT_RX_SRC_INVALID, ctx->metrics.rx_src_addr_invalid_cnt );
 }
 
 struct xdp_statistics_v0 {
@@ -350,12 +353,12 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
     stats.tx_ring_empty_descs      += sub_stats.tx_ring_empty_descs;
   }
 
-  FD_MCNT_SET( NET, XDP_RX_DROPPED_OTHER,         stats.rx_dropped               );
-  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCS,         stats.rx_invalid_descs         );
-  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCS,         stats.tx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_RX_OTHER_DROPPED,         stats.rx_dropped               );
+  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCRIPTOR,    stats.rx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCRIPTOR,    stats.tx_invalid_descs         );
   FD_MCNT_SET( NET, XDP_RX_RING_FULL,             stats.rx_ring_full             );
-  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY_DESCS, stats.rx_fill_ring_empty_descs );
-  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY_DESCS,      stats.tx_ring_empty_descs      );
+  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY,       stats.rx_fill_ring_empty_descs );
+  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY,            stats.tx_ring_empty_descs      );
 }
 
 /* net_is_fatal_xdp_error returns 1 if the given errno returned by an
@@ -987,13 +990,13 @@ net_rx_packet( fd_net_ctx_t * ctx,
     if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
     else                                      out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
-    proto = DST_PROTO_REPAIR;
-    out = ctx->repair_out;
+    if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
+    proto = DST_PROTO_RSERVE;
+    out = ctx->rserve_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->txsend_src_port ) ) {
     proto = DST_PROTO_SEND;
     out = ctx->txsend_out;
   } else {
-
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
                   "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
@@ -1420,6 +1423,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
+  ctx->rserve_enabled = 0;
   for( ulong i = 0; i < tile->out_cnt; i++ ) {
     fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i  ] ];
     if( strcmp( out_link->name, "net_quic" ) == 0 ) {
@@ -1457,6 +1461,13 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->txsend_out->sync   = fd_mcache_seq_laddr( ctx->txsend_out->mcache );
       ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
       ctx->txsend_out->seq    = fd_mcache_seq_query( ctx->txsend_out->sync );
+    } else if( strcmp( out_link->name, "net_rserve" ) == 0 ) {
+      fd_topo_link_t const * rserve_out = out_link;
+      ctx->rserve_out->mcache = rserve_out->mcache;
+      ctx->rserve_out->sync   = fd_mcache_seq_laddr( ctx->rserve_out->mcache );
+      ctx->rserve_out->depth  = fd_mcache_depth( ctx->rserve_out->mcache );
+      ctx->rserve_out->seq    = fd_mcache_seq_query( ctx->rserve_out->sync );
+      ctx->rserve_enabled     = 1;
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }

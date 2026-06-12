@@ -396,7 +396,7 @@ during_housekeeping( fd_rpc_tile_t * ctx ) {
 static inline void
 metrics_write( fd_rpc_tile_t * ctx ) {
   FD_MHIST_COPY( RPC, REQUEST_DURATION_SECONDS, ctx->request_duration );
-  FD_MGAUGE_SET( RPC, CONNECTION_COUNT, ctx->http->metrics.connection_cnt );
+  FD_MGAUGE_SET( RPC, CONN_ACTIVE, ctx->http->metrics.connection_cnt );
   FD_ACCDB_METRICS_WRITE_RO( RPC, fd_accdb_metrics( ctx->accdb ) );
 }
 
@@ -1105,7 +1105,7 @@ static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_ACCOUNT_INFO, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_ACCOUNT_INFO, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
@@ -1160,7 +1160,7 @@ static fd_http_server_response_t
 getBalance( fd_rpc_tile_t * ctx,
             cJSON const *   id,
             cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_BALANCE, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BALANCE, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
@@ -1193,7 +1193,7 @@ static fd_http_server_response_t
 getBlockHeight( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_BLOCK_HEIGHT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BLOCK_HEIGHT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
@@ -1225,7 +1225,7 @@ static fd_http_server_response_t
 getClusterNodes( fd_rpc_tile_t * ctx,
                  cJSON const *   id,
                  cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_CLUSTER_NODES, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_CLUSTER_NODES, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
@@ -1302,7 +1302,7 @@ static fd_http_server_response_t
 getEpochInfo( fd_rpc_tile_t * ctx,
               cJSON const *   id,
               cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_EPOCH_INFO, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_EPOCH_INFO, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
@@ -1339,7 +1339,7 @@ static fd_http_server_response_t
 getGenesisHash( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_GENESIS_HASH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_GENESIS_HASH, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
@@ -1392,7 +1392,7 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_HEALTH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_HEALTH, 1UL );
 
   /* fd_http_server_listen is not called until after RPC has initialized banks */
   if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
@@ -1430,7 +1430,7 @@ static fd_http_server_response_t
 getIdentity( fd_rpc_tile_t * ctx,
              cJSON const *   id,
              cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_IDENTITY, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_IDENTITY, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
@@ -1444,7 +1444,7 @@ static fd_http_server_response_t
 getInflationGovernor( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_INFLATION_GOVERNOR, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_INFLATION_GOVERNOR, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
@@ -1482,7 +1482,7 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
                     cJSON const *   id,
                     cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_LATEST_BLOCKHASH, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LATEST_BLOCKHASH, 1UL );
 
   if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
     CSTR_JSON( id, id_cstr );
@@ -1521,7 +1521,7 @@ static fd_http_server_response_t
 getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
                                    cJSON const *   id,
                                    cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
@@ -1577,7 +1577,7 @@ static fd_http_server_response_t
 getMultipleAccounts( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_MULTIPLE_ACCOUNTS, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MULTIPLE_ACCOUNTS, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
@@ -1662,7 +1662,7 @@ static fd_http_server_response_t
 getSlot( fd_rpc_tile_t * ctx,
          cJSON const *   id,
          cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_SLOT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
@@ -1701,7 +1701,7 @@ static fd_http_server_response_t
 getTransactionCount( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_TRANSACTION_COUNT, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_TRANSACTION_COUNT, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
@@ -1729,7 +1729,7 @@ static fd_http_server_response_t
 getVersion( fd_rpc_tile_t * ctx,
             cJSON const *   id,
             cJSON const *   params ) {
-  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_VERSION, 1UL );
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_VERSION, 1UL );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
@@ -1760,7 +1760,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
-    FD_MCNT_INC( RPC, REQUEST_COUNT_GENESIS, 1UL );
+    FD_MCNT_INC( RPC, REQUEST_SERVED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
     fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200 };
@@ -1919,7 +1919,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
   else {
-    FD_MCNT_INC( RPC, REQUEST_COUNT_UNKNOWN, 1UL );
+    FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
     CSTR_JSON( id, id_cstr );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
   }

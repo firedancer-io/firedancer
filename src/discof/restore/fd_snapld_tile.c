@@ -236,7 +236,7 @@ should_shutdown( fd_snapld_tile_t * ctx ) {
 static void
 metrics_write( fd_snapld_tile_t * ctx ) {
 #if FD_HAS_OPENSSL
-  FD_MCNT_SET(   SNAPLD, SSL_ALLOC_ERRORS, fd_ossl_alloc_errors );
+  FD_MCNT_SET(   SNAPLD, SSL_ALLOC_FAILED, fd_ossl_alloc_errors );
 #endif
   FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
 }

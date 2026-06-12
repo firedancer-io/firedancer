@@ -108,8 +108,7 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
                                        fd_txn_out_t *      txn_out );
 
 int
-fd_executor_validate_account_locks( fd_bank_t *          bank,
-                                    fd_txn_out_t const * txn_out );
+fd_executor_validate_account_locks( fd_txn_out_t const * txn_out );
 
 int
 fd_executor_consume_cus( fd_txn_out_t * txn_out,

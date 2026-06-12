@@ -114,7 +114,7 @@ passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele ) {
   double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6; // change to 400e6 for a slot duration policy
 
   if( current_duration >= tick_plus_buffer ){
-    FD_MCNT_INC( REPAIR, EAGER_REPAIR_AGGRESSES, 1 );
+    FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
     return 1;
   }
   return 0;

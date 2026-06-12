@@ -187,7 +187,10 @@ dump_account_if_not_already_dumped( fd_accdb_t *                accdb,
                                     pb_size_t *                 out_acct_states_cnt,
                                     fd_acc_t *                  out_ro ) {
   fd_acc_t ro = fd_accdb_read_one( accdb, fork_id, account_key->uc );
-  if( FD_UNLIKELY( !ro.lamports ) ) return 1;
+  if( FD_UNLIKELY( !ro.lamports ) ) {
+    fd_accdb_unread_one( accdb, &ro );
+    return 1;
+  }
 
   if( !account_already_dumped( out_acct_states, *out_acct_states_cnt, account_key ) ) {
     dump_account_state( &ro, &out_acct_states[*out_acct_states_cnt], spad );
@@ -463,7 +466,10 @@ add_account_and_programdata_to_dumped_accounts( fd_accdb_t *                accd
   /* Read the account from accdb to see if its a program account and if
      it needs to be dumped. */
   fd_acc_t program_account = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !program_account.lamports ) ) return;
+  if( FD_UNLIKELY( !program_account.lamports ) ) {
+    fd_accdb_unread_one( accdb, &program_account );
+    return;
+  }
 
   /* Return if its not owned by the v3 loader */
   if( FD_LIKELY( !fd_pubkey_eq( (fd_pubkey_t*)program_account.owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) ) {
@@ -503,7 +509,10 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_t *                accdb,
 
   /* Read the account and dump all pubkeys within the lookup table. */
   fd_acc_t lut_account = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !lut_account.lamports ) ) return;
+  if( FD_UNLIKELY( !lut_account.lamports ) ) {
+    fd_accdb_unread_one( accdb, &lut_account );
+    return;
+  }
 
   /* Decode the ALUT account and dump all pubkeys within the lookup
      table. */
@@ -511,13 +520,17 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_t *                accdb,
     fd_accdb_unread_one( accdb, &lut_account );
     return;
   }
-  fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( lut_account.data+FD_LOOKUP_TABLE_META_SIZE );
-  ulong               lookup_addrs_cnt = ( lut_account.data_len-FD_LOOKUP_TABLE_META_SIZE)>>5UL; // = (dlen - 56) / 32
+
+  /* Copy the addresses out and release before nested acquires. */
+  fd_pubkey_t lookup_addrs[ 256 ]; /* LOOKUP_TABLE_MAX_ADDRESSES */
+  ulong       lookup_addrs_cnt = fd_ulong_min( (lut_account.data_len-FD_LOOKUP_TABLE_META_SIZE)>>5UL, 256UL );
+  fd_memcpy( lookup_addrs, lut_account.data+FD_LOOKUP_TABLE_META_SIZE, lookup_addrs_cnt*sizeof(fd_pubkey_t) );
+  fd_accdb_unread_one( accdb, &lut_account );
+
   for( ulong i=0UL; i<lookup_addrs_cnt; i++ ) {
     fd_pubkey_t const * referenced_pubkey = &lookup_addrs[i];
     add_account_and_programdata_to_dumped_accounts( accdb, fork_id, dumped_accounts, referenced_pubkey );
   }
-  fd_accdb_unread_one( accdb, &lut_account );
 }
 
 static void
@@ -691,7 +704,10 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
        fd_dump_account_key_iter_next( iter ) ) {
     fd_pubkey_t const * pubkey = fd_dump_account_key_iter_ele( iter );
     fd_acc_t acc = fd_accdb_read_one( accdb, parent_bank->accdb_fork_id, pubkey->uc );
-    if( FD_UNLIKELY( !acc.lamports ) ) continue;
+    if( FD_UNLIKELY( !acc.lamports ) ) {
+      fd_accdb_unread_one( accdb, &acc );
+      continue;
+    }
     dump_account_state(
         &acc,
         &block_context->acct_states[block_context->acct_states_count++],
@@ -826,8 +842,11 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       continue;
     }
 
-    fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( acc.data + FD_LOOKUP_TABLE_META_SIZE );
-    ulong               lookup_addrs_cnt = (acc.data_len - FD_LOOKUP_TABLE_META_SIZE) / sizeof(fd_pubkey_t);
+    /* Copy the addresses out and release before nested acquires. */
+    fd_pubkey_t lookup_addrs[ 256 ]; /* LOOKUP_TABLE_MAX_ADDRESSES */
+    ulong       lookup_addrs_cnt = fd_ulong_min( (acc.data_len - FD_LOOKUP_TABLE_META_SIZE) / sizeof(fd_pubkey_t), 256UL );
+    fd_memcpy( lookup_addrs, acc.data + FD_LOOKUP_TABLE_META_SIZE, lookup_addrs_cnt*sizeof(fd_pubkey_t) );
+    fd_accdb_unread_one( runtime->accdb, &acc );
 
     /* Dump any account state refererenced in ALUTs */
     uchar const * writable_lut_idxs = txn_payload + addr_lut->writable_off;
@@ -863,8 +882,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
           NULL
       );
     }
-
-    fd_accdb_unread_one( runtime->accdb, &acc );
   }
 
   /* Dump the programdata accounts for any potential v3-owned program accounts */
@@ -916,25 +933,27 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   }
 
   /* Add sysvar cache variables */
+  uchar * sysvar_data = fd_spad_alloc( spad, 1UL, FD_RUNTIME_ACC_SZ_MAX );
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    fd_acc_t acc = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, fd_dump_sysvar_ids[i]->uc );
+    if( account_already_dumped( instr_context->accounts, instr_context->accounts_count, fd_dump_sysvar_ids[i] ) ) continue;
+
+    fd_acc_t acc = {0};
+    fd_memcpy( acc.pubkey, fd_dump_sysvar_ids[i]->uc, sizeof(fd_pubkey_t) );
+    acc.data = sysvar_data;
+    fd_accdb_read_one_nocache(
+      runtime->accdb,
+      bank->accdb_fork_id,
+      fd_dump_sysvar_ids[i]->uc,
+      &acc.lamports,
+      &acc.executable,
+      acc.owner,
+      acc.data,
+      &acc.data_len
+    );
     if( FD_UNLIKELY( !acc.lamports ) ) continue;
 
-    // Make sure the account doesn't exist in the output accounts yet
-    int account_exists = 0;
-    for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
-      if( fd_pubkey_eq( &txn_out->accounts.keys[j], fd_dump_sysvar_ids[i] ) ) {
-        account_exists = true;
-        break;
-      }
-    }
-
-    // Copy it into output
-    if( !account_exists ) {
-      fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( &acc, output_account, spad );
-    }
-    fd_accdb_unread_one( runtime->accdb, &acc );
+    fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
+    dump_account_state( &acc, output_account, spad );
   }
 
   /* Add executable accounts */

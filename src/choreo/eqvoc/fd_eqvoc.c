@@ -795,7 +795,7 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   off += sizeof(ulong);
 
   if( FD_UNLIKELY( prf->buf_sz - off < shred1_sz ) ) goto cleanup;
-  fd_shred_t const * shred1 = fd_shred_parse( prf->buf + off, shred1_sz );
+  fd_shred_t const * shred1 = fd_shred_parse( prf->buf + off, shred1_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred1 || fd_shred_sz( shred1 )!=shred1_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred1_sz;
 
@@ -804,7 +804,7 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   off += sizeof(ulong);
 
   if( FD_UNLIKELY( prf->buf_sz - off < shred2_sz ) ) goto cleanup;
-  fd_shred_t const * shred2 = fd_shred_parse( prf->buf + off, shred2_sz );
+  fd_shred_t const * shred2 = fd_shred_parse( prf->buf + off, shred2_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred2 || fd_shred_sz( shred2 )!=shred2_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred2_sz;
 

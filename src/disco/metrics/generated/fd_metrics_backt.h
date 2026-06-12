@@ -13,12 +13,12 @@ enum {
 
 #define FD_METRICS_GAUGE_BACKT_FINAL_SLOT_NAME "backt_final_slot"
 #define FD_METRICS_GAUGE_BACKT_FINAL_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_BACKT_FINAL_SLOT_DESC "The slot after which the backtest will complete"
+#define FD_METRICS_GAUGE_BACKT_FINAL_SLOT_DESC "Slot after which the backtest will complete"
 #define FD_METRICS_GAUGE_BACKT_FINAL_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_BACKT_START_SLOT_NAME "backt_start_slot"
 #define FD_METRICS_GAUGE_BACKT_START_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_BACKT_START_SLOT_DESC "The slot at which the backtest started"
+#define FD_METRICS_GAUGE_BACKT_START_SLOT_DESC "Slot at which the backtest started"
 #define FD_METRICS_GAUGE_BACKT_START_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_BACKT_TOTAL (2UL)

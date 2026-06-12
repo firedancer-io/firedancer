@@ -133,7 +133,8 @@ fd_main_init( int *                      pargc,
               int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
-              fd_config_file_t * const * configs ) {
+              fd_config_file_t * const * configs,
+              int                        dev ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
   fd_log_colorize_set( fd_log_should_colorize() ); /* Colorize during boot until we can determine from config */
@@ -173,7 +174,7 @@ fd_main_init( int *                      pargc,
     determine_override_config( pargc, pargv, configs,
                                &override_config, &override_config_path, &override_config_sz );
 
-    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
+    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config, dev );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -306,7 +307,7 @@ fd_main( int                        argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, 0 /* dev */ );
   if( FD_LIKELY( load_topo && action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
   if( FD_LIKELY( load_topo ) ) topo_init( &config );
 

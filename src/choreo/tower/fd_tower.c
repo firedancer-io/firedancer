@@ -682,7 +682,6 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
                          fd_hash_t *  vote_bank_hash,
-                         fd_hash_t *  vote_block_hash,
                          ulong *      root_slot,
                          fd_hash_t *  root_block_id ) {
 
@@ -726,7 +725,6 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     *vote_slot                 = best_blk->slot;
     *vote_block_id             = best_blk->id;
     *vote_bank_hash            = tower_blk->bank_hash;
-    *vote_block_hash           = tower_blk->block_hash;
     *root_slot                 = push_vote( tower, best_blk->slot );
     *root_block_id             = ( fd_hash_t ){ 0 };
     return flags;
@@ -908,7 +906,6 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   *vote_slot      = ULONG_MAX;
   *vote_block_id  = (fd_hash_t){0};
   *vote_bank_hash  = (fd_hash_t){0};
-  *vote_block_hash = (fd_hash_t){0};
   *root_slot       = ULONG_MAX;
   *root_block_id  = (fd_hash_t){0};
 
@@ -928,7 +925,6 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     fork->voted           = 1;
     fork->voted_block_id  = vote_blk->id;
     *vote_bank_hash       = fork->bank_hash;
-    *vote_block_hash      = fork->block_hash;
 
     /* Query the root slot's block id from tower forks.  This block id
        may not necessarily be confirmed, because confirmation requires

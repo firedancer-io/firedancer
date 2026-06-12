@@ -113,6 +113,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
+    replace( config->paths.shredb, "{user}", config->user );
+    replace( config->paths.shredb, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
+  }
+
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
@@ -250,7 +257,8 @@ fd_config_fill_net( fd_config_t * config ) {
 
 void
 fd_config_fill( fd_config_t * config,
-                int           is_local_cluster ) {
+                int           is_local_cluster,
+                int           dev ) {
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -346,7 +354,8 @@ fd_config_fill( fd_config_t * config,
   }
 
   long ts = -fd_log_wallclock();
-  config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+  config->tick_per_ns_mu = dev ? fd_tempo_tick_per_ns_dev( &config->tick_per_ns_sigma )
+                               : fd_tempo_tick_per_ns    ( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
 
   if( 0!=strcmp( config->net.bind_address, "" ) ) {
@@ -597,7 +606,8 @@ fd_config_load( int           is_firedancer,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
-                fd_config_t * config ) {
+                fd_config_t * config,
+                int           dev ) {
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
@@ -619,7 +629,7 @@ fd_config_load( int           is_firedancer,
     fd_config_validate( config );
   }
 
-  fd_config_fill( config, is_local_cluster );
+  fd_config_fill( config, is_local_cluster, dev );
 }
 
 int

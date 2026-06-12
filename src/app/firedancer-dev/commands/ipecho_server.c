@@ -94,9 +94,9 @@ ipecho_server_cmd_fn( args_t *   args,
   ulong last_closed_error = ULONG_MAX;
 
   for(;;) {
-    ulong ipecho_conns = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( GAUGE, IPECHO, CONNECTION_COUNT ) ] );
-    ulong ipecho_closed_ok = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONNECTIONS_CLOSED_OK ) ] );
-    ulong ipecho_closed_error = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONNECTIONS_CLOSED_ERROR ) ] );
+    ulong ipecho_conns = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( GAUGE, IPECHO, CONN_ACTIVE ) ] );
+    ulong ipecho_closed_ok = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONN_CLOSED_OK ) ] );
+    ulong ipecho_closed_error = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONN_CLOSED_ERROR ) ] );
 
     if( FD_UNLIKELY( ipecho_conns!=last_conns || ipecho_closed_ok!=last_closed_ok || ipecho_closed_error!=last_closed_error ) ) {
       FD_LOG_NOTICE(( "connections=%lu closed_ok=%lu closed_err=%lu", ipecho_conns, ipecho_closed_ok, ipecho_closed_error ));

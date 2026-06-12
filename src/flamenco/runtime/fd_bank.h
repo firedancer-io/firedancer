@@ -296,7 +296,6 @@ struct fd_bank {
     ulong                  slot;
     ulong                  parent_slot;
     ulong                  capitalization;
-    ulong                  transaction_count;
     ulong                  parent_signature_cnt;
     ulong                  tick_height;
     ulong                  max_tick_height;
@@ -318,12 +317,10 @@ struct fd_bank {
     ulong                  tips;
     ulong                  signature_count;
     fd_hash_t              poh;
-    ulong                  last_restart_slot;
     ulong                  hard_fork_cnt;
     fd_hard_fork_t         hard_forks[ FD_HARD_FORKS_MAX ]; /* never changes at runtime, required for snapshot creation */
     fd_hash_t              bank_hash;
     fd_hash_t              prev_bank_hash;
-    fd_hash_t              genesis_hash;
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
     fd_sysvar_cache_t      sysvar_cache;
@@ -333,7 +330,6 @@ struct fd_bank {
     ulong                  failed_txn_count;
     ulong                  nonvote_failed_txn_count;
     ulong                  total_compute_units_used;
-    ulong                  slots_per_epoch;
     ulong                  shred_cnt;
     ulong                  epoch;
     ulong                  identity_vote_idx;

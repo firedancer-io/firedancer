@@ -198,7 +198,7 @@ privileged_init( fd_topo_t const *      topo,
     "net_shred",  /* shred_listen_port (turbine) */
     "net_gossvf", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
-    "net_repair", /* repair_serve_listen_port */
+    "net_rserve", /* repair_serve_listen_port */
     "net_txsend"  /* txsend_src_port */
   };
   static uchar const udp_port_protos[] = {
@@ -207,7 +207,7 @@ privileged_init( fd_topo_t const *      topo,
     DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
     DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
-    DST_PROTO_REPAIR,   /* repair_serve_listen_port */
+    DST_PROTO_RSERVE,   /* repair_serve_listen_port */
     DST_PROTO_SEND      /* send_src_port */
   };
   for( uint candidate_idx=0U; candidate_idx<7; candidate_idx++ ) {
@@ -220,9 +220,6 @@ privileged_init( fd_topo_t const *      topo,
     if( tile->sock.net.repair_intake_listen_port &&
        udp_port_candidates[candidate_idx]==tile->sock.net.repair_intake_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
-    if( tile->sock.net.repair_serve_listen_port &&
-       udp_port_candidates[candidate_idx]==tile->sock.net.repair_serve_listen_port )
-      FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID+1 );
 
     char const * target_link = udp_port_links[ candidate_idx ];
     ctx->link_rx_map[ sock_idx ] = 0xFF;
@@ -235,7 +232,9 @@ privileged_init( fd_topo_t const *      topo,
       }
     }
     if( ctx->link_rx_map[ sock_idx ]==0xFF ) {
-      continue; /* listen port number has no associated links */
+      /* listen port number has no associated links,
+         i.e. the repair server is disabled, then no net_rserve link. */
+      continue;
     }
 
     int sock_fd = sock_fd_min + (int)sock_idx;
@@ -275,9 +274,14 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "sock tile has %lu out links which exceeds the max (%lu)", tile->out_cnt, MAX_NET_OUTS ));
   }
 
+  ctx->repair_rx = 0xFF;
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
     if( 0!=strncmp( topo->links[ tile->out_link_id[ i ] ].name, "net_", 4 ) ) {
       FD_LOG_ERR(( "out link %lu is not a net RX link", i ));
+    }
+    if( 0==strcmp( topo->links[ tile->out_link_id[ i ] ].name, "net_repair" ) ) {
+      if( FD_UNLIKELY( ctx->repair_rx!=0xFF ) ) FD_LOG_ERR(( "multiple net_repair out links" ));
+      ctx->repair_rx = (uchar)i;
     }
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
     ctx->link_rx[ i ].base   = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -289,6 +293,7 @@ unprivileged_init( fd_topo_t const *      topo,
                    tile->out_link_id[ i ], link->burst, STEM_BURST ));
     }
   }
+  if( FD_UNLIKELY( ctx->repair_rx==0xFF ) ) FD_LOG_ERR(( "no net_repair out links" ));
 
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     if( !strstr( topo->links[ tile->in_link_id[ i ] ].name, "_net" ) ) {
@@ -417,14 +422,16 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
-    /* default for repair intake is to send to [shreds] to shred tile.
-       ping messages should be routed to the repair. */
+    /* When a message arrives on the repair intake port, it is sent
+       to the shred tile, unless it is a ping message (identified by
+       the frame size), then it is sent to the repair tile.
+       The repair tile does not own any sockets, so we look up the
+       net_repair link directly.*/
     if( FD_UNLIKELY( sock_idx==REPAIR_SHRED_SOCKET_ID && frame_sz==REPAIR_PING_SZ ) ) {
-      uchar repair_rx_link = ctx->link_rx_map[ REPAIR_SHRED_SOCKET_ID+1 ];
-      fd_sock_link_rx_t * repair_link = ctx->link_rx + repair_rx_link;
+      fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );
-      fd_stem_publish( stem, repair_rx_link, sig, repair_link->chunk, frame_sz, 0UL, 0UL, tspub );
+      fd_stem_publish( stem, ctx->repair_rx, sig, repair_link->chunk, frame_sz, 0UL, 0UL, tspub );
       repair_link->chunk = fd_dcache_compact_next( repair_link->chunk, FD_NET_MTU, repair_link->chunk0, repair_link->wmark );
     } else {
       fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
@@ -473,7 +480,7 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
     int remain   = (int)batch_cnt - j;
     int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg + j, (uint)remain, MSG_DONTWAIT );
     if( send_cnt>=0 ) {
-      ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_NO_ERROR_IDX ]++;
+      ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_NO_ERROR_IDX ]++;
     }
     if( FD_UNLIKELY( send_cnt < remain ) ) {
       ctx->metrics.tx_drop_cnt++;
@@ -481,22 +488,22 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
         switch( errno ) {
         case EAGAIN:
         case ENOBUFS:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_SLOW_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_SLOW_IDX ]++;
           break;
         case EPERM:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_PERM_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_PERMISSION_IDX ]++;
           break;
         case ENETUNREACH:
         case EHOSTUNREACH:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_UNREACH_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_UNREACHABLE_IDX ]++;
           break;
         case ENONET:
         case ENETDOWN:
         case EHOSTDOWN:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_DOWN_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_DOWN_IDX ]++;
           break;
         default:
-          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_OTHER_IDX ]++;
+          ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_V_OTHER_IDX ]++;
           /* log with NOTICE, since flushing has a significant negative performance impact */
           FD_LOG_NOTICE(( "sendmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
@@ -688,13 +695,13 @@ after_credit( fd_sock_tile_t *    ctx,
 
 static void
 metrics_write( fd_sock_tile_t * ctx ) {
-  FD_MCNT_SET( SOCK, SYSCALLS_RECVMMSG,       ctx->metrics.sys_recvmmsg_cnt     );
-  FD_MCNT_ENUM_COPY( SOCK, SYSCALLS_SENDMMSG, ctx->metrics.sys_sendmmsg_cnt     );
-  FD_MCNT_SET( SOCK, RX_PKT_CNT,              ctx->metrics.rx_pkt_cnt           );
-  FD_MCNT_SET( SOCK, TX_PKT_CNT,              ctx->metrics.tx_pkt_cnt           );
-  FD_MCNT_SET( SOCK, TX_DROP_CNT,             ctx->metrics.tx_drop_cnt          );
-  FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,          ctx->metrics.tx_bytes_total       );
-  FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,          ctx->metrics.rx_bytes_total       );
+  FD_MCNT_SET( SOCK, SYSCALL_RX,              ctx->metrics.sys_recvmmsg_cnt     );
+  FD_MCNT_ENUM_COPY( SOCK, SYSCALL_TX,        ctx->metrics.sys_sendmmsg_cnt     );
+  FD_MCNT_SET( SOCK, PKT_RX,                  ctx->metrics.rx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, PKT_TX,                  ctx->metrics.tx_pkt_cnt           );
+  FD_MCNT_SET( SOCK, PKT_TX_FAILED,          ctx->metrics.tx_drop_cnt          );
+  FD_MCNT_SET( SOCK, PKT_TX_BYTES,            ctx->metrics.tx_bytes_total       );
+  FD_MCNT_SET( SOCK, PKT_RX_BYTES,            ctx->metrics.rx_bytes_total       );
 }
 
 static ulong

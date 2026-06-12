@@ -124,7 +124,7 @@
   {"name":"epoch_accounts_hash","pubkey":"5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"remove_deprecated_request_unit_ix","pubkey":"EfhYd3SafzGT472tYQDUc4dPd2xdEfKs5fwkowUgVt4W","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"disable_rehash_for_rent_epoch","pubkey":"DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"increase_tx_account_lock_limit","pubkey":"9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK"},
+  {"name":"increase_tx_account_lock_limit","pubkey":"9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK","reverted":1},
   {"name":"limit_max_instruction_trace_length","pubkey":"GQALDaC48fEhZGWRj9iL5Q889emJKcj3aCvHF7VCbbF4","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"check_syscall_outputs_do_not_overlap","pubkey":"3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_bpf_loader_set_authority_checked_ix","pubkey":"5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL","hardcode_for_fuzzing":1},

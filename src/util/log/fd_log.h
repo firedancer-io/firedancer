@@ -151,7 +151,7 @@
 
    would log something like:
 
-     NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+     NOTICE  01-23 04:56:07.890123 45678 f0 0 file.c(901): 1 is the loneliest number
 
    to the ephemeral log (stderr) and log something like:
 
@@ -195,7 +195,7 @@
 
    would log something like:
 
-     WARNING 01-23 04:56:07.890123 75779 f0 0 src/file.c(901): HEXDUMP "bad_pkt" (96 bytes at 0x555555561a4e)
+     WARNING 01-23 04:56:07.890123 75779 f0 0 file.c(901): HEXDUMP "bad_pkt" (96 bytes at 0x555555561a4e)
              0000:  30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46  0123456789ABCDEF
              0010:  47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56  GHIJKLMNOPQRSTUV
              0020:  57 58 59 5a 61 62 63 64 65 66 67 68 69 6a 6b 6c  WXYZabcdefghijkl
@@ -250,7 +250,7 @@
    would typically cause the program to exit with error code 1, logging
    something like:
 
-     ERR     01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): FAIL: func_that_should_return_zero( arg1, arg2 )!=0 (it's bad you know)
+     ERR     01-23 04:56:07.890123 45678 f0 0 foo.c(901): FAIL: func_that_should_return_zero( arg1, arg2 )!=0 (it's bad you know)
 
    to the ephemeral log (stderr) and something like:
 
@@ -341,7 +341,7 @@
 
    would log something like:
 
-     NOTICE  01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): cache line 0123456789abcd00
+     NOTICE  01-23 04:56:07.890123 45678 f0 0 foo.c(901): cache line 0123456789abcd00
              00: 00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f
              10: 10 11 12 13 14 15 16 17  18 19 1a 1b 1c 1d 1e 1f
              20: 20 21 22 23 24 25 26 27  28 29 2a 2b 2c 2d 2e 2f
@@ -683,12 +683,6 @@ fd_log_private_2( int          level,
                   int          line,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
-
-void
-fd_log_private_raw_2( char const * file,
-                      int          line,
-                      char const * func,
-                      char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
 
 char const *
 fd_log_private_hexdump_msg( char const * tag,

@@ -288,6 +288,8 @@ char const * fd_wksp_name    ( fd_wksp_t const * wksp ) { return wksp->name;    
 uint         fd_wksp_seed    ( fd_wksp_t const * wksp ) { return wksp->seed;     }
 ulong        fd_wksp_part_max( fd_wksp_t const * wksp ) { return wksp->part_max; }
 ulong        fd_wksp_data_max( fd_wksp_t const * wksp ) { return wksp->data_max; }
+ulong        fd_wksp_gaddr_lo( fd_wksp_t const * wksp ) { return wksp->gaddr_lo; }
+ulong        fd_wksp_gaddr_hi( fd_wksp_t const * wksp ) { return wksp->gaddr_hi; }
 
 ulong
 fd_wksp_owner( fd_wksp_t const * wksp ) {

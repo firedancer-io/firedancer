@@ -833,9 +833,11 @@ fd_log_private_1( int          level,
       /* 7 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE TEXT_BLINK "EMERG  " TEXT_NORMAL
     };
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
+    char const * stem = strrchr( file, '/' );
+    char const * file_name = stem ? stem+1 : file;
     fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
                               fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
-                              now_short_cstr, tid,cpu,thread, file, line, msg );
+                              now_short_cstr, tid,cpu,thread, file_name, line, msg );
   }
 
   if( level<fd_log_level_flush() ) return;
@@ -870,20 +872,6 @@ fd_log_private_2( int          level,
     exit(1); /* atexit will call fd_log_private_cleanup implicitly */
   }
 
-  abort();
-}
-
-void
-fd_log_private_raw_2( char const * file,
-                      int          line,
-                      char const * func,
-                      char const * msg ) {
-  fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s(%i)[%s]: %s\n", file, line, func, msg );
-# if defined(__linux__)
-  syscall( SYS_exit_group, 1 );
-# else
-  exit(1);
-# endif
   abort();
 }
 

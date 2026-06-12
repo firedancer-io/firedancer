@@ -845,9 +845,10 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* Set up the transaction accounts and other txn ctx metadata. This
-     also resolves ALUT-referenced account keys before accounts are
-     acquired.  Bundle txns bind to the pool acquired once for the whole
-     bundle by fd_runtime_prepare_bundle_accounts and never acquire. */
+     also resolves ALUT-referenced account keys and validates account
+     locks before accounts are acquired.  Bundle txns bind to the pool
+     acquired and validated once for the whole bundle by
+     fd_runtime_prepare_bundle_accounts and never acquire. */
   if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
     fd_executor_setup_accounts_for_txn_bundle( runtime, txn_in, txn_out );
   } else {
@@ -859,16 +860,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   txn_out->details.check_start_ticks = fd_tickcount();
-
-  /* Post-sanitization checks. Called from prepare_sanitized_batch()
-     which, for now, only is used to lock the accounts and perform a
-     couple basic validations.
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
-  err = fd_executor_validate_account_locks( bank, txn_out );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn_out->err.is_committable = 0;
-    return err;
-  }
 
   /* load_and_execute_transactions() -> check_transactions()
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
@@ -1798,6 +1789,11 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
       txn_out->accounts.account[ j ]          = NULL;
       txn_out->accounts.account_acquired[ j ] = 0U;
     }
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
+    /* Validate account locks before the union acquire below, bounding
+       the deduped set within the accdb acquire limit. */
+    err = fd_executor_validate_account_locks( txn_out );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
     for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {

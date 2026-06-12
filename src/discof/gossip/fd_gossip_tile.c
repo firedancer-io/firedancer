@@ -168,10 +168,10 @@ static inline void
 metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   fd_ping_tracker_metrics_t const * ping_tracker_metrics = fd_gossip_ping_tracker_metrics( ctx->gossip );
 
-  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_UNPINGED,         ping_tracker_metrics->unpinged_cnt );
-  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_INVALID,          ping_tracker_metrics->invalid_cnt );
-  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_VALID,            ping_tracker_metrics->valid_cnt );
-  FD_MGAUGE_SET( GOSSIP, PING_TRACKER_COUNT_VALID_REFRESHING, ping_tracker_metrics->refreshing_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKED_UNPINGED,         ping_tracker_metrics->unpinged_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKED_INVALID,          ping_tracker_metrics->invalid_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKED_VALID,            ping_tracker_metrics->valid_cnt );
+  FD_MGAUGE_SET( GOSSIP, PING_TRACKED_VALID_REFRESHING, ping_tracker_metrics->refreshing_cnt );
 
   FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_STAKED,     ping_tracker_metrics->pong_result[ 0UL ] );
   FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_ENTRYPOINT, ping_tracker_metrics->pong_result[ 1UL ] );
@@ -180,27 +180,27 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_TOKEN,      ping_tracker_metrics->pong_result[ 4UL ] );
   FD_MCNT_SET( GOSSIP, PING_TRACKER_PONG_RESULT_SUCCESS,    ping_tracker_metrics->pong_result[ 5UL ] );
 
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_EVICTED_COUNT,         ping_tracker_metrics->peers_evicted );
-  FD_MCNT_SET( GOSSIP, PING_TRACKED_COUNT,                 ping_tracker_metrics->tracked_cnt );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_STAKE_CHANGED_COUNT,   ping_tracker_metrics->stake_changed_cnt );
-  FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDRESS_CHANGED_COUNT, ping_tracker_metrics->address_changed_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_EVICTED,         ping_tracker_metrics->peers_evicted );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDED,           ping_tracker_metrics->tracked_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_STAKE_CHANGED,   ping_tracker_metrics->stake_changed_cnt );
+  FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDRESS_CHANGED, ping_tracker_metrics->address_changed_cnt );
 
   fd_gossip_purged_metrics_t const * purged_metrics = fd_gossip_purged_metrics2( ctx->gossip );
 
-  FD_MGAUGE_SET( GOSSIP, CRDS_PURGED_COUNT,         purged_metrics->purged_cnt );
-  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EVICTED_COUNT, purged_metrics->purged_evicted_cnt );
-  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EXPIRED_COUNT, purged_metrics->purged_expired_cnt );
+  FD_MGAUGE_SET( GOSSIP, CRDS_PURGED_OCCUPIED, purged_metrics->purged_cnt );
+  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EVICTED,  purged_metrics->purged_evicted_cnt );
+  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EXPIRED,  purged_metrics->purged_expired_cnt );
 
   fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
 
-  FD_MGAUGE_ENUM_COPY( GOSSIP, CRDS_COUNT,          crds_metrics->count );
-  FD_MCNT_SET(         GOSSIP, CRDS_EXPIRED_COUNT,  crds_metrics->expired_cnt );
-  FD_MCNT_SET(         GOSSIP, CRDS_EVICTED_COUNT,  crds_metrics->evicted_cnt );
+  FD_MGAUGE_ENUM_COPY( GOSSIP, CRDS_OCCUPIED,    crds_metrics->count );
+  FD_MCNT_SET(         GOSSIP, CRDS_EXPIRED,  crds_metrics->expired_cnt );
+  FD_MCNT_SET(         GOSSIP, CRDS_EVICTED,  crds_metrics->evicted_cnt );
 
-  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_STAKED_COUNT,   crds_metrics->peer_staked_cnt );
-  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_UNSTAKED_COUNT, crds_metrics->peer_unstaked_cnt );
-  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_TOTAL_STAKE,    crds_metrics->peer_visible_stake );
-  FD_MCNT_SET(   GOSSIP, CRDS_PEER_EVICTED_COUNT,  crds_metrics->peer_evicted_cnt );
+  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_STAKED,      crds_metrics->peer_staked_cnt );
+  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_UNSTAKED,    crds_metrics->peer_unstaked_cnt );
+  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_STAKE, crds_metrics->peer_visible_stake );
+  FD_MCNT_SET(   GOSSIP, CRDS_PEER_EVICTED,     crds_metrics->peer_evicted_cnt );
 
   fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
   fd_active_set_metrics_t const * active_set_metrics = fd_gossip_active_set_metrics2( ctx->gossip );
@@ -211,18 +211,18 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
     total_message_tx[ i ] = metrics->message_tx[ i ] + active_set_metrics->message_tx[ i ];
     total_message_tx_bytes[ i ] = metrics->message_tx_bytes[ i ] + active_set_metrics->message_tx_bytes[ i ];
   }
-  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            total_message_tx );
-  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,            total_message_tx_bytes );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,          active_set_metrics->crds_tx_push );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,          active_set_metrics->crds_tx_push_bytes );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT, metrics->crds_tx_pull_response );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX,              total_message_tx );
+  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,        total_message_tx_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PUSH_TX,            active_set_metrics->crds_tx_push );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PUSH_TX_BYTES,      active_set_metrics->crds_tx_push_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PULL_RESPONSE_TX,       metrics->crds_tx_pull_response );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES, metrics->crds_tx_pull_response_bytes );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX,                 metrics->crds_rx_count );
 
-  FD_MGAUGE_SET( GOSSIP, WFS_STAKED_PEERS_ONLINE, ctx->wfs_peers.online );
-  FD_MGAUGE_SET( GOSSIP, WFS_STAKE_ONLINE,        ctx->wfs_stake.online );
-  FD_MGAUGE_SET( GOSSIP, WFS_STATE, (ulong)ctx->wfs_state );
+  FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_ONLINE, ctx->wfs_peers.online );
+  FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE,       ctx->wfs_stake.online );
+  FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STATE, (ulong)ctx->wfs_state );
 }
 
 /* Minimum quiet period (no new peers discovered) before we declare
@@ -242,7 +242,6 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     /* the identity key is swapped after the sign tile has been swapped
        because the below function directly sends a sign request. */
     FD_BASE58_ENCODE_32_BYTES( ctx->keyswitch->bytes, _new_id_b58 );
-    FD_LOG_WARNING(( "set_identity: switching to %s", _new_id_b58 ));
     fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
@@ -464,8 +463,8 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       fd_stake_weight_key_sort_inplace( ctx->wfs_stakes, ctx->wfs_stakes_cnt );
 
       ctx->wfs_peers.total = ctx->wfs_stakes_cnt;
-      FD_MGAUGE_SET( GOSSIP, WFS_STAKED_PEERS_TOTAL, ctx->wfs_peers.total );
-      FD_MGAUGE_SET( GOSSIP, WFS_STAKE_TOTAL,        ctx->wfs_stake.total );
+      FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL, ctx->wfs_peers.total );
+      FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL,       ctx->wfs_stake.total );
 
       break;
     }
@@ -611,10 +610,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
 
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
 

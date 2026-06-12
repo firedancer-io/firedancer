@@ -213,21 +213,26 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
      to confirm every FEC and instead just confirm at the slot-level.
      Given roughly ~1k shreds per slot at 32 shreds per FEC, this would
      save ~32 loop iterations.  Punting given the additional complexity
-     of bookkeeping and logic this would require. */
+     of bookkeeping and logic this would require.
 
-  fd_reasm_fec_t * last_inserted = NULL;
+     If this FEC has not been popped, then that means we need to
+     redeliver it for execution.  Reasm could be in a state where by
+     confirming the child of an equivocating chain, the child is
+     confirmed & popped, but the parent of it is confirmed & not
+     *popped*. It was not delivered through the reasm out queue because
+     it was backfilled. In the off chance that the parent confirmation
+     arrives after the child confirmation, we need to make sure to not
+     redeliver the parent again.  The invariant is that if a FEC is
+     already confirmed, either it or its child must have already been
+     delivered for execution. */
+
+  if( FD_LIKELY( fec && !fec->popped && !fec->in_out && !fec->confirmed ) ) {
+    out_ele_push_tail( reasm->out, fec, pool );
+    fec->in_out = 1;
+  }
+
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
     fec->confirmed = 1;
-
-    if( FD_LIKELY( !fec->popped && !fec->in_out ) ) {
-      /* Let's say that the delivery queue already contains A, and
-         we confirm A - B - C.  We walk upwards from C, but we need to
-         make sure B and C are inserted after A, and in that order. */
-      if( FD_UNLIKELY( !last_inserted ) ) out_ele_push_tail( reasm->out, fec, pool );
-      else                                out_ele_insert_before( reasm->out, fec, last_inserted, pool );
-      fec->in_out = 1;
-      last_inserted = fec;
-    }
     fec = fd_reasm_parent( reasm, fec );
   }
 }

@@ -21,13 +21,13 @@
 /* MAX_NET_OUTS controls the max number of RX links that a sock tile can
    serve. */
 
-#define MAX_NET_OUTS (5UL)
+#define MAX_NET_OUTS (6UL)
 
 /* Local metrics.  Periodically copied to the metric_in shm region. */
 
 struct fd_sock_tile_metrics {
   ulong sys_recvmmsg_cnt;
-  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_CNT ];
+  ulong sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCKET_ERROR_CNT ];
   ulong rx_pkt_cnt;
   ulong tx_pkt_cnt;
   ulong tx_drop_cnt;
@@ -78,6 +78,7 @@ struct fd_sock_tile {
   /* RX links */
   ushort            rx_sock_port[ FD_SOCK_TILE_MAX_SOCKETS ];
   uchar             link_rx_map [ FD_SOCK_TILE_MAX_SOCKETS ];
+  uchar             repair_rx;
   fd_sock_link_rx_t link_rx[ MAX_NET_OUTS ];
 
   /* TX links */

@@ -356,6 +356,12 @@ fixup_config( config_t *     config,
     config->firedancer.snapshots.incremental_snapshots = 0;
   }
 
+  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.allow_any || config->firedancer.snapshots.sources.gossip.allow_list_cnt ) ) {
+    FD_LOG_WARNING(( "snapshot-load command is incompatible with gossip snapshot sources; disabling gossip snapshot sources" ));
+    config->firedancer.snapshots.sources.gossip.allow_any      = 0;
+    config->firedancer.snapshots.sources.gossip.allow_list_cnt = 0;
+  }
+
   /* FIXME Unfortunately, the fdctl boot procedure constructs the
            topology before parsing command-line arguments.  So, here,
            we construct the topology again (a third time ... sigh). */
@@ -369,10 +375,8 @@ static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
   fixup_config( config, args );
-  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.allow_any || 0UL!=config->firedancer.snapshots.sources.gossip.allow_list_cnt ) ) {
-    FD_LOG_ERR(( "snapshot-load command is incompatible with gossip snapshot sources" ));
-  }
-  _Bool watch = !args->snapshot_load.no_watch;
+
+  int watch = !args->snapshot_load.no_watch;
 
   fd_topo_t * topo = &config->topo;
 
@@ -466,9 +470,9 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong snapwr_backp = snapwr_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
     ulong snapwr_wait  = snapwr_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapwr_backp;
 
-    double progress = 100.0 * (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] / (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
+    double progress = 100.0 * (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] / (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
 
-    ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED    ) ];
+    ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED    ) ];
 
     if( watch ) {
       printf( "%5.1f %% comp=%4.0fMB/s snap=%4.0fMB/s",

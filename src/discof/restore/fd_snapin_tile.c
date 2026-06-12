@@ -131,6 +131,10 @@ struct fd_snapin_tile {
     ulong full_accounts_loaded;
     ulong full_accounts_replaced;
     ulong full_accounts_ignored;
+
+    /* Persistent counters */
+    ulong total_accounts_processed;
+    ulong total_account_batches_processed;
   } metrics;
 
   struct {
@@ -218,9 +222,11 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_LOADED,        ctx->metrics.accounts_loaded );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_REPLACED,      ctx->metrics.accounts_replaced );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_IGNORED,       ctx->metrics.accounts_ignored );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_LOADED,         ctx->metrics.accounts_loaded );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_REPLACED,       ctx->metrics.accounts_replaced );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_IGNORED,        ctx->metrics.accounts_ignored );
+  FD_MCNT_SET  ( SNAPIN, ACCOUNT_PROCESSED,       ctx->metrics.total_accounts_processed );
+  FD_MCNT_SET  ( SNAPIN, ACCOUNT_BATCH_PROCESSED, ctx->metrics.total_account_batches_processed );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
@@ -790,7 +796,8 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   ctx->metrics.accounts_ignored  += accounts_ignored;
   ctx->metrics.accounts_replaced += accounts_replaced;
   ctx->metrics.accounts_loaded   += accounts_loaded;
-
+  ctx->metrics.total_accounts_processed += cnt;
+  ctx->metrics.total_account_batches_processed++;
   /* Sum lamports of every accepted entry into capitalization, and
      accumulate the lamports of overwritten entries into
      dup_capitalization so the final value can be reconciled with the
@@ -807,6 +814,8 @@ process_account_batch( fd_snapin_tile_t *            ctx,
 static int
 process_account_header( fd_snapin_tile_t * ctx,
                         fd_ssparse_advance_result_t * result ) {
+  ctx->metrics.total_account_batches_processed++;
+  ctx->metrics.total_accounts_processed++;
   ulong replaced_lamports = 0UL;
   int account = fd_accdb_snapshot_write_one( ctx->accdb,
                                              result->account_header.pubkey,
@@ -1083,7 +1092,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      fd_ssparse_batch_enable( ctx->ssparse, 1 );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->in.pos                  = 0UL;
       ctx->txncache_entries_len    = 0UL;
@@ -1091,6 +1099,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_init( ctx->ssparse );
+      fd_ssparse_batch_enable( ctx->ssparse, 1 );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );

@@ -236,9 +236,9 @@ during_housekeeping( fd_gossvf_tile_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_gossvf_tile_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( GOSSVF, MESSAGE_RX_COUNT, ctx->metrics.message_rx );
+  FD_MCNT_ENUM_COPY( GOSSVF, MESSAGE_RX, ctx->metrics.message_rx );
   FD_MCNT_ENUM_COPY( GOSSVF, MESSAGE_RX_BYTES, ctx->metrics.message_rx_bytes );
-  FD_MCNT_ENUM_COPY( GOSSVF, CRDS_RX_COUNT, ctx->metrics.crds_rx );
+  FD_MCNT_ENUM_COPY( GOSSVF, CRDS_RX, ctx->metrics.crds_rx );
   FD_MCNT_ENUM_COPY( GOSSVF, CRDS_RX_BYTES, ctx->metrics.crds_rx_bytes );
 }
 

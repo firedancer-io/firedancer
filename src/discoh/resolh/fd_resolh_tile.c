@@ -188,7 +188,7 @@ metrics_write( fd_resolh_tile_t * ctx ) {
   FD_MCNT_SET( RESOLH, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
   FD_MCNT_ENUM_COPY( RESOLH, LUT_RESOLVED, ctx->metrics.lut );
   FD_MCNT_ENUM_COPY( RESOLH, STASH_OPERATION, ctx->metrics.stash );
-  FD_MCNT_SET( RESOLH, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
+  FD_MCNT_SET( RESOLH, TXN_BUNDLE_PEER_FAILED, ctx->metrics.bundle_peer_failure_cnt );
 }
 
 static int
@@ -245,7 +245,7 @@ publish_txn( fd_resolh_tile_t *         ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLH, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLH, TXN_NO_BANK, 1 );
       return 0;
     } else {
       int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
@@ -447,7 +447,7 @@ after_frag( fd_resolh_tile_t *  ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLH, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLH, TXN_NO_BANK, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }

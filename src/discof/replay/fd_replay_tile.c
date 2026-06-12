@@ -130,14 +130,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_ACQUIRE,      ctx->metrics.store_query_acquire      );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_RELEASE,      ctx->metrics.store_query_release      );
-  FD_MHIST_COPY( REPLAY, STORE_QUERY_WAIT,         ctx->metrics.store_query_wait         );
-  FD_MHIST_COPY( REPLAY, STORE_QUERY_WORK,         ctx->metrics.store_query_work         );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_CNT,          ctx->metrics.store_query_cnt          );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING_CNT,  ctx->metrics.store_query_missing_cnt  );
-  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MR,           ctx->metrics.store_query_mr           );
-  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MR,   ctx->metrics.store_query_missing_mr   );
+  FD_MCNT_SET  ( REPLAY, STORE_QUERY_ACQUIRED,      ctx->metrics.store_query_acquire      );
+  FD_MCNT_SET  ( REPLAY, STORE_QUERY_RELEASED,      ctx->metrics.store_query_release      );
+  FD_MHIST_COPY( REPLAY, STORE_QUERY_WAIT_SECONDS, ctx->metrics.store_query_wait         );
+  FD_MHIST_COPY( REPLAY, STORE_QUERY_WORK_SECONDS, ctx->metrics.store_query_work         );
+  FD_MCNT_SET  ( REPLAY, STORE_QUERIED,              ctx->metrics.store_query_cnt          );
+  FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING,      ctx->metrics.store_query_missing_cnt  );
+  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MERKLE_ROOT_SAMPLE,         ctx->metrics.store_query_mr           );
+  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MERKLE_ROOT_SAMPLE, ctx->metrics.store_query_missing_mr   );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
@@ -151,35 +151,35 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
 
-  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, fd_banks_pool_used_cnt( ctx->banks ) );
+  FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
   ulong reasm_free = fd_reasm_free( ctx->reasm );
-  FD_MGAUGE_SET( REPLAY, REASM_FREE, reasm_free );
+  FD_MGAUGE_SET( REPLAY, REASSEMBLY_FREE, reasm_free );
 
-  FD_MCNT_SET( REPLAY, SLOTS_TOTAL, ctx->metrics.slots_total );
-  FD_MCNT_SET( REPLAY, TRANSACTIONS_TOTAL, ctx->metrics.transactions_total );
+  FD_MCNT_SET( REPLAY, SLOT_REPLAYED, ctx->metrics.slots_total );
+  FD_MCNT_SET( REPLAY, TXN_PROCESSED, ctx->metrics.transactions_total );
 
-  FD_MGAUGE_SET( REPLAY, REASM_LATEST_SLOT,    ctx->metrics.reasm_latest_slot );
-  FD_MGAUGE_SET( REPLAY, REASM_LATEST_FEC_IDX, ctx->metrics.reasm_latest_fec_idx );
+  FD_MGAUGE_SET( REPLAY, REASSEMBLY_LATEST_SLOT,      ctx->metrics.reasm_latest_slot );
+  FD_MGAUGE_SET( REPLAY, REASSEMBLY_LATEST_FEC_INDEX, ctx->metrics.reasm_latest_fec_idx );
 
   fd_sched_metrics_write( ctx->sched );
 
-  FD_MCNT_SET( REPLAY, SCHED_FULL,          ctx->metrics.sched_full );
-  FD_MCNT_SET( REPLAY, REASM_EMPTY,         ctx->metrics.reasm_empty );
-  FD_MCNT_SET( REPLAY, LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
-  FD_MCNT_SET( REPLAY, BANKS_FULL,          ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, FEC_SCHED_FULL,          ctx->metrics.sched_full );
+  FD_MCNT_SET( REPLAY, FEC_REASSEMBLY_EMPTY,    ctx->metrics.reasm_empty );
+  FD_MCNT_SET( REPLAY, FEC_LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
+  FD_MCNT_SET( REPLAY, FEC_BANK_FULL,           ctx->metrics.banks_full );
   FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED, pcm->root_cnt );
 
   fd_wksp_mon_t * wm = fd_wksp_mon_tick( ctx->progcache_wksp_mon, fd_tickcount() );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,             wm->free_cnt       );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,             wm->free_sz        );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,             wm->wksp->data_max );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PART_MAX_BYTES,    wm->free_max_sz    );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEDIAN_BYTES, wm->part_median_sz );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEAN_BYTES,   wm->part_mean_sz   );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTITION,             wm->free_cnt       );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,                 wm->free_sz        );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,                 wm->wksp->data_max );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTITION_MAX_BYTES,   wm->free_max_sz    );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEDIAN_BYTES, wm->part_median_sz );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEAN_BYTES,   wm->part_mean_sz   );
 
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
@@ -404,12 +404,14 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
   FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
-  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu)"
+  FD_BASE58_ENCODE_32_BYTES( bank->f.poh.uc, poh_hash_b58 );
+  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, PoH hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu) "
                  "and timings [since parent fini %ld ns, started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
                  bank->f.slot, block_id_b58,
                  bank_hash_b58,
-                 bank->f.transaction_count,
-                 bank->f.transaction_count - bank->f.nonvote_txn_count,
+                 poh_hash_b58,
+                 bank->f.txn_count,
+                 bank->f.txn_count - bank->f.nonvote_txn_count,
                  bank->f.shred_cnt,
                  bank->f.total_compute_units_used,
                  execution_fees_pre_settle + priority_fees_pre_settle,
@@ -1560,7 +1562,7 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
     FD_TEST( curr );
     if( FD_LIKELY( !curr->slot_complete ) ) continue;
 
-    fd_bank_t * curr_bank = fd_banks_bank_query( ctx->banks, curr->bank_idx );
+    fd_bank_t * curr_bank = curr->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
     if( FD_LIKELY( curr_bank && curr_bank->bank_seq==curr->bank_seq ) ) break;
 
     FD_TEST( path_cnt<FD_BANKS_MAX_BANKS );
@@ -1619,17 +1621,22 @@ process_fec_set( fd_replay_tile_t *  ctx,
   int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc && !parent->eqvoc);
   if( FD_UNLIKELY( eqvoc_detected ) ) FD_TEST( reasm_fec->confirmed && parent->confirmed );
 
-  /* We can detect if a bank has been evicted if the bank index tagged
+  /* We can detect if a bank has not replayed if the bank index tagged
      to the FEC set is no longer valid or the bank sequence number for
-     the same bank is different (the bank has been recycled).  */
-  fd_bank_t * parent_fec_bank = fd_banks_bank_query( ctx->banks, parent->bank_idx );
-  int has_evicted = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
+     the same bank is different (the bank has been recycled).  This is
+     either due to the parent bank being evicted, or in reasm, the
+     parent is marked eqvoc (and not replayed), but the child gets
+     confirmed and delivered. */
+  fd_bank_t * parent_fec_bank = parent->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
+  int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
-  /* If the upcoming FEC is either the start of an equivocating chain or
-     would chain off of a bank that was evicted, we must backfill any
-     FECs into the scheduler.  This backfill must start from a FEC with
-     fec_set_idx==0 with a parent FEC corresponding to a valid bank. */
-  if( FD_LIKELY( !has_evicted && !eqvoc_detected ) ) {
+  /* If the upcoming FEC is either the start of an equivocating chain,
+     chains off of a bank that was evicted, OR is the child of an
+     equivocating chain whose parent was gated from getting replayed, we
+     must backfill any FECs into the scheduler.  This backfill must
+     start from a FEC with fec_set_idx==0 with a parent FEC
+     corresponding to a valid bank. */
+  if( FD_LIKELY( !parent_bank_invalid && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
     backfill_fec_sets( ctx, stem, reasm_fec );
@@ -2465,7 +2472,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
-  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max_cnt( ctx->banks ) );
+  FD_MGAUGE_SET( REPLAY, BANK_LIVE_MAX, fd_banks_pool_max_cnt( ctx->banks ) );
 
   ctx->frontier_cnt = 0UL;
 
@@ -2671,10 +2678,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_histf_join( fd_histf_new( ctx->metrics.store_query_wait,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WAIT ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_query_wait,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WAIT_SECONDS ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WAIT_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK_SECONDS ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK_SECONDS ) ) );
 
   /* Ensure precompiles are available, crash fast otherwise */
   fd_precompiles();

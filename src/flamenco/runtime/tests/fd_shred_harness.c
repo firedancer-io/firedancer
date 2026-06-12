@@ -82,8 +82,8 @@ capture_completed_fec( fd_spad_t *                spad,
                        fd_shred_completed_fec_t * out ) {
   fd_memset( out, 0, sizeof(fd_shred_completed_fec_t) );
 
-  fd_shred_t const * base_data   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MAX_SZ );
-  fd_shred_t const * base_parity = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ );
+  fd_shred_t const * base_data   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
+  fd_shred_t const * base_parity = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
   FD_TEST( base_data && base_parity );
 
   ushort data_cnt = base_parity->code.data_cnt;
@@ -93,7 +93,7 @@ capture_completed_fec( fd_spad_t *                spad,
   uchar * payload    = fd_spad_alloc( spad, alignof(uchar), (ulong)data_cnt*FD_SHRED_MAX_SZ );
   ulong   payload_sz = 0UL;
   for( ushort i=0U; i<data_cnt; i++ ) {
-    fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MAX_SZ );
+    fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
     FD_TEST( shred );
     ulong shred_payload_sz = fd_shred_payload_sz( shred );
     if( FD_LIKELY( shred_payload_sz ) ) {
@@ -103,7 +103,7 @@ capture_completed_fec( fd_spad_t *                spad,
     out->shred_offs[ i ] = (uint)payload_sz;
   }
 
-  fd_shred_t const * last = fd_shred_parse( set->data_shreds[ data_cnt-1U ].b, FD_SHRED_MAX_SZ );
+  fd_shred_t const * last = fd_shred_parse( set->data_shreds[ data_cnt-1U ].b, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
   FD_TEST( last );
 
   /* Derive the FEC set's merkle root from a shred's inclusion proof. */
@@ -247,7 +247,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
     FD_TEST( shred_msg->size>=FD_SHRED_MIN_SZ && shred_msg->size<=FD_SHRED_MAX_SZ );
 
     /* Step 1: fd_shred_parse() */
-    fd_shred_t const * shred = fd_shred_parse( shred_msg->bytes, shred_msg->size );
+    fd_shred_t const * shred = fd_shred_parse( shred_msg->bytes, shred_msg->size, FD_SHRED_BLK_MAX );
 
     /* Unchained merkle shreds are dropped in the shred tile. */
     if( !shred || !fd_shred_is_chained( fd_shred_type( shred->variant ) ) ) {
