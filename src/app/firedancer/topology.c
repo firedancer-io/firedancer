@@ -829,6 +829,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "event", "event", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "txsend_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
     if( FD_UNLIKELY( config->development.event.report_shreds ) ) {
       /* TODO: This needs to be reliable, else we could miss shreds that

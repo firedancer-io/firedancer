@@ -52,10 +52,33 @@ message Shred {
   bytes payload = 4;
 }
 
+// The validator generated a vote transaction
+message SignedVote {
+  // Serialized signed vote transaction
+  bytes signed_txn = 1;
+  // The public key of the vote account
+  bytes vote_account = 2;
+  // The public key that authorized the vote
+  bytes vote_authority = 3;
+  // The public key that pays for transaction fees
+  bytes fee_payer = 4;
+  // Signature identifying the transaction
+  bytes signature = 5;
+  // Slot being voted on (top of tower)
+  uint64 vote_slot = 6;
+  // Bank hash of the slot being voted on
+  bytes vote_bank_hash = 7;
+  // Block ID of the slot being voted on
+  bytes vote_block_id = 8;
+  // Recent blockhash parameter of the vote transaction
+  bytes txn_blockhash = 9;
+}
+
 // Combined event type
 message Event {
   oneof event {
     Txn txn = 1;
     Shred shred = 2;
+    SignedVote signed_vote = 3;
   }
 }
