@@ -933,28 +933,27 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   }
 
   /* Add sysvar cache variables */
+  uchar * sysvar_data = fd_spad_alloc( spad, 1UL, FD_RUNTIME_ACC_SZ_MAX );
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    fd_acc_t acc = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, fd_dump_sysvar_ids[i]->uc );
-    if( FD_UNLIKELY( !acc.lamports ) ) {
-      fd_accdb_unread_one( runtime->accdb, &acc );
-      continue;
-    }
+    if( account_already_dumped( instr_context->accounts, instr_context->accounts_count, fd_dump_sysvar_ids[i] ) ) continue;
 
-    // Make sure the account doesn't exist in the output accounts yet
-    int account_exists = 0;
-    for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
-      if( fd_pubkey_eq( &txn_out->accounts.keys[j], fd_dump_sysvar_ids[i] ) ) {
-        account_exists = true;
-        break;
-      }
-    }
+    fd_acc_t acc = {0};
+    fd_memcpy( acc.pubkey, fd_dump_sysvar_ids[i]->uc, sizeof(fd_pubkey_t) );
+    acc.data = sysvar_data;
+    fd_accdb_read_one_nocache(
+      runtime->accdb,
+      bank->accdb_fork_id,
+      fd_dump_sysvar_ids[i]->uc,
+      &acc.lamports,
+      &acc.executable,
+      acc.owner,
+      acc.data,
+      &acc.data_len
+    );
+    if( FD_UNLIKELY( !acc.lamports ) ) continue;
 
-    // Copy it into output
-    if( !account_exists ) {
-      fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( &acc, output_account, spad );
-    }
-    fd_accdb_unread_one( runtime->accdb, &acc );
+    fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
+    dump_account_state( &acc, output_account, spad );
   }
 
   /* Add executable accounts */
