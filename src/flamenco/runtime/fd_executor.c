@@ -1316,6 +1316,11 @@ fd_executor_txn_check( fd_bank_t *    bank,
     fd_acc_t * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
+    /* The fee payer's starting balance is its post-fee-deduction
+       balance. */
+    ulong starting_lamports = i!=FD_FEE_PAYER_TXN_IDX ? txn_out->accounts.starting_lamports[ i ]
+                                                      : txn_out->accounts.fee_payer_rollback_lamports;
+
     /* Tips for bundles are collected in the bank: a user submitting a
        bundle must include a instruction that transfers lamports to
        a specific tip account.  Tips accumulated through the slot.
@@ -1327,12 +1332,11 @@ fd_executor_txn_check( fd_bank_t *    bank,
        and inflate bank->f.tips.  starting_lamports[] holds the carried-
        forward balance (== prior_lamports for freshly acquired accounts). */
     if( FD_UNLIKELY( fd_pack_tip_is_tip_account( fd_type_pun_const( txn_out->accounts.keys[ i ].uc ) ) ) ) {
-      txn_out->details.tips += fd_ulong_sat_sub( acc->lamports, txn_out->accounts.starting_lamports[ i ] );
+      txn_out->details.tips += fd_ulong_sat_sub( acc->lamports, starting_lamports );
     }
 
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, acc->lamports );
-    if( i!=0 ) fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, txn_out->accounts.starting_lamports[ i ] );
-    else       fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, txn_out->accounts.fee_payer_rollback_lamports );
+    fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
 
     /* Rent states are defined as followed:
         - lamports == 0                      -> Uninitialized
@@ -1351,7 +1355,7 @@ fd_executor_txn_check( fd_bank_t *    bank,
         /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
         /* Use this carried-forward starting state, not acc->prior_*.
            Equals prior_* for freshly acquired accounts. */
-        ulong before_lamports      = txn_out->accounts.starting_lamports[ i ];
+        ulong before_lamports      = starting_lamports;
         ulong before_data_len      = txn_out->accounts.starting_data_len[ i ];
         uchar before_uninitialized = before_lamports==0UL;
         uchar before_rent_exempt   = before_lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, before_data_len );
