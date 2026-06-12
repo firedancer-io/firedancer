@@ -58,6 +58,8 @@ struct fd_snapwr_tile {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
     ulong bytes_written;
+    ulong accounts_written;
+    ulong full_accounts_written;
   } metrics;
 
   fd_snapshot_manifest_t manifest[1];
@@ -75,6 +77,7 @@ metrics_write( fd_snapwr_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPWR, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPWR, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
   FD_MGAUGE_SET( SNAPWR, BYTES_WRITTEN,          ctx->metrics.bytes_written );
+  FD_MGAUGE_SET( SNAPWR, ACCOUNTS_WRITTEN,       ctx->metrics.accounts_written );
 }
 
 static ulong
@@ -159,6 +162,7 @@ process_account_header( fd_snapwr_tile_t *            ctx,
   fd_memcpy( data+32UL, &result->account_header.data_len, 4UL );
   fd_memcpy( data+36UL, result->account_header.owner, 32UL );
   buffer_write( ctx, data, 68UL );
+  ctx->metrics.accounts_written++;
 }
 
 static void
@@ -267,11 +271,14 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       fd_ssparse_init( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
+      /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         ctx->metrics.full_bytes_read        = 0UL;
         ctx->metrics.incremental_bytes_read = 0UL;
+        ctx->metrics.accounts_written       = ctx->metrics.full_accounts_written = 0UL;
       } else {
         ctx->metrics.incremental_bytes_read = 0UL;
+        ctx->metrics.accounts_written       = ctx->metrics.full_accounts_written;
       }
       break;
     }
@@ -287,6 +294,9 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      /* Backup metric counters */
+      ctx->metrics.full_accounts_written = ctx->metrics.accounts_written;
       break;
     }
 

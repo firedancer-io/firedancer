@@ -1623,6 +1623,7 @@ EXAMPLES
     <gauge name="FullBytesRead" summary="Number of decompressed snapshot bytes consumed from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesRead" summary="Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="BytesWritten" summary="Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads." />
+    <gauge name="AccountsWritten" summary="Number of accounts written to the accounts database on disk. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
 <tile name="metric">
