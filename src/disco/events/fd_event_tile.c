@@ -222,6 +222,7 @@ on_txsend_frag( fd_event_tile_t * ctx,
   fd_compact_tower_sync_serde_t sync[1];
   if( FD_UNLIKELY( 0!=fd_compact_tower_sync_de( sync, instr_data, instr_data_sz ) ) ) return 0;
   if( FD_UNLIKELY( sync->lockouts_cnt==0 ) ) return 0;
+  if( FD_UNLIKELY( sync->lockouts_cnt>32 ) ) return 0;
 
   fd_acct_addr_t const * fee_payer      = &addrs[ 0 ];
   fd_acct_addr_t const * vote_acct_addr = &addrs[ instr_addrs[ 0 ] ];
@@ -260,6 +261,15 @@ on_txsend_frag( fd_event_tile_t * ctx,
   fd_pb_push_bytes ( encoder, 7U, sync->hash.uc,     sizeof(fd_hash_t)        );
   fd_pb_push_bytes ( encoder, 8U, sync->block_id.uc, sizeof(fd_hash_t)        );
   fd_pb_push_bytes ( encoder, 9U, rbh,               sizeof(fd_hash_t)        );
+
+  ulong slot = root_slot;
+  for( ulong i=0UL; i<sync->lockouts_cnt; i++ ) {
+    slot += sync->lockouts[ i ].offset;
+    fd_pb_submsg_open( encoder, 10U ); /* lockout entry */
+    fd_pb_push_uint64( encoder, 1U, slot );
+    fd_pb_push_uint32( encoder, 2U, sync->lockouts[ i ].confirmation_count );
+    fd_pb_submsg_close( encoder );
+  }
 
   fd_pb_submsg_close( encoder );
   fd_pb_submsg_close( encoder );

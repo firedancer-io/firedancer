@@ -20,6 +20,14 @@ enum ShredProtocol {
   SHRED_PROTOCOL_LEADER = 3;  // Leader
 }
 
+// Slot that was voted on
+message SignedVoteTower {
+  // Slot being voted on / locked out for
+  uint64 slot = 1;
+  // Confirmation count (higher = closer to root)
+  uint32 confirmation_count = 2;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -72,6 +80,8 @@ message SignedVote {
   bytes vote_block_id = 8;
   // Recent blockhash parameter of the vote transaction
   bytes txn_blockhash = 9;
+  // Tower of slots being voted on (oldest to newest)
+  repeated SignedVoteTower tower = 10;
 }
 
 // Combined event type
