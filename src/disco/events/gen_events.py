@@ -25,6 +25,7 @@ class ClickHouseType(Enum):
     UInt16 = auto()
     UInt64 = auto()
     Pubkey = auto()
+    Hash = auto()
     Signature = auto()
     Bool = auto()
     DateTime64 = auto()
@@ -41,6 +42,7 @@ class ClickHouseType(Enum):
         "UInt16": "UInt16",
         "UInt64": "UInt64",
         "Pubkey": "Pubkey",
+        "Hash": "Hash",
         "Signature": "Signature",
         "Bool": "Bool",
         "DateTime64(9)": "DateTime64",
@@ -58,6 +60,7 @@ class ClickHouseType(Enum):
         "UInt16": "uint32",
         "UInt64": "uint64",
         "Pubkey": "bytes",
+        "Hash": "bytes",
         "Signature": "bytes",
         "Bool": "bool",
         "DateTime64": "uint64",
@@ -90,6 +93,7 @@ class Field:
     fields: Optional[Dict[str, "Field"]] = None
     element: Optional["Field"] = None
     shared_name: Optional[str] = None
+    max_len: Optional[int] = None
 
 @dataclass
 class Schema:
@@ -116,6 +120,7 @@ def parse_field(f: dict, shared_types: Dict[str, dict]) -> Field:
         variants={k: Variant(v["description"]) for k, v in f.get("variants", {}).items()} or None,
         fields=fields,
         element=element,
+        max_len=f.get("max_len"),
     )
 
 def parse_schema(path: Path, shared_types: Dict[str, dict]) -> Schema:
@@ -199,6 +204,322 @@ def generate_protobuf(schemas: List[Schema]) -> str:
 
     return "\n".join(lines)
 
+_FIXED_BYTE_SZ = {
+    ClickHouseType.IPv6:      16,
+    ClickHouseType.Pubkey:    32,
+    ClickHouseType.Hash:      32,
+    ClickHouseType.Signature: 64,
+}
+
+_SCALAR_C = {
+    ClickHouseType.UInt8:      ("uchar",  "uint32"),
+    ClickHouseType.UInt16:     ("ushort", "uint32"),
+    ClickHouseType.UInt64:     ("ulong",  "uint64"),
+    ClickHouseType.DateTime64: ("ulong",  "uint64"),
+    ClickHouseType.Bool:       ("int",    "bool"),
+}
+
+def field_is_supported(f: Field) -> bool:
+    """Whether the C codegen can emit a fixed-size struct + serializer for a
+    field.  Variable-length types (Bytes/String/Array) are supported only when
+    bounded by max_len.  Tuples/Flattens are supported when all subfields are."""
+    if f.chtype in (ClickHouseType.String, ClickHouseType.Bytes):
+        return f.max_len is not None
+    if f.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
+        return all(field_is_supported(sf) for sf in f.fields.values())
+    if f.chtype == ClickHouseType.Array:
+        return f.max_len is not None and field_is_supported(f.element)
+    return True  # scalar, enum, or fixed-byte type
+
+def schema_is_supported(s: Schema) -> bool:
+    return all(field_is_supported(f) for f in s.fields.values())
+
+# Protobuf wire-format max sizes (mirrors src/ballet/pb/fd_pb_wire.h).
+_PB_TAG_MAX     = 5   # fd_pb_varint32_sz_max (a tag is a varint32)
+_PB_VARINT32    = 5   # fd_pb_varint32_sz_max
+_PB_VARINT64    = 10  # fd_pb_varint64_sz_max
+_PB_BOOL        = 1   # fd_pb_bool_max_sz
+_PB_LP_RESERVE  = 5   # length-prefix reserved by fd_pb_lp_open (fd_pb_varint32_sz_max)
+# The encoder bounds-checks with a conservative 32-byte slack (see
+# fd_pb_encoder_init docs); pad the buffer so a tight message never trips it.
+_PB_ENCODER_SLACK = 32
+
+def scalar_max_encoded_sz(f: Field) -> int:
+    """Worst-case encoded bytes for a single (non-array) field value, including
+    its tag.  For Tuple, this is the submessage (tag + length-prefix + body)."""
+    if f.variants:                       # enum -> int32 varint
+        return _PB_TAG_MAX + _PB_VARINT32
+    if f.chtype in _FIXED_BYTE_SZ:       # fixed bytes: tag + length-prefix + data
+        return _PB_TAG_MAX + _PB_VARINT32 + _FIXED_BYTE_SZ[f.chtype]
+    if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
+        return _PB_TAG_MAX + _PB_VARINT32 + f.max_len
+    if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        body = sum(scalar_max_encoded_sz(sf) for sf in f.fields.values())
+        return _PB_TAG_MAX + _PB_LP_RESERVE + body
+    suffix = _SCALAR_C[f.chtype][1]
+    if suffix == "bool":   return _PB_TAG_MAX + _PB_BOOL
+    if suffix == "uint64": return _PB_TAG_MAX + _PB_VARINT64
+    return _PB_TAG_MAX + _PB_VARINT32    # uint32 (UInt8/UInt16)
+
+def field_max_encoded_sz(f: Field) -> int:
+    """Worst-case encoded bytes for one struct field (tag + value), accounting
+    for arrays via their max_len bound."""
+    if f.chtype == ClickHouseType.Array:
+        return f.max_len * scalar_max_encoded_sz(f.element)
+    return scalar_max_encoded_sz(f)
+
+def event_buf_max(s: Schema) -> int:
+    """Tight upper bound on the encoded size of a whole event (envelope +
+    Event submsg + inner submsg + all fields), padded for encoder slack."""
+    # Envelope: 3 uint64 fields (nonce, event_id, timestamp_nanos).
+    envelope = 3 * (_PB_TAG_MAX + _PB_VARINT64)
+    # Two submessage openers (Event, then the specific event): each is a
+    # tag plus a reserved length-prefix.
+    submsgs = 2 * (_PB_TAG_MAX + _PB_LP_RESERVE)
+    fields = sum(field_max_encoded_sz(f) for f in s.fields.values())
+    return envelope + submsgs + fields + _PB_ENCODER_SLACK
+
+def event_buf_max_define(s: Schema) -> str:
+    return to_screaming_snake_case(f"fd_event_{s.name}_buf_max")
+
+def c_enum_value(schema_name: str, field_name: str, variant: str) -> str:
+    return to_screaming_snake_case(f"fd_event_{schema_name}_{field_name}_{variant}")
+
+def c_tuple_name(schema_name: str, field_name: str) -> str:
+    """C struct type name for a Tuple field (or an Array-of-Tuple element)."""
+    return f"fd_event_{schema_name}_{field_name}_t"
+
+def tuple_fields_of(f: Field) -> Optional[Dict[str, Field]]:
+    """If f (or its array element) is a Tuple/Flatten, return its fields."""
+    inner = f.element if f.chtype == ClickHouseType.Array else f
+    if inner.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        return inner.fields
+    return None
+
+def gen_tuple_struct( schema_name: str, field_name: str, flds: Dict[str, Field], desc: str ) -> List[str]:
+    """Emit a C struct definition for a Tuple field's element type.  Tuple
+    subfields are themselves restricted to fixed-length scalar/enum/fixed-byte
+    types (no nested arrays/bytes), which covers current schemas."""
+    tn = c_tuple_name( schema_name, field_name )
+    members = []
+    for sn, sf in flds.items():
+        if sf.variants:
+            ctype, decl = "int", sn
+        elif sf.chtype in _FIXED_BYTE_SZ:
+            ctype, decl = "uchar", f"{sn}[ {_FIXED_BYTE_SZ[sf.chtype]}UL ]"
+        else:
+            ctype, decl = _SCALAR_C[sf.chtype][0], sn
+        members.append((ctype, decl, sf.description))
+    tw = max(len(c) for c, _, _ in members)
+    dw = max(len(d) for _, d, _ in members)
+    out = [f"/* {desc} */", f"struct {tn[:-2]} {{"]
+    for ctype, decl, d in members:
+        out.append(f"  {ctype:<{tw}} {decl + ';':<{dw + 1}} /* {d} */")
+    out += ["};", f"typedef struct {tn[:-2]} {tn};", ""]
+    return out
+
+def serializer_signature(s: Schema, terminator: str) -> List[str]:
+    """Emit the fd_event_<name>_serialize signature, type-column aligned, with
+    continuation lines indented under the first parameter.  terminator is the
+    text after the final parameter (e.g. ' );' for a prototype, ' ) {' for a
+    definition)."""
+    fn   = f"fd_event_{s.name}_serialize( "
+    pad  = " " * len(fn)
+    params = [
+        ("fd_circq_t *",                       "circq"),
+        ("fd_event_client_t *",                "client"),
+        ("long",                               "timestamp_nanos"),
+        (f"fd_event_{s.name}_t const *",       "msg"),
+    ]
+    tw = max(len(t) for t, _ in params)
+    out = [f"void", f"{fn}{params[0][0]:<{tw}} {params[0][1]},"]
+    for t, n in params[1:-1]:
+        out.append(f"{pad}{t:<{tw}} {n},")
+    t, n = params[-1]
+    out.append(f"{pad}{t:<{tw}} {n}{terminator}")
+    return out
+
+def generate_c_header(schemas: List[Schema]) -> str:
+    eligible = [s for s in schemas if schema_is_supported(s)]
+    lines = [
+        "/* THIS FILE WAS GENERATED BY gen_events.py. DO NOT EDIT BY HAND! */",
+        "#ifndef HEADER_fd_src_disco_events_generated_fd_event_gen_h",
+        "#define HEADER_fd_src_disco_events_generated_fd_event_gen_h",
+        "",
+        '#include "../fd_circq.h"',
+        '#include "../fd_event_client.h"',
+        "",
+    ]
+
+    # Enum #defines, structs, and per-event buffer sizes.
+    for s in eligible:
+        # Enums for LowCardinality(String) fields.  Values match the proto
+        # enum (variants numbered from 1); the proto's mandatory
+        # _UNSPECIFIED=0 sentinel is not emitted on the C side.
+        for name, f in s.fields.items():
+            if not f.variants:
+                continue
+            names = [c_enum_value(s.name, name, vn) for vn in f.variants]
+            w = max(len(n) for n in names)
+            lines.append(f"/* {f.description} */")
+            for i, (vn, v) in enumerate(f.variants.items(), 1):
+                lines.append(f"#define {c_enum_value(s.name, name, vn):<{w}} ({i}) /* {v.description} */")
+            lines += [""]
+
+        # Nested Tuple element structs (emitted before the main struct that
+        # references them).
+        for name, f in s.fields.items():
+            tflds = tuple_fields_of( f )
+            if tflds is not None:
+                inner = f.element if f.chtype == ClickHouseType.Array else f
+                lines += gen_tuple_struct( s.name, name, tflds, inner.description )
+
+        # Main struct.  Each field becomes one or more members:
+        #   scalar/enum/fixed-byte -> single member
+        #   Bytes/String(max_len)  -> uchar <name>[max_len]; ulong <name>_len;
+        #   Tuple                  -> <tuple_t> <name>;
+        #   Array(max_len)         -> <elem-decl>[max_len]; ulong <name>_cnt;
+        members = []  # (ctype, decl, desc)
+        for name, f in s.fields.items():
+            if f.variants:
+                members.append(("int", name, f.description))
+            elif f.chtype in _FIXED_BYTE_SZ:
+                members.append(("uchar", f"{name}[ {_FIXED_BYTE_SZ[f.chtype]}UL ]", f.description))
+            elif f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
+                members.append(("uchar", f"{name}[ {f.max_len}UL ]", f.description))
+                members.append(("ulong", f"{name}_len", f"Length of {name} (<= {f.max_len})"))
+            elif f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+                members.append((c_tuple_name( s.name, name ), name, f.description))
+            elif f.chtype == ClickHouseType.Array:
+                el = f.element
+                if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+                    ectype = c_tuple_name( s.name, name )
+                elif el.variants:
+                    ectype = "int"
+                elif el.chtype in _FIXED_BYTE_SZ:
+                    ectype = None  # handled specially below
+                else:
+                    ectype = _SCALAR_C[el.chtype][0]
+                if ectype is None:
+                    # Array of fixed-byte values: <name>[max_len][N]
+                    n = _FIXED_BYTE_SZ[el.chtype]
+                    members.append(("uchar", f"{name}[ {f.max_len}UL ][ {n}UL ]", f.description))
+                else:
+                    members.append((ectype, f"{name}[ {f.max_len}UL ]", f.description))
+                members.append(("ulong", f"{name}_cnt", f"Number of {name} entries (<= {f.max_len})"))
+            else:
+                members.append((_SCALAR_C[f.chtype][0], name, f.description))
+        tw = max(len(c) for c, _, _ in members)
+        dw = max(len(d) for _, d, _ in members)
+        lines += [f"/* {s.description} */", "struct fd_event_" + s.name + " {"]
+        for ctype, decl, desc in members:
+            lines.append(f"  {ctype:<{tw}} {decl + ';':<{dw + 1}} /* {desc} */")
+        lines += ["};", f"typedef struct fd_event_{s.name} fd_event_{s.name}_t;", ""]
+
+        # Tight upper bound on this event's encoded size.
+        lines += [
+            f"/* Worst-case encoded size of a {s.name} event (envelope + Event",
+            "   submsg + inner submsg + all fields, padded for encoder slack). */",
+            f"#define {event_buf_max_define(s)} ({event_buf_max(s)}UL)",
+            "",
+        ]
+
+    # Serializer prototypes.
+    lines += ["FD_PROTOTYPES_BEGIN", ""]
+    for s in eligible:
+        lines += [
+            f"/* Serialize a {s.name} event into the circq, reserving an event id",
+            "   from the client and writing the standard event envelope.  Mirrors",
+            "   the hand-written fd_pb_* path. */",
+        ] + serializer_signature( s, " );" ) + [""]
+
+    lines += ["FD_PROTOTYPES_END", "", "#endif", ""]
+    return "\n".join(lines)
+
+def encode_scalar( f: Field, field_id: int, acc: str, ind: str, omit_default: bool ) -> List[str]:
+    """Emit the fd_pb_push_* line for a scalar/enum/fixed-byte field.  acc is
+    the C accessor expression for the value.  omit_default skips zero scalars
+    (proto3 default); fixed-byte fields are always emitted."""
+    if f.variants:
+        guard = f"if( {acc} ) " if omit_default else ""
+        return [f"{ind}{guard}fd_pb_push_int32 ( encoder, {field_id}U, {acc} );"]
+    if f.chtype in _FIXED_BYTE_SZ:
+        return [f"{ind}fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {_FIXED_BYTE_SZ[f.chtype]}UL );"]
+    suffix = _SCALAR_C[f.chtype][1]
+    cast   = "(ulong)" if suffix == "uint64" else ("(uint)" if suffix == "uint32" else "")
+    guard  = f"if( {acc} ) " if omit_default else ""
+    return [f"{ind}{guard}fd_pb_push_{suffix:<6}( encoder, {field_id}U, {cast}{acc} );"]
+
+def encode_tuple( f: Field, field_id: int, acc: str, ind: str ) -> List[str]:
+    """Emit a submessage encoding a Tuple value at field_id.  acc is the C
+    accessor for the tuple struct (e.g. 'msg->x' or 'msg->arr[ k ]')."""
+    out = [f"{ind}fd_pb_submsg_open( encoder, {field_id}U );"]
+    for j, (sn, sf) in enumerate(f.fields.items(), 1):
+        out += encode_scalar( sf, j, f"{acc}.{sn}", ind, omit_default=True )
+    out += [f"{ind}fd_pb_submsg_close( encoder );"]
+    return out
+
+def encode_field( f: Field, field_id: int, name: str, acc: str, ind: str ) -> List[str]:
+    """Emit encode lines for one struct field of any supported type."""
+    if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
+        return [f"{ind}if( {acc}_len ) fd_pb_push_bytes ( encoder, {field_id}U, {acc}, {acc}_len );"]
+    if f.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+        return encode_tuple( f, field_id, acc, ind )
+    if f.chtype == ClickHouseType.Array:
+        el  = f.element
+        out = [f"{ind}for( ulong k=0UL; k<{acc}_cnt; k++ ) {{"]
+        if el.chtype in (ClickHouseType.Tuple, ClickHouseType.Flatten):
+            out += encode_tuple( el, field_id, f"{acc}[ k ]", ind + "  " )
+        else:
+            # Scalar/enum/fixed-byte array element: always emit (do not omit
+            # defaults - each element is a distinct repeated entry).
+            out += encode_scalar( el, field_id, f"{acc}[ k ]", ind + "  ", omit_default=False )
+        out += [f"{ind}}}"]
+        return out
+    return encode_scalar( f, field_id, acc, ind, omit_default=True )
+
+def generate_c_source(schemas: List[Schema]) -> str:
+    eligible = [s for s in schemas if schema_is_supported(s)]
+    lines = [
+        "/* THIS FILE WAS GENERATED BY gen_events.py. DO NOT EDIT BY HAND! */",
+        '#include "fd_event_gen.h"',
+        '#include "../../../ballet/pb/fd_pb_encode.h"',
+        "",
+    ]
+    for s in eligible:
+        bufmax = event_buf_max_define(s)
+        lines += serializer_signature( s, " ) {" ) + [
+            f"  uchar * buffer = fd_circq_push_back( circq, 1UL, {bufmax} );",
+            "  FD_TEST( buffer );",
+            "",
+            "  ulong event_id = fd_event_client_id_reserve( client );",
+            "",
+            "  fd_pb_encoder_t encoder[1];",
+            f"  fd_pb_encoder_init( encoder, buffer, {bufmax} );",
+            "",
+            "  FD_TEST( circq->cursor_push_seq );",
+            "  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );",
+            "  fd_pb_push_uint64( encoder, 2U, event_id );",
+            "  fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );",
+            "",
+            "  fd_pb_submsg_open( encoder, 4U ); /* Event */",
+            f"  fd_pb_submsg_open( encoder, {s.id}U ); /* {to_pascal_case(s.name)} */",
+        ]
+        # Encode each field.  proto3 omits scalar fields at their default
+        # (0/false) - skipped here (a conformant reader reconstructs the
+        # default).  Fixed-byte fields are always emitted (a 32-byte hash is
+        # meaningful content, not the empty `bytes` default).
+        for i, (name, f) in enumerate(s.fields.items(), 1):
+            lines += encode_field( f, i, name, f"msg->{name}", "  " )
+        lines += [
+            "  fd_pb_submsg_close( encoder );",
+            "  fd_pb_submsg_close( encoder );",
+            "  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );",
+            "}",
+            "",
+        ]
+    return "\n".join(lines)
+
 def check_breaking_changes(schema_dir: Path) -> None:
     buf_path: Optional[str] = shutil.which("buf")
     if not buf_path:
@@ -230,6 +551,14 @@ def main() -> None:
     proto_path.write_text(generate_protobuf(schemas))
 
     print(f"Protobuf generated successfully from {len(schemas)} schemas")
+
+    gen_dir = Path(__file__).parent / "generated"
+    (gen_dir / "fd_event_gen.h").write_text(generate_c_header(schemas))
+    (gen_dir / "fd_event_gen.c").write_text(generate_c_source(schemas))
+    eligible = [s.name for s in schemas if schema_is_supported(s)]
+    skipped  = [s.name for s in schemas if not schema_is_supported(s)]
+    print(f"C structs/serializers generated for fixed-length schemas: {eligible}")
+    print(f"  (skipped variable-length schemas: {skipped})")
 
     if not args.skip_check:
         check_breaking_changes(schema_dir)
