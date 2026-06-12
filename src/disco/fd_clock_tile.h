@@ -81,6 +81,25 @@ fd_clock_tile_recal_due( fd_clock_tile_t * clock ) {
   return fd_clock_tile_now( clock ) >= fd_clock_tile_recal_next( clock );
 }
 
+/* fd_clock_tile_tickcount_to_wallclock converts an fd_tickcount()
+   sample to a fd_log_wallclock() estimate. */
+
+static inline long
+fd_clock_tile_tickcount_to_wallclock( fd_clock_tile_t const * clock,
+                                      long                    tickcount ) {
+  return fd_clock_epoch_y( clock->epoch, tickcount );
+}
+
+/* fd_clock_tile_tickcount_decomp decompresses a frag_meta compressed
+   tickcount sample. */
+
+static inline long
+fd_clock_tile_tickcount_decomp( fd_clock_tile_t const * clock,
+                                ulong                   ts_comp ) {
+  long ref = clock->epoch->x0;
+  return fd_frag_meta_ts_decomp( ts_comp, ref );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_fd_clock_tile_h */

@@ -3,6 +3,7 @@
 #include "fd_event_client.h"
 
 #include "../fd_txn_m.h"
+#include "../fd_clock_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
@@ -89,9 +90,7 @@ struct fd_event_tile {
 
   fd_netdb_fds_t netdb_fds[1];
 
-  long   reference_wallclock;
-  long   reference_tickcount;
-  double tick_per_ns;
+  fd_clock_tile_t clock[1];
 
   ulong in_cnt;
   int in_kind[ 64UL ];
@@ -239,7 +238,8 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = ctx->reference_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, ctx->reference_tickcount ) - ctx->reference_tickcount) / ctx->tick_per_ns);
+      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
+        fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -281,7 +281,8 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = ctx->reference_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, ctx->reference_tickcount ) - ctx->reference_tickcount) / ctx->tick_per_ns);
+      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
+        fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -518,9 +519,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  ctx->tick_per_ns         = fd_tempo_tick_per_ns( NULL );
-  ctx->reference_wallclock = fd_log_wallclock();
-  ctx->reference_tickcount = fd_tickcount();
+  fd_clock_tile_init( ctx->clock );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -563,8 +562,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 static void
 during_housekeeping( fd_event_tile_t * ctx ) {
-  ctx->reference_wallclock = fd_log_wallclock();
-  ctx->reference_tickcount = fd_tickcount();
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: switching identity" ));
