@@ -932,6 +932,10 @@ struct fd_gui {
     ulong                     scheduler_counts_snap_idx_slot_start;
     /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
     fd_gui_scheduler_counts_t scheduler_counts_snap[ FD_GUI_SCHEDULER_COUNT_SNAP_CNT ][ 1 ];
+
+    /* Topo tile indices in display order, built once on init. */
+    ulong tile[ FD_TOPO_MAX_TILES ];
+    ulong tile_cnt;
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];

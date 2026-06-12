@@ -33,6 +33,35 @@ fd_gui_footprint( ulong tile_cnt ) {
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
+static inline void
+fd_gui_build_tile_order( fd_gui_t * gui ) {
+  ulong tile_cnt   = gui->topo->tile_cnt;
+  ulong order_cnt  = 0UL;
+  uchar placed[ FD_TOPO_MAX_TILES ] = {0};
+
+  char const * const tile_display_order[] = {
+    "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin", "snapwr",
+    "net", "shred", "repair", "replay", "execrp", "tower", "txsend", "sign",
+    "quic", "verify", "dedup", "pack", "execle", "poh"
+  };
+
+  for( ulong n=0UL; n<sizeof(tile_display_order)/sizeof(tile_display_order[0]); n++ ) {
+    for( ulong i=0UL; i<tile_cnt; i++ ) {
+      if( FD_LIKELY( placed[ i ] ) ) continue;
+      if( FD_UNLIKELY( !strcmp( gui->topo->tiles[ i ].name, tile_display_order[ n ] ) ) ) {
+        gui->summary.tile[ order_cnt++ ] = i;
+        placed[ i ] = 1;
+      }
+    }
+  }
+
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    if( FD_UNLIKELY( !placed[ i ] ) ) gui->summary.tile[ order_cnt++ ] = i;
+  }
+
+  gui->summary.tile_cnt = order_cnt;
+}
+
 void *
 fd_gui_new( void *                   shmem,
             fd_http_server_t *       http,
@@ -167,6 +196,8 @@ fd_gui_new( void *                   shmem,
   gui->summary.execle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execle" );
   gui->summary.execrp_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execrp" );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
+
+  fd_gui_build_tile_order( gui );
 
   gui->summary.slot_rooted                   = ULONG_MAX;
   gui->summary.slot_optimistically_confirmed = ULONG_MAX;
