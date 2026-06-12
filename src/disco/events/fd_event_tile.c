@@ -7,6 +7,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
+#include "generated/fd_event_gen.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
@@ -236,44 +237,31 @@ on_txsend_frag( fd_event_tile_t * ctx,
     if( FD_UNLIKELY( __builtin_uaddl_overflow( vote_slot, sync->lockouts[ i ].offset, &vote_slot ) ) ) return 0;
   }
 
-  /* Generate signed_vote event */
-  ulong event_id = fd_event_client_id_reserve( ctx->client );
-  long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
-    fd_clock_tile_tickcount_decomp( ctx->clock, tsorig_comp ) );
-  uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 4096UL );
-  FD_TEST( buffer );
-  fd_pb_encoder_t encoder[1];
-  fd_pb_encoder_init( encoder, buffer, 4096UL );
-
-  FD_TEST( ctx->circq->cursor_push_seq );
-  fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
-  fd_pb_push_uint64( encoder, 2U, event_id );
-  fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
-  fd_pb_submsg_open( encoder, 4U ); /* Event */
-  fd_pb_submsg_open( encoder, FD_EVENT_TYPE_SIGNED_VOTE );
-
-  fd_pb_push_bytes ( encoder, 1U, payload,           payload_sz               );
-  fd_pb_push_bytes ( encoder, 2U, vote_acct_addr,    sizeof(fd_acct_addr_t)   );
-  fd_pb_push_bytes ( encoder, 3U, vote_auth_addr,    sizeof(fd_acct_addr_t)   );
-  fd_pb_push_bytes ( encoder, 4U, fee_payer,         sizeof(fd_acct_addr_t)   );
-  fd_pb_push_bytes ( encoder, 5U, sigs[ 0 ],         sizeof(fd_ed25519_sig_t) );
-  fd_pb_push_uint64( encoder, 6U, vote_slot                                   );
-  fd_pb_push_bytes ( encoder, 7U, sync->hash.uc,     sizeof(fd_hash_t)        );
-  fd_pb_push_bytes ( encoder, 8U, sync->block_id.uc, sizeof(fd_hash_t)        );
-  fd_pb_push_bytes ( encoder, 9U, rbh,               sizeof(fd_hash_t)        );
+  fd_event_signed_vote_t ev = {0};
+  FD_TEST( payload_sz<=sizeof(ev.signed_txn) );
+  fd_memcpy( ev.signed_txn, payload, payload_sz );
+  ev.signed_txn_len = payload_sz;
+  fd_memcpy( ev.vote_account,   vote_acct_addr,    sizeof(fd_acct_addr_t)   );
+  fd_memcpy( ev.vote_authority, vote_auth_addr,    sizeof(fd_acct_addr_t)   );
+  fd_memcpy( ev.fee_payer,      fee_payer,         sizeof(fd_acct_addr_t)   );
+  fd_memcpy( ev.signature,      sigs[ 0 ],         sizeof(fd_ed25519_sig_t) );
+  ev.vote_slot = vote_slot;
+  fd_memcpy( ev.vote_bank_hash, sync->hash.uc,     sizeof(fd_hash_t)        );
+  fd_memcpy( ev.vote_block_id,  sync->block_id.uc, sizeof(fd_hash_t)        );
+  fd_memcpy( ev.txn_blockhash,  rbh,               sizeof(fd_hash_t)        );
 
   ulong slot = root_slot;
+  FD_TEST( sync->lockouts_cnt<=sizeof(ev.tower)/sizeof(ev.tower[0]) );
   for( ulong i=0UL; i<sync->lockouts_cnt; i++ ) {
     slot += sync->lockouts[ i ].offset;
-    fd_pb_submsg_open( encoder, 10U ); /* lockout entry */
-    fd_pb_push_uint64( encoder, 1U, slot );
-    fd_pb_push_uint32( encoder, 2U, sync->lockouts[ i ].confirmation_count );
-    fd_pb_submsg_close( encoder );
+    ev.tower[ i ].slot               = slot;
+    ev.tower[ i ].confirmation_count = (uchar)sync->lockouts[ i ].confirmation_count;
   }
+  ev.tower_cnt = sync->lockouts_cnt;
 
-  fd_pb_submsg_close( encoder );
-  fd_pb_submsg_close( encoder );
-  fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
+  long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
+    fd_clock_tile_tickcount_decomp( ctx->clock, tsorig_comp ) );
+  fd_event_signed_vote_serialize( ctx->circq, ctx->client, timestamp_nanos, &ev );
 
   return 1;
 }
