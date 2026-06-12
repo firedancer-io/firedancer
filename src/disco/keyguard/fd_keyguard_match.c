@@ -301,11 +301,14 @@ FD_FN_PURE int
 fd_keyguard_payload_matches_event( uchar const * data,
                                    ulong         sz,
                                    int           sign_type ) {
-  (void)data;
+  static char const sign_prefix[ 100 ] =
+    "                                "  /* 32 spaces */
+    "                                "  /* 32 spaces */
+    "Firedancer event challenge-response";
 
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 ) return 0;
-  if( sz!=32UL ) return 0;
-
+  if( sz!=132UL ) return 0;
+  if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( 0!=memcmp( data, sign_prefix, sizeof(sign_prefix) ) ) return 0;
   return 1;
 }
 
