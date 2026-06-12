@@ -76,6 +76,7 @@ extern fd_topo_run_tile_t fd_tile_rpc;
 extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
+extern fd_topo_run_tile_t fd_tile_admin;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
@@ -129,6 +130,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapwr,
   &fd_tile_genesi,
   &fd_tile_ipecho,
+  &fd_tile_admin,
   &fd_tile_solcap,
   NULL,
 };

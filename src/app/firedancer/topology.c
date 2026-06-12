@@ -658,6 +658,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   }
 
+  fd_topob_tile( topo, "admin", "admin", "metric_in", ULONG_MAX, 0, 0, 0 );
+
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(     topo, "gossvf",  i,            "metric_in", "net_gossvf",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
