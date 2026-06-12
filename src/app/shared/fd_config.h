@@ -486,7 +486,7 @@ struct fd_config {
     } rpc;
 
     struct {
-      ushort repair_intake_listen_port;
+      ushort repair_client_listen_port;
       ulong  slot_max;
     } repair;
 

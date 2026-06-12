@@ -339,7 +339,7 @@ fd_topo_install_xdp( fd_topo_t const * topo,
     (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
     (ushort)net0_tile->xdp.net.shred_listen_port,
     (ushort)net0_tile->xdp.net.gossip_listen_port,
-    (ushort)net0_tile->xdp.net.repair_intake_listen_port,
+    (ushort)net0_tile->xdp.net.repair_client_listen_port,
     (ushort)net0_tile->xdp.net.repair_serve_listen_port,
     (ushort)net0_tile->xdp.net.txsend_src_port,
   };

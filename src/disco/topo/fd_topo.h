@@ -108,7 +108,7 @@ struct fd_topo_net_tile {
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
   ushort gossip_listen_port;
-  ushort repair_intake_listen_port;
+  ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
 };
@@ -489,7 +489,7 @@ struct fd_topo_tile {
     } benchg;
 
     struct {
-      ushort  repair_intake_listen_port;
+      ushort  repair_client_listen_port;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;

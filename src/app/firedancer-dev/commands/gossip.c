@@ -32,7 +32,7 @@ gossip_cmd_topo( config_t * config ) {
   config->tiles.shred.shred_listen_port = 0U;
   config->tiles.quic.quic_transaction_listen_port = 0U;
   config->tiles.quic.regular_transaction_listen_port = 0U;
-  config->tiles.repair.repair_intake_listen_port = 0U;
+  config->tiles.repair.repair_client_listen_port = 0U;
   config->tiles.rserve.repair_serve_listen_port = 0U;
   config->tiles.txsend.txsend_src_port = 0U;
 
