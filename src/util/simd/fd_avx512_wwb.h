@@ -97,8 +97,15 @@ wwb_bcast_hex( uchar b0, uchar b1, uchar b2,  uchar b3,  uchar b4,  uchar b5,  u
 
 #define wwb_not(a) _mm512_xor_si512( _mm512_set1_epi32( -1 ), (a) ) /* [ ~a0 ~a1 ... ~a63 ] */
 
+#if FD_HAS_GFNI
+#define wwb_shl_matrix(imm) _mm512_set1_epi64((long long)(0x0102040810204080ULL >> (8*(imm))))
+#define wwb_shr_matrix(imm) _mm512_set1_epi64((long long)(0x0102040810204080ULL << (8*(imm))))
+#define wwb_shl(a,imm) _mm512_gf2p8affine_epi64_epi8((a), wwb_shl_matrix(imm), 0) /* [ a0<<imm a1<<imm ... a63<<imm ] */
+#define wwb_shr(a,imm) _mm512_gf2p8affine_epi64_epi8((a), wwb_shr_matrix(imm), 0) /* [ a0>>imm a1>>imm ... a63>>imm ] */
+#else
 #define wwb_shl(a,imm) wwb_and( _mm512_slli_epi16( (a), (imm) ), wwb_bcast( (uchar)(0xFFUL << (imm)) ) ) /* [ a0<<imm a1<<imm ... a63<<imm ] */
 #define wwb_shr(a,imm) wwb_and( _mm512_srli_epi16( (a), (imm) ), wwb_bcast( (uchar)(0xFFUL >> (imm)) ) ) /* [ a0>>imm a1>>imm ... a63>>imm ] */
+#endif
 
 #define wwb_and(a,b)    _mm512_and_si512(    (a), (b) ) /* [   a0 &b0    a1& b1 ...   a63& b63 ] */
 #define wwb_andnot(a,b) _mm512_andnot_si512( (a), (b) ) /* [ (~a0)&b0  (~a1)&b1 ... (~a63)&b63 ] */
