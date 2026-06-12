@@ -101,17 +101,7 @@ typedef struct fd_configh fd_configh_t;
 struct fd_configf {
   struct {
     ulong max_accounts;
-    ulong file_size_gib;
-    ulong max_unrooted_account_size_gib;
     ulong cache_size_gib;
-    ulong write_delay_slots;
-    int   in_memory_only;
-    char  io_provider[ 12 ];
-    ulong mean_account_footprint;
-
-    struct {
-      uint queue_depth;
-    } io_uring;
   } accounts;
 
   struct {
@@ -121,14 +111,12 @@ struct fd_configf {
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
-    uint snapshot_hash_tile_count;
-    uint snapwr_tile_count;
   } layout;
 
   struct {
     ulong max_live_slots;
+    int   fixed_fec_sets;
     ulong max_fork_width;
-    ulong max_account_cnt;
 
     struct {
       ulong heap_size_mib;
@@ -171,13 +159,24 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
-
-    struct {
-      ulong scheduler_depth;
-    } replay;
     struct {
       int validate_genesis_hash;
     } genesis;
+
+    struct {
+      char  format[ 16 ];
+      char  path[ PATH_MAX ];
+      ulong end_slot;
+    } ledger_input;
+
+    struct {
+      char  affinity[ AFFINITY_SZ ];
+      ulong root_distance;
+    } backtest;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } forktest;
   } development;
 
   struct {
@@ -188,6 +187,7 @@ struct fd_configf {
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
+
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -216,6 +216,7 @@ struct fd_config_net {
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
     char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
+    int  listen_gre;
     int  native_bond;
   } xdp;
 
@@ -252,6 +253,10 @@ struct fd_config {
     fd_configf_t firedancer;
   };
 
+  /* The name of the action being executed (e.g. "run", "dev",
+     "backtest").  Populated by fd_main before topo_init runs. */
+  char action[ 16 ];
+
   struct {
     char base[ PATH_MAX ];
     char identity_key[ PATH_MAX ];
@@ -259,6 +264,7 @@ struct fd_config {
     char snapshots[ PATH_MAX ];
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
+    char shredb[ PATH_MAX ];
   } paths;
 
   struct {
@@ -275,11 +281,6 @@ struct fd_config {
     /* File descriptor used for logging to the log file.  Stashed
        here for easy communication to child processes. */
     int  log_fd;
-
-    /* Shared memfd_create file descriptor where the first 4
-       bytes are the lock object for log sequencing.  Kind of
-       gross to stash this in here. */
-    int  lock_fd;
   } log;
 
   struct {
@@ -294,6 +295,8 @@ struct fd_config {
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
 
+    /* The IPv4 addr that [gossip.host] resolves to. */
+    uint          resolved_host;
     ushort        port;
   } gossip;
 
@@ -323,7 +326,6 @@ struct fd_config {
     int no_clone;
     int no_agave;
     int bootstrap;
-    uint debug_tile;
 
     char core_dump[ 16 ];
     int core_dump_level;
@@ -373,10 +375,6 @@ struct fd_config {
     } udpecho;
 
     struct {
-      int disable_lthash_verification;
-    } snapshots;
-
-    struct {
       char affinity[ AFFINITY_SZ ];
     } snapshot_load;
 
@@ -385,6 +383,10 @@ struct fd_config {
       char frontend_release_channel[ 16 ];
       int  frontend_release_channel_enum;
     } gui;
+
+    struct {
+      ulong partition_size_gib;
+    } accdb;
   } development;
 
   struct {
@@ -439,10 +441,12 @@ struct fd_config {
     } bundle;
 
     struct {
-      uint max_pending_transactions;
-      int  use_consumed_cus;
-      char schedule_strategy[ 16 ];
-      int  schedule_strategy_enum;
+      uint  max_pending_transactions;
+      int   use_consumed_cus;
+      char  schedule_strategy[ 16 ];
+      int   schedule_strategy_enum;
+      ulong account_blocklist_cnt;
+      char  account_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
     } pack;
 
     struct {
@@ -484,34 +488,25 @@ struct fd_config {
       ulong  max_http_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      int    delay_startup;
     } rpc;
 
     struct {
       ushort repair_intake_listen_port;
-      ushort repair_serve_listen_port;
       ulong  slot_max;
     } repair;
 
     struct {
+      int    enabled;
+      ushort repair_serve_listen_port;
+      ulong  shred_storage_limit_gib;
+    } rserve;
+
+    struct {
+      ulong max_transaction_lookahead_buffer_size;
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
-
-    struct {
-      int   enabled;
-      int   ingest_dead_slots;
-      ulong end_slot;
-      ulong root_distance;
-      char  rocksdb_path[ PATH_MAX ];
-      char  shredcap_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
-    } archiver;
-
-    struct {
-      int   enabled;
-      char  folder_path[ PATH_MAX ];
-      ulong write_buffer_size;
-    } shredcap;
 
   } tiles;
   struct {
@@ -560,7 +555,8 @@ fd_config_load( int           is_firedancer,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
-                fd_config_t * config );
+                fd_config_t * config,
+                int           dev );
 
 /* Create a memfd and write the raw underlying bytes of the provided
    config struct into it.  On success returns a file descriptor

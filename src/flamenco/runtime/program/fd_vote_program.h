@@ -11,12 +11,7 @@
 
 #include "../context/fd_exec_instr_ctx.h"
 #include "../fd_bank.h"
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L35
-#define MAX_LOCKOUT_HISTORY 31UL
-
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36
-#define MAX_EPOCH_CREDITS_HISTORY 64UL
+#include "vote/fd_vote_codec.h"
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L48
 #define VOTE_CREDITS_MAXIMUM_PER_SLOT 16
@@ -54,9 +49,8 @@
 #define FD_VOTE_STATE_V3_SZ (3762UL)
 #define FD_VOTE_STATE_V4_SZ (3762UL)
 
-/* Target vote state versions
-   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L639-L645 */
-#define VOTE_STATE_TARGET_VERSION_V3 (0)
+/* Target vote state version.
+   https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L33-L38 */
 #define VOTE_STATE_TARGET_VERSION_V4 (1)
 
 FD_PROTOTYPES_BEGIN
@@ -65,19 +59,6 @@ FD_PROTOTYPES_BEGIN
    for the vote program. */
 int
 fd_vote_program_execute( fd_exec_instr_ctx_t * ctx );
-
-/* An implementation of solana_sdk::transaction_context::BorrowedAccount::get_state
-   for setting the vote state.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965 */
-fd_vote_state_versioned_t *
-fd_vote_get_state( fd_account_meta_t const * meta,
-                   uchar *                   mem );
-
-void
-fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
-                            uchar *                     authorized_voters_mem,
-                            uchar *                     landed_votes_mem );
 
 FD_PROTOTYPES_END
 

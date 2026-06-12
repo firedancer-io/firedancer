@@ -18,7 +18,7 @@ FD_PROTOTYPES_BEGIN
    - block points to the output block (64 byte size, 64 byte align)
    - key points to the encryption key (32 byte size, 32 byte align)
    - idx_nonce points to the block index and block nonce
-     (first byte is 32-bit index, rest is 96-bit nonce)
+     (first word is 32-bit index, rest is 96-bit nonce)
      (16 byte size, 16 byte align)
 
    FIXME this should probably do multiple blocks */

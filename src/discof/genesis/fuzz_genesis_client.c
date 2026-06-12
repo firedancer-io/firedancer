@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <errno.h>
 #include <string.h>
 
@@ -22,7 +22,7 @@ int
 LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
   putenv( "FD_LOG_BACKTRACE=0" );
-  putenv( "FD_LOG_PATH=" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   atexit( fd_halt );
   fd_log_level_stderr_set(4);

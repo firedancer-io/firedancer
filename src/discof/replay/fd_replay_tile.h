@@ -1,9 +1,65 @@
 #ifndef HEADER_fd_src_discof_replay_fd_replay_tile_h
 #define HEADER_fd_src_discof_replay_fd_replay_tile_h
 
+/* Banks and Reasm
+   =================
+
+   OVERVIEW
+
+   Reasm maintains a tree of FEC sets organized as a main tree (rooted
+   at the published root) plus orphan trees.  Each FEC set in the
+   connected tree may be associated with a bank via bank_idx, or be
+   still unreplayed.  In general, reasm tries to approximate the state
+   of banks as closely as possible.  It's inexact, because reasm is
+   stored at the FEC unit, while banks are stored at the slot unit.
+
+   When reasm delivers a FEC set (via fd_reasm_pop), the replay tile
+   processes it by assigning it a bank.  If it's the first FEC in a
+   slot (fec_set_idx==0), a new bank is provisioned from the parent's
+   bank.  Subsequent FECs in the same slot inherit the bank_idx from
+   the preceding FEC.  This means all FEC sets within a single slot
+   share the same bank_idx, with the exception of equivocating FECs.
+
+   PUBLISHING (ROOT ADVANCEMENT)
+
+   When tower sends a new consensus root, replay advances the
+   published root along the rooted fork as far as possible.  A block
+   on the rooted fork is safe to prune when it and all minority fork
+   subtrees branching from it have refcnt 0.  Publishing calls
+   fd_reasm_publish to prune the reasm tree (and the store) of any
+   FEC sets that do not descend from the new root.
+
+   REASM EVICTION (POOL-PRESSURE EVICTION)
+
+   When the reasm pool is nearly full (1 free element remaining) and a
+   new FEC needs to be inserted, reasm runs its eviction policy to free
+   space.  The eviction in general prioritizes orphans first, and then
+   frontier slots that are incomplete.
+
+   If eviction succeeds, the evicted chain is returned as a linked
+   list of pool elements (removed from maps but still acquired in
+   the pool).  The replay tile is responsible for:
+     1. Publishing each evicted FEC to repair (REPLAY_SIG_REASM_EVICTED)
+        so repair can re-request the data.
+     2. Releasing each evicted element back to the reasm pool before
+        the next insert.
+
+   It's important to note that replay bank eviction is NOT coupled with
+   reasm FEC eviction.  Reasm FEC eviction is triggered by the reasm pool
+   being full, and is independent of the replay bank eviction.  Reasm
+   FEC eviction is triggered by the reasm pool being full while banks
+   eviction is triggered by the banks being full and the scheduler
+   being drained.
+
+   By evicting and publishing evicted FECs to repair, replay is
+   attempting a "go-around" strategy to ensure progress is made even
+   when memory pressure is high.  An evicted FEC - if valid - will be
+   requested by repair and eventually re-delivered to replay, where
+   hopefully by then there will be pool capacity to insert and replay
+   the FEC. */
+
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
-#include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -12,6 +68,14 @@
 #define REPLAY_SIG_BECAME_LEADER  (4)
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
+#define REPLAY_SIG_REASM_EVICTED  (7)
+#define REPLAY_SIG_WFS_DONE       (8)
+
+/* fd_replay_slot_completed promises that it will deliver at most 2
+   frags for a given slot (at most 2 equivocating blocks).  The first
+   block is the first one we replay to completion.  The second version
+   (if there is) is always the confirmed equivocating block.  This
+   guarantee is provided by fd_reasm. */
 
 struct fd_replay_slot_completed {
   ulong slot;
@@ -27,8 +91,7 @@ struct fd_replay_slot_completed {
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
-
-  ulong transaction_count;
+  ulong     transaction_count;   /* since genesis */
 
   struct {
     double initial;
@@ -48,7 +111,7 @@ struct fd_replay_slot_completed {
      eliminate non-timestamp fields and have consumers just use
      bank_idx. */
   ulong bank_idx;
-  ulong parent_bank_idx; /* ULONG_MAX if unavailable */
+  fd_accdb_fork_id_t accdb_fork_id;
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */
@@ -58,6 +121,17 @@ struct fd_replay_slot_completed {
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
+
+  /* since slot start, default ULONG_MAX */
+  ulong vote_success;
+  ulong vote_failed;
+  ulong nonvote_success;
+  ulong nonvote_failed;
+
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  ulong shred_cnt;
 
   struct {
     ulong block_cost;
@@ -84,7 +158,9 @@ struct fd_replay_oc_advanced {
 typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
 
 struct fd_replay_root_advanced {
-  ulong bank_idx;
+  ulong     bank_idx;
+  ulong     slot;
+  fd_hash_t bank_hash;
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 
@@ -101,6 +177,15 @@ struct fd_replay_txn_executed {
 };
 typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
 
+struct fd_replay_fec_evicted {
+  fd_hash_t mr;
+  ulong     slot;
+  uint      fec_set_idx;
+  ulong     bank_idx;
+};
+typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
+
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_root_advanced_t   root_advanced;
@@ -108,6 +193,7 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
+  fd_replay_fec_evicted_t          reasm_evicted;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

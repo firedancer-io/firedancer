@@ -36,7 +36,7 @@ static char const * FREE_HUGE_PAGE_PATH[ 2 ] = {
   "/sys/devices/system/node/node%lu/hugepages/hugepages-1048576kB/free_hugepages",
 };
 
-static ulong PAGE_SIZE[ 2 ] = {
+static ulong FD_PAGE_SIZE[ 2 ] = {
   2097152,
   1073741824,
 };
@@ -153,8 +153,8 @@ init( config_t const * config ) {
 
   ulong min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-    min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+    min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -164,7 +164,7 @@ init( config_t const * config ) {
     }
 
     char options[ 256 ];
-    FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", PAGE_SIZE[ i ], min_size[ i ] ) );
+    FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", FD_PAGE_SIZE[ i ], min_size[ i ] ) );
     FD_LOG_NOTICE(( "RUN: `mount -t hugetlbfs none %s -o %s`", mount_path[ i ], options ));
     if( FD_UNLIKELY( mount( "none", mount_path[ i ], "hugetlbfs", 0, options) ) )
       FD_LOG_ERR(( "mount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
@@ -194,7 +194,10 @@ warn_mount_users( char const * mount_path ) {
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   struct dirent * entry;
-  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_UNLIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
     char * endptr;
     ulong pid = strtoul( entry->d_name, &endptr, 10 );
@@ -203,7 +206,10 @@ warn_mount_users( char const * mount_path ) {
     char path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/maps", pid ) );
     FILE * fp = fopen( path, "r" );
-    if( FD_UNLIKELY( !fp && errno!=ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( !fp ) ) {
+      if( errno==ENOENT ) continue;
+      FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    }
 
     char self_cmdline[ PATH_MAX ];
     cmdline( self_cmdline, PATH_MAX );
@@ -222,7 +228,7 @@ warn_mount_users( char const * mount_path ) {
       FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
@@ -258,8 +264,8 @@ fini( config_t const * config,
 
             FD_LOG_ERR(( "Unmount of hugetlbfs at `%s` failed because the mount is still in use. "
                          "You can unmount it by killing all processes that are actively using files in "
-                         "the mount and running `fdctl configure fini hugetlbfs` again, or unmount "
-                         "manually with `umount %s`", mount_path[ i ], mount_path[ i ] ));
+                         "the mount and running `%s configure fini hugetlbfs` again, or unmount "
+                         "manually with `umount %s`", mount_path[ i ], FD_BINARY_NAME, mount_path[ i ] ));
           } else {
             FD_LOG_ERR(( "umount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
           }
@@ -300,8 +306,8 @@ check( config_t const * config,
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   ulong required_min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    required_min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-    required_min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+    required_min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    required_min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
   }
 
   struct stat st;

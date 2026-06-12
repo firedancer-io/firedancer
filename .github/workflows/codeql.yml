@@ -30,14 +30,15 @@ jobs:
       CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
+
       - uses: ./.github/actions/deps
         with:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
           extras: +dev
-      - uses: dtolnay/rust-toolchain@1.84.1
+      - uses: dtolnay/rust-toolchain@1.95.0
       - name: clean targets
         run: |
           make clean --silent >/dev/null
@@ -52,7 +53,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          queries: ./contrib/codeql/nightly
+          queries: ./contrib/codeql/src/nightly
           config: |
               disable-default-queries: true
       - if: matrix.build-mode == 'manual'

@@ -12,7 +12,7 @@
 
    ### Fork management
 
-   The program cache is fork-aware (using funk transactions).  Txn-level
+   The program cache is fork-aware (using transactions).  Txn-level
    operations take an exclusive lock over the cache (record ops are
    stalled indefinitely until the txn completes).
 
@@ -22,7 +22,7 @@
    (typically only zero or one, in rare cases where the program content
    differs across forks multiple).
 
-   A cache entry consists of a funk_rec object (from a preallocated
+   A cache entry consists of a progcache_rec object (from a preallocated
    object pool), and a variable-sized fd_progcache_entry struct
    (from an fd_alloc heap).
 
@@ -50,46 +50,44 @@
    2. a cache entry is orphaned (updated or invalidated by an epoch
       boundary) */
 
-#include "fd_progcache_rec.h"
+#include "fd_progcache.h"
 #include "fd_prog_load.h"
-#include "../accdb/fd_accdb_base.h"
+#include "fd_progcache_lineage.h"
 #include "../runtime/fd_runtime_const.h"
-#include "../../funk/fd_funk.h"
-
-#define FD_PROGCACHE_DEPTH_MAX (128UL)
 
 struct fd_progcache_metrics {
-  ulong fork_switch_cnt;
-  ulong miss_cnt;
+  ulong lookup_cnt;
   ulong hit_cnt;
-  ulong hit_tot_sz;
+  ulong miss_cnt;
+  ulong oom_heap_cnt;
+  ulong oom_desc_cnt;
   ulong fill_cnt;
   ulong fill_tot_sz;
-  ulong fill_fail_cnt;
-  ulong dup_insert_cnt;
-  ulong invalidate_cnt;
+  ulong spill_cnt;
+  ulong spill_tot_sz;
+  ulong evict_cnt;
+  ulong evict_tot_sz;
+  ulong cum_pull_ticks;
+  ulong cum_load_ticks;
 };
 
 typedef struct fd_progcache_metrics fd_progcache_metrics_t;
 
-/* fd_progcache_t is a thread-local client to a program cache funk
-   instance.  This struct is quite large and therefore not local/stack
+/* fd_progcache_t is a thread-local client to a program cache instance.
+   This struct is quite large and therefore not local/stack
    declaration-friendly. */
 
 struct fd_progcache {
-  fd_funk_t funk[1];
-
-  /* Current fork cache */
-  fd_funk_txn_xid_t fork[ FD_PROGCACHE_DEPTH_MAX ];
-  ulong             fork_depth;
+  fd_progcache_join_t join[1];
+  fd_progcache_lineage_t lineage[1];
 
   fd_progcache_metrics_t * metrics;
 
   uchar * scratch;
   ulong   scratch_sz;
-};
 
-typedef struct fd_progcache fd_progcache_t;
+  uint spill_active;
+};
 
 FD_PROTOTYPES_BEGIN
 
@@ -97,37 +95,16 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
 /* Constructor */
 
-static inline ulong
-fd_progcache_align( void ) {
-  return alignof(fd_progcache_t);
-}
-
-static inline ulong
-fd_progcache_footprint( void ) {
-  return sizeof(fd_progcache_t);
-}
-
-static inline fd_progcache_t *
-fd_progcache_new( void * ljoin ) {
-  return ljoin;
-}
-
-static inline void *
-fd_progcache_delete( void * ljoin ) {
-  return ljoin;
-}
-
-/* fd_progcache_join joins the caller to a program cache funk instance.
+/* fd_progcache_join joins the caller to a program cache shmem instance.
    scratch points to a FD_PROGCACHE_SCRATCH_ALIGN aligned scratch buffer
    and scratch_sz is the size of the largest program/ELF binary that is
    going to be loaded (typically max account data sz). */
 
 fd_progcache_t *
-fd_progcache_join( fd_progcache_t * ljoin,
-                   void *           shfunk,
-                   void *           shlocks,
-                   uchar *          scratch,
-                   ulong            scratch_sz );
+fd_progcache_join( fd_progcache_t *       ljoin,
+                   fd_progcache_shmem_t * shmem,
+                   uchar *                scratch,
+                   ulong                  scratch_sz );
 
 #define FD_PROGCACHE_SCRATCH_ALIGN     (64UL)
 #define FD_PROGCACHE_SCRATCH_FOOTPRINT FD_RUNTIME_ACC_SZ_MAX
@@ -135,22 +112,21 @@ fd_progcache_join( fd_progcache_t * ljoin,
 /* fd_progcache_leave detaches the caller from a program cache. */
 
 void *
-fd_progcache_leave( fd_progcache_t * cache,
-                    void **          opt_shfunk,
-                    void **          opt_shlocks );
-
-/* Record-level operations ********************************************/
+fd_progcache_leave( fd_progcache_t *        cache,
+                    fd_progcache_shmem_t ** opt_shmem );
 
 /* fd_progcache_peek queries the program cache for an existing cache
    entry.  Does not fill the cache.  Returns a pointer to the entry on
-   cache hit (invalidated by the next non-const API call).  Returns NULL
-   on cache miss. */
+   cache hit.  Returns NULL on cache miss.  It is the caller's
+   responsibility to release the returned record with
+   fd_progcache_rec_close. */
 
-fd_progcache_rec_t const *
-fd_progcache_peek( fd_progcache_t *          cache,
-                   fd_funk_txn_xid_t const * xid,
-                   void const *              prog_addr,
-                   ulong                     epoch_slot0 );
+fd_progcache_rec_t * /* read locked */
+fd_progcache_peek( fd_progcache_t *       cache,
+                   fd_progcache_fork_id_t fork_id,
+                   fd_pubkey_t const *    prog_addr,
+                   ulong                  feature_slot,
+                   ulong                  deploy_slot );
 
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:
@@ -164,32 +140,23 @@ fd_progcache_peek( fd_progcache_t *          cache,
    In other words, this method guarantees to return a cache entry if a
    deployed program was found in the account database, and the program
    either loaded successfully, or failed ELF/bytecode verification.
-   Or it returns  */
+   It is the caller's responsibility to release the returned record with
+   fd_progcache_rec_close. */
 
-fd_progcache_rec_t const *
+fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_accdb_user_t *          accdb,
-                   fd_funk_txn_xid_t const *  xid,
-                   void const *               prog_addr,
-                   fd_prog_load_env_t const * env );
+                   fd_progcache_fork_id_t     fork_id,
+                   fd_pubkey_t const *        prog_addr,
+                   fd_prog_load_env_t const * env,
+                   fd_acc_t const *           progdata_ro );
 
-/* fd_progcache_invalidate marks the program at the given address as
-   invalidated (typically due to a change of program content).  This
-   creates a non-executable cache entry at the given xid.
+/* fd_progcache_rec_close releases a cache record handle returned by
+   fd_progcache_{pull,peek}. */
 
-   After a program has been invalidated at xid, it is forbidden to pull
-   the same entry at the same xid.  (Invalidations should happen after
-   replaying transactions).
-
-   Assumes that xid is a valid fork graph node (not rooted) until
-   invalidate returns. */
-
-fd_progcache_rec_t const *
-fd_progcache_invalidate( fd_progcache_t *          cache,
-                         fd_funk_txn_xid_t const * xid,
-                         void const *              prog_addr,
-                         ulong                     slot );
+void
+fd_progcache_rec_close( fd_progcache_t *     cache,
+                        fd_progcache_rec_t * rec );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_fd_progcache_h */
+#endif /* HEADER_fd_src_flamenco_progcache_fd_progcache_user_h */

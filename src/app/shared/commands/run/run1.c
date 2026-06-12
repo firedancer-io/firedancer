@@ -36,8 +36,6 @@ run1_cmd_args( int *    pargc,
   (*pargv)++;
 }
 
-extern int * fd_log_private_shared_lock;
-
 typedef struct {
   config_t *       config;
   fd_topo_tile_t * tile;
@@ -48,15 +46,8 @@ static int
 tile_main( void * _args ) {
   tile_main_args_t * args = (tile_main_args_t *)_args;
 
-  volatile int * wait = NULL;
-  volatile int * debug = NULL;
-  if( FD_UNLIKELY( args->config->development.debug_tile ) ) {
-    if( FD_UNLIKELY( args->tile->id==args->config->development.debug_tile-1 ) ) *debug = fd_log_private_shared_lock[1];
-    else *wait = fd_log_private_shared_lock[1];
-  }
-
   fd_topo_run_tile_t run_tile = fdctl_tile_run( args->tile );
-  fd_topo_run_tile( &args->config->topo, args->tile, args->config->development.sandbox, 0, args->config->development.core_dump_level, args->config->uid, args->config->gid, args->pipefd, wait, debug, &run_tile );
+  fd_topo_run_tile( &args->config->topo, args->tile, args->config->development.sandbox, 0, args->config->development.core_dump_level, args->config->uid, args->config->gid, args->pipefd, &run_tile );
 
   /* If we get here, the tile run loop has requested to exit the tile,
      so it is cleanly shutting down. */
@@ -77,8 +68,6 @@ run1_cmd_fn( args_t *   args,
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
   FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", tile->name, tile->kind_id ) );
   fd_log_thread_set( thread_name );
-
-  if( FD_UNLIKELY( -1==close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_CPUSET_DECL( affinity );
   if( FD_UNLIKELY( -1==fd_cpuset_getaffinity( 0, affinity ) ) )

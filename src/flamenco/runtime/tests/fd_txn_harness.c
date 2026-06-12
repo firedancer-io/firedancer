@@ -4,10 +4,9 @@
 #include "fd_dump_pb.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../accdb/fd_accdb_admin_v1.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
-#include "../fd_system_ids.h"
+#include "../../../ballet/txn/fd_compact_u16.h"
 
 /* Macros to append data to construct a serialized transaction
    without exceeding bounds */
@@ -20,37 +19,26 @@
 #define FD_CHECKED_ADD_CU16_TO_TXN_DATA( _begin, _cur_data, _to_add ) __extension__({ \
    do {                                                                               \
       uchar _buf[3];                                                                  \
-      fd_bincode_encode_ctx_t _encode_ctx = { .data = _buf, .dataend = _buf+3 };      \
-      fd_bincode_compact_u16_encode( &_to_add, &_encode_ctx );                        \
-      ulong _sz = (ulong) ((uchar *)_encode_ctx.data - _buf );                        \
+      ulong _sz = (ulong)fd_cu16_enc( (ushort)_to_add, _buf );                        \
       FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                     \
    } while(0);                                                                        \
 })
 
-/* Retrieves the slot number from the clock sysvar account within the
-   txn context.  Throws FD_LOG_ERR if the clock sysvar is not found
-   or is malformed. */
-static ulong
-fd_solfuzz_pb_txn_ctx_get_slot( fd_exec_test_txn_context_t const * test_ctx ) {
-  for( ulong i=0UL; i<test_ctx->account_shared_data_count; i++ ) {
-    if( !memcmp( &test_ctx->account_shared_data[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
-      FD_TEST( test_ctx->account_shared_data[i].data->size==sizeof(fd_sol_sysvar_clock_t) );
-      return FD_LOAD( ulong, test_ctx->account_shared_data[i].data->bytes );
-    }
-  }
-  FD_LOG_ERR(( "invariant violation: clock sysvar account not found in txn context" ));
-}
-
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache_admin );
+  fd_progcache_reset( runner->progcache->join );
 
-  /* In order to check for leaks in the workspace, we need to compact the
-     allocators. Without doing this, empty superblocks may be retained
-     by the fd_alloc instance, which mean we cannot check for leaks. */
-  fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
-  fd_alloc_compact( runner->progcache_admin->funk->alloc );
+  /* Purge the fork attached in ctx_create so the accdb fork pool slot
+     is released back for reuse.  Without this, repeated harness
+     invocations (e.g. under a fuzzer) exhaust max_live_slots and the
+     next attach_child returns NULL, causing a segfault inside accdb. */
+  fd_accdb_purge( runner->accdb, runner->bank->accdb_fork_id );
+  int charge_busy = 0;
+  fd_accdb_background( runner->accdb, &charge_busy );
+
+  /* Compact the progcache allocator so empty superblocks are returned
+     to the workspace.  Required for the leak check to pass. */
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Creates transaction execution context for a single test case.
@@ -58,104 +46,65 @@ fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
 static fd_txn_p_t *
 fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
-  fd_accdb_user_t * accdb = runner->accdb;
+  fd_accdb_t * accdb = runner->accdb;
 
-  /* Set up the funk transaction */
-  ulong             slot = fd_solfuzz_pb_txn_ctx_get_slot( test_ctx );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->data->idx } };
-  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
+  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  runner->bank->f.slot            = slot;
+  runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
+
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
-  /* Initialize blockhash queue */
-  ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
-  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
-  for( uint i=0UL; i<txn_bank->blockhash_queue_count; i++ ) {
-    fd_exec_test_blockhash_queue_entry_t const * entry = &txn_bank->blockhash_queue[i];
-
-    fd_hash_t hash                   = FD_LOAD( fd_hash_t, entry->blockhash );
-    ulong     lamports_per_signature = entry->lamports_per_signature;
-
-    fd_blockhash_info_t * blockhash = fd_blockhashes_push_new( blockhashes, &hash );
-    blockhash->fee_calculator = (fd_fee_calculator_t){
-      .lamports_per_signature = lamports_per_signature
-    };
-  }
+  /* Blockhash queue */
+  fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
 
   /* RBH lamports per signature. In the Agave harness this is set inside
      the fee rate governor itself. */
-  fd_bank_rbh_lamports_per_sig_set( runner->bank, txn_bank->rbh_lamports_per_signature );
+  runner->bank->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
 
   /* Fee rate governor */
   FD_TEST( txn_bank->has_fee_rate_governor );
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( runner->bank );
-  *fee_rate_governor = (fd_fee_rate_governor_t){
-    .target_lamports_per_signature = txn_bank->fee_rate_governor.target_lamports_per_signature,
-    .target_signatures_per_slot    = txn_bank->fee_rate_governor.target_signatures_per_slot,
-    .min_lamports_per_signature    = txn_bank->fee_rate_governor.min_lamports_per_signature,
-    .max_lamports_per_signature    = txn_bank->fee_rate_governor.max_lamports_per_signature,
-    .burn_percent                  = (uchar)txn_bank->fee_rate_governor.burn_percent,
-  };
+  fd_solfuzz_pb_restore_fee_rate_governor( runner->bank, &txn_bank->fee_rate_governor );
 
-  /* Slot and parent slot */
-  fd_bank_slot_set( runner->bank, slot );
-  fd_bank_parent_slot_set( runner->bank, slot-1UL );
+  /* Parent slot */
+  runner->bank->f.parent_slot = slot-1UL;
 
   /* Total epoch stake */
-  fd_bank_total_epoch_stake_set( runner->bank, txn_bank->total_epoch_stake );
-
-  /* Epoch schedule */
-  FD_TEST( txn_bank->has_epoch_schedule );
-  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( runner->bank );
-  *epoch_schedule = (fd_epoch_schedule_t){
-    .slots_per_epoch             = txn_bank->epoch_schedule.slots_per_epoch,
-    .leader_schedule_slot_offset = txn_bank->epoch_schedule.leader_schedule_slot_offset,
-    .warmup                      = txn_bank->epoch_schedule.warmup,
-    .first_normal_epoch          = txn_bank->epoch_schedule.first_normal_epoch,
-    .first_normal_slot           = txn_bank->epoch_schedule.first_normal_slot
-  };
-
-  /* Rent */
-  FD_TEST( txn_bank->has_rent );
-  fd_rent_t * rent = fd_bank_rent_modify( runner->bank );
-  *rent = (fd_rent_t){
-    .lamports_per_uint8_year = txn_bank->rent.lamports_per_byte_year,
-    .exemption_threshold     = txn_bank->rent.exemption_threshold,
-    .burn_percent            = (uchar)txn_bank->rent.burn_percent
-  };
+  runner->bank->f.total_epoch_stake = txn_bank->total_epoch_stake;
 
   /* Features */
   FD_TEST( txn_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &txn_bank->features;
-  fd_features_t * features_bm = fd_bank_features_modify( runner->bank );
-  if( !fd_solfuzz_pb_restore_features( features_bm, feature_set ) ) {
-    return NULL;
-  }
+  fd_features_t * features_bm = &runner->bank->f.features;
+  FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
-  /* Epoch */
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  fd_bank_epoch_set( runner->bank, epoch );
-
-  /* Load account states into funk (note this is different from the account keys):
+  /* Load account states into accdb (note this is different from the account keys):
     Account state = accounts to populate Funk
     Account keys = account keys that the transaction needs */
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
+    fd_solfuzz_pb_load_account( runner->runtime, accdb, runner->bank->accdb_fork_id, &test_ctx->account_shared_data[i], i );
   }
 
-
-  fd_bank_ticks_per_slot_set( runner->bank, 64 );
-  fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );
+  runner->bank->f.ticks_per_slot = 64;
+  runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
 
   /* Restore sysvars from account context */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );
+  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
+
+  /* Epoch schedule */
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( &runner->bank->f.sysvar_cache, &runner->bank->f.epoch_schedule ) );
+
+  /* Epoch */
+  runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
+
+  /* Rent */
+  FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
@@ -219,9 +168,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 
   /* Recent blockhash (32 bytes) (https://solana.com/docs/core/transactions#recent-blockhash) */
   // Note: add an empty blockhash if none is provided
-  fd_hash_t msg_rbh = {0};
-  if( tx->message.recent_blockhash ) msg_rbh = FD_LOAD( fd_hash_t, tx->message.recent_blockhash->bytes );
-  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &msg_rbh, sizeof(fd_hash_t) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, tx->message.recent_blockhash, sizeof(fd_hash_t) );
 
   /* Compact array of instructions (https://solana.com/docs/core/transactions#array-of-instructions) */
   // Instruction count is a compact u16
@@ -290,7 +237,8 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          fd_runtime_t *        runtime,
                          fd_txn_in_t const *   txn_in,
                          int *                 exec_res,
-                         fd_txn_out_t *        txn_out ) {
+                         fd_txn_out_t *        txn_out,
+                         int                   reclaim_accounts ) {
 
   txn_out->err.is_committable = 1;
 
@@ -300,14 +248,16 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  runtime->accdb              = runner->accdb;
-  runtime->progcache          = runner->progcache;
-  runtime->status_cache       = NULL;
-  runtime->log.tracing_mem    = tracing_mem;
-  runtime->log.dumping_mem    = NULL;
-  runtime->log.capture_ctx    = NULL;
-  runtime->log.dump_proto_ctx = NULL;
-  runtime->log.txn_dump_ctx   = NULL;
+  runtime->accdb                 = runner->accdb;
+  runtime->progcache             = runner->progcache;
+  runtime->status_cache          = NULL;
+  runtime->log.tracing_mem       = tracing_mem;
+  runtime->log.dumping_mem       = NULL;
+  runtime->log.capture_ctx       = NULL;
+  runtime->log.dump_proto_ctx    = NULL;
+  runtime->log.txn_dump_ctx      = NULL;
+  runtime->fuzz.enabled          = 1;
+  runtime->fuzz.reclaim_accounts = reclaim_accounts;
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;
@@ -338,10 +288,9 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     fd_txn_out_t *       txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
     fd_log_collector_t * log     = fd_spad_alloc( runner->spad, alignof(fd_log_collector_t), sizeof(fd_log_collector_t) );
     runtime->log.log_collector = log;
-    runtime->acc_pool = runner->acc_pool;
     txn_in->txn = txn;
     txn_in->bundle.is_bundle = 0;
-    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out );
+    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out, 0 );
 
     /* Build result directly into the caller-owned output_buf */
     fd_exec_test_txn_result_t * txn_result = NULL;
@@ -351,9 +300,12 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         output_bufsz,
         txn_in,
         txn_out,
-        runner->bank,
         exec_res
     );
+
+    fd_solfuzz_direct_mapping_handle_cu_exhaustion(
+        runner, txn_out->details.compute_budget.compute_meter, exec_res,
+        txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
     fd_runtime_cancel_txn( runner->runtime, txn_out );

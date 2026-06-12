@@ -27,7 +27,7 @@ fd_lookup_ipliteral( struct address buf[ static 1 ],
   }
 
   char tmp[64];
-  char *p = strchr( name, '%' ), *z;
+  char const * p = strchr( name, '%' ), *z;
   ulong scopeid = 0;
   if( p && p-name < 64 ) {
     memcpy( tmp, name, (ulong)( p-name ) );
@@ -43,7 +43,7 @@ fd_lookup_ipliteral( struct address buf[ static 1 ],
   memcpy( &buf[0].addr, &a6, sizeof a6 );
   buf[0].family = AF_INET6;
   if( p ) {
-    if( fd_isdigit( *++p ) ) scopeid = strtoul( p, &z, 10 );
+    if( fd_isdigit( *++p ) ) scopeid = strtoul( p, fd_type_pun( &z ), 10 );
     else z = p-1;
     if( *z ) {
       if( !IN6_IS_ADDR_LINKLOCAL(&a6) &&

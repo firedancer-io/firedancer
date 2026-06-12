@@ -1,0 +1,4 @@
+| LargeMemset.c:34:5:34:10 | call to memset | This call to memset has a $@ (11 MB) that is larger than 10 MB. | LargeMemset.c:34:33:34:48 | ... * ... | size argument |
+| LargeMemset.c:35:5:35:13 | call to fd_memset | This call to memset has a $@ (11 MB) that is larger than 10 MB. | LargeMemset.c:35:36:35:53 | ... * ... | size argument |
+| LargeMemset.c:36:5:36:10 | call to memset | This call to memset has a $@ (11 MB) that is larger than 10 MB. | LargeMemset.c:36:33:36:53 | sizeof(huge_region_t) | size argument |
+| LargeMemset.c:37:5:37:13 | call to fd_memset | This call to memset has a $@ (11 MB) that is larger than 10 MB. | LargeMemset.c:37:36:37:56 | sizeof(huge_region_t) | size argument |

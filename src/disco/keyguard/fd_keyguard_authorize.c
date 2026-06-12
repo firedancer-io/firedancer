@@ -48,7 +48,7 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   off++;
   ulong bytes = fd_cu16_dec_sz( data+off, 3UL );
   if( bytes!=1UL ) return 0;
-  ulong acc_cnt = 2+signer_cnt;
+  ulong acc_cnt = 2UL + signer_cnt;
   if( data[off]!=acc_cnt ) return 0;
 
   /* The first account should always be the authority's public key. */
@@ -193,14 +193,18 @@ fd_keyguard_authorize_bundle_crank_txn( fd_keyguard_authority_t const * authorit
                                         uchar const *                   data,
                                         ulong                           sz,
                                         int                             sign_type ) {
+  (void)authority;
+
   static const uchar disc1[ 8 ] = { FD_BUNDLE_CRANK_DISC_INIT_TIP_DISTR };
   static const uchar disc2[ 8 ] = { FD_BUNDLE_CRANK_DISC_CHANGE_TIP_RCV };
   static const uchar disc3[ 8 ] = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD };
 
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
-  (void)authority;
-  /* TODO: we can check a lot more bytes */
+  /* We know that this check is not tight enough to prevent signing of
+     transactions with virtually arbitrary effect.  Currently, we take this
+     trade-off to avoid complex transaction parsing logic in keyguard. */
+
   switch( sz ) {
     case (FD_BUNDLE_CRANK_2_SZ-65UL):
       return fd_memeq( data+FD_BUNDLE_CRANK_2_IX1_DISC_OFF-65UL, disc2, 8UL ) &&
@@ -306,8 +310,8 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   int is_ambiguous = match_cnt != 1;
 
- /* We know that gossip, gossip prune, and repair messages are
-    ambiguous, so allow mismatches here. */
+  /* We know that gossip, repair request/response message are
+     ambiguous, so allow them to collide here. */
   int is_gossip_repair =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
@@ -395,10 +399,20 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   case FD_KEYGUARD_ROLE_BUNDLE_CRANK:
     if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));
+      FD_LOG_WARNING(( "unauthorized payload type for crank bundle (mask=%#lx)", payload_mask ));
       return 0;
     }
     return fd_keyguard_authorize_bundle_crank_txn( authority, data, sz, sign_type );
+
+  case FD_KEYGUARD_ROLE_RSERVE: {
+    int rserve_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
+                    fd_keyguard_authorize_ping( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !rserve_ok ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for rserve (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    return 1;
+  }
 
   default:
     FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));

@@ -8,7 +8,6 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 LEDGER=""
 RESTORE_ARCHIVE=""
 END_SLOT="0"
-FUNK_PAGES="16"
 INDEX_MAX="5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
@@ -18,14 +17,11 @@ INGEST_MODE="rocksdb"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
-DISABLE_LTHASH_VERIFICATION=true
-DB=${DB:="vinyl"}
 EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
 ROOT_DISTANCE="2"
@@ -57,11 +53,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -e|--end_slot)
        END_SLOT="$2"
-       shift
-       shift
-       ;;
-    -y|--funk-pages)
-       FUNK_PAGES="$2"
        shift
        shift
        ;;
@@ -97,10 +88,6 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    -v|--has-incremental)
-        HAS_INCREMENTAL="$2"
-        shift
-        ;;
     -nr|--no-redownload)
         REDOWNLOAD=0
         shift
@@ -116,14 +103,6 @@ while [[ $# -gt 0 ]]; do
     --log)
         LOG="$2"
         shift
-        shift
-        ;;
-    -lt|--lthash-verification)
-        DISABLE_LTHASH_VERIFICATION=false
-        shift
-        ;;
-    --funk)
-        DB=funk
         shift
         ;;
     --exec)
@@ -232,35 +211,32 @@ if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
   exit 0
 fi
 
-chmod -R 0700 $DUMP/$LEDGER
-
-if [[ -n "$GENESIS" ]]; then
-  HAS_INCREMENTAL="false"
+if [[ "$INGEST_MODE" == "shredcap" ]]; then
+  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+    echo "Converted rocksdb to shredcap"
+  fi
+  LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
+else
+  LEDGER_INPUT="$DUMP/$LEDGER/rocksdb"
 fi
+
+chmod -R 0700 $DUMP/$LEDGER
 
 CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
 cat <<EOF > ${CONFIG_FILE}
 [snapshots]
     max_full_snapshots_to_keep = 5
     max_incremental_snapshots_to_keep = 5
-    incremental_snapshots = $HAS_INCREMENTAL
     [snapshots.sources]
         servers = []
         [snapshots.sources.gossip]
             allow_any = false
             allow_list = []
 [layout]
-    snapshot_hash_tile_count = 1
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
-    [tiles.archiver]
-        enabled = true
-        end_slot = $END_SLOT
-        rocksdb_path = "$DUMP/$LEDGER/rocksdb"
-        shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"
-        ingest_mode = "$INGEST_MODE"
-        ingest_dead_slots = $INGEST_DEAD_SLOTS
-        root_distance = $ROOT_DISTANCE
+
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
@@ -270,6 +246,7 @@ cat <<EOF > ${CONFIG_FILE}
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
     max_fork_width = 4
+    fixed_fec_sets = false
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
     path = "$LOG"
@@ -277,31 +254,20 @@ cat <<EOF > ${CONFIG_FILE}
     snapshots = "$DUMP/$LEDGER"
     accounts = "/$DUMP/accounts.db"
 [development]
-    [development.snapshots]
-        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION
+    [development.ledger_input]
+        path = "$LEDGER_INPUT"
+        end_slot = $END_SLOT
+    [development.backtest]
+        root_distance = $ROOT_DISTANCE
 EOF
 
-if [[ "$DB" == "funk" ]]; then
-  cat <<EOF >> ${CONFIG_FILE}
-[accounts]
-    file_size_gib = $FUNK_PAGES
-    max_accounts = $INDEX_MAX
-EOF
-elif [[ "$DB" == "vinyl" ]]; then
-  if [[ "$INDEX_MAX" -lt "1000000" ]]; then
-    INDEX_MAX=1000000
-  fi
-  INDEX_MAX=$(( INDEX_MAX * 2 ))
-  cat <<EOF >> ${CONFIG_FILE}
-[accounts]
-    in_memory_only = false
-    max_accounts = $INDEX_MAX
-    file_size_gib = $((FUNK_PAGES * 4))
-    max_unrooted_account_size_gib = 2
-    cache_size_gib = 10
-    io_provider = "io_uring"
-EOF
+if [[ "$INDEX_MAX" -lt "1000000" ]]; then
+  INDEX_MAX=1000000
 fi
+cat <<EOF >> ${CONFIG_FILE}
+[accounts]
+    max_accounts = $INDEX_MAX
+EOF
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
@@ -309,14 +275,6 @@ if [[ -z "$GENESIS" ]]; then
 else
   echo "[paths]
     genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
-fi
-
-
-if [[ "$INGEST_MODE" == "shredcap" ]]; then
-  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
-  fi
-  echo "Converted rocksdb to shredcap"
 fi
 
 echo_notice "Running backtest for $LEDGER"
@@ -334,6 +292,8 @@ fi
 
 echo "Log for ledger $LEDGER at $LOG"
 
+rm -rf $DUMP/accounts.db
+
 # check that the ledger is not corrupted after a run
 if [[ $SKIP_CHECKSUM -eq 0 ]]; then
   check_ledger_checksum
@@ -345,13 +305,11 @@ if [ "$status" -eq 0 ]; then
   elapsed_time=$(grep "Backtest playback done." $LOG | grep -o "elapsed: [0-9.]*" | grep -o "[0-9.]*")
   echo "Replay time for $LEDGER: $elapsed_time seconds"
 
-  epoch_time_ns=$(grep "fd_process_new_epoch took" "$LOG" | grep -o "fd_process_new_epoch took [0-9]*" | grep -o "[0-9]*" | awk '{s+=$1} END {if(NR>0) printf "%.0f\n", s}')
-  epoch_count=$(grep -c "fd_process_new_epoch took" "$LOG")
-  if [ -n "$epoch_time_ns" ]; then
-    epoch_time_sec=$(printf "%.6f" "$(echo "$epoch_time_ns / 1000000000" | bc -l)")
-    epoch_avg_sec=$(printf "%.6f" "$(echo "$epoch_time_ns / $epoch_count / 1000000000" | bc -l)")
-    echo "Epoch boundary time for $LEDGER: ${epoch_time_sec} seconds (avg ${epoch_avg_sec} seconds over ${epoch_count} epochs)"
-  fi
+  while IFS= read -r epoch_line; do
+    epoch_num=$(echo "$epoch_line" | grep -o "starting epoch [0-9]*" | grep -o "[0-9]*")
+    epoch_time_sec=$(echo "$epoch_line" | grep -o "took [0-9.]*" | grep -o "[0-9.]*")
+    echo "Epoch $epoch_num boundary time for $LEDGER: ${epoch_time_sec} seconds"
+  done < <(grep "starting epoch .* took " "$LOG")
 
   echo_notice "Finished backtest for ledger $LEDGER\n"
   exit 0

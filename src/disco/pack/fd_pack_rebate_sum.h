@@ -31,6 +31,7 @@ struct fd_pack_rebate_sum_private {
   ulong vote_cost_rebate;
   ulong data_bytes_rebate;
   ulong microblock_cnt_rebate;
+  ulong alloc_rebate;
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
 
@@ -45,6 +46,7 @@ struct fd_pack_rebate {
   ulong vote_cost_rebate;
   ulong data_bytes_rebate;
   ulong microblock_cnt_rebate;
+  ulong alloc_rebate;
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
 

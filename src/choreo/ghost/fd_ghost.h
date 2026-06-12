@@ -84,7 +84,6 @@
    fd_ghost API for how that works. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_voters.h"
 
 typedef struct fd_ghost fd_ghost_t; /* forward decl*/
 
@@ -105,17 +104,30 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   ulong     sibling;     /* pool idx of the right-sibling */
   ulong     stake;       /* sum of stake that has voted for this slot or any of its descendants */
   ulong     total_stake; /* total stake for this blk */
-  int       eqvoc;       /* whether this block is equivocating. if so, it is invalid for fork choice unless duplicate confirmed */
-  int       conf;        /* whether this block is "duplicate confirmed" via gossip votes (>= 52% of stake) */
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
+  ulong     vtr_dlist_gaddr; /* wksp gaddr of the dlist of vtrs whose prev_block_id is this blk's id */
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
 
-/* fd_ghost_vtr_t keeps track of what a voter's previously voted for. */
+/* fd_ghost_vtr_t keeps track of what a voter previously voted for.  A
+   vtr lives on exactly one ghost blk's vtr_dlist at any time, identified
+   by prev_block_id.  When the voter switches forks, the vtr is moved
+   off the old blk's dlist onto the new blk's dlist.  When a blk is
+   pruned by fd_ghost_publish, every vtr on its dlist is released back
+   to the vtr_pool; if those voters vote again on a non-pruned blk, a
+   fresh vtr is acquired. */
 
 struct __attribute__((aligned(128UL))) fd_ghost_vtr {
   fd_pubkey_t addr;          /* map key, vote account address */
-  ulong       next;          /* reserved for internal use by fd_pool and fd_map_chain */
+  ulong       next;          /* reserved for internal use by fd_pool */
+  struct {
+    ulong prev;
+    ulong next;
+  } map;                     /* reserved for internal use by vtr_map_chain */
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;                   /* reserved for internal use by vtr_dlist */
   ulong       prev_stake;    /* previous vote stake (vote can be from prior epoch) */
   ulong       prev_slot;     /* previous vote slot */
   fd_hash_t   prev_block_id; /* previous vote block_id  */
@@ -188,6 +200,11 @@ fd_ghost_root( fd_ghost_t * ghost );
 fd_ghost_blk_t *
 fd_ghost_parent( fd_ghost_t * ghost, fd_ghost_blk_t * blk );
 
+/* fd_ghost_width returns the width of the ghost tree. */
+
+ulong
+fd_ghost_width( fd_ghost_t * ghost );
+
 /* fd_ghost_query returns the block keyed by block_id.  Returns NULL if
    not found. */
 
@@ -234,7 +251,7 @@ fd_ghost_slot_ancestor( fd_ghost_t     * ghost,
                         ulong            ancestor_slot );
 
 /* fd_ghost_invalid_ancestor returns the first ancestor on the same fork
-   as descendant that is marked invalid.  Does not include descendant
+   as descendant that is marked invalid.  Includes checking descendant
    itself.  Returns NULL if there are no invalid ancestors. */
 
 fd_ghost_blk_t *
@@ -243,35 +260,54 @@ fd_ghost_invalid_ancestor( fd_ghost_t     * ghost,
 
 /* Operations */
 
+/* fd_ghost_init initializes the ghost tree with a root block keyed by
+   block_id at the given slot.  Must be called exactly once before any
+   fd_ghost_insert calls.  Returns the new root block. */
+
+fd_ghost_blk_t *
+fd_ghost_init( fd_ghost_t      * ghost,
+               ulong             slot,
+               fd_hash_t const * block_id );
+
 /* fd_ghost_insert inserts a new tree node representing a block keyed by
    block_id (and slot).  parent_block_id is used to link this new block
-   to its parent in the ghost tree.  parent_block_id may only be NULL if
-   this is the very first ghost insert, in which case this new block
-   will be set to the ghost root.  Returns the new block.*/
+   to its parent in the ghost tree.  Returns the new block. */
 
 fd_ghost_blk_t *
 fd_ghost_insert( fd_ghost_t      * ghost,
+                 ulong             slot,
                  fd_hash_t const * block_id,
-                 fd_hash_t const * parent_block_id,
-                 ulong             slot );
+                 fd_hash_t const * parent_block_id );
+
+/* fd_ghost_count_vote return codes. */
+
+#define FD_GHOST_SUCCESS           ( 0) /* vote counted successfully */
+#define FD_GHOST_ERR_NOT_VOTED     (-1) /* slot == ULONG_MAX (hasn't voted) */
+#define FD_GHOST_ERR_VOTE_TOO_OLD  (-2) /* slot < root->slot */
+#define FD_GHOST_ERR_ALREADY_VOTED (-3) /* slot <= prev_slot (not newer) */
 
 /* fd_ghost_count_vote updates ghost's stake weights with the latest
    vote on the given voter's tower.  This counts pubkey's stake towards
    all ancestors on the same fork as block_id.  If the voter has
    previously voted, it subtracts the voter's previous stake from all
-   ancestors of vtr->prev_block_id. This ensures that only the most
+   ancestors of vtr->prev_block_id.  This ensures that only the most
    recent vote from a voter is counted (see top-level documentation
-   about the LMD rule).
+   about the LMD rule).  Returns FD_GHOST_SUCCESS on success, or a
+   negative FD_GHOST_ERR_* code if the vote was not counted.
+
+   Note that the vote is not counted if it's not newer than the voter's
+   previous slot.  This is done intentionally: equivocating votes will
+   be ignored.
 
    TODO the implementation can be made more efficient by incrementally
    updating and short-circuiting ancestor traversals.  Currently this is
    bounded to O(h), where h is the height of ghost ie. O(block_max) in
    the worst case. */
 
-void
+int
 fd_ghost_count_vote( fd_ghost_t *        ghost,
                      fd_ghost_blk_t *    blk,
-                     fd_pubkey_t const * vtr_addr,
+                     fd_pubkey_t const * vote_acc,
                      ulong               stake,
                      ulong               slot );
 
@@ -283,12 +319,29 @@ void
 fd_ghost_publish( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * newr );
 
+/* fd_ghost_confirm marks the block keyed by confirmed_block_id and its
+   entire ancestry (up to root) as valid for fork choice, short-
+   circuiting at the first ancestor that is already valid.  No-op if
+   confirmed_block_id is not in ghost.  Does not invalidate equivocating
+   blocks — the caller is responsible for calling fd_ghost_eqvoc on any
+   known equivocating block_ids. */
+
+void
+fd_ghost_confirm( fd_ghost_t      * ghost,
+                  fd_hash_t const * confirmed_block_id );
+
+/* fd_ghost_eqvoc marks the block keyed by block_id and all of its
+   descendants as invalid for fork choice.  No-op if block_id is not
+   in ghost. */
+
+void
+fd_ghost_eqvoc( fd_ghost_t      * ghost,
+                fd_hash_t const * block_id );
+
 /* Misc */
 
-/* fd_ghost_verify checks the ghost is not obviously corrupt, as well as
-   that ghost invariants are being preserved ie. the weight of every
-   ele is >= the sum of weights of its direct children.  Returns 0 if
-   verify succeeds, -1 otherwise. */
+/* fd_ghost_verify checks the ghost is not obviously corrupt.  Returns 0
+   if verify succeeds, -1 otherwise. */
 
 int
 fd_ghost_verify( fd_ghost_t * ghost );
@@ -308,13 +361,60 @@ fd_ghost_verify( fd_ghost_t * ghost );
      fd_ghost_to_cstr( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) ); // print from ele's grandparent
 
    */
-
 char *
 fd_ghost_to_cstr( fd_ghost_t const *     ghost,
                   fd_ghost_blk_t const * root,
                   char *                 cstr,
                   ulong                  cstr_max,
                   ulong *                cstr_len );
+
+/* fd_ghost_blk_map_remove removes blk from the ghost map.  Assumes blk
+   is in the map.  Returns blk. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_map_remove( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_map_insert inserts a ghost blk into the ghost map. */
+
+void
+fd_ghost_blk_map_insert( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_child returns the left-most child of blk, or NULL if
+   blk has no children. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_child( fd_ghost_t     * ghost,
+                    fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_sibling returns the next sibling of blk, or NULL if
+   blk has no more siblings. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_sibling( fd_ghost_t     * ghost,
+                      fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_next returns the block linked via blk->next (used for
+   traversing a temporary linked list built from removed map elements),
+   or NULL if at the end of the list. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_next( fd_ghost_t     * ghost,
+                   fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_idx returns the pool index corresponding to blk. */
+
+ulong
+fd_ghost_blk_idx( fd_ghost_t     * ghost,
+                  fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_idx_null returns the sentinel null index for the ghost
+   block pool. */
+
+ulong
+fd_ghost_blk_idx_null( fd_ghost_t * ghost );
+
 
 FD_PROTOTYPES_END
 

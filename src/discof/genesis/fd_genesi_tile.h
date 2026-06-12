@@ -7,7 +7,7 @@
    blob. */
 
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 
 #define FD_GENESIS_TILE_MTU (sizeof(fd_genesis_meta_t) + FD_GENESIS_MAX_MESSAGE_SIZE)
 
@@ -16,6 +16,7 @@ struct fd_genesis_meta {
   ulong has_lthash : 1;
 
   fd_hash_t         genesis_hash;
+  ulong             creation_time_seconds;
   fd_lthash_value_t lthash;
 
   ulong blob_sz;

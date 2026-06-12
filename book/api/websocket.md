@@ -523,7 +523,7 @@ Some interesting transitions are,
 	"topic": "summary",
 	"key": "boot_progress",
     "value": {
-        "phase": "loading_full_snapshot",
+        "phase": "waiting_for_supermajority",
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -545,7 +545,14 @@ Some interesting transitions are,
         "loading_incremental_snapshot_decompress_bytes_compressed": null,
         "loading_incremental_snapshot_insert_bytes_decompressed": null,
         "loading_incremental_snapshot_insert_accounts": null,
-        "catching_up_elapsed": null,
+        "wait_for_supermajority_bank_hash": "2CeCyRoYmcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5dGFi",
+        "wait_for_supermajority_shred_version": "37500",
+        "wait_for_supermajority_attempt": 1,
+        "wait_for_supermajority_total_stake": "1",
+        "wait_for_supermajority_connected_stake": "1",
+        "wait_for_supermajority_total_peers": 1,
+        "wait_for_supermajority_connected_peers": 1,
+        "catching_up_elapsed_seconds": null,
         "catching_up_first_replay_slot": null,
     }
 }
@@ -556,7 +563,7 @@ Some interesting transitions are,
 **`BootProgress`**
 | Field                                                                 | Type            | Description |
 |-----------------------------------------------------------------------|-----------------|-------------|
-| phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, or `running`. This indicates the current phase of the boot process |
+| phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
@@ -568,9 +575,30 @@ Some interesting transitions are,
 | loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
+| wait_for_supermajority_bank_hash                                      | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected bank hash of the snapshot bank.  This ensures all validators join the cluster with the same starting state. `null` if wait for supermajority is not enabled |
+| wait_for_supermajority_shred_version                                  | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected shred version it was configured with.  Shred version is functionally a hash of (genesis_hash, cluster_restart_history) which ensures only nodes which explicitly agree on the restart slot and restart attempt count can communicate with each other. `null` if wait for supermajority is not configured |
+| wait_for_supermajority_attempt                                        | `number\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the number of times this cluster has been restarted onto the snapshot slot, including the current attempt. `null` if wait for supermajority is not configured |
+| wait_for_supermajority_total_stake                                    | `string\|null`  | If the phase is at least `waiting_for_supermajority`, this is the total network stake in lamports used to determine the 80% restart threshold |
+| wait_for_supermajority_connected_stake                                | `string\|null`  | If the phase is at least `waiting_for_supermajority`, this is the network stake in lamports that is currently active on gossip and waiting for the restart threshold |
+| wait_for_supermajority_total_peers                                    | `number\|null`  | If the phase is at least `waiting_for_supermajority`, this is the total number of peers with an active stake |
+| wait_for_supermajority_connected_peers                                | `number\|null`  | If the phase is at least `waiting_for_supermajority`, this is the number of peers with an active stake currently active on gossip and waiting for the restart threshold |
 | catching_up_elapsed_seconds                                           | `number`        | If the phase is `catching_up`, this is the duration, in seconds, the validator has spent catching up to the current slot |
 | catching_up_first_replay_slot                                         | `number`        | If the phase is `catching_up`, this is the first slot that exited the replay pipeline after booting |
 
+
+The `wait_for_supermajority_*` fields will be `null` if the
+client is not configured to wait for a cluster restart, which is the
+case for typical client usage.
+
+The `wait_for_supermajority_*_stake` stake fields are derived
+differently from the `gossip.network_stats.health` activated stake
+(which is from the start of the epoch). These fields account for any
+stake that is activating/deactivating in the current epoch and any stake
+that was explicitly undelegated prior to restart (e.g. inactive testnet
+participants or bad actors).
+
+During the `waiting_for_supermajority` phase, per-peer offline status
+is available via the `wait_for_supermajority.peer_{add|remove}` message.
 
 #### `summary.schedule_strategy`
 | frequency  | type     | example |
@@ -896,15 +924,23 @@ Prometheus metrics endpoint
     "value": {
         "ingress": [12345432, 5431234, 92345, ...],
         "egress": [12345432, 5431234, 92345, ...],
+        "ingress_ema": [1234543.00, 543123.00, 9234.00, ...],
+        "egress_ema": [1234543.00, 543123.00, 9234.00, ...],
+        "ingress_max_5m": 15000000,
+        "egress_max_5m": 14500000,
     }
 }
 ```
 
 **`NetworkMetrics`**
-| Field   | Type       | Description |
-|---------|------------|-------------|
-| ingress | `number[]` | `ingress[i]` is the total number of ingress network bytes for `protocols[i]` |
-| egress  | `number[]` | `egress[i]` is the total number of egress network bytes for `protocols[i]` |
+| Field          | Type       | Description |
+|----------------|------------|-------------|
+| ingress        | `number[]` | `ingress[i]` is the total number of ingress network bytes for `protocols[i]` |
+| egress         | `number[]` | `egress[i]` is the total number of egress network bytes for `protocols[i]` |
+| ingress_ema    | `number[]` | `ingress_ema[i]` is the EMA-smoothed (1-second half-life) ingress throughput in bytes per second for `protocols[i]`, sampled every ~100 ms |
+| egress_ema     | `number[]` | `egress_ema[i]` is the EMA-smoothed (1-second half-life) egress throughput in bytes per second for `protocols[i]`, sampled every ~100 ms |
+| ingress_max_5m | `number`   | peak total EMA-smoothed (1-second half-life) ingress throughput in bytes per second across all protocols, rolling 5-minute window |
+| egress_max_5m  | `number`   | peak total EMA-smoothed (1-second half-life) egress throughput in bytes per second across all protocols, rolling 5-minute window |
 
 #### `summary.live_txn_waterfall`
 | frequency        | type               | example |
@@ -1233,6 +1269,16 @@ reported when you first connect by the `summary.tiles` message.
             23,
             12,
             ...
+        ],
+        "interrupts": [
+            0,
+            5821,
+            ...
+        ],
+        "priority": [
+            "normal",
+            "critical",
+            ...
         ]
     }
 }
@@ -1253,6 +1299,8 @@ reported when you first connect by the `summary.tiles` message.
 | minflt       | `number[]`           | `minflt[i]` is the number of minor page faults that occurred for tile `i` since startup. Minor page faults occur for requested pages already in memory, but not in the page table |
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
+| interrupts   | `number[]`           | `interrupts[i]` is the number of device IRQs handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
+| priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
 Note that a `null` entry in `timers` field indicates that the tile has
 not published new information about the following fields
@@ -1269,10 +1317,420 @@ tile have not been published for the following fields
 - nivcsw
 - minflt
 - majflt
-- cpu_idx
+- last_cpu
+- interrupts
 
 Since the fields are not nullable, they contain the previously held
 value. The client should ignore / interpolate them where applicable.
+
+#### `summary.live_program_cache`
+| frequency        | type                    | example |
+|------------------|-------------------------|---------|
+| *Once* + *100ms* | `ProgramCacheMetrics`   | below   |
+
+Live program cache metrics provides a live view of program cache
+performance and utilization across the replay and execution tiles. The
+program cache is a fixed-size, fork-aware, thread-concurrent cache over
+programs in the account database. It avoids re-loading and re-validating
+sBPF ELF binaries on every transaction execution.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "live_program_cache",
+    "value": {
+        "hits": 482910,
+        "lookups": 483200,
+        "insertions": 145,
+        "insertion_bytes": 18743296,
+        "evictions": 12,
+        "eviction_bytes": 1048576,
+        "spills": 0,
+        "spill_bytes": 0,
+        "free_bytes": 104857600,
+        "size_bytes": 134217728
+    }
+}
+```
+
+:::
+
+**`ProgramCacheMetrics`**
+| Field               | Type     | Description |
+|---------------------|----------|-------------|
+| hits                | `number` | Total number of program cache hits across all execution tiles over the last 1 minute. Misses can be derived as `lookups - hits` |
+| lookups             | `number` | Total number of program cache lookups across all execution tiles over the last 1 minute |
+| insertions          | `number` | Total number of program cache insertions across all execution tiles since startup |
+| insertion_bytes     | `number` | Total number of bytes inserted into the program cache since startup |
+| evictions           | `number` | Total number of program cache evictions across all execution tiles since startup |
+| eviction_bytes      | `number` | Total number of bytes evicted from the program cache since startup |
+| spills              | `number` | Total number of times a compiled program was not cached because the cache was full and no entry could be evicted. The program is executed from a temporary buffer instead, which is slower |
+| spill_bytes         | `number` | Total number of bytes used by spilled programs since startup |
+| free_bytes          | `number` | Current number of free bytes in the program cache heap |
+| size_bytes          | `number` | Total size in bytes of the program cache heap |
+
+The hit rate can be derived as `hits / lookups`. Heap utilization can be
+derived as `1 - (free_bytes / size_bytes)`. A healthy validator should
+have a high hit rate (close to 1.0) and low spill counts.
+
+#### `summary.health`
+| frequency        | type     | example |
+|------------------|----------|---------|
+| *Once* + *100ms* | `Health` | below   |
+
+Provides precise status information for the major validator
+subsystems. The status is computed by the diagnostics tile (diag),
+which periodically reads metrics from the relevant tiles and
+evaluates liveness conditions.
+
+Each subsystem reports a specific state string describing its
+current operational status. All subsystems share the `"disabled"`
+state, which indicates that the relevant tiles are not present in
+the topology or the feature is not configured. The remaining states
+are subsystem-specific and described below.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "health",
+    "value": {
+        "vote": "voting",
+        "bundle": "connected",
+        "replay": "running",
+        "turbine": "running"
+    }
+}
+```
+
+:::
+
+**`Health`**
+| Field   | Type     | Description |
+|---------|----------|-------------|
+| vote    | `string` | Vote subsystem status |
+| bundle  | `string` | Bundle subsystem status |
+| replay  | `string` | Replay subsystem status |
+| turbine | `string` | Turbine subsystem status |
+
+**`vote`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | The validator is non-voting, or the tower tile is not present in the topology |
+| `not_started`  | The tower tile exists but is not yet running, or the validator has not yet produced a vote (vote slot unset or replay slot is zero) |
+| `delinquent`   | The validator is voting but the vote distance exceeds 150 slots behind the replay slot, or the vote slot has not advanced in over 60 seconds |
+| `voting`       | The validator is voting and the vote distance is within threshold |
+
+**`bundle`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | No bundle tiles are configured in the topology |
+| `disconnected` | All bundle tiles are disconnected from their block engine |
+| `connecting`   | At least one bundle tile is attempting to connect, but none are connected or sleeping |
+| `connected`    | At least one bundle tile has an active connection to its block engine |
+| `sleeping`     | At least one bundle tile is deliberately sleeping (backing off before reconnecting), but none are connected |
+
+**`replay`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | The replay tile is not present in the topology |
+| `not_started`  | The replay tile exists but is not yet running, or the turbine slot or reset slot is zero (replay has not yet begun) |
+| `behind`       | The gap between the turbine slot and the reset slot exceeds 12 slots, or the reset slot has not advanced in over 12 seconds |
+| `running`      | The replay tile is keeping up with incoming turbine data |
+
+**`turbine`** states:
+| State              | Description |
+|--------------------|-------------|
+| `disabled`         | No shred tiles or no replay tile are present in the topology |
+| `not_started`      | The relevant tiles exist but are not yet all running, or the turbine slot is zero |
+| `stalled`          | The turbine slot has not advanced in over 12 seconds |
+| `repair_outpacing` | Turbine slot is advancing, but repair byte throughput has exceeded turbine byte throughput over the last 12-second window, indicating degraded turbine connectivity |
+| `running`          | Turbine is receiving shreds and its throughput exceeds repair |
+
+### accounts
+Live view of the accounts database backend. The accounts database is a
+log-structured store on disk, partitioned into fixed-size regions which
+are written sequentially and reclaimed by background compaction. A
+fixed-size in-memory cache, partitioned into size classes, sits in front
+of the disk. Events on this topic are only emitted to full clients
+(those connected with `?full=true`).
+
+#### `accounts.stats`
+| frequency        | type             | example |
+|------------------|------------------|---------|
+| *Once* + *100ms* | `AccountsStats`  | below   |
+
+A snapshot of the accounts database backend covering disk usage,
+in-progress compaction, per-class cache occupancy, aggregate IO rates,
+and per-partition state. All `*_per_sec` values are triangular-weighted
+moving-window rates over recent 100ms samples; cumulative counters are
+since process start.
+
+::: details Example
+
+```json
+{
+    "topic": "accounts",
+    "key": "stats",
+    "value": {
+        "sample_time_nanos": 1742000000000000000,
+        "disk": {
+            "accounts_total": 412563002,
+            "accounts_capacity": 536870912,
+            "allocated_bytes": 549755813888,
+            "current_bytes": 184583291392,
+            "used_bytes": 168540143616
+        },
+        "compaction": {
+            "in_compaction": 1,
+            "compactions_requested": 184,
+            "compactions_completed": 183,
+            "accounts_relocated_bytes": 9382913024,
+            "relocated_bytes_per_sec": 41943040.0
+        },
+        "cache": {
+            "hit_rate_ema": 0.9987,
+            "size_bytes": 68719476736,
+            "classes": [
+                {
+                    "class": 0,
+                    "used_slots": 524288,
+                    "max_slots": 1048576,
+                    "reserved_slots": 8192,
+                    "target_used_slots": 786432,
+                    "low_water_used_slots": 262144,
+                    "not_found": 1024,
+                    "evicted": 9381,
+                    "preevicted": 4012,
+                    "committed_new": 18472,
+                    "committed_overwrite": 1839204,
+                    "not_found_per_sec": 0.4,
+                    "evicted_per_sec": 12.1,
+                    "preevicted_per_sec": 5.2,
+                    "committed_new_per_sec": 1.9,
+                    "committed_overwrite_per_sec": 4189.3,
+                    "reads_per_sec": 8124.0,
+                    "writes_per_sec": 4189.0,
+                    "hit_rate_ema": 0.9999
+                }
+            ]
+        },
+        "io": {
+            "acquired": 184392013,
+            "acquired_writable": 92013874,
+            "bytes_read": 9183920128,
+            "bytes_copied": 184392013120,
+            "bytes_written": 21482938474,
+            "bytes_written_accdb": 9382913024,
+            "read_ops": 891203,
+            "write_ops": 1839204,
+            "acquired_per_sec": 38201.0,
+            "acquired_writable_per_sec": 19102.0,
+            "bytes_read_per_sec": 4194304.0,
+            "bytes_copied_per_sec": 83886080.0,
+            "bytes_written_per_sec": 10485760.0,
+            "read_ops_per_sec": 412.0,
+            "write_ops_per_sec": 819.0,
+            "prewrite_ratio": 0.42
+        },
+        "tiles": [
+            {
+                "name": "execle",
+                "kind_id": 0,
+                "joiner_type": "RW",
+                "status": 1,
+                "acquired": 12381924,
+                "bytes_read": 9183920,
+                "bytes_written": 18374822,
+                "acquired_per_sec": 4128.0,
+                "acquired_writable_per_sec": 2064.0,
+                "bytes_read_per_sec": 524288.0,
+                "bytes_copied_per_sec": 8388608.0,
+                "bytes_written_per_sec": 1048576.0,
+                "read_ops_per_sec": 41.0,
+                "write_ops_per_sec": 82.0,
+                "not_found_per_sec": 0.5,
+                "evicted_per_sec": 1.2,
+                "committed_per_sec": 2063.0,
+                "acquire_calls_per_sec": 0.0,
+                "hit_rate_ema": 0.9999
+            }
+        ],
+        "partitions": [
+            {
+                "partition_idx": 184,
+                "file_offset": 6597069766656,
+                "tier": 0,
+                "write_offset": 12884901888,
+                "bytes_freed": 0,
+                "read_ops": 41,
+                "bytes_read": 167936,
+                "write_ops": 8421,
+                "bytes_written": 12884901888,
+                "read_ops_per_sec": 0.4,
+                "bytes_read_per_sec": 4096.0,
+                "write_ops_per_sec": 819.0,
+                "bytes_written_per_sec": 10485760.0,
+                "utilization": 0.375,
+                "fragmentation": 0.0,
+                "used_frac": 0.375,
+                "fragmented_frac": 0.0,
+                "compaction_trigger_frac": 0.30,
+                "age_seconds": 184.2,
+                "filled_seconds": 0.0,
+                "compaction_state": 0,
+                "compaction_frac": 0.0,
+                "is_write_head": true
+            }
+        ]
+    }
+}
+```
+
+:::
+
+**`AccountsStats`**
+| Field             | Type             | Description |
+|-------------------|------------------|-------------|
+| sample_time_nanos | `number`         | Unix nanosecond timestamp at which this sample was taken |
+| disk              | `Disk`           | Disk-level capacity and utilization (see below) |
+| compaction        | `Compaction`     | Aggregate compaction activity (see below) |
+| cache             | `Cache`          | In-memory cache occupancy and per-size-class metrics (see below) |
+| io                | `Io`             | Aggregate IO counters and rates across all accdb joiners (see below) |
+| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity, one entry per consumer tile in stable order. The snapshot-loader `snapwr` row disappears once it reaches the shutdown status |
+| partitions        | `Partition[]`    | Per-partition snapshot. Partitions that have never been written and are not being compacted are omitted |
+
+**`Disk`**
+| Field             | Type     | Description |
+|-------------------|----------|-------------|
+| accounts_total    | `number` | Current number of accounts indexed by the database |
+| accounts_capacity | `number` | Maximum number of accounts the index can hold |
+| allocated_bytes   | `number` | Total bytes reserved on disk for the accounts database file |
+| current_bytes     | `number` | Bytes currently committed within partitions (including fragmentation) |
+| used_bytes        | `number` | Bytes currently in use by live account data (excluding fragmentation) |
+
+**`Compaction`**
+| Field                    | Type     | Description |
+|--------------------------|----------|-------------|
+| in_compaction            | `number` | Non-zero if a partition is currently being compacted |
+| compactions_requested    | `number` | Total number of partition compactions enqueued since startup |
+| compactions_completed    | `number` | Total number of partition compactions completed since startup |
+| accounts_relocated_bytes | `number` | Total bytes of account data rewritten by compaction since startup |
+| relocated_bytes_per_sec  | `number` | Recent rate at which compaction is rewriting account data, in bytes per second |
+
+**`Cache`**
+| Field        | Type            | Description |
+|--------------|-----------------|-------------|
+| hit_rate_ema | `number`        | Recent cache hit rate across all classes, in the range `[0, 1]` |
+| size_bytes   | `number`        | Total in-memory cache footprint in bytes |
+| classes      | `CacheClass[]`  | One entry per cache size class, in ascending class order (see below) |
+
+**`CacheClass`**
+Accounts are bucketed into 8 size classes by data length: `0` covers up
+to 128 B, `1` covers 129 B - 512 B, `2` covers 513 B - 2 KiB, `3` covers
+2 KiB - 8 KiB, `4` covers 8 KiB - 32 KiB, `5` covers 32 KiB - 128 KiB,
+`6` covers 128 KiB - 1 MiB, and `7` covers 1 MiB - 10 MiB.
+
+| Field                        | Type     | Description |
+|------------------------------|----------|-------------|
+| class                        | `number` | The size class index, `0` through `7` |
+| used_slots                   | `number` | Number of cache slots in this class currently holding an account |
+| max_slots                    | `number` | Total number of cache slots provisioned for this class |
+| reserved_slots               | `number` | Slots held in reserve for prewrite, not available for eviction |
+| target_used_slots            | `number` | Steady-state target occupancy for this class |
+| low_water_used_slots         | `number` | Occupancy below which the class will not preemptively evict |
+| not_found                    | `number` | Cumulative count of cache misses (account had to be read from disk) for this class |
+| evicted                      | `number` | Cumulative count of cache lines reclaimed from this class to make room |
+| preevicted                   | `number` | Cumulative count of cache lines speculatively reclaimed in advance by the background accdb tile |
+| committed_new                | `number` | Cumulative count of brand-new account versions committed at this class |
+| committed_overwrite          | `number` | Cumulative count of overwrite commits (existing fork + generation) at this class |
+| not_found_per_sec            | `number` | Recent rate of misses, in accounts per second |
+| evicted_per_sec              | `number` | Recent rate of evictions, in accounts per second |
+| preevicted_per_sec           | `number` | Recent rate of background pre-evictions, in accounts per second |
+| committed_new_per_sec        | `number` | Recent rate of new commits, in accounts per second |
+| committed_overwrite_per_sec  | `number` | Recent rate of overwrite commits, in accounts per second |
+| reads_per_sec                | `number` | Recent rate of read-only acquires at this class, in accounts per second |
+| writes_per_sec               | `number` | Recent rate of writable acquires at this class, in accounts per second |
+| hit_rate_ema                 | `number` | Recent hit rate at this class, in the range `[0, 1]` |
+
+**`Io`**
+| Field                       | Type     | Description |
+|-----------------------------|----------|-------------|
+| acquired                    | `number` | Cumulative count of accounts acquired (read or write) by any joiner since startup |
+| acquired_writable           | `number` | Cumulative count of accounts acquired writable since startup |
+| bytes_read                  | `number` | Cumulative bytes read from disk since startup |
+| bytes_copied                | `number` | Cumulative bytes copied out of the cache on a hit since startup |
+| bytes_written               | `number` | Cumulative bytes written to disk since startup |
+| bytes_written_accdb         | `number` | Cumulative bytes written to disk by the accdb tile background work (preevict and compaction) since startup |
+| read_ops                    | `number` | Cumulative disk read operations since startup |
+| write_ops                   | `number` | Cumulative disk write operations since startup |
+| acquired_per_sec            | `number` | Recent acquire rate, in accounts per second |
+| acquired_writable_per_sec   | `number` | Recent writable acquire rate, in accounts per second |
+| bytes_read_per_sec          | `number` | Recent disk read throughput, in bytes per second |
+| bytes_copied_per_sec        | `number` | Recent cache-hit copy throughput, in bytes per second |
+| bytes_written_per_sec       | `number` | Recent disk write throughput, in bytes per second |
+| read_ops_per_sec            | `number` | Recent disk read operation rate, in operations per second |
+| write_ops_per_sec           | `number` | Recent disk write operation rate, in operations per second |
+| prewrite_ratio              | `number` | Fraction of recent disk writes attributable to background prewrite/compaction, in the range `[0, 1]` |
+
+**`Tile`**
+| Field                       | Type     | Description |
+|-----------------------------|----------|-------------|
+| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `tower`, `rpc`, `resolv`, or `snapwr` |
+| kind_id                     | `number` | Instance index within this tile kind |
+| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `tower`, `snapwr`), `RO` if it only reads (`rpc`, `resolv`) |
+| status                      | `number` | `1` if the tile is running, `2` if it has gracefully shut down |
+| acquired                    | `number` | Cumulative count of accounts this tile has acquired since startup |
+| bytes_read                  | `number` | Cumulative bytes this tile has read from disk since startup |
+| bytes_written               | `number` | Cumulative bytes this tile has written to disk since startup |
+| acquired_per_sec            | `number` | Recent acquire rate for this tile, in accounts per second |
+| acquired_writable_per_sec   | `number` | Recent writable acquire rate for this tile, in accounts per second (always `0` for `RO` tiles and `snapwr`) |
+| bytes_read_per_sec          | `number` | Recent disk read throughput for this tile, in bytes per second |
+| bytes_copied_per_sec        | `number` | Recent cache-hit copy throughput for this tile, in bytes per second |
+| bytes_written_per_sec       | `number` | Recent disk write throughput for this tile, in bytes per second |
+| read_ops_per_sec            | `number` | Recent disk read operation rate for this tile |
+| write_ops_per_sec           | `number` | Recent disk write operation rate for this tile |
+| not_found_per_sec           | `number` | Recent rate of cache misses (account had to be read from disk) for this tile |
+| evicted_per_sec             | `number` | Recent rate at which this tile's commits evicted lines from the cache (always `0` for `RO` tiles and `snapwr`) |
+| committed_per_sec           | `number` | Recent rate of account version commits (new + overwrite) by this tile (always `0` for `RO` tiles and `snapwr`) |
+| acquire_calls_per_sec       | `number` | Recent rate of accounts database acquire calls (account lookups) by this tile |
+| hit_rate_ema                | `number` | Recent cache hit rate for this tile, in the range `[0, 1]` |
+
+**`Partition`**
+Partitions are fixed-size regions of the on-disk accounts database file.
+Each partition is assigned to a compaction tier (`layer`) and accumulates
+writes from the active write head for that tier; once a partition crosses
+the compaction trigger it is enqueued and later compacted into a higher
+tier, after which it is reclaimed.
+
+| Field                   | Type      | Description |
+|-------------------------|-----------|-------------|
+| partition_idx           | `number`  | Stable index of the partition within the database |
+| file_offset             | `number`  | Byte offset of the partition's start within the accounts database file |
+| tier                    | `number`  | Compaction tier: `0` (hot), `1` (warm), `2` (cold), or `255` (off, fully compacted and awaiting reclaim) |
+| write_offset            | `number`  | Byte offset of the partition's write head within the partition |
+| bytes_freed             | `number`  | Bytes within the partition marked freed by subsequent writes |
+| read_ops                | `number`  | Cumulative read operations against this partition since process start |
+| bytes_read              | `number`  | Cumulative bytes read from this partition since process start |
+| write_ops               | `number`  | Cumulative write operations into this partition since process start |
+| bytes_written           | `number`  | Cumulative bytes written into this partition since process start |
+| read_ops_per_sec        | `number`  | Recent read operation rate against this partition |
+| bytes_read_per_sec      | `number`  | Recent read throughput against this partition, in bytes per second |
+| write_ops_per_sec       | `number`  | Recent write operation rate into this partition |
+| bytes_written_per_sec   | `number`  | Recent write throughput into this partition, in bytes per second |
+| utilization             | `number`  | Fraction of the partition occupied by writes, in the range `[0, 1]` |
+| fragmentation           | `number`  | Fraction of the written region marked freed, in the range `[0, 1]` |
+| used_frac               | `number`  | Fraction of the partition occupied by live (non-freed) data |
+| fragmented_frac         | `number`  | Fraction of the partition occupied by freed data |
+| compaction_trigger_frac | `number`  | Fragmentation fraction at which the partition is enqueued for compaction |
+| age_seconds             | `number`  | Seconds since the partition was first opened for writes |
+| filled_seconds          | `number`  | Seconds since the partition was closed to new writes, or `0` if still active |
+| compaction_state        | `number`  | `0` idle, `1` queued for compaction, `2` currently being compacted |
+| compaction_frac         | `number`  | Fraction of the partition that the compaction read head has processed |
+| is_write_head           | `boolean` | True if this partition is the active write head for any tier |
 
 ### block_engine
 Block engines are providers of additional transactions to the validator,
@@ -1290,9 +1748,14 @@ name and url will not change during the lifetime of the validator.
 
 ```json
 {
-    "name": "jito",
-    "url": "https://mainnet.block-engine.jito.wtf",
-    "status": "connected"
+    "topic": "block_engine",
+    "key": "update",
+    "value": {
+        "name": "jito",
+        "url": "https://mainnet.block-engine.jito.wtf",
+        "ip": "141.98.216.97",
+        "status": "connected"
+    }
 }
 ```
 
@@ -1303,6 +1766,7 @@ name and url will not change during the lifetime of the validator.
 |------------|----------|-------------|
 | name       | `string` | A short, descriptive name for the block engine |
 | url        | `string` | An HTTP URL for the block engine which the validator client connects to |
+| ip         | `string` | The resolved IP address of the block engine |
 | status     | `string` | One of `disconnected`, `connecting`, or `connected` indicating the state of the connection to the block engine |
 
 ### epoch
@@ -1645,7 +2109,7 @@ direction of `0`. Note that the relative ordering of columns with
 #### `gossip.peers_size_update`
 | frequency | type     | example     |
 |-----------|----------|-------------|
-| *Request* | `number` | below       |
+| *Live*    | `number` | below       |
 
 The latest known count of the number of rows in the gossip peer table.
 This is sent every time the total number of rows in the gossip peer
@@ -1676,18 +2140,22 @@ values).
 
 ```json
 {
-    "changes": [
-        {
-            "row_index": 10,
-            "column_name": "IP Address",
-            "new_value": "192.168.0.1"
-        },
-        {
-            "row_index": 10,
-            "column_name": "Port",
-            "new_value": 12345
-        }
-    ]
+    "topic": "gossip",
+    "key": "view_update",
+    "value": {
+        "changes": [
+            {
+                "row_index": 10,
+                "column_name": "IP Address",
+                "new_value": "192.168.0.1"
+            },
+            {
+                "row_index": 10,
+                "column_name": "Port",
+                "new_value": 12345
+            }
+        ]
+    }
 }
 ```
 
@@ -1748,7 +2216,7 @@ identity is no longer in these three data sources, it will be removed.
             },
             "vote": [
                 {
-                    "vote_pubkey": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
+                    "vote_account": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
                     "activated_stake": "5812",
                     "last_vote": 281795801,
                     "root_slot": 281795770,
@@ -1789,7 +2257,7 @@ identity is no longer in these three data sources, it will be removed.
 **`PeerUpdateVoteAccount`**
 | Field           | Type           | Description |
 |-----------------|----------------|-------------|
-| vote_pubkey     | `string`       | The public key of vote account, encoded in base58 |
+| vote_account    | `string`       | The public key of vote account, encoded in base58 |
 | activated_stake | `string`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
 | last_vote       | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
 | root_slot       | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
@@ -1830,6 +2298,107 @@ list of gossip peers added, removed, or updated. The list of peers is
 full and includes this node itself, nodes with a different
 `shred_version`, nodes publishing corrupt or bad information, and so
 on.
+
+### wait_for_supermajority
+Messages published during the wait-for-supermajority phase. These
+messages are only published if the client is configured to boot with
+the `waiting_for_supermajority` phase enabled.
+
+#### `wait_for_supermajority.stakes`
+| frequency | type                          | example |
+|-----------|-------------------------------|---------|
+| *Once*    | `WaitForSupermajorityEpoch`   | below   |
+
+Sent once per connection, after the snapshot is fully loaded and
+validator info has been parsed from the ConfigProgram accounts in
+the snapshot.
+
+::: details Example
+
+```json
+{
+    "topic": "wait_for_supermajority",
+    "key": "stakes",
+    "value": {
+        "staked_pubkeys": [
+            "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+            "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi",
+            "6JPDr4URdEDP5MqPgmDT6jk2nToyMUzNU27qsGxrRgKz"
+        ],
+        "staked_lamports": [
+            "360",
+            "240",
+            "180"
+        ],
+        "infos": [
+            null,
+            null,
+            {
+                "name": "Validator",
+                "details": "",
+                "website": "",
+                "icon_url": "",
+                "keybase_username": ""
+            }
+        ]
+    }
+}
+```
+
+:::
+
+**`WaitForSupermajorityEpoch`**
+| Field           | Type                       | Description |
+|-----------------|----------------------------|-------------|
+| staked_pubkeys  | `string[]`                 | Identity pubkeys of all staked validators in the snapshot epoch, base58 encoded |
+| staked_lamports | `string[]`                 | A list with the same length as `staked_pubkeys`. `staked_lamports[ i ]` is the number of lamports staked on `staked_pubkeys[ i ]` |
+| infos           | `(PeerUpdateInfo\|null)[]` | A list with the same length as `staked_pubkeys`. Each element is a `PeerUpdateInfo` object if the validator has published self-reported info via ConfigProgram in the snapshot, or `null` otherwise |
+
+#### `wait_for_supermajority.peer_add`
+| frequency       | type       | example |
+|-----------------|------------|---------|
+| *Once* + *Live* | `string[]` | below   |
+
+::: details Example
+
+```json
+{
+    "topic": "wait_for_supermajority",
+    "key": "peer_add",
+    "value": [
+        "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+        "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi"
+    ]
+}
+```
+
+:::
+
+Value is a flat array of base58-encoded identity pubkeys that have come
+online since the last message (or all currently-online peers on initial
+connect).
+
+#### `wait_for_supermajority.peer_remove`
+| frequency | type       | example |
+|-----------|------------|---------|
+| *Live*    | `string[]` | below   |
+
+::: details Example
+
+```json
+{
+    "topic": "wait_for_supermajority",
+    "key": "peer_remove",
+    "value": [
+        "9aE6Bp1hbDpMFKqnWGUMbfxfMPXswPbkNwNrSjhpFiSN"
+    ]
+}
+```
+
+:::
+
+Value is a flat array of base58-encoded identity pubkeys that have gone
+offline (activity timeout expired) since the last message.
 
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be
@@ -1903,10 +2472,10 @@ initially replay one but the cluster votes on the other one.
 | duration_nanos               | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos         | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
 | level                        | `string`       | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimistically confirmed or rooted), or also because the validator switched forks |
-| success_nonvote_transactions | `number\|null` | Total number of successfully executed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| failed_nonvote_transactions  | `number\|null` | Total number of failed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| success_vote_transactions    | `number\|null` | Total number of successfully executed vote transactions in the block |
-| failed_vote_transactions     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
+| success_nonvote_transaction_cnt | `number\|null` | Total number of successfully executed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| failed_nonvote_transaction_cnt  | `number\|null` | Total number of failed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| success_vote_transaction_cnt    | `number\|null` | Total number of successfully executed vote transactions in the block |
+| failed_vote_transaction_cnt     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
 | max_compute_units            | `number\|null` | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
 | compute_units                | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verification programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
 | shreds                       | `number\|null` | Total number of shreds in the successfully replayed block. Note value is only available in the Firedancer client and will be 0 or null in the Frankendancer client |
@@ -1988,7 +2557,7 @@ and is broadcast to all WebSocket clients.
 ```json
 {
 	"topic": "slot",
-	"key": "shreds",
+	"key": "live_shreds",
 	"value": {
         "reference_slot": 289245044,
         "reference_ts": "1739657041588242791",
@@ -2008,9 +2577,9 @@ and is broadcast to all WebSocket clients.
 | reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
-| shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| events          | `number[]`         | `events[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
-| events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
+| shred_idx       | `(number\|null)[]` | `shred_idx[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
+| event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
+| event_ts_delta  | `string[]`         | `reference_ts + event_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
 
 #### `slot.query_shreds`
 | frequency   | type          | example |
@@ -2189,10 +2758,10 @@ explicitly mentioned, skipped slots are not included.
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transactions": 6821,
-            "failed_nonvote_transactions": 6746,
-            "success_vote_transactions": 3703,
-            "failed_vote_transactions": 0,
+            "success_nonvote_transaction_cnt": 6821,
+            "failed_nonvote_transaction_cnt": 6746,
+            "success_vote_transaction_cnt": 3703,
+            "failed_vote_transaction_cnt": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
@@ -2221,7 +2790,7 @@ explicitly mentioned, skipped slots are not included.
 ```json
 {
     "topic": "slot",
-    "key": "query",
+    "key": "query_detailed",
     "id": 32,
     "params": {
         "slot": 289245044
@@ -2244,10 +2813,10 @@ explicitly mentioned, skipped slots are not included.
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transactions": 6821,
-            "failed_nonvote_transactions": 6746,
-            "success_vote_transactions": 3703,
-            "failed_vote_transactions": 0,
+            "success_nonvote_transaction_cnt": 6821,
+            "failed_nonvote_transaction_cnt": 6746,
+            "success_vote_transaction_cnt": 3703,
+            "failed_vote_transaction_cnt": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
@@ -2407,10 +2976,10 @@ explicitly mentioned, skipped slots are not included.
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transactions": 6821,
-            "failed_nonvote_transactions": 6746,
-            "success_vote_transactions": 3703,
-            "failed_vote_transactions": 0,
+            "success_nonvote_transaction_cnt": 6821,
+            "failed_nonvote_transaction_cnt": 6746,
+            "success_vote_transaction_cnt": 3703,
+            "failed_vote_transaction_cnt": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
@@ -2448,19 +3017,20 @@ explicitly mentioned, skipped slots are not included.
             "txn_bank_idx": [0],
             "txn_compute_units_consumed": [3428],
             "txn_compute_units_requested": [3428],
-            "txn_end_timstamps_nanos": ["1754409729594477657"],
+            "txn_check_start_timestamps_nanos": ["1754409729594432846"],
+            "txn_commit_end_timestamps_nanos": ["1754409729594500000"],
+            "txn_commit_start_timestamps_nanos": ["1754409729594477657"],
             "txn_error_code": [0],
+            "txn_execute_start_timestamps_nanos": ["1754409729594455631"],
             "txn_from_bundle": [false],
             "txn_is_simple_vote": [true],
             "txn_landed": [true],
-            "txn_load_end_timstamps_nanos": ["1754409729594455631"],
+            "txn_load_start_timestamps_nanos": ["1754409729594451074"],
             "txn_mb_end_timestamps_nanos": ["1754409729594625003"],
             "txn_mb_start_timestamps_nanos": ["1754409729594431327"],
             "txn_microblock_id": [0],
-            "txn_preload_end_timstamps_nanos": ["1754409729594432846"],
             "txn_priority_fee": ["0"],
             "txn_signature": ["2BfWBnhTP1ZZwFZutwThj5VT1hX71X9otbgFr21W2XJfcppXakbPCvJ2eCh8eBcS74Lfjar5AuowuppAjsEceSuW"],
-            "txn_start_timstamps_nanos": ["1754409729594451074"],
             "txn_transaction_fee": [0],
             "txn_tips": ["0"],
             "txn_source_ipv4": ["123.123.123.123"],
@@ -2575,7 +3145,7 @@ explicitly mentioned, skipped slots are not included.
 |------------------------------|-------------------|-------------|
 | block_hash                   | `string`          | The final POH hash in the block as a base58 encoded string |
 | end_slot_reason              | `string`          | The reason pack ended packing for this leader slot. One of `"timeout"`, `"microblock_limit"`, or `"leader_switch"` |
-| slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_taken", "fail_fast_path", "fail_byte_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
+| slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_cu_limit", "fail_fast_path", "fail_byte_limit", "fail_alloc_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_alloc_limit" means Pack skipped the transaction because it would have exceeded the block account allocation limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
 | pending_smallest_cost        | `number`          | The cost in compute units of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
 | pending_smallest_bytes       | `number`          | The size in bytes of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
@@ -2584,31 +3154,32 @@ explicitly mentioned, skipped slots are not included.
 
 
 **`Transactions`**
-| Field                             | Type                | Description |
-|-----------------------------------|---------------------|-------------|
-| start_timestamp_nanos             | `string`            | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
-| target_end_timestamp_nanos        | `string`            | A UNIX timestamp, in nanoseconds, representing the target time in nanoseconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
-| txn_arrival_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
-| txn_mb_start_timestamps_nanos     | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
-| txn_preload_end_timstamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_preload_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot was successfully dispatched into an execution environment and is about to start validation checks, which include a final deduplication check as well as an expiration check |
-| txn_start_timstamps_nanos         | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_start_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
-| txn_load_end_timstamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
-| txn_end_timstamps_nanos           | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
-| txn_mb_end_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
-| txn_compute_units_requested       | `number[]`          | `txn_compute_units_requested[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
-| txn_compute_units_consumed        | `number[]`          | `txn_compute_units_consumed[i]` is the actual post-execution cost of the `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
-| txn_transaction_fee               | `string[]`          | `txn_transaction_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currently, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
-| txn_priority_fee                  | `string[]`          | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a separate computeBudget instruction) |
-| txn_tips                          | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
-| txn_error_code                    | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
-| txn_from_bundle                   | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
-| txn_is_simple_vote                | `boolean[]`         | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
-| txn_landed                        | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
-| txn_bank_idx                      | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
-| txn_microblock_id                 | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
-| txn_signature                     | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
-| txn_source_ipv4                   | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
-| txn_source_tpu                    | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
+| Field                              | Type                | Description |
+|------------------------------------|---------------------|-------------|
+| start_timestamp_nanos              | `string`            | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
+| target_end_timestamp_nanos         | `string`            | A UNIX timestamp, in nanoseconds, representing the target time in nanoseconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
+| txn_arrival_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
+| txn_mb_start_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
+| txn_load_start_timestamps_nanos    | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading relevant on-chain account data |
+| txn_check_start_timestamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_check_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started validation checks, which include a final deduplication check as well as an expiration check.  In Firedancer, the load phase occurs before validation checks, but in Frankendancer the check phase occurs before loading |
+| txn_execute_start_timestamps_nanos | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_execute_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started executing.  At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
+| txn_commit_start_timestamps_nanos  | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_commit_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started committing the transaction (or canceling it) |
+| txn_commit_end_timestamps_nanos    | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_commit_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished the commit/cancel phase |
+| txn_mb_end_timestamps_nanos        | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
+| txn_compute_units_requested        | `number[]`          | `txn_compute_units_requested[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
+| txn_compute_units_consumed         | `number[]`          | `txn_compute_units_consumed[i]` is the actual post-execution cost of the `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
+| txn_transaction_fee                | `string[]`          | `txn_transaction_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currently, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
+| txn_priority_fee                   | `string[]`          | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a separate computeBudget instruction) |
+| txn_tips                           | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
+| txn_error_code                     | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
+| txn_from_bundle                    | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
+| txn_is_simple_vote                 | `boolean[]`         | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
+| txn_landed                         | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
+| txn_bank_idx                       | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
+| txn_microblock_id                  | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
+| txn_signature                      | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
+| txn_source_ipv4                    | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
+| txn_source_tpu                     | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
 
 The source tpu for a transaction can be one of the following
 

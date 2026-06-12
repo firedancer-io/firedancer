@@ -29,14 +29,14 @@ fd_bn254_g1_compress( uchar       out[32],
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 32 );
     /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
-    out[0] = (uchar)( out[0] | flag_inf );
+    out[ big_endian ? 0 : 31 ] |= (uchar)flag_inf;
     return out;
   }
 
   int is_neg = fd_bn254_fp_is_neg_nm( &p->Y );
   fd_bn254_fp_tobytes_nm( out, &p->X, big_endian );
   if( is_neg ) {
-    out[ big_endian ? 0 : 31 ] = (uchar)( out[ big_endian ? 0 : 31 ] | FLAG_NEG );
+    out[ big_endian ? 0 : 31 ] |= FLAG_NEG;
   }
   return out;
 }
@@ -96,14 +96,14 @@ fd_bn254_g2_compress( uchar       out[64],
     return NULL;
   }
   int is_inf   = fd_bn254_g2_is_zero( p );
-  int flag_inf = in[64] & FLAG_INF;
+  int flag_inf = in[ big_endian ? 64 : 127 ] & FLAG_INF;
 
   /* Serialize compressed point */
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 64 );
     /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
-    out[0] = (uchar)( out[0] | flag_inf );
+    out[ big_endian ? 0 : 63 ] |= (uchar)flag_inf;
     return out;
   }
 
@@ -112,7 +112,7 @@ fd_bn254_g2_compress( uchar       out[64],
   int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );
   fd_bn254_fp2_tobytes_nm( out, &p->X, big_endian );
   if( is_neg ) {
-    out[ big_endian ? 0 : 63 ] = (uchar)( out[ big_endian ? 0 : 63 ] | FLAG_NEG );
+    out[ big_endian ? 0 : 63 ] |= FLAG_NEG;
   }
   return out;
 }
@@ -300,17 +300,10 @@ int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz,
-                                 int         big_endian,
-                                 int         check_len ) {
-  /* https://github.com/anza-xyz/agave/blob/v1.18.6/sdk/program/src/alt_bn128/mod.rs#L244
-     Note: Solana had a bug where it checked if input.len().checked_rem(192).is_none(),
-     which only fails when dividing by zero, so the check never triggered.
-     When check_len is true, we properly validate that input size is a multiple of 192.
-     This corresponds to the fix_alt_bn128_pairing_length_check feature gate. */
-  if( check_len ) {
-    if( FD_UNLIKELY( (in_sz % 192UL) != 0 ) ) {
-      return -1; /* Invalid input length */
-    }
+                                 int         big_endian ) {
+  /* https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/pairing.rs#L79 */
+  if( FD_UNLIKELY( (in_sz % 192UL) != 0 ) ) {
+    return -1; /* Invalid input length */
   }
   ulong elements_len = in_sz / 192UL;
   fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];
@@ -336,7 +329,7 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
     }
     ++sz;
     /* Compute the Miller loop and aggregate into r */
-    if( sz==FD_BN254_PAIRING_BATCH_MAX || i==elements_len-1 ) {
+    if( sz==FD_BN254_PAIRING_BATCH_MAX ) {
       fd_bn254_fp12_t tmp[1];
       fd_bn254_miller_loop( tmp, p, q, sz );
       fd_bn254_fp12_mul( r, r, tmp );

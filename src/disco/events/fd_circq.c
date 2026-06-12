@@ -85,6 +85,16 @@ verify( fd_circq_t * circq ) {
   }
 }
 
+/* Recover from eviction logic removing elements at the cursor */
+
+static inline void
+overrun_recover( fd_circq_t * circq ) {
+  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) return;
+
+  ulong oldest_seq = circq->cursor_push_seq - circq->cnt;
+  if( FD_UNLIKELY( circq->cursor_seq<=oldest_seq ) ) circq->cursor = ULONG_MAX;
+}
+
 static void
 evict( fd_circq_t * circq,
        ulong        from,
@@ -104,6 +114,7 @@ evict( fd_circq_t * circq,
       circq->metrics.drop_cnt++;
       if( FD_LIKELY( !circq->cnt ) ) circq->head = circq->tail = 0UL;
       else                           circq->head = head->next;
+      overrun_recover( circq );
     } else {
       break;
     }
@@ -155,6 +166,7 @@ fd_circq_push_back( fd_circq_t * circq,
   fd_circq_message_t * next_message = (fd_circq_message_t *)(buf+circq->tail);
   next_message->align = align;
   next_message->footprint = footprint;
+  next_message->next = ULONG_MAX;
   circq->cursor_push_seq++;
   return (uchar *)(next_message+1);
 }
@@ -198,7 +210,7 @@ fd_circq_cursor_advance( fd_circq_t * circq,
 int
 fd_circq_pop_until( fd_circq_t * circq,
                     ulong        cursor ) {
-  if( FD_UNLIKELY( cursor>=circq->cursor_push_seq ) ) return -1;
+  if( FD_UNLIKELY( cursor>=circq->cursor_seq ) ) return -1;
 
   ulong oldest_seq = circq->cursor_push_seq-circq->cnt;
   if( FD_UNLIKELY( cursor<oldest_seq ) ) return 0;
@@ -219,6 +231,7 @@ fd_circq_pop_until( fd_circq_t * circq,
   }
 
   if( FD_UNLIKELY( !circq->cnt ) ) circq->cursor = ULONG_MAX;
+  overrun_recover( circq );
   return 0;
 }
 

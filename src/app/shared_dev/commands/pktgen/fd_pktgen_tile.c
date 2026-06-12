@@ -36,8 +36,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   fd_pktgen_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( tile->out_cnt==1UL );
   void * out_base   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
@@ -94,7 +94,7 @@ after_credit( fd_pktgen_tile_ctx_t * ctx,
 
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
 
-#define STEM_LAZY ((ulong)1e9) /* max possible */
+#define STEM_LAZY ((ulong)384e3) /* 384us, same as shred tile */
 
 #include "../../../../disco/stem/fd_stem.c"
 

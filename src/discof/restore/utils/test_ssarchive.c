@@ -83,7 +83,16 @@ test_ssarchive_latest_pair_basic(void) {
   char incr_path[ PATH_MAX ];
   int full_is_zstd;
   int incr_is_zstd;
-  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 1, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd )==0 );
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ];
+  uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ];
+  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 1, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_snapshot_hash, incr_snapshot_hash )==0 );
+
+  {
+    FD_BASE58_ENCODE_32_BYTES( full_snapshot_hash, full_enc );
+    FD_BASE58_ENCODE_32_BYTES( incr_snapshot_hash, incr_enc );
+    FD_TEST( strcmp( full_enc, "AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM" )==0 );
+    FD_TEST( strcmp( incr_enc, "J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN" )==0 );
+  }
 
   FD_TEST( full_snapshot_slot==900UL );
   FD_TEST( incr_snapshot_slot==1600UL );
@@ -98,7 +107,14 @@ test_ssarchive_latest_pair_basic(void) {
   FD_TEST( strlen(incr_path)==strlen(expected_incr_path) );
   FD_TEST( memcmp( incr_path, expected_incr_path, strlen(incr_path) )==0 );
 
-  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 0, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd )==0 );
+  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 0, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_snapshot_hash, incr_snapshot_hash )==0 );
+
+  {
+    FD_BASE58_ENCODE_32_BYTES( full_snapshot_hash, full_enc );
+    FD_TEST( strcmp( full_enc, "AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM" )==0 );
+    uchar zero_hash[FD_HASH_FOOTPRINT] = {0};
+    FD_TEST( memcmp( incr_snapshot_hash, zero_hash, FD_HASH_FOOTPRINT )==0 );
+  }
 
   FD_TEST( full_snapshot_slot==1000UL );
   FD_TEST( incr_snapshot_slot==ULONG_MAX );
@@ -107,6 +123,7 @@ test_ssarchive_latest_pair_basic(void) {
   FD_TEST( fd_cstr_printf_check( expected_full_path, PATH_MAX, NULL, "%s/snapshot-1000-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", env.tmp_path ) );
   FD_TEST( strlen(full_path)==strlen(expected_full_path) );
   FD_TEST( memcmp( full_path, expected_full_path, strlen(full_path) )==0 );
+  FD_TEST( strcmp( incr_path, "" )==0 );
 
   test_ssarchive_fini( &env );
 }
@@ -138,7 +155,16 @@ test_ssarchive_latest_pair_dangling_incr(void) {
   char incr_path[ PATH_MAX ];
   int full_is_zstd;
   int incr_is_zstd;
-  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 1, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd )==0 );
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ];
+  uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ];
+  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 1, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_snapshot_hash, incr_snapshot_hash )==0 );
+
+  {
+    FD_BASE58_ENCODE_32_BYTES( full_snapshot_hash, full_enc );
+    FD_TEST( strcmp( full_enc, "AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM" )==0 );
+    uchar zero_hash[FD_HASH_FOOTPRINT] = {0};
+    FD_TEST( memcmp( incr_snapshot_hash, zero_hash, FD_HASH_FOOTPRINT )==0 );
+  }
 
   FD_TEST( full_snapshot_slot==1000UL );
   FD_TEST( incr_snapshot_slot==ULONG_MAX );
@@ -148,6 +174,7 @@ test_ssarchive_latest_pair_dangling_incr(void) {
   FD_TEST( fd_cstr_printf_check( expected_full_path, PATH_MAX, NULL, "%s/snapshot-1000-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", env.tmp_path ) );
   FD_TEST( strlen(full_path)==strlen(expected_full_path) );
   FD_TEST( memcmp( full_path, expected_full_path, strlen(full_path) )==0 );
+  FD_TEST( strcmp( incr_path, "" )==0 );
 
   test_ssarchive_fini( &env );
 }

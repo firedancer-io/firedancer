@@ -33,6 +33,7 @@ fd_pack_rebate_sum_new( void * mem ) {
   s->vote_cost_rebate         = 0UL;
   s->data_bytes_rebate        = 0UL;
   s->microblock_cnt_rebate    = 0UL;
+  s->alloc_rebate             = 0UL;
   s->ib_result                = 0;
   s->writer_cnt               = 0U;
 
@@ -43,6 +44,7 @@ fd_pack_rebate_sum_new( void * mem ) {
   FD_TEST( rmap_footprint()==sizeof(s->map) );
   return mem;
 }
+
 
 #define HEADROOM (FD_PACK_REBATE_SUM_CAPACITY-MAX_TXN_PER_MICROBLOCK*FD_TXN_ACCT_ADDR_MAX)
 
@@ -74,6 +76,7 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
     s->total_cost_rebate += rebated_cus;
     s->vote_cost_rebate  += fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, rebated_cus,     0UL );
     s->data_bytes_rebate += fd_ulong_if( !in_block,                                  txn->payload_sz, 0UL );
+    s->alloc_rebate      += fd_ulong_if( !in_block,                                  txn->pack_alloc, 0UL );
 
     if( FD_UNLIKELY( rebated_cus==0UL ) ) continue;
 
@@ -139,6 +142,7 @@ fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
   out->vote_cost_rebate        = s->vote_cost_rebate;           s->vote_cost_rebate        = 0UL;
   out->data_bytes_rebate       = s->data_bytes_rebate;          s->data_bytes_rebate       = 0UL;
   out->microblock_cnt_rebate   = s->microblock_cnt_rebate;      s->microblock_cnt_rebate   = 0UL;
+  out->alloc_rebate            = s->alloc_rebate;               s->alloc_rebate            = 0UL;
   out->ib_result               = s->ib_result;                  s->ib_result               = 0;
 
   out->writer_cnt = 0U;
@@ -158,6 +162,7 @@ fd_pack_rebate_sum_clear( fd_pack_rebate_sum_t * s ) {
   s->vote_cost_rebate        = 0UL;
   s->data_bytes_rebate       = 0UL;
   s->microblock_cnt_rebate   = 0UL;
+  s->alloc_rebate            = 0UL;
   s->ib_result               = 0;
 
   ulong writer_cnt = s->writer_cnt;

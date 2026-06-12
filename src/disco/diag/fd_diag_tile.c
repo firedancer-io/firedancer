@@ -1,6 +1,10 @@
+#include "fd_diag_tile.h"
+
+#include "../bundle/fd_bundle_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
+#include "../../util/tile/fd_tile_private.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -9,6 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fd_proc_interrupts.h"
 #include "generated/fd_diag_tile_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
@@ -17,6 +22,16 @@ struct fd_diag_tile {
   long next_report_nanos;
 
   ulong tile_cnt;
+  int is_voting;
+
+  struct {
+    ulong bundle_tile_idx[ FD_TILE_MAX ];
+    ulong bundle_cnt;
+    ulong shred_tile_idx[ FD_TILE_MAX ];
+    ulong shred_cnt;
+    ulong tower_idx;
+    ulong replay_idx;
+  } tiles;
 
   ulong starttime_nanos[ FD_TILE_MAX ];
   long  first_seen_died[ FD_TILE_MAX ];
@@ -24,22 +39,42 @@ struct fd_diag_tile {
   int stat_fds[ FD_TILE_MAX ];
   int sched_fds[ FD_TILE_MAX ];
 
-  volatile ulong * metrics[ FD_TILE_MAX ];
+  ulong       irq_cnt[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ];
+  fd_cpuset_t cpu_has_tile[ fd_cpuset_word_cnt ];
+  int         proc_interrupts_fd;
+  int         proc_softirqs_fd;
+  ulong       device_irq_baseline[ FD_TILE_MAX ];
+  ulong       softirq_baseline[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ];
+
+  ulong volatile * metrics    [ FD_TILE_MAX ];
+  ushort           cpu_to_tile[ FD_TILE_MAX ];
+
+  struct {
+    ulong prev_vote_slot;
+    long  vote_slot_changed_ns;
+    ulong prev_reset_slot;
+    long  reset_slot_changed_ns;
+    ulong prev_turbine_slot;
+    long  turbine_slot_changed_ns;
+
+    ulong snapshot_turbine_bytes;
+    ulong snapshot_repair_bytes;
+    long  byte_snapshot_ns;
+    int   repair_outpacing;
+  } check_engine;
 };
 
 typedef struct fd_diag_tile fd_diag_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  return alignof(fd_diag_tile_t);
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_diag_tile_t ), sizeof( fd_diag_tile_t ) );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  return sizeof(fd_diag_tile_t);
 }
 
 static int
@@ -74,12 +109,12 @@ read_stat_file( int              fd,
       char * endptr;
       ulong minflt = strtoul( token, &endptr, 10 );
       if( FD_UNLIKELY( *endptr!='\0' || minflt==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for minflt" ));
-      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MINOR_COUNT_OFF ] = minflt;
+      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MINOR_OFF ] = minflt;
     } else if( FD_UNLIKELY( 11UL==field_idx ) ) {
       char * endptr;
       ulong majflt = strtoul( token, &endptr, 10 );
       if( FD_UNLIKELY( *endptr!='\0' || majflt==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for majflt" ));
-      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MAJOR_COUNT_OFF ] = majflt;
+      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MAJOR_OFF ] = majflt;
     } else if( FD_UNLIKELY( 13UL==field_idx ) ) {
       char * endptr;
       ulong utime_ticks = strtoul( token, &endptr, 10 );
@@ -90,18 +125,18 @@ read_stat_file( int              fd,
       ulong stime_ticks = strtoul( token, &endptr, 10 );
       if( FD_UNLIKELY( *endptr!='\0' || stime_ticks==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for stime" ));
       metrics[ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_SYSTEM_OFF ] = stime_ticks*ns_per_tick;
-    } else if( FD_UNLIKELY( 39UL==field_idx ) ) {
+    } else if( FD_UNLIKELY( 38UL==field_idx ) ) {
       char * endptr;
-      ulong last_cpu_ticks = strtoul( token, &endptr, 10 );
-      if( FD_UNLIKELY( *endptr!='\0' || last_cpu_ticks==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for processor" ));
-      metrics[ FD_METRICS_GAUGE_TILE_LAST_CPU_OFF ] = last_cpu_ticks*ns_per_tick;
+      ulong last_cpu = strtoul( token, &endptr, 10 );
+      if( FD_UNLIKELY( *endptr!='\0' || last_cpu==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for processor" ));
+      metrics[ FD_METRICS_GAUGE_TILE_LAST_CPU_OFF ] = last_cpu;
       break; /* No need to parse stat further */
     }
     token = strtok_r( NULL, " ", &saveptr );
     field_idx++;
   }
 
-  if( FD_UNLIKELY( field_idx!=39UL ) ) FD_LOG_ERR(( "failed to parse /proc/<pid>/task/<tid>/stat" ));
+  if( FD_UNLIKELY( field_idx!=38UL ) ) FD_LOG_ERR(( "failed to parse /proc/<pid>/task/<tid>/stat" ));
 
   return 0;
 }
@@ -162,7 +197,7 @@ read_sched_file( int              fd,
         ulong voluntary_switches = strtoul( value, &endptr, 10 );
         if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after nr_voluntary_switches" ));
         if( FD_UNLIKELY( voluntary_switches==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for nr_voluntary_switches" ));
-        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_VOLUNTARY_COUNT_OFF ] = voluntary_switches;
+        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_VOLUNTARY_OFF ] = voluntary_switches;
         found_voluntary = 1;
       }
     } else if( FD_UNLIKELY( !strncmp( line, "nr_involuntary_switches", 23UL ) ) ) {
@@ -174,7 +209,7 @@ read_sched_file( int              fd,
         ulong involuntary_switches = strtoul( value, &endptr, 10 );
         if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after nr_involuntary_switches" ));
         if( FD_UNLIKELY( involuntary_switches==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for nr_involuntary_switches" ));
-        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_INVOLUNTARY_COUNT_OFF ] = involuntary_switches;
+        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_INVOLUNTARY_OFF ] = involuntary_switches;
         found_involuntary = 1;
       }
     }
@@ -189,6 +224,181 @@ read_sched_file( int              fd,
   if( FD_UNLIKELY( !found_involuntary ) ) FD_LOG_ERR(( "nr_involuntary_switches not found in sched file" ));
 
   return 0;
+}
+
+static void
+check_engine_metric( fd_diag_tile_t * ctx, long now ) {
+  static ulong const vote_distance_threshold    = 150UL;
+  static long  const vote_stall_threshold_ns    = 60L*1000L*1000L*1000L;
+  static ulong const replay_distance_threshold  = 12UL;
+  static long  const replay_stall_threshold_ns  = 12L*1000L*1000L*1000L;
+  static long  const turbine_stall_threshold_ns = 12L*1000L*1000L*1000L;
+  static long  const turbine_byte_cmp_window_ns = 12L*1000L*1000L*1000L;
+
+  ulong bundle_cnt    = ctx->tiles.bundle_cnt;
+  ulong bundle_status = FD_DIAG_BUNDLE_STATUS_DISABLED;
+  if( FD_LIKELY( bundle_cnt ) ) {
+    /* Find the best state across all bundle tiles.
+       Priority: connected > sleeping > connecting > disconnected */
+    int any_connected  = 0;
+    int any_sleeping   = 0;
+    int any_connecting = 0;
+    for( ulong i=0UL; i<bundle_cnt; i++ ) {
+      volatile ulong * m = ctx->metrics[ ctx->tiles.bundle_tile_idx[ i ] ];
+      ulong state = m[ FD_METRICS_GAUGE_BUNDLE_STATE_OFF ];
+      if( FD_LIKELY( state==FD_BUNDLE_STATE_CONNECTED ) ) any_connected  = 1;
+      else if( state==FD_BUNDLE_STATE_SLEEPING )          any_sleeping   = 1;
+      else if( state==FD_BUNDLE_STATE_CONNECTING )        any_connecting = 1;
+    }
+    if(      any_connected  ) bundle_status = FD_DIAG_BUNDLE_STATUS_CONNECTED;
+    else if( any_sleeping   ) bundle_status = FD_DIAG_BUNDLE_STATUS_SLEEPING;
+    else if( any_connecting ) bundle_status = FD_DIAG_BUNDLE_STATUS_CONNECTING;
+    else                      bundle_status = FD_DIAG_BUNDLE_STATUS_DISCONNECTED;
+  }
+
+  ulong tower_idx   = ctx->tiles.tower_idx;
+  ulong vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
+  if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
+      vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
+    } else {
+      volatile ulong * m = ctx->metrics[ tower_idx ];
+      ulong vote_slot    = m[ FD_METRICS_GAUGE_TOWER_VOTE_SLOT_OFF ];
+      ulong replay_slot  = m[ FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_OFF ];
+      if( FD_UNLIKELY( vote_slot==ULONG_MAX || replay_slot==0UL ) ) {
+        vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
+      } else {
+        if( FD_UNLIKELY( vote_slot!=ctx->check_engine.prev_vote_slot ) ) {
+          ctx->check_engine.prev_vote_slot       = vote_slot;
+          ctx->check_engine.vote_slot_changed_ns = now;
+        }
+        int delinquent = (replay_slot>vote_slot && replay_slot-vote_slot>vote_distance_threshold) ||
+                         (now-ctx->check_engine.vote_slot_changed_ns>vote_stall_threshold_ns);
+        vote_status = fd_ulong_if( delinquent,
+                                   FD_DIAG_VOTE_STATUS_DELINQUENT,
+                                   FD_DIAG_VOTE_STATUS_VOTING );
+      }
+    }
+  }
+
+  ulong replay_idx     = ctx->tiles.replay_idx;
+  int   replay_running = replay_idx!=ULONG_MAX && ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL;
+  ulong replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
+  if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( !replay_running ) ) {
+      replay_status = FD_DIAG_REPLAY_STATUS_NOT_STARTED;
+    } else {
+      volatile ulong * m = ctx->metrics[ replay_idx ];
+      ulong turbine_slot = m[ FD_METRICS_GAUGE_REPLAY_REASSEMBLY_LATEST_SLOT_OFF ];
+      ulong reset_slot   = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
+      if( FD_UNLIKELY( reset_slot!=ctx->check_engine.prev_reset_slot ) ) {
+        ctx->check_engine.prev_reset_slot       = reset_slot;
+        ctx->check_engine.reset_slot_changed_ns = now;
+      }
+      if( FD_UNLIKELY( (turbine_slot==0UL) || (reset_slot==0UL) ) ) {
+        replay_status = FD_DIAG_REPLAY_STATUS_NOT_STARTED;
+      } else if( FD_UNLIKELY( ((turbine_slot>reset_slot) && (turbine_slot-reset_slot>replay_distance_threshold)) ||
+                               (now-ctx->check_engine.reset_slot_changed_ns>replay_stall_threshold_ns) ) ) {
+        replay_status = FD_DIAG_REPLAY_STATUS_BEHIND;
+      } else {
+        replay_status = FD_DIAG_REPLAY_STATUS_RUNNING;
+      }
+    }
+  }
+
+  ulong shred_cnt      = ctx->tiles.shred_cnt;
+  ulong turbine_status = FD_DIAG_TURBINE_STATUS_DISABLED;
+  if( FD_LIKELY( replay_idx!=ULONG_MAX && shred_cnt>0UL ) ) {
+    if( FD_UNLIKELY( !replay_running ) ) {
+      turbine_status = FD_DIAG_TURBINE_STATUS_NOT_STARTED;
+    } else {
+      int all_shred_running = 1;
+      ulong cur_turbine_bytes = 0UL, cur_repair_bytes = 0UL;
+      for( ulong i=0UL; i<shred_cnt; i++ ) {
+        volatile ulong * sm = ctx->metrics[ ctx->tiles.shred_tile_idx[ i ] ];
+        cur_turbine_bytes += sm[ FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RX_BYTES_OFF ];
+        cur_repair_bytes  += sm[ FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RX_BYTES_OFF ];
+        if( FD_UNLIKELY( sm[ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
+          all_shred_running = 0;
+          break;
+        }
+      }
+      if( FD_UNLIKELY( !all_shred_running ) ) {
+        turbine_status = FD_DIAG_TURBINE_STATUS_NOT_STARTED;
+      } else {
+        ulong turbine_slot = ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_REASSEMBLY_LATEST_SLOT_OFF ];
+        if( FD_UNLIKELY( turbine_slot!=ctx->check_engine.prev_turbine_slot ) ) {
+          ctx->check_engine.prev_turbine_slot       = turbine_slot;
+          ctx->check_engine.turbine_slot_changed_ns = now;
+        }
+        if( FD_UNLIKELY( now-ctx->check_engine.byte_snapshot_ns>=turbine_byte_cmp_window_ns ) ) {
+          ctx->check_engine.repair_outpacing       = (cur_repair_bytes-ctx->check_engine.snapshot_repair_bytes)>(cur_turbine_bytes-ctx->check_engine.snapshot_turbine_bytes);
+          ctx->check_engine.snapshot_turbine_bytes = cur_turbine_bytes;
+          ctx->check_engine.snapshot_repair_bytes  = cur_repair_bytes;
+          ctx->check_engine.byte_snapshot_ns       = now;
+        }
+
+        if( FD_UNLIKELY( turbine_slot==0UL ) ) {
+          turbine_status = FD_DIAG_TURBINE_STATUS_NOT_STARTED;
+        } else if( FD_UNLIKELY( now-ctx->check_engine.turbine_slot_changed_ns>turbine_stall_threshold_ns ) ) {
+          turbine_status = FD_DIAG_TURBINE_STATUS_STALLED;
+        } else if( FD_UNLIKELY( ctx->check_engine.repair_outpacing ) ) {
+          turbine_status = FD_DIAG_TURBINE_STATUS_REPAIR_OUTPACING;
+        } else {
+          turbine_status = FD_DIAG_TURBINE_STATUS_RUNNING;
+        }
+      }
+    }
+  }
+
+  FD_MGAUGE_SET( DIAG, BUNDLE_STATUS,  bundle_status  );
+  FD_MGAUGE_SET( DIAG, VOTE_STATUS,    vote_status    );
+  FD_MGAUGE_SET( DIAG, REPLAY_STATUS,  replay_status  );
+  FD_MGAUGE_SET( DIAG, TURBINE_STATUS, turbine_status );
+}
+
+static void
+irq_metrics( fd_diag_tile_t * ctx ) {
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong softirq_cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->irq_cnt );
+  if( FD_UNLIKELY( !softirq_cpu_cnt ) ) return; /* parse fail */
+
+  ulong volatile * softirq_total     = &fd_metrics_tl[ MIDX( COUNTER, DIAG, SOFTIRQ     ) ];
+  ulong volatile * softirq_undesired = &fd_metrics_tl[ MIDX( COUNTER, DIAG, SOFTIRQ_UNDESIRED ) ];
+  for( ulong j=0UL; j<FD_METRICS_ENUM_SOFTIRQ_CNT; j++ ) {
+    ulong tot_cnt       = 0UL;
+    ulong undesired_cnt = 0UL;
+    for( ulong i=0UL; i<softirq_cpu_cnt; i++ ) {
+      ulong since = fd_ulong_sat_sub( ctx->irq_cnt[ j ][ i ], ctx->softirq_baseline[ j ][ i ] );
+      tot_cnt += since;
+      if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
+        undesired_cnt += since;
+      }
+    }
+    softirq_total    [ j ] = tot_cnt;
+    softirq_undesired[ j ] = undesired_cnt;
+  }
+
+  ulong * cpu_irq = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong device_cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, cpu_irq );
+  if( FD_UNLIKELY( !device_cpu_cnt ) ) return; /* parse fail */
+
+  ulong tot_cnt       = 0UL;
+  ulong undesired_cnt = 0UL;
+  for( ulong i=0UL; i<device_cpu_cnt; i++ ) {
+    ulong since = fd_ulong_sat_sub( cpu_irq[ i ], ctx->device_irq_baseline[ i ] );
+    tot_cnt += since;
+    if( fd_cpuset_test( ctx->cpu_has_tile, i ) ) {
+      undesired_cnt += since;
+    }
+    ulong tile_id = ctx->cpu_to_tile[ i ];
+    if( tile_id!=USHORT_MAX ) {
+      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_IRQ_PREEMPTED_OFF ] = since;
+    }
+  }
+  FD_MCNT_SET( DIAG, DEVICE_IRQ,           tot_cnt       );
+  FD_MCNT_SET( DIAG, DEVICE_IRQ_UNDESIRED, undesired_cnt );
 }
 
 static void
@@ -260,11 +470,14 @@ before_credit( fd_diag_tile_t *    ctx,
       ctx->first_seen_died[ i ] = LONG_MAX;
     }
   }
+
+  check_engine_metric( ctx, now );
+  irq_metrics( ctx );
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -320,6 +533,12 @@ privileged_init( fd_topo_t *      topo,
       break;
     }
   }
+
+  ctx->proc_interrupts_fd = open( "/proc/interrupts", O_RDONLY );
+  if( FD_UNLIKELY( -1==ctx->proc_interrupts_fd ) ) FD_LOG_ERR(( "open(/proc/interrupts) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ctx->proc_softirqs_fd = open( "/proc/softirqs", O_RDONLY );
+  if( FD_UNLIKELY( -1==ctx->proc_softirqs_fd   ) ) FD_LOG_ERR(( "open(/proc/softirqs) failed (%i-%s)",   errno, fd_io_strerror( errno ) ));
 }
 
 /* Read starttime (field 22) from stat file. Returns 0 on success, 1 if
@@ -365,15 +584,24 @@ read_starttime( int     fd,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_diag_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_diag_tile_t), sizeof(fd_diag_tile_t) );
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
+  fd_diag_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   ctx->next_report_nanos = fd_log_wallclock();
+
+  /* Snapshot the cumulative-since-boot /proc interrupt/softirq counters
+     so the metrics we report are counted since process startup. */
+  memset( ctx->softirq_baseline,    0, sizeof( ctx->softirq_baseline ) );
+  memset( ctx->device_irq_baseline, 0, sizeof( ctx->device_irq_baseline ) );
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong softirq_cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->softirq_baseline );
+  if( FD_UNLIKELY( !softirq_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read softirq baseline from /proc/softirqs" ));
+
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong device_cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, ctx->device_irq_baseline );
+  if( FD_UNLIKELY( !device_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read device IRQ baseline from /proc/interrupts" ));
 
   /* Read starttime (field 22) once at init for idle time calculation.
      CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns. */
@@ -384,9 +612,35 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  memset( &ctx->check_engine, 0, sizeof(ctx->check_engine) );
+
+  ctx->tiles.bundle_cnt = fd_topo_tile_name_cnt( topo, "bundle" );
+  for( ulong i=0UL; i<ctx->tiles.bundle_cnt; i++ ) ctx->tiles.bundle_tile_idx[ i ] = fd_topo_find_tile( topo, "bundle", i );
+  ctx->tiles.shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  for( ulong i=0UL; i<ctx->tiles.shred_cnt; i++ ) ctx->tiles.shred_tile_idx[ i ] = fd_topo_find_tile( topo, "shred", i );
+  ctx->tiles.tower_idx  = fd_topo_find_tile( topo, "tower",  0UL );
+  ctx->tiles.replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
+
+  fd_cpuset_new( &ctx->cpu_has_tile );
+  for( ulong i=0UL; i<(topo->tile_cnt); i++ ) {
+    ulong cpu_idx = topo->tiles[ i ].cpu_idx;
+    if( cpu_idx>=FD_TILE_MAX ) continue;
+    fd_cpuset_insert( ctx->cpu_has_tile, cpu_idx );
+  }
+
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) ctx->cpu_to_tile[ i ] = USHORT_MAX;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    ulong cpu_idx = topo->tiles[ i ].cpu_idx;
+    if( cpu_idx>=FD_TILE_MAX ) continue;
+    ctx->cpu_to_tile[ cpu_idx ] = (ushort)i;
+  }
+
+  long now = fd_log_wallclock();
+  ctx->is_voting = tile->diag.is_voting;
+  ctx->check_engine.vote_slot_changed_ns = now;
+  ctx->check_engine.reset_slot_changed_ns = now;
+  ctx->check_engine.turbine_slot_changed_ns = now;
+  ctx->check_engine.byte_snapshot_ns = now;
 }
 
 static ulong
@@ -406,17 +660,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  fd_diag_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_diag_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_diag_tile_t), sizeof(fd_diag_tile_t) );
-
-  if( FD_UNLIKELY( out_fds_cnt<2UL+2UL*ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL+2UL*ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->proc_interrupts_fd; /* /proc/interrupts */
+  out_fds[ out_cnt++ ] = ctx->proc_softirqs_fd;   /* /proc/softirqs */
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( -1!=ctx->stat_fds[ i ] )  out_fds[ out_cnt++ ] = ctx->stat_fds[ i ];  /* /proc/<pid>/task/<tid>/stat */
     if( -1!=ctx->sched_fds[ i ] ) out_fds[ out_cnt++ ] = ctx->sched_fds[ i ]; /* /proc/<pid>/task/<tid>/sched */

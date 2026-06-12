@@ -53,6 +53,9 @@ during_frag( fd_store_ctx_t * ctx,
   fd_memcpy( ctx->mem, src, sizeof(fd_fec_set_t) );
 }
 
+extern void fd_ext_bank_release( void const * bank );
+extern void fd_ext_bank_set_block_id( void const * bank, uchar const * block_id );
+
 extern int
 fd_ext_blockstore_insert_shreds( void const *  blockstore,
                                  ulong         shred_cnt,
@@ -88,12 +91,22 @@ after_frag( fd_store_ctx_t *    ctx,
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ, trusted );
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted );
 
-  FD_MCNT_INC( STORE, TRANSACTIONS_INSERTED, est_txn_cnt );
+  FD_MCNT_INC( STORE, TXN_INSERTED, est_txn_cnt );
+
+  /* On receiving the SLOT_COMPLETE in an FEC set, set the block_id of
+     the slot to the FEC set's merkle root and release the bank reference.
+     FEC sets from the net tile (!trusted) and non-SLOT_COMPLETE leader
+     FEC sets pass through this branch as a no-op. */
+  if( FD_UNLIKELY( trusted && ( set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) ) {
+    FD_TEST( set->leader_bank );
+    fd_ext_bank_set_block_id( set->leader_bank, set->merkle_root );
+    fd_ext_bank_release( set->leader_bank );
+  }
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -110,15 +123,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->disable_blockstore_from_slot = tile->store.disable_blockstore_from_slot;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

@@ -1,6 +1,16 @@
 #include <stdint.h>
 #include <s2n-bignum.h>
 
+/* On CPUs without ADX (mulx/adcx/adox), redirect the ADX-optimized
+   s2n-bignum symbols to their _alt equivalents, which use only base
+   x86-64 instructions and are functionally identical. */
+#ifndef __ADX__
+#define bignum_montmul_p256k1  bignum_montmul_p256k1_alt
+#define bignum_montsqr_p256k1  bignum_montsqr_p256k1_alt
+#define bignum_tomont_p256k1   bignum_tomont_p256k1_alt
+#define bignum_triple_p256k1   bignum_triple_p256k1_alt
+#endif
+
 /* Scalars */
 
 static inline int
@@ -30,7 +40,9 @@ fd_secp256k1_scalar_frombytes( fd_secp256k1_scalar_t * r,
   return r;
 }
 
-/* Operates on scalars NOT in the montgomery domain. */
+/* r = 1 / a
+   Operates on scalars NOT in the montgomery domain.
+   a MUST not be 0. */
 fd_secp256k1_scalar_t *
 fd_secp256k1_scalar_invert( fd_secp256k1_scalar_t *       r,
                             fd_secp256k1_scalar_t const * a ) {
@@ -52,8 +64,17 @@ fd_secp256k1_scalar_mul( fd_secp256k1_scalar_t *       restrict r,
 static inline fd_secp256k1_scalar_t *
 fd_secp256k1_scalar_negate( fd_secp256k1_scalar_t *       r,
                             fd_secp256k1_scalar_t const * a ) {
-  /* If a == 0, then n % n will return 0. Otherwise we return n - a. */
-  bignum_modsub( 4, r->limbs, (ulong *)fd_secp256k1_const_n[ 0 ].limbs, (ulong *)a->limbs, (ulong *)fd_secp256k1_const_n[ 0 ].limbs );
+  /* We cannot use bignum_modsub() as it requires a < n /\ b < n.
+
+     The best way to implement it using the current API is to use
+     bignum_sub(n, a), getting a result bounded within [0, n+1). Then
+     we perform a second reduction from [0, n+1) to [0, n) with
+     bignum_mod_n256k1_4(). */
+
+  /* t \in [0, n + 1). There is no carry-out, as a < n. */
+  ulong t[4];
+  bignum_sub( 4, t, 4, (ulong *)fd_secp256k1_const_n[ 0 ].limbs, 4, (ulong *)a->limbs );
+  bignum_mod_n256k1_4( r->limbs, t );
   return r;
 }
 
@@ -152,6 +173,8 @@ fd_secp256k1_fp_is_odd( fd_secp256k1_fp_t const *r ) {
   return scratch->limbs[ 0 ] & 1;
 }
 
+/* r = 1 / a
+   a MUST not be 0. */
 static inline fd_secp256k1_fp_t *
 fd_secp256k1_fp_invert( fd_secp256k1_fp_t *       r,
                         fd_secp256k1_fp_t const * a ) {
@@ -469,9 +492,9 @@ fd_secp256k1_slide( schar       r[ 2 * 32 + 1 ],
   /* Now, r[0..63] is between 0 and 15, r[63] is between 0 and 7 */
   schar carry = 0;
   for(int i = 0; i<64; i++) {
-    r[i] += carry;
+    r[i]  = (schar)(r[i] + carry);
     carry = (schar)(r[i] + 8) >> 4;
-    r[i] -= (schar)(carry * 16);
+    r[i]  = (schar)(r[i] - carry * 16);
     /* r[i] MUST be between [-8, 8] */
   }
   r[64] = carry;

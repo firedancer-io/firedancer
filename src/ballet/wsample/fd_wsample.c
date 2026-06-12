@@ -391,9 +391,8 @@ fd_wsample_delete( void * shmem  ) {
 
 void
 fd_wsample_seed_rng( fd_wsample_t * sampler,
-                     uchar          seed[ 32 ],
-                     int            use_chacha8 ) {
-  fd_chacha_rng_init( sampler->rng, seed, use_chacha8 ? FD_CHACHA_RNG_ALGO_CHACHA8 : FD_CHACHA_RNG_ALGO_CHACHA20 );
+                     uchar          seed[ 32 ] ) {
+  fd_chacha_rng_init( sampler->rng, seed, FD_CHACHA_RNG_ALGO_CHACHA8 );
 }
 
 fd_wsample_t *

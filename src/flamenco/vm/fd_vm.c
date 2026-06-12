@@ -144,19 +144,18 @@ fd_vm_validate( fd_vm_t const * vm ) {
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
 
-# define FD_VALID               ((uchar)0) /* Valid opcode */
-# define FD_CHECK_JMP           ((uchar)1) /* Validation should check that the instruction is a valid jump */
-# define FD_CHECK_END           ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
-# define FD_CHECK_ST            ((uchar)3) /* Validation should check that the instruction is a valid store */
-# define FD_CHECK_LDQ           ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
-# define FD_CHECK_DIV           ((uchar)5) /* Validation should check that the instruction is a valid division by immediate */
-# define FD_CHECK_SH32          ((uchar)6) /* Validation should check that the immediate is a valid 32-bit shift exponent */
-# define FD_CHECK_SH64          ((uchar)7) /* Validation should check that the immediate is a valid 64-bit shift exponent */
-# define FD_INVALID             ((uchar)8) /* The opcode is invalid */
-# define FD_CHECK_CALL_REG      ((uchar)9) /* Validation should check that callx has valid register number */
-# define FD_CHECK_CALL_REG_DEPR ((uchar)10) /* Older / deprecated FD_CHECK_CALLX */
-# define FD_CHECK_CALL_IMM      ((uchar)11) /* Check call against functions registry */
-# define FD_CHECK_SYSCALL       ((uchar)12) /* Check call against syscalls registry */
+# define FD_VALID               ((uchar)0)  /* Valid opcode */
+# define FD_CHECK_JMP           ((uchar)1)  /* Validation should check that the instruction is a valid jump */
+# define FD_CHECK_END           ((uchar)2)  /* Validation should check that the instruction is a valid endianness conversion */
+# define FD_CHECK_ST            ((uchar)3)  /* Validation should check that the instruction is a valid store */
+# define FD_CHECK_LDQ           ((uchar)4)  /* Validation should check that the instruction is a valid load-quad */
+# define FD_CHECK_DIV           ((uchar)5)  /* Validation should check that the instruction is a valid division by immediate */
+# define FD_CHECK_SH32          ((uchar)6)  /* Validation should check that the immediate is a valid 32-bit shift exponent */
+# define FD_CHECK_SH64          ((uchar)7)  /* Validation should check that the immediate is a valid 64-bit shift exponent */
+# define FD_INVALID             ((uchar)8)  /* The opcode is invalid */
+# define FD_CHECK_CALL_REG_SRC  ((uchar)9)  /* Validation should check that callx has valid register number in src */
+# define FD_CHECK_CALL_REG_DST  ((uchar)13) /* Validation should check that callx has a valid register number in dst */
+# define FD_CHECK_CALL_REG_IMM  ((uchar)10) /* Validation should check that callx has a valid register number in imm */
 
   uchar validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -194,7 +193,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
     /* 0x84 */ FD_INVALID,    /* 0x85 */ FD_VALID,      /* 0x86 */ FD_VALID,      /* 0x87 */ FD_CHECK_ST,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
-    /* 0x8c */ FD_VALID,      /* 0x8d */ FD_CHECK_CALL_REG,/*0x8e*/FD_VALID,      /* 0x8f */ FD_CHECK_ST,
+    /* 0x8c */ FD_VALID,      /* 0x8d */ FD_CHECK_CALL_REG_SRC,/*0x8e*/FD_VALID,      /* 0x8f */ FD_CHECK_ST,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
     /* 0x94 */ FD_INVALID,    /* 0x95 */ FD_VALID,      /* 0x96 */ FD_VALID,      /* 0x97 */ FD_CHECK_ST,
     /* 0x98 */ FD_INVALID,    /* 0x99 */ FD_INVALID,    /* 0x9a */ FD_INVALID,    /* 0x9b */ FD_INVALID,
@@ -225,12 +224,15 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0xfc */ FD_INVALID,    /* 0xfd */ FD_INVALID,    /* 0xfe */ FD_VALID,      /* 0xff */ FD_INVALID,
   };
 
-  /* SIMD-0173: LDDW */
-  validation_map[ 0x18 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_CHECK_LDQ : FD_INVALID;
-  validation_map[ 0xf7 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_INVALID   : FD_VALID; /* HOR64 */
+  /* SIMD-0173: LDDW
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L232-L235 */
+  validation_map[ 0x18 ] = !FD_VM_SBPF_DISABLE_LDDW(sbpf_version) ? FD_CHECK_LDQ : FD_INVALID;
+  /* HOR64 https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L325 */
+  validation_map[ 0xf7 ] = FD_VM_SBPF_DISABLE_LDDW(sbpf_version) ? FD_VALID   :    FD_INVALID;
 
-  /* SIMD-0173: LE */
-  validation_map[ 0xd4 ] = FD_VM_SBPF_ENABLE_LE  (sbpf_version) ? FD_CHECK_END : FD_INVALID;
+  /* SIMD-0173: LE
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L285 */
+  validation_map[ 0xd4 ] = !FD_VM_SBPF_DISABLE_LE(sbpf_version) ? FD_CHECK_END : FD_INVALID;
 
   /* SIMD-0173: LDXW, STW, STXW */
   validation_map[ 0x61 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
@@ -264,8 +266,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0x97 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_CHECK_DIV;
   validation_map[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
 
-  /* SIMD-0173: CALLX */
-  validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? FD_CHECK_CALL_REG : FD_CHECK_CALL_REG_DEPR;
+  /* SIMD-0173 / SIMD-0377: CALLX references valid register numbers
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L198-L214 */
+  validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version)  ? FD_CHECK_CALL_REG_SRC
+                          : FD_VM_SBPF_CALLX_USES_DST_REG(sbpf_version) ? FD_CHECK_CALL_REG_DST
+                          : FD_CHECK_CALL_REG_IMM;
 
   /* SIMD-0174: MUL, DIV, MOD */
   validation_map[ 0x24 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_VALID;
@@ -273,8 +278,9 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0x94 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_CHECK_DIV;
   /* note: 0x?c, 0x?7, 0x?f should not be overwritten because they're now load/store ix */
 
-  /* SIMD-0174: NEG */
-  validation_map[ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (sbpf_version) ? FD_VALID : FD_INVALID;
+  /* SIMD-0174: NEG
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L274 */
+  validation_map[ 0x84 ] = !FD_VM_SBPF_DISABLE_NEG(sbpf_version) ? FD_VALID : FD_INVALID;
   /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
 
   /* SIMD-0174: MUL, DIV, MOD */
@@ -303,6 +309,36 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM64 */
   validation_map[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
 
+  /* SIMD-0377: JMP32
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L354-L375
+
+     Note that these override some opcodes that conflict with PQR, so
+     these must come AFTER PQR. */
+  if( FD_VM_SBPF_ENABLE_JMP32( sbpf_version ) ) {
+    validation_map[ 0x16 ] = FD_CHECK_JMP;  /* JEQ32_IMM  */
+    validation_map[ 0x1e ] = FD_CHECK_JMP;  /* JEQ32_REG  */
+    validation_map[ 0x26 ] = FD_CHECK_JMP;  /* JGT32_IMM  */
+    validation_map[ 0x2e ] = FD_CHECK_JMP;  /* JGT32_REG  */
+    validation_map[ 0x36 ] = FD_CHECK_JMP;  /* JGE32_IMM  */
+    validation_map[ 0x3e ] = FD_CHECK_JMP;  /* JGE32_REG  */
+    validation_map[ 0x46 ] = FD_CHECK_JMP;  /* JSET32_IMM */
+    validation_map[ 0x4e ] = FD_CHECK_JMP;  /* JSET32_REG */
+    validation_map[ 0x56 ] = FD_CHECK_JMP;  /* JNE32_IMM  */
+    validation_map[ 0x5e ] = FD_CHECK_JMP;  /* JNE32_REG  */
+    validation_map[ 0x66 ] = FD_CHECK_JMP;  /* JSGT32_IMM */
+    validation_map[ 0x6e ] = FD_CHECK_JMP;  /* JSGT32_REG */
+    validation_map[ 0x76 ] = FD_CHECK_JMP;  /* JSGE32_IMM */
+    validation_map[ 0x7e ] = FD_CHECK_JMP;  /* JSGE32_REG */
+    validation_map[ 0xa6 ] = FD_CHECK_JMP;  /* JLT32_IMM  */
+    validation_map[ 0xae ] = FD_CHECK_JMP;  /* JLT32_REG  */
+    validation_map[ 0xb6 ] = FD_CHECK_JMP;  /* JLE32_IMM  */
+    validation_map[ 0xbe ] = FD_CHECK_JMP;  /* JLE32_REG  */
+    validation_map[ 0xc6 ] = FD_CHECK_JMP;  /* JSLT32_IMM */
+    validation_map[ 0xce ] = FD_CHECK_JMP;  /* JSLT32_REG */
+    validation_map[ 0xd6 ] = FD_CHECK_JMP;  /* JSLE32_IMM */
+    validation_map[ 0xde ] = FD_CHECK_JMP;  /* JSLE32_REG */
+  }
+
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
@@ -310,7 +346,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
                    (const uchar *)vm->text < vm->rodata ||
                    (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz ) )
+                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz +
+                     ( FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ? vm->text_sz : 0UL ) ) )
     return FD_VM_ERR_BAD_TEXT;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
@@ -381,36 +418,22 @@ fd_vm_validate( fd_vm_t const * vm ) {
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L220 */
-    case FD_CHECK_CALL_REG: {
+    case FD_CHECK_CALL_REG_SRC: {
       if( FD_UNLIKELY( instr.src_reg > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
       }
       break;
     }
-    case FD_CHECK_CALL_REG_DEPR: {
+    case FD_CHECK_CALL_REG_IMM: {
       if( FD_UNLIKELY( instr.imm > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
       }
       break;
     }
-
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L403-L409 */
-    case FD_CHECK_CALL_IMM: {
-      ulong target_pc = (ulong)( fd_long_sat_add( (long)i, fd_long_sat_add( (long)(int)instr.imm, 1 ) ) );
-      if( FD_UNLIKELY( !(
-        target_pc<text_cnt && fd_sbpf_is_function_start( fd_sbpf_instr( text[target_pc] ) )
-      ) ) ) {
-        return FD_VM_INVALID_FUNCTION;
-      }
-      break;
-    }
-
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L414-L423 */
-    case FD_CHECK_SYSCALL: {
-      /* check active syscall */
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, (ulong)instr.imm, NULL );
-      if( FD_UNLIKELY( !syscall ) ) {
-        return FD_VM_INVALID_SYSCALL;
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L205-L206 */
+    case FD_CHECK_CALL_REG_DST: {
+      if( FD_UNLIKELY( instr.dst_reg > 9 ) ) {
+        return FD_VM_ERR_INVALID_REG;
       }
       break;
     }
@@ -426,7 +449,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     /* Special R10 register allowed for ADD64_IMM */
     if( instr.dst_reg==10U
-        && FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version )
+        && FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version )
         && instr.opcode.raw == 0x07
         && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
         continue;
@@ -556,7 +579,8 @@ fd_vm_init(
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar                     is_deprecated,
    int                       direct_mapping,
-   int                       stricter_abi_and_runtime_constraints,
+   int                       syscall_parameter_address_restrictions,
+   int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
    ulong                     r2_initial_value ) {
 
@@ -579,36 +603,52 @@ fd_vm_init(
      program execution, e.g. just testing some interpreter functionality
      or syscalls.
      SBPF v3+ no longer needs calldests, so we enforce it to be NULL. */
-  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) ) {
+  if( FD_UNLIKELY( calldests && FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ) ) {
     return NULL;
   }
 
   // Set the vm fields
-  vm->instr_ctx                            = instr_ctx;
-  vm->heap_max                             = heap_max;
-  vm->entry_cu                             = entry_cu;
-  vm->rodata                               = rodata;
-  vm->rodata_sz                            = rodata_sz;
-  vm->text                                 = text;
-  vm->text_cnt                             = text_cnt;
-  vm->text_off                             = text_off;
-  vm->text_sz                              = text_sz;
-  vm->entry_pc                             = entry_pc;
-  vm->calldests                            = calldests;
-  vm->sbpf_version                         = sbpf_version;
-  vm->syscalls                             = syscalls;
-  vm->trace                                = trace;
-  vm->sha                                  = sha;
-  vm->input_mem_regions                    = mem_regions;
-  vm->input_mem_regions_cnt                = mem_regions_cnt;
-  vm->acc_region_metas                     = acc_region_metas;
-  vm->is_deprecated                        = is_deprecated;
-  vm->direct_mapping                       = direct_mapping;
-  vm->stricter_abi_and_runtime_constraints = stricter_abi_and_runtime_constraints;
-  vm->segv_vaddr                           = ULONG_MAX;
-  vm->segv_access_len                      = 0UL;
-  vm->segv_access_type                     = 0;
-  vm->dump_syscall_to_pb                   = dump_syscall_to_pb;
+  vm->instr_ctx                              = instr_ctx;
+  vm->heap_max                               = heap_max;
+  vm->entry_cu                               = entry_cu;
+  vm->rodata                                 = rodata;
+  vm->rodata_sz                              = rodata_sz;
+  vm->text                                   = text;
+  vm->text_cnt                               = text_cnt;
+  /* In SBPF V3, bytecode starts at vaddr 0x100000000 exactly, so
+     text_off from the POV of the VM is 0.
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L539 */
+  vm->text_off                               = FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR( sbpf_version ) ? 0UL : text_off;
+  vm->text_sz                                = text_sz;
+  vm->entry_pc                               = entry_pc;
+  vm->calldests                              = calldests;
+  vm->sbpf_version                           = sbpf_version;
+  vm->syscalls                               = syscalls;
+  vm->trace                                  = trace;
+  vm->sha                                    = sha;
+  vm->input_mem_regions                      = mem_regions;
+  vm->input_mem_regions_cnt                  = mem_regions_cnt;
+  vm->acc_region_metas                       = acc_region_metas;
+  vm->is_deprecated                          = is_deprecated;
+  vm->direct_mapping                         = direct_mapping;
+  vm->syscall_parameter_address_restrictions = syscall_parameter_address_restrictions;
+  vm->virtual_address_space_adjustments      = virtual_address_space_adjustments;
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/vm.rs#L99-L103 */
+  if( FD_UNLIKELY( FD_VM_SBPF_STACK_FRAME_GAPS( sbpf_version ) && !virtual_address_space_adjustments ) ) {
+    vm->stack_frame_sz                       = FD_VM_STACK_FRAME_SZ;
+    vm->stack_push_frame_count               = 2UL;
+  } else if ( FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version ) ) {
+    vm->stack_frame_sz                       = 0UL;
+    vm->stack_push_frame_count               = 0UL;
+  } else {
+    vm->stack_frame_sz                       = FD_VM_STACK_FRAME_SZ;
+    vm->stack_push_frame_count               = 1UL;
+  }
+
+  vm->segv_vaddr                             = ULONG_MAX;
+  vm->segv_access_len                        = 0UL;
+  vm->segv_access_type                       = 0;
+  vm->dump_syscall_to_pb                     = dump_syscall_to_pb;
 
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );
@@ -618,9 +658,9 @@ fd_vm_init(
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   vm->reg[1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm->reg[2]  = r2_initial_value;
-  /* https://github.com/solana-labs/rbpf/blob/4ad935be45e5663be23b30cfc750b1ae1ad03c44/src/vm.rs#L326-L333 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/vm.rs#L325-L330 */
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START +
-    ( FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ? FD_VM_STACK_MAX : FD_VM_STACK_FRAME_SZ );
+    ( FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( vm->sbpf_version ) ? FD_VM_STACK_MAX : vm->stack_frame_sz );
   /* Note: Agave uses r11 as pc, we don't */
 
   /* Set execution state */

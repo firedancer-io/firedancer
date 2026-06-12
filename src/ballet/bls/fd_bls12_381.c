@@ -64,6 +64,13 @@ fd_bls12_381_g1_frombytes_unchecked( fd_bls12_381_g1aff_t * r,
     fd_bls12_381_g1_bswap( (uchar *)be, _in );
     in = (uchar *)be;
   }
+
+  /* Reject the point if the compressed or parity flag is set.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/bls12-381/src/encoding.rs#L57-L60 */
+  if( FD_UNLIKELY( in[ 0 ] & 0xA0 ) ) {
+    return NULL;
+  }
+
   if( FD_UNLIKELY( blst_p1_deserialize( r, in )!=BLST_SUCCESS ) ) {
     return NULL;
   }
@@ -232,6 +239,13 @@ fd_bls12_381_g2_frombytes_unchecked( fd_bls12_381_g2aff_t * r,
     fd_bls12_381_g2_bswap( (uchar *)be, _in );
     in = (uchar *)be;
   }
+
+  /* Reject the point if the compressed or parity flag is set.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/bls12-381/src/encoding.rs#L103-L106 */
+  if( FD_UNLIKELY( in[ 0 ] & 0xA0 ) ) {
+    return NULL;
+  }
+
   if( FD_UNLIKELY( blst_p2_deserialize( r, in )!=BLST_SUCCESS ) ) {
     return NULL;
   }
@@ -374,25 +388,32 @@ fd_bls12_381_pairing_syscall( uchar       _r[ 48*12 ],
   fd_bls12_381_g2aff_t b[ FD_BLS12_381_PAIRING_BATCH_SZ ];
   fd_bls12_381_g1aff_t const * aptr[ FD_BLS12_381_PAIRING_BATCH_SZ ];
   fd_bls12_381_g2aff_t const * bptr[ FD_BLS12_381_PAIRING_BATCH_SZ ];
-  ulong n = 0;
+  /* skip pairs where either side is the point at infinity.
+     this is important because blst otherwise produces an invalid result. */
+  ulong m = 0UL;
   for( ulong j=0; j<_n; j++ ) {
-    if( FD_UNLIKELY( fd_bls12_381_g1_frombytes( &a[ n ], _a+96*j, big_endian )==NULL ) ) {
+    fd_bls12_381_g1aff_t * aj = &a[ m ];
+    fd_bls12_381_g2aff_t * bj = &b[ m ];
+    if( FD_UNLIKELY( fd_bls12_381_g1_frombytes( aj, _a+96*j, big_endian )==NULL ) ) {
       return -1;
     }
-    if( FD_UNLIKELY( fd_bls12_381_g2_frombytes( &b[ n ], _b+96*2*j, big_endian )==NULL ) ) {
+    if( FD_UNLIKELY( fd_bls12_381_g2_frombytes( bj, _b+96*2*j, big_endian )==NULL ) ) {
       return -1;
+    }
+    if( FD_UNLIKELY( blst_p1_affine_is_inf( aj ) || blst_p2_affine_is_inf( bj ) ) ) {
+      continue;
     }
     /* blst wants an array of pointers (not necessarily a compact array) */
-    aptr[ n ] = &a[ n ];
-    bptr[ n ] = &b[ n ];
-    ++n;
+    aptr[ m ] = aj;
+    bptr[ m ] = bj;
+    m++;
   }
 
   blst_fp12 r[1];
   memcpy( r, blst_fp12_one(), sizeof(blst_fp12) );
 
-  if( FD_LIKELY ( n>0 ) ) {
-    blst_miller_loop_n( r, bptr, aptr, n );
+  if( FD_LIKELY ( m>0 ) ) {
+    blst_miller_loop_n( r, bptr, aptr, m );
     blst_final_exp( r, r );
   }
 
@@ -411,9 +432,9 @@ fd_bls12_381_pairing_syscall( uchar       _r[ 48*12 ],
 
 /* Proof of possession */
 
-#define FD_BLS_SIG_DOMAIN_NUL "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
-#define FD_BLS_SIG_DOMAIN_POP "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
-#define FD_BLS_SIG_DOMAIN_SZ  (43UL)
+#define FD_BLS_LITERAL(STR) ("" STR), (sizeof(STR)-1)
+#define FD_BLS_SIG_DOMAIN_H2P "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_POP_"
+#define FD_BLS_SIG_DOMAIN_POP "BLS_POP_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 
 /* fd_bls12_381_core_verify verifies a BLS signature in the mathematical
    sense, i.e. computes a pairing to check that the signature is correct.
@@ -440,7 +461,8 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
                           ulong        msg_sz,
                           uchar const  signature[ 96 ],
                           uchar const  public_key[ 48 ],
-                          char const * domain ) {
+                          char const * domain,
+                          ulong        domain_len ) {
   fd_bls12_381_g1aff_t a1[1]; /* a2 is const, we don't need a var */
   fd_bls12_381_g2aff_t b1[1], b2[1];
 
@@ -451,10 +473,14 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
   if( FD_UNLIKELY( !blst_p1_affine_in_g1( a1 ) ) ) {
     return -1;
   }
+  /* https://github.com/anza-xyz/solana-sdk/blob/b66abfddd564aef5b4b82cf4e76381e96f2459f0/bls-signatures/src/pubkey/verify.rs#L120 */
+  if( FD_UNLIKELY( blst_p1_affine_is_inf( a1 ) ) ) {
+    return -1;
+  }
 
   /* hash msg into b1. the check that it's a valid point in G2 is implicit/guaranteed */
   fd_bls12_381_g2_t _b1[1];
-  blst_hash_to_g2( _b1, msg, msg_sz, (uchar *)domain, FD_BLS_SIG_DOMAIN_SZ, NULL, 0UL );
+  blst_hash_to_g2( _b1, msg, msg_sz, (uchar const *)domain, domain_len, NULL, 0UL );
   blst_p2_to_affine( b1, _b1 );
 
   /* decompress signature into b2 and check that it's a valid point in G2 */
@@ -483,8 +509,8 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
 int
 fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
                                          ulong       msg_sz,
-                                         uchar const proof[ 96 ],
-                                         uchar const public_key[ 48 ] ) {
+                                         uchar const proof[ static 96 ],
+                                         uchar const public_key[ static 48 ] ) {
   /* Agave supports the case of empty msg, where the public key is used
      instead (i.e. the plain RFC proof of possession). But that's not really
      used anywhere, and probably shouldn't be used for security reasons.
@@ -496,5 +522,5 @@ fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
     return -1;
   }
 
-  return fd_bls12_381_core_verify( msg, msg_sz, proof, public_key, FD_BLS_SIG_DOMAIN_POP );
+  return fd_bls12_381_core_verify( msg, msg_sz, proof, public_key, FD_BLS_LITERAL( FD_BLS_SIG_DOMAIN_POP ) );
 }

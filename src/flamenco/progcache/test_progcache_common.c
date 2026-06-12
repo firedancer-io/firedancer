@@ -1,140 +1,99 @@
 
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
-#include "../accdb/fd_accdb_admin_v1.h"
-#include "../accdb/fd_accdb_impl_v1.h"
-#include "../accdb/fd_accdb_sync.h"
-#include "../features/fd_features.h"
+#include "../runtime/fd_system_ids.h"
+#include "../runtime/program/fd_bpf_loader_program.h"
+#include "../accdb/fd_accdb.h"
 
-struct test_env {
-  fd_wksp_t *          wksp;
-
-  fd_progcache_admin_t progcache_admin[1];
-  fd_progcache_t       progcache[1];
-  fd_accdb_admin_t     accdb_admin[1];
-  fd_accdb_user_t      accdb[1];
-  fd_features_t        features[1];
-
-  uchar scratch[ FD_PROGCACHE_SCRATCH_FOOTPRINT ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
-};
-
-typedef struct test_env test_env_t;
-
-/* test_env_create allocates a new account database (funk) and loaded
-   program cache (also funk) from a wksp.  Joins an admin and user
-   client to the program cache, as well as a database client. */
-
-static test_env_t *
-test_env_create( fd_wksp_t * wksp ) {
-  ulong txn_max           = 16UL;
-  ulong accdb_rec_max     = 32UL;
-  ulong progcache_rec_max = 32UL;
-  ulong wksp_tag          =  1UL;
-
-  void * accdb_mem       = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, accdb_rec_max ), wksp_tag );
-  void * accdb_locks     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, accdb_rec_max ), wksp_tag );
-  FD_TEST( fd_funk_shmem_new( accdb_mem, wksp_tag, 1UL, txn_max, accdb_rec_max ) );
-  FD_TEST( fd_funk_locks_new( accdb_locks, txn_max, accdb_rec_max ) );
-
-  void * progcache_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
-  void * progcache_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, progcache_rec_max ), wksp_tag );
-  FD_TEST( fd_funk_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
-  FD_TEST( fd_funk_locks_new( progcache_locks, txn_max, progcache_rec_max ) );
-
-  test_env_t * env = fd_wksp_alloc_laddr( wksp, alignof(test_env_t), sizeof(test_env_t), wksp_tag );
-  FD_TEST( env );
-  memset( env, 0, sizeof(test_env_t) );
-
-  env->wksp = wksp;
-  FD_TEST( fd_progcache_admin_join( env->progcache_admin, progcache_mem, progcache_locks ) );
-  FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, progcache_locks, env->scratch, sizeof(env->scratch) ) );
-  FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem, accdb_locks ) );
-  FD_TEST( fd_accdb_user_v1_init  ( env->accdb,       accdb_mem, accdb_locks, txn_max ) );
-
-  return env;
-}
-
-/* test_env_destroy frees all test env objects. */
-
-static void
-test_env_destroy( test_env_t * env ) {
-  fd_progcache_verify( env->progcache_admin );
-
-  void * progcache_mem   = NULL;
-  void * progcache_locks = NULL;
-  FD_TEST( fd_progcache_admin_leave( env->progcache_admin, &progcache_mem, &progcache_locks ) );
-  FD_TEST( fd_progcache_leave      ( env->progcache,       &progcache_mem, &progcache_locks ) );
-  fd_wksp_free_laddr( progcache_locks );
-  fd_wksp_free_laddr( fd_funk_delete( progcache_mem ) );
-
-  void * accdb_funk  = fd_accdb_user_v1_funk( env->accdb )->shmem;
-  void * accdb_locks = (void *)fd_accdb_user_v1_funk( env->accdb )->txn_lock;
-  fd_accdb_admin_fini( env->accdb_admin );
-  fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( accdb_locks );
-  fd_wksp_free_laddr( fd_funk_delete( accdb_funk ) );
-
-  fd_wksp_free_laddr( env );
-}
-
-/* test_env_txn_prepare creates a new in-prep funk transaction off
-   parent with the given xid, in both accdb and progcache. */
-
-static void
-test_env_txn_prepare( test_env_t *              env,
-                      fd_funk_txn_xid_t const * parent,
-                      fd_funk_txn_xid_t const * xid ) {
-  fd_funk_txn_xid_t root[1];
-  if( !parent ) {
-    fd_funk_txn_xid_set_root( root );
-    parent = root;
-  }
-  fd_accdb_attach_child        ( env->accdb_admin,     parent, xid );
-  fd_progcache_txn_attach_child( env->progcache_admin, parent, xid );
-}
-
-/* test_env_txn_cancel destroys a subtree of in-prep funk transactions
-   with root 'xid', in both accdb and progcache. */
-
-static void
-test_env_txn_cancel( test_env_t *              env,
-                     fd_funk_txn_xid_t const * xid ) {
-  fd_accdb_cancel        ( env->accdb_admin,     xid );
-  fd_progcache_txn_cancel( env->progcache_admin, xid );
-}
-
-/* test_env_txn_publish publishes (i.e. roots) a subtree of in-prep funk
-   transactions with root 'xid', in both accdb and progcache. */
-
-FD_FN_UNUSED static void
-test_env_txn_publish( test_env_t *              env,
-                      fd_funk_txn_xid_t const * xid ) {
-  fd_accdb_advance_root( env->accdb_admin, xid );
-  fd_progcache_txn_advance_root( env->progcache_admin, xid );
-}
-
-static fd_funk_rec_key_t
+FD_FN_UNUSED static fd_pubkey_t
 test_key( ulong x ) {
-  fd_funk_rec_key_t key = {0};
+  fd_pubkey_t key = {0};
   key.ul[0] = x;
   return key;
 }
 
-/* create_test_account creates an account in the account database. */
+#define TEST_ACCOUNT_DATA_MAX (1UL<<20)
+struct test_account {
+  fd_acc_t entry[1];
+  uchar    buf[ TEST_ACCOUNT_DATA_MAX ];
+};
+typedef struct test_account test_account_t;
 
-static void
-create_test_account( test_env_t *              env,
-                     fd_funk_txn_xid_t const * xid,
-                     void const *              pubkey,
-                     void const *              owner,
-                     void const *              data,
-                     ulong                     data_len,
-                     uchar                     executable ) {
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( env->accdb, rw, xid, pubkey, data_len, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
-  fd_accdb_ref_data_set( env->accdb, rw, data, data_len );
-  fd_accdb_ref_lamports_set( rw, 1UL );
-  fd_accdb_ref_exec_bit_set( rw, executable );
-  fd_accdb_ref_owner_set   ( rw, owner );
-  fd_accdb_close_rw( env->accdb, rw );
+FD_FN_UNUSED static test_account_t *
+test_account_init( test_account_t * acc,
+                   void const *     address,
+                   void const *     owner,
+                   _Bool            executable,
+                   void const *     data,
+                   ulong            data_sz ) {
+  if( data_sz > TEST_ACCOUNT_DATA_MAX ) FD_LOG_ERR(( "test_account_init: data_sz %lu exceeds max %lu", data_sz, TEST_ACCOUNT_DATA_MAX ));
+  memset( acc->entry, 0, sizeof(fd_acc_t) );
+  memcpy( acc->entry->pubkey, address, 32 );
+  memcpy( acc->entry->owner, owner, 32 );
+  acc->entry->lamports   = 42UL;
+  acc->entry->executable = executable;
+  acc->entry->data_len   = data_sz;
+  acc->entry->data       = acc->buf;
+  if( data_sz ) memcpy( acc->entry->data, data, data_sz );
+  return acc;
+}
+
+FD_FN_UNUSED static test_account_t *
+test_account_init_v3( test_account_t * acc,
+                      uchar *          buf,
+                      ulong            buf_max,
+                      void const *     address,
+                      void const *     progdata_address ) {
+
+  struct __attribute__((packed)) {
+    uint        kind;
+    fd_pubkey_t progdata_address;
+  } v3_state = {
+    .kind             = FD_BPF_STATE_PROGRAM,
+    .progdata_address = FD_LOAD( fd_pubkey_t, progdata_address )
+  };
+  FD_TEST( buf_max>=sizeof(v3_state) );
+  fd_memcpy( buf, &v3_state, sizeof(v3_state) );
+
+  memset( acc->entry, 0, sizeof(fd_acc_t) );
+  memcpy( acc->entry->pubkey, address, 32 );
+  memcpy( acc->entry->owner, &fd_solana_bpf_loader_upgradeable_program_id, 32 );
+  acc->entry->lamports   = 42UL;
+  acc->entry->executable = 1;
+  acc->entry->data_len   = sizeof(v3_state);
+  acc->entry->data       = buf;
+  return acc;
+}
+
+FD_FN_UNUSED static test_account_t *
+test_account_init_v3_data( test_account_t * acc,
+                           uchar *          buf,
+                           ulong            buf_max,
+                           void const *     address,
+                           void const *     data,
+                           ulong            data_sz,
+                           ulong            slot ) {
+  struct __attribute__((packed)) {
+    uint  kind;
+    ulong slot;
+    uchar has_upgrade_authority;
+  } v3_state = {
+    .kind                  = FD_BPF_STATE_PROGRAM_DATA,
+    .slot                  = slot,
+    .has_upgrade_authority = 0
+  };
+  FD_TEST( buf_max>=PROGRAMDATA_METADATA_SIZE+data_sz );
+  fd_memset( buf, 0, PROGRAMDATA_METADATA_SIZE );
+  fd_memcpy( buf, &v3_state, sizeof(v3_state) );
+  fd_memcpy( buf+PROGRAMDATA_METADATA_SIZE, data, data_sz );
+
+  memset( acc->entry, 0, sizeof(fd_acc_t) );
+  memcpy( acc->entry->pubkey, address, 32 );
+  memcpy( acc->entry->owner, &fd_solana_bpf_loader_upgradeable_program_id, 32 );
+  acc->entry->lamports   = 42UL;
+  acc->entry->executable = 0;
+  acc->entry->data_len   = PROGRAMDATA_METADATA_SIZE+data_sz;
+  acc->entry->data       = buf;
+  (void)slot;
+  return acc;
 }

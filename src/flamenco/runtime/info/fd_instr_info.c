@@ -1,10 +1,11 @@
 #include "fd_instr_info.h"
 #include "../fd_runtime.h"
+#include "../fd_runtime_helpers.h"
+#include "../../../disco/fd_txn_p.h"
 #include "../../../util/bits/fd_uwide.h"
 
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
-                                   fd_bank_t *            bank,
                                    fd_txn_in_t const *    txn_in,
                                    fd_txn_out_t *         txn_out,
                                    fd_txn_instr_t const * txn_instr ) {
@@ -34,7 +35,7 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                        acc_idx,
                                        acc_idx,
                                        i,
-                                       (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, instr_acc_idxs[i] ),
+                                       (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, instr_acc_idxs[i] ),
                                        (uchar)fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) );
 
   }
@@ -49,7 +50,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
   *total_lamports_l = 0UL;
   for( ulong i=0UL; i<instr->acct_cnt; ++i ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
-    fd_accdb_rw_t const * ref = &txn_out->accounts.account[ idx_in_txn ];
+    fd_acc_t const * ref = txn_out->accounts.account[ idx_in_txn ];
 
     if( instr->is_duplicate[i] ) {
       continue;
@@ -61,7 +62,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
 
     fd_uwide_inc( &tmp_total_lamports_h, &tmp_total_lamports_l,
                   *total_lamports_h,     *total_lamports_l,
-                  fd_accdb_ref_lamports( ref->ro ) );
+                  ref->lamports );
 
     if( tmp_total_lamports_h < *total_lamports_h ) {
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;

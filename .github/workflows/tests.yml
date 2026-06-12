@@ -66,8 +66,8 @@ jobs:
           sudo killall firedancer-dev || true
 
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:
@@ -81,7 +81,7 @@ jobs:
 
       - uses: ./.github/actions/cpusonline
 
-      - uses: dtolnay/rust-toolchain@1.84.1
+      - uses: dtolnay/rust-toolchain@1.95.0
         if: ${{ contains(matrix.targets, 'fdctl') }}
 
       - name: clean targets
@@ -98,7 +98,7 @@ jobs:
       - name: build targets
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          FIREDANCER_CI_COMMIT=none ./contrib/make-j ${{ matrix.targets }}
+          ./contrib/make-j ${{ matrix.targets }}
 
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}

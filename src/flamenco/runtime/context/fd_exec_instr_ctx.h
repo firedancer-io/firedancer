@@ -62,11 +62,11 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t const * ctx,
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::find_index_of_instruction_account.
 
    Returns the index of the instruction account given the account pubkey
-   or -1 if the account is not found.
+   or ULONG_MAX if the account is not found.
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L524-L538 */
 
-int
+ulong
 fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
                                              fd_pubkey_t const *         pubkey );
 
@@ -133,15 +133,6 @@ int
 fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
                                             ushort                      idx,
                                             fd_borrowed_account_t *     account );
-
-/* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
-
-   Borrows an account from the instruction context with a given pubkey. */
-
-int
-fd_exec_instr_ctx_try_borrow_instr_account_with_key( fd_exec_instr_ctx_t const * ctx,
-                                                     fd_pubkey_t const *         pubkey,
-                                                     fd_borrowed_account_t *     account );
 
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_last_program_account
 

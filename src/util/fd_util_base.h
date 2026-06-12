@@ -324,7 +324,7 @@ typedef unsigned short ushort;
 typedef unsigned int   uint;
 typedef unsigned long  ulong;
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 
 __extension__ typedef          __int128  int128;
 __extension__ typedef unsigned __int128 uint128;
@@ -755,6 +755,26 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_COMPILER_MFENCE() __asm__ __volatile__( "# FD_COMPILER_MFENCE()@" FD_SRC_LOCATION ::: "memory" )
 
+/* FD_HW_MFENCE():  A full hardware memory fence.  All prior stores
+   are globally visible before any subsequent loads execute.  Use
+   when a compiler fence is insufficient, e.g. epoch-based safe
+   reclamation where a store must be visible to another core before
+   a dependent load on this core (StoreLoad barrier). */
+
+#if FD_HAS_X86
+#define FD_HW_MFENCE()    __asm__ __volatile__( "lock addl $0, (%%rsp)" ::: "memory", "cc" )
+#define FD_HW_MFENCE_LD() FD_COMPILER_MFENCE()
+#define FD_HW_MFENCE_ST() FD_COMPILER_MFENCE()
+#elif FD_HAS_ARM
+#define FD_HW_MFENCE()    __asm__ __volatile__( "dmb ish" ::: "memory" )
+#define FD_HW_MFENCE_LD() __asm__ __volatile__( "dmb ishld" ::: "memory" )
+#define FD_HW_MFENCE_ST() __asm__ __volatile__( "dmb ishst" ::: "memory" )
+#else
+#define FD_HW_MFENCE()    __sync_synchronize()
+#define FD_HW_MFENCE_LD() __sync_synchronize()
+#define FD_HW_MFENCE_ST() __sync_synchronize()
+#endif
+
 /* FD_SPIN_PAUSE():  Yields the logical core of the calling thread to
    the other logical cores sharing the same underlying physical core for
    a few clocks without yielding it to the operating system scheduler.
@@ -767,6 +787,8 @@ fd_type_pun_const( void const * p ) {
 
 #if FD_HAS_X86
 #define FD_SPIN_PAUSE() __builtin_ia32_pause()
+#elif FD_HAS_ARM
+#define FD_SPIN_PAUSE() __asm__ __volatile__( "yield" ::: "memory" )
 #else
 #define FD_SPIN_PAUSE() ((void)0)
 #endif
@@ -846,42 +868,9 @@ fd_type_pun_const( void const * p ) {
      o = *p
      *p = v
      return o
-   as a single atomic operation.
+   as a single atomic operation. */
 
-   Intel's __sync compiler extensions from the days of yore mysteriously
-   implemented atomic exchange via the very misleadingly named
-   __sync_lock_test_and_set.  And some implementations (and C++)
-   debatably then implemented this API according to what the misleading
-   name implied as opposed to what it actually did.  But those
-   implementations didn't bother to provide a replacement for atomic
-   exchange functionality (forcing us to emulate atomic exchange more
-   slowly via CAS there).  Sigh ... we do what we can to fix this up. */
-
-#ifndef FD_ATOMIC_XCHG_STYLE
-#if FD_HAS_X86 && !__cplusplus
-#define FD_ATOMIC_XCHG_STYLE 1
-#else
-#define FD_ATOMIC_XCHG_STYLE 0
-#endif
-#endif
-
-#if FD_ATOMIC_XCHG_STYLE==0
-#define FD_ATOMIC_XCHG(p,v) (__extension__({                                                                            \
-    __typeof__(*(p)) * _fd_atomic_xchg_p = (p);                                                                         \
-    __typeof__(*(p))   _fd_atomic_xchg_v = (v);                                                                         \
-    __typeof__(*(p))   _fd_atomic_xchg_t;                                                                               \
-    for(;;) {                                                                                                           \
-      _fd_atomic_xchg_t = FD_VOLATILE_CONST( *_fd_atomic_xchg_p );                                                      \
-      if( FD_LIKELY( __sync_bool_compare_and_swap( _fd_atomic_xchg_p, _fd_atomic_xchg_t, _fd_atomic_xchg_v ) ) ) break; \
-      FD_SPIN_PAUSE();                                                                                                  \
-    }                                                                                                                   \
-    _fd_atomic_xchg_t;                                                                                                  \
-  }))
-#elif FD_ATOMIC_XCHG_STYLE==1
-#define FD_ATOMIC_XCHG(p,v) __sync_lock_test_and_set( (p), (v) )
-#else
-#error "Unknown FD_ATOMIC_XCHG_STYLE"
-#endif
+#define FD_ATOMIC_XCHG(p,v) __atomic_exchange_n( (p), (v), __ATOMIC_SEQ_CST )
 
 #endif /* FD_HAS_ATOMIC */
 
@@ -1353,6 +1342,47 @@ void
 fd_yield( void );
 
 #endif
+
+#if FD_HAS_ARM
+
+/* fd_arm_stp16 stores two ulongs to a 16-byte memory location.
+   If LSE2 and p is aligned, is single-copy atomic. */
+
+static inline void
+fd_arm_stp16( ulong * p,
+              ulong   a,
+              ulong   b ) {
+  __asm__(
+      "stp %x[a], %x[b], [%[p]]"
+      :
+      : [a] "r"(a), [b] "r"(b), [p] "r"(p)
+      : "memory"
+  );
+}
+
+/* fd_arm_ldp16 loads two ulongs from a 16-byte memory location.
+   If LSE2 and p is aligned, is single-copy atomic. */
+
+#define fd_arm_ldp16(p_,a_,b_)     \
+  __asm__(                         \
+      "ldp %x[a], %x[b], [%[p]]"   \
+      : [a] "=r"(a_), [b] "=r"(b_) \
+      : [p] "r"(p_)                \
+      : "memory"                   \
+  )
+
+/* fd_arm_ldp16_acq_pc is like fd_arm_ldp16, but with Load-AcquirePC
+   semantics.  Requires RCPC3. */
+
+#define fd_arm_ldp16_acq_pc(p_,a_,b_) \
+  __asm__(                            \
+      "ldiapp %x[a], %x[b], [%[p]]"   \
+      : [a] "=r"(a_), [b] "=r"(b_)    \
+      : [p] "r"(p_)                   \
+      : "memory"                      \
+  )
+
+#endif /* FD_HAS_ARM */
 
 FD_PROTOTYPES_END
 

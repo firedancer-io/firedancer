@@ -9,7 +9,6 @@ $(call make-unit-test,test_quic_proto,      test_quic_proto,      fd_quic fd_uti
 $(call make-unit-test,test_quic_hs,         test_quic_hs,         $(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_streams,    test_quic_streams,    $(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_conn,       test_quic_conn,       $(QUIC_TEST_LIBS))
-$(call make-unit-test,test_quic_drops,      test_quic_drops,      $(QUIC_TEST_LIBS) fd_fibre)
 $(call make-unit-test,test_quic_bw,         test_quic_bw,         $(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_layout,     test_quic_layout,     fd_util)
 $(call make-unit-test,test_quic_conformance,test_quic_conformance,$(QUIC_TEST_LIBS) fd_util)
@@ -19,6 +18,7 @@ $(call make-unit-test,test_quic_svc_q,test_quic_svc_q,$(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_pkt_meta,test_quic_pkt_meta,$(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_keep_alive,test_quic_keep_alive,$(QUIC_TEST_LIBS))
 $(call make-unit-test,test_quic_retx,test_quic_retx,$(QUIC_TEST_LIBS))
+$(call make-unit-test,test_quic_pkt_meta_lifecycle,test_quic_pkt_meta_lifecycle,$(QUIC_TEST_LIBS))
 $(call run-unit-test,test_quic_proto)
 $(call run-unit-test,test_quic_hs)
 $(call run-unit-test,test_quic_streams)
@@ -32,6 +32,7 @@ $(call run-unit-test,test_quic_concurrency)
 $(call run-unit-test,test_quic_svc_q)
 $(call run-unit-test,test_quic_pkt_meta)
 $(call run-unit-test,test_quic_keep_alive)
+$(call run-unit-test,test_quic_pkt_meta_lifecycle)
 
 # fd_quic_tls unit tests
 $(call make-unit-test,test_quic_tls_hs,test_quic_tls_hs,$(QUIC_TEST_LIBS))
@@ -58,6 +59,6 @@ $(call make-fuzz-test,fuzz_quic_wire,fuzz_quic_wire,$(QUIC_TEST_LIBS))
 $(call make-fuzz-test,fuzz_quic_actor,fuzz_quic_actor,$(QUIC_TEST_LIBS))
 endif
 
-$(call make-unit-test,test_quic_key_phase,test_quic_key_phase,$(QUIC_TEST_LIBS) fd_fibre)
+$(call make-unit-test,test_quic_key_phase,test_quic_key_phase,$(QUIC_TEST_LIBS))
 $(call run-unit-test,test_quic_key_phase)
 endif

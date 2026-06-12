@@ -207,5 +207,6 @@ action_t fd_action_txn = {
   .name = "txn",
   .args = txn_cmd_args,
   .fn   = txn_cmd_fn,
-  .description = "Send a transaction to an fddev instance"
+  .description = "Send a transaction to a running development validator (see the `dev` command)",
+  .usage = "txn [OPTIONS]"
 };

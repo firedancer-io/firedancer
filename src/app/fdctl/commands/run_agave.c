@@ -16,8 +16,6 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 extern void fd_ext_validator_main( const char ** args );
 
-extern int * fd_log_private_shared_lock;
-
 static void
 clone_labs_memory_space_tiles( config_t * config ) {
   /* preload shared memory for all the agave tiles at once */
@@ -229,17 +227,6 @@ agave_boot( config_t const * config ) {
 int
 agave_main( void * args ) {
   config_t * config = args;
-
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile agave pid:%lu", fd_sandbox_getpid() ));
-      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
-        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      fd_log_private_shared_lock[1] = 0;
-    } else {
-      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
-    }
-  }
 
   clone_labs_memory_space_tiles( config );
 

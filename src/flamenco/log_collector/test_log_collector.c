@@ -74,9 +74,8 @@ test_log_messages_single_log_limit( fd_runtime_t * runtime ) {
 static void
 test_log_messages_weird_behavior( fd_runtime_t * runtime ) {
   fd_exec_instr_ctx_t ctx[1];
-  fd_log_collector_t  log[1];
   ctx->runtime = runtime;
-  runtime->log.log_collector = log;
+  fd_log_collector_t * log = runtime->log.log_collector;
 
   char msg9999[ 9999+1 ]; sprintf( msg9999, "%0*d", 9999, 0 );
 

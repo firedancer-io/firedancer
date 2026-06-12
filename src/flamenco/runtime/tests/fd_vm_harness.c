@@ -8,6 +8,7 @@
 #include "../../vm/fd_vm.h"
 #include "../../vm/test_vm_util.h"
 #include "generated/vm.pb.h"
+#include "generated/vm_serialization.pb.h"
 #include "../fd_bank.h"
 
 static fd_sbpf_syscalls_t *
@@ -89,11 +90,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   /* Create execution context */
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
-  // Skip extra checks for non-CPI syscalls
-  int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
-  int skip_extra_checks = !is_cpi;
-
-  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks );
+  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx );
 
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
@@ -150,18 +147,20 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
 
-  ulong                   input_sz                               = 0UL;
-  ulong                   pre_lens[256]                          = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]                = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]                  = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt                  = 0U;
-  int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->bank, stricter_abi_and_runtime_constraints );
+  ulong                   input_sz                                 = 0UL;
+  ulong                   pre_lens[256]                            = {0};
+  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt                    = 0U;
+  int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
+  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
+  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
+  int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
-  uchar               program_id_idx = ctx->instr->program_id;
-  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
-  uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
-                                      ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar      program_id_idx = ctx->instr->program_id;
+  fd_acc_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx];
+  uchar      is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
+                              ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
   int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr );
@@ -176,8 +175,9 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
-                                                      stricter_abi_and_runtime_constraints,
+                                                      virtual_address_space_adjustments,
                                                       direct_mapping,
+                                                      direct_account_pointers_in_program_input,
                                                       is_deprecated,
                                                       &instr_data_offset,
                                                       &input_sz );
@@ -207,7 +207,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               acc_region_metas,
               is_deprecated,
               direct_mapping,
-              stricter_abi_and_runtime_constraints,
+              syscall_parameter_address_restrictions,
+              virtual_address_space_adjustments,
               0 /* dump_syscall_to_pb */,
               0UL /* r2 is set by the fuzzer below */ );
 
@@ -255,19 +256,15 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
-  int stack_pop_err = fd_instr_stack_pop( ctx->runtime, ctx->txn_out, ctx->instr );
-  if( FD_UNLIKELY( stack_pop_err ) ) {
-      FD_LOG_WARNING(( "instr stack pop err" ));
-      goto error;
-  }
-  if( syscall_err ) {
+  int instr_end_err = fd_execute_instr_end( vm->instr_ctx, ctx->instr, syscall_err );
+  if( instr_end_err ) {
     fd_log_collector_program_failure( vm->instr_ctx );
   }
 
   /* Capture the effects */
   int exec_err = vm->instr_ctx->txn_out->err.exec_err;
   effects->error = 0;
-  if( syscall_err ) {
+  if( instr_end_err ) {
     if( exec_err==0 ) {
       FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
@@ -292,7 +289,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       }
     }
   }
-  effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
+  effects->r0 = instr_end_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
   if( vm->heap_max ) {
@@ -329,33 +326,29 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   effects->frame_count = vm->frame_cnt;
 
-  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
-  /* Only collect log on valid errors (i.e., != -1). Follows
-     https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
-  if( effects->error != -1 && log->buf_sz ) {
-    effects->log = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      goto error;
-    }
-    effects->log->size = (uint)fd_log_collector_debug_sprintf( log, (char *)effects->log->bytes, 0 );
-  } else {
-    effects->log = NULL;
-  }
-
   /* Capture input regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  ulong input_regions_size = fd_solfuzz_vm_load_from_input_regions(
+
+  /* Don't compare input data regions if execution failed and
+     virtual_address_space_adjustments is enabled, because
+     Agave leaks data into the input regions under these circumstances. */
+  ulong input_regions_size = 0UL;
+  if( syscall_err && virtual_address_space_adjustments ) {
+    effects->input_data_regions       = NULL;
+    effects->input_data_regions_count = 0UL;
+  } else {
+    input_regions_size = fd_solfuzz_vm_load_from_input_regions(
       vm->input_mem_regions,
       vm->input_mem_regions_cnt,
       &effects->input_data_regions,
       &effects->input_data_regions_count,
       (void *)tmp_end,
       fd_ulong_sat_sub( output_end, tmp_end )
-  );
+    );
 
-  if( !!vm->input_mem_regions_cnt && !effects->input_data_regions ) {
-    goto error;
+    if( !!vm->input_mem_regions_cnt && !effects->input_data_regions ) {
+      goto error;
+    }
   }
 
   /* Return the effects */
@@ -368,4 +361,117 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 error:
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
   return 0;
+}
+
+ulong
+fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
+                                void const *          input_,
+                                void **               output_,
+                                void *                output_buf,
+                                ulong                 output_bufsz ) {
+  fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_vm_serialization_effects_t ** output = fd_type_pun( output_ );
+
+  /* Create execution context */
+  fd_exec_instr_ctx_t ctx[1];
+  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input );
+
+  ctx->txn_out->err.exec_err      = 0;
+  ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
+  ctx->bank                       = runner->bank;
+
+  /* Capture outputs */
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  fd_exec_test_vm_serialization_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_vm_serialization_effects_t),
+                                sizeof (fd_exec_test_vm_serialization_effects_t) );
+  FD_TEST( _l <= output_end );
+  *effects = (fd_exec_test_vm_serialization_effects_t) FD_EXEC_TEST_VM_SERIALIZATION_EFFECTS_INIT_ZERO;
+
+  /* Determine feature flags and is_deprecated */
+  int direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
+  int virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
+  int direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
+
+  uchar      program_id_idx = ctx->instr->program_id;
+  fd_acc_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx];
+  uchar      is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
+                              ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+
+  /* Push the instruction onto the stack */
+  FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );
+
+  /* Call serialize_parameters */
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0};
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0};
+  uint                    input_mem_regions_cnt   = 0U;
+  ulong                   instr_data_offset       = 0UL;
+
+  int err = fd_bpf_loader_input_serialize_parameters(
+    ctx,
+    pre_lens,
+    input_mem_regions,
+    &input_mem_regions_cnt,
+    acc_region_metas,
+    virtual_address_space_adjustments,
+    direct_mapping,
+    direct_account_pointers_in_program_input,
+    is_deprecated,
+    &instr_data_offset,
+    &input_sz
+  );
+
+  if( FD_UNLIKELY( err ) ) {
+    effects->has_error = true;
+    ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
+    *output = effects;
+    return actual_end - (ulong)output_buf;
+  }
+
+  /* Hash the serialized memory buffer. */
+  uchar * serialized_buf = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  effects->serialized_memory_hash = fd_hash( 0UL, serialized_buf, input_sz );
+
+  /* Populate vm_input_memory_regions */
+  effects->vm_input_memory_regions_count = (pb_size_t)input_mem_regions_cnt;
+  effects->vm_input_memory_regions =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_vm_input_memory_region_t),
+                                input_mem_regions_cnt * sizeof(fd_exec_test_vm_input_memory_region_t) );
+  FD_TEST( _l <= output_end );
+
+  for( uint i=0; i<input_mem_regions_cnt; i++ ) {
+    fd_vm_input_region_t const * region = &input_mem_regions[i];
+    fd_exec_test_vm_input_memory_region_t * out = &effects->vm_input_memory_regions[i];
+    out->vm_address  = FD_VM_MEM_MAP_INPUT_REGION_START + region->vaddr_offset;
+    out->region_size = region->region_sz;
+    out->is_writable = region->is_writable;
+  }
+
+  /* Populate serialized_account_metadata */
+  ulong num_ix_accounts = ctx->instr->acct_cnt;
+  effects->serialized_account_metadata_count = (pb_size_t)num_ix_accounts;
+  effects->serialized_account_metadata =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_vm_serialized_account_metadata_t),
+                                num_ix_accounts * sizeof(fd_exec_test_vm_serialized_account_metadata_t) );
+  FD_TEST( _l <= output_end );
+
+  for( ulong i=0; i<num_ix_accounts; i++ ) {
+    fd_vm_acc_region_meta_t const * meta = &acc_region_metas[i];
+    fd_exec_test_vm_serialized_account_metadata_t * out = &effects->serialized_account_metadata[i];
+    out->original_data_len = meta->original_data_len;
+    out->vm_data_addr      = meta->vm_data_addr;
+    out->vm_key_addr       = meta->vm_key_addr;
+    out->vm_lamports_addr  = meta->vm_lamports_addr;
+    out->vm_owner_addr     = meta->vm_owner_addr;
+  }
+
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
+
+  *output = effects;
+  return actual_end - (ulong)output_buf;
 }

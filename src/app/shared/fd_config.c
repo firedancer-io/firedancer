@@ -113,6 +113,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
+    replace( config->paths.shredb, "{user}", config->user );
+    replace( config->paths.shredb, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
+  }
+
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
@@ -250,7 +257,8 @@ fd_config_fill_net( fd_config_t * config ) {
 
 void
 fd_config_fill( fd_config_t * config,
-                int           is_local_cluster ) {
+                int           is_local_cluster,
+                int           dev ) {
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -299,13 +307,7 @@ fd_config_fill( fd_config_t * config,
   else  FD_LOG_ERR(( "[log.colorize] must be one of \"auto\", \"true\", or \"false\"" ));
 
   if( FD_LIKELY( 2==config->log.colorize1 ) ) {
-    char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-    int truecolor = cstr && !strcmp( cstr, "truecolor" );
-
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    int color256 = cstr && strstr( cstr, "256color" );
-
-    config->log.colorize1 = truecolor || color256;
+    config->log.colorize1 = fd_log_should_colorize();
   }
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
@@ -352,7 +354,8 @@ fd_config_fill( fd_config_t * config,
   }
 
   long ts = -fd_log_wallclock();
-  config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+  config->tick_per_ns_mu = dev ? fd_tempo_tick_per_ns_dev( &config->tick_per_ns_sigma )
+                               : fd_tempo_tick_per_ns    ( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
 
   if( 0!=strcmp( config->net.bind_address, "" ) ) {
@@ -364,8 +367,7 @@ fd_config_fill( fd_config_t * config,
   if(      FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "perf"     ) ) ) config->tiles.pack.schedule_strategy_enum = 0;
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "balanced" ) ) ) config->tiles.pack.schedule_strategy_enum = 1;
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
-    FD_LOG_WARNING(( "the revenue scheduler is deprecated and will be removed in a future version" ));
-    config->tiles.pack.schedule_strategy_enum = 2;
+    FD_LOG_ERR(( "the revenue scheduler has been removed.  Please update [tiles.pack.schedule_strategy]" ));
   }
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
 
@@ -459,8 +461,6 @@ fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
   CFG_HAS_NON_ZERO( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO( layout.execle_tile_count );
-  CFG_HAS_NON_ZERO( layout.snapshot_hash_tile_count );
-  CFG_HAS_NON_ZERO( layout.snapwr_tile_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
@@ -481,18 +481,13 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
-  CFG_HAS_NON_ZERO( accounts.max_accounts           );
-  CFG_HAS_NON_ZERO( accounts.file_size_gib          );
-  CFG_HAS_NON_ZERO( accounts.mean_account_footprint );
-  if( FD_UNLIKELY( !config->accounts.in_memory_only ) ) {
-    CFG_HAS_NON_ZERO( accounts.cache_size_gib                );
-    CFG_HAS_NON_ZERO( accounts.max_unrooted_account_size_gib );
-  }
+  CFG_HAS_NON_ZERO( accounts.max_accounts   );
+  CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 
-  if( 0!=strcmp( config->accounts.io_provider, "io_uring" ) &&
-      0!=strcmp( config->accounts.io_provider, "portable" ) ) {
-    FD_LOG_ERR(( "unsupported `accounts.io_provider`: \"%s\"", config->accounts.io_provider ));
-  }
+  CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
+  CFG_HAS_NON_ZERO( runtime.program_cache.heap_size_mib );
+  if( config->runtime.program_cache.mean_cache_entry_size < 4096 ) { FD_LOG_ERR(( "`%s` must be >= 4096", "runtime.program_cache.mean_cache_entry_size" )); }
+  if( config->runtime.program_cache.heap_size_mib < 32 ) { FD_LOG_ERR(( "`%s` must be >= 32", "runtime.program_cache.heap_size_mib" )); }
 }
 
 static void
@@ -625,7 +620,8 @@ fd_config_load( int           is_firedancer,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
-                fd_config_t * config ) {
+                fd_config_t * config,
+                int           dev ) {
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
@@ -647,7 +643,7 @@ fd_config_load( int           is_firedancer,
     fd_config_validate( config );
   }
 
-  fd_config_fill( config, is_local_cluster );
+  fd_config_fill( config, is_local_cluster, dev );
 }
 
 int

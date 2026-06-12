@@ -194,12 +194,12 @@ find_keyswitch( fd_topo_t const * topo,
 }
 
 static void FD_FN_SENSITIVE
-poll_keyswitch( fd_topo_t * topo,
-                ulong *     state,
-                ulong *     halted_seq,
-                uchar *     keypair,
-                int         require_tower,
-                int         force_lock ) {
+poll_keyswitch( fd_topo_t *   topo,
+                ulong *       state,
+                ulong *       halted_seq,
+                uchar const * keypair,
+                int           require_tower,
+                int           force_lock ) {
   switch( *state ) {
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
       /* First update replay's keyswitch from unlocked to locked. */
@@ -335,14 +335,15 @@ poll_keyswitch( fd_topo_t * topo,
       }
 
       FD_COMPILER_MFENCE();
-      fd_memzero_explicit( keypair, 32UL ); /* Private key no longer needed in this process */
+      uchar * keypair_wr = fd_keyload_mprotect_wr( keypair, 0 );
+      fd_memzero_explicit( keypair_wr, 32UL ); /* Private key no longer needed in this process */
+      fd_keyload_mprotect_ro( keypair_wr, 0 );
       FD_COMPILER_MFENCE();
 
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ||
                        !strcmp( topo->tiles[ i ].name, "replay" ) ||
-                       !strcmp( topo->tiles[ i ].name, "shred" ) ||
                        !strcmp( topo->tiles[ i ].name, "repair" ) ||
                        !strcmp( topo->tiles[ i ].name, "gossip" ) ||
                        !strcmp( topo->tiles[ i ].name, "txsend" ) ||
@@ -364,7 +365,6 @@ poll_keyswitch( fd_topo_t * topo,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "replay" ) ||
-                       !strcmp( topo->tiles[ i ].name, "shred" ) ||
                        !strcmp( topo->tiles[ i ].name, "repair" ) ||
                        !strcmp( topo->tiles[ i ].name, "gossip" ) ||
                        !strcmp( topo->tiles[ i ].name, "txsend" ) ||
@@ -478,9 +478,10 @@ set_identity_cmd_args( int *    pargc,
   (*pargv)++;
 
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
-    args->set_identity.keypair = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+    uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading identity keypair from stdin.  Press Ctrl-D when done.\n" ));
-    fd_keyload_read( STDIN_FILENO, "stdin", args->set_identity.keypair );
+    fd_keyload_read( STDIN_FILENO, "stdin", keypair_wr );
+    args->set_identity.keypair = fd_keyload_mprotect_ro( keypair_wr, 0 );
   } else {
     args->set_identity.keypair = fd_keyload_load( path, 0 );
   }
@@ -488,7 +489,7 @@ set_identity_cmd_args( int *    pargc,
   return;
 
 err:
-  FD_LOG_ERR(( "Usage: firedancer set-identity <keypair> [--require-tower] [--force]" ));
+  FD_LOG_ERR(( "Usage: %s set-identity <keypair> [--require-tower] [--force]", FD_BINARY_NAME ));
 }
 
 static void FD_FN_SENSITIVE
@@ -529,6 +530,24 @@ set_identity_cmd_fn( args_t *   args,
   set_identity( args, config );
 }
 
+static void
+set_identity_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<keypair>",       NULL, "Path to the new identity keypair, in the standard Solana keypair file\n"
+                                                     "format (the 64-byte JSON array).  Pass `-` to read the same JSON\n"
+                                                     "array from stdin instead of from a file" );
+  fd_action_help_arg( help, "--force",         NULL, "Force the switch even though the validator reports a switch is already\n"
+                                                     "in progress (see the note about abandoned switches below).  Only use\n"
+                                                     "this to recover after confirming no other set-identity is running, as\n"
+                                                     "forcing concurrently with a real switch can corrupt the switch and\n"
+                                                     "crash the validator" );
+  fd_action_help_arg( help, "--require-tower", NULL, "Advanced: wait for the new identity's tower (its record of past votes)\n"
+                                                     "to be loaded before voting resumes, instead of starting to vote\n"
+                                                     "immediately.  Use this when handing off to an identity that was\n"
+                                                     "recently voting elsewhere, to avoid voting on a fork it already voted\n"
+                                                     "against (which can get the validator slashed or stuck).  Leave unset\n"
+                                                     "for ordinary identity changes, where the default is safe" );
+}
+
 action_t fd_action_set_identity = {
   .name           = "set-identity",
   .args           = set_identity_cmd_args,
@@ -536,4 +555,29 @@ action_t fd_action_set_identity = {
   .require_config = 1,
   .perm           = set_identity_cmd_perm,
   .description    = "Change the identity of a running validator",
+  .detail         = "Switches the gossip/voting/block-production identity key of an already\n"
+                    "running validator to the keypair you provide, without restarting it.  The\n"
+                    "switch is atomic: the validator briefly pauses block production so it never\n"
+                    "signs with a mix of the old and new keys, then resumes under the new\n"
+                    "identity.  On success it prints `Validator identity key switched to <pubkey>`\n"
+                    "and exits 0; on any error it exits non-zero and the identity is unchanged.\n"
+                    "\n"
+                    "This command does not start a validator; it attaches to one that is already\n"
+                    "running.  It finds the running validator from the shared memory described by\n"
+                    "the configuration file, so you must point --config at the SAME config file the\n"
+                    "validator was started with, and run it from a binary built from the SAME git\n"
+                    "commit (compare this binary's `--version` against the running validator's).  If\n"
+                    "the config or binary differ, the layout will not match and the command fails\n"
+                    "without changing anything.\n"
+                    "\n"
+                    "The change is live only: it is not written back to the config file, so the\n"
+                    "validator reverts to the configured [paths.identity_key] on its next restart.\n"
+                    "To make the new identity permanent, also update that path in the config.\n"
+                    "\n"
+                    "Only one switch may run at a time.  If a previous set-identity was killed\n"
+                    "mid-switch, the validator stays locked and further attempts report that a\n"
+                    "switch is already in progress; rerun with --force to recover once you are\n"
+                    "certain no other set-identity is actually running.",
+  .usage          = "set-identity <keypair> [OPTIONS]",
+  .args_help      = set_identity_args_help,
 };

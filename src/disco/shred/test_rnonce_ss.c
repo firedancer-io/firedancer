@@ -19,7 +19,7 @@ main( int     argc,
     uint nonce = fd_rnonce_ss_compute( ss, 1, slot, shred_idx, rq_time );
 
     long rs_time = rq_time + (long)fd_rng_ulong_roll( rng, 1000000000UL );
-    FD_TEST( fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, rs_time ) );
+    FD_TEST( fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, !(i%1024UL), rs_time ) );
   }
 
   /* Test success, not normal repair */
@@ -33,7 +33,8 @@ main( int     argc,
     slot        -= fd_rng_ulong_roll( rng, 128UL );
     shred_idx    = fd_rng_uint( rng );
     long rs_time = rq_time + (long)fd_rng_ulong_roll( rng, 1000000000UL );
-    FD_TEST( fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, rs_time ) );
+    FD_TEST(  fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, 1, rs_time ) );
+    FD_TEST( !fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, 0, rs_time ) );
   }
 
   ulong failure_cnt = 0UL;
@@ -58,8 +59,8 @@ main( int     argc,
       case 6UL: rs_time   = (long)fd_rng_ulong( rng );        break;
       case 7UL: ss->private.ss0[ 1 ]--;                       break;
     }
-    failure_cnt += (ulong)fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, rs_time );
-    if( FD_UNLIKELY( fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, rs_time ) ) ) FD_LOG_NOTICE(( "normal - %lu", i ));
+    failure_cnt += (ulong)fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, 0, rs_time );
+    if( FD_UNLIKELY( fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, 0, rs_time ) ) ) FD_LOG_NOTICE(( "normal - %lu", i ));
   }
   FD_LOG_NOTICE(( "%lu false positives out of %lu", failure_cnt, 10000000UL ));
   /* failure_cnt should be a binomially distributed random variable with
@@ -84,7 +85,7 @@ main( int     argc,
       case 4UL: rs_time   = (long)fd_rng_ulong( rng );              break;
       case 5UL: ss->private.ss0[ 1 ]--;                             break;
     }
-    failure_cnt += (ulong)fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, rs_time );
+    failure_cnt += (ulong)fd_rnonce_ss_verify( ss, nonce, slot, shred_idx, 1, rs_time );
   }
   FD_LOG_NOTICE(( "%lu false positives out of %lu", failure_cnt, 10000000UL ));
   FD_TEST( failure_cnt<=4UL );

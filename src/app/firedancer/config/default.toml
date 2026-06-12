@@ -179,9 +179,7 @@ telemetry = true
     # File path to account database file.
     #
     # The account database contains a copy of all accounts on the
-    # network.  The validator preallocates the entire database on
-    # startup (see [accounts.file_size_gib], often several hundred
-    # gigabytes and growing).
+    # network.
     #
     # The account DB file should be backed by fast local storage, e.g.
     # NVMe.  Validator performance is sensitive to disk latency.
@@ -198,6 +196,21 @@ telemetry = true
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
     accounts = ""
+
+    # File path to the shreds database file.
+    #
+    # The shreds database stores recorded and reconstructed shreds
+    # that the validator has received, so that it is able to serve
+    # incoming repair requests from another validator catching up.
+    #
+    # If no path is provided, defaults to the `shreds.db` path
+    # within the base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    shredb = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
@@ -233,7 +246,7 @@ telemetry = true
 # STDERR and STDOUT from the launcher.  An example log message would
 # look something like:
 #
-#    NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+#    NOTICE  01-23 04:56:07.890123 45678 f0 0 file.c(901): 1 is the loneliest number
 #
 # to the ephemeral log (stderr) and log something like:
 #
@@ -532,72 +545,11 @@ telemetry = true
     #
     # The account index is stored in memory and preallocated.  A limit
     # of 1 billion accounts requires approx 100 GB index space.
-    max_accounts = 30_000_000
-
-    # File size of the account database file (see [paths.accounts]).
-    # The entire account database is physically preallocated.
-    file_size_gib = 16
-
-    # The validator keeps account changes that have not yet been
-    # finalized (rooted) by consensus in memory.  This setting controls
-    # how much memory is reserved for such account changes.
-    # If the amount of inflight account changes exceeds this limit, the
-    # validator will crash.
-    max_unrooted_account_size_gib = 16
+    max_accounts = 1_300_000_000
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
-    cache_size_gib = 4
-
-    # Delay writing of accounts to disk by a number of slots to reduce
-    # disk write rate.
-    #
-    # An account only gets written to disk when it is unchanged for more
-    # or equal the specified number of slots.
-    write_delay_slots = 64
-
-    # Keep all accounts in memory and ignore [paths.accounts].
-    #
-    # If enabled, allocates [accounts.file_size_gib] memory and ignores
-    # [accounts.{cache_size_gib,max_unrooted_account_size_gib}].
-    in_memory_only = true
-
-    # The provider determines which Linux I/O API is used.
-    # Possible values for the option are:
-    #
-    #  "io_uring" (default)
-    #   The fastest and recommended mode, but requires a recent Linux
-    #   kernel version.  Under the hood, does asynchronous parallel
-    #   accesses to disk.  [paths.accounts] should be backed by an ext4
-    #   or XFS file system, or be a block device when using this mode.
-    #
-    #  "portable"
-    #   This is the slowest mode, but it supports any kernel version
-    #   and any file system.
-    io_provider = "io_uring"
-
-    # The expected mean size of recently accessed accounts.
-    #
-    # This heuristic is used to pack accounts into caches optimally.
-    mean_account_footprint = 256
-
-    # io_uring specific options
-    #
-    # io_uring requires a recent kernel (Linux 6.5 feature equivalent).
-    # Popular OS distributions (e.g. Ubuntu or RHEL) backport newer
-    # io_uring features to older kernel versions.
-    # FIXME Add a link to a book page with further kernel requirements,
-    #       and known working distros (e.g. RHEL 9 kernel 5.14).
-    #
-    # Firedancer uses the following io_uring extensions:
-    # - IORING_SETUP_COOP_TASKRUN (Linux 5.19)
-    # - IORING_SETUP_DEFER_TASKRUN (Linux 6.1)
-    # - IORING_SETUP_CQSIZE (Linux 5.5)
-    # - IORING_SETUP_NO_MMAP (Linux 6.5)
-    # - IORING_REGISTER_RESTRICTIONS (Linux 5.16)
-    [accounts.io_uring]
-        # Pipeline depth for parallel I/O operations.
-        queue_depth = 2048
+    cache_size_gib = 11
 
 [runtime]
     # max_live_slots and max_fork_width are parameters used to size
@@ -606,7 +558,17 @@ telemetry = true
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 512
+    max_live_slots = 2048
+
+    # fixed_fec_sets controls the maximum data payload size for FEC sets
+    # in the store.  Shreds per FEC set used to be variable-length, but
+    # were changed to always be a fixed size of 32.  When true the data
+    # buffer per FEC set is 31840 bytes (32 shreds * 995 payload bytes
+    # per shred).  When false, the data buffer is 63985 bytes (67 shreds
+    # * 955 payload bytes per shred) to accommodate the old
+    # variable-length FEC sets.  This should be left as its default
+    # value of true unless attempting to replay old ledgers.
+    fixed_fec_sets = true
 
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number
@@ -615,17 +577,11 @@ telemetry = true
     # max_fork_width, the client will crash.
     max_fork_width = 32
 
-    # max_account_cnt is used to size out the amount of memory used by
-    # transaction execution for account staging. The minimum amount
-    # of accounts is 130 if bundles are disabled and is 650 if bundles
-    # are enabled.
-    max_account_cnt = 1024
-
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
     [runtime.program_cache]
         # The size of the loaded program cache in MiB.
-        heap_size_mib = 2048
+        heap_size_mib = 768
 
         # The mean expected heap utilization of a cache entry.  Controls
         # the size of metadata structures (e.g. cache entry table).  It
@@ -846,17 +802,11 @@ telemetry = true
     # balanced scheduling modes.  Execle tiles execute transactions, so
     # the validator can include the results of the transaction into a
     # block when we are leader.  Because of current consensus limits
-    # restricting blocks to around 32,000 transactions per block, there
+    # restricting blocks to around 98,000 transactions per block, there
     # is typically no need to use more than 2 execle tiles on
     # mainnet-beta, except when using unique scheduling strategies.  For
     # development and benchmarking, it can be useful to increase this
     # number further.
-    #
-    # If using the revenue scheduling strategy (see tiles.pack), the
-    # execle tile count can be increased, and more execle tiles will
-    # likely result in better blocks.  Adding too many execle tiles does
-    # have diminishing returns, and it's suggested to experiment with
-    # values around 10-20.
     execle_tile_count = 2
 
     # How many execrp tiles to run.  These tiles execute transactions
@@ -901,21 +851,6 @@ telemetry = true
     # The remaining tiles distribute the workload of signing repair
     # requests.
     sign_tile_count = 2
-
-    # How many snapshot lthash add/sub (vinyl) or add (funk) tiles to
-    # run. Snapshot lthash tiles compute the lthash of all accounts in
-    # the loaded snapshot in parallel. Too few and snapshot loading
-    # might be delayed.  Once the lthash of the accounts in a snapshot
-    # is calculated, if it does not match the validator will abort with
-    # an error.  Preferably a power of two.
-    snapshot_hash_tile_count = 8
-
-    # How many snapshot vinyl-based write tiles to run.  Depending on
-    # the specific hardware configuration, multiple snapwr tiles may
-    # be required to achieve high throughput.  It is also possible to
-    # tradeoff throughput and tile count.  This value is only valid
-    # when vinyl is enabled.
-    snapwr_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
@@ -1193,12 +1128,28 @@ telemetry = true
         #   ethtool 'ntuple' rules to route incoming packets based on
         #   UDP dst port.  Packets are load balanced across the dedicated
         #   queues based on lowest bits of source address.  This mode
-        #   may not work with some network device setups.
+        #   may not work with some network device setups, particularly
+        #   when using more than one net tile.
         #
         # "auto" (default)
         #   Attempts to run in "dedicated" mode but automatically falls
         #   back to "simple" mode if necessary.
         rss_queue_mode = "auto"
+
+        # Some specialized networking setups, including DoubleZero,
+        # deliver packets to the validator in a GRE tunnel.  By default,
+        # when using rss_queue_mode="dedicated", Firedancer ignores all
+        # GRE-wrapped traffic.  Setting listen_gre = true causes
+        # Firedancer to install an ethtool 'ntuple' rule routing GRE
+        # traffic to a Firedancer net tile, enabling Firedancer to see
+        # GRE-wrapped traffic.  Unfortunately, few NICs are compatible
+        # with this class of rule, but ConnectX NICs (mlx5) are known to
+        # support listen_gre = true.  If your NIC does not support the
+        # rule and you must use GRE tunnels, set rss_queue_mode =
+        # "simple".  If rss_queue_mode is simple, this option is
+        # ignored, and Firedancer automatically listens to GRE-wrapped
+        # traffic when a GRE tunnel interface is configured.
+        listen_gre = false
 
         # Enable native network bonding support.
         #
@@ -1473,7 +1424,7 @@ telemetry = true
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports three different strategies which
+        # The Firedancer team supports two different strategies which
         # are described below:
         #
         #  "perf"
@@ -1482,7 +1433,7 @@ telemetry = true
         #   consistently 100% full blocks.
         #
         #   When using the perf scheduling mode, there is no reason to
-        #   increase the execle tile count beyond the default of 4.
+        #   increase the execle tile count beyond the default of 2.
         #
         #  "balanced" (default)
         #   Try to fill the block at a rate that is just fast enough to
@@ -1492,31 +1443,51 @@ telemetry = true
         #   an external block builder.
         #
         #   When using the balanced mode, there is no reason to increase
-        #   execle tile count beyond the default of 4.
-        #
-        #  "revenue"
-        #   Fill blocks extremely lazily, saving most work for the end
-        #   of the block.  This strategy results in high revenue from
-        #   MEV, but results in regularly unfull blocks, and decreased
-        #   priority fees compared to the balanced strategy.
-        #
-        #   When scheduling with the revenue mode, it is suggested to
-        #   use a high number of execle tiles.  The more execle tiles in
-        #   use, the faster the scheduler can fill blocks during the
-        #   short working window at the end of each slot.
-        #
-        #   WARNING: The revenue scheduler is deprecated and will be
-        #   removed in a future version.
+        #   execle tile count beyond the default of 2.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
 
+        # If the pack tile receives a transaction that reads from or
+        # writes to an address in the account_blocklist, it will reject
+        # the transaction immediately and not consider it for inclusion
+        # in any blocks this validator produces as leader.  This does
+        # not prevent replaying blocks that contain transactions that
+        # access an account in the blocklist.  Up to 16 addresses are
+        # currently allowed.  account_blocklist should be a list of
+        # base58-encoded public keys.
+        account_blocklist = []
+
+    # The replay tile is responsible for replaying and verifying blocks
+    # packed by other validators and for managing the lifecycle of both
+    # leader and follower slots.
+    [tiles.replay]
+        # Transactions are parsed and buffered for consideration by the
+        # replay dispatcher for out-of-order execution.  The larger this
+        # buffer is, the more transactions that the replay dispatcher
+        # can peek at and potentially reorder, and the better the odds
+        # of uncovering the fastest path through a block.  Under current
+        # mainnet conditions, full blocks typically have around 2,000
+        # transactions per block.  Since transactions cannot be
+        # reordered across block boundaries, a buffer size much larger
+        # than that is likely in the territory of diminishing marginal
+        # returns.  Empirically, a buffer size larger than the following
+        # offers no measurable performance advantage.  For development
+        # and benchmarking, it can be useful to increase this number
+        # further.
+        max_transaction_lookahead_buffer_size = 65536
+
     # The execle tile is what executes transactions when we are leader
     # and updates the accounting state as a result of any operations
     # performed by the transactions.
     [tiles.execle]
+
+    # The execrp tile is what executes transactions when we are not
+    # leader and updates the accounting state as a result of any
+    # operations performed by the transactions.
+    [tiles.execrp]
 
     # The proof of history tile receives transactions from execle tiles
     # and mixes their hashes into a continuous stream of hashes that
@@ -1563,7 +1534,6 @@ telemetry = true
     # TODO: DOCS
     [tiles.repair]
         repair_intake_listen_port = 8701
-        repair_serve_listen_port = 8702
 
         # Slot max is the maximum number of slots that repair tile can
         # maintain at once.  This is expected to be the largest at
@@ -1571,6 +1541,24 @@ telemetry = true
         # slot, but still maintaining and receiving new turbine slots.
         # Must be power of 2
         slot_max = 4096
+
+    [tiles.rserve]
+        # If the repair server is enabled.
+        enabled = true
+        # The port the repair server listens for repair requests.
+        repair_serve_listen_port = 8702
+        # The maximum size of the shred storage on disk.  Determines the
+        # amount of history that the validator will be able to serve to
+        # peers making repair requests.  Roughly, for mainnet, 1 GiB of
+        # storage corresponds to ~1000 slots, and the default is set to
+        # match Agave's ability to serve around six hours of shreds.
+        #
+        # This is an upper bound on the disk space used, but when first
+        # booted the validator will start with just ~40MiB, and incrementally
+        # grow the storage file on disk up to the limit as needed.  Once the
+        # storage is filled, the oldest shreds will be evicted as new shreds
+        # are added.
+        shred_storage_limit_gib = 50
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
@@ -1691,8 +1679,12 @@ telemetry = true
         # memory usage.
         send_buffer_size_mb = 1024
 
-    [tiles.archiver]
-        enabled = false
+        # If delay_startup is true, the RPC tile will wait for snapshots
+        # to load before accepting connections.  This behavior conforms
+        # with Agave's boot sequence, but can be disabled here to allow
+        # RPC to serve a subset of calls even when snapshots are
+        # loading.
+        delay_startup = true
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
@@ -1980,19 +1972,53 @@ telemetry = true
     [development.udpecho]
         affinity = "auto"
 
-    # Set to true to disable verification of the lthash in the
-    # snapshot loader.  This is not safe or supported in production
-    # and should only be used for development and testing purposes.
-    #
-    # If lthash verification is disabled, the validator will not start
-    # any lthash tiles and the value of `snapshot_hash_tile_count` in
-    # the layout will be ignored.
-    [development.snapshots]
-        disable_lthash_verification = false
+    # Inject shreds (block data) into the system to replay.
+    # Used by 'firedancer-dev {backtest,forktest}'.
+    [development.ledger_input]
+        # The following input ledger formats are supported:
+        #
+        #   "auto" (default)
+        #    Attempt to detect input format based on file path.
+        #
+        #   "rocksdb"
+        #    Read an Agave-like blockstore RocksDB directory
+        #    The database is opened in "read only secondary" mode.
+        #    Requires a build with './deps.sh +dev'
+        #
+        #   "pcap"
+        #    Read a PCAP or PCAPNG file and inject all UDP packets as
+        #    shreds.  Supports the following link types: ETHERNET, IPv4,
+        #    or RAW (interprets first header as IPv4).
+        #    Supports Zstandard (.zst) compression.
+        #
+        format = "auto"
 
-    [development.replay]
-        # scheduler_depth controls the number of transactions tracked by
-        # the replay scheduler.  Larger values can result in faster
-        # replay times (particularly during heavy forking) at the cost
-        # of greater memory use.
-        scheduler_depth = 1048576
+        # Absolute file system path to shred source.
+        path = ""
+
+        # Stop injecting when this slot is reached (inclusive).
+        # Zero signals to only stop when the input is fully consumed.
+        end_slot = 0
+
+    # 'firedancer-dev backtest' specific options
+    [development.backtest]
+        # See [layout.affinity]
+        affinity = "auto"
+
+        # Delays rooting by the given number of slots.
+        root_distance = 32
+
+    # 'firedancer-dev forktest' specific options
+    [development.forktest]
+        # See [layout.affinity]
+        affinity = "auto"
+
+    # Tuning for the accounts database.  These options are for advanced
+    # users and should not be changed in production.
+    [development.accdb]
+        # Size of each accdb partition file slice in gibibytes.
+        # Accounts are written sequentially into partitions; a new
+        # partition is opened when the current one fills.  Smaller
+        # partitions allow finer-grained compaction at the cost of more
+        # frequent partition rotations.
+        partition_size_gib = 32

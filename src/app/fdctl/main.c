@@ -3,6 +3,7 @@
 #include "../shared/fd_config_file.h"
 #include "../shared/boot/fd_boot.h"
 #include "../shared/commands/configure/configure.h"
+#include "../shared/fd_action.h"
 
 char const * FD_APP_NAME    = "Frankendancer";
 char const * FD_BINARY_NAME = "fdctl";
@@ -11,7 +12,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
-extern fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf;
+extern fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
@@ -22,7 +23,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_dcache,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
-  &fd_obj_cb_dbl_buf,
+  &fd_obj_cb_netdev_tbl,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
@@ -150,7 +151,6 @@ add_bench_topo( fd_topo_t  * topo,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
-                int          no_quic,
                 int          reserve_agave_cores ) {
   (void)topo;
   (void)affinity;
@@ -165,6 +165,5 @@ add_bench_topo( fd_topo_t  * topo,
   (void)send_to_ip_addr;
   (void)rpc_port;
   (void)rpc_ip_addr;
-  (void)no_quic;
   (void)reserve_agave_cores;
 }

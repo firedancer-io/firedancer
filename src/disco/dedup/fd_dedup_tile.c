@@ -72,7 +72,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_dedup_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( DEDUP, TRANSACTION_RESULT, ctx->metrics.dedup_tile_result );
+  FD_MCNT_ENUM_COPY( DEDUP, TXN_RESULT, ctx->metrics.dedup_tile_result );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -112,11 +112,6 @@ during_frag( fd_dedup_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     if( FD_UNLIKELY( sz>FD_TPU_RAW_MTU ) ) FD_LOG_ERR(( "received a gossip transaction that was too large" ));
     fd_memcpy( dst, src, sz );
-
-    fd_txn_m_t const * txnm = (fd_txn_m_t const *)dst;
-    if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
-      FD_LOG_ERR(( "vote txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
-    }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( src );
@@ -164,7 +159,9 @@ after_frag( fd_dedup_ctx_t *    ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY       ) ) return;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
+  if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
+    FD_LOG_ERR(( "dedup: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
+  }
   fd_txn_t * txn = fd_txn_m_txn_t( txnm );
 
   if( FD_UNLIKELY( txnm->block_engine.bundle_id && (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
@@ -187,7 +184,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txn, NULL );
     if( FD_UNLIKELY( !txnm->txn_t_sz ) ) FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
 
-    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL );
+    FD_MCNT_INC( DEDUP, VOTE_GOSSIP_RX, 1UL );
   }
 
   int is_dup = 0;
@@ -220,7 +217,10 @@ after_frag( fd_dedup_ctx_t *    ctx,
   } else {
     ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 0UL, 0, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
+    /* Mark bundle transactions with sig==1 so that downstream resolv
+       tiles can route all bundle traffic to resolv:0. */
+    ulong out_sig = !!txnm->block_engine.bundle_id;
+    fd_stem_publish( stem, 0UL, out_sig, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
     ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_TILE_RESULT_V_SUCCESS_IDX ]++;
@@ -228,8 +228,8 @@ after_frag( fd_dedup_ctx_t *    ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -238,8 +238,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -261,8 +261,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[i].mem    = link_wksp->wksp;
     ctx->in[i].mtu    = link->mtu;
@@ -287,7 +287,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

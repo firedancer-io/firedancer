@@ -68,7 +68,7 @@ add_authorized_voter_cmd_args( int *    pargc,
                                args_t * args ) {
 
   if( FD_UNLIKELY( *pargc<1 ) ) {
-    FD_LOG_ERR(( "Usage: firedancer add-authorized-voter <keypair>" ));
+    FD_LOG_ERR(( "Usage: %s add-authorized-voter <keypair>", FD_BINARY_NAME ));
   }
 
   char const * path = *pargv[0];
@@ -76,19 +76,20 @@ add_authorized_voter_cmd_args( int *    pargc,
   (*pargv)++;
 
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
-    args->add_authorized_voter.keypair = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+    uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading authorized voter keypair from stdin.  Press Ctrl-D when done.\n" ));
-    fd_keyload_read( STDIN_FILENO, "stdin", args->add_authorized_voter.keypair );
+    fd_keyload_read( STDIN_FILENO, "stdin", keypair_wr );
+    args->add_authorized_voter.keypair = fd_keyload_mprotect_ro( keypair_wr, 0 );
   } else {
     args->add_authorized_voter.keypair = fd_keyload_load( path, 0 );
   }
 }
 
 static void FD_FN_SENSITIVE
-poll_keyswitch( fd_topo_t * topo,
-                ulong *     state,
-                uchar *     keypair,
-                int *       has_error ) {
+poll_keyswitch( fd_topo_t *   topo,
+                ulong *       state,
+                uchar const * keypair,
+                int *         has_error ) {
   fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
 
   switch( *state ) {
@@ -111,7 +112,9 @@ poll_keyswitch( fd_topo_t * topo,
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
       }
-      fd_memzero_explicit( keypair, 32UL );
+      uchar * keypair_wr = fd_keyload_mprotect_wr( keypair, 0 );
+      fd_memzero_explicit( keypair_wr, 32UL );
+      fd_keyload_mprotect_ro( keypair_wr, 0 );
       *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED;
       FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter key set..." ));
       break;
@@ -229,6 +232,15 @@ add_authorized_voter_cmd_fn( args_t *   args,
   add_authorized_voter( args, config );
 }
 
+static void
+add_authorized_voter_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<keypair>", NULL, "Path to the authorized voter keypair to add, in the standard Solana\n"
+                                               "keypair file format (the 64-byte JSON array).  The full keypair is\n"
+                                               "required, not just the public key, because the validator must sign\n"
+                                               "votes with it.  Pass `-` to read the same JSON array from stdin\n"
+                                               "instead of from a file" );
+}
+
 action_t fd_action_add_authorized_voter = {
   .name           = "add-authorized-voter",
   .args           = add_authorized_voter_cmd_args,
@@ -236,4 +248,24 @@ action_t fd_action_add_authorized_voter = {
   .require_config = 1,
   .perm           = NULL,
   .description    = "Add an authorized voter to the validator",
+  .detail         = "Registers an additional authorized voter key with an already running\n"
+                    "validator so it can sign votes with that key, in addition to the identity\n"
+                    "key and any voters already configured.  On success it prints `Authorized\n"
+                    "voter key added <pubkey>` and exits 0.  It fails (non-zero, with no change)\n"
+                    "if the key is already an authorized voter, or if the validator already has\n"
+                    "the maximum of 16 authorized voters.\n"
+                    "\n"
+                    "This command does not start a validator; it attaches to one that is already\n"
+                    "running.  It finds the running validator from the shared memory described by\n"
+                    "the configuration file, so you must point --config at the SAME config file the\n"
+                    "validator was started with, and run it from a binary built from the SAME git\n"
+                    "commit (compare this binary's `--version` against the running validator's).  If\n"
+                    "the config or binary differ, the layout will not match and the command fails\n"
+                    "without changing anything.\n"
+                    "\n"
+                    "The change is live only: it is not written back to the config file, so the\n"
+                    "voter is dropped on the validator's next restart.  To keep it across restarts,\n"
+                    "also add the keypair path to [paths.authorized_voter_paths] in the config.",
+  .usage          = "add-authorized-voter <keypair>",
+  .args_help      = add_authorized_voter_args_help,
 };

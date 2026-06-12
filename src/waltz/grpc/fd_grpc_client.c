@@ -322,14 +322,14 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
     int res = SSL_do_handshake( ssl );
     if( res<=0 ) {
       int error = SSL_get_error( ssl, res );
-      if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 1;
+      if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 0;
       FD_LOG_INFO(( "SSL_do_handshake failed (%i-%s)", error, fd_openssl_ssl_strerror( error ) ));
       long verify_result = SSL_get_verify_result( ssl );
       if( error == SSL_ERROR_SSL && verify_result != X509_V_OK ) {
         FD_LOG_WARNING(( "Certificate verification failed: %s", X509_verify_cert_error_string( verify_result ) ));
       }
       ERR_print_errors_cb( fd_ossl_log_error, NULL );
-      return 0;
+      return -1;
     } else {
       client->ssl_hs_done = 1;
     }
@@ -341,11 +341,11 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   if( FD_UNLIKELY( ssl_err && ssl_err!=SSL_ERROR_WANT_READ ) ) {
     if( ssl_err==SSL_ERROR_ZERO_RETURN ) {
       FD_LOG_WARNING(( "gRPC server closed connection" ));
-      return 0;
+      return -1;
     }
     FD_LOG_WARNING(( "SSL_read_ex failed (%i-%s)", ssl_err, fd_openssl_ssl_strerror( ssl_err ) ));
     ERR_print_errors_cb( fd_ossl_log_error, NULL );
-    return 0;
+    return -1;
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
@@ -355,7 +355,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   client->metrics->stream_chunks_tx_bytes += write_sz;
 
   if( read_sz!=0 || write_sz!=0 ) *charge_busy = 1;
-  return 1;
+  return 0;
 }
 
 #endif /* FD_HAS_OPENSSL */
@@ -773,7 +773,7 @@ fd_grpc_h2_cb_headers(
   int h2_status = fd_grpc_h2_read_response_hdrs( &stream->hdrs, client->matcher, data, data_sz );
   if( FD_UNLIKELY( h2_status!=FD_H2_SUCCESS ) ) {
     /* Failed to parse HTTP/2 headers */
-    fd_h2_stream_error( h2_stream, client->frame_tx, FD_H2_ERR_PROTOCOL );
+    fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_PROTOCOL );
     client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
     fd_grpc_client_stream_release( client, stream );
     return;
@@ -797,7 +797,7 @@ fd_grpc_h2_cb_headers(
   }
 }
 
-static void
+void
 fd_grpc_h2_cb_data(
     fd_h2_conn_t *   conn,
     fd_h2_stream_t * h2_stream,
@@ -809,6 +809,10 @@ fd_grpc_h2_cb_data(
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   if( FD_UNLIKELY( ( stream->hdrs.h2_status!=200 ) |
                    ( !stream->hdrs.is_grpc_proto ) ) ) {
+    if( flags & FD_H2_FLAG_END_STREAM ) {
+      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+      fd_grpc_client_stream_release( client, stream );
+    }
     return;
   }
 
@@ -828,7 +832,7 @@ fd_grpc_h2_cb_data(
       if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));
         client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
-        fd_h2_stream_error( h2_stream, client->frame_tx, FD_H2_ERR_INTERNAL );
+        fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_INTERNAL );
         fd_grpc_client_stream_release( client, stream );
         return;
       }

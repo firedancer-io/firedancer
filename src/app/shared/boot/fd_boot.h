@@ -21,7 +21,8 @@ fd_main_init( int *                      pargc,
               int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
-              fd_config_file_t * const * configs );
+              fd_config_file_t * const * configs,
+              int                        dev );
 
 FD_PROTOTYPES_END
 

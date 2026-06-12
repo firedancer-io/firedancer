@@ -2,611 +2,298 @@
    progcache. */
 
 #include "test_progcache_common.c"
+#include "fd_progcache_clock.h"
+#include "fd_progcache_reclaim.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/program/fd_bpf_loader_program.h"
+#include "../features/fd_features.h"
+#include "../../util/tmpl/fd_unit_test.c"
 #include <stdlib.h>
 #include <regex.h>
+
+static fd_wksp_t * wksp;
+
+struct test_env {
+  fd_wksp_t *    wksp;
+  fd_progcache_t progcache[1];
+  fd_features_t  features[1];
+  uchar scratch[ FD_PROGCACHE_SCRATCH_FOOTPRINT ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
+};
+
+typedef struct test_env test_env_t;
+
+/* test_env_create allocates a new account database and program cache
+   from a wksp.  Joins an admin and user client to the program cache, as
+   well as a database client. */
+
+static test_env_t *
+test_env_create( fd_wksp_t * wksp ) {
+  ulong txn_max           = 16UL;
+  ulong progcache_rec_max = 32UL;
+  ulong wksp_tag          =  1UL;
+
+  void * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
+  FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
+
+  test_env_t * env = fd_wksp_alloc_laddr( wksp, alignof(test_env_t), sizeof(test_env_t), wksp_tag );
+  FD_TEST( env );
+  memset( env, 0, offsetof(test_env_t, scratch) );
+
+  env->wksp = wksp;
+  FD_TEST( fd_progcache_join( env->progcache, progcache_mem, env->scratch, sizeof(env->scratch) ) );
+
+  return env;
+}
+
+/* test_env_destroy frees all test env objects. */
+
+static void
+test_env_destroy( test_env_t * env ) {
+  FD_TEST( !fd_progcache_verify( env->progcache->join ) );
+  fd_progcache_shmem_t * progcache_mem = NULL;
+  FD_TEST( fd_progcache_leave( env->progcache, &progcache_mem ) );
+  fd_wksp_free_laddr( fd_progcache_shmem_delete( progcache_mem ) );
+  fd_wksp_free_laddr( env );
+}
 
 FD_IMPORT_BINARY( valid_program_data,        "src/ballet/sbpf/fixtures/hello_solana_program.so" );
 FD_IMPORT_BINARY( bigger_valid_program_data, "src/ballet/sbpf/fixtures/clock_sysvar_program.so" );
 FD_IMPORT_BINARY( invalid_program_data,      "src/ballet/sbpf/fixtures/malformed_bytecode.so"   );
 
-/* query_rec_exact fetches a funk record at a precise xid:key pair. */
+/* query_rec_exact fetches a program record at a precise xid:key pair. */
 
-static fd_funk_rec_t const *
-query_rec_exact( test_env_t *              env,
-                 fd_funk_txn_xid_t const * xid,
-                 fd_funk_rec_key_t const * key ) {
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_txn_xid_copy( pair->xid, xid );
-  fd_funk_rec_key_copy( pair->key, key );
-
-  fd_funk_rec_map_query_t query[1];
-  int query_err = fd_funk_rec_map_query_try( env->progcache->funk->rec_map, pair, NULL, query, 0 );
+static fd_progcache_rec_t const *
+query_rec_exact( test_env_t *           env,
+                 fd_progcache_fork_id_t fork_id,
+                 fd_pubkey_t const *    key ) {
+  fd_progcache_rec_key_t pair = { .xid = fork_id, .prog = *key };
+  fd_prog_recm_query_t query[1];
+  int query_err = fd_prog_recm_query_try( env->progcache->join->rec.map, &pair, NULL, query, 0 );
   if( query_err==FD_MAP_ERR_KEY ) return NULL;
-  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
-
-  return fd_funk_rec_map_query_ele_const( query );
+  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
+  return fd_prog_recm_query_ele_const( query );
 }
 
-/* test_empty: Account database and progcache completely empty.
-   Query at root should fail. */
+/* test_peek and test_pull wrap fd_progcache_{peek,pull} and
+   immediately release the read lock on the returned record.  This is
+   safe in single-threaded tests where record lifetimes are managed
+   by cancel/publish/destroy. */
 
-static void
-test_empty( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-
-  fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_root( xid );
-  fd_funk_rec_key_t key = test_key( 1UL );
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
-  };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, xid, &key, &load_env );
-  FD_TEST( !rec );
-
-  test_env_destroy( env );
+static fd_progcache_rec_t *
+test_peek( fd_progcache_t *       cache,
+           fd_progcache_fork_id_t fork_id,
+           fd_pubkey_t const *    prog_addr,
+           ulong                  feature_slot,
+           ulong                  deploy_slot ) {
+  fd_progcache_rec_t * rec = fd_progcache_peek( cache, fork_id, prog_addr, feature_slot, deploy_slot );
+  if( rec ) fd_progcache_rec_close( cache, rec );
+  return rec;
 }
 
-/* test_account_does_not_exist: Program account missing, but querying at
-   a fork. */
-
-static void
-test_account_does_not_exist( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  (void)test_env_txn_publish;
-
-  test_env_txn_cancel( env, &fork_a );
-  test_env_destroy( env );
+static fd_progcache_rec_t *
+test_pull( fd_progcache_t *           cache,
+           fd_acc_t const *           prog_ro,
+           fd_progcache_fork_id_t     fork_id,
+           fd_pubkey_t const *        prog_addr,
+           fd_prog_load_env_t const * env ) {
+  fd_progcache_rec_t * rec = fd_progcache_pull( cache, fork_id, prog_addr, env, prog_ro );
+  if( rec ) fd_progcache_rec_close( cache, rec );
+  return rec;
 }
 
 /* test_invalid_owner: Account exists but is not owned by BPF loader */
 
-static void
-test_invalid_owner( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( invalid_owner ) {
   test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_system_program_id, /* not a BPF laoder */
-                       invalid_program_data,
-                       invalid_program_data_sz,
-                       1 );
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_system_program_id, /* not a BPF loader */
+                     1, invalid_program_data, invalid_program_data_sz );
 
   fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 0UL
   };
-  FD_TEST( !fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env ) );
+  FD_TEST( !test_pull( env->progcache, acc.entry, fork_a, &key, &load_env ) );
 
-  test_env_txn_cancel( env, &fork_a );
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
   test_env_destroy( env );
 }
 
 /* test_invalid_program: Program account exists but fails loading */
 
-static void
-test_invalid_program( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( invalid_program ) {
   test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       invalid_program_data,
-                       invalid_program_data_sz,
-                       1 );
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, invalid_program_data, invalid_program_data_sz );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, fork_a, &key, 0UL, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==1UL );
+  FD_TEST( env->progcache->lineage->fork[ 0 ]==fork_a );
 
   fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
   FD_TEST( rec );
-  FD_TEST( !rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, load_env.epoch_slot0 )==rec );
+  FD_TEST( !rec->data_gaddr );
+  FD_TEST( test_peek( env->progcache, fork_a, &key, 0UL, 0UL )==rec );
 
-  test_env_txn_cancel( env, &fork_a );
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
   test_env_destroy( env );
 }
 
 /* test_valid_program: Load a valid program account */
 
-static void
-test_valid_program( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( valid_program ) {
   test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, fork_a, &key, 0UL, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==1UL );
+  FD_TEST( env->progcache->lineage->fork[ 0 ]==fork_a );
 
   fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
   FD_TEST( rec );
-  FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-  FD_TEST( env->progcache->fork_depth==2UL );
+  FD_TEST( rec->data_gaddr );
+  FD_TEST( test_peek( env->progcache, fork_a, &key, 0UL, 0UL )==rec );
+  FD_TEST( env->progcache->lineage->fork_depth==1UL );
 
-  fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec );
-  FD_TEST( env->progcache->fork_depth==3UL );
+  fd_progcache_fork_id_t fork_b = fd_progcache_attach_child( env->progcache->join, fork_a );
+  FD_TEST( test_peek( env->progcache, fork_b, &key, 0UL, 0UL )==rec );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
 
-  load_env.slot        = 64UL;
-  load_env.epoch       =  0UL;
-  load_env.epoch_slot0 =  0UL;
-  fd_progcache_rec_t const * rec2 = fd_progcache_pull( env->progcache, env->accdb, &fork_b, &key, &load_env );
+  load_env.feature_slot = 0UL;
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.entry, fork_b, &key, &load_env );
   FD_TEST( rec==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, fork_b, &key, 0UL, 0UL )==rec );
 
-  test_env_txn_cancel( env, &fork_a ); /* should also cancel fork_b */
+  fd_progcache_cancel_fork( env->progcache->join, fork_a ); /* should also cancel fork_b */
   test_env_destroy( env );
 }
 
 /* test_epoch_boundary: Ensure that a valid program gets re-verified
    after an epoch boundary. */
 
-static void
-test_epoch_boundary( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( epoch_boundary ) {
   test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, fork_a, &key, 0UL, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==1UL );
+  FD_TEST( env->progcache->lineage->fork[ 0 ]==fork_a );
 
   fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
   FD_TEST( rec );
-  FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( rec->data_gaddr );
+  FD_TEST( test_peek( env->progcache, fork_a, &key, 0UL, 0UL )==rec );
 
-  fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  load_env.slot        = 64UL;
-  load_env.epoch       =  1UL;
-  load_env.epoch_slot0 = 64UL;
-  fd_progcache_rec_t const * rec2 = fd_progcache_pull( env->progcache, env->accdb, &fork_b, &key, &load_env );
+  fd_progcache_fork_id_t fork_b = fd_progcache_attach_child( env->progcache->join, fork_a );
+  load_env.feature_slot = 64UL;
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.entry, fork_b, &key, &load_env );
   FD_TEST( rec2 );
   FD_TEST( rec!=rec2 );
-  FD_TEST( rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
+  FD_TEST( rec2->data_gaddr );
+  FD_TEST( test_peek( env->progcache, fork_b, &key, 64UL, 0UL )==rec2 );
 
-  test_env_txn_cancel( env, &fork_b );
-  test_env_txn_cancel( env, &fork_a );
+  fd_progcache_cancel_fork( env->progcache->join, fork_b );
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
   test_env_destroy( env );
 }
 
-/* test_invalidate: Ensure that an fd_progcache_invalidate call
-   overrides a previously created cache entry. */
-
-static void
-test_invalidate( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( epoch_boundary2 ) {
   test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
+  fd_pubkey_t prog_key       = test_key( 1UL );
+  fd_pubkey_t prog0_data_key = test_key( 2UL );
+  fd_pubkey_t prog1_data_key = test_key( 4UL );
 
+  test_account_t prog0;      static uchar prog0_buf     [ 4096  ];
+  test_account_t prog0_data; static uchar prog0_data_buf[ 50000 ];
+  test_account_t prog1;      static uchar prog1_buf     [ 4096  ];
+  test_account_t prog1_data; static uchar prog1_data_buf[ 50000 ];
+
+  /* Invoke old program at epoch 0 */
+  test_account_init_v3( &prog0, prog0_buf, sizeof(prog0_buf), &prog_key, &prog0_data_key );
+  test_account_init_v3_data(
+      &prog0_data,
+      prog0_data_buf, sizeof(prog0_data_buf),
+      &prog0_data_key,
+      valid_program_data, valid_program_data_sz,
+      1UL
+  );
   fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
-  FD_TEST( rec );
-  FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, prog0_data.entry, fork_a, &prog_key, &load_env );
+  FD_TEST( rec1 );
+  FD_TEST( test_peek( env->progcache, fork_a, &prog_key, 0UL, 1UL )==rec1 );
 
-  fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
-  FD_TEST( rec2!=rec );
-  FD_TEST( !rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-
-  test_env_txn_cancel( env, &fork_a );
-  test_env_destroy( env );
-}
-
-/* test_invalidate_nonexistent: fd_progcache_invalidate should create an
-   entry even if there are no other cache entries for the same key.
-   (To prevent a future fill predating the invalidation from having side
-   effects for slots after the invalidation.) */
-
-static void
-test_invalidate_nonexistent( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  fd_funk_rec_key_t key = test_key( 1UL );
-  fd_progcache_rec_t const * rec = fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
-  FD_TEST( rec );
-  FD_TEST( !rec->executable );
-
-  test_env_txn_cancel( env, &fork_a );
-  test_env_destroy( env );
-}
-
-/* test_invalidate_pull: fd_progcache_pull should recover from an
-   earlier fd_progcache_invalidate call (in a future slot). */
-
-static void
-test_invalidate_pull( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-
-  /* Create initial cache entry */
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+  /* Invoke old program at epoch 1 */
+  fd_prog_load_env_t load_env2 = {
+    .features     = env->features,
+    .feature_slot = 64UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
-  FD_TEST( rec );
-  FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  fd_progcache_fork_id_t fork_b = fd_progcache_attach_child( env->progcache->join, fork_a );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, prog0_data.entry, fork_b, &prog_key, &load_env2 );
+  FD_TEST( rec1!=rec2 );
+  FD_TEST( query_rec_exact( env, fork_b, &prog_key )==rec2 );
 
-  /* Create cache invalidation entry */
-  fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
-  FD_TEST( rec2!=rec );
-  FD_TEST( !rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  /* Invoke new (redeployed) program at epoch1 */
+  test_account_init_v3( &prog1, prog1_buf, sizeof(prog1_buf), &prog_key, &prog1_data_key );
+  test_account_init_v3_data(
+      &prog1_data,
+      prog1_data_buf, sizeof(prog1_data_buf),
+      &prog1_data_key,
+      bigger_valid_program_data, bigger_valid_program_data_sz,
+      64UL
+  );
+  fd_progcache_fork_id_t fork_c = fd_progcache_attach_child( env->progcache->join, fork_b );
+  fd_progcache_rec_t const * rec3 = test_pull( env->progcache, prog1_data.entry, fork_c, &prog_key, &load_env2 );
+  FD_TEST( rec3!=rec1 && rec3!=rec2 );
+  FD_TEST( query_rec_exact( env, fork_c, &prog_key )==rec3 );
 
-  /* Loading the program should create another cache entry */
-  fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
-  test_env_txn_prepare( env, &fork_b, &fork_c );
-  load_env.slot = 3UL;
-  fd_progcache_rec_t const * rec3 = fd_progcache_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
-  FD_TEST( rec3 );
-  FD_TEST( rec3!=rec2 && rec3!=rec );
-  FD_TEST( rec3->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec  );
-
-  test_env_txn_cancel( env, &fork_a );
+  fd_progcache_cancel_fork( env->progcache->join, fork_c );
+  fd_progcache_cancel_fork( env->progcache->join, fork_b );
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
   test_env_destroy( env );
 }
 
-/* test_invalidate_dup: fd_progcache_invalidate should create a cache
-   invalidation entry, even if last update was an invalidation.  Because
-   a future cache access could create a cache entry between the two
-   retro-actively. */
-
-static void
-test_invalidate_dup( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-
-  /* Create initial cache entry */
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
-  };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
-  FD_TEST( rec );
-  FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-
-  /* Create cache invalidation entry */
-  fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
-  FD_TEST( rec2!=rec );
-  FD_TEST( !rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-  FD_TEST( fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] )==rec2 );
-
-  /* Create cache invalidation entry */
-  fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
-  test_env_txn_prepare( env, &fork_b, &fork_c );
-  fd_progcache_rec_t const * rec3 = fd_progcache_invalidate( env->progcache, &fork_c, &key, fork_c.ul[0] );
-  FD_TEST( rec3 && rec2!=rec3 );
-  FD_TEST( !rec3->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
-
-  test_env_txn_cancel( env, &fork_a );
-  test_env_destroy( env );
-}
-
-/* test_invalidate_epoch_boundary: fd_progcache_invalidate after a cache
-   entry, even if the program is already invalid (due to an epoch
-   boundary).  Because a future cache access could create a cache entry
-   between the two retro-actively.  */
-
-static void
-test_invalidate_epoch_boundary( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
-
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
-  };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
-  FD_TEST( rec );
-  FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-
-  fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  load_env.slot        = 64UL;
-  load_env.epoch       =  1UL;
-  load_env.epoch_slot0 = 64UL;
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
-  FD_TEST( rec2 && rec!=rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
-
-  test_env_txn_cancel( env, &fork_b );
-  test_env_txn_cancel( env, &fork_a );
-  test_env_destroy( env );
-}
-
-/* test_publish_gc: fd_progcache_txn_publish should garbage-collect
-   stale entries. */
-
-static void
-test_publish_gc( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
-  };
-  fd_progcache_rec_t const * rec_a = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
-  FD_TEST( rec_a );
-  FD_TEST( rec_a->executable );
-
-  fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec_b = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
-  FD_TEST( rec_b );
-
-  fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
-  test_env_txn_prepare( env, &fork_b, &fork_c );
-  load_env.slot = 3UL;
-  fd_progcache_rec_t const * rec_c = fd_progcache_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
-  FD_TEST( rec_c );
-  FD_TEST( rec_c->executable );
-
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec_b );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
-
-  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key );
-  fd_funk_rec_t const * frec_b = query_rec_exact( env, &fork_b, &key );
-  fd_funk_rec_t const * frec_c = query_rec_exact( env, &fork_c, &key );
-  FD_TEST( frec_a ); FD_TEST( frec_b ); FD_TEST( frec_c );
-  FD_TEST( frec_a!=frec_b && frec_a!=frec_c && frec_b!=frec_c );
-
-  fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
-  test_env_txn_publish( env, &fork_a );
-  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL   );
-  FD_TEST( query_rec_exact( env, &root,   &key )==frec_a );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
-
-  test_env_txn_publish( env, &fork_b );
-  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
-  FD_TEST( query_rec_exact( env, &fork_b, &key )==NULL );
-  FD_TEST( query_rec_exact( env, &root,   &key )==NULL );  /* invalidation rooted */
-
-  test_env_txn_publish( env, &fork_c );
-  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL   );
-  FD_TEST( query_rec_exact( env, &fork_b, &key )==NULL   );
-  FD_TEST( query_rec_exact( env, &fork_c, &key )==NULL   );
-  FD_TEST( query_rec_exact( env, &root,   &key )==frec_c );
-
-  /* Verify that only frec_c exists in funk rec map */
-  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, &frec_c->pair );
-  ulong chain_cnt = 0UL;
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
-    chain_cnt++;
-  }
-  FD_TEST( chain_cnt==1UL );
-
-  test_env_destroy( env );
-}
-
-static void
-test_publish_gc2( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
-  test_env_txn_prepare( env, NULL, &fork_a );
-
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_a, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
-  };
-
-  fd_progcache_rec_t const * rec_a = fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
-  FD_TEST( rec_a );
-
-  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key ); FD_TEST( frec_a );
-  fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
-  test_env_txn_publish( env, &fork_a );
-  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
-  FD_TEST( query_rec_exact( env, &root,   &key )==NULL );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==NULL );
-
-  fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
-  test_env_txn_prepare( env, &fork_a, &fork_b );
-  load_env.slot = 2;
-  test_env_txn_publish( env, &fork_b );
-  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
-  FD_TEST( query_rec_exact( env, &fork_b, &key )==NULL );
-  FD_TEST( query_rec_exact( env, &root,   &key )==NULL );
-
-  fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 1UL } };
-  test_env_txn_prepare( env, &fork_b, &fork_c );
-  load_env.slot = 3UL;
-  fd_progcache_rec_t const * rec_c = fd_progcache_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
-  FD_TEST( rec_c );
-  FD_TEST( rec_c->executable );
-  test_env_txn_publish( env, &fork_c );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
-
-  fd_funk_txn_xid_t fork_d = { .ul = { 4UL, 1UL } };
-  test_env_txn_prepare( env, &fork_c, &fork_d );
-  load_env.slot = 4UL;
-  fd_progcache_rec_t const * rec_d = fd_progcache_pull( env->progcache, env->accdb, &fork_d, &key, &load_env );
-  FD_TEST( rec_d );
-  FD_TEST( rec_d->executable );
-  test_env_txn_publish( env, &fork_d );
-
-  fd_funk_txn_xid_t fork_e = { .ul = { 5UL, 1UL } };
-  test_env_txn_prepare( env, &fork_d, &fork_e );
-  load_env.slot = 5UL;
-  fd_progcache_rec_t const * rec_e = fd_progcache_invalidate( env->progcache, &fork_e, &key, fork_e.ul[0] );
-  FD_TEST( rec_e );
-  test_env_txn_publish( env, &fork_e );
-
-  fd_funk_txn_xid_t fork_f = { .ul = { 6UL, 1UL } };
-  test_env_txn_prepare( env, &fork_e, &fork_f );
-  load_env.slot = 6UL;
-  fd_progcache_rec_t const * rec_f = fd_progcache_pull( env->progcache, env->accdb, &fork_f, &key, &load_env );
-  FD_TEST( rec_f );
-  test_env_txn_publish( env, &fork_f );
-
-  /* Verify that only one record remains */
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_xid_key_pair_init( pair, &root, &key );
-  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, pair );
-  ulong chain_cnt = 0UL;
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
-    chain_cnt++;
-  }
-  FD_TEST( chain_cnt==1UL );
-
-  test_env_destroy( env );
-}
-
-static void
-test_publish_trivial( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( publish_trivial ) {
   /* Exercise a sequence of prepare/publish operations seen when running
      'firedancer-dev backtest' */
 
   test_env_t * env = test_env_create( wksp );
 
-  fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
-  fd_funk_txn_xid_t fork_368528500 = { .ul = { 368528500UL, 368528500UL } };
-  fd_progcache_txn_attach_child( env->progcache_admin, &root, &fork_368528500 );
-  fd_progcache_txn_advance_root( env->progcache_admin,        &fork_368528500 );
+  fd_progcache_fork_id_t fork_368528500 = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+  fd_progcache_advance_root( env->progcache->join, fork_368528500 );
 
   /* FIXME more operations here ... */
 }
@@ -614,73 +301,725 @@ test_publish_trivial( fd_wksp_t * wksp ) {
 /* test_root_nonroot_prio: non-rooted record should take priority over
    rooted records. */
 
-static void
-test_root_nonroot_prio( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( root_nonroot_prio ) {
   test_env_t * env = test_env_create( wksp );
-  fd_funk_txn_xid_t fork_1 = { .ul = { 1UL, 1UL } }; /* account deployed here */
-  fd_funk_txn_xid_t fork_2 = { .ul = { 2UL, 1UL } }; /* root */
-  fd_funk_txn_xid_t fork_3 = { .ul = { 3UL, 2UL } }; /* account redeployed here */
-  fd_funk_txn_xid_t fork_4 = { .ul = { 4UL, 2UL } }; /* tip */
 
-  test_env_txn_prepare( env, NULL, &fork_1 );
-  fd_funk_rec_key_t key = test_key( 1UL );
-  create_test_account( env, &fork_1, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-  test_env_txn_publish( env, &fork_1 );
+  fd_progcache_fork_id_t fork_1 = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() ); /* account deployed here */
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  fd_progcache_advance_root( env->progcache->join, fork_1 );
 
-  test_env_txn_prepare( env, &fork_1, &fork_2 );
-  test_env_txn_prepare( env, &fork_2, &fork_3 );
-  create_test_account( env, &fork_3, &key,
-                       &fd_solana_bpf_loader_program_id,
-                       valid_program_data,
-                       valid_program_data_sz,
-                       1 );
-  fd_progcache_invalidate( env->progcache, &fork_3, &key, 3UL );
-  test_env_txn_prepare( env, &fork_3, &fork_4 );
+  fd_progcache_fork_id_t fork_2 = fd_progcache_attach_child( env->progcache->join, fork_1 ); /* root */
+  fd_progcache_fork_id_t fork_3 = fd_progcache_attach_child( env->progcache->join, fork_2 ); /* account redeployed here */
+  fd_progcache_fork_id_t fork_4 = fd_progcache_attach_child( env->progcache->join, fork_3 ); /* tip */
 
   fd_prog_load_env_t load_env1 = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 1UL
   };
-  fd_progcache_rec_t const * rec1 = fd_progcache_pull( env->progcache, env->accdb, &fork_1, &key, &load_env1 );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.entry, fork_2, &key, &load_env1 );
   FD_TEST( rec1 );
-  FD_TEST( rec1->slot==1UL );
+  fd_progcache_advance_root( env->progcache->join, fork_2 );
 
   fd_prog_load_env_t load_env4 = {
-    .features    = env->features,
-    .slot        = 4UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
+    .features     = env->features,
+    .feature_slot = 4UL
   };
-  fd_progcache_rec_t const * rec4 = fd_progcache_pull( env->progcache, env->accdb, &fork_4, &key, &load_env4 );
+  fd_progcache_rec_t const * rec4 = test_pull( env->progcache, acc.entry, fork_4, &key, &load_env4 );
   FD_TEST( rec4 );
-  FD_TEST( rec4->slot==4UL );
 
-  test_env_txn_cancel( env, &fork_4 );
-  test_env_txn_cancel( env, &fork_3 );
+  fd_progcache_cancel_fork( env->progcache->join, fork_4 );
+  fd_progcache_cancel_fork( env->progcache->join, fork_3 );
   test_env_destroy( env );
 }
 
-struct test_case {
-  char const * name;
-  void      (* fn)( fd_wksp_t * wksp );
-};
+/* test_reattach_after_cancel_all: Attach child after all siblings were
+   cancelled — parent's child_head/tail were reset.  Verify they're
+   re-established correctly. */
 
-static int
-match_test_name( char const * test_name,
-                 int          argc,
-                 char **      argv ) {
-  if( argc<=1 ) return 1;
-  for( int i=1; i<argc; i++ ) {
-    if( argv[ i ][ strspn( argv[ i ], " \t\n\r" ) ]=='\0' ) continue;
-    if( strstr( test_name, argv[ i ] ) ) return 1;
-  }
-  return 0;
+FD_UNIT_TEST( reattach_after_cancel_all ) {
+  test_env_t * env = test_env_create( wksp );
+
+  fd_progcache_fork_id_t parent  = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+  fd_progcache_fork_id_t child_a = fd_progcache_attach_child( env->progcache->join, parent );
+  fd_progcache_fork_id_t child_b = fd_progcache_attach_child( env->progcache->join, parent );
+  fd_progcache_fork_id_t child_c = fd_progcache_attach_child( env->progcache->join, parent );
+
+  uint parent_idx = (uint)fd_prog_txnm_idx_query_const( env->progcache->join->txn.map, &parent, UINT_MAX, env->progcache->join->txn.pool );
+  FD_TEST( parent_idx!=UINT_MAX );
+  fd_progcache_txn_t * parent_txn = &env->progcache->join->txn.pool[ parent_idx ];
+  FD_TEST( parent_txn->child_head_idx!=UINT_MAX );
+  FD_TEST( parent_txn->child_tail_idx!=UINT_MAX );
+
+  fd_progcache_cancel_fork( env->progcache->join, child_c );
+  fd_progcache_cancel_fork( env->progcache->join, child_b );
+  fd_progcache_cancel_fork( env->progcache->join, child_a );
+
+  FD_TEST( parent_txn->child_head_idx==UINT_MAX );
+  FD_TEST( parent_txn->child_tail_idx==UINT_MAX );
+
+  fd_progcache_fork_id_t child_d = fd_progcache_attach_child( env->progcache->join, parent );
+
+  FD_TEST( parent_txn->child_head_idx!=UINT_MAX );
+  FD_TEST( parent_txn->child_tail_idx!=UINT_MAX );
+  FD_TEST( parent_txn->child_head_idx==parent_txn->child_tail_idx );
+
+  fd_progcache_txn_t * child_d_txn = &env->progcache->join->txn.pool[ parent_txn->child_head_idx ];
+  FD_TEST( child_d_txn->xid==child_d );
+  FD_TEST( child_d_txn->parent_idx==parent_idx );
+  FD_TEST( child_d_txn->sibling_prev_idx==UINT_MAX );
+  FD_TEST( child_d_txn->sibling_next_idx==UINT_MAX );
+
+  FD_TEST( !fd_progcache_verify( env->progcache->join ) );
+
+  fd_progcache_cancel_fork( env->progcache->join, child_d );
+  fd_progcache_cancel_fork( env->progcache->join, parent );
+  test_env_destroy( env );
+}
+
+/* test_reclaim_empty: Reclaim on empty queue returns 0 */
+
+FD_UNIT_TEST( reclaim_empty ) {
+  test_env_t * env = test_env_create( wksp );
+
+  FD_TEST( env->progcache->join->rec.reclaim_head==UINT_MAX );
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==0UL );
+
+  test_env_destroy( env );
+}
+
+/* test_reclaim_no_readers: Single record with no active readers should
+   be freed by reclaim_work. */
+
+FD_UNIT_TEST( reclaim_no_readers ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t * rec = test_pull( env->progcache, acc.entry, xid, &key, &load_env );
+  FD_TEST( rec );
+  FD_TEST( rec->exists );
+
+  long freed = fd_prog_delete_rec( env->progcache->join, rec );
+  FD_TEST( freed>=0L );
+  FD_TEST( env->progcache->join->rec.reclaim_head!=UINT_MAX );
+
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==1UL );
+  FD_TEST( env->progcache->join->rec.reclaim_head==UINT_MAX );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+/* test_reclaim_active_reader: Record with an active reader should be
+   deferred by reclaim_work until the reader releases the lock. */
+
+FD_UNIT_TEST( reclaim_active_reader ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  FD_TEST( test_pull( env->progcache, acc.entry, xid, &key, &load_env ) );
+
+  fd_progcache_rec_t * rec = fd_progcache_peek( env->progcache, xid, &key, 0UL, 0UL );
+  FD_TEST( rec );
+
+  fd_prog_delete_rec( env->progcache->join, rec );
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==0UL );
+  FD_TEST( env->progcache->join->rec.reclaim_head!=UINT_MAX );
+
+  fd_progcache_rec_close( env->progcache, rec );
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==1UL );
+  FD_TEST( env->progcache->join->rec.reclaim_head==UINT_MAX );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+/* test_reclaim_txn_unlink: Record linked to a txn should be unlinked
+   from the txn's record list before being freed. */
+
+FD_UNIT_TEST( reclaim_txn_unlink ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 1UL
+  };
+  fd_progcache_rec_t * rec = test_pull( env->progcache, acc.entry, xid, &key, &load_env );
+  FD_TEST( rec );
+
+  uint txn_idx = atomic_load_explicit( &rec->txn_idx, memory_order_relaxed );
+  FD_TEST( txn_idx!=UINT_MAX );
+  fd_progcache_txn_t * txn = &env->progcache->join->txn.pool[ txn_idx ];
+  FD_TEST( txn->rec_head_idx!=UINT_MAX );
+
+  fd_prog_delete_rec( env->progcache->join, rec );
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==1UL );
+  FD_TEST( txn->rec_head_idx==UINT_MAX );
+  FD_TEST( txn->rec_tail_idx==UINT_MAX );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( join_null_scratch ) {
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
+  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 32UL ) );
+  fd_progcache_t cache[1];
+  FD_TEST( !fd_progcache_join( cache, mem, NULL, 4096UL ) );
+  fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
+}
+
+FD_UNIT_TEST( join_misaligned_scratch ) {
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
+  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 32UL ) );
+  uchar scratch_buf[ FD_PROGCACHE_SCRATCH_ALIGN ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
+  fd_progcache_t cache[1];
+  FD_TEST( !fd_progcache_join( cache, mem, scratch_buf+1, sizeof(scratch_buf)-1 ) );
+  fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
+}
+
+FD_UNIT_TEST( shmem_new_zero_txn_max ) {
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 0UL, 32UL ) );
+  fd_wksp_free_laddr( mem );
+}
+
+FD_UNIT_TEST( shmem_new_zero_rec_max ) {
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 0UL ) );
+  fd_wksp_free_laddr( mem );
+}
+
+FD_UNIT_TEST( shmem_new_oversized_txn_max ) {
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, (ulong)UINT_MAX+1UL, 32UL ) );
+  fd_wksp_free_laddr( mem );
+}
+
+FD_UNIT_TEST( shmem_new_oversized_rec_max ) {
+  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
+  FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, (ulong)UINT_MAX+1UL ) );
+  fd_wksp_free_laddr( mem );
+}
+
+FD_UNIT_TEST( shmem_delete_fast ) {
+  ulong txn_max           = 16UL;
+  ulong progcache_rec_max = 32UL;
+  ulong wksp_tag          =  2UL;
+
+  fd_progcache_shmem_t * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
+  FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
+
+  uchar scratch[ 65536 ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
+  fd_progcache_t cache[1];
+  FD_TEST( fd_progcache_join( cache, progcache_mem, scratch, sizeof(scratch) ) );
+
+  fd_progcache_fork_id_t fork = fd_progcache_attach_child( cache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  fd_features_t features[1]; memset( features, 0, sizeof(fd_features_t) );
+  fd_prog_load_env_t load_env = {
+    .features     = features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t * rec = test_pull( cache, acc.entry, fork, &key, &load_env );
+  FD_TEST( rec );
+  FD_TEST( rec->data_gaddr );
+
+  fd_progcache_shmem_t * shmem_out = NULL;
+  FD_TEST( fd_progcache_leave( cache, &shmem_out ) );
+  FD_TEST( shmem_out==(fd_progcache_shmem_t *)progcache_mem );
+
+  FD_TEST( fd_progcache_shmem_delete_fast( shmem_out ) );
+}
+
+/* test_reclaim_mixed: Multiple records enqueued for reclaim with mixed
+   readability.  Only records without active readers should be freed. */
+
+FD_UNIT_TEST( reclaim_mixed ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  FD_TEST( test_pull( env->progcache, acc1.entry, xid, &key1, &load_env ) );
+  FD_TEST( test_pull( env->progcache, acc2.entry, xid, &key2, &load_env ) );
+
+  fd_progcache_rec_t * rec1 = fd_progcache_peek( env->progcache, xid, &key1, 0UL, 0UL );
+  FD_TEST( rec1 );
+  fd_progcache_rec_t * rec2 = fd_progcache_peek( env->progcache, xid, &key2, 0UL, 0UL );
+  FD_TEST( rec2 );
+  fd_progcache_rec_close( env->progcache, rec2 );
+
+  fd_prog_delete_rec( env->progcache->join, rec1 );
+  fd_prog_delete_rec( env->progcache->join, rec2 );
+
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==1UL );
+  FD_TEST( env->progcache->join->rec.reclaim_head!=UINT_MAX );
+
+  fd_progcache_rec_close( env->progcache, rec1 );
+
+  FD_TEST( fd_prog_reclaim_work( env->progcache->join )==1UL );
+  FD_TEST( env->progcache->join->rec.reclaim_head==UINT_MAX );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( loader_v3_ok ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  uchar buf[ 655536 ];
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init_v3_data(
+      &acc,
+      buf, sizeof(buf),
+      &key,
+      valid_program_data, valid_program_data_sz,
+      42UL
+  );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
+  FD_TEST( rec );
+  FD_TEST( rec->data_gaddr );
+
+  FD_TEST( test_peek( env->progcache, fork_a, &key, 0UL, 42UL )==rec  );
+  FD_TEST( test_peek( env->progcache, fork_a, &key, 0UL,  0UL )==NULL );
+
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( loader_v3_wrong_account_type ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  ulong data_sz = PROGRAMDATA_METADATA_SIZE + valid_program_data_sz;
+  uchar data[ PROGRAMDATA_METADATA_SIZE + 1048576 ];
+  FD_TEST( data_sz<=sizeof(data) );
+
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_BUFFER,
+    .inner = { .buffer = { .has_authority_address = 0, .authority_address = {{0}} } }
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_upgradeable_program_id,
+                     1, data, data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
+  FD_TEST( !rec );
+
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( loader_v3_undersize ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  uchar data[ PROGRAMDATA_METADATA_SIZE-1 ];
+  memset( data, 0, sizeof(data) );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_upgradeable_program_id,
+                     1, data, sizeof(data) );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
+  FD_TEST( !rec );
+
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( loader_v3_corrupt ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  uchar data[ PROGRAMDATA_METADATA_SIZE+1 ];
+  memset( data, 0x41, sizeof(data) );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_upgradeable_program_id,
+                     1, data, sizeof(data) );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
+  FD_TEST( !rec );
+
+  fd_progcache_cancel_fork( env->progcache->join, fork_a );
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( loader_v3_epoch_boundary ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  uchar buf[ 655536 ];
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init_v3_data(
+      &acc,
+      buf, sizeof(buf),
+      &key,
+      valid_program_data, valid_program_data_sz,
+      42UL
+  );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.entry, fork_a, &key, &load_env );
+  FD_TEST( rec1 );
+  FD_TEST( rec1->data_gaddr );
+
+  fd_progcache_fork_id_t fork_b = fd_progcache_attach_child( env->progcache->join, fork_a );
+
+  load_env.feature_slot = 100UL;
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.entry, fork_b, &key, &load_env );
+  FD_TEST( rec2 );
+  FD_TEST( rec2->data_gaddr );
+  FD_TEST( rec1!=rec2 );
+
+  FD_TEST( test_peek( env->progcache, fork_a, &key,   0UL, 42UL )==rec1 );
+  FD_TEST( test_peek( env->progcache, fork_b, &key, 100UL, 42UL )==rec2 );
+  FD_TEST( test_peek( env->progcache, fork_b, &key,   0UL, 42UL )==rec1 );
+
+  fd_progcache_advance_root( env->progcache->join, fork_a );
+  FD_TEST( test_peek( env->progcache, fork_a, &key,   0UL, 42UL )==rec1 );
+  FD_TEST( test_peek( env->progcache, fork_b, &key, 100UL, 42UL )==rec2 );
+  FD_TEST( test_peek( env->progcache, fork_b, &key,   0UL, 42UL )==rec1 );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( loader_v3_epoch_boundary_skipped_slots ) {
+  test_env_t * env = test_env_create( wksp );
+
+  ulong const mainnet_slots_per_epoch = 432000UL;
+  ulong const epoch                   = 1000UL;
+  ulong const e0                      = mainnet_slots_per_epoch * epoch;
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t fork_a_acc;
+  uchar fork_a_buf[ 65536 ];
+  test_account_init_v3_data(
+      &fork_a_acc,
+      fork_a_buf, sizeof(fork_a_buf),
+      &key,
+      bigger_valid_program_data, bigger_valid_program_data_sz,
+      e0-1UL
+  );
+
+  test_account_t fork_b_acc;
+  uchar fork_b_buf[ 65536 ];
+  test_account_init_v3_data(
+      &fork_b_acc,
+      fork_b_buf, sizeof(fork_b_buf),
+      &key,
+      valid_program_data, valid_program_data_sz,
+      1UL
+  );
+  FD_TEST( fork_a_acc.entry->data_len!=fork_b_acc.entry->data_len );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = e0
+  };
+
+  fd_progcache_fork_id_t root = fd_progcache_fork_id_initial();
+
+  /* Fork A upgraded the program at e0-1 and invokes after skipped slot e0. */
+  fd_progcache_fork_id_t fork_a_deploy = fd_progcache_attach_child( env->progcache->join, root );
+  fd_progcache_fork_id_t fork_a_invoke = fd_progcache_attach_child( env->progcache->join, fork_a_deploy );
+
+  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, fork_a_acc.entry, fork_a_invoke, &key, &load_env );
+  FD_TEST( rec_a );
+  FD_TEST( rec_a->data_gaddr );
+  FD_TEST( query_rec_exact( env, fork_a_deploy, &key )==NULL  );
+  FD_TEST( query_rec_exact( env, fork_a_invoke, &key )==rec_a );
+  FD_TEST( query_rec_exact( env, root, &key )==NULL );
+
+  /* Fork B crosses the same skipped epoch boundary without fork A's
+     upgrade.  It supplies different loader-v3 ProgramData bytes, so it
+     must not receive fork A's loaded program record. */
+  fd_progcache_fork_id_t fork_b_invoke = fd_progcache_attach_child( env->progcache->join, root );
+
+  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, fork_b_acc.entry, fork_b_invoke, &key, &load_env );
+  FD_TEST( rec_b );
+  FD_TEST( rec_b!=rec_a );
+  FD_TEST( query_rec_exact( env, fork_a_invoke, &key )==rec_a );
+  FD_TEST( query_rec_exact( env, fork_b_invoke, &key )==rec_b );
+  FD_TEST( query_rec_exact( env, root,          &key )==NULL  );
+
+  fd_progcache_cancel_fork( env->progcache->join, fork_b_invoke );
+  fd_progcache_cancel_fork( env->progcache->join, fork_a_deploy );
+
+  test_env_destroy( env );
+}
+
+/* test_clock_evict_all_visited: First pass clears visited bits,
+   second pass evicts. */
+
+FD_UNIT_TEST( clock_evict_all_visited ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  fd_pubkey_t key3 = test_key( 3UL );
+  test_account_t acc1, acc2, acc3;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc3, &key3, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, xid, &key1, &load_env );
+  fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.entry, xid, &key2, &load_env );
+  fd_progcache_rec_t * rec3 = test_pull( env->progcache, acc3.entry, xid, &key3, &load_env );
+  FD_TEST( rec1 && rec2 && rec3 );
+
+  /* Ensure visited bits are set */
+  ulong rec1_idx = (ulong)( rec1 - env->progcache->join->rec.pool->ele );
+  ulong rec2_idx = (ulong)( rec2 - env->progcache->join->rec.pool->ele );
+  ulong rec3_idx = (ulong)( rec3 - env->progcache->join->rec.pool->ele );
+  fd_prog_clock_touch( env->progcache->join->clock.bits, rec1_idx );
+  fd_prog_clock_touch( env->progcache->join->clock.bits, rec2_idx );
+  fd_prog_clock_touch( env->progcache->join->clock.bits, rec3_idx );
+
+  ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
+  env->progcache->join->shmem->clock.head = 0UL;
+
+  fd_prog_clock_evict( env->progcache, 3UL, 0UL );
+
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before == 3UL );
+  FD_TEST( !test_peek( env->progcache, xid, &key1, 0UL, 0UL ) );
+  FD_TEST( !test_peek( env->progcache, xid, &key2, 0UL, 0UL ) );
+  FD_TEST( !test_peek( env->progcache, xid, &key3, 0UL, 0UL ) );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+/* test_clock_evict_wraps_around: Head wraps from rec_max back to 0. */
+
+FD_UNIT_TEST( clock_evict_wraps_around ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  test_account_t acc1;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, xid, &key1, &load_env );
+  FD_TEST( rec1 );
+
+  ulong rec_max = env->progcache->join->rec.pool->ele_max;
+  ulong rec_idx = (ulong)( rec1 - env->progcache->join->rec.pool->ele );
+
+  /* Clear visited bit */
+  atomic_ulong * slot_p = fd_prog_cbits_slot( env->progcache->join->clock.bits, rec_idx );
+  ulong vmask = 1UL<<fd_prog_visited_bit( rec_idx );
+  atomic_fetch_and_explicit( slot_p, ~vmask, memory_order_relaxed );
+
+  /* Start head near end so it must wrap */
+  env->progcache->join->shmem->clock.head = rec_max - 1UL;
+
+  ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
+  fd_prog_clock_evict( env->progcache, 1UL, 0UL );
+
+  FD_TEST( env->progcache->join->shmem->clock.head <= rec_max );
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before == 1UL );
+  FD_TEST( !test_peek( env->progcache, xid, &key1, 0UL, 0UL ) );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+/* test_clock_evict_empty_cache: No-op eviction on empty cache. */
+
+FD_UNIT_TEST( clock_evict_empty_cache ) {
+  test_env_t * env = test_env_create( wksp );
+
+  ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
+  fd_prog_clock_evict( env->progcache, 1UL, 0UL );
+
+  FD_TEST( env->progcache->metrics->evict_cnt == evict_cnt_before );
+  FD_TEST( !fd_progcache_verify( env->progcache->join ) );
+
+  test_env_destroy( env );
+}
+
+/* test_clock_evict_delete_fails: fd_prog_delete_rec returns -1 for a
+   stale exists bit.  Eviction should skip it and keep going. */
+
+FD_UNIT_TEST( clock_evict_delete_fails ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, xid, &key1, &load_env );
+  fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.entry, xid, &key2, &load_env );
+  FD_TEST( rec1 && rec2 );
+
+  ulong rec1_idx = (ulong)( rec1 - env->progcache->join->rec.pool->ele );
+  ulong rec2_idx = (ulong)( rec2 - env->progcache->join->rec.pool->ele );
+
+  /* Clear visited bits */
+  atomic_ulong * slot1_p = fd_prog_cbits_slot( env->progcache->join->clock.bits, rec1_idx );
+  ulong vmask1 = 1UL<<fd_prog_visited_bit( rec1_idx );
+  atomic_fetch_and_explicit( slot1_p, ~vmask1, memory_order_relaxed );
+
+  atomic_ulong * slot2_p = fd_prog_cbits_slot( env->progcache->join->clock.bits, rec2_idx );
+  ulong vmask2 = 1UL<<fd_prog_visited_bit( rec2_idx );
+  atomic_fetch_and_explicit( slot2_p, ~vmask2, memory_order_relaxed );
+
+  /* Remove rec1 from index, then re-set its exists bit to simulate
+     a stale cbit (race between concurrent delete and eviction). */
+  fd_prog_delete_rec( env->progcache->join, rec1 );
+  fd_prog_reclaim_work( env->progcache->join );
+  ulong emask1 = 1UL<<fd_prog_exists_bit( rec1_idx );
+  atomic_fetch_or_explicit( slot1_p, emask1, memory_order_relaxed );
+
+  ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
+  ulong head_start = fd_ulong_min( rec1_idx, rec2_idx );
+  env->progcache->join->shmem->clock.head = head_start;
+
+  /* rec1 delete fails (-1), rec2 succeeds */
+  fd_prog_clock_evict( env->progcache, 1UL, 0UL );
+
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before >= 1UL );
+  FD_TEST( !test_peek( env->progcache, xid, &key2, 0UL, 0UL ) );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
+/* test_clock_evict_heap_only: rec_min=0, heap_min>0 evicts by heap. */
+
+FD_UNIT_TEST( clock_evict_heap_only ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  test_account_t acc1;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, xid, &key1, &load_env );
+  FD_TEST( rec1 );
+  FD_TEST( rec1->data_gaddr );
+
+  ulong rec_idx = (ulong)( rec1 - env->progcache->join->rec.pool->ele );
+
+  /* Clear visited bit */
+  atomic_ulong * slot_p = fd_prog_cbits_slot( env->progcache->join->clock.bits, rec_idx );
+  ulong vmask = 1UL<<fd_prog_visited_bit( rec_idx );
+  atomic_fetch_and_explicit( slot_p, ~vmask, memory_order_relaxed );
+
+  env->progcache->join->shmem->clock.head = 0UL;
+
+  ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
+  ulong evict_sz_before  = env->progcache->metrics->evict_tot_sz;
+
+  fd_prog_clock_evict( env->progcache, 0UL, 1UL );
+
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before == 1UL );
+  FD_TEST( env->progcache->metrics->evict_tot_sz - evict_sz_before > 0UL );
+  FD_TEST( !test_peek( env->progcache, xid, &key1, 0UL, 0UL ) );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
 }
 
 int
@@ -699,35 +1038,10 @@ main( int     argc,
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-# define TEST( name ) { #name, name }
-  struct test_case cases[] = {
-    TEST( test_empty ),
-    TEST( test_account_does_not_exist ),
-    TEST( test_invalid_owner ),
-    TEST( test_invalid_program ),
-    TEST( test_valid_program ),
-    TEST( test_epoch_boundary ),
-    TEST( test_invalidate ),
-    TEST( test_invalidate_nonexistent ),
-    TEST( test_invalidate_pull ),
-    TEST( test_invalidate_dup ),
-    TEST( test_invalidate_epoch_boundary ),
-    TEST( test_publish_gc ),
-    TEST( test_publish_gc2 ),
-    TEST( test_publish_trivial ),
-    TEST( test_root_nonroot_prio ),
-    {0}
-  };
-# undef TEST
-  for( struct test_case * tc = cases; tc->name; tc++ ) {
-    if( match_test_name( tc->name, argc, argv ) ) {
-      FD_LOG_NOTICE(( "Running %s", tc->name ));
-      tc->fn( wksp );
-    }
-  }
+  fd_unit_tests( argc, argv );
 
   fd_wksp_delete_anonymous( wksp );
 

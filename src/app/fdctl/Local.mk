@@ -1,10 +1,11 @@
 include src/app/fdctl/with-version.mk
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
-$(shell echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/fdctl/version2.h)
-$(shell echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/fdctl/version2.h)
-$(shell echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/fdctl/version2.h)
-$(shell echo '#define FDCTL_COMMIT_REF_CSTR "$(FIREDANCER_CI_COMMIT)"'                          >> src/app/fdctl/version2.h)
-$(shell echo "#define FDCTL_COMMIT_REF_U32 0x$(shell echo $(FIREDANCER_CI_COMMIT) | cut -c -8)" >> src/app/fdctl/version2.h)
+define FDCTL_VERSION2_H
+#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)
+#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)
+#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)
+#define FDCTL_VERSION_CSTR "$(FIREDANCER_VERSION_CSTR)"
+endef
+$(file >src/app/fdctl/version2.h,$(FDCTL_VERSION2_H))
 
 # Update version.h only if version changed or doesn't exist
 ifneq ($(shell cmp -s src/app/fdctl/version.h src/app/fdctl/version2.h && echo "same"),same)
@@ -12,14 +13,17 @@ src/app/fdctl/version.h: src/app/fdctl/version2.h
 	cp -f src/app/fdctl/version2.h $@
 endif
 
-$(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
+$(OBJDIR)/info: src/app/fdctl/version.h
+$(OBJDIR)/obj/app/fdctl/version.o:     src/app/fdctl/version.h
+$(OBJDIR)/obj/app/fdctl/version.d:     src/app/fdctl/version.h
+$(OBJDIR)/obj/app/fdctl/version.check: src/app/fdctl/version.h
 
-# Always generate a version file
-include src/app/fdctl/version.h
+# version
+$(call make-lib,fdctl_version)
+$(call add-objs,version,fdctl_version)
 
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
-ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
 
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
@@ -36,11 +40,7 @@ ifdef FD_HAS_THREADS
 $(call add-objs,commands/run_agave,fd_fdctl)
 $(call add-objs,commands/set_identityh,fd_fdctl)
 
-# version
-$(call make-lib,fdctl_version)
-$(call add-objs,version,fdctl_version)
-
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco fd_choreo agave_validator fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
@@ -90,27 +90,29 @@ endif
 # great for build times, so we always build all the libs and bins
 # with one cargo command, even if the dependency could be more fine
 # grained.
+RUST_VERSION_DEPS:=$(OBJDIR)/lib/libfdctl_version.a $(OBJDIR)/lib/libfd_util.a
+RUST_VERSION_LIBS:=-lfdctl_version -lfd_util
 ifeq ($(RUST_PROFILE),release)
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --lib -p agave-validator
-cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin solana
-cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
+cargo-solana: $(RUST_VERSION_DEPS)
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin solana
+cargo-ledger-tool: $(RUST_VERSION_DEPS)
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 else ifeq ($(RUST_PROFILE),release-with-debug)
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --lib -p agave-validator
-cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin solana
-cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
+cargo-solana: $(RUST_VERSION_DEPS)
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin solana
+cargo-ledger-tool: $(RUST_VERSION_DEPS)
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 else
 cargo-validator:
 	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --lib -p agave-validator
-cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin solana
-cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
+cargo-solana:$(RUST_VERSION_DEPS)
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin solana
+cargo-ledger-tool: $(RUST_VERSION_DEPS)
+	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) $(RUST_VERSION_LIBS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 endif
 
 # We sleep as a workaround for a bizarre problem where the build system
@@ -138,7 +140,6 @@ $(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 
-endif
 endif
 endif
 endif

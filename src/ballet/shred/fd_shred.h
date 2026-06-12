@@ -259,15 +259,18 @@ typedef struct fd_shred fd_shred_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_shred_parse: Parses and validates an untrusted shred stored in
-   bytes buf[i] for i in [0, sz).  sz must be at least FD_SHRED_MIN_SZ
-   bytes.  Allows trailing data.
+   bytes buf[i] for i in [0, sz).  sz must be at least FD_SHRED_MIN_SZ bytes.
+   Allows trailing data.  max_shred_idx is the exclusive upper bound for
+   data/parity shred indices within a slot, similar to max_shred_idx in
+   fd_fec_resolver.
 
    The returned pointer either equals the input pointer or is NULL if
    the given shred is malformed or violates any invariants described
    above. */
 FD_FN_PURE fd_shred_t const *
 fd_shred_parse( uchar const * buf,
-                ulong         sz );
+                ulong         sz,
+                ulong         max_shred_idx );
 
 /* fd_shred_type: Returns the value of the shred's type field. (FD_SHRED_TYPE_*) */
 FD_FN_CONST static inline uchar
@@ -407,7 +410,7 @@ fd_shred_merkle_nodes( fd_shred_t const * shred ) {
    root_out.  Returns 1 on success, 0 on failure.  The output value must
    be ignored if a failure is returned.  U.B. if the shred is not a
    merkle variant. */
-FD_FN_PURE int
+int
 fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out );
 
 /* fd_shred_data_payload: Returns a pointer to a data shred payload.

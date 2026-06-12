@@ -45,7 +45,7 @@
 
 
 static inline const char *
-fd_snapct_state_str( ulong state ) {
+fd_snapct_state_str( int state ) {
   switch( state ) {
     case FD_SNAPCT_STATE_INIT:                            return "init";
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS:               return "waiting_for_peers";

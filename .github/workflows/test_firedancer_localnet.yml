@@ -18,8 +18,8 @@ jobs:
       AGAVE_VERSION: v2.0.3
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:

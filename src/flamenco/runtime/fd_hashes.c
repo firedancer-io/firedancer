@@ -1,41 +1,19 @@
 #include "fd_hashes.h"
 #include "fd_bank.h"
 #include "../capture/fd_capture_ctx.h"
-#include "../capture/fd_solcap_writer.h"
-#include "../../ballet/blake3/fd_blake3.h"
-#include "../../ballet/lthash/fd_lthash.h"
-#include "../../ballet/sha256/fd_sha256.h"
-
-void
-fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
-                          fd_account_meta_t const * account,
-                          uchar const             * data,
-                          fd_lthash_value_t       * lthash_out ) {
-  fd_hashes_account_lthash_simple( pubkey->uc,
-                                   account->owner,
-                                   account->lamports,
-                                   account->executable,
-                                   data,
-                                   account->dlen,
-                                   lthash_out );
-}
 
 void
 fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOTPRINT ],
                                  uchar const         owner[ static FD_HASH_FOOTPRINT ],
                                  ulong               lamports,
-                                 uchar               executable,
+                                 int                 executable,
                                  uchar const *       data,
                                  ulong               data_len,
                                  fd_lthash_value_t * lthash_out ) {
   fd_lthash_zero( lthash_out );
+  if( FD_UNLIKELY( !lamports ) ) return;
 
-  /* Accounts with zero lamports are not included in the hash, so they should always be treated as zero */
-  if( FD_UNLIKELY( lamports == 0 ) ) {
-    return;
-  }
-
-  uchar executable_flag = executable & 0x1;
+  uchar executable_flag = !!executable;
 
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
@@ -74,18 +52,21 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
 }
 
 void
-fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
-                          fd_lthash_value_t const * lthash_prev, /* in */
-                          fd_pubkey_t const *       pubkey,
-                          fd_account_meta_t const * meta,
-                          fd_bank_t               * bank,
-                          fd_capture_ctx_t        * capture_ctx ) {
-
-  /* Hash the new version of the account */
-  fd_hashes_account_lthash( pubkey, meta, fd_account_data( meta ), lthash_post );
+fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
+                         fd_lthash_value_t const * lthash_prev, /* in */
+                         uchar const               pubkey[ static FD_HASH_FOOTPRINT ],
+                         uchar const               owner[ static FD_HASH_FOOTPRINT ],
+                         ulong                     lamports,
+                         int                       executable,
+                         uchar const *             data,
+                         ulong                     data_len,
+                         fd_bank_t               * bank,
+                         fd_capture_ctx_t        * capture_ctx ) {
+  /* Compute the new hash of the account */
+  fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
 
   /* Subtract the old hash of the account from the bank lthash */
-  fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
+  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
   fd_lthash_sub( bank_lthash, lthash_prev );
 
   /* Add the new hash of the account to the bank lthash */
@@ -93,22 +74,41 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
 
   fd_bank_lthash_end_locking_modify( bank );
 
-  if( capture_ctx && capture_ctx->capture_solcap &&
-      fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
+  if( FD_UNLIKELY( capture_ctx &&
+                   capture_ctx->capture_solcap &&
+                   bank->f.slot>=capture_ctx->solcap_start_slot ) ) {
     fd_solana_account_meta_t solana_meta[1];
-    fd_solana_account_meta_init(
-        solana_meta,
-        meta->lamports,
-        meta->owner,
-        meta->executable
-    );
+    fd_solana_account_meta_init( solana_meta, lamports, owner, executable );
     fd_capture_link_write_account_update(
       capture_ctx,
       capture_ctx->current_txn_idx,
-      pubkey,
+      (fd_pubkey_t*)pubkey,
       solana_meta,
-      fd_bank_slot_get( bank ),
-      fd_account_data( meta ),
-      meta->dlen );
+      bank->f.slot,
+      data,
+      data_len );
   }
+}
+
+void
+fd_hashes_apply_hard_forks( fd_hash_t *            hash,
+                            ulong                  slot,
+                            ulong                  parent_slot,
+                            fd_hard_fork_t const * hard_forks,
+                            ulong                  hard_fork_cnt ) {
+  ulong sum = 0UL;
+  for( ulong i=0UL; i<hard_fork_cnt; i++ ) {
+    if( FD_UNLIKELY( parent_slot<hard_forks[ i ].slot && hard_forks[ i ].slot<=slot ) ) sum += hard_forks[ i ].cnt;
+  }
+
+  if( FD_UNLIKELY( !sum ) ) return;
+
+  ulong sum_le[ 1 ];
+  FD_STORE( ulong, sum_le, sum );
+
+  fd_sha256_t sha;
+  fd_sha256_init( &sha );
+  fd_sha256_append( &sha, hash->hash, sizeof(fd_hash_t) );
+  fd_sha256_append( &sha, sum_le,     sizeof(ulong)     );
+  fd_sha256_fini( &sha, hash->hash );
 }

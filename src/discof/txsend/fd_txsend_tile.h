@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_txsend_fd_txsend_tile_h
 
 #include "../../waltz/quic/fd_quic.h"
-#include "../../flamenco/types/fd_types_custom.h"
+#include "../../flamenco/progcache/fd_progcache_xid.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../disco/stem/fd_stem.h"
@@ -30,21 +30,43 @@ struct fd_txsend_out {
 
 typedef struct fd_txsend_out fd_txsend_out_t;
 
+/* QUIC conn table state management
+
+   fd_quic_conn_t objects are managed by fd_quic_t.
+   peer_map holds pointers to quic_conns (up to 2 conns per peer).
+   The lifetime of these must be synchronized with quic_conn state.
+
+   This implies the following:
+   - fd_quic must inform txsend via a conn_final callback before freeing
+     a conn object
+   - in rare cases, txsend may see conn alloc failures even if peer_map
+     has free conn slots
+
+   The following procedure closes a conn:
+   - call fd_quic_conn_close (enqueues an immediate conn close)
+   - deregister the conn from the table
+   - call fd_quic_service (sends out CONN_CLOSE packet, conn_final
+     callback, frees conn) */
+
+struct txsend_conn {
+  uint             quic_ip_addr;
+  ushort           quic_port;
+  fd_quic_conn_t * quic_conn;
+  long             quic_last_connected;
+};
+typedef struct txsend_conn txsend_conn_t;
+
 struct peer_entry {
-  int tombstoned;
+  /* Key */
   fd_pubkey_t pubkey;
 
-  uint             quic_ip_addrs[ 2UL ];
-  ushort           quic_ports[ 2UL ];
-
-  fd_quic_conn_t * quic_conns[ 2UL ];
-  long             quic_last_connected[ 2UL ];
-
+  /* State */
+  txsend_conn_t quic_conns[ 2UL ];
   uint   udp_ip_addrs[ 2UL ];
   ushort udp_ports[ 2UL ];
+  int    tombstoned;
 
   struct {
-    ulong prev;
     ulong next;
   } map;
 };
@@ -55,10 +77,9 @@ typedef struct peer_entry peer_entry_t;
 #define MAP_KEY                pubkey
 #define MAP_ELE_T              peer_entry_t
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_progcache_rec_key_hash1( (key)->uc, (seed) )
 #define MAP_IMPL_STYLE         1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -68,6 +89,17 @@ struct quic_entry {
 };
 
 typedef struct quic_entry quic_entry_t;
+
+/* txsend tile data structure
+
+   notable data structures:
+   - the quic instance manages quic_conns
+   - the conns array is a list of pointers to quic_conns, kept in sync
+     with quic instance
+   - the peers table is replicated from gossip ContactInfo updates
+   - the peer_map hashmap maps pubkey to peers[i] entry; drift is
+     tolerated
+   - peers[i] contains pointers to quic_conn */
 
 struct fd_txsend_tile {
   fd_quic_t * quic;

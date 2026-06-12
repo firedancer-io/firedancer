@@ -5,6 +5,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "fd_ethtool_ioctl.h"
 #include "../../../../util/fd_util.h"
@@ -486,22 +487,54 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
 }
 
 int
-fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
-                                            ushort const *       dports,
-                                            uint                 dports_cnt,
-                                            uint                 queue_cnt,
-                                            int *                valid ) {
+fd_ethtool_ioctl_ntuple_set_gre( fd_ethtool_ioctl_t * ioc,
+                                 uint                 rule_idx,
+                                 uint                 queue_idx ) {
+  /* See above for any_location */
+  struct ethtool_rxnfc get = { .cmd = ETHTOOL_GRXCLSRLCNT };
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLCNT", &get );
+  int const any_location = !!(get.data & RX_CLS_LOC_SPECIAL);
+
+  FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type ip4 l4proto 47 queue %u`",
+                  ioc->ifr.ifr_name, queue_idx ));
+  struct ethtool_rxnfc efc = {
+    .cmd = ETHTOOL_SRXCLSRLINS,
+    .fs = {
+      .flow_type = IPV4_USER_FLOW,
+      .h_u = { .usr_ip4_spec = {
+        .ip_ver = ETH_RX_NFC_IP4,
+        .proto  = IPPROTO_GRE } },
+      .m_u = { .usr_ip4_spec = {
+        .ip_ver = 0xFF,
+        .proto  = 0xFF } },
+      .ring_cookie = queue_idx,
+      .location = any_location ? RX_CLS_LOC_ANY : rule_idx,
+    }
+  };
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXCLSRLINS", &efc );
+  return 0;
+}
+
+int
+fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
+                                  ushort const *       dports,
+                                  uint                 dports_cnt,
+                                  uint                 queue_cnt,
+                                  uint                 gre_queue,
+                                  int *                valid ) {
   union {
     struct ethtool_rxnfc m;
     uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxnfc, uint, MAX_NTUPLE_RULES ) ];
   } efc = { 0 };
+
+  int gre_rule = (gre_queue!=UINT_MAX);
 
   /* Get count of currently defined rules */
   efc.m.cmd = ETHTOOL_GRXCLSRLCNT;
   int ret = run_ioctl( ioc, "ETHTOOL_GRXCLSRLCNT", &efc, 1, 0 );
   if( FD_UNLIKELY( ret!=0 ) ) {
     if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
-      *valid = (dports_cnt==0U);
+      *valid = (dports_cnt==0U) & !gre_rule;
       return 0;
     }
     return ret;
@@ -509,18 +542,19 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
   uint const rule_cnt = efc.m.rule_cnt;
   if( FD_UNLIKELY( rule_cnt>MAX_NTUPLE_RULES ) )
     return EINVAL;
-  if( dports_cnt==0U ) {
+  if( (dports_cnt==0U) & !gre_rule ) {
     *valid = (rule_cnt==0U);
     return 0;
   }
   FD_TEST( queue_cnt>0U );
   uint const rule_group_cnt = fd_uint_pow2_up( queue_cnt );
-  if( rule_cnt!=(dports_cnt*rule_group_cnt) ) {
+  if( rule_cnt!=(dports_cnt*rule_group_cnt + (uint)gre_rule) ) {
     *valid = 0;
     return 0;
   }
 
   ushort expected[ MAX_NTUPLE_RULES ] = { 0 };
+  int    found_gre = 0;
   for( uint r=0U; r<rule_group_cnt; r++ ) {
     for( uint p=0U; p<dports_cnt; p++ ) {
       expected[ (r*dports_cnt)+p ] = dports[ p ];
@@ -538,6 +572,10 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
     .pdst   = 0xFFFF,
     .ip4src = fd_uint_bswap( rule_group_cnt-1U ),
   } };
+  static const union ethtool_flow_union expected_gre_mask = { .usr_ip4_spec = {
+    .ip_ver = 0xFF,
+    .proto  = 0xFF
+  } };
   for( uint i=0u; i<efc.m.rule_cnt; i++) {
     struct ethtool_rxnfc get = {
       .cmd = ETHTOOL_GRXCLSRULE,
@@ -547,9 +585,18 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
     uint   flow_type      = get.fs.flow_type & ~(uint)FLOW_RSS & ~(uint)FLOW_EXT & ~(uint)FLOW_MAC_EXT;
     uint   rule_group_idx = fd_uint_bswap( get.fs.h_u.udp_ip4_spec.ip4src );
     ushort dport          = fd_ushort_bswap( get.fs.h_u.udp_ip4_spec.pdst );
-    if( FD_UNLIKELY( ((flow_type!=UDP_V4_FLOW) | (rule_group_idx>=rule_group_cnt) | (get.fs.ring_cookie!=(rule_group_idx%queue_cnt)) ) ||
-                     0!=memcmp( &get.fs.m_u,   &expected_mask,     sizeof(expected_mask)    ) ||
-                     0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
+
+    /* Is this the GRE rule? */
+    if( FD_UNLIKELY( ((!found_gre) & (flow_type==IPV4_USER_FLOW) & (get.fs.ring_cookie==gre_queue) &
+                        (get.fs.h_u.usr_ip4_spec.proto==IPPROTO_GRE))&&
+                     !memcmp( &get.fs.m_u,   &expected_gre_mask, sizeof(expected_gre_mask) ) &&
+                     !memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
+      found_gre = 1;
+      continue;
+    } else if( FD_UNLIKELY( ((flow_type!=UDP_V4_FLOW) | (rule_group_idx>=rule_group_cnt) |
+                            (get.fs.ring_cookie!=(rule_group_idx%queue_cnt)) | (dport==0)) ||
+                            0!=memcmp( &get.fs.m_u,   &expected_mask,     sizeof(expected_mask)    ) ||
+                            0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
       *valid = 0;
       return 0;
     }
@@ -569,8 +616,9 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
     }
   }
 
-  /* All rules are valid and matched expected ports */
-  *valid = 1;
+  /* All UDP rules are valid and matched expected ports.  It's fully
+     valid if GRE matched. */
+  *valid = found_gre==gre_rule;
   return 0;
 }
 

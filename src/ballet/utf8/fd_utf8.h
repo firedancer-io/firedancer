@@ -34,7 +34,8 @@ FD_PROTOTYPES_BEGIN
 
    str points to the first byte of the UTF-8 string (not a C string).
    sz is the number of bytes in the string.  Assumes that str+sz does
-   not overflow.  str is ignored if sz==0UL. */
+   not overflow.  str may be NULL only when sz==0UL;  NULL with
+   nonzero sz is rejected. */
 
 FD_FN_PURE int
 fd_utf8_verify( char const * str,

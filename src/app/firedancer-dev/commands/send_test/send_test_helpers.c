@@ -131,8 +131,8 @@ parse_stake_weight( char * line ) {
   }
 
   /* Set staked amount */
-  double sol_amount   = atof( sol_start ); FD_TEST( sol_amount > 0.0 );
-         weight.stake = (ulong)(sol_amount * 1000000000UL);
+  double sol_amount = atof( sol_start ); FD_TEST( sol_amount > 0.0 );
+  weight.stake = (ulong)(sol_amount * 1000000000UL);
   return weight;
 }
 
@@ -144,10 +144,9 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   msg->epoch = ctx->epoch;
   msg->start_slot = ctx->epoch*MAX_SLOTS_PER_EPOCH;
   msg->slot_cnt = MAX_SLOTS_PER_EPOCH;
-  msg->excluded_stake = 0;
-  msg->vote_keyed_lsched = 0;
+  msg->excluded_id_stake = 0;
 
-  fd_vote_stake_weight_t * stake_weights = msg->weights;
+  fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( msg );
   ulong stake_count = 0;
 
   FILE * file = fopen( ctx->stake_file, "r" );
@@ -155,13 +154,13 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
 
   char line[1024];
   while( fgets( line, sizeof(line), file ) ) {
-    stake_weights[stake_count++] = parse_stake_weight( line );
+    vote_stake_weights[stake_count++] = parse_stake_weight( line );
   }
   fclose( file );
 
   if( stake_count == 0 ) FD_LOG_ERR(( "No valid stake entries found in %s", ctx->stake_file ));
 
-  msg->staked_cnt = stake_count;
+  msg->staked_vote_cnt = stake_count;
   ulong const sz = sizeof(fd_stake_weight_msg_t) + stake_count * sizeof(fd_vote_stake_weight_t);
   FD_TEST( sz <= USHORT_MAX );
 
@@ -205,16 +204,17 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   ulong const vote_slot = root+30;
 
   /* Create minimal mock tower with one vote */
-  uchar tower_mem[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
-  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
-  fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
+  uchar votes_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_tower_vote_t * votes = fd_tower_vote_join( fd_tower_vote_new( votes_mem ) );
+  fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
+  fd_tower_t tower[1] = {{ .root = root, .votes = votes }};
 
   /* Mock values */
   fd_hash_t test_hash = {0};
   fd_txn_p_t txn[1];
 
   /* Use fd_tower_to_vote_txn to generate the transaction */
-  fd_tower_to_vote_txn( tower, root, &test_hash, &test_hash,
+  fd_tower_to_vote_txn( tower, &test_hash, &test_hash,
                         &test_hash, ctx->identity_key,
                         ctx->identity_key, ctx->vote_acct_addr, txn );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );

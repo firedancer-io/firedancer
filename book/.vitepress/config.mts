@@ -40,6 +40,8 @@ export default defineConfig({
             { text: 'Getting Started', link: 'getting-started' },
             { text: 'Configuring', link: 'configuring' },
             { text: 'Initializing', link: 'initializing' },
+            { text: 'Glossary', link: 'glossary' },
+            { text: 'DNS Client', link: 'dns-client' },
           ]
         },
         {
@@ -54,16 +56,29 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'Monitoring', link: 'monitoring' },
+            { text: 'Networking', link: 'networking' },
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Frequently Asked Questions', link: 'faq' },
+          ]
+        },
+        {
+          text: 'Protocol',
+          collapsed: false,
+          items: [
+            { text: 'Transaction Ingress', link: 'protocol/transaction_ingress' },
+            { text: 'Bundle Client', link: 'protocol/bundle_client' },
+            { text: 'Cryptography', link: 'protocol/cryptography' },
           ]
         },
         {
           text: 'Internals',
           collapsed: false,
           items: [
+            { text: 'Agave Snapshots', link: 'internals/agave_snapshots' },
+            { text: 'Fork Management', link: 'internals/fork_management' },
             { text: 'Net Tile', link: 'internals/net_tile' },
             { text: 'Netlink', link: 'internals/netlink' },
+            { text: 'Supply Chain', link: 'internals/supply_chain' },
           ]
         }
       ] },
@@ -76,9 +91,15 @@ export default defineConfig({
             { text: 'Firedancer Command Line Interface', link: 'firedancer-cli' },
             { text: 'Metrics', link: 'metrics' },
             { text: 'WebSocket', link: 'websocket' },
+            { text: 'TPU-QUIC', link: 'tpu-quic' },
+            { text: 'TPU-UDP', link: 'tpu-udp' },
           ]
         }
       ] },
+    },
+
+    outline: {
+      level: [2, 3]
     },
 
     socialLinks: [

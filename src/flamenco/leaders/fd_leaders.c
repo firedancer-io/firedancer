@@ -12,6 +12,53 @@
 #define SORT_BEFORE(a,b) (memcmp( (a).id_key.uc, (b).id_key.uc, 32UL )>0)
 #include "../../util/tmpl/fd_sort.c"
 
+#define SORT_NAME sort_weights_by_stake_id
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) ((a).stake > (b).stake ? 1 : ((a).stake < (b).stake ? 0 : memcmp( (a).key.uc, (b).key.uc, 32UL )>0))
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME sort_weights_by_id
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )>0)
+#include "../../util/tmpl/fd_sort.c"
+
+ulong
+compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weight,
+                                      fd_vote_stake_weight_t const * vote_stake_weight,
+                                      ulong                          staked_cnt ) {
+
+  /* Copy from input message [(vote, id, stake)] into old format [(id, stake)]. */
+  ulong idx = 0UL;
+  for( ulong i=0UL; i<staked_cnt; i++ ) {
+    memcpy( stake_weight[ idx ].key.uc, vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
+    stake_weight[ idx ].stake = vote_stake_weight[ i ].stake;
+    idx++;
+  }
+
+  /* Sort [(id, stake)] by id, so we can dedup */
+  sort_weights_by_id_inplace( stake_weight, idx );
+
+  /* Dedup entries, aggregating stake */
+  ulong j=0UL;
+  for( ulong i=1UL; i<idx; i++ ) {
+    fd_pubkey_t * pre = &stake_weight[ j ].key;
+    fd_pubkey_t * cur = &stake_weight[ i ].key;
+    if( 0==memcmp( pre, cur, sizeof(fd_pubkey_t) ) ) {
+      stake_weight[ j ].stake += stake_weight[ i ].stake;
+    } else {
+      ++j;
+      stake_weight[ j ].stake = stake_weight[ i ].stake;
+      memcpy( stake_weight[ j ].key.uc, stake_weight[ i ].key.uc, sizeof(fd_pubkey_t) );
+    }
+  }
+  ulong staked_cnt_by_id = fd_ulong_min( idx, j+1 );
+
+  /* Sort [(id, stake)] by stake then id, as expected */
+  sort_weights_by_stake_id_inplace( stake_weight, staked_cnt_by_id );
+
+  return staked_cnt_by_id;
+}
+
 ulong
 fd_epoch_leaders_align( void ) {
   return FD_EPOCH_LEADERS_ALIGN;
@@ -34,9 +81,7 @@ fd_epoch_leaders_new( void  *                  shmem,
                       ulong                    slot_cnt,
                       ulong                    pub_cnt,
                       fd_vote_stake_weight_t * stakes,
-                      ulong                    excluded_stake,
-                      ulong                    vote_keyed_lsched ) {
-  (void)vote_keyed_lsched;
+                      ulong                    excluded_stake ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -48,31 +93,9 @@ fd_epoch_leaders_new( void  *                  shmem,
     return NULL;
   }
 
-  /* This code can be be removed when enable_vote_address_leader_schedule is
-     enabled and cleared.
-     And, as a consequence, stakes can be made const. */
-  if( FD_LIKELY( vote_keyed_lsched==0 ) ) {
-    /* Sort [(vote, id, stake)] by id, so we can dedup */
-    sort_vote_weights_by_id_inplace( stakes, pub_cnt );
-
-    /* Dedup entries, aggregating stake */
-    ulong j=0UL;
-    for( ulong i=1UL; i<pub_cnt; i++ ) {
-      fd_pubkey_t * pre = &stakes[ j ].id_key;
-      fd_pubkey_t * cur = &stakes[ i ].id_key;
-      if( 0==memcmp( pre, cur, sizeof(fd_pubkey_t) ) ) {
-        stakes[ j ].stake += stakes[ i ].stake;
-      } else {
-        ++j;
-        stakes[ j ].stake = stakes[ i ].stake;
-        memcpy( stakes[ j ].id_key.uc, stakes[ i ].id_key.uc, sizeof(fd_pubkey_t) );
-        /* vote doesn't matter */
-      }
-    }
-    pub_cnt = fd_ulong_min( pub_cnt, j+1 );
-
-    /* Sort [(vote, id, stake)] by stake then id, as expected */
-    sort_vote_weights_by_stake_id_inplace( stakes, pub_cnt );
+  if( FD_UNLIKELY( !pub_cnt ) ) {
+    FD_LOG_WARNING(( "pub_cnt is 0" ));
+    return NULL;
   }
 
   /* The eventual layout that we want is:
@@ -81,6 +104,7 @@ fd_epoch_leaders_new( void  *                  shmem,
      (up to 60 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
      the indeterminate pubkey (align=32, footprint=32)
+     leader membership bitset (align=8, footprint=8*ceil((pub_cnt+1)/64))
      (possibly 32 bytes of padding to align to 64)
 
      but in order to generate the list of indices, we want to use
@@ -93,6 +117,8 @@ fd_epoch_leaders_new( void  *                  shmem,
      done with the wsample object.  There's a lot of type punning going
      on here, so watch out. */
   ulong sched_cnt = (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION;
+
+  ulong leader_bits_word_cnt = FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt );
 
   fd_epoch_leaders_t * leaders = (fd_epoch_leaders_t *)fd_type_pun( (void *)laddr );
   laddr += sizeof(fd_epoch_leaders_t);
@@ -136,14 +162,23 @@ fd_epoch_leaders_new( void  *                  shmem,
   static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
   memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
 
+  ulong leader_bits_laddr = fd_ulong_align_up( (ulong)(pubkeys+pub_cnt+1UL), alignof(ulong) );
+  ulong * leader_bits = (ulong *)fd_type_pun( (void *)leader_bits_laddr );
+
+  FD_TEST( leader_bits_laddr + leader_bits_word_cnt*sizeof(ulong) <= (ulong)shmem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
+  for( ulong i=0UL; i<leader_bits_word_cnt; i++ ) leader_bits[i] = 0UL;
+  for( ulong i=0UL; i<sched_cnt; i++ ) leader_bits[ sched[i]>>6 ] |= (1UL<<(sched[i]&63UL));
+
   /* Construct the final struct */
-  leaders->epoch     = epoch;
-  leaders->slot0     = slot0;
-  leaders->slot_cnt  = slot_cnt;
-  leaders->pub       = pubkeys;
-  leaders->pub_cnt   = pub_cnt;
-  leaders->sched     = sched;
-  leaders->sched_cnt = sched_cnt;
+  leaders->epoch                = epoch;
+  leaders->slot0                = slot0;
+  leaders->slot_cnt             = slot_cnt;
+  leaders->pub                  = pubkeys;
+  leaders->pub_cnt              = pub_cnt;
+  leaders->sched                = sched;
+  leaders->sched_cnt            = sched_cnt;
+  leaders->leader_bits          = leader_bits;
+  leaders->leader_bits_word_cnt = leader_bits_word_cnt;
 
   return (void *)shmem;
 }

@@ -1,8 +1,6 @@
 #include "test_sysvar_cache.c"
-#if FD_HAS_INT128
 #include "test_sysvar_clock.c"
 #include "test_sysvar_epoch_rewards.c"
-#endif
 #include "test_sysvar_epoch_schedule.c"
 #include "test_sysvar_last_restart_slot.c"
 #include "test_sysvar_recent_hashes.c"
@@ -28,16 +26,13 @@ main( int     argc,
 
   test_sysvar_cache();
 
-# if FD_HAS_INT128
-  test_sysvar_clock();
-  test_sysvar_epoch_rewards();
-# endif
-  test_sysvar_epoch_schedule();
+  test_sysvar_epoch_rewards( wksp );
+  test_sysvar_epoch_schedule( wksp );
   test_sysvar_last_restart_slot();
   test_sysvar_recent_hashes( wksp );
   test_sysvar_rent();
-  test_sysvar_slot_hashes();
-  test_sysvar_slot_history();
+  test_sysvar_slot_hashes( wksp );
+  test_sysvar_slot_history( wksp );
   test_sysvar_stake_history( wksp );
 
   FD_TEST( fd_shmem_leave_anonymous( wksp_mem, NULL )==0 );

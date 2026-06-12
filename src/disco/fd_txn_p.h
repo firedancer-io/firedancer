@@ -20,9 +20,19 @@ struct __attribute__((aligned(64))) fd_txn_p {
   /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->execle link. */
   long scheduler_arrival_time_nanos;
 
-  /* set by replay scheduler for use by monitoring tools */
-  ushort start_shred_idx; /* the shred index of the shred containing the first byte of this transaction */
-  ushort end_shred_idx; /* the shred index of the shred containing the byte after the last byte of this transaction, capped at the maximum shred index for this block */
+  union {
+    struct {
+      /* set by replay scheduler for use by monitoring tools */
+      ushort start_shred_idx; /* the shred index of the shred containing the first byte of this transaction */
+      ushort end_shred_idx; /* the shred index of the shred containing the byte after the last byte of this transaction, capped at the maximum shred index for this block */
+    };
+    /* pack populates pack_alloc based on an estimate of how many bytes
+       of account data the transaction may allocate.  There should be a
+       field called rebate_alloc, similar to the CU variables, but
+       actually the rebated alloc bytes don't really depend on
+       execution. */
+    uint pack_alloc;
+  };
 
   /* Source ipv4 address and tpu pipeline for this transaction. TPU is one of FD_TXN_M_TPU_SOURCE_* */
   uchar source_tpu;

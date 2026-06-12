@@ -1,8 +1,9 @@
-#include "fd_backtest_rocksdb.h"
-#include "fd_backtest_shredcap.h"
+#include "fd_backtest_src.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
+#include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../util/pod/fd_pod.h"
@@ -51,26 +52,24 @@ struct fd_backt_tile {
   int initialized;
   int genesis;
   int snapshot_done;
-  int first_fec_complete;
-  int reasm_ready; /* reasm root is set, so we can start publishing FECs to replay */
+  uint first_fec_complete : 1;
+  uint reasm_ready        : 1; /* reasm root is set, so we can start publishing FECs to replay */
+  uint source_exhausted   : 1;
 
-  fd_backtest_rocksdb_t *  rocksdb;
-  fd_backtest_shredcap_t * shredcap;
+  fd_backt_src_t * src;
 
-  int   ingest_dead_slots;
   ulong root_distance;
 
   ulong prev_root;
   ulong prev_slot;
   ulong prev_fec_set_idx;
+  ulong out_fec_set_idx;
 
   ulong start_slot;
   ulong end_slot;
 
   ulong reading_slot_cnt;
   ulong reading_slot;
-  ulong reading_shred_idx;
-  ulong reading_shred_cnt;
 
   ulong idle_cnt;
 
@@ -85,7 +84,7 @@ struct fd_backt_tile {
   int in_kind[ 16UL ];
   fd_backt_in_t in[ 16UL ];
 
-  fd_backt_out_t shred_out[ 1 ];
+  fd_backt_out_t repair_out[ 1 ];
   fd_backt_out_t tower_out[ 1 ];
 
   ulong shreds_idx;
@@ -94,18 +93,11 @@ struct fd_backt_tile {
 
   ulong fec_set_idxs[ OUT_FECS_BUFFER_LEN ];
 
-  ulong bank_hash_idx;
-  ulong bank_hash_cnt;
-  uchar bank_hashes[ BANK_HASH_BUFFER_LEN ][ 32UL ];
-
   ulong * rooted_slots;
   fd_hash_t rooted_slots_block_id[ BANK_HASH_BUFFER_LEN ];
 
-  ulong prev_source_slot;
-  ulong dead_slot;
-  ulong dead_shred_cnt;
-  ulong root_slot;
-  ulong root_shred_cnt;
+  ulong pending_sz;
+  uchar pending[ FD_SHRED_MAX_SZ ];
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -121,84 +113,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)                        );
   l = FD_LAYOUT_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
-  l = FD_LAYOUT_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint()               );
-# if FD_HAS_ROCKSDB
-  l = FD_LAYOUT_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()                );
-# endif
 
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-static void
-source_init( fd_backt_tile_t * ctx,
-             ulong             start_slot ) {
-# if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) {
-    fd_backtest_rocksdb_init( ctx->rocksdb, start_slot );
-    return;
-  }
-# endif
-  fd_backtest_shredcap_init( ctx->shredcap, start_slot );
-  FD_LOG_NOTICE(( "Replaying from slot %lu to %lu", start_slot, ctx->end_slot ));
-}
-
-# if FD_HAS_ROCKSDB
-static int
-source_next_slot_rocksdb( fd_backt_tile_t * ctx,
-                          ulong *           slot_out,
-                          ulong *           shred_cnt,
-                          int *             is_slot_rooted ) {
-  /* Replaying by lowest to highest slot number is simply a policy
-     choice and doesn't necesarily reflect the order in which slots
-     were replayed when running on a live node. */
-  int result = 0;
-  if( ctx->ingest_dead_slots && ctx->prev_source_slot==ctx->dead_slot ) result = fd_backtest_rocksdb_next_dead_slot( ctx->rocksdb, &ctx->dead_slot, &ctx->dead_shred_cnt );
-  if( ctx->prev_source_slot==ctx->root_slot )                           result = fd_backtest_rocksdb_next_root_slot( ctx->rocksdb, &ctx->root_slot, &ctx->root_shred_cnt );
-
-  if( FD_UNLIKELY( ctx->dead_slot<ctx->root_slot ) ) {
-    *slot_out       = ctx->dead_slot;
-    *shred_cnt      = ctx->dead_shred_cnt;
-    *is_slot_rooted = 0;
-  } else {
-    *slot_out       = ctx->root_slot;
-    *shred_cnt      = ctx->root_shred_cnt;
-    *is_slot_rooted = 1;
-  }
-  ctx->prev_source_slot = *slot_out;
-  return result;
-}
-# endif
-
-static int
-source_next_slot( fd_backt_tile_t * ctx,
-                  ulong *           slot_out,
-                  ulong *           shred_cnt,
-                  int *             is_slot_rooted ) {
-# if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) return source_next_slot_rocksdb( ctx, slot_out, shred_cnt, is_slot_rooted );
-# endif
-  /* TODO: shredcap doesn't support dead slots yet. */
-  *is_slot_rooted = 1;
-  return fd_backtest_shredcap_next_root_slot( ctx->shredcap, slot_out, shred_cnt );
-}
-
-static uchar const *
-source_bank_hash( fd_backt_tile_t * ctx,
-                  ulong             slot ) {
-# if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) return fd_backtest_rocksdb_bank_hash( ctx->rocksdb, slot );
-# endif
-  return fd_backtest_shredcap_bank_hash( ctx->shredcap, slot );
-}
-
-static void const *
-source_shred( fd_backt_tile_t * ctx,
-              ulong             slot,
-              ulong             shred_idx ) {
-# if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) return fd_backtest_rocksdb_shred( ctx->rocksdb, slot, shred_idx );
-# endif
-  return fd_backtest_shredcap_shred( ctx->shredcap, slot, shred_idx );
 }
 
 static void
@@ -212,40 +128,42 @@ before_credit( fd_backt_tile_t *   ctx,
 
   ctx->idle_cnt++;
   if( FD_UNLIKELY( ctx->idle_cnt<=1UL ) ) return; /* publishing fragments in after credit takes priority */
-  if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot ) ) return; /* finished iterating */
+  if( FD_UNLIKELY( ctx->source_exhausted ) ) return; /* finished iterating */
   if( FD_UNLIKELY( ctx->shreds_cnt==SHRED_BUFFER_LEN ) ) return; /* out of space */
   if( FD_UNLIKELY( *stem->min_cr_avail<128UL ) ) return; /* reserve some credits so replay can always publish back */
   if( FD_UNLIKELY( ctx->reading_slot_cnt-ctx->slot_cnt>=30UL ) ) return; /* too far ahead of replay */
 
   *charge_busy = 1;
 
+  /* Read next shred from the source (or re-process a pending one) */
 
-  if( FD_UNLIKELY( ctx->reading_shred_cnt==ctx->reading_shred_idx ) ) {
-    if( FD_UNLIKELY( ctx->bank_hash_cnt==BANK_HASH_BUFFER_LEN ) ) return; /* out of space */
-    if( FD_UNLIKELY( rooted_slots_full( ctx->rooted_slots ) ) ) return; /* out of space */
-
-    int is_slot_rooted = 0;
-    int success = source_next_slot( ctx, &ctx->reading_slot, &ctx->reading_shred_cnt, &is_slot_rooted );
-    if( FD_UNLIKELY( !success ) ) ctx->reading_slot = ctx->end_slot+1UL; /* no more shreds, mark finished */
-    if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot ) ) return; /* finished iterating */
-
-    ctx->reading_slot_cnt++;
-    ctx->reading_shred_idx = 0UL;
-
-    if( is_slot_rooted ) {
-      uchar const * bank_hash = source_bank_hash( ctx, ctx->reading_slot );
-      fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], bank_hash, 32UL );
-      ctx->bank_hash_cnt++;
-      rooted_slots_push_tail( ctx->rooted_slots, ctx->reading_slot );
+  if( FD_UNLIKELY( ctx->pending_sz==ULONG_MAX ) ) {
+    ulong sz = fd_backtest_src_shred( ctx->src, ctx->pending, FD_SHRED_MAX_SZ );
+    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { ctx->source_exhausted = 1; return; } /* source exhausted */
+    ctx->pending_sz = sz;
+    if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz, FD_SHRED_BLK_MAX ) ) ) {
+      FD_LOG_HEXDUMP_WARNING(( "invalid shred", ctx->pending, ctx->pending_sz ));
+      FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", ctx->pending_sz ));
     }
   }
 
-  void const * shred = source_shred( ctx, ctx->reading_slot, ctx->reading_shred_idx );
-  FD_TEST( shred );
+  fd_shred_t const * shred = (fd_shred_t const *)ctx->pending;
 
-  fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], shred, fd_shred_sz( (fd_shred_t const *)shred ) );
-  ctx->reading_shred_idx++;
+  /* Skip shreds before start_slot */
+  if( FD_UNLIKELY( shred->slot<=ctx->start_slot ) ) { ctx->pending_sz = ULONG_MAX; return; }
+
+  /* Skip shreds past end_slot */
+  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) { ctx->source_exhausted = 1; ctx->pending_sz = ULONG_MAX; return; }
+
+  /* Handle slot transition */
+  if( FD_UNLIKELY( shred->slot!=ctx->reading_slot || !ctx->reading_slot_cnt ) ) {
+    ctx->reading_slot = shred->slot;
+    ctx->reading_slot_cnt++;
+  }
+
+  fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], ctx->pending, ctx->pending_sz );
   ctx->shreds_cnt++;
+  ctx->pending_sz = ULONG_MAX;
 }
 
 static void
@@ -255,7 +173,7 @@ after_credit( fd_backt_tile_t *   ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
-  int process = ctx->shreds_cnt>=2UL || (ctx->reading_slot>ctx->end_slot && ctx->shreds_cnt );
+  int process = ctx->shreds_cnt>=2UL || (ctx->source_exhausted && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
   if( FD_UNLIKELY( !ctx->reasm_ready ) ) return;
 
@@ -267,13 +185,19 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int completes_fec_set = completes_slot || next_shred->slot!=shred->slot || next_shred->fec_set_idx!=shred->fec_set_idx;
+  int begins_fec_set = ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx;
+  if( FD_UNLIKELY( begins_fec_set ) ) {
+    ctx->out_fec_set_idx = (ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot) ? 0UL : ctx->out_fec_set_idx + FD_FEC_SHRED_CNT;
+  }
+
+  ulong out_shred_idx = ctx->out_fec_set_idx + (ulong)(shred->idx - shred->fec_set_idx);
 
   /* FEC sets from the backtest tile will have their merkle root and
      chained merkle root overwritten with their slot numbers and fec
      set index. This is done in order to preserve behavior for older
      ledgers which may not have merkle roots or chained merkle roots. */
-  fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = shred->fec_set_idx };
-  if( FD_UNLIKELY( ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx ) ) {
+  fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
+  if( FD_UNLIKELY( begins_fec_set ) ) {
     fd_store_slock_acquire ( ctx->store );
     fd_store_insert( ctx->store, 0, &mr );
     fd_store_slock_release ( ctx->store );
@@ -281,8 +205,11 @@ after_credit( fd_backt_tile_t *   ctx,
 
   fd_store_slock_acquire( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
-  fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
+  if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_offs, 0, sizeof(fec->shred_offs) );
+  fd_memcpy( fd_store_fec_data( ctx->store, fec )+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
+  ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
+  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (uint)fec->data_sz;
   fd_store_slock_release( ctx->store ); /* drop(fec) */
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
@@ -298,32 +225,28 @@ after_credit( fd_backt_tile_t *   ctx,
     cmr.ul[ 0 ] = 0xbaC27e57b1d; /* any initial value works */
     ctx->first_fec_complete = 1;
   } else {
-    ulong chained_slot = shred->fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
+    ulong chained_slot = ctx->out_fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
     cmr.ul[ 0 ] = chained_slot;
     cmr.ul[ 1 ] = ctx->fec_set_idxs[ chained_slot % OUT_FECS_BUFFER_LEN ];
   }
 
-  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = shred->fec_set_idx;
+  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
   /* We need to simulate the FEC set completion message that is sent out
      of the shred tile.  This involves copying the data shred header and
      appending the merkle root and chained merkle root. */
 
-  int is_leader = 0;
+  fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ) );
+  complete_msg->last_shred_hdr = *shred;
+  complete_msg->last_shred_hdr.idx = (uint)out_shred_idx;
+  complete_msg->last_shred_hdr.fec_set_idx = (uint)ctx->out_fec_set_idx;
+  memcpy( &complete_msg->merkle_root, &mr, sizeof(fd_hash_t) );
+  memcpy( &complete_msg->chained_merkle_root, &cmr, sizeof(fd_hash_t) );
 
-  uchar * out_buf = fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
-  memcpy( out_buf, shred, FD_SHRED_DATA_HEADER_SZ );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ, &mr, sizeof(fd_hash_t) );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t), &cmr, sizeof(fd_hash_t) );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t), &is_leader, sizeof(int) );
-  ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
+  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC, ctx->repair_out->chunk, sizeof(fd_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_fec_complete_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
-  ulong sig = fd_disco_shred_out_fec_sig( shred->slot, shred->fec_set_idx, 32, shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-
-  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, fec_complete_sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
-
-  if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
+  if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }
 
 static inline int
@@ -345,10 +268,22 @@ returnable_frag( fd_backt_tile_t *   ctx,
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SNAP: {
       if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
-        /* We can technically start loading shreds as soon as we know
-           the start slot, but there's no point.  It would just take
-           disk read time away from snapshot loading which is the
-           bottleneck. */
+        uchar first_buf[ FD_SHRED_MAX_SZ ];
+        ulong first_sz = ctx->src->vt->first_shred( ctx->src, first_buf, sizeof(first_buf) );
+        if( FD_LIKELY( first_sz ) ) {
+          fd_shred_t const * first = fd_shred_parse( first_buf, first_sz, FD_SHRED_BLK_MAX );
+          if( FD_UNLIKELY( !first ) ) {
+            FD_LOG_HEXDUMP_WARNING(( "invalid shred", first_buf, first_sz ));
+            FD_LOG_ERR(( "invalid shred from backtest source (sz=%lu)", first_sz ));
+          }
+          if( FD_UNLIKELY( ctx->start_slot<first->slot ) ) {
+            FD_LOG_ERR(( "Snapshot too old for ledger! "
+                         "Snapshot slot: %lu is before ledger start slot: %lu",
+                         ctx->start_slot, first->slot ));
+          }
+        }
+        /* Skip past any shreds in the source for slots <=start_slot so we don't replay them */
+        fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         ctx->snapshot_done = 1;
@@ -361,7 +296,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       ctx->reading_slot = manifest->slot;
       ctx->start_slot  = manifest->slot;
       FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-      source_init( ctx, manifest->slot );
+      FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       break;
     }
     case IN_KIND_GENESI: {
@@ -373,14 +308,13 @@ returnable_frag( fd_backt_tile_t *   ctx,
         FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
-        source_init( ctx, 0UL );
+        FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       }
       break;
     }
     case IN_KIND_REPLAY: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
         fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        if( FD_UNLIKELY( !ctx->ingest_dead_slots ) ) FD_LOG_ERR(( "unexpectedly marked slot=%lu as dead", msg->slot ));
         FD_LOG_NOTICE(( "replay marked slot=%lu as dead", msg->slot ));
         return 0;
       }
@@ -410,9 +344,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
 
+      fd_backt_slot_info_t slot_info;
       FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
-      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, ctx->bank_hashes[ ctx->bank_hash_idx ], 32UL ) ) ) {
-
+      if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) || !slot_info.bank_hash_set ) ) {
+        FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
+      }
+      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, slot_info.bank_hash.uc, 32UL ) ) ) {
         FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
@@ -420,8 +357,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
           (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
       } else {
         /* Do not change this log as it is used in offline replay */
-        FD_BASE58_ENCODE_32_BYTES( ctx->bank_hashes[ ctx->bank_hash_idx ], bh_exp_b58 );
+        FD_BASE58_ENCODE_32_BYTES( slot_info.bank_hash.uc, bh_exp_b58 );
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
+      }
+      if( slot_info.rooted ) {
+        FD_TEST( !rooted_slots_full( ctx->rooted_slots ) );
+        rooted_slots_push_tail( ctx->rooted_slots, msg->slot );
       }
 
       ulong root_slot;
@@ -431,20 +372,21 @@ returnable_frag( fd_backt_tile_t *   ctx,
         root_slot = ctx->prev_root;
       }
 
-      ctx->bank_hash_idx = (ctx->bank_hash_idx+1UL)%(sizeof(ctx->bank_hashes)/sizeof(ctx->bank_hashes[0]));
-      ctx->bank_hash_cnt--;
       ctx->slot_cnt++;
 
       ctx->prior_completion_timestamp = msg->completion_time_nanos;
 
-      if( FD_UNLIKELY( msg->slot>=ctx->end_slot ) ) {
+      int reached_end_slot  = msg->slot>=ctx->end_slot;
+      int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) {
         ctx->replay_time    += fd_log_wallclock();
         double replay_time_s = (double)ctx->replay_time * 1e-9;
         double publish_time_s = (double)ctx->publish_time * 1e-9;
         double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
         FD_LOG_NOTICE(( "Backtest playback done. replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
-        if( FD_LIKELY( ctx->shredcap ) ) {
-          fd_backtest_shredcap_delete( ctx->shredcap );
+        if( FD_LIKELY( ctx->src ) ) {
+          fd_backtest_src_destroy( ctx->src );
+          ctx->src = NULL;
         }
         exit(0);
       }
@@ -493,17 +435,13 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_backt_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)                        );
-  void * _rooted_slots      = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
-  void * _backtest_shredcap = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_shredcap_align(), fd_backtest_shredcap_footprint()               );
-# if FD_HAS_ROCKSDB
-  void * _backtest_rocksdb  = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()                );
-# endif
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t)                        );
+  void * _rooted_slots  = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),     rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
   memset( ctx, 0, sizeof(fd_backt_tile_t) );
 
   ctx->snapshot_done = 0;
@@ -513,52 +451,36 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 
-  ctx->end_slot = tile->backtest.end_slot;
+  ctx->end_slot = tile->backtest.end_slot ? tile->backtest.end_slot : ULONG_MAX;
   ctx->slot_cnt = 0UL;
 
   ctx->shreds_idx = 0UL;
   ctx->shreds_cnt = 0UL;
 
-  ctx->bank_hash_cnt = 0UL;
-  ctx->bank_hash_idx = 0UL;
-
   ctx->rooted_slots = rooted_slots_join( rooted_slots_new( _rooted_slots, BANK_HASH_BUFFER_LEN ) );
   FD_TEST( ctx->rooted_slots );
 
   ctx->reading_slot_cnt = 0UL;
-  ctx->reading_shred_cnt = 0UL;
-  ctx->reading_shred_idx = 0UL;
 
-  ctx->prev_slot        = ULONG_MAX;
-  ctx->dead_slot        = ULONG_MAX;
-  ctx->root_slot        = ULONG_MAX;
-  ctx->prev_source_slot = ULONG_MAX;
+  ctx->prev_slot = ULONG_MAX;
+  ctx->out_fec_set_idx = 0UL;
 
   ctx->prior_completion_timestamp = 0L;
 
-  ctx->rocksdb = NULL;
-  ctx->shredcap = NULL;
+  ctx->pending_sz = ULONG_MAX;
 
   memset( ctx->fec_set_idxs, 0UL, sizeof(ctx->fec_set_idxs) );
 
-  ctx->ingest_dead_slots = tile->backtest.ingest_dead_slots;
-  ctx->root_distance     = tile->backtest.root_distance;
+  ctx->root_distance = tile->backtest.root_distance;
 
-  if( tile->backtest.shredcap_path[0] ) {
-    ctx->shredcap = fd_backtest_shredcap_new( _backtest_shredcap, tile->backtest.shredcap_path );
-    FD_TEST( ctx->shredcap );
-  }
-# if FD_HAS_ROCKSDB
-  if( !ctx->shredcap ) {
-    ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path ) );
-    FD_TEST( ctx->rocksdb );
-    ulong first = fd_backtest_rocksdb_first_slot( ctx->rocksdb );
-    ulong last  = fd_backtest_rocksdb_last_slot ( ctx->rocksdb );
-    FD_LOG_NOTICE(( "RocksDB slot range: [%lu, %lu]", first, last ));
-    if( !ctx->end_slot ) ctx->end_slot = last;
-    FD_TEST( first <= ctx->end_slot );
-  }
-# endif
+  fd_backtest_src_opts_t opts = {
+    .format      = tile->backtest.ledger_format,
+    .path        = tile->backtest.ledger_path,
+    .rooted_only = 1,
+    .code_shreds = 0,
+  };
+  ctx->src = fd_backtest_src_create( &opts );
+  FD_TEST( ctx->src );
   FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
   FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot   );
 
@@ -569,8 +491,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( uint i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -583,12 +505,12 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
   }
 
-  *ctx->shred_out = out1( topo, tile, "shred_out" );
-  *ctx->tower_out = out1( topo, tile, "tower_out" );
+  *ctx->repair_out = out1( topo, tile, "repair_out" );
+  *ctx->tower_out  = out1( topo, tile, "tower_out" );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

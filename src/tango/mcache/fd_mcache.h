@@ -381,6 +381,32 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
 #endif
 
+#if FD_HAS_ARM
+
+static inline void
+fd_mcache_publish_arm( fd_frag_meta_t * mcache,   /* Assumed a current local join */
+                       ulong            depth,    /* Assumed an integer power-of-2 >= BLOCK */
+                       ulong            seq,
+                       ulong            sig,
+                       ulong            chunk,    /* Assumed in [0,UINT_MAX] */
+                       ulong            sz,       /* Assumed in [0,USHORT_MAX] */
+                       ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
+                       ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
+                       ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  /* stp   seq-1, sig, [meta]
+     stp   ul2,   ul3, [meta, #16]
+     stlr  seq,        [meta] */
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  ulong ul2 = fd_frag_meta_ul2( chunk, sz, ctl );
+  ulong ul3 = fd_frag_meta_ul3( tsorig, tspub );
+  fd_arm_stp16( meta->ul, fd_seq_dec( seq, 1UL ), sig );
+  FD_HW_MFENCE_ST();
+  fd_arm_stp16( meta->ul+2, ul2, ul3 );
+  __atomic_store_n( &meta->seq, seq, __ATOMIC_RELEASE );
+}
+
+#endif
+
 /* FD_MCACHE_WAIT does a bounded wait for a producer to transmit a
    particular frag.
 

@@ -14,8 +14,6 @@
 extern action_t * ACTIONS[];
 extern fd_topo_run_tile_t * TILES[];
 
-extern int * fd_log_private_shared_lock;
-
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile ) {
   for( ulong i=0UL; TILES[ i ]; i++ ) {
@@ -33,42 +31,6 @@ copy_config_from_fd( int        config_fd,
   fd_memcpy( config, bytes, sizeof( config_t ) );
   if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-}
-
-static int *
-map_log_memfd( int log_memfd ) {
-  void * shmem = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, log_memfd, (off_t)0 );
-  if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
-    FD_LOG_ERR(( "mmap(NULL,sizeof(int),PROT_READ|PROT_WRITE,MAP_SHARED,memfd,(off_t)0) (%i-%s); ", errno, fd_io_strerror( errno ) ));
-  } else {
-    if( FD_UNLIKELY( mlock( shmem, 4096 ) ) ) {
-      FD_LOG_ERR(( "mlock(%p,4096) (%i-%s); unable to lock log file shared lock in memory\n", shmem, errno, fd_io_strerror( errno ) ));
-    }
-  }
-  return shmem;
-}
-
-/* Try to allocate an anonymous page of memory in a file descriptor
-   (memfd) for fd_log_private_shared_lock such that the log can strictly
-   sequence messages written by clones of the caller made after the
-   caller has finished booting the log.  Must be a file descriptor so
-   we can pass it through `execve` calls. */
-static int
-init_log_memfd( void ) {
-  int memfd = memfd_create( "fd_log_lock_page", 0U );
-  if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) FD_LOG_ERR(( "ftruncate(memfd,4096) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  return memfd;
-}
-
-static int
-should_colorize( void ) {
-  char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-  if( cstr && !strcmp( cstr, "truecolor" ) ) return 1;
-
-  cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-  if( cstr && strstr( cstr, "256color" ) ) return 1;
-  return 0;
 }
 
 static void
@@ -151,6 +113,18 @@ determine_override_config( int *                      pargc,
   }
 }
 
+__attribute__((weak)) void
+fd_global_options_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--config",       "<path>", "Path to a configuration TOML file" );
+  fd_action_help_arg( help, "--mainnet",      NULL,     "Use Solana mainnet defaults" );
+  fd_action_help_arg( help, "--testnet",      NULL,     "Use Solana testnet defaults" );
+  fd_action_help_arg( help, "--devnet",       NULL,     "Use Solana devnet defaults" );
+  fd_action_help_arg( help, "--mainnet-jito", NULL,     "Use Solana mainnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--testnet-jito", NULL,     "Use Solana testnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--version",      NULL,     "Show the current software version" );
+  fd_action_help_arg( help, "--help/-h",      NULL,     "Print this help message" );
+}
+
 int
 fd_main_init( int *                      pargc,
               char ***                   pargv,
@@ -159,10 +133,11 @@ fd_main_init( int *                      pargc,
               int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
-              fd_config_file_t * const * configs ) {
+              fd_config_file_t * const * configs,
+              int                        dev ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
-  fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
+  fd_log_colorize_set( fd_log_should_colorize() ); /* Colorize during boot until we can determine from config */
   fd_log_level_stderr_set( 2 ); /* Only NOTICE and above will be logged during boot until fd_log is initialized */
 
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
@@ -199,11 +174,10 @@ fd_main_init( int *                      pargc,
     determine_override_config( pargc, pargv, configs,
                                &override_config, &override_config_path, &override_config_sz );
 
-    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
+    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config, dev );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    config->log.lock_fd = init_log_memfd();
     config->log.log_fd  = -1;
     thread = "main";
     if( FD_UNLIKELY( log_path ) )
@@ -218,7 +192,6 @@ fd_main_init( int *                      pargc,
   char ** argv = shmem_args;
   int     argc = 2;
 
-  int * log_lock = map_log_memfd( config->log.lock_fd );
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
   log_path = config->log.path;
@@ -233,8 +206,7 @@ fd_main_init( int *                      pargc,
   if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int boot_silent = config_fd>=0;
-  fd_log_private_boot_custom( log_lock,
-                              0UL,
+  fd_log_private_boot_custom( 0UL,
                               config->name,
                               0UL,    /* Thread ID will be initialized later */
                               thread, /* Thread will be initialized later */
@@ -278,6 +250,7 @@ fd_main( int                        argc,
          int                        is_firedancer,
          fd_config_file_t * const * configs,
          void (* topo_init )( config_t * config ) ) {
+  fd_version_private_boot( &argc, &_argv );
   char ** argv = _argv;
   argc--; argv++;
 
@@ -314,7 +287,7 @@ fd_main( int                        argc,
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
     if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ||
                      (!strcmp( argv[ 0 ], "--version" ) && !strcmp( "version", ACTIONS[ i ]->name )) ||
-                     (!strcmp( argv[ 0 ], "--help" ) && !strcmp( "help", ACTIONS[ i ]->name ))
+                     ((!strcmp( argv[ 0 ], "--help" ) || !strcmp( argv[ 0 ], "-h" )) && !strcmp( "help", ACTIONS[ i ]->name ))
     ) ) {
       action = ACTIONS[ i ];
       if( FD_UNLIKELY( action->is_immediate ) ) {
@@ -325,8 +298,17 @@ fd_main( int                        argc,
     }
   }
 
+  if( FD_UNLIKELY( action ) ) {
+    int help_argc = argc-1; char ** help_argv = argv+1;
+    if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &help_argc, &help_argv, "--help" ) || fd_env_strip_cmdline_contains( &help_argc, &help_argv, "-h" ) ) ) {
+      fd_action_help_print( action );
+      return 0;
+    }
+  }
+
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, 0 /* dev */ );
+  if( FD_LIKELY( load_topo && action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
   if( FD_LIKELY( load_topo ) ) topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {

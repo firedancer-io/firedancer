@@ -209,22 +209,7 @@ struct fd_aio_private {
 
 typedef struct fd_aio_private fd_aio_t;
 
-#define FD_AIO_ALIGN (alignof(fd_aio_t))
-#define FD_AIO_FOOTPRINT (sizeof(fd_aio_t))
-
 FD_PROTOTYPES_BEGIN
-
-/* FIXME: document these.  Also fd_aio_{align,footprint,new} are
-   probably not things that should be exposed as per FIXME above.  That
-   is, probably should be more like
-   fd_aio_{xdp,quic}_{align,footprint,new} and similar for other
-   specific AIO implementations (e.g. io_uring, etc).  Probably implies
-   that fd_aio_private like have their own delete_func too.  Likewise,
-   if the ctx gets included in the actual aio, the fd_aio_ctx function
-   probably does away. */
-
-FD_FN_CONST ulong fd_aio_align    ( void );
-FD_FN_CONST ulong fd_aio_footprint( void );
 
 void *
 fd_aio_new( void *             shmem,

@@ -30,6 +30,7 @@ old_fd_pubkey_is_active_reserved( fd_pubkey_t const * acct ) {
   if( memcmp( acct->key, fd_sysvar_slot_history_id.key, sizeof(fd_pubkey_t) )==0 ) return 1;
   if( memcmp( acct->key, fd_sysvar_stake_history_id.key, sizeof(fd_pubkey_t) )==0 ) return 1;
   if( memcmp( acct->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) )==0 ) return 1;
+  if( memcmp( acct->key, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) )==0 ) return 1;
   return 0;
 }
 
@@ -48,11 +49,6 @@ old_fd_pubkey_is_pending_reserved( fd_pubkey_t const * acct ) {
   return 0;
 }
 
-static inline int
-old_fd_pubkey_is_secp256r1( fd_pubkey_t const * acct ) {
-  if( memcmp( acct->key, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) )==0 ) return 1;
-  return 0;
-}
 
 int
 main( int     argc,
@@ -137,7 +133,6 @@ main( int     argc,
     FD_TEST( fd_base58_decode_32( test_pubkeys[ j ], decoded->uc ) );
     FD_TEST( fd_pubkey_is_active_reserved_key( decoded )==old_fd_pubkey_is_active_reserved( decoded ) );
     FD_TEST( fd_pubkey_is_pending_reserved_key( decoded )==old_fd_pubkey_is_pending_reserved( decoded ) );
-    FD_TEST( fd_pubkey_is_secp256r1_key( decoded )==old_fd_pubkey_is_secp256r1( decoded ) );
   }
 
   FD_LOG_NOTICE(( "pass" ));

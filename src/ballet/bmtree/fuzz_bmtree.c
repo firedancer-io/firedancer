@@ -23,6 +23,7 @@ LLVMFuzzerInitialize( int  *   pargc,
                       char *** pargv ) {
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( pargc, pargv );
   atexit( fd_halt );
   fd_log_level_core_set(3); /* crash on warning log */

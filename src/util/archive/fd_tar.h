@@ -23,6 +23,7 @@
 
 struct __attribute__((packed)) fd_tar_meta {
 # define FD_TAR_NAME_SZ 100
+# define FD_TAR_SIZE_SZ 12
   /* 0x000 */ char name    [ FD_TAR_NAME_SZ ];
   /* 0x064 */ char mode    [   8 ];
   /* 0x06c */ char uid     [   8 ];
@@ -83,9 +84,15 @@ fd_tar_meta_get_size( fd_tar_meta_t const * meta ) {
     return fd_ulong_bswap( FD_LOAD( ulong, buf+4 ) );
   }
 
+  char const * p = buf;
+
+  /* Skip leading spaces (valid per POSIX TAR) */
+  while( p<buf+12 && *p==' ' ) p++;
+
   ulong ret = 0UL;
-  for( char const * p=buf; p<buf+12; p++ ) {
-    if( *p == '\0' ) break;
+  for( ; p<buf+12; p++ ) {
+    if( *p=='\0' || *p==' ' ) break;
+    if( FD_UNLIKELY( *p<'0' || *p>'7' ) ) return ULONG_MAX;
     ret = (ret << 3) + (ulong)(*p - '0');
   }
 
@@ -110,8 +117,8 @@ fd_tar_set_octal( char * buf,
   buf[ buf_sz-1UL ] = '\0';
 
   for( ulong i=buf_sz-1UL; i>0UL && val>0UL; i-- ) {
-    buf[ i-1UL ] = '0' + (val&7UL);  /* Extract low 3 bits as octal digit */
-    val >>= 3;                       /* Divide by 8 */
+    buf[ i-1UL ] = (char)((ulong)'0' + (val&7UL)); /* Extract low 3 bits as octal digit */
+    val >>= 3;                                     /* Divide by 8 */
   }
 
   return 1;

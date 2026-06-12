@@ -49,7 +49,7 @@
      garbage during transients ("compaction").
 
    - compression: Compaction can also statelessly re-encode the storage
-     represetation of pairs.  This will naturally compress seldom used
+     representation of pairs.  This will naturally compress seldom used
      pair data in the background while frequently used pairs will be
      stored uncompressed (RAW encoded) for speed.
 
@@ -157,9 +157,9 @@
      bstream past to be quickly partitioned at object boundaries into
      approximately uniform slices that can be used for parallel
      recovery.  These partitions also include the number of erases and
-     moves that happend in the partition to aid in parallel recovery (to
-     optionally tightly bound the size of temporary data structures at
-     start).
+     moves that happened in the partition to aid in parallel recovery
+     (to optionally tightly bound the size of temporary data structures
+     at start).
 
    - hot or not: the metadata for all pairs at seq_present is always
      available fast O(1) to concurent vinyl users.  This includes a
@@ -394,12 +394,6 @@ fd_vinyl_bstream_block_test( ulong                      seed,
   return FD_VINYL_SUCCESS;
 }
 
-/* fd_vinyl_bstream_pair_zero clears the footer region and any zero
-   padding region. */
-
-void
-fd_vinyl_bstream_pair_zero( fd_vinyl_bstream_block_t * phdr );
-
 /* fd_vinyl_bstream_pair_hash clears the footer region and any zero
    padding region of pair and then populates the hash fields
    appropriately.  seed is the bstream data integrity seed.  Assumes
@@ -471,20 +465,6 @@ fd_vinyl_bstream_ctl_style_cstr( int style );
 
 int
 fd_cstr_to_vinyl_bstream_ctl_style( char const * cstr );
-
-#if FD_HAS_AVX512 && defined(__AVX512DQ__)
-
-/* fd_vinyl_bstream_hash_batch8 does 8 fd_vinyl_bstream_hash()
-   computations in parallel.  out, buf, sz point to arrays of 8 elements
-   respectively. */
-
-FD_FN_PURE void
-fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed,
-                              ulong *                    FD_RESTRICT out,
-                              void const * FD_RESTRICT * FD_RESTRICT buf,
-                              ulong const *              FD_RESTRICT sz );
-
-#endif
 
 FD_PROTOTYPES_END
 

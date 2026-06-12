@@ -11,6 +11,12 @@
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
 
+#if FD_HAS_OPENSSL
+#include "../../waltz/openssl/fd_openssl.h"
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
+
 #include <netinet/tcp.h>
 #include <unistd.h>
 #include <errno.h>
@@ -25,6 +31,7 @@
 #define DISCONNECT_REASON_PEER_CLOSED        (5)
 #define DISCONNECT_REASON_INVALID_CURSOR     (6)
 #define DISCONNECT_REASON_AUTH_FAILED        (7)
+#define DISCONNECT_REASON_INVALID_PROTOBUF   (8)
 
 #define FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE  (1UL)
 #define FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH  (2UL)
@@ -36,6 +43,7 @@ struct fd_event_client {
   fd_grpc_h2_stream_t * event_stream;
 
   char client_version[ 10UL ];
+  char action[ 16UL ];
   uchar identity_pubkey[ 32UL ];
 
   int       has_genesis_hash;
@@ -70,6 +78,16 @@ struct fd_event_client {
 
   int so_sndbuf;
   int sockfd;
+
+  int    use_tls;
+#if FD_HAS_OPENSSL
+  SSL_CTX * ssl_ctx;
+  SSL     * ssl;
+#endif
+
+  /* wallclock deadline for auth handshake, LONG_MAX if not
+     authenticating. */
+  long auth_deadline;
 
   char   server_fqdn[ 256 ]; /* cstr */
   ulong  server_fqdn_len;
@@ -106,10 +124,13 @@ fd_event_client_new( void *                 shmem,
                      char const *           _url,
                      uchar const *          identity_pubkey,
                      char const *           client_version,
+                     char const *           action,
                      ulong                  instance_id,
                      ulong                  boot_id,
                      ulong                  machine_id,
-                     ulong                  buf_max ) {
+                     ulong                  buf_max,
+                     int                    use_tls,
+                     void *                 ssl_ctx ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -134,7 +155,6 @@ fd_event_client_new( void *                 shmem,
                                           "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
-  client->server_tcp_port = 7878;
   if( FD_UNLIKELY( url->host_len > 255 ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
@@ -144,6 +164,7 @@ fd_event_client_new( void *                 shmem,
   fd_memcpy( client->identity_pubkey, identity_pubkey, 32UL );
   strncpy( client->client_version, client_version, sizeof( client->client_version ) );
   client->client_version[ sizeof( client->client_version ) - 1UL ] = '\0';
+  fd_cstr_ncpy( client->action, action, sizeof( client->action ) );
 
   client->event_id = 0UL;
 
@@ -156,6 +177,18 @@ fd_event_client_new( void *                 shmem,
 
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
+  client->use_tls = use_tls;
+#if FD_HAS_OPENSSL
+  client->ssl_ctx = (SSL_CTX *)ssl_ctx;
+  client->ssl = NULL;
+#else
+  (void)ssl_ctx;
+  if( FD_UNLIKELY( use_tls ) ) {
+    FD_LOG_ERR(( "TLS requested for event service but this build does not include OpenSSL. "
+                 "To install OpenSSL, re-run ./deps.sh and do a clean rebuild." ));
+  }
+#endif
+  client->auth_deadline = LONG_MAX;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
   client->disconnected.reconnect_deadline = 0L;
 
@@ -234,7 +267,7 @@ backoff( fd_event_client_t * client ) {
   ulong backoff_base = 1UL << fd_ulong_min( client->consecutive_failure_count, 7UL ); /* max 4 mins */
   ulong backoff_jitter = fd_rng_ulong_roll( client->rng, backoff_base );
   client->disconnected.reconnect_deadline = now + (long)( backoff_base + backoff_jitter )*(long)1e9;
-  client->consecutive_failure_count++;
+  if( FD_UNLIKELY( client->consecutive_failure_count < 8UL ) ) client->consecutive_failure_count++;
 }
 
 static void
@@ -242,12 +275,19 @@ disconnect( fd_event_client_t * client,
             int                 reason,
             int                 err,
             int                 _backoff ) {
+#if FD_HAS_OPENSSL
+  if( FD_UNLIKELY( client->ssl ) ) {
+    SSL_free( client->ssl );
+    client->ssl = NULL;
+  }
+#endif
   if( FD_LIKELY( -1!=client->sockfd ) ) {
     if( FD_UNLIKELY( -1==close( client->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     client->sockfd = -1;
     client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
     fd_circq_reset_cursor( client->circq );
   }
+  client->auth_deadline = LONG_MAX;
 
   switch( reason ) {
     case DISCONNECT_REASON_IDENTITY_CHANGED:
@@ -281,6 +321,10 @@ disconnect( fd_event_client_t * client,
       FD_LOG_WARNING(( "disconnected: authentication failed" ));
       client->metrics.transport_fail_cnt++;
       break;
+    case DISCONNECT_REASON_INVALID_PROTOBUF:
+      FD_LOG_WARNING(( "disconnected: invalid protobuf message received" ));
+      client->metrics.transport_fail_cnt++;
+      break;
     default:
       FD_LOG_WARNING(( "disconnected: unknown reason %d", reason ));
       client->metrics.transport_fail_cnt++;
@@ -306,8 +350,9 @@ reconnect( fd_event_client_t * client,
   if( FD_UNLIKELY( now<client->disconnected.reconnect_deadline ) ) return;
 
   *charge_busy = 1;
+  client->metrics.connect_attempt_cnt++;
 
-  FD_LOG_INFO(( "connecting to event server http://%.*s:%u", (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port ));
+  FD_LOG_INFO(( "connecting to event server %s://%.*s:%u", client->use_tls ? "https" : "http", (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port ));
 
   /* FIXME IPv6 support */
   fd_addrinfo_t hints = {0};
@@ -318,6 +363,11 @@ reconnect( fd_event_client_t * client,
   int err = fd_getaddrinfo( client->server_fqdn, &hints, &res, &pscratch, sizeof(scratch) );
   if( FD_UNLIKELY( err ) ) {
     disconnect( client, DISCONNECT_REASON_DNS_RESOLVE_FAILED, err, 1 );
+    return;
+  }
+
+  if( FD_UNLIKELY( !res || !res->ai_addr ) ) {
+    disconnect( client, DISCONNECT_REASON_DNS_RESOLVE_FAILED, 0, 1 );
     return;
   }
 
@@ -342,6 +392,44 @@ reconnect( fd_event_client_t * client,
     return;
   }
 
+# if FD_HAS_OPENSSL
+  if( client->use_tls ) {
+    BIO * bio = fd_openssl_bio_new_socket( client->sockfd, BIO_NOCLOSE );
+    if( FD_UNLIKELY( !bio ) ) {
+      FD_LOG_WARNING(( "fd_openssl_bio_new_socket failed" ));
+      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      return;
+    }
+
+    SSL * ssl = SSL_new( client->ssl_ctx );
+    if( FD_UNLIKELY( !ssl ) ) {
+      FD_LOG_WARNING(( "SSL_new failed" ));
+      BIO_free( bio );
+      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      return;
+    }
+
+    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
+    SSL_set_connect_state( ssl );
+
+    /* SNI and hostname verification */
+    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
+      FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed" ));
+      SSL_free( ssl );
+      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      return;
+    }
+    if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
+      FD_LOG_WARNING(( "SSL_set1_host failed" ));
+      SSL_free( ssl );
+      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+      return;
+    }
+
+    client->ssl = ssl;
+  }
+# endif /* FD_HAS_OPENSSL */
+
   fd_grpc_client_reset( client->grpc_client );
 
   client->state = FD_EVENT_CLIENT_STATE_CONNECTING;
@@ -363,6 +451,7 @@ fd_event_client_grpc_conn_established( void * app_ctx ) {
   fd_pb_push_uint64( auth_req, 5U, client->instance_id );
   fd_pb_push_uint64( auth_req, 6U, client->machine_id );
   fd_pb_push_uint64( auth_req, 7U, client->boot_id );
+  fd_pb_push_string( auth_req, 8U, client->action, strlen( client->action ) );
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
       client->grpc_client,
@@ -377,7 +466,12 @@ fd_event_client_grpc_conn_established( void * app_ctx ) {
     return;
   }
 
+  long now = fd_log_wallclock();
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)5e9 /* 5s */ );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)5e9 /* 5s */ );
+
   client->state = FD_EVENT_CLIENT_STATE_AUTHENTICATING;
+  client->auth_deadline = now + (long)5e9; /* 5s */
   FD_LOG_INFO(( "Requesting auth challenge from event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
                 FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
                 (int)client->server_fqdn_len, client->server_fqdn ));
@@ -422,10 +516,19 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
+  uchar const * challenge_data = inbuf->cur;
+  inbuf->cur += challenge_len;
+
+  if( FD_UNLIKELY( fd_pb_inbuf_sz( inbuf ) ) ) {
+    FD_LOG_WARNING(( "Trailing data in auth challenge response" ));
+    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
+    return;
+  }
+
   uchar signed_challenge[ 64UL ];
   fd_keyguard_client_sign( client->keyguard_client,
                            signed_challenge,
-                           inbuf->cur,
+                           challenge_data,
                            32UL,
                            FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 );
 
@@ -448,6 +551,10 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
+  long now = fd_log_wallclock();
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)5e9 /* 5s */ );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)5e9 /* 5s */ );
+
   client->state = FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH;
   FD_LOG_DEBUG(( "Sent signed auth challenge" ));
 }
@@ -464,8 +571,8 @@ fd_event_client_handle_confirm_auth_resp( fd_event_client_t * client,
   client->state = FD_EVENT_CLIENT_STATE_CONNECTED;
   client->connected.connected_timestamp = fd_log_wallclock();
   FD_LOG_NOTICE(( "connected to event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
-                  FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
-                  (int)client->server_fqdn_len, client->server_fqdn ));
+                    FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
+                    (int)client->server_fqdn_len, client->server_fqdn ));
 }
 
 static void
@@ -498,15 +605,23 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   fd_pb_inbuf_t inbuf[1];
   fd_pb_inbuf_init( inbuf, protobuf, protobuf_sz );
 
-  ulong nonce_ack;
-  if( FD_UNLIKELY( protobuf_sz==0UL ) ) {
-    nonce_ack = 0UL;
-  } else {
+  ulong nonce_ack = 0UL;
+  if( FD_LIKELY( protobuf_sz ) ) {
     fd_pb_tlv_t event_id;
-    FD_TEST( fd_pb_read_tlv( inbuf, &event_id ) );
-    FD_TEST( event_id.field_id==1U ); /* event_id */
-    FD_TEST( event_id.wire_type==FD_PB_WIRE_TYPE_VARINT );
+    if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &event_id ) ||
+                     event_id.field_id!=1U /* event_id */ ||
+                     event_id.wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) {
+      FD_LOG_WARNING(( "Event gRPC rx msg: invalid Protobuf" ));
+      client->defer_disconnect = DISCONNECT_REASON_INVALID_PROTOBUF;
+      return;
+    }
     nonce_ack = event_id.varint;
+
+    if( FD_UNLIKELY( fd_pb_inbuf_sz( inbuf ) ) ) {
+      FD_LOG_WARNING(( "Event gRPC rx msg: trailing data in StreamEventsResponse" ));
+      client->defer_disconnect = DISCONNECT_REASON_INVALID_PROTOBUF;
+      return;
+    }
   }
 
   client->metrics.events_acked++;
@@ -537,7 +652,8 @@ fd_event_client_grpc_rx_msg( void *       app_ctx,
       fd_event_client_handle_stream_events_resp( client, protobuf, protobuf_sz );
       break;
     default:
-      FD_LOG_WARNING(( "Unknown request_ctx: %lu", request_ctx ));
+      FD_LOG_WARNING(( "Unknown request_ctx: %lu, disconnecting", request_ctx ));
+      client->defer_disconnect = DISCONNECT_REASON_INVALID_PROTOBUF;
       break;
   }
 }
@@ -592,10 +708,12 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
 
 void
 fd_event_client_grpc_rx_timeout( void * app_ctx,
-                                 ulong  request_ctx,
-                                 int    deadline_kind ) {
-  (void)app_ctx; (void)request_ctx; (void)deadline_kind;
+                                 ulong  request_ctx FD_PARAM_UNUSED,
+                                 int    deadline_kind FD_PARAM_UNUSED ) {
   FD_LOG_WARNING(( "Event gRPC rx timeout" ));
+  fd_event_client_t * client = (fd_event_client_t *)app_ctx;
+  client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
+  client->event_stream     = NULL;
 }
 
 static void
@@ -625,6 +743,7 @@ tx( fd_event_client_t * client,
         NULL, 0UL,
         1 /* streaming */ );
     if( FD_UNLIKELY( !client->event_stream ) ) return; /* Only reason for failure is too big message, so just skip it */
+    fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
   } else {
     int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
     if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
@@ -648,8 +767,22 @@ fd_event_client_poll( fd_event_client_t * client,
       return;
     }
   }
+  /* Check auth handshake timeout */
+  if( FD_UNLIKELY( (client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING || client->state==FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH) && now>client->auth_deadline ) ) {
+    FD_LOG_WARNING(( "auth handshake timed out" ));
+    client->metrics.handshake_timeout_cnt++;
+    disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
+    return;
+  }
   if( FD_LIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) {
-    if( FD_UNLIKELY( -1==fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy ) ) ) {
+    int rxtx_err;
+#   if FD_HAS_OPENSSL
+    if( client->use_tls )
+      rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
+    else
+#   endif
+      rxtx_err = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy );
+    if( FD_UNLIKELY( -1==rxtx_err ) ) {
       disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
       return;
     }
@@ -658,6 +791,8 @@ fd_event_client_poll( fd_event_client_t * client,
   if( FD_UNLIKELY( client->defer_disconnect!=INT_MAX ) ) {
     int reason = client->defer_disconnect;
     client->defer_disconnect = INT_MAX;
+    if( reason==DISCONNECT_REASON_AUTH_FAILED ) client->metrics.auth_fail_cnt++;
+    if( reason==DISCONNECT_REASON_INVALID_PROTOBUF ) client->metrics.invalid_msg_cnt++;
     disconnect( client, reason, 0, 1 );
     return;
   }

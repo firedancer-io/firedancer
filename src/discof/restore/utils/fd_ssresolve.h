@@ -1,9 +1,8 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssresolve_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssresolve_h
 
-#include "../../../util/fd_util_base.h"
+#include "../../../flamenco/fd_flamenco_base.h"
 #include "../../../util/net/fd_net_headers.h"
-#include "../../../flamenco/types/fd_types_custom.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h>
@@ -46,7 +45,8 @@ void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
-                   int              full );
+                   int              full,
+                   char const *     hostname );
 
 #if FD_HAS_OPENSSL
 void

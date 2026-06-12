@@ -18,8 +18,8 @@ jobs:
       url: ${{ vars.COVERAGE_URL }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:
@@ -29,8 +29,6 @@ jobs:
         with:
           count_gigantic: 60
           count_huge: 100 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
-
-      - uses: dtolnay/rust-toolchain@1.73.0
 
       - name: Generate all coverage
         run: |

@@ -22,8 +22,10 @@ fd_keyload_read( int          key_fd,
 
 /* fd_keyload_load() reads the key file from disk and stores the parsed
    contents in a specially mapped page in memory that will not appear in
-   core dumps, will not be paged out to disk, is readonly, and is
-   protected by guard pages that cannot be accessed.
+   core dumps, will not be paged out to disk, is read-only, and is
+   protected by guard pages that cannot be accessed.  Callers that need
+   to mutate the key (e.g. the sign tile during a key switch) must use
+   fd_keyload_mprotect_wr() to temporarily make the page writable.
 
    key_path must point to the first letter in a NUL-terminated cstr that
    is the path on disk of the key file.  The key file must exist, be
@@ -45,9 +47,29 @@ fd_keyload_read( int          key_fd,
    a different key is being loaded, or it is not being loaded for use
    in the production binary. */
 
-uchar * FD_FN_SENSITIVE
+uchar const * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only );
+
+/* fd_keyload_mprotect_wr() makes a key page loaded with
+   fd_keyload_load writable.  Accepts the const pointer returned by
+   fd_keyload_load and returns a non-const pointer that the caller may
+   write through.  The public_key_only argument must match the one
+   passed to fd_keyload_load.  Terminates the process on failure. */
+
+uchar * FD_FN_SENSITIVE
+fd_keyload_mprotect_wr( uchar const * key,
+                        int           public_key_only );
+
+/* fd_keyload_mprotect_ro() makes a key page loaded with
+   fd_keyload_load read-only.  Accepts the non-const pointer returned
+   by fd_keyload_mprotect_wr and returns a const pointer.  The
+   public_key_only argument must match the one passed to
+   fd_keyload_load.  Terminates the process on failure. */
+
+uchar const * FD_FN_SENSITIVE
+fd_keyload_mprotect_ro( uchar * key,
+                        int     public_key_only );
 
 /* fd_keyload_unload() unloads a key from shared memory that was loaded
    with fd_keyload_load.  The argument public_key_only must match the

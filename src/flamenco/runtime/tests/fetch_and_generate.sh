@@ -3,15 +3,15 @@ set -euo pipefail
 
 PROJECT_ROOT=../../../..
 
-# Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v4.0.1}"
-FLATCC="${FLATCC:-${PROJECT_ROOT}/opt/bin/flatcc}"
+# Set protosol version
+PROTO_VERSION="v9.0.1"
 
+PYTHON=${PYTHON:-python3}
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
-python3.11 -m venv nanopb_venv
+if [ ! -e nanopb_venv ]; then "$PYTHON" -m venv nanopb_venv; fi
 source nanopb_venv/bin/activate
 pip install protobuf grpcio-tools
 
@@ -41,8 +41,3 @@ fi
 
 rm -rf generated/*
 ./nanopb/generator/nanopb_generator.py -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
-
-# Generate flatbuffer headers
-rm -rf flatbuffers/generated/*
-$FLATCC --prefix=fd_ -a -I protosol/flatbuffers -r -o flatbuffers/generated/ protosol/flatbuffers/*.fbs
-python3 fixup_flatbuffers.py

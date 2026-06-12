@@ -1,47 +1,65 @@
 #include "fd_tower_serdes.h"
 #include "fd_tower.h"
 
-#define SHORTVEC 0
-
-#define DE( T, name ) do {                                  \
-    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) return -1;    \
-    serde->name = *(T const *)fd_type_pun_const( buf+off ); \
-    off += sizeof(T);                                       \
+#define DE( T, name ) do {                                \
+    if( FD_UNLIKELY( buf_sz<sizeof(T) ) ) return -1;      \
+    serde->name = *(T const *)fd_type_pun_const( buf );   \
+    buf    += sizeof(T);                                  \
+    buf_sz -= sizeof(T);                                  \
 } while(0)
 
-#define SER( T, name ) do {                              \
-    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) return -1; \
-    FD_STORE( T, buf+off, serde->name );                 \
-    off += sizeof(T);                                    \
+#define SER( T, name ) do {                               \
+    if( FD_UNLIKELY( off+sizeof(T)>buf_max ) ) return -1; \
+    FD_STORE( T, buf+off, serde->name );                  \
+    off += sizeof(T);                                     \
 } while(0)
 
-static ulong
-de_short_u16( ushort * dst, uchar const * src ) {
-  if     ( FD_LIKELY( !(0x80U & src[0]) ) ) { *dst = (ushort)src[0];                                                                           return 1; }
-  else if( FD_LIKELY( !(0x80U & src[1]) ) ) { *dst = (ushort)((ulong)(src[0]&0x7FUL) + (((ulong)src[1])<<7));                                  return 2; }
-  else                                      { *dst = (ushort)((ulong)(src[0]&0x7FUL) + (((ulong)(src[1]&0x7FUL))<<7) + (((ulong)src[2])<<14)); return 3; }
+static int
+de_short_u16( ushort * dst, uchar const ** src, ulong * src_sz ) {
+  uchar const * s = *src;
+  if( FD_UNLIKELY( *src_sz<1 ) ) return -1;
+  if( FD_LIKELY( !( 0x80U & s[0] ) ) ) {
+    *dst = (ushort)s[0];
+    *src += 1;
+    *src_sz -= 1;
+    return 0;
+  }
+  if( FD_UNLIKELY( *src_sz<2 ) ) return -1;
+  if( FD_LIKELY( !( 0x80U & s[1] ) ) ) {
+    if( FD_UNLIKELY( !s[1] ) ) return -1; /* non-canonical: value fits in 1 byte */
+    *dst = (ushort)( (ulong)(s[0]&0x7FUL) + (((ulong)s[1])<<7) );
+    *src += 2;
+    *src_sz -= 2;
+    return 0;
+  }
+  if( FD_UNLIKELY( *src_sz<3    ) ) return -1;
+  if( FD_UNLIKELY( 0x80U & s[2] ) ) return -1; /* 3rd byte is final; continuation bit is invalid */
+  if( FD_UNLIKELY( !s[2]        ) ) return -1; /* non-canonical: value fits in 2 bytes */
+  ulong val = (ulong)(s[0]&0x7FUL) + (((ulong)(s[1]&0x7FUL))<<7) + (((ulong)s[2])<<14);
+  if( FD_UNLIKELY( val>USHORT_MAX ) ) return -1;
+  *dst = (ushort)val;
+  *src += 3;
+  *src_sz -= 3;
+  return 0;
 }
 
-static ulong
-de_var_int( ulong *       dst,
-            uchar const * src,
-            ulong         src_sz ) {
+static int
+de_var_int( ulong * dst, uchar const ** src, ulong * src_sz ) {
   *dst = 0;
-  ulong off = 0;
   ulong bit = 0;
   while( FD_LIKELY( bit < 64 ) ) {
-    if( FD_UNLIKELY( off >= src_sz ) ) return 0;
-    uchar byte = *(uchar const *)(src+off);
-    off       += 1;
-    *dst      |= (byte & 0x7FUL) << bit;
+    if( FD_UNLIKELY( !*src_sz ) ) return -1;
+    uchar byte = **src;
+    (*src)++; (*src_sz)--;
+    *dst |= (ulong)(byte & 0x7FUL) << bit;
     if( FD_LIKELY( (byte & 0x80U) == 0U ) ) {
-      if( FD_UNLIKELY( (*dst>>bit) != byte                ) ) return 0;
-      if( FD_UNLIKELY( byte==0U && (bit!=0U || *dst!=0UL) ) ) return 0;
-      return off;
+      if( FD_UNLIKELY( (*dst>>bit) != byte                ) ) return -1;
+      if( FD_UNLIKELY( byte==0U && (bit!=0U || *dst!=0UL) ) ) return -1;
+      return 0;
     }
     bit += 7;
   }
-  return 0;
+  return -1;
 }
 
 static ulong
@@ -79,18 +97,16 @@ int
 fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz ) {
-  ulong off = 0;
   DE( ulong, root );
-  off += de_short_u16( &serde->lockouts_cnt, buf+off );
+  if( FD_UNLIKELY( de_short_u16( &serde->lockouts_cnt, &buf, &buf_sz ) ) ) return -1;
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
   for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
-    ulong varint_sz = de_var_int( &serde->lockouts[i].offset, buf+off, buf_sz-off );
-    if( FD_UNLIKELY( !varint_sz ) ) return -1;
-    off += varint_sz;
+    if( FD_UNLIKELY( de_var_int( &serde->lockouts[i].offset, &buf, &buf_sz ) ) ) return -1;
     DE( uchar, lockouts[i].confirmation_count );
   }
   DE( fd_hash_t, hash             );
   DE( uchar,     timestamp_option );
+  if( FD_UNLIKELY( serde->timestamp_option!=1 && serde->timestamp_option!=0 ) ) return -1;
   if( FD_LIKELY( serde->timestamp_option ) ) {
     DE( long, timestamp );
   }
@@ -101,8 +117,8 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
 int
 fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
-                           ulong                                 buf_sz,
-                           ulong *                               out_sz ) {
+                           ulong                                 buf_max,
+                           ulong *                               buf_sz ) {
   ulong off = 0;
   SER( ulong, root );
   off += ser_short_u16( buf+off, serde->lockouts_cnt );
@@ -117,53 +133,98 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
     SER( long, timestamp );
   }
   SER( fd_hash_t, block_id );
-  if( FD_LIKELY( out_sz ) ) *out_sz = off;
+  if( FD_LIKELY( buf_sz ) ) *buf_sz = off;
   return 0;
 }
 
-static fd_vote_acc_vote_t const *
-v4_off( fd_vote_acc_t const * voter ) {
-  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
-}
-
-ulong
-fd_vote_acc_vote_cnt( uchar const * vote_account_data ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: return fd_ulong_load_8( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) );
-  case FD_VOTE_ACC_V3: return voter->v3.votes_cnt;
-  case FD_VOTE_ACC_V2: return voter->v2.votes_cnt;
-  default:          FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+fd_vote_acc_desc_t *
+fd_vote_acc_desc( fd_vote_acc_desc_t * desc,
+                  uchar const *        data,
+                  ulong                data_sz ) {
+  if( FD_UNLIKELY( data_sz < sizeof(uint) ) ) return NULL;
+  uint kind = FD_LOAD( uint, data );
+  fd_vote_acc_t const * voter = fd_type_pun_const( data );
+  void const *  vote_cnt_p;
+  ulong         vote_stride;
+  switch( kind ) {
+  case FD_VOTE_ACC_V2:
+    vote_cnt_p  = &voter->v2.votes_cnt;
+    vote_stride = sizeof(fd_vote_acc_vote_v2_t);
+    break;
+  case FD_VOTE_ACC_V3:
+    vote_cnt_p  = &voter->v3.votes_cnt;
+    vote_stride = sizeof(fd_vote_acc_vote_t);
+    break;
+  case FD_VOTE_ACC_V4:
+    if( FD_UNLIKELY( (ulong)&voter->v4.has_bls_pubkey_compressed >= (ulong)data+data_sz ) ) return NULL;
+    vote_cnt_p  = voter->v4.bls_pubkey_compressed + (!!voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed));
+    vote_stride = sizeof(fd_vote_acc_vote_t);
+    break;
+  default:
+    return NULL;
   }
-}
-
-/* fd_vote_acc_vote_slot takes a voter's vote account data and returns the
-   voter's most recent vote slot in the tower.  Returns ULONG_MAX if
-   they have an empty tower. */
-
-ulong
-fd_vote_acc_vote_slot( uchar const * vote_account_data ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = fd_vote_acc_vote_cnt( vote_account_data );
-  switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: return cnt ? v4_off( voter )[cnt-1].slot : ULONG_MAX;
-  case FD_VOTE_ACC_V3: return cnt ? voter->v3.votes[cnt-1].slot : ULONG_MAX;
-  case FD_VOTE_ACC_V2: return cnt ? voter->v2.votes[cnt-1].slot : ULONG_MAX;
-  default:          FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+  if( FD_UNLIKELY( (ulong)vote_cnt_p+sizeof(ulong) > (ulong)data+data_sz ) ) return NULL;
+  ulong vote_cnt = FD_LOAD( ulong, vote_cnt_p );
+  /* FIXME silent truncation is questionable behavior */
+  vote_cnt = fd_ulong_min( vote_cnt, FD_TOWER_VOTE_MAX );
+  ulong vote_hi_p = (ulong)vote_cnt_p + sizeof(ulong) + vote_cnt*vote_stride;
+  if( FD_UNLIKELY( vote_hi_p > (ulong)data+data_sz ) ) return NULL;
+  /* Option<ulong> "root_slot" follows vote array */
+  ulong root_slot = ULONG_MAX;
+  if( FD_UNLIKELY( vote_hi_p+1UL > (ulong)data+data_sz ) ) return NULL;
+  int root_opt = FD_LOAD( uchar, (void const *)vote_hi_p );
+  if( root_opt==1 ) {
+    if( FD_UNLIKELY( vote_hi_p+9UL > (ulong)data+data_sz ) ) return NULL;
+    root_slot = FD_LOAD( ulong, (void const *)(vote_hi_p+1UL) );
+  } else if( FD_UNLIKELY( root_opt!=0 ) ) {
+    return NULL;
   }
+  *desc = (fd_vote_acc_desc_t){
+    .kind        = (int)kind,
+    .votes_off   = (ushort)( (ulong)vote_cnt_p + sizeof(ulong) - (ulong)data ),
+    .vote_cnt    = (uchar)vote_cnt,
+    .vote_stride = (uchar)vote_stride,
+    .root_slot   = root_slot
+  };
+  return desc;
 }
 
-/* fd_vote_acc_root_slot takes a voter's vote account data and returns the
-   voter's root slot.  Returns ULONG_MAX if they don't have a root. */
+int
+fd_txn_parse_simple_vote( fd_txn_t const * txn,
+                          uchar    const * payload,
+                          fd_pubkey_t *    opt_identity,
+                          fd_pubkey_t *    opt_vote_acct,
+                          ulong *          opt_vote_slot ) {
+  fd_txn_instr_t const * instr      = &txn->instr[ 0 ];
+  ulong required_accts = txn->signature_cnt==1 ? 2UL : 3UL;
+  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, payload ) || instr->data_sz < sizeof(uint) || txn->acct_addr_cnt < required_accts ) ) return 0;
 
-ulong
-fd_vote_acc_root_slot( uchar const * vote_account_data ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = fd_vote_acc_vote_cnt( vote_account_data );
-  switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&v4_off( voter )[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&v4_off( voter )[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTE_ACC_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->v3.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->v3.votes[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTE_ACC_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->v2.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->v2.votes[cnt] + 1UL ) : ULONG_MAX; }
-  default:          FD_LOG_CRIT(( "unhandled kind %u", voter->kind ));
+  uchar const *          instr_data = payload + instr->data_off;
+  uint                   kind       = fd_uint_load_4_fast( instr_data );
+  /* Older vote instruction kinds are deprecated / ignored */
+  if( FD_UNLIKELY( kind == FD_VOTE_IX_KIND_TOWER_SYNC || kind == FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) {
+    fd_compact_tower_sync_serde_t compact_tower_sync_serde[ 1 ];
+    int err = fd_compact_tower_sync_de( compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
+    if( FD_LIKELY( !err ) ) {
+      if( !!opt_vote_slot ) {
+        *opt_vote_slot =  fd_ulong_if( compact_tower_sync_serde->root==ULONG_MAX, 0, compact_tower_sync_serde->root );
+        for( ulong i = 0; i < compact_tower_sync_serde->lockouts_cnt; i++ ) {
+          if( FD_UNLIKELY( __builtin_uaddl_overflow( *opt_vote_slot, compact_tower_sync_serde->lockouts[ i ].offset, opt_vote_slot ) ) ) return 0;
+        }
+      }
+      fd_pubkey_t const * accs = (fd_pubkey_t const *)fd_type_pun_const( payload + txn->acct_addr_off );
+      if( !!opt_vote_acct ) {
+        if( FD_UNLIKELY( txn->signature_cnt==1 ) ) *opt_vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 1 ] ); /* identity and authority same, account idx 1 is the vote account address */
+        else                                       *opt_vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 2 ] ); /* identity and authority diff, account idx 2 is the vote account address */
+      }
+      if( !!opt_identity ) {
+        *opt_identity = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
+      }
+      return 1;
+    }
   }
+  return 0;
 }
+
+#undef DE
+#undef SER

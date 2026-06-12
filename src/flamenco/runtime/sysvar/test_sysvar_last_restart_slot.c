@@ -1,5 +1,4 @@
 #include "fd_sysvar_last_restart_slot.h"
-#include "../../types/fd_types.h"
 
 static void
 test_sysvar_last_restart_slot_bounds( void ) {
@@ -8,15 +7,35 @@ test_sysvar_last_restart_slot_bounds( void ) {
     0x28, 0xbe, 0xb0, 0x0e, 0x00, 0x00, 0x00, 0x00
   };
   FD_TEST( sizeof(data)==FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_sol_sysvar_last_restart_slot_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
-  FD_TEST( fd_sol_sysvar_last_restart_slot_align()==FD_SYSVAR_LAST_RESTART_SLOT_ALIGN );
+}
+
+static void
+test_sysvar_last_restart_slot_derive( void ) {
+  fd_bank_t bank[1] = {0};
+
+  bank->f.slot = 120UL;
+  bank->f.hard_fork_cnt = 3UL;
+  bank->f.hard_forks[0] = (fd_hard_fork_t) { .slot =  25UL };
+  bank->f.hard_forks[1] = (fd_hard_fork_t) { .slot = 250UL };
+  bank->f.hard_forks[2] = (fd_hard_fork_t) { .slot =  80UL };
+
+  FD_TEST( fd_sysvar_last_restart_slot_derive( bank )==80UL );
+
+  bank->f.slot = 249UL;
+  FD_TEST( fd_sysvar_last_restart_slot_derive( bank )==80UL );
+
+  bank->f.slot = 250UL;
+  FD_TEST( fd_sysvar_last_restart_slot_derive( bank )==250UL );
+
+  bank->f.slot = 251UL;
+  FD_TEST( fd_sysvar_last_restart_slot_derive( bank )==250UL );
+
+  bank->f.hard_fork_cnt = 0UL;
+  FD_TEST( fd_sysvar_last_restart_slot_derive( bank )==0UL );
 }
 
 static void
 test_sysvar_last_restart_slot( void ) {
   test_sysvar_last_restart_slot_bounds();
-  /* FIXME more tests here ... */
+  test_sysvar_last_restart_slot_derive();
 }

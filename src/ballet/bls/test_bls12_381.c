@@ -1006,6 +1006,88 @@ test_pairing( FD_FN_UNUSED fd_rng_t * rng ) {
     dt = fd_log_wallclock() - dt;
     log_bench( "fd_bls12_381_pairing_syscall", iter, dt );
   }
+
+  /* Regression: identity-point handling must match blstrs::multi_miller_loop,
+     which substitutes Fp12::ONE for any pair where either side is the point
+     at infinity. A bare blst_miller_loop_n() does NOT, so each identity pair
+     must be filtered out before the Miller loop.
+     https://github.com/filecoin-project/blstrs/blob/v0.7.1/src/lib.rs#L238-L273 */
+  {
+    /* Uncompressed infinity: `0x40` high-flag in X's most-significant byte,
+       all other bytes zero. In LE the flag lands at the last byte of the X
+       field (48 bytes for G1, 96 bytes for G2) after per-field byte reversal. */
+    uchar g1_inf_be[ 96   ] = { 0 }; g1_inf_be[ 0] = 0x40;
+    uchar g2_inf_be[ 96*2 ] = { 0 }; g2_inf_be[ 0] = 0x40;
+    uchar g1_inf_le[ 96   ] = { 0 }; g1_inf_le[47] = 0x40;
+    uchar g2_inf_le[ 96*2 ] = { 0 }; g2_inf_le[95] = 0x40;
+
+    /* Gt::identity = Fp12::ONE. BE puts the `1` at the last byte; LE at byte 0. */
+    uchar gt_id_be[ 48*12 ] = { 0 }; gt_id_be[ 48*12-1 ] = 0x01;
+    uchar gt_id_le[ 48*12 ] = { 0 }; gt_id_le[ 0       ] = 0x01;
+
+    /* A known valid G1 and G2 point (reused from test 1 above, BE). */
+    uchar g1_be[ 96   ];
+    uchar g2_be[ 96*2 ];
+    fd_hex_decode( g1_be,
+      "03a16836f27410320f712a266c0b7f402bf93285690885ee2206bd7799244b41"
+      "57f95a6d85c8cb197f44fbf30ed2cc23127c950544b239e6fd9ac0a305929064"
+      "0766094c43fb932d1b6fccd5db8d3a0beb6406dc4de6e8c8d2c803b80a5017a4",
+      96 );
+    fd_hex_decode( g2_be,
+      "08f9da9ae87dfab9993c849bbc7732cd204cb8b5a49e400cb3b5965fe209af33"
+      "a9b922b2f9a11ba4d26babcbf60b9e560e87c5e1072c5ef3d8c864c7760e6ab5"
+      "58cacf9ce3657eec2ebdee49dc769749fff96767ffb95b52d4946e13d46fc7c5"
+      "04901991c48ecdfc555530f3d13e39d42c955171ab3cc149280b2478133e0219"
+      "16e8e332234baccd02251b41b6064a2b01ef6981b862d7510f13ab27fc39b0ab"
+      "b5477cfb35cad5213aaf342959e6d9b1201852a6f0e8df188d46791933ad1e06",
+      192 );
+
+    /* Single pair with both identities. */
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_inf_be, g2_inf_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_inf_le, g2_inf_le, 1, 0 /*LE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_le, 48*12 ) );
+
+    /* Single pair, identity G1 + valid G2 ⇒ Gt::identity. */
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_inf_be, g2_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+
+    /* Single pair, valid G1 + identity G2 ⇒ Gt::identity. */
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_be, g2_inf_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+
+    /* Reference: e(G1, G2) with both valid — non-identity Gt value. */
+    uchar e_valid[ 48*12 ];
+    FD_TEST( fd_bls12_381_pairing_syscall( e_valid, g1_be, g2_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( !fd_memeq( e_valid, gt_id_be, 48*12 ) );
+
+    /* 2-pair batch. Adding an identity pair (in either position) must not
+       change the result. Regression for compact-array indexing. */
+    uchar a_buf[ 96*2 ];
+    uchar b_buf[ 96*2*2 ];
+
+    memcpy( a_buf,       g1_be,     96  );
+    memcpy( a_buf+96,    g1_inf_be, 96  );
+    memcpy( b_buf,       g2_be,     192 );
+    memcpy( b_buf+192,   g2_inf_be, 192 );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, a_buf, b_buf, 2, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, e_valid, 48*12 ) );
+
+    memcpy( a_buf,       g1_inf_be, 96  );
+    memcpy( a_buf+96,    g1_be,     96  );
+    memcpy( b_buf,       g2_inf_be, 192 );
+    memcpy( b_buf+192,   g2_be,     192 );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, a_buf, b_buf, 2, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, e_valid, 48*12 ) );
+
+    /* 2-pair batch, both identities ⇒ Gt::identity. */
+    memcpy( a_buf,       g1_inf_be, 96  );
+    memcpy( a_buf+96,    g1_inf_be, 96  );
+    memcpy( b_buf,       g2_inf_be, 192 );
+    memcpy( b_buf+192,   g2_inf_be, 192 );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, a_buf, b_buf, 2, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+  }
 }
 
 static void
@@ -1027,32 +1109,32 @@ test_proof_of_possession( FD_FN_UNUSED fd_rng_t * rng ) {
       // test 0
       { /* invalid, msg_sz too small - this is a valid test passing the public key as msg */
         .m = "",
-        .p = "966668cb06354807f59e5ab52139dc0c62588caf224b64b869f2e04b7fb76b326c56b32a71c6933fca876e1d87bbaea40b97dc12307eb791e5ca08b6a24b1cf966b0ed94073521543808dcee74e1c4a095ab9a256e33d7a9e0fbf396d0e899aa",
-        .k = "b7234f70d097e3c4aec83cac68bc800eab507990a53527e4978ca49818c50ae1611d8d8a1233751decd693f37425844c",
+        .p = "913e00764fcc3e44d2f0f6bcefb7c946ad4deb3ec93adf143bd7fb111b9f57cc01b0c09b9f3934249be8ca5be6a3251c099f11709387a1877d4c270c39ee25c30951e5a6b2da9db5688244e474d6d60684195b2df361200608115ac14e74b04c",
+        .k = "a8cf3d21aea94391b844264ca99cadd22388406ab492e1625328d7b045ce31d36d0ba7753b8821c34f8af888c16d88ab",
       },
       // test 1
       { /* invalid, msg_sz too small - this is valid test in agave - but it's definitely not a pop */
         .m = "53494d442d303338372d636f6e746578742d64617461",
-        .p = "ac250621f715b242d12049f5c8a7d5acd1f3b1c8ac7ba12492ab0792e0c9b3cbf65df5dce65337bf25bc8c095e900c2c01e3dc3626d803dd3b45829569147d045a69bdcbfc889d4db74ee57bd349f09bdbff8dbf2100f863b8b2f62fe70eced7",
-        .k = "90b59d0f8f4f940c2c793808ad6d9bd2fc711250ceb4b44a7259d9093b7f555dd3c68e47a6b5eccd55fee1d41443a31f",
+        .p = "913e00764fcc3e44d2f0f6bcefb7c946ad4deb3ec93adf143bd7fb111b9f57cc01b0c09b9f3934249be8ca5be6a3251c099f11709387a1877d4c270c39ee25c30951e5a6b2da9db5688244e474d6d60684195b2df361200608115ac14e74b04c",
+        .k = "a8cf3d21aea94391b844264ca99cadd22388406ab492e1625328d7b045ce31d36d0ba7753b8821c34f8af888c16d88ab",
       },
       // test 2
       { /* invalid msg */
-        .m = "004c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
-        .p = "97f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
-        .k = "b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .m = "be4c50454e474c4f570123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefb8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
+        .p = "b21b2bc4933e1d2cd32e9b976cc89a98d14f45c89356bb67afab0bc48a6ff9c2d3c4d2394d68706077e5dd7596459da70227c70f2f14adbfbcf6b46ae34f970f88b49dd8185f705333f682eb27674e8abbdf21519dd01424f6993713c9e4632d",
+        .k = "b8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
       },
       // test 3
       { /* invalid proof */
-        .m = "414c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
-        .p = "00f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
-        .k = "b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .m = "414c50454e474c4f570123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefb8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
+        .p = "001b2bc4933e1d2cd32e9b976cc89a98d14f45c89356bb67afab0bc48a6ff9c2d3c4d2394d68706077e5dd7596459da70227c70f2f14adbfbcf6b46ae34f970f88b49dd8185f705333f682eb27674e8abbdf21519dd01424f6993713c9e4632d",
+        .k = "b8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
       },
       // test 4
       { /* invalid public key */
-        .m = "414c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
-        .p = "97f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
-        .k = "002c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .m = "414c50454e474c4f570123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefb8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
+        .p = "b21b2bc4933e1d2cd32e9b976cc89a98d14f45c89356bb67afab0bc48a6ff9c2d3c4d2394d68706077e5dd7596459da70227c70f2f14adbfbcf6b46ae34f970f88b49dd8185f705333f682eb27674e8abbdf21519dd01424f6993713c9e4632d",
+        .k = "00778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
       },
     };
 
@@ -1072,15 +1154,15 @@ test_proof_of_possession( FD_FN_UNUSED fd_rng_t * rng ) {
     const struct test tests[] = {
       // test 0
       { /* m is the public key */
-        .m = "b7234f70d097e3c4aec83cac68bc800eab507990a53527e4978ca49818c50ae1611d8d8a1233751decd693f37425844c",
-        .p = "966668cb06354807f59e5ab52139dc0c62588caf224b64b869f2e04b7fb76b326c56b32a71c6933fca876e1d87bbaea40b97dc12307eb791e5ca08b6a24b1cf966b0ed94073521543808dcee74e1c4a095ab9a256e33d7a9e0fbf396d0e899aa",
-        .k = "b7234f70d097e3c4aec83cac68bc800eab507990a53527e4978ca49818c50ae1611d8d8a1233751decd693f37425844c",
+        .m = "a8cf3d21aea94391b844264ca99cadd22388406ab492e1625328d7b045ce31d36d0ba7753b8821c34f8af888c16d88ab",
+        .p = "913e00764fcc3e44d2f0f6bcefb7c946ad4deb3ec93adf143bd7fb111b9f57cc01b0c09b9f3934249be8ca5be6a3251c099f11709387a1877d4c270c39ee25c30951e5a6b2da9db5688244e474d6d60684195b2df361200608115ac14e74b04c",
+        .k = "a8cf3d21aea94391b844264ca99cadd22388406ab492e1625328d7b045ce31d36d0ba7753b8821c34f8af888c16d88ab",
       },
       // test 1
       { /* m is ALPENGLOW:vote_account_pubkey:bls_pubkey */
-        .m = "414c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
-        .p = "97f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
-        .k = "b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .m = "414c50454e474c4f570123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefb8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
+        .p = "b21b2bc4933e1d2cd32e9b976cc89a98d14f45c89356bb67afab0bc48a6ff9c2d3c4d2394d68706077e5dd7596459da70227c70f2f14adbfbcf6b46ae34f970f88b49dd8185f705333f682eb27674e8abbdf21519dd01424f6993713c9e4632d",
+        .k = "b8778284f744f6ae2791145183ef8fcb66dcd6602da8ca1add3e6828904db482708fb1d9bd2cbeb72320cdef56d173bc",
       },
     };
 
@@ -1102,6 +1184,38 @@ test_proof_of_possession( FD_FN_UNUSED fd_rng_t * rng ) {
     }
     dt = fd_log_wallclock() - dt;
     log_bench( "fd_bls12_381_proof_of_possession", iter, dt );
+  }
+}
+static void
+test_reject_flags( FD_FN_UNUSED fd_rng_t * rng ) {
+
+  /* Ensure that we disallow compressed/parity bits. If we didn't, then
+     blst would automatically try decompressing the point based off of the
+     encoding. This would allow the second half of the bytes to be garbage,
+     as they wouldn't be read, giving malleable points. */
+
+  {
+    /* Take a valid compressed point, and fill the second half with garbage. */
+    uchar g1[ 96 ];
+    fd_hex_decode( g1, "af9ff5448e60bc9a718f463ac102bd6f8772e6460c19076a6c89d5806e5a8ef44b6f3b8af09e37a4e564987a26b9deda", 48 );
+    fd_memset( g1+48UL, 0xAA, 48 );
+
+    /* Give it the compressed flag. */
+    g1[0] |= 0x80;
+
+    /* Make sure we fail. */
+    FD_TEST( fd_bls12_381_g1_validate_syscall( g1, 1 /*BE*/ )==0 );
+  }
+  {
+    /* Same test for G2 */
+    uchar g2[ 192 ];
+    fd_hex_decode( g2, "8f6a12dc289804e48b236892b34acdac92890b6a4a2a878935f940fbade830d17dde0dd179eeb9b36f6947df2730c3681718aa3b6f6aa733e7bae0b6ac490f12d38f3b0273bec4a36f0b24855660bc871025d8af47b6de1fcf9b10ff704ef26f", 96 );
+    fd_memset( g2+96UL, 0xAA, 96 );
+
+    /* Set the compressed flag. */
+    g2[0] |= 0x80;
+
+    FD_TEST( fd_bls12_381_g2_validate_syscall( g2, 1 /*BE*/ )==0 );
   }
 }
 
@@ -1128,6 +1242,8 @@ main( int     argc,
   test_pairing( rng );
 
   test_proof_of_possession( rng );
+
+  test_reject_flags( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

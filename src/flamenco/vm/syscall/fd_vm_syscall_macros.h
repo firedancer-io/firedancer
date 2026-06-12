@@ -150,7 +150,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
   if ( FD_UNLIKELY( sz > LONG_MAX ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
-    return 0;
+    return NULL;
   }
   if( FD_UNLIKELY( (!_haddr) ) ) {
     vm->segv_vaddr       = vaddr;
@@ -158,12 +158,12 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
     vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
     FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
-    return 0;
+    return NULL;
   }
   if ( FD_UNLIKELY( _sigbus ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
-    return 0;
+    return NULL;
   }
   return (void *)_haddr;
 }

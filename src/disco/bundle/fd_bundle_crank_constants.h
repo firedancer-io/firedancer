@@ -2,11 +2,11 @@
    tile.  This is in line with our policy of ruthelessly minimizing the
    attack surface of the keyguard tile.  No need for an include guard
    because it's just #defines. */
-#define FD_BUNDLE_CRANK_2_SZ 748UL
+#define FD_BUNDLE_CRANK_2_SZ 780UL
 #define FD_BUNDLE_CRANK_3_SZ 895UL
 
-#define FD_BUNDLE_CRANK_2_IX1_DISC_OFF 702UL
-#define FD_BUNDLE_CRANK_2_IX2_DISC_OFF 726UL
+#define FD_BUNDLE_CRANK_2_IX1_DISC_OFF 734UL
+#define FD_BUNDLE_CRANK_2_IX2_DISC_OFF 758UL
 
 #define FD_BUNDLE_CRANK_3_IX1_DISC_OFF 790UL
 #define FD_BUNDLE_CRANK_3_IX2_DISC_OFF 849UL

@@ -4,7 +4,9 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_sbpf_load_prog,test_sbpf_load_prog,fd_ballet fd_util)
 $(call make-unit-test,test_sbpf_loader,test_sbpf_loader,fd_ballet fd_util)
 $(call make-unit-test,test_sbpf_elf_peek,test_sbpf_elf_peek,fd_ballet fd_util)
+$(call make-unit-test,test_sbpf_strict_elf,test_sbpf_strict_elf,fd_ballet fd_util)
 $(call run-unit-test,test_sbpf_loader)
 $(call run-unit-test,test_sbpf_elf_peek)
+$(call run-unit-test,test_sbpf_strict_elf)
 $(call make-fuzz-test,fuzz_sbpf_loader,fuzz_sbpf_loader,fd_ballet fd_util)
 endif

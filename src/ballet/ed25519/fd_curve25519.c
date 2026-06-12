@@ -50,6 +50,11 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
     return NULL;
   }
 
+  /* Note: RFC 8032 Section 5.1.3 says "if x=0 and x_0=1, decoding
+     fails", but Dalek does not enforce this — neg(0)==0 so it silently
+     accepts the point.  We match Dalek for compatibility.
+     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L194-L240
+     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L193-L209 */
   if( fd_f25519_sgn(x)!=expected_x_sign ) { /* 50% prob */
     fd_f25519_neg( x, x );
   }
@@ -235,17 +240,6 @@ fd_ed25519_multi_scalar_mul( fd_ed25519_point_t *     r,
   }
 
   return r;
-}
-
-fd_ed25519_point_t *
-fd_ed25519_multi_scalar_mul_base( fd_ed25519_point_t *     r,
-                                  uchar const              n[], /* sz * 32 */
-                                  fd_ed25519_point_t const a[], /* sz */
-                                  ulong const              sz ) {
-  if (sz > FD_BALLET_CURVE25519_MSM_BATCH_SZ) {
-    return NULL;
-  }
-  return fd_ed25519_multi_scalar_mul_with_opts( r, n, a, sz, 1 );
 }
 
 /*

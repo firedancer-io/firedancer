@@ -1,14 +1,15 @@
 #include "fd_keyload.h"
-#include "fd_keyguard.h"
 
+#include <setjmp.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
 #define TEST_FORK_OK(child) do {                            \
     pid_t pid = fork();                                     \
-    if ( pid ) {                                            \
+    if( pid ) {                                             \
       int wstatus;                                          \
       FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) ); \
       FD_TEST( WIFEXITED( wstatus ) );                      \
@@ -37,7 +38,7 @@ test_protected_pages( void ) {
   }
 
   pid = fork();
-  if ( pid ) {
+  if( pid ) {
     int wstatus;
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSEGV );
@@ -59,59 +60,139 @@ test_protected_pages( void ) {
   for( ulong i=0UL; i<4096UL; i++ ) FD_TEST( allocated[i]==1 );
 }
 
+/* tmp_key_file creates a new (unprotected) key file with random bytes.
+   tmp_key_file1 is a variant with chosen bytes.
 
-void test_vote_txn_oob( void ) {
-  uchar data[172];
-  memset( data, 0, sizeof(data) );
+   Returns a pointer to the cstr file path, which is valid until the
+   next call to tmp_key_file or tmp_key_file1.
 
-  data[0] = 2;    /* signer_cnt */
-  data[1] = 1;    /* ro_signed_cnt = signer_cnt - 1 */
-  data[2] = 1;    /* ro_unsigned_cnt */
-  data[3] = 4;    /* acc_cnt (compact_u16, 1 byte) */
+   The caller is responsible for deleting this file. */
 
-  fd_keyguard_authority_t authority;
-  memset( &authority, 0xAA, sizeof(authority) );
-  memcpy( data + 4, authority.identity_pubkey, 32 );
+static char const *
+tmp_key_file1( uchar const content[ 64 ] ) {
+  char json[ 512 ];
+  char * p = fd_cstr_init( json );
+  p = fd_cstr_append_char( p, '[' );
+  for( ulong i=0UL; i<64UL; i++ ) {
+    if( i ) p = fd_cstr_append_char( p, ',' );
+    p = fd_cstr_append_uchar_as_text( p, 0, 0, (uchar)content[ i ], fd_uint_base10_dig_cnt( content[ i ] ) );
+  }
+  p = fd_cstr_append_char( p, ']' );
+  ulong len = (ulong)( p-json );
+  fd_cstr_fini( p );
 
-  /* account 3, vote program id */
-  uchar vote_prog_id[32] = {
-    0x07, 0x61, 0x48, 0x1d, 0x35, 0x74, 0x74, 0xbb,
-    0x7c, 0x4d, 0x76, 0x24, 0xeb, 0xd3, 0xbd, 0xb3,
-    0xd8, 0x35, 0x5e, 0x73, 0xd1, 0x10, 0x43, 0xfc,
-    0x0d, 0xa3, 0x53, 0x80, 0x00, 0x00, 0x00, 0x00
-  };
-  memcpy( data + 100, vote_prog_id, 32 );
+  static char path[ 28 ];
+  strcpy( path, "/tmp/fd_keyload_test_XXXXXX" );
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  FILE * f = fdopen( fd, "wb" );
+  FD_TEST( f );
+  FD_TEST( fwrite( json, 1, len, f )==len );
+  FD_TEST( !fclose( f ) );
+  return path;
+}
 
-  /* recent blockhash */
+static char const *
+tmp_key_file( void ) {
+  uchar content[ 64 ];
+  FD_TEST( fd_rng_secure( content, 32 ) );
+  fd_sha512_t sha[1];
+  fd_ed25519_public_from_private( content+32, content, sha );
+  return tmp_key_file1( content );
+}
 
-  data[164] = 1;  /* instr_cnt = 1 (compact_u16, 1 byte) */
-  data[165] = 3;  /* index of vote program = acc_cnt - 1 */
-  data[166] = 2;  /* compact_u16 = 2, 1 byte */
+static sigjmp_buf segv_jmpbuf;
 
-  /* account indices for instruction (offsets 167, 168) */
-  data[167] = 0;
-  data[168] = 1;
+static void
+segfault_handler( int         signo,
+                  siginfo_t * info,
+                  void *      context ) {
+  (void)signo; (void)info; (void)context;
+  siglongjmp( segv_jmpbuf, 1 );
+}
 
-  data[169] = 0x80;  /* bit 7 set -> need at least 2 bytes */
-  data[170] = 0x80;  /* bit 7 set -> need 3 bytes */
-  data[171] = 0x01;  /* non-zero, upper bits clear -> valid 3-byte cu16 */
+void
+test_readonly( void ) {
+  char const * path = tmp_key_file();
+  uchar * key = (uchar *)fd_keyload_load( path, 0 );
+  FD_TEST( key );
+  FD_TEST( !unlink( path ) );
 
-  int res = fd_keyguard_payload_authorize(
-      &authority, data, sizeof(data),
-      FD_KEYGUARD_ROLE_TXSEND,
-      FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  struct sigaction sa = {0};
+  sa.sa_sigaction = segfault_handler;
+  sa.sa_flags     = SA_SIGINFO;
+  FD_TEST( !sigaction( SIGSEGV, &sa, NULL ) );
 
-  (void)res;
+  if( sigsetjmp( segv_jmpbuf, 0 )==0 ) {
+    FD_VOLATILE( key[0] ) = 1;
+    FD_COMPILER_MFENCE();
+    FD_LOG_ERR(( "Write to readonly key page did not segfault" ));
+  }
+
+  FD_TEST( signal( SIGSEGV, SIG_DFL )!=SIG_ERR );
+  fd_keyload_unload( key, 0 );
+}
+
+void
+test_madvise( void ) {
+  /* Query /proc/self/smaps to verify that madvise applied as intended
+
+     smaps format is as follows:
+
+     55555555a000-55555555c000 r--p 00006000 fd:01 537351138                  /usr/bin/bla
+     Size:                  8 kB
+     KernelPageSize:        4 kB
+     MMUPageSize:           4 kB
+     ...
+     VmFlags: rd mr mw me sd */
+
+  char const * path = tmp_key_file();
+  uchar const * key = fd_keyload_load( path, 0 );
+  FD_TEST( key );
+  FD_TEST( !unlink( path ) );
+
+  FILE * maps = fopen( "/proc/self/smaps", "r" );
+  FD_TEST( maps );
+  char line[ 4096 ];
+
+  /* Scan until we find a matching region */
+  for(;;) {
+    FD_TEST( fgets( line, sizeof(line), maps ) );
+    ulong start, end;
+    if( FD_UNLIKELY( sscanf( line, "%lx-%lx", &start, &end )!=2 ) ) continue;
+    if( (void *)start==key ) break;
+  }
+
+  /* Now scan for VmFlags */
+  struct {
+    uint dd:1;
+    uint wf:1;
+  } flags = {0};
+  for(;;) {
+    FD_TEST( fgets( line, sizeof(line), maps ) );
+    if( strncmp( line, "VmFlags: ", 9 )!=0 ) continue;
+    char * tokens[ 16 ];
+    ulong flag_cnt = fd_cstr_tokenize( tokens, 16, line+9, ' ' );
+    for( ulong i=0UL; i<flag_cnt; i++ ) {
+      if( strncmp( tokens[ i ], "dd", 2 )==0 ) flags.dd = 1;
+      if( strncmp( tokens[ i ], "wf", 2 )==0 ) flags.wf = 1;
+    }
+    break;
+  }
+  if( FD_UNLIKELY( !flags.dd ) ) FD_LOG_ERR(( "key page missing MADV_DONTDUMP" ));
+  if( FD_UNLIKELY( !flags.wf ) ) FD_LOG_ERR(( "key page missing MADV_WIPEONFORK" ));
+
+  fd_keyload_unload( key, 0 );
+  FD_TEST( !fclose( maps ) );
 }
 
 int
 main( int     argc,
       char ** argv ) {
   fd_log_private_boot( &argc, &argv );
-
-  FD_LOG_NOTICE(( "test_protected_pages.." ));
   test_protected_pages();
-  test_vote_txn_oob();
+  test_readonly();
+  test_madvise();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

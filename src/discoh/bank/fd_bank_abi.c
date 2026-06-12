@@ -1,10 +1,11 @@
-
 #include "fd_bank_abi.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/runtime/fd_alut.h"
 #include "../../disco/pack/fd_pack_unwritable.h"
 #include "../../disco/pack/fd_compute_budget_program.h"
+
+#include <stddef.h>
 
 #define ABI_ALIGN( x ) __attribute__((packed)) __attribute__((aligned(x)))
 
@@ -253,6 +254,7 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
       ushort num_non_compute_budget_instructions;
       ushort num_non_migratable_builtin_instructions;
       ushort num_non_builtin_instructions;
+      ushort migrating_builtin[1]; /* the vote program */
     } compute_budget_instruction_details;
 
     uchar _message_hash[ 32 ]; /* with the same value as message_hash */
@@ -357,20 +359,11 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
 
     if( FD_UNLIKELY( (data_sz<56UL) | (data_sz>(56UL+256UL*32UL)) ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
-    fd_bincode_decode_ctx_t bincode = {
-      .data    = data,
-      .dataend = data+data_sz,
-    };
+    fd_alut_meta_t meta;
+    result = fd_alut_state_decode( data, data_sz, &meta );
+    if( FD_UNLIKELY( result ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
-    ulong total_sz = 0UL;
-    result = fd_address_lookup_table_state_decode_footprint( &bincode, &total_sz );
-    if( FD_UNLIKELY( result!=FD_BINCODE_SUCCESS ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
-
-    fd_address_lookup_table_state_t table[1];
-    fd_address_lookup_table_state_decode( table, &bincode );
-
-    result = fd_address_lookup_table_state_is_lookup_table( table );
-    if( FD_UNLIKELY( !result ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED;
+    if( FD_UNLIKELY( meta.discriminant!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED;
 
     if( FD_UNLIKELY( (data_sz-56UL)%32UL ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
@@ -384,12 +377,12 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
        fraction of transactions that could actually still be valid
        (those deactivated between 512 and 512*(1+skip_rate) slots ago. */
 
-    ulong deactivation_slot = table->inner.lookup_table.meta.deactivation_slot;
+    ulong deactivation_slot = meta.deactivation_slot;
     if( FD_UNLIKELY( deactivation_slot!=ULONG_MAX && (deactivation_slot+512UL)<slot ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_NOT_FOUND;
 
-    ulong active_addresses_len = fd_ulong_if( slot>table->inner.lookup_table.meta.last_extended_slot,
+    ulong active_addresses_len = fd_ulong_if( slot>meta.last_extended_slot,
                                               addresses_len,
-                                              table->inner.lookup_table.meta.last_extended_slot_start_index );
+                                              meta.last_extended_slot_start_index );
     for( ulong j=0UL; j<lut->writable_cnt; j++ ) {
       uchar idx = payload[ lut->writable_off+j ];
       if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
@@ -432,7 +425,7 @@ typedef struct {
 #define MAP_PERFECT_0  ( KECCAK_SECP_PROG_ID     ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_1  ( ED25519_SV_PROG_ID      ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_2  ( SECP256R1_PROG_ID       ), .category=CATEGORY_NON_BUILTIN /* strange, but true */
-#define MAP_PERFECT_3  ( VOTE_PROG_ID            ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_3  ( VOTE_PROG_ID            ), .category=CATEGORY_MIGRATING(0) /* SIMD-0387 */
 #define MAP_PERFECT_4  ( SYS_PROG_ID             ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_5  ( COMPUTE_BUDGET_PROG_ID  ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .category=CATEGORY_NON_MIGRATABLE
@@ -478,7 +471,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
 
 
   ulong sig_counters[4] = { 0UL };
-  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, stake program */
+  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, vote program */
 
   fd_compute_budget_program_state_t cbp_state[1];
   fd_compute_budget_program_init( cbp_state );
@@ -513,6 +506,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
   out_txn->compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
   out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
+  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
   /* The instruction index doesn't matter */
 #define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
   do {                                                                                                                    \

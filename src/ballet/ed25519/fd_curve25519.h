@@ -139,7 +139,8 @@ fd_ed25519_scalar_validate( uchar const n[ 32 ] ) {
 }
 
 /* fd_ed25519_scalar_mul computes r = n * a, and returns r.
-   n is a scalar. */
+   n is a scalar.
+   Precondition: a must be affine (Z==1). */
 fd_ed25519_point_t *
 fd_ed25519_scalar_mul( fd_ed25519_point_t *       r,
                        uchar const                n[ 32 ],
@@ -152,8 +153,9 @@ fd_ed25519_point_t * FD_FN_SENSITIVE
 fd_ed25519_scalar_mul_base_const_time( fd_ed25519_point_t * r,
                                        uchar const          n[ 32 ] ); /* can be a secret */
 
-/* fd_ed25519_scalar_mul computes r = n1 * a + n2 * P, and returns r.
-   n1, n2 are scalars. P is the base point. */
+/* fd_ed25519_double_scalar_mul_base computes r = n1 * a + n2 * P, and returns r.
+   n1, n2 are scalars. P is the base point.
+   Precondition: a must be affine (Z==1). */
 fd_ed25519_point_t *
 fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
                                    uchar const                n1[ 32 ],
@@ -161,21 +163,15 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
                                    uchar const                n2[ 32 ] );
 
 /* fd_ed25519_multi_scalar_mul computes r = n0 * a0 + n1 * a1 + ..., and returns r.
-   n is a vector of sz scalars. a is a vector of sz points. */
+   n is a vector of sz scalars. a is a vector of sz points.
+   Precondition: all points in a[] must be affine (Z==1), e.g. from
+   fd_ed25519_point_frombytes.  Passing projective points (Z!=1) will
+   produce silently wrong results. */
 fd_ed25519_point_t *
 fd_ed25519_multi_scalar_mul( fd_ed25519_point_t *     r,
                              uchar const              n[], /* sz * 32 */
                              fd_ed25519_point_t const a[],  /* sz */
                              ulong const              sz );
-
-/* fd_ed25519_multi_scalar_mul computes r = n0 * B + n1 * a1 + ..., and returns r.
-   n is a vector of sz scalars. a is a vector of sz points.
-   the first point is ignored, and the base point is used instead. */
-fd_ed25519_point_t *
-fd_ed25519_multi_scalar_mul_base( fd_ed25519_point_t *     r,
-                                  uchar const              n[], /* sz * 32 */
-                                  fd_ed25519_point_t const a[],  /* sz */
-                                  ulong const              sz );
 
 /* fd_ed25519_point_frombytes deserializes a 32-byte buffer buf into a
    point r, and returns r (on success, NULL on error).

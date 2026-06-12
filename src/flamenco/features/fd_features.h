@@ -2,9 +2,8 @@
 #define HEADER_fd_src_flamenco_features_fd_features_h
 
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
 #include "fd_features_generated.h"
-#include "../accdb/fd_accdb_user.h"
+#include "../accdb/fd_accdb.h"
 
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
@@ -25,11 +24,11 @@
 
 #define FD_FEATURE_SET_ACTIVE(_features, _feature_name, _slot)            ( (_features)-> _feature_name = _slot )
 #define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( (_bank)->f.slot, &(_bank)->f.features, _offset )
 #define FD_FEATURE_ACTIVE(_slot, _features, _feature_name)                FD_FEATURE_ACTIVE_( _slot, _features, _feature_name )
-#define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
-#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
-#define FD_FEATURE_JUST_ACTIVATED_BANK(_bank, _feature_name)              FD_FEATURE_JUST_ACTIVATED_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
+#define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( (_bank)->f.slot, &(_bank)->f.features, _feature_name )
+#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( (_bank)->f.slot, &(_bank)->f.features, _offset )
+#define FD_FEATURE_JUST_ACTIVATED_BANK(_bank, _feature_name)              FD_FEATURE_JUST_ACTIVATED_( (_bank)->f.slot, &(_bank)->f.features, _feature_name )
 
 struct __attribute__((packed)) fd_feature {
   uchar is_active;  /* 0 or 1 */
@@ -166,9 +165,8 @@ fd_feature_id_query( ulong prefix );
    also be populated with slot+1 as their activation slot. */
 
 void
-fd_features_restore( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid );
+fd_features_restore( fd_bank_t *  bank,
+                     fd_accdb_t * accdb );
 
 FD_PROTOTYPES_END
 

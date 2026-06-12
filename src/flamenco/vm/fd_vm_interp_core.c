@@ -92,16 +92,16 @@
 #define FD_RUST_LONG_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 63 ) ))
 
 
-# define FD_VM_INTERP_INSTR_EXEC                                                                 \
-  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
-  instr   = text[ pc ];                  /* Guaranteed in-bounds */                              \
-  opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                      \
-  dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                      \
-  src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                      \
-  offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                 \
-  imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
-  reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
-  reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
+# define FD_VM_INTERP_INSTR_EXEC                                                                                    \
+  if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost; /* Note: untaken branches don't consume BTB */ \
+  instr   = text[ pc ];                  /* Guaranteed in-bounds */                                                 \
+  opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                                         \
+  dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                                         \
+  src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                                         \
+  offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                                    \
+  imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                                        \
+  reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                                                 \
+  reg_src = reg[ src ];                  /* Guaranteed in-bounds */                                                 \
   goto *version_interp_jump_table[ opcode ]      /* Guaranteed in-bounds */
 
 /* FD_VM_INTERP_SYSCALL_EXEC
@@ -155,15 +155,12 @@
    At this point, cu is positive and err is clear.
 */
 
-# if FD_HAS_FLATCC
 # define FD_VM_INTERP_SYSCALL_EXEC_DUMP                                       \
   /* Dumping for debugging purposes */                                        \
   if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
     fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
   }
-# else
-# define FD_VM_INTERP_SYSCALL_EXEC_DUMP
-# endif
+
 # define FD_VM_INTERP_SYSCALL_EXEC                                            \
   /* Setup */                                                                 \
   vm->pc        = pc;                                                         \
@@ -233,6 +230,30 @@
   ulong pc0           = pc;
   ulong ic_correction = 0UL;
 
+  /* Compute the text limit for a basic block. This bounds the number
+     of instructions that the basic block can execute linearly.
+
+     There are two factors: the remaining CU budget as of the start of
+     the basic block, and the text_cnt. The tightest bound is the
+     lesser of the two.
+
+     We use 2*(the remaining CU budget) because each LDDW instruction
+     costs 1 CU, but occupies two text words, so in the worst case (a
+     block full of LDDW instructions) the block text limit should be
+     doubled.
+
+     It is safe to not use saturating addition here.  Both addends are
+     bounded far below ULONG_MAX before any block executes:
+
+       pc0 <= text_cnt <= 1310720 (see fd_sbpf_loader.h)
+       cu  <= 1400000             (FD_MAX_COMPUTE_UNIT_LIMIT)
+
+       pc0 + cu + cu + 1 < 1310720 + 1400000 + 1400000 + 1 < ULONG_MAX */
+
+# define FD_VM_INTERP_BLOCK_TEXT_LIMIT fd_ulong_min( text_cnt, pc0+cu+cu+1UL )
+
+  ulong block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT;
+
 # define FD_VM_INTERP_BRANCH_BEGIN(opcode)                                                              \
   interp_##opcode:                                                                                      \
     /* Bill linear text segment and this branch instruction as per the above */                         \
@@ -247,15 +268,17 @@
      instruction implementations do it in their code path. */
 
 # ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~4% faster in some benchmarks, slower in others but more code footprint */
-# define FD_VM_INTERP_BRANCH_END               \
-    pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
+# define FD_VM_INTERP_BRANCH_END                      \
+    pc++;                                             \
+    pc0 = pc; /* Start a new linear segment */        \
+    block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT; \
     FD_VM_INTERP_INSTR_EXEC
 # else /* Use this version when tracing or optimizing code footprint */
-# define FD_VM_INTERP_BRANCH_END               \
-    pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
-    /* FIXME: TEST sigsplit HERE */            \
+# define FD_VM_INTERP_BRANCH_END                      \
+    pc++;                                             \
+    pc0 = pc; /* Start a new linear segment */        \
+    block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT; \
+    /* FIXME: TEST sigsplit HERE */                   \
     goto interp_exec
 # endif
 
@@ -283,16 +306,15 @@
 
   /* FIXME: unvalidated code mucking with r10 */
 
-# define FD_VM_INTERP_STACK_PUSH                                                                             \
-  shadow[ frame_cnt ].r6  = reg[6];                                                                          \
-  shadow[ frame_cnt ].r7  = reg[7];                                                                          \
-  shadow[ frame_cnt ].r8  = reg[8];                                                                          \
-  shadow[ frame_cnt ].r9  = reg[9];                                                                          \
-  shadow[ frame_cnt ].r10 = reg[10];                                                                         \
-  shadow[ frame_cnt ].pc  = pc;                                                                              \
-  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */  \
-  if( !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) ) reg[10] += FD_VM_STACK_FRAME_SZ * 2UL;         \
-
+# define FD_VM_INTERP_STACK_PUSH                                                                            \
+  shadow[ frame_cnt ].r6  = reg[6];                                                                         \
+  shadow[ frame_cnt ].r7  = reg[7];                                                                         \
+  shadow[ frame_cnt ].r8  = reg[8];                                                                         \
+  shadow[ frame_cnt ].r9  = reg[9];                                                                         \
+  shadow[ frame_cnt ].r10 = reg[10];                                                                        \
+  shadow[ frame_cnt ].pc  = pc;                                                                             \
+  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
+  reg[10]                += vm->stack_frame_sz * vm->stack_push_frame_count;                                \
   /* We subtract the heap cost in the BPF loader */
 
   goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
@@ -302,7 +324,7 @@ interp_exec:
   /* Note: when tracing or optimizing for code footprint, all
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
-  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext;
+  if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost;
   fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
 # endif
 
@@ -701,7 +723,7 @@ interp_exec:
        (*)but after checking calldests, see point below. */
 
       /* Agave's order of checks
-         (https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L486):
+         (https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L565-L572):
           1. Lookup imm hash in FunctionRegistry (calldests_test is our equivalent)
           2. Push stack frame
           3. Check PC
@@ -736,6 +758,31 @@ interp_exec:
       FD_VM_INTERP_SYSCALL_EXEC;
 
     }
+  } FD_VM_INTERP_BRANCH_END;
+
+  /* SIMD-0178: Static syscalls (SBPF V3+)
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L542-L577 */
+  FD_VM_INTERP_BRANCH_BEGIN(0x85_static) { /* FD_SBPF_OP_CALL_IMM (static syscalls) */
+
+    if( src == 0 ) {
+      /* External syscall
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L545-L553 */
+      fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
+      if( FD_UNLIKELY( !syscall ) ) goto sigillbr;
+      FD_VM_INTERP_SYSCALL_EXEC;
+    } else if( src == 1 ) {
+      /* Internal call
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L555-L563
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L97-L103 */
+      long target_pc_l = fd_long_sat_add( (long)pc, fd_long_sat_add( (long)(int)imm, 1L ) );
+      if( FD_UNLIKELY( target_pc_l<0L || (ulong)target_pc_l>=text_cnt ) ) goto sigillbr;
+      FD_VM_INTERP_STACK_PUSH;
+      pc = (ulong)target_pc_l - 1;
+    } else {
+      /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L574-L576 */
+      goto sigillbr;
+    }
+
   } FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x86) /* FD_SBPF_OP_LMUL32_IMM */
@@ -777,7 +824,10 @@ interp_exec:
 
     FD_VM_INTERP_STACK_PUSH;
 
-    ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_version ) ? reg_src : reg[ imm & 15U ];
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L528-L540 */
+    ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_version ) ? reg_src
+                : fd_sbpf_callx_uses_dst_reg_enabled( sbpf_version ) ? reg[ dst ]
+                : reg[ imm & 15U ];
 
     /* Notes: Agave checks region and target_pc before updating the pc.
        To match their state, we do the same, even though we could simply
@@ -1066,6 +1116,99 @@ interp_exec:
     reg[ dst ] = (ulong)( (long)reg_dst % (long)reg_src );
   FD_VM_INTERP_INSTR_END;
 
+  /* SIMD-0377: JMP32
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L480-L501
+
+     0x16 - 0xde ******************************************************/
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x16_jmp32) /* FD_SBPF_OP_JEQ32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst==(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x1e_jmp32) /* FD_SBPF_OP_JEQ32_REG */
+    pc += fd_ulong_if( (uint)reg_dst==(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x26_jmp32) /* FD_SBPF_OP_JGT32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst>(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x2e_jmp32) /* FD_SBPF_OP_JGT32_REG */
+    pc += fd_ulong_if( (uint)reg_dst>(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x36_jmp32) /* FD_SBPF_OP_JGE32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst>=(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x3e_jmp32) /* FD_SBPF_OP_JGE32_REG */
+    pc += fd_ulong_if( (uint)reg_dst>=(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x46_jmp32) /* FD_SBPF_OP_JSET32_IMM */
+    pc += fd_ulong_if( !!((uint)reg_dst & (uint)imm), offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x4e_jmp32) /* FD_SBPF_OP_JSET32_REG */
+    pc += fd_ulong_if( !!((uint)reg_dst & (uint)reg_src), offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x56_jmp32) /* FD_SBPF_OP_JNE32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst!=(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x5e_jmp32) /* FD_SBPF_OP_JNE32_REG */
+    pc += fd_ulong_if( (uint)reg_dst!=(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x66_jmp32) /* FD_SBPF_OP_JSGT32_IMM */
+    pc += fd_ulong_if( (int)reg_dst>(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x6e_jmp32) /* FD_SBPF_OP_JSGT32_REG */
+    pc += fd_ulong_if( (int)reg_dst>(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x76_jmp32) /* FD_SBPF_OP_JSGE32_IMM */
+    pc += fd_ulong_if( (int)reg_dst>=(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x7e_jmp32) /* FD_SBPF_OP_JSGE32_REG */
+    pc += fd_ulong_if( (int)reg_dst>=(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xa6_jmp32) /* FD_SBPF_OP_JLT32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst<(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xae_jmp32) /* FD_SBPF_OP_JLT32_REG */
+    pc += fd_ulong_if( (uint)reg_dst<(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xb6_jmp32) /* FD_SBPF_OP_JLE32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst<=(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xbe_jmp32) /* FD_SBPF_OP_JLE32_REG */
+    pc += fd_ulong_if( (uint)reg_dst<=(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xc6_jmp32) /* FD_SBPF_OP_JSLT32_IMM */
+    pc += fd_ulong_if( (int)reg_dst<(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xce_jmp32) /* FD_SBPF_OP_JSLT32_REG */
+    pc += fd_ulong_if( (int)reg_dst<(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xd6_jmp32) /* FD_SBPF_OP_JSLE32_IMM */
+    pc += fd_ulong_if( (int)reg_dst<=(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xde_jmp32) /* FD_SBPF_OP_JSLE32_REG */
+    pc += fd_ulong_if( (int)reg_dst<=(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
   /* FIXME: sigbus/sigrdonly are mapped to sigsegv for simplicity
      currently but could be enabled if desired. */
 
@@ -1097,6 +1240,14 @@ interp_exec:
   if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; \
   cu -= fd_ulong_min( ic_correction, cu )
 
+sigtext_or_sigcost:
+  /* If the block text limit is exceeded, sigtext_or_sigcost will be
+     thrown. This could either be because the pc has exceeded the text
+     section, or we have exhausted our CU budget. The block text limit
+     is used to combine both of these checks into one, primarily for
+     performance reasons. We then disambiguate the scenarios in this
+     signal handler, as hitting either of these cases is rare. */
+  if( pc<text_cnt ) goto sigcost; else goto sigtext;
 sigtext:     err = FD_VM_ERR_EBPF_EXECUTION_OVERRUN;                                     FD_VM_INTERP_FAULT;                    goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT;                             /* ic current */     /* cu current */  goto interp_halt;
 sigstack:    err = FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED;                                   /* ic current */     /* cu current */  goto interp_halt;
@@ -1126,6 +1277,8 @@ interp_halt:
 
 # undef FD_VM_INTERP_BRANCH_END
 # undef FD_VM_INTERP_BRANCH_BEGIN
+
+# undef FD_VM_INTERP_BLOCK_TEXT_LIMIT
 
 # undef FD_VM_INTERP_INSTR_END
 # undef FD_VM_INTERP_INSTR_BEGIN

@@ -1,19 +1,22 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
-#include "../fd_accdb_topo.h"
 
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../tango/fseq/fd_fseq.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -21,19 +24,18 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <math.h> /* floor, isfinite */
+#include <string.h>
 
 #if FD_HAS_ZSTD
 #include <zstd.h>
 #endif
 
-#if FD_HAS_BZIP2
 #include "../../util/archive/fd_tar.h"
-#include <bzlib.h>
-#endif
+#include "../../ballet/bzip2/bzlib.h"
 
 #include "generated/fd_rpc_tile_seccomp.h"
 
-#define FD_RPC_AGAVE_API_VERSION "3.1.8"
+#define FD_RPC_AGAVE_API_VERSION "4.0.0-beta.6"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
@@ -48,6 +50,8 @@
 */
 #define FD_RPC_TAR_SZ (FD_GENESIS_MAX_MESSAGE_SIZE + 4UL*512UL)
 #define FD_RPC_TAR_BZ_SZ (FD_RPC_TAR_SZ + ((FD_RPC_TAR_SZ + 100UL - 1UL) / 100UL) + 600UL)
+
+#define FD_RPC_BASE58_ENCODED_128_LEN (175UL) /* ceil(128*log58(256)) */
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -141,6 +145,15 @@
 static void fd_rpc_cstr_cJSON_free( char ** p ) { cJSON_free( *p ); }
 #define CSTR_JSON(__json, __out) __attribute__((cleanup(fd_rpc_cstr_cJSON_free))) char * __out = cJSON_PrintUnformatted( __json );
 
+/* Like CSTR_JSON, but strips the surrounding quotes from a string
+   node's JSON representation. */
+#define CSTR_JSON_UNQUOTED(__json, __out)                                  \
+  CSTR_JSON( (__json), __out##_quoted_ );                                  \
+  ulong __out##_len_ = __out##_quoted_ ? strlen( __out##_quoted_ ) : 0;    \
+  if( FD_LIKELY( __out##_len_>=2 ) )                                       \
+    __out##_quoted_[ __out##_len_ - 1 ] = '\0';                            \
+  char const * (__out) = __out##_len_>=2 ? __out##_quoted_ + 1 : ""
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
   return (fd_http_server_params_t) {
@@ -176,6 +189,7 @@ typedef struct fd_rpc_out fd_rpc_out_t;
 struct bank_info {
   ulong slot; /* default ULONG_MAX */
   ulong bank_idx;
+  fd_accdb_fork_id_t accdb_fork_id;
   ulong epoch;
   ulong slot_in_epoch;
   ulong slots_per_epoch;
@@ -218,6 +232,7 @@ typedef struct fd_rpc_cluster_node fd_rpc_cluster_node_t;
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_rpc_tile {
+  int delay_startup;
   fd_http_server_t * http;
 
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
@@ -225,6 +240,8 @@ struct fd_rpc_tile {
 
   bank_info_t * banks;
   ulong         max_live_slots;
+
+  fd_accdb_t * accdb;
 
   ulong cluster_confirmed_slot;
 
@@ -239,13 +256,9 @@ struct fd_rpc_tile {
   uchar genesis_tar_bz[ FD_RPC_TAR_BZ_SZ ];
   ulong genesis_tar_bz_sz;
 
-# if FD_HAS_BZIP2
   fd_alloc_t * bz2_alloc;
-# endif
 
   long next_poll_deadline;
-
-  char version_string[ 16UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -255,16 +268,20 @@ struct fd_rpc_tile {
 
   fd_rpc_out_t replay_out[1];
 
-  fd_accdb_user_t accdb[1];
+  fd_histf_t request_duration[ 1 ];
 
 # if FD_HAS_ZSTD
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
 # endif
+
+  /* Scratch buffer for fd_accdb_read_one_nocache: holds the account
+     data bytes returned by the readonly accdb path.  Sized to the
+     runtime account data maximum.  Must not be in accdb shmem. */
+  uchar accdb_data_buf[ FD_RUNTIME_ACC_SZ_MAX ];
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
 
-# if FD_HAS_BZIP2
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -335,7 +352,6 @@ fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
 
   return tar_bz_sz;
 }
-# endif
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -344,10 +360,11 @@ scratch_align( void ) {
   a = fd_ulong_max( a, fd_alloc_align() );
   a = fd_ulong_max( a, alignof(bank_info_t) );
   a = fd_ulong_max( a, fd_rpc_cluster_node_dlist_align() );
+  a = fd_ulong_max( a, fd_accdb_align() );
   return a;
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong http_fp = fd_http_server_footprint( derive_http_params( tile ) );
   if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.rpc] config parameters" ));
@@ -356,11 +373,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                      );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
-#if FD_HAS_BZIP2
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
-#endif
   l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t) );
   l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -377,6 +393,13 @@ during_housekeeping( fd_rpc_tile_t * ctx ) {
   }
 }
 
+static inline void
+metrics_write( fd_rpc_tile_t * ctx ) {
+  FD_MHIST_COPY( RPC, REQUEST_DURATION_SECONDS, ctx->request_duration );
+  FD_MGAUGE_SET( RPC, CONN_ACTIVE, ctx->http->metrics.connection_cnt );
+  FD_ACCDB_METRICS_WRITE_RO( RPC, fd_accdb_metrics( ctx->accdb ) );
+}
+
 static void
 before_credit( fd_rpc_tile_t *     ctx,
                fd_stem_context_t * stem,
@@ -384,7 +407,8 @@ before_credit( fd_rpc_tile_t *     ctx,
   (void)stem;
 
   long now = fd_tickcount();
-  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+  int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
+  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
     *charge_busy = fd_http_server_poll( ctx->http, 0 );
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
   }
@@ -420,8 +444,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_SLOT_COMPLETED: {
         fd_replay_slot_completed_t const * slot_completed = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
+        FD_TEST( slot_completed->bank_idx<ctx->max_live_slots );
         bank_info_t * bank = &ctx->banks[ slot_completed->bank_idx ];
         bank->slot = slot_completed->slot;
+        bank->accdb_fork_id = slot_completed->accdb_fork_id;
         bank->epoch = slot_completed->epoch;
         bank->slot_in_epoch = slot_completed->slot_in_epoch;
         bank->slots_per_epoch = slot_completed->slots_per_epoch;
@@ -459,6 +485,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_OC_ADVANCED: {
         fd_replay_oc_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->confirmed_idx = msg->bank_idx;
         ctx->cluster_confirmed_slot = msg->slot;
         break;
@@ -466,6 +493,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_ROOT_ADVANCED: {
         fd_replay_root_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
         break;
       }
@@ -490,10 +518,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       }
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
         if( FD_UNLIKELY( update->contact_info_remove->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", update->contact_info_remove->idx, FD_CONTACT_INFO_TABLE_SIZE ));
-        fd_rpc_cluster_node_t * node = &ctx->cluster_nodes[ update->contact_info->idx ];
+        fd_rpc_cluster_node_t * node = &ctx->cluster_nodes[ update->contact_info_remove->idx ];
         FD_TEST( node->valid );
         node->valid = 0;
-        fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info->idx, ctx->cluster_nodes );
+        fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info_remove->idx, ctx->cluster_nodes );
         break;
       }
       default: break;
@@ -503,7 +531,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     *ctx->genesis_hash = genesis_meta->genesis_hash;
 
-#   if FD_HAS_BZIP2
     uchar const * blob    = (uchar const *)( genesis_meta+1 );
     ulong const   blob_sz = genesis_meta->blob_sz;
     FD_TEST( blob_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
@@ -514,7 +541,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       blob, blob_sz,
       ctx->genesis_tar, sizeof(ctx->genesis_tar),
       ctx->genesis_tar_bz, sizeof(ctx->genesis_tar_bz) );
-#   endif
   }
 
   return 0;
@@ -647,8 +673,9 @@ fd_rpc_base58_encode_128( char * b58, ulong * b58sz, const void *data, ulong bin
 
   while( zcount<binsz && !bin[ zcount ] ) zcount++;
 
-  size = (binsz-zcount)*138/100+1;
-  uchar buf[ 175UL ] = { 0 };
+  size = (binsz-zcount)*138/100+1; /* strict overestimate */
+  size = fd_ulong_min( size, FD_RPC_BASE58_ENCODED_128_LEN ); /* theoretical max */
+  uchar buf[ FD_RPC_BASE58_ENCODED_128_LEN ] = { 0 };
 
   for( i=zcount, high=size-1UL; i<binsz; i++, high=j ) {
     for( carry=bin[ i ], j=size-1UL; (j>high) || carry; j-- ) {
@@ -694,8 +721,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     return 0;
   }
   if( FD_UNLIKELY( config && cJSON_IsString( config ) ) ) {
-    CSTR_JSON( id, id_cstr );
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config->valuestring, config_rust_type, id_cstr );
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( config, config_esc );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config_esc, config_rust_type, id_cstr );
     return 0;
   }
   if( FD_UNLIKELY( cJSON_IsArray( config ) ) ) {
@@ -723,7 +750,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
   }
   if( FD_UNLIKELY( _bank_idx==ULONG_MAX ) ) {
     CSTR_JSON( id, id_cstr );
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
     return 0;
   }
   *bank_idx = _bank_idx;
@@ -756,8 +783,10 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       else if( cJSON_HasObjectItem( encoding, "base64+zstd" ) ) encoding_cstr = "base64+zstd";
       else if( cJSON_HasObjectItem( encoding, "jsonParsed" ) ) encoding_cstr = "jsonParsed";
       else {
-        CSTR_JSON( id, id_cstr );
-        *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding->child->string, id_cstr );
+        cJSON * _key_node = cJSON_CreateString( encoding->child->string );
+        CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _key_node, key_esc );
+        *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", key_esc, id_cstr );
+        cJSON_Delete( _key_node );
         return 0;
       }
     } else {
@@ -770,8 +799,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && cJSON_IsString( encoding->child ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), encoding->child->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( encoding->child, encoding_child_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), encoding_child_esc, id_cstr );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && !cJSON_IsNull( encoding->child ) ) ) {
@@ -785,12 +814,12 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":%s}\n", id_cstr );
       return 0;
     } else if( 0!=strcmp( encoding_cstr, "binary" ) && 0!=strcmp( encoding_cstr, "base58" ) && 0!=strcmp( encoding_cstr, "base64" ) && 0!=strcmp( encoding_cstr, "base64+zstd" ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_cstr, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( encoding, encoding_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_esc, id_cstr );
       return 0;
     }
 
-    *opt_encoding_cstr = encoding_cstr;
+    if( FD_LIKELY( opt_encoding_cstr ) ) *opt_encoding_cstr = encoding_cstr;
   }
 
   if( FD_LIKELY( has_data_slice ) ) {
@@ -802,8 +831,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsString( dataSlice ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), dataSlice->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( dataSlice, data_slice_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), data_slice_esc, id_cstr );
       return 0;
     }
     if( FD_UNLIKELY( dataSlice && !cJSON_IsObject( dataSlice ) && !cJSON_IsNull( dataSlice ) && !cJSON_IsArray( dataSlice ) ) ) {
@@ -848,13 +877,13 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( FD_UNLIKELY( cJSON_IsString( _offset ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), _offset->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _offset, offset_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), offset_esc, id_cstr );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsString( _length ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), _length->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _length, length_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), length_esc, id_cstr );
       return 0;
     }
 
@@ -887,11 +916,11 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( dataSlice && !cJSON_IsNull( dataSlice ) ) {
-      *opt_slice_offset = _offset ? _offset->valueulong : 0UL;
-      *opt_slice_length = _length ? _length->valueulong : ULONG_MAX;
+      if( FD_LIKELY( opt_slice_offset ) ) *opt_slice_offset = _offset ? _offset->valueulong : 0UL;
+      if( FD_LIKELY( opt_slice_length ) ) *opt_slice_length = _length ? _length->valueulong : ULONG_MAX;
     } else {
-      *opt_slice_offset = 0UL;
-      *opt_slice_length = ULONG_MAX;
+      if( FD_LIKELY( opt_slice_offset ) ) *opt_slice_offset = 0UL;
+      if( FD_LIKELY( opt_slice_length ) ) *opt_slice_length = ULONG_MAX;
     }
   }
 
@@ -911,8 +940,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( FD_UNLIKELY( cJSON_IsString( _minContextSlot ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), _minContextSlot->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _minContextSlot, min_ctx_slot_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), min_ctx_slot_esc, id_cstr );
       return 0;
     }
 
@@ -979,10 +1008,105 @@ X( fd_rpc_tile_t * ctx,                                \
 UNIMPLEMENTED(getBlock)
 UNIMPLEMENTED(getBlockCommitment)
 
+/* fd_rpc_encode_account_data encodes account data fields
+   (executable, lamports, owner, rentEpoch, space, data) into the http
+   staging buffer.  Returns 1 on success.  On failure, calls
+   fd_http_server_unstage and writes an error response into
+   err_response. */
+static int
+fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
+                            uchar const *               acct_data,
+                            ulong                       acct_data_len,
+                            uchar const *               acct_owner,
+                            ulong                       acct_lamports,
+                            int                         acct_executable,
+                            char const *                encoding_cstr,
+                            ulong                       slice_offset,
+                            ulong                       slice_length,
+                            char const *                id_cstr,
+                            fd_http_server_response_t * err_response ) {
+
+  int is_binary = !strcmp( encoding_cstr, "binary" );
+  int is_base58 = !strcmp( encoding_cstr, "base58" );
+  int is_zstd   = !strcmp( encoding_cstr, "base64+zstd" );
+
+  ulong data_sz        = acct_data_len;
+  uchar const * out    = acct_data + fd_ulong_if( slice_offset<data_sz, slice_offset, 0UL );
+  ulong         snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
+  ulong         out_sz  = snip_sz;
+
+  if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
+    fd_http_server_unstage( ctx->http );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+
+# if FD_HAS_ZSTD
+  if( is_zstd ) {
+    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, 0 );
+    if( ZSTD_isError( zstd_res ) ) {
+      fd_http_server_unstage( ctx->http );
+      *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
+      return 0;
+    }
+    out    = ctx->compress_buf;
+    out_sz = (ulong)zstd_res;
+  }
+# else
+  if( is_zstd ) {
+    fd_http_server_unstage( ctx->http );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+# endif
+
+  FD_BASE58_ENCODE_32_BYTES( acct_owner, owner_b58 );
+  fd_http_server_printf( ctx->http,
+      "{\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":%lu,\"data\":",
+      acct_executable ? "true" : "false",
+      acct_lamports,
+      owner_b58,
+      data_sz );
+
+  ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, FD_RPC_BASE58_ENCODED_128_LEN, FD_BASE64_ENC_SZ( out_sz ) );
+  if( FD_UNLIKELY( is_binary ) ) {
+    fd_http_server_printf( ctx->http, "\"" );
+  } else {
+    fd_http_server_printf( ctx->http, "[\"" );
+  }
+
+  uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );
+  if( FD_UNLIKELY( !encoded ) ) {
+    fd_http_server_unstage( ctx->http );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( is_base58 || is_binary ) ) {
+    if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, out, out_sz ) ) ) {
+      fd_http_server_unstage( ctx->http );
+      FD_LOG_WARNING(( "base58 encode failed out_sz=%lu", out_sz ));
+      *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encode failed\"},\"id\":%s}\n", id_cstr );
+      return 0;
+    }
+  } else {
+    encoded_sz = fd_base64_encode( (char *)encoded, out, out_sz );
+  }
+
+  fd_http_server_append_end( ctx->http, encoded_sz );
+
+  if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}" );
+  else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}", encoding_cstr );
+
+  return 1;
+}
+
 static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_ACCOUNT_INFO, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1008,91 +1132,27 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * info = &ctx->banks[ bank_idx ];
-  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
+  ulong acct_lamports;
+  int   acct_executable;
+  uchar acct_owner[ 32UL ];
+  ulong acct_data_len;
+  fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, address.uc,
+                             &acct_lamports, &acct_executable, acct_owner,
+                             ctx->accdb_data_buf, &acct_data_len );
+  if( FD_UNLIKELY( !acct_lamports ) ) {
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, id_cstr );
   }
 
-  ulong const data_sz = fd_accdb_ref_data_sz( ro );
-  uchar const * compressed    = (uchar const *)fd_accdb_ref_data_const( ro )+fd_ulong_if(slice_offset<data_sz, slice_offset, 0UL );
-  ulong         snip_sz       = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
-  ulong         compressed_sz = snip_sz;
-
-  int is_binary = !strncmp( encoding_cstr, "binary", strlen("binary") );
-  int is_base58 = !strncmp( encoding_cstr, "base58", strlen("base58") );
-  int is_zstd   = !strncmp( encoding_cstr, "base64+zstd", strlen("base64+zstd") );
-  if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
-  }
-
-# if FD_HAS_ZSTD
-  if( is_zstd ) {
-    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 0 );
-    if( ZSTD_isError( zstd_res ) ) {
-      fd_accdb_close_ro( ctx->accdb, ro );
-      CSTR_JSON( id, id_cstr );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
-    }
-    compressed    = ctx->compress_buf;
-    compressed_sz = (ulong)zstd_res;
-  }
-# else
-  if( is_zstd ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", id_cstr );
-  }
-# endif
-
-  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro ), owner_b58 );
   CSTR_JSON( id, id_cstr );
-  fd_http_server_printf( ctx->http,
-      "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":{"
-      "\"executable\":%s,"
-      "\"lamports\":%lu,"
-      "\"owner\":\"%s\","
-      "\"rentEpoch\":18446744073709551615,"
-      "\"space\":%lu,"
-      "\"data\":",
-      id_cstr,
-      FD_RPC_AGAVE_API_VERSION,
-      info->slot,
-      fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
-      fd_accdb_ref_lamports( ro ),
-      owner_b58,
-      data_sz );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":", id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
 
-  ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, 175UL, FD_BASE64_ENC_SZ( snip_sz ) );
-  if( FD_UNLIKELY( is_binary ) ) {
-    fd_http_server_printf( ctx->http, "\"" );
-  } else {
-    fd_http_server_printf( ctx->http, "[\"" );
+  fd_http_server_response_t err_response;
+  if( FD_UNLIKELY( !fd_rpc_encode_account_data( ctx, ctx->accdb_data_buf, acct_data_len, acct_owner, acct_lamports, acct_executable, encoding_cstr, slice_offset, slice_length, id_cstr, &err_response ) ) ) {
+    return err_response;
   }
 
-  uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
-  if( FD_UNLIKELY( !encoded ) ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: large accounts unsupported\"},\"id\":%s}\n", id_cstr );
-  }
-
-  if( FD_UNLIKELY( is_base58 || is_binary ) ) {
-    fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, compressed, compressed_sz );
-  } else {
-    encoded_sz = fd_base64_encode( (char *)encoded, compressed, compressed_sz );
-  }
-
-  fd_accdb_close_ro( ctx->accdb, ro );
-
-  fd_http_server_append_end( ctx->http, encoded_sz );
-
-  if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}}}\n" );
-  else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}}}\n", encoding_cstr );
-
+  fd_http_server_printf( ctx->http, "}}\n" );
   return STAGE_JSON( ctx );
 }
 
@@ -1100,6 +1160,8 @@ static fd_http_server_response_t
 getBalance( fd_rpc_tile_t * ctx,
             cJSON const *   id,
             cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BALANCE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1121,13 +1183,7 @@ getBalance( fd_rpc_tile_t * ctx,
                                              &response );
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
-  ulong balance = 0UL;
-  fd_funk_txn_xid_t xid = { .ul={ ctx->banks[ bank_idx ].slot, bank_idx } };
-  fd_accdb_ro_t ro[ 1 ];
-  if( FD_UNLIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
-    balance = fd_accdb_ref_lamports( ro );
-    fd_accdb_close_ro( ctx->accdb, ro );
-  }
+  ulong balance = fd_accdb_lamports( ctx->accdb, ctx->banks[ bank_idx ].accdb_fork_id, address.uc );
 
   CSTR_JSON( id, id_cstr );
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":%lu},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, ctx->banks[ bank_idx ].slot, balance, id_cstr );
@@ -1137,6 +1193,8 @@ static fd_http_server_response_t
 getBlockHeight( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_BLOCK_HEIGHT, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1167,6 +1225,8 @@ static fd_http_server_response_t
 getClusterNodes( fd_rpc_tile_t * ctx,
                  cJSON const *   id,
                  cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_CLUSTER_NODES, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1189,8 +1249,8 @@ getClusterNodes( fd_rpc_tile_t * ctx,
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC:               name = "rpc"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        name = "pubsub"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      name = "serveRepair"; break;
-        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = "tpu"; break;
-        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = "tpuForwards"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = NULL; break; /* Agave hardcodes tpu to null */
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = NULL; break; /* Agave hardcodes tpuForwards to null */
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: name = "tpuForwardsQuic"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC:          name = "tpuQuic"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE:          name = "tpuVote"; break;
@@ -1206,12 +1266,28 @@ getClusterNodes( fd_rpc_tile_t * ctx,
       if( FD_LIKELY( !!ip4 || !!ele->ci->sockets[ i ].port ) ) fd_http_server_printf( ctx->http, "\"%s\":\"" FD_IP4_ADDR_FMT ":%hu\",", name, FD_IP4_ADDR_FMT_ARGS( ip4 ), fd_ushort_bswap( ele->ci->sockets[ i ].port ) );
       else                                                     fd_http_server_printf( ctx->http, "\"%s\":null,", name );
     }
+    fd_http_server_printf( ctx->http, "\"tpu\":null,\"tpuForwards\":null," );
     fd_http_server_printf( ctx->http, "\"pubkey\":\"%s\",", identity_cstr );
     fd_http_server_printf( ctx->http, "\"shredVersion\":%u,", ele->ci->shred_version );
 
     char version[ 64UL ];
     FD_TEST( fd_gossip_version_cstr( ele->ci->version.major, ele->ci->version.minor, ele->ci->version.patch, version, sizeof( version ) ) );
-    fd_http_server_printf( ctx->http, "\"version\":\"%s\"", version );
+    fd_http_server_printf( ctx->http, "\"version\":\"%s\",", version );
+
+    char const * client_id;
+    switch( ele->ci->version.client ) {
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_SOLANA_LABS:   client_id = "SolanaLabs";     break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_JITO_LABS:     client_id = "JitoLabs";       break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FRANKENDANCER: client_id = "Frankendancer";  break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE:         client_id = "Agave";          break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_PALADIN: client_id = "AgavePaladin";   break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER:    client_id = "Firedancer";     break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_BAM:     client_id = "AgaveBam";       break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_SIG:           client_id = "Sig";            break;
+      default:                                          client_id = NULL;             break;
+    }
+    if( FD_LIKELY( client_id ) ) fd_http_server_printf( ctx->http, "\"clientId\":\"%s\"", client_id );
+    else                         fd_http_server_printf( ctx->http, "\"clientId\":\"Unknown(%hu)\"", ele->ci->version.client );
 
     if( FD_UNLIKELY( is_last ) ) fd_http_server_printf( ctx->http, "}" );
     else                         fd_http_server_printf( ctx->http, "}," );
@@ -1226,6 +1302,8 @@ static fd_http_server_response_t
 getEpochInfo( fd_rpc_tile_t * ctx,
               cJSON const *   id,
               cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_EPOCH_INFO, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1261,6 +1339,8 @@ static fd_http_server_response_t
 getGenesisHash( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_GENESIS_HASH, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1312,6 +1392,8 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_HEALTH, 1UL );
+
   /* fd_http_server_listen is not called until after RPC has initialized banks */
   if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
@@ -1348,6 +1430,8 @@ static fd_http_server_response_t
 getIdentity( fd_rpc_tile_t * ctx,
              cJSON const *   id,
              cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_IDENTITY, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1360,6 +1444,8 @@ static fd_http_server_response_t
 getInflationGovernor( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_INFLATION_GOVERNOR, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1396,7 +1482,8 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
                     cJSON const *   id,
                     cJSON const *   params ) {
-  /* fd_http_server_listen is not called until after RPC has initialized banks */
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LATEST_BLOCKHASH, 1UL );
+
   if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
@@ -1422,11 +1509,8 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
   bank_info_t * bank = &ctx->banks[ bank_idx ];
   FD_BASE58_ENCODE_32_BYTES( bank->block_hash, block_hash_b58 );
 
-  ulong age = ctx->banks[ ctx->processed_idx ].block_height - bank->block_height;
-  FD_TEST( bank->block_height <= ctx->banks[ ctx->processed_idx ].block_height );
-  FD_TEST( bank->block_height + 150UL >= age );
   CSTR_JSON( id, id_cstr );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL - age, id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL, id_cstr );
 }
 
 UNIMPLEMENTED(getLeaderSchedule) // TODO: Used by solana-exporter
@@ -1437,6 +1521,8 @@ static fd_http_server_response_t
 getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
                                    cJSON const *   id,
                                    cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1467,8 +1553,8 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz_cstr, id_cstr );
   }
   if( FD_UNLIKELY( cJSON_IsString( acct_sz ) ) ) {
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz->valuestring, id_cstr );
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( acct_sz, acct_sz_esc );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz_esc, id_cstr );
   }
   if( FD_UNLIKELY( acct_sz && !fd_rpc_cjson_is_integer( acct_sz ) ) ) {
     CSTR_JSON( id, id_cstr );
@@ -1487,7 +1573,85 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, id_cstr );
 }
 
-UNIMPLEMENTED(getMultipleAccounts)
+static fd_http_server_response_t
+getMultipleAccounts( fd_rpc_tile_t * ctx,
+                     cJSON const *   id,
+                     cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_MULTIPLE_ACCOUNTS, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
+
+  cJSON const * keys_arr = cJSON_GetArrayItem( params, 0 );
+  if( FD_UNLIKELY( cJSON_IsNumber( keys_arr ) || cJSON_IsBool( keys_arr ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON( keys_arr, keys_arr_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected a sequence.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( keys_arr ), keys_arr_cstr, id_cstr );
+  }
+  if( FD_UNLIKELY( cJSON_IsString( keys_arr ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( keys_arr, keys_arr_esc );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected a sequence.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( keys_arr ), keys_arr_esc, id_cstr );
+  }
+  if( FD_UNLIKELY( !cJSON_IsArray( keys_arr ) ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected a sequence.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( keys_arr ), id_cstr );
+  }
+
+  int cnt = cJSON_GetArraySize( keys_arr );
+  if( FD_UNLIKELY( cnt<0 || cnt>100 ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many accounts provided; max 100\"},\"id\":%s}\n", id_cstr );
+  }
+
+  ulong bank_idx = ULONG_MAX;
+  char const * encoding_cstr = NULL;
+  ulong slice_length = ULONG_MAX;
+  ulong slice_offset = 0;
+  cJSON const * config = cJSON_GetArrayItem( params, 1 );
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcAccountInfoConfig",
+                                             1, 1, 1, 1,
+                                             &bank_idx, &encoding_cstr,
+                                             &slice_length, &slice_offset,
+                                             &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  bank_info_t * info = &ctx->banks[ bank_idx ];
+
+  fd_pubkey_t addresses[ 100UL ];
+  for( ulong i=0UL; i<(ulong)cnt; i++ ) {
+    cJSON const * key_json = cJSON_GetArrayItem( keys_arr, (int)i );
+    if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id, key_json, &addresses[ i ], &response ) ) ) return response;
+  }
+
+  CSTR_JSON( id, id_cstr );
+  fd_http_server_printf( ctx->http,
+      "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":[",
+      id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
+
+  for( ulong i=0; i<(ulong)cnt; i++ ) {
+    if( i>0 ) fd_http_server_printf( ctx->http, "," );
+
+    ulong acct_lamports;
+    int   acct_executable;
+    uchar acct_owner[ 32UL ];
+    ulong acct_data_len;
+    fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, addresses[i].uc,
+                               &acct_lamports, &acct_executable, acct_owner,
+                               ctx->accdb_data_buf, &acct_data_len );
+    if( FD_UNLIKELY( !acct_lamports ) ) {
+      fd_http_server_printf( ctx->http, "null" );
+      continue;
+    }
+
+    fd_http_server_response_t err_response;
+    if( FD_UNLIKELY( !fd_rpc_encode_account_data( ctx, ctx->accdb_data_buf, acct_data_len, acct_owner, acct_lamports, acct_executable, encoding_cstr, slice_offset, slice_length, id_cstr, &err_response ) ) ) {
+      return err_response;
+    }
+  }
+
+  fd_http_server_printf( ctx->http, "]}}\n" );
+  return STAGE_JSON( ctx );
+}
+
 UNIMPLEMENTED(getProgramAccounts)
 UNIMPLEMENTED(getRecentPerformanceSamples)
 UNIMPLEMENTED(getRecentPrioritizationFees)
@@ -1498,6 +1662,8 @@ static fd_http_server_response_t
 getSlot( fd_rpc_tile_t * ctx,
          cJSON const *   id,
          cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1535,6 +1701,8 @@ static fd_http_server_response_t
 getTransactionCount( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_TRANSACTION_COUNT, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1561,11 +1729,13 @@ static fd_http_server_response_t
 getVersion( fd_rpc_tile_t * ctx,
             cJSON const *   id,
             cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_VERSION, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
   CSTR_JSON( id, id_cstr );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", ctx->version_string, FD_FEATURE_SET_ID, id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", fd_version_cstr, FD_FEATURE_SET_ID, id_cstr );
 }
 
 UNIMPLEMENTED(getVoteAccounts) // TODO: Used by solana-exporter
@@ -1576,9 +1746,8 @@ UNIMPLEMENTED(sendTransaction)
 UNIMPLEMENTED(simulateTransaction)
 
 static fd_http_server_response_t
-rpc_http_request( fd_http_server_request_t const * request ) {
-  fd_rpc_tile_t * ctx = (fd_rpc_tile_t *)request->ctx;
-
+rpc_http_request1( fd_rpc_tile_t *                  ctx,
+                   fd_http_server_request_t const * request ) {
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
     int health_status = _getHealth( ctx );
 
@@ -1591,6 +1760,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_SERVED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
     fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200 };
@@ -1749,6 +1919,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
   else {
+    FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
     CSTR_JSON( id, id_cstr );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
   }
@@ -1757,9 +1928,19 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   return response;
 }
 
+static fd_http_server_response_t
+rpc_http_request( fd_http_server_request_t const * request ) {
+  fd_rpc_tile_t * ctx = request->ctx;
+  long dt = -fd_tickcount();
+  fd_http_server_response_t response = rpc_http_request1( ctx, request );
+  dt += fd_tickcount();
+  fd_histf_sample( ctx->request_duration, (ulong)dt );
+  return response;
+}
+
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   fd_http_server_params_t http_params = derive_http_params( tile );
@@ -1767,6 +1948,8 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
   fd_http_server_t * _http = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( http_params ) );
+
+  fd_memset( ctx, 0, sizeof(fd_rpc_tile_t) );
 
   if( FD_UNLIKELY( !strcmp( tile->rpc.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -1781,8 +1964,6 @@ privileged_init( fd_topo_t *      topo,
   fd_http_server_listen( ctx->http, tile->rpc.listen_addr, tile->rpc.listen_port );
   FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port ));
 }
-
-extern char const fdctl_version_string[];
 
 static inline fd_rpc_out_t
 out1( fd_topo_t const *      topo,
@@ -1812,33 +1993,29 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                                );
                         FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-#if FD_HAS_BZIP2
   void * _bz2_alloc   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-#endif
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
   void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
+  void * _accdb_join  = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )         );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
   cJSON_alloc_install( alloc );
 
+  ctx->delay_startup = tile->rpc.delay_startup;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
-  for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) ctx->cluster_nodes[ i ].valid = 0;
-
-# if FD_HAS_BZIP2
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
-# endif
 
   ctx->next_poll_deadline = fd_tickcount();
 
@@ -1854,12 +2031,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->max_live_slots = tile->rpc.max_live_slots;
   for( ulong i=0UL; i<ctx->max_live_slots; i++ ) ctx->banks[ i ].slot = ULONG_MAX;
 
-  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
-
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -1874,9 +2049,22 @@ unprivileged_init( fd_topo_t *      topo,
 
   *ctx->replay_out = out1( topo, tile, "rpc_replay" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->rpc.accdb_max_depth );
+  /* Read-only join to accdb.  The accdb workspace is mapped
+     PROT_READ in this tile (see topology); the only writable
+     external mapping is our private epoch fseq.  fd FD_ACCDB_FD_RO is
+     the O_RDONLY dup of the accdb data file. */
+  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->rpc.accdb_obj_id );
+  fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem_ro );
+  ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->rpc.accdb_epoch_fseq_obj_id ) );
+  FD_TEST( epoch_fseq );
+  ctx->accdb = fd_accdb_join_readonly( _accdb_join, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+  FD_TEST( ctx->accdb );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  fd_histf_join( fd_histf_new( ctx->request_duration, FD_MHIST_SECONDS_MIN( RPC, REQUEST_DURATION_SECONDS ),
+                                                      FD_MHIST_SECONDS_MAX( RPC, REQUEST_DURATION_SECONDS ) ) );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -1890,7 +2078,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
 
-  populate_sock_filter_policy_fd_rpc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->http ) );
+  populate_sock_filter_policy_fd_rpc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->http ), (uint)FD_ACCDB_FD_RO );
   return sock_filter_policy_fd_rpc_tile_instr_cnt;
 }
 
@@ -1903,13 +2091,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->http ); /* rpc listen socket */
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
+
   return out_cnt;
 }
 
@@ -1922,11 +2112,22 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (50UL)
+
+/* The default STEM_LAZY is based on cr_max, which is the minimum depth
+   across all output links that have at least one reliable consumer.
+   RPC has one tiny output link used to release banks, with a
+   significantly slower line rate than assumed in the formula for the
+   default STEM_LAZY value.
+
+   Instead, lazy just needs to be frequent enough to relinquish credits
+   to upstream producers faster than they are exhausted. 384us is a
+   reasonable default used in many other non-critical tiles. */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_rpc_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_rpc_tile_t)
 
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

@@ -10,6 +10,10 @@ void monitor_cmd_args( int * pargc, char *** pargv, args_t * args );
 void monitor_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void monitor_cmd_fn  ( args_t * args, config_t * config );
 
+/* reconstruct_topo rebuilds the topology from a named action's .topo
+   function.  If topo_name is empty, keeps the default topology. */
+void reconstruct_topo( config_t * config, char const * topo_name );
+
 FD_PROTOTYPES_END
 
 extern action_t fd_action_monitor;

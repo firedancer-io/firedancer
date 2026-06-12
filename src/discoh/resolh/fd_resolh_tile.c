@@ -159,7 +159,7 @@ typedef struct fd_resolh_tile fd_resolh_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_resolh_tile_t );
+  return fd_ulong_max( fd_ulong_max( alignof( fd_resolh_tile_t ), pool_align() ), fd_ulong_max( map_chain_align(), map_align() ) );
 }
 
 FD_FN_PURE static inline ulong
@@ -188,7 +188,7 @@ metrics_write( fd_resolh_tile_t * ctx ) {
   FD_MCNT_SET( RESOLH, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
   FD_MCNT_ENUM_COPY( RESOLH, LUT_RESOLVED, ctx->metrics.lut );
   FD_MCNT_ENUM_COPY( RESOLH, STASH_OPERATION, ctx->metrics.stash );
-  FD_MCNT_SET( RESOLH, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
+  FD_MCNT_SET( RESOLH, TXN_BUNDLE_PEER_FAILED, ctx->metrics.bundle_peer_failure_cnt );
 }
 
 static int
@@ -196,9 +196,11 @@ before_frag( fd_resolh_tile_t * ctx,
              ulong              in_idx,
              ulong              seq,
              ulong              sig ) {
-  (void)sig;
-
   if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLH_IN_KIND_BANK ) ) return 0;
+
+  /* Bundle transactions (sig==1) must arrive at pack in order.  Route
+     all bundle traffic to resolh:0. */
+  if( FD_UNLIKELY( sig ) ) return ctx->round_robin_idx!=0UL;
 
   return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
@@ -243,7 +245,7 @@ publish_txn( fd_resolh_tile_t *         ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLH, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLH, TXN_NO_BANK, 1 );
       return 0;
     } else {
       int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
@@ -395,7 +397,12 @@ after_frag( fd_resolh_tile_t *  ctx,
   }
 
   txnm->reference_slot = ctx->completed_slot;
-  blockhash_map_t const * blockhash = map_query_const( ctx->blockhash_map, *(blockhash_t*)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off ), NULL );
+
+  blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
+  blockhash_map_t const * blockhash = NULL;
+  if( FD_LIKELY( !map_key_inval( *recent_blockhash ) ) ) {
+    blockhash = map_query_const( ctx->blockhash_map, *recent_blockhash, NULL );
+  }
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
     if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
@@ -440,7 +447,7 @@ after_frag( fd_resolh_tile_t *  ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLH, NO_BANK_DROP, 1 );
+      FD_MCNT_INC( RESOLH, TXN_NO_BANK, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
@@ -462,8 +469,8 @@ after_frag( fd_resolh_tile_t *  ctx,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -500,8 +507,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[i].kind = FD_RESOLH_IN_KIND_BANK;
     else                                                     ctx->in[i].kind = FD_RESOLH_IN_KIND_FRAGMENT;
@@ -517,7 +524,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

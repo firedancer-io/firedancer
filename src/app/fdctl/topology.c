@@ -103,7 +103,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pack",    "bank_pack",    16384UL,                                  USHORT_MAX,             3UL );
   /**/                 fd_topob_link( topo, "pohh_pack",    "bank_pohh",    128UL,                                    sizeof(fd_became_leader_t), 1UL );
   /**/                 fd_topob_link( topo, "pohh_shred",   "pohh_shred",   16384UL,                                  USHORT_MAX,             2UL );
-  /**/                 fd_topob_link( topo, "crds_shred",   "pohh_shred",   128UL,                                    8UL  + 40200UL * 46UL,  1UL );
+  /**/                 fd_topob_link( topo, "crds_shred",   "pohh_shred",   128UL,                                    8UL  + 108000UL * 46UL,  1UL );
   /**/                 fd_topob_link( topo, "replay_resol", "bank_pohh",    128UL,                                    sizeof(fd_completed_bank_t), 1UL );
   /**/                 fd_topob_link( topo, "executed_txn", "executed_txn", 16384UL,                                  64UL, 1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
@@ -181,7 +181,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "resolh",  i,            "metric_in", "dedup_resolh", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "resolh",  i,            "metric_in", "replay_resol", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolh_tile_cnt) fd_topob_tile_out( topo, "resolh",  i,                         "resolh_pack",  i                                                  );
-  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolh_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolh_pack",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /* The PoH to pack link is reliable, and must be.  The fragments going
      across here are "you became leader" which pack must respond to
      by publishing microblocks, otherwise the leader TPU will hang
@@ -244,13 +244,16 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "plugin_out"   );
     fd_topob_wksp( topo, "plugin"       );
 
-    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
-    /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,                     1UL );
-    /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    128UL,                                    8UL+40200UL*(58UL+12UL*34UL), 1UL );
-    /**/                 fd_topob_link( topo, "pohh_plugin",  "plugin_in",    128UL,                                    16UL,                         1UL );
-    /**/                 fd_topob_link( topo, "startp_plugi", "plugin_in",    128UL,                                    56UL,                         1UL );
-    /**/                 fd_topob_link( topo, "votel_plugin", "plugin_in",    128UL,                                    8UL,                          1UL );
-    /**/                 fd_topob_link( topo, "valcfg_plugi", "plugin_in",    128UL,                                    608UL,                        1UL );
+    /* The size of plugin_out is the max of the message size from
+       gossip_plugi and stake_out. */
+    FD_TEST( FD_STAKE_OUT_MTU>=8UL+108000UL*(58UL+12UL*6UL) );
+    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    FD_STAKE_OUT_MTU,             1UL  );
+    /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,                     1UL  );
+    /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    128UL,                                    8UL+108000UL*(58UL+12UL*6UL), 1UL  );
+    /**/                 fd_topob_link( topo, "pohh_plugin",  "plugin_in",    128UL,                                    16UL,                         1UL  );
+    /**/                 fd_topob_link( topo, "startp_plugi", "plugin_in",    128UL,                                    56UL,                         1UL  );
+    /**/                 fd_topob_link( topo, "votel_plugin", "plugin_in",    128UL,                                    8UL,                          1UL  );
+    /**/                 fd_topob_link( topo, "valcfg_plugi", "plugin_in",    128UL,                                    608UL,                        1UL  );
 
     /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
@@ -408,6 +411,7 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
+    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile->gui.tile_cnt = topo->tile_cnt;
   }
 
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 1 );
@@ -445,12 +449,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
-    tile->bundle.url_len = strnlen( tile->bundle.url, 255 );
-    fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
-    tile->bundle.sni_len = strnlen( tile->bundle.sni, 255 );
+    tile->bundle.url_len = strnlen( tile->bundle.url, sizeof(tile->bundle.url)-1UL );
+    fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(tile->bundle.sni) );
+    tile->bundle.sni_len = strnlen( tile->bundle.sni, sizeof(tile->bundle.sni)-1UL );
     fd_cstr_ncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
     fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
+    tile->bundle.out_depth = config->tiles.verify.receive_buffer_size;
     tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
     tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
     tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
@@ -469,6 +474,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
     tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
+    tile->pack.acct_blocklist_cnt            = config->tiles.pack.account_blocklist_cnt;
+
+    for( ulong i=0UL; i<tile->pack.acct_blocklist_cnt; i++ ) {
+      if( FD_UNLIKELY( NULL==fd_base58_decode_32( config->tiles.pack.account_blocklist[i], tile->pack.acct_blocklist[i].uc ) ) ) {
+        FD_LOG_ERR(( "could not parse account %s at index %lu in [tiles.pack.account_blocklist]", config->tiles.pack.account_blocklist[i], i ));
+      }
+    }
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_PUBKEY( _tile, f ) \
@@ -555,6 +567,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = config->development.gui.websocket_compression;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
+    tile->gui.accdb_obj_id              = ULONG_MAX;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 

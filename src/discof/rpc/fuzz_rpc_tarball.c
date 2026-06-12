@@ -4,10 +4,6 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
-#if !FD_HAS_BZIP2
-#error "This target requires FD_HAS_BZIP2"
-#endif
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,7 +55,7 @@ LLVMFuzzerInitialize( int  *   argc,
 
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
-  putenv( "FD_LOG_PATH=" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   fd_log_level_core_set(0); /* crash on debug log */
 

@@ -1,35 +1,26 @@
-#include <linux/limits.h>
 #define _GNU_SOURCE
 #include "fd_genesi_tile.h"
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
-#include "../../discof/fd_accdb_topo.h"
+#include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../ballet/bzip2/bzlib.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../flamenco/runtime/fd_genesis_parse.h"
-#include "../../flamenco/accdb/fd_accdb_admin_v1.h"
-#include "../../flamenco/accdb/fd_accdb_admin_v2.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"
-#include "../../util/pod/fd_pod.h"
 
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <sys/poll.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
+#include <poll.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
-#if FD_HAS_BZIP2
-#include <bzlib.h>
-#endif
 
+#include <sys/socket.h>
 #include "generated/fd_genesi_tile_seccomp.h"
 
-#if FD_HAS_BZIP2
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -49,11 +40,9 @@ bz2_free( void * opaque,
   if( FD_UNLIKELY( !addr ) ) return;
   fd_alloc_free( alloc, addr );
 }
-#endif
 
 struct fd_genesi_tile {
-  fd_accdb_admin_t accdb_admin[1];
-  fd_accdb_user_t  accdb[1];
+  fd_accdb_t * accdb;
 
   fd_hash_t genesis_hash[1];
 
@@ -92,17 +81,21 @@ typedef struct fd_genesi_tile fd_genesi_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_genesi_tile_t );
+  ulong a = alignof( fd_genesi_tile_t );
+  a = fd_ulong_max( a, fd_genesis_client_align() );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  return a;
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t )    );
   l = FD_LAYOUT_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
+  if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->genesi.max_live_slots ) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -119,33 +112,30 @@ should_shutdown( fd_genesi_tile_t * ctx ) {
 }
 
 static void
-initialize_accdb( fd_accdb_admin_t *   accdb_admin,
-                  fd_accdb_user_t *    accdb,
+initialize_accdb( fd_accdb_t *         accdb,
                   fd_genesis_t const * genesis,
                   uchar const *        genesis_blob,
                   fd_lthash_value_t *  lthash ) {
-  fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
-  fd_funk_txn_xid_t xid = { .ul={ LONG_MAX, LONG_MAX } };
-  fd_accdb_attach_child( accdb_admin, &root_xid, &xid );
+  fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t) {.val = USHORT_MAX } );
 
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
 
-    fd_accdb_rw_t rw[1];
-    fd_accdb_open_rw( accdb, rw, &xid, account->pubkey.key, account->meta.dlen, FD_ACCDB_FLAG_CREATE );
-    fd_accdb_ref_owner_set   ( rw, account->meta.owner        );
-    fd_accdb_ref_lamports_set( rw, account->meta.lamports     );
-    fd_accdb_ref_exec_bit_set( rw, !!account->meta.executable );
-    fd_accdb_ref_data_set    ( accdb, rw, account->data, account->meta.dlen );
+    fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, account->pubkey.key );
+    fd_memcpy( acc.owner, account->owner.uc, 32UL );
+    acc.lamports = account->lamports;
+    acc.executable = !!account->executable;
+    acc.data_len = account->data_len;
+    fd_memcpy( acc.data, account->data, account->data_len );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash( &account->pubkey, rw->meta, account->data, new_hash );
+    fd_hashes_account_lthash_simple( account->pubkey.uc, acc.owner, acc.lamports, acc.executable, account->data, account->data_len, new_hash );
     fd_lthash_add( lthash, new_hash );
-    fd_accdb_close_rw( accdb, rw );
-  }
 
-  fd_accdb_advance_root( accdb_admin, &xid );
+    acc.commit = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
 }
 
 static inline void
@@ -213,6 +203,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
     memset( dst, 0, sizeof(fd_genesis_meta_t) );
+    dst->creation_time_seconds = ctx->genesis->creation_time;
     dst->genesis_hash = *ctx->genesis_hash;
 
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
@@ -240,7 +231,6 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     uchar * decompressed = ctx->genesis_blob;
     ulong   actual_decompressed_sz = 0UL;
-#   if FD_HAS_BZIP2
     bz_stream bzstrm = {0};
     bzstrm.bzalloc = bz2_malloc;
     bzstrm.bzfree  = bz2_free;
@@ -262,18 +252,13 @@ after_credit( fd_genesi_tile_t *  ctx,
     bzerr = BZ2_bzDecompressEnd( &bzstrm );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressEnd() failed (%d)", bzerr ));
 
-#   else
-    FD_LOG_ERR(( "This build does not include bzip2, which is required to boot from genesis.\n"
-                 "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
-#   endif
-
     FD_TEST( actual_decompressed_sz>=512UL );
 
     fd_tar_meta_t const * meta = (fd_tar_meta_t const *)decompressed;
     FD_TEST( !strcmp( meta->name, "genesis.bin" ) );
     uchar const * blob    = decompressed+512UL;
     ulong         blob_sz = fd_tar_meta_get_size( meta );
-    FD_TEST( actual_decompressed_sz>=512UL+blob_sz );
+    FD_TEST( actual_decompressed_sz>=fd_ulong_sat_add( 512UL, blob_sz ) );
 
     fd_hash_t hash[1];
     fd_sha256_hash( blob, blob_sz, hash->uc );
@@ -310,6 +295,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
     memset( dst, 0, sizeof(fd_genesis_meta_t) );
+    dst->creation_time_seconds = genesis->creation_time;
     dst->genesis_hash = *hash;
 
     uchar * dst_blob = (uchar *)( dst+1 );
@@ -397,8 +383,8 @@ process_local_genesis( fd_genesi_tile_t * ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -461,35 +447,17 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t )    );
-                           FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
-  void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
-
-  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
-  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
-  fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
-  if( !vinyl_data ) {
-    FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
-  } else {
-    fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
-    fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
-    FD_TEST( vinyl_rq );
-    FD_TEST( vinyl_req_pool );
-    FD_TEST( fd_accdb_admin_v2_init( ctx->accdb_admin,
-        fd_topo_obj_laddr( topo, funk_obj_id       ),
-        fd_topo_obj_laddr( topo, funk_locks_obj_id ),
-        fd_topo_obj_laddr( topo, vinyl_rq->id      ),
-        topo->workspaces[ vinyl_data->wksp_id ].wksp,
-        fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id,
-        tile->genesi.accdb_max_depth ) );
-  }
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->genesi.accdb_max_depth );
+  fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t )                        );
+                           FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint()                     );
+  void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()                              );
+  void * _accdb          = !tile->genesi.entrypoints_cnt ?
+                           FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->genesi.max_live_slots ) ) :
+                           NULL;
 
   fd_lthash_zero( ctx->lthash );
 
@@ -499,11 +467,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->has_expected_genesis_hash = tile->genesi.has_expected_genesis_hash;
   ctx->validate_genesis_hash = tile->genesi.validate_genesis_hash;
   fd_memcpy( ctx->expected_genesis_hash, tile->genesi.expected_genesis_hash, 32UL );
+
+  ctx->accdb = NULL;
+  if( FD_UNLIKELY( ctx->bootstrap ) ) {
+    void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->genesi.accdb_obj_id );
+    fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+    FD_TEST( accdb_shmem );
+    ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+    FD_TEST( ctx->accdb );
+  }
+
   if( FD_LIKELY( -1!=ctx->in_fd ) ) {
     process_local_genesis( ctx, tile->genesi.genesis_path );
-    if( FD_UNLIKELY( ctx->bootstrap ) ) {
-      initialize_accdb( ctx->accdb_admin, ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
-    }
+    if( FD_UNLIKELY( ctx->bootstrap ) ) initialize_accdb( ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
   }
 
   FD_TEST( fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", tile->genesi.genesis_path ) );
@@ -518,7 +494,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -555,7 +531,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
     out_dir_fd = (uint)ctx->out_dir_fd;
   }
 
-  populate_sock_filter_policy_fd_genesi_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), in_fd, out_fd, out_dir_fd );
+  uint accounts_fd = !tile->genesi.entrypoints_cnt ? (uint)FD_ACCDB_FD_RW : (uint)-1;
+  populate_sock_filter_policy_fd_genesi_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), in_fd, out_fd, out_dir_fd, accounts_fd );
   return sock_filter_policy_fd_genesi_tile_instr_cnt;
 }
 
@@ -569,12 +546,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<tile->genesi.entrypoints_cnt+5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<tile->genesi.entrypoints_cnt+6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_UNLIKELY( !tile->genesi.entrypoints_cnt ) )
+    out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
 
   if( FD_UNLIKELY( -1==ctx->in_fd ) ) {
     FD_TEST( -1!=ctx->out_dir_fd );

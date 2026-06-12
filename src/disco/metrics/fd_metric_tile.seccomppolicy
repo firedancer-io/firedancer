@@ -5,7 +5,7 @@
 #                    endpoint, which is over TCP and does not use our
 #                    XDP program.  It uses regular kernel sockets, so
 #                    this is the socket file descriptor.
-unsigned int logfile_fd, unsigned int metrics_socket_fd
+uint logfile_fd, uint metrics_socket_fd
 
 # logging: all log messages are written to a file and/or pipe
 #

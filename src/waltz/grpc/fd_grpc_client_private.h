@@ -181,6 +181,15 @@ fd_grpc_h2_cb_headers(
     ulong            flags
 );
 
+void
+fd_grpc_h2_cb_data(
+    fd_h2_conn_t *   conn,
+    fd_h2_stream_t * h2_stream,
+    void const *     data,
+    ulong            data_sz,
+    ulong            flags
+);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_grpc_fd_grpc_client_private_h */

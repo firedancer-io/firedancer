@@ -25,6 +25,9 @@
 
 #define FD_LTHASH_ADDER_PARA_MAX 16
 
+/* Number of parallel BLAKE3 hashes used for batching (1, 8, or 16). */
+#define FD_LTHASH_ADDER_PARA_CNT (FD_BLAKE3_PARA_MAX)
+
 struct __attribute__((aligned(FD_LTHASH_ADDER_ALIGN))) fd_lthash_adder {
 
   uint  batch_cnt;
@@ -63,14 +66,14 @@ fd_lthash_adder_push( fd_lthash_adder_t * adder,
                       fd_lthash_value_t * sum,
                       void const *        input,
                       ulong               input_sz ) {
-  ulong const batch_threshold = 512UL;
   fd_lthash_value_t value[1];
-  if( FD_UNLIKELY( input_sz>batch_threshold ) ) {
+  if( FD_LTHASH_ADDER_PARA_CNT<=1 || FD_UNLIKELY( input_sz>512UL ) ) {
     fd_blake3_t blake[1];
     fd_blake3_init( blake );
     fd_blake3_append( blake, input, input_sz );
     fd_blake3_fini_2048( blake, value->bytes );
     fd_lthash_add( sum, value );
+    (void)adder;
     return;
   }
 
@@ -79,7 +82,7 @@ fd_lthash_adder_push( fd_lthash_adder_t * adder,
   fd_memcpy( slot, input, input_sz );
   adder->batch_sz[ batch_idx ] = (uint)input_sz;
 
-  if( batch_idx+1>=FD_BLAKE3_PARA_MAX ) {
+  if( batch_idx+1>=FD_LTHASH_ADDER_PARA_CNT ) {
 # if FD_HAS_AVX512
     fd_blake3_lthash_batch16( (void const **)fd_type_pun_const( adder->batch_ptrs ), adder->batch_sz, value->words );
 # elif FD_HAS_AVX
@@ -96,6 +99,7 @@ fd_lthash_adder_push( fd_lthash_adder_t * adder,
 static inline void
 fd_lthash_adder_flush( fd_lthash_adder_t * adder,
                        fd_lthash_value_t * sum ) {
+# if FD_LTHASH_ADDER_PARA_CNT>1
   uint batch_cnt = adder->batch_cnt;
   for( uint i=0U; i<batch_cnt; i++ ) {
     fd_lthash_value_t value[1];
@@ -105,7 +109,9 @@ fd_lthash_adder_flush( fd_lthash_adder_t * adder,
     fd_blake3_fini_2048( blake, value->bytes );
     fd_lthash_add( sum, value );
   }
+# endif
   adder->batch_cnt = 0U;
+  (void)sum;
 }
 
 /* fd_lthash_adder_push_solana_account wraps fd_lthash_adder_push for
@@ -127,8 +133,8 @@ fd_lthash_adder_push_solana_account(
 
   ulong const static_sz       =  73UL;
   ulong const batch_threshold = 512UL;
-  if( FD_UNLIKELY( data_sz > batch_threshold-static_sz || /* optimize for small appends */
-                   FD_BLAKE3_PARA_MAX==0 ) ) {
+  if( FD_LTHASH_ADDER_PARA_CNT<=1 ||
+      FD_UNLIKELY( data_sz > batch_threshold-static_sz ) ) {
     fd_blake3_t blake[1];
     fd_blake3_init( blake );
     fd_blake3_append( blake, &lamports, sizeof(ulong) );
@@ -160,7 +166,7 @@ fd_lthash_adder_push_solana_account(
 
   adder->batch_sz[ batch_idx ] = (uint)( p-slot );
 
-  if( batch_idx+1>=FD_BLAKE3_PARA_MAX ) {
+  if( batch_idx+1>=FD_LTHASH_ADDER_PARA_CNT ) {
 # if FD_HAS_AVX512
     fd_blake3_lthash_batch16( (void const **)fd_type_pun_const( adder->batch_ptrs ), adder->batch_sz, value->words );
 # elif FD_HAS_AVX

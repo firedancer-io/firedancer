@@ -4,7 +4,7 @@
 /* fd_netdev_tbl.h provides a network interface table.
    The entrypoint of this API is fd_netlink_tbl_t. */
 
-#include "../../util/fd_util_base.h"
+#include "fd_seqlock.h"
 
 /* FD_OPER_STATUS_* give the operational state of a network interface.
    See RFC 2863 Section 3.1.14: https://datatracker.ietf.org/doc/html/rfc2863#section-3.1.14 */
@@ -59,6 +59,7 @@ struct fd_netdev_tbl_private;
 typedef struct fd_netdev_tbl_private fd_netdev_tbl_t;
 
 struct fd_netdev_tbl_hdr {
+  atomic_ulong seqlock;
   ushort dev_max;
   ushort bond_max;
   ushort dev_cnt;
@@ -155,9 +156,14 @@ fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
   return NULL;
 }
 
-FD_FN_PURE fd_netdev_t *
-fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
-                     uint                   if_idx );
+/* fd_netdev_tbl_copy copies *src to *dst, while doing seqlock checks
+   on src.  Assumes dst is writable (seq-lock held).  Assumes dst and
+   src have identical {dev,bond}_max limits.  Blocking (spins until copy
+   completes). */
+
+void
+fd_netdev_tbl_copy( fd_netdev_tbl_join_t *       dst,
+                    fd_netdev_tbl_join_t const * src );
 
 #if FD_HAS_HOSTED
 

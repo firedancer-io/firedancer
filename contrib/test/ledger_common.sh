@@ -5,7 +5,7 @@ echo_notice() {
 }
 
 echo_error() {
-  echo -e "\033[31m$1$2\033[0m"
+  echo -e "\033[31m$1${2:-}\033[0m"
 }
 
 create_checksum() {

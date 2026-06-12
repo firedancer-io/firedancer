@@ -5,9 +5,13 @@
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
+#include "../../disco/fd_txn_p.h"
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
+#include "../../disco/pack/fd_chkdup.h"
+#include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
 
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
@@ -29,7 +33,8 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLO
    straddle FEC set boundaries.  Other minimally parseable units of data
    include the microblock header and the microblock count within a
    batch. */
-#define FD_SCHED_MAX_PAYLOAD_PER_FEC       (FD_STORE_DATA_MAX)
+#define FD_SCHED_MAX_PAYLOAD_PER_FEC       (63985UL)
+FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, bump sched fec size bound ); /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ is the bound we want, but older ledgers have larger FEC sets. */
 #define FD_SCHED_MAX_FEC_BUF_SZ            (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_TXN_MTU)
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for residual data );
@@ -92,11 +97,13 @@ struct fd_sched_block {
   uint                poh_hash_cmp_done_cnt; /* poh_hashing_done_cnt==poh_hash_cmp_done_cnt+len(mixin_in_progress) */
   uint                txn_done_cnt; /* A transaction is considered done when all types of tasks associated with it are done. */
   uint                shred_cnt;
-  uint                fec_cnt;
-  uint                mblk_cnt;      /* Total number of microblocks, including ticks and non ticks. */
-  uint                mblk_freed_cnt;
-  uint                mblk_tick_cnt; /* Total number of tick microblocks. */
-  uint                mblk_unhashed_cnt; /* mblk_cnt==mblk_unhashed_cnt+len(hashing_in_progress)+len(mixin_in_progress)+poh_hash_cmp_done_cnt */
+  uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
+                                            mblk_cnt==len(unhashed)+len(hashing_in_progress)+hashing_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
+  uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
+  uint                mblk_freed_cnt;    /* This is ==hash_cmp_done_cnt in most cases, except for aborted
+                                            blocks, where the freed cnt will catch up to mblk_cnt and surpass
+                                            hash_cmp_done_cnt when the block is reaped. */
+  uint                mblk_unhashed_cnt; /* ==len(unhashed) */
   ulong               hashcnt; /* How many hashes this block wants replay to do.  A mixin/record counts as one hash. */
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
@@ -106,12 +113,24 @@ struct fd_sched_block {
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
   int          last_mblk_is_tick;
-  mblk_slist_t mblks_unhashed[ 1 ];
+  mblk_slist_t mblks_unhashed[ 1 ]; /* A microblock, once parsed out, is in one of these queues.  It
+                                       generally progresses from unhashed to hashing to mixin.  When a
+                                       microblock is being hashed/in-flight, it'll be transiently out of
+                                       any of the queues.  Once a microblock progresses through all stages
+                                       of work, it'll be immediately freed. */
   mblk_slist_t mblks_hashing_in_progress[ 1 ];
   mblk_slist_t mblks_mixin_in_progress[ 1 ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * bmtree;
-  ulong max_tick_hashcnt;
+  ulong tick_hashcnt_wmk;      /* All ticks in a valid block must accumulate the same number of
+                                  hashes since the previous tick, or since block start, and this hash
+                                  count must match hashes_per_tick for the block. */
+  ulong batch_end_hashcnt_wmk; /* A non-deterministic constraint on the accumulated tick hash count.
+                                  In a valid block, every run of flattened batches must end strictly
+                                  less than hashes_per_tick.  We don't enforce this as it's inherently
+                                  non-deterministic.  We accept blocks that don't end strictly less,
+                                  and simply log when it happens.  Exceeding hashes_per_tick is
+                                  obviously still bad. */
   ulong curr_tick_hashcnt; /* Starts at 0, accumulates hashcnt, resets to 0 on the next tick. */
   ulong tick_height;       /* Block is built off of a parent block with this many ticks. */
   ulong max_tick_height;   /* Block should end with precisely this many ticks. */
@@ -122,7 +141,6 @@ struct fd_sched_block {
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   ulong               mblks_rem;    /* Number of microblocks remaining in the current batch. */
   ulong               txns_rem;     /* Number of transactions remaining in the current microblock. */
-  fd_acct_addr_t      aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
   uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
   uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
@@ -130,6 +148,7 @@ struct fd_sched_block {
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be receiving a new
                                        batch. */
+  uint                last_batch_empty:1; /* Another non-deterministic constraint that we detect but allow. */
 
   /* Block state. */
   uint                fec_eos:1;                          /* FEC end-of-stream: set if the last FEC set in the block has been
@@ -190,7 +209,11 @@ struct fd_sched_metrics {
   ulong txn_parsed_cnt;
   ulong txn_exec_done_cnt;
   ulong txn_sigverify_done_cnt;
+  ulong txn_mixin_done_cnt;
   ulong txn_done_cnt;
+  ulong mblk_parsed_cnt;
+  ulong mblk_poh_hashed_cnt;
+  ulong mblk_poh_done_cnt;
   ulong bytes_ingested_cnt;
   ulong bytes_ingested_unparsed_cnt;
   ulong bytes_dropped_cnt;
@@ -203,14 +226,20 @@ typedef struct fd_sched_metrics fd_sched_metrics_t;
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct fd_sched {
+  fd_acct_addr_t        aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   char                  print_buf[ FD_SCHED_MAX_PRINT_BUF_SZ ];
   ulong                 print_buf_sz;
+  fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
   ulong                 canary; /* == FD_SCHED_MAGIC */
   ulong                 depth;         /* Immutable. */
   ulong                 block_cnt_max; /* Immutable. */
   ulong                 exec_cnt;      /* Immutable. */
+  int                   bypass_poh_verify; /* Test/fuzz: skip the PoH end_hash compare in maybe_mixin. */
+  int                   bypass_alut_resolution; /* Test/fuzz: skip ALUT resolution (no accdb). */
   long                  txn_in_flight_last_tick;
+  long                  next_ready_last_tick;
+  ulong                 next_ready_last_bank_idx;
   ulong                 root_idx;
   fd_rdisp_t *          rdisp;
   ulong                 txn_exec_ready_bitset[ 1 ];
@@ -224,10 +253,11 @@ struct fd_sched {
   ulong                 staged_bitset;    /* Bit i set if staging lane i is occupied. */
   ulong                 staged_head_bank_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* Head of the linear chain in each staging lane, ignored if bit i is
                                                                                not set in the bitset. */
+  ulong                 staged_popcnt_wmk;
   ulong                 txn_pool_free_cnt;
-  fd_txn_p_t *          txn_pool;
-  fd_sched_txn_info_t * txn_info_pool;
-  fd_sched_mblk_t *     mblk_pool;
+  fd_txn_p_t *          txn_pool;      /* Just a flat array. */
+  fd_sched_txn_info_t * txn_info_pool; /* Just a flat array. */
+  fd_sched_mblk_t *     mblk_pool;     /* Just a flat array. */
   ulong                 mblk_pool_free_cnt;
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
@@ -293,6 +323,9 @@ check_or_set_active_block( fd_sched_t * sched );
 
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block );
+
+static void
+subtree_release_refcnt( fd_sched_t * sched, fd_sched_block_t * block );
 
 static void
 subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx );
@@ -483,14 +516,30 @@ print_histogram( fd_sched_t * sched, fd_histf_t * hist, ulong converter, char * 
 
 FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  if( FD_UNLIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL && block->batch_end_hashcnt_wmk>=block->hashes_per_tick ) ) {
+    /* >1 to ignore low power hashing or hashing disabled */
+    fd_sched_printf( sched, "batch_end_hashcnt violation: yes, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu (potentially InvalidTickHashCount in Agave)\n", block->batch_end_hashcnt_wmk, block->hashes_per_tick );
+  }
+  if( FD_UNLIKELY( block->fec_eos && block->last_mblk_is_tick && block->max_tick_height!=ULONG_MAX && block->mblk_tick_cnt+block->tick_height==block->max_tick_height && block->last_batch_empty ) ) {
+    /* The block was fully received and has exactly the expected number
+       of ticks and ends in a tick, so its last microblock is the final
+       tick.  Yet its final microblock batch declared zero microblocks.
+       So the batch containing the final tick is not itself the final
+       batch: one or more empty batches trail the final tick.  Agave
+       would non-deterministically reject this as InvalidLastTick
+       depending on shred arrival timing.  This logs the shenanigan for
+       every fully received block that exhibits the pattern, whether or
+       not it ended up on the canonical fork. */
+    fd_sched_printf( sched, "last_batch_empty violation: yes, final tick not in last batch (potentially InvalidLastTick in Agave)\n" );
+  }
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, max_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, batch_end_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -502,15 +551,15 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
 
 }
 
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
-  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
-                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
+  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
+                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
   fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
   if( active_block ) print_block_debug( sched, active_block );
   for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
@@ -567,13 +616,19 @@ fd_sched_footprint( ulong depth,
 }
 
 void *
-fd_sched_new( void * mem,
-              ulong  depth,
-              ulong  block_cnt_max,
-              ulong  exec_cnt ) {
+fd_sched_new( void *     mem,
+              fd_rng_t * rng,
+              ulong      depth,
+              ulong      block_cnt_max,
+              ulong      exec_cnt ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !rng ) ) {
+    FD_LOG_WARNING(( "NULL rng" ));
     return NULL;
   }
 
@@ -616,8 +671,7 @@ fd_sched_new( void * mem,
   sched->txn_info_pool = _txn_info_pool;
   sched->mblk_pool     = _mblk_pool;
 
-  ulong seed = ((ulong)fd_tickcount()) ^ FD_SCHED_MAGIC;
-  fd_rdisp_new( _rdisp, depth, block_cnt_max, seed );
+  fd_rdisp_new( _rdisp, depth, block_cnt_max, fd_rng_ulong( rng ) );
 
   fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
   for( ulong i=0; i<block_cnt_max; i++ ) {
@@ -627,17 +681,24 @@ fd_sched_new( void * mem,
     mblk_slist_new( bpool[ i ].mblks_mixin_in_progress );
   }
 
-  fd_memset( sched->metrics, 0, sizeof(fd_sched_metrics_t) );
-  sched->txn_in_flight_last_tick = LONG_MAX;
+  FD_TEST( fd_chkdup_new( sched->chkdup, rng ) );
 
-  sched->canary               = FD_SCHED_MAGIC;
-  sched->depth                = depth;
-  sched->block_cnt_max        = block_cnt_max;
-  sched->exec_cnt             = exec_cnt;
-  sched->root_idx             = ULONG_MAX;
-  sched->active_bank_idx      = ULONG_MAX;
-  sched->last_active_bank_idx = ULONG_MAX;
-  sched->staged_bitset        = 0UL;
+  fd_memset( sched->metrics, 0, sizeof(fd_sched_metrics_t) );
+  sched->txn_in_flight_last_tick  = LONG_MAX;
+  sched->next_ready_last_tick     = LONG_MAX;
+  sched->next_ready_last_bank_idx = ULONG_MAX;
+
+  sched->canary                 = FD_SCHED_MAGIC;
+  sched->depth                  = depth;
+  sched->block_cnt_max          = block_cnt_max;
+  sched->exec_cnt               = exec_cnt;
+  sched->bypass_poh_verify      = 0;
+  sched->bypass_alut_resolution = 0;
+  sched->root_idx               = ULONG_MAX;
+  sched->active_bank_idx        = ULONG_MAX;
+  sched->last_active_bank_idx   = ULONG_MAX;
+  sched->staged_bitset          = 0UL;
+  sched->staged_popcnt_wmk      = 0UL;
 
   sched->txn_exec_ready_bitset[ 0 ]  = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
@@ -742,14 +803,9 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
-  /* We don't bother checking the mblk pool popcnt, because the txn pool
-     alone will answer the question.  All types of tasks will continue
-     to dispatch to the point where all allocated indices in the pool
-     are reclaimed.  In fact, it is not correct to check whether the
-     mblk pool is totally free.  The mblk pool can have outstanding
-     elements while sched is unable to make progress, due to partially
-     parsed microblocks pending mixins. */
-  return sched->txn_pool_free_cnt==sched->depth-1;
+  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
+  int nothing_queued = sched->active_bank_idx==ULONG_MAX;
+  return nothing_inflight && nothing_queued;
 }
 
 FD_WARN_UNUSED int
@@ -769,6 +825,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
   }
 
+  sched->metrics->fec_cnt++;
+
   if( FD_UNLIKELY( fec->is_first_in_block ) ) {
     /* This is a new block. */
     add_block( sched, fec->bank_idx, fec->parent_bank_idx );
@@ -785,9 +843,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
          dispatcher. */
       sched->metrics->block_added_dead_ood_cnt++;
 
+      /* Release the refcnt right away since we don't intend to replay
+         it at all.  We do this so its bank does not linger and stall
+         root advancement until the next root notify. */
+      subtree_release_refcnt( sched, block );
+
       /* Ignore the FEC set for a dead block. */
       sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-      return 1;
+      return 0;
     }
 
     /* Try to find a staging lane for this block. */
@@ -849,6 +912,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
         }
         sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
         sched->staged_head_bank_idx[ lane_idx ] = fec->bank_idx;
+        sched->staged_popcnt_wmk = fd_ulong_max( sched->staged_popcnt_wmk, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
         block->in_rdisp     = 1;
         block->staged       = 1;
         block->staging_lane = (ulong)lane_idx;
@@ -868,7 +932,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     }
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
   block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
@@ -895,7 +959,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
     FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
   }
-  if( FD_UNLIKELY( block->fec_eob && fec->is_last_in_batch ) ) {
+  if( FD_UNLIKELY( block->fec_eob ) ) {
     /* If the previous FEC set ingestion and parse was successful,
        block->fec_eob should be cleared.  The fact that fec_eob is set
        means that the previous batch didn't parse properly.  So this is
@@ -930,11 +994,15 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
   if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
-    /* In a conformant block, there shouldn't be more than a
-       transaction's worth of residual data left over from the previous
-       FEC set within the same batch.  So if this condition doesn't
-       hold, it's a bad block.  Instead of crashing, we should refuse to
-       replay down the fork. */
+    /* The residual carried over from the previous parse is bounded: it
+       can only be a partial transaction or a microblock/batch header
+       that straddles a FEC set boundary.  Any trailing bytes past the
+       last microblock within the same batch are discarded by the
+       parser, so they never contribute to the residual.  So residual <=
+       max(sizeof(ulong), sizeof(fd_microblock_hdr_t), FD_TXN_MTU), and
+       the buffer is sized to always fit the residual plus a single FEC
+       set.  Otherwise, it's a bad block.  Instead of crashing, we
+       should refuse to replay down the fork. */
     FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec->data_sz %lu, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
     handle_bad_block( sched, block );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
@@ -942,7 +1010,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   }
 
   /* Append the new FEC set to the end of the buffer. */
-  fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->fec->data, fec->fec->data_sz );
+  fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->data, fec->fec->data_sz );
   block->fec_buf_sz += (uint)fec->fec->data_sz;
   sched->metrics->bytes_ingested_cnt += fec->fec->data_sz;
 
@@ -952,14 +1020,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ block->shred_cnt-1 ] : 0UL;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
     if( FD_LIKELY( i<32UL ) ) {
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ i ];
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
       ulong num_overflow_shreds = fec->shred_cnt-32UL;
       ulong overflow_idx        = i-32UL;
-      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->block_offs[ 31 ];
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->shred_offs[ 31 ];
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
       block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
     }
@@ -967,12 +1035,35 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
 
-  block->fec_cnt++;
-  sched->metrics->fec_cnt++;
-
   if( FD_UNLIKELY( err==FD_SCHED_BAD_BLOCK ) ) {
     handle_bad_block( sched, block );
     sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem||block->fec_eob) ) ) {
+    /* A malformed block that fails to parse out exactly as many
+       transactions and microblocks as it should.
+
+       Upon getting a last-in-batch FEC, everything in the ongoing batch
+       should completely parse, and the eob flag should be reset.  There
+       should be no go around for a last-in-batch FEC. */
+    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
+    handle_bad_block( sched, block );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
+    /* The last microblock should be a tick.
+
+       Note that this early parse-time detection could cause us to throw
+       a slightly different error from Agave, in the case that there are
+       too few ticks, since the tick count check precedes the trailing
+       entry check in Agave.  That being said, ultimately a
+       TRAILING_ENTRY renders a block invalid, regardless of anything
+       else. */
+    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
+    handle_bad_block( sched, block );
     return 0;
   }
 
@@ -991,20 +1082,6 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       return 0;
     }
     FD_TEST( mixin_res==1||mixin_res==2 );
-  }
-
-  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
-    /* The last microblock should be a tick.
-
-       Note that this early parse-time detection could cause us to throw
-       a slightly different error from Agave, in the case that there are
-       too few ticks, since the tick count check precedes the trailing
-       entry check in Agave.  That being said, ultimately a
-       TRAILING_ENTRY renders a block invalid, regardless of anything
-       else. */
-    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
-    handle_bad_block( sched, block );
-    return 0;
   }
 
   /* Check if we need to set the active block. */
@@ -1044,10 +1121,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable nor has anything in-flight", sched->active_bank_idx ));
+    FD_LOG_CRIT(( "invariant violation: active block %lu:%lu is not activatable nor has anything in-flight", block->slot, sched->active_bank_idx ));
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
   block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
@@ -1057,6 +1134,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     out->block_start->parent_bank_idx = block->parent_idx;
     out->block_start->slot            = block->slot;
     block->block_start_signaled = 1;
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
 
@@ -1095,6 +1174,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       ulong poh_hashing_queued_cnt = block->mblk_cnt-block->poh_hashing_in_flight_cnt-block->poh_hashing_done_cnt;
       if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
         dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), out );
+        sched->next_ready_last_tick     = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
         return 1UL;
       }
 
@@ -1106,7 +1187,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
       if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
         dispatch_sigverify( sched, block, bank_idx, fd_ulong_find_lsb( sigverify_ready_bitset ), out );
-        sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+        sched->next_ready_last_tick = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
         return 1UL;
       }
       return 0UL;
@@ -1133,8 +1215,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     block->txn_exec_in_flight_cnt++;
     sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_exec_in_flight_cnt );
 
-    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
     if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
+    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
     if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
       /* Ideally we'd simply assert that the two sides of the equation
          are equal.  But abandoned blocks throw a wrench into this.  We
@@ -1170,6 +1252,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       }
       FD_LOG_DEBUG(( "exec_busy_cnt %lu checks out", total_exec_busy_cnt ));
     }
+    sched->next_ready_last_tick     = now;
+    sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
 
@@ -1180,6 +1264,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   ulong poh_hashing_queued_cnt = block->mblk_cnt-block->poh_hashing_in_flight_cnt-block->poh_hashing_done_cnt;
   if( FD_LIKELY( poh_hashing_queued_cnt>0UL && fd_ulong_popcnt( poh_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
     dispatch_poh( sched, block, bank_idx, fd_ulong_find_lsb( poh_ready_bitset ), out );
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
 
@@ -1191,7 +1277,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
   if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
     dispatch_sigverify( sched, block, bank_idx, fd_ulong_find_lsb( sigverify_ready_bitset ), out );
-    sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+    sched->next_ready_last_tick     = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
 
@@ -1207,6 +1294,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       handle_bad_block( sched, block );
       out->task_type = FD_SCHED_TT_MARK_DEAD;
       out->mark_dead->bank_idx = bank_idx;
+      sched->next_ready_last_tick     = fd_tickcount();
+      sched->next_ready_last_bank_idx = bank_idx;
       return 1UL;
     }
     out->task_type = FD_SCHED_TT_BLOCK_END;
@@ -1214,8 +1303,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     block->block_end_signaled = 1;
     FD_TEST( block->refcnt );
     block->refcnt = 0;
-    if( FD_UNLIKELY( !ref_q_avail( sched->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
+    FD_TEST( ref_q_avail( sched->ref_q ) );
     ref_q_push_tail( sched->ref_q, bank_idx );
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
 
@@ -1228,12 +1319,19 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
      transactions to retire, before switching to a different block.
 
      Either way, there should be in-flight transactions.  We deactivate
-     the active block the moment we exhausted transactions from it. */
-  if( FD_UNLIKELY( !block_is_in_flight( block ) ) ) {
+     the active block the moment we exhausted transactions from it.
+
+     We don't assert block_is_in_flight() here because there might be
+     in-flight tasks from dying blocks that are preventing us from
+     dispatching anything momentarily.  So we assert the global exec
+     tile busy count.  This doesn't lose too much assertion coverage
+     since dying blocks are few and far between. */
+  ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( exec_fully_ready_bitset );
+  if( FD_UNLIKELY( !total_exec_busy_cnt ) ) {
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invariant violation: expected in-flight transactions but none" ));
+    FD_LOG_CRIT(( "invariant violation: expected in-flight tasks but none found" ));
   }
 
   return 0UL;
@@ -1269,21 +1367,21 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
 
   if( FD_UNLIKELY( !block->in_sched ) ) {
-    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, slot %lu, parent slot %lu, idx %lu",
-                  block->slot, block->parent_slot, bank_idx ));
+    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
   if( FD_UNLIKELY( !block->staged ) ) {
     /* Invariant: only staged blocks can have in-flight transactions. */
-    FD_LOG_CRIT(( "invariant violation: block->staged==0, slot %lu, parent slot %lu",
-                  block->slot, block->parent_slot ));
+    FD_LOG_CRIT(( "invariant violation: block->staged==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
   if( FD_UNLIKELY( !block->in_rdisp ) ) {
     /* Invariant: staged blocks must be in the dispatcher. */
-    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, parent slot %lu",
-                  block->slot, block->parent_slot ));
+    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
   block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
@@ -1367,6 +1465,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
       if( !hashcnt_todo ) {
         block->poh_hashing_done_cnt++;
+        sched->metrics->mblk_poh_hashed_cnt++;
         if( FD_LIKELY( !mblk->is_tick ) ) {
           /* This is not a tick.  Enqueue for mixin. */
           mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, msg->mblk_idx, sched->mblk_pool );
@@ -1374,6 +1473,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
           /* This is a tick.  No need to mixin.  Check the hash value
              right away. */
           block->poh_hash_cmp_done_cnt++;
+          sched->metrics->mblk_poh_done_cnt++;
           free_mblk( sched, block, (uint)msg->mblk_idx );
           if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
@@ -1405,11 +1505,12 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 
   if( FD_UNLIKELY( block->dying && !block_is_in_flight( block ) ) ) {
     if( FD_UNLIKELY( sched->active_bank_idx==bank_idx ) ) {
-      FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
-                    bank_idx, block->slot, block->parent_slot ));
+      FD_LOG_CRIT(( "invariant violation: active block %lu:%lu shouldn't be dying, parent slot %lu",
+                    block->slot, bank_idx, block->parent_slot ));
     }
-    FD_LOG_DEBUG(( "dying block %lu drained", block->slot ));
+    FD_LOG_DEBUG(( "dying block %lu:%lu drained", block->slot, bank_idx ));
     subtree_abandon( sched, block );
+    try_activate_block( sched );
     return 0;
   }
 
@@ -1433,17 +1534,38 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( !block->in_sched ) ) {
-    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, slot %lu, parent slot %lu, idx %lu",
-                  block->slot, block->parent_slot, bank_idx ));
+    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, block %lu:%lu, parent slot %lu",
+                  block->slot, bank_idx, block->parent_slot ));
   }
 
-  FD_LOG_INFO(( "abandoning block %lu slot %lu", bank_idx, block->slot ));
+  FD_LOG_INFO(( "abandoning block %lu:%lu", block->slot, bank_idx ));
   sched->print_buf_sz = 0UL;
   print_all( sched, block );
   FD_LOG_DEBUG(( "%s", sched->print_buf ));
 
   subtree_abandon( sched, block );
   try_activate_block( sched );
+}
+
+void
+fd_sched_cancel( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_UNLIKELY( !block->in_sched ) ) return;
+  FD_LOG_INFO(( "canceling subtree at block %lu:%lu", block->slot, bank_idx ));
+  fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
+  if( FD_LIKELY( parent ) ) {
+    /* Splice the block out of its parent's children list. */
+    ulong block_idx = block_to_idx( sched, block );
+    ulong * idx_p = &parent->child_idx;
+    while( *idx_p!=block_idx ) {
+      idx_p = &(block_pool_ele( sched, *idx_p )->sibling_idx);
+    }
+    *idx_p = block->sibling_idx;
+  }
+  subtree_prune( sched, bank_idx, ULONG_MAX );
 }
 
 void
@@ -1562,6 +1684,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
     ulong              child_idx          = curr->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      child_idx = child->sibling_idx;
       if( child->rooted ) {
         rooted_child_block = child;
       } else {
@@ -1569,9 +1692,8 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
         ulong abandoned_cnt = sched->metrics->block_abandoned_cnt;
         subtree_abandon( sched, child );
         abandoned_cnt = sched->metrics->block_abandoned_cnt-abandoned_cnt;
-        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, child_idx ));
+        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, block_to_idx( sched, child ) ));
       }
-      child_idx = child->sibling_idx;
     }
     curr = rooted_child_block;
   }
@@ -1603,6 +1725,7 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
   block->hashes_per_tick = hashes_per_tick;
   #if FD_SCHED_SKIP_POH
   /* No-op. */
+  (void)start_poh;
   #else
   if( FD_LIKELY( block->mblk_cnt ) ) {
     /* Fix up the first mblk's curr_hash. */
@@ -1615,6 +1738,18 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
     memcpy( block->poh_hash, start_poh, sizeof(fd_hash_t) );
   }
   #endif
+}
+
+void
+fd_sched_set_bypass_poh_verify( fd_sched_t * sched, int bypass_poh_verify ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  sched->bypass_poh_verify = !!bypass_poh_verify;
+}
+
+void
+fd_sched_set_bypass_alut_resolution( fd_sched_t * sched, int bypass_alut_resolution ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  sched->bypass_alut_resolution = !!bypass_alut_resolution;
 }
 
 fd_txn_p_t *
@@ -1653,6 +1788,68 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
   return block->shred_cnt;
 }
 
+void
+fd_sched_metrics_write( fd_sched_t * sched ) {
+  FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
+  FD_MGAUGE_SET( REPLAY, SCHED_LAST_DISPATCH_BANK_INDEX, sched->next_ready_last_bank_idx );
+  FD_MGAUGE_SET( REPLAY, SCHED_LAST_DISPATCH_TIMESTAMP_NANOS, fd_ulong_if( sched->next_ready_last_tick!=LONG_MAX, (ulong)sched->next_ready_last_tick, ULONG_MAX ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_OCCUPIED, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_OCCUPIED_WATERMARK, sched->staged_popcnt_wmk );
+  ulong staging_lane_head_bank_idx[ FD_METRICS_ENUM_STAGING_LANE_CNT ];
+  for( ulong lane=0UL; lane<FD_METRICS_ENUM_STAGING_LANE_CNT; lane++ ) {
+    staging_lane_head_bank_idx[ lane ] = fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, (int)lane ), sched->staged_head_bank_idx[ lane ], ULONG_MAX );
+  }
+  FD_MGAUGE_ENUM_COPY( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_INDEX, staging_lane_head_bank_idx );
+  FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_OCCUPIED, sched->depth-sched->txn_pool_free_cnt-1UL );
+  FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_SIZE, sched->depth-1UL );
+  FD_MGAUGE_SET( REPLAY, SCHED_MICROBLOCK_POOL_OCCUPIED, sched->depth-sched->mblk_pool_free_cnt );
+  FD_MGAUGE_SET( REPLAY, SCHED_MICROBLOCK_POOL_SIZE, sched->depth );
+  FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_OCCUPIED, sched->block_pool_popcnt );
+  FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_SIZE, sched->block_cnt_max );
+
+  ulong sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_CNT ];
+  sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_V_STAGED_IDX   ] = sched->metrics->block_added_staged_cnt;
+  sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_V_UNSTAGED_IDX ] = sched->metrics->block_added_unstaged_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_BLOCK_ADDED, sched_block_added );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REPLAYED, sched->metrics->block_removed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_ABANDONED, sched->metrics->block_abandoned_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REJECTED, sched->metrics->block_bad_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_PROMOTED, sched->metrics->block_promoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_DEMOTED, sched->metrics->block_demoted_cnt );
+  ulong sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_CNT ];
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_NO_CHILD_IDX  ] = sched->metrics->deactivate_no_child_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_NO_WORK_IDX   ] = sched->metrics->deactivate_no_txn_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_ABANDONED_IDX ] = sched->metrics->deactivate_abandoned_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_MINORITY_IDX  ] = sched->metrics->deactivate_pruned_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_DEACTIVATE, sched_deactivate );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_SWITCHED, sched->metrics->lane_switch_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_PROMOTED, sched->metrics->lane_promoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_DEMOTED, sched->metrics->lane_demoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_FORK_OBSERVED, sched->metrics->fork_observed_cnt );
+  ulong sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_CNT ];
+  sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_V_SUCCESS_IDX ] = sched->metrics->alut_success_cnt;
+  sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_V_FAILED_IDX  ] = sched->metrics->alut_serializing_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_ALUT, sched_alut );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED_ABANDONED, sched->metrics->txn_abandoned_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED_ABANDONED, sched->metrics->txn_abandoned_exec_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE_ABANDONED, sched->metrics->txn_abandoned_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT, sched->metrics->txn_weighted_in_flight_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT_DURATION_NANOS, sched->metrics->txn_weighted_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_NONE_IN_FLIGHT_DURATION_NANOS, sched->metrics->txn_none_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED, sched->metrics->txn_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED, sched->metrics->txn_exec_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_SIGNATURE_VERIFIED, sched->metrics->txn_sigverify_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_POH_MIXED, sched->metrics->txn_mixin_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE, sched->metrics->txn_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_PARSED, sched->metrics->mblk_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_HASHED, sched->metrics->mblk_poh_hashed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_DONE, sched->metrics->mblk_poh_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED, sched->metrics->bytes_ingested_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED_PADDING, sched->metrics->bytes_ingested_unparsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_DROPPED, sched->metrics->bytes_dropped_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_FEC_INGESTED, sched->metrics->fec_cnt );
+}
+
 char *
 fd_sched_get_state_cstr( fd_sched_t * sched ) {
   sched->print_buf_sz = 0UL;
@@ -1685,34 +1882,35 @@ add_block( fd_sched_t * sched,
   block->poh_hash_cmp_done_cnt       = 0U;
   block->txn_done_cnt                = 0U;
   block->shred_cnt                   = 0U;
-  block->fec_cnt                     = 0U;
   block->mblk_cnt                    = 0U;
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
   block->mblk_unhashed_cnt           = 0U;
   block->hashcnt                     = 0UL;
-  block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt;
+  block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt - 1UL;
   block->mblk_pool_max_popcnt        = sched->depth - sched->mblk_pool_free_cnt;
   block->block_pool_max_popcnt       = sched->block_pool_popcnt;
 
   mblk_slist_remove_all( block->mblks_unhashed, sched->mblk_pool );
   mblk_slist_remove_all( block->mblks_hashing_in_progress, sched->mblk_pool );
   mblk_slist_remove_all( block->mblks_mixin_in_progress, sched->mblk_pool );
-  block->last_mblk_is_tick = 0;
-  block->max_tick_hashcnt  = 0UL;
-  block->curr_tick_hashcnt = 0UL;
-  block->tick_height       = ULONG_MAX;
-  block->max_tick_height   = ULONG_MAX;
-  block->hashes_per_tick   = ULONG_MAX;
+  block->last_mblk_is_tick            = 0;
+  block->tick_hashcnt_wmk             = 0UL;
+  block->batch_end_hashcnt_wmk        = 0UL;
+  block->curr_tick_hashcnt            = 0UL;
+  block->tick_height                  = ULONG_MAX;
+  block->max_tick_height              = ULONG_MAX;
+  block->hashes_per_tick              = ULONG_MAX;
   block->inconsistent_hashes_per_tick = 0;
 
-  block->mblks_rem    = 0UL;
-  block->txns_rem     = 0UL;
-  block->fec_buf_sz   = 0U;
-  block->fec_buf_boff = 0U;
-  block->fec_buf_soff = 0U;
-  block->fec_eob      = 0;
-  block->fec_sob      = 1;
+  block->mblks_rem        = 0UL;
+  block->txns_rem         = 0UL;
+  block->fec_buf_sz       = 0U;
+  block->fec_buf_boff     = 0U;
+  block->fec_buf_soff     = 0U;
+  block->fec_eob          = 0;
+  block->fec_sob          = 1;
+  block->last_batch_empty = 0;
 
   block->fec_eos              = 0;
   block->rooted               = 0;
@@ -1782,8 +1980,8 @@ verify_ticks_eager( fd_sched_block_t * block ) {
     FD_LOG_INFO(( "bad block: TOO_MANY_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return -1;
   }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->max_tick_hashcnt||block->inconsistent_hashes_per_tick) ) ) {
-    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->max_tick_hashcnt ));
+  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->tick_hashcnt_wmk||block->inconsistent_hashes_per_tick) ) ) {
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->tick_hashcnt_wmk ));
     return -1;
   }
   if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->curr_tick_hashcnt>block->hashes_per_tick ) ) { /* >1 to ignore low power hashing or no hashing cases */
@@ -1796,7 +1994,7 @@ verify_ticks_eager( fd_sched_block_t * block ) {
        checking the hashcnt between ticks transitively places an upper
        bound on the hashcnt of individual microblocks, thus mitigating
        the DoS vector. */
-    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, observed cumulative tick_hashcnt %lu, expected %lu, slot %lu, parent slot %lu", block->curr_tick_hashcnt, block->hashes_per_tick, block->slot, block->parent_slot ));
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, observed cumulative tick_hashcnt %lu, expected %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, block->hashes_per_tick ));
     return -1;
   }
 
@@ -1821,6 +2019,26 @@ verify_ticks_final( fd_sched_block_t * block ) {
   return verify_ticks_eager( block );
 }
 
+int
+fd_sched_block_verify_ticks( fd_sched_t * sched,
+                             ulong        bank_idx,
+                             ulong        tick_height,
+                             ulong        max_tick_height,
+                             ulong        hashes_per_tick ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  FD_TEST( max_tick_height>tick_height );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  /* Set the tick window directly; skip fd_sched_set_poh_params
+     PoH fixup, unneeded here and unsafe to repeat per FEC set. */
+  block->tick_height     = tick_height;
+  block->max_tick_height = max_tick_height;
+  block->hashes_per_tick = hashes_per_tick;
+  /* fec_eos => slot fully ingested, so the TOO_FEW check is meaningful
+     too. */
+  return block->fec_eos ? verify_ticks_final( block ) : verify_ticks_eager( block );
+}
+
 #define CHECK( cond )  do {             \
   if( FD_UNLIKELY( !(cond) ) ) {        \
     return FD_SCHED_AGAIN_LATER;        \
@@ -1831,12 +2049,14 @@ verify_ticks_final( fd_sched_block_t * block ) {
 #define CHECK_LEFT( n ) CHECK( (n)<=(block->fec_buf_sz-block->fec_buf_soff) )
 
 /* Consume as much as possible from the buffer.  By the end of this
-   function, we will either have residual data that is unparseable only
-   because it is a batch that straddles FEC set boundaries, or we will
-   have reached the end of a batch.  In the former case, any remaining
-   bytes should be concatenated with the next FEC set for further
-   parsing.  In the latter case, any remaining bytes should be thrown
-   away. */
+   function, there could be residual data left over in the buffer.  That
+   residual has to be either a partially received microblock header or a
+   transaction that straddles a FEC set boundary.  These bytes are kept
+   and will be concatenated with the next FEC set.  This residual is
+   bounded.
+
+   Trailing bytes within a batch are dropped immediately.  These
+   trailing bytes can span arbitrarily many FEC sets. */
 FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   while( 1 ) {
@@ -1858,8 +2078,107 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( block->fec_buf+block->fec_buf_soff );
       block->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
 
+      if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( FD_MAX_TXN_PER_SLOT, block->txn_parsed_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: illegally many transactions specified in microblock header in slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+      if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
+
+      /* One might think that every microblock needs to have at least
+         one hash, otherwise the block should be considered invalid.  A
+         vanilla validator certainly produces microblocks that conform
+         to this.  But a modded validator could in theory produce
+         zero-hash microblocks.  Agave's replay stage will happily take
+         those microblocks.  The Agave implementation-defined way of
+         doing PoH verify is as follows:
+
+         For a tick microblock, do the same number of hashes as
+         specified by the microblock.  Zero hashes are allowed, but not
+         in all cases.  More on that below.  A zero hash count simply
+         means that the tick would have the same ending hash value as
+         the previous microblock.
+
+         For a transaction microblock, if the number of hashes specified
+         by the microblock is <= 1, then do zero pure hashes, and simply
+         do a mixin/record.  Otherwise, do (number of hashes-1) amount
+         of pure hashing, and then do a mixin.  However, note that for
+         the purposes of tick_verify, the number of hashes specified by
+         the microblock is taken verbatim.
+
+         In another unfortunate turn, zero hashes in microblock headers
+         are not universally valid.  An additional constraint is that
+         Agave expects non-tick microblocks to leave the cumulative tick
+         hash count at least one away from hashes_per_tick at the end of
+         a batch:
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L672
+
+         This means that there's no local and clean formulation of the
+         valid hash count range of a given microblock.  The valid hash
+         count depends on the microblocks that have been observed and
+         where the batch boundary is.  Any formulation of a
+         per-microblock valid hash count will probably just end up being
+         isomorphic to a check based on the accumulated tick hash count.
+
+         And because apparently that wasn't enough, this "at least one
+         away" check is applied non-deterministically in Agave.
+         Contiguous runs of microblock batches are extracted out of the
+         blockstore in Agave and then flattened.  The check is then
+         applied on this flattened array of microblocks.  So depending
+         on the timing of shred ingestion into the blockstore, a batch
+         boundary that violates this check may or may not be able to
+         sneak in.  Since we don't revert deadness decisions, we will be
+         lenient and accept blocks that violate this check.
+
+         In yet another unfortunate turn - because why not - there's
+         also non-determinism in this check on the tick height:
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/ledger/src/blockstore_processor.rs#L1117
+
+         The intention of this check presumably is that the last tick
+         ends the block.  More precisely, there should be no more
+         microblock batches after the one containing the final tick.
+         The way this check should have been implemented is that the
+         batch containing the final tick must also end with the
+         SLOT_COMPLETE flag.  The way this check has been implemented in
+         Agave is once again non-deterministic.  The slot_full flag is a
+         function of whether the blockstore has received all the shreds.
+         So a block may or may not be able to sneak in an empty batch
+         after the final tick.  We will be lenient and accept such
+         blocks.
+
+
+         Some additional references to Agave:
+
+         On the consumer side, non-tick microblocks can have a zero hash
+         count, and the mixin will happen anyways:
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L326
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/entry.rs#L542
+
+         On the producer side, Agave reserves at least one hash for the
+         tick, so an Agave produced tick would satisfy the verifier:
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/poh.rs#L78
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/poh.rs#L101 */
+      block->curr_tick_hashcnt = fd_ulong_sat_add( hdr->hash_cnt, block->curr_tick_hashcnt ); /* For tick_verify, take the number of hashes verbatim. */
+      sched->metrics->mblk_parsed_cnt++;
+      if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
+        /* This is a tick microblock. */
+        if( FD_UNLIKELY( block->mblk_tick_cnt && block->tick_hashcnt_wmk!=block->curr_tick_hashcnt ) ) {
+          block->inconsistent_hashes_per_tick = 1;
+          if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
+            /* >1 to ignore low power hashing or hashing disabled */
+            FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, tick idx %u, tick_hashcnt_wmk %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick ));
+            return FD_SCHED_BAD_BLOCK;
+          }
+        }
+        block->tick_hashcnt_wmk  = fd_ulong_max( block->curr_tick_hashcnt, block->tick_hashcnt_wmk );
+        block->curr_tick_hashcnt = 0UL;
+        block->mblk_tick_cnt++;
+      }
 
       FD_TEST( sched->mblk_pool_free_cnt ); /* can_ingest should have guaranteed sufficient free capacity. */
       uint mblk_idx = sched->mblk_pool_free_head;
@@ -1869,57 +2188,20 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
       mblk->start_txn_idx = block->txn_parsed_cnt;
       mblk->end_txn_idx   = mblk->start_txn_idx+hdr->txn_cnt;
-      /* One might think that every microblock needs to have at least
-         one hash, otherwise the block should be considered invalid.  A
-         vanilla validator certainly produces microblocks that conform
-         to this.  But a modded validator could in theory produce zero
-         hash microblocks.  Agave's replay stage will happily take those
-         microblocks.  The Agave implementation-defined way of doing PoH
-         verify is as follows:
-
-         For a tick microblock, do the same number of hashes as
-         specified by the microblock.  Zero hashes are allowed, in which
-         case this tick would have the same ending hash value as the
-         previous microblock.
-
-         For a transaction microblock, if the number of hashes specified
-         by the microblock is <= 1, then do zero pure hashes, and simply
-         do a mixin/record.  Otherwise, do (number of hashes-1) amount
-         of pure hashing, and then do a mixin.  However, note that for
-         the purposes of tick_verify, the number of hashes specified by
-         the microblock is taken verbatim.
-
-         https://github.com/anza-xyz/agave/blob/v3.0.6/entry/src/entry.rs#L232
-
-         We implement the above for consensus. */
-      mblk->hashcnt = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement the above. */
+      mblk->curr_txn_idx  = mblk->start_txn_idx;
+      mblk->hashcnt       = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement saturating sub for non-tick microblocks. */
+      mblk->curr_hashcnt  = 0UL;
+      mblk->curr_sig_cnt  = 0U;
+      mblk->is_tick       = !hdr->txn_cnt;
       memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
       memcpy( mblk->curr_hash, block->poh_hash, sizeof(fd_hash_t) );
-      mblk->curr_txn_idx = mblk->start_txn_idx;
-      mblk->curr_hashcnt = 0UL;
-      mblk->curr_sig_cnt = 0U;
-      mblk->is_tick      = !hdr->txn_cnt;
 
       /* Update block tracking. */
-      block->curr_tick_hashcnt = fd_ulong_sat_add( hdr->hash_cnt, block->curr_tick_hashcnt ); /* For tick_verify, take the number of hashes verbatim. */
       block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
       memcpy( block->poh_hash, hdr->hash, sizeof(fd_hash_t) );
       block->last_mblk_is_tick = mblk->is_tick;
       block->mblk_cnt++;
-      if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
-        /* This is a tick microblock. */
-        if( FD_UNLIKELY( block->mblk_tick_cnt && block->max_tick_hashcnt!=block->curr_tick_hashcnt ) ) {
-          block->inconsistent_hashes_per_tick = 1;
-          if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
-            /* >1 to ignore low power hashing or hashing disabled */
-            FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, tick idx %u, max hashcnt %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->hashes_per_tick ));
-            return FD_SCHED_BAD_BLOCK;
-          }
-        }
-        block->max_tick_hashcnt  = fd_ulong_max( block->curr_tick_hashcnt, block->max_tick_hashcnt );
-        block->curr_tick_hashcnt = 0UL;
-        block->mblk_tick_cnt++;
-      }
+
       #if FD_SCHED_SKIP_POH
       block->poh_hashing_done_cnt++;
       block->poh_hash_cmp_done_cnt++;
@@ -1936,21 +2218,36 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
 
+      if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+
       block->fec_sob = 0;
+      block->last_batch_empty = !block->mblks_rem;
       continue;
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL ) {
       break;
     }
   }
-  if( block->fec_eob ) {
-    /* Ignore trailing bytes at the end of a batch. */
+  if( !block->fec_sob && block->txns_rem==0UL && block->mblks_rem==0UL ) {
+    /* All microblocks announced by the current batch header have been
+       parsed out.  Anything still in the buffer must be trailing bytes.
+       Drop them now because trailing bytes can span many FEC sets and
+       accumulating them would overflow the parse buffer.  Any followup
+       FEC sets within the same batch will simply be discarded
+       wholesale. */
     sched->metrics->bytes_ingested_unparsed_cnt += block->fec_buf_sz-block->fec_buf_soff;
     block->fec_buf_boff += block->fec_buf_sz;
-    block->fec_buf_soff = 0U;
-    block->fec_buf_sz   = 0U;
-    block->fec_sob      = 1;
-    block->fec_eob      = 0;
+    block->fec_buf_soff  = 0U;
+    block->fec_buf_sz    = 0U;
+  }
+  if( block->fec_eob ) {
+    /* Record tick hash count at batch boundaries. */
+    block->batch_end_hashcnt_wmk = fd_ulong_max( block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt );
+    block->fec_sob = 1;
+    block->fec_eob = 0;
   }
   return FD_SCHED_OK;
 }
@@ -1959,56 +2256,77 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
-  /* FIXME: For the replay pipeline, we allow up to 128 instructions per
-     transaction.  Note that we are not concomitantly bumping the size
-     of fd_txn_t.  We allow this because transactions like that do get
-     packed by other validators, so we have to replay them.  Those
-     transactions will eventually fail in the runtime, which imposes a
-     limit of 64 instructions, but unfortunately they are not tossed out
-     at parse time and they land on chain.  static_instruction_limit is
-     going to enforece this limit at parse time, and transactions like
-     that would not land on chain.  Then this short term change should
-     be rolled back. */
+  uchar * payload = block->fec_buf+block->fec_buf_soff;
   ulong pay_sz = 0UL;
-  ulong txn_sz = fd_txn_parse_core( block->fec_buf+block->fec_buf_soff,
+  ulong txn_sz = fd_txn_parse_core( payload,
                                     fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
                                     txn,
                                     NULL,
-                                    &pay_sz,
-                                    ULONG_MAX );
+                                    &pay_sz );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
     return FD_SCHED_AGAIN_LATER;
   }
 
-  /* FIXME: remove after static_instruction_limit */
-  if( FD_UNLIKELY( txn->instr_cnt>FD_TXN_INSTR_MAX*2UL ) ) FD_LOG_CRIT(( "slot %lu txn idx %u has %u instructions, static_instruction_limit will resolve this", block->slot, block->txn_parsed_cnt, txn->instr_cnt ));
-
   if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
     /* The block contains more transactions than a valid block would.
        Mark the block dead instead of keep processing it. */
-    FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
+    FD_LOG_INFO(( "bad block: illegally many transactions in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
     return FD_SCHED_BAD_BLOCK;
   }
 
+  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
+
   /* Try to expand ALUTs. */
-  int has_aluts   = txn->transaction_version==FD_TXN_V0 && txn->addr_table_adtl_cnt>0;
   int serializing = 0;
-  if( has_aluts ) {
-    uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb, alut_ctx->xid, slot_hashes_mem );
-    if( FD_LIKELY( slot_hashes_global ) ) {
-      fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-      serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, block->fec_buf+block->fec_buf_soff, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, block->aluts );
-      sched->metrics->alut_success_cnt += (uint)!serializing;
-    } else {
+  if( alt_cnt>0UL ) {
+    if( FD_UNLIKELY( sched->bypass_alut_resolution ) ) {
+      /* test/fuzz: no accdb to query, so treat ALUT txns as serializing. */
       serializing = 1;
+    } else {
+      /* Copy the slot hashes sysvar out and release the read BEFORE
+         resolving the ALTs.  fd_runtime_load_txn_address_lookup_tables
+         issues its own fd_accdb_read_one per lookup table, and the accdb
+         acquire state is a single non-nestable flag — holding this read
+         open across that call would trip the IDLE assertion in
+         fd_accdb_acquire.  The slot_hashes view aliases the record data,
+         so it must view the copy, not the released record. */
+      static uchar slot_hashes_buf[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
+      ulong        slot_hashes_sz = 0UL;
+      int          have_slot_hashes = 0;
+      fd_acc_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
+      if( FD_LIKELY( ro.lamports && ro.data_len<=sizeof(slot_hashes_buf) ) ) {
+        fd_memcpy( slot_hashes_buf, ro.data, ro.data_len );
+        slot_hashes_sz   = ro.data_len;
+        have_slot_hashes = 1;
+      }
+      fd_accdb_unread_one( alut_ctx->accdb, &ro );
+
+      fd_slot_hashes_t slot_hashes_view[1];
+      if( FD_LIKELY( have_slot_hashes &&
+                     fd_sysvar_slot_hashes_view( slot_hashes_view, slot_hashes_buf, slot_hashes_sz ) ) ) {
+        serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
+        sched->metrics->alut_success_cnt += (uint)!serializing;
+      } else {
+        serializing = 1;
+      }
     }
   }
 
+  /* Transactions should not have duplicate accounts.
+     https://github.com/anza-xyz/agave/blob/v3.1.11/ledger/src/blockstore_processor.rs#L778-L790 */
+  fd_acct_addr_t const * imms = fd_txn_get_acct_addrs( txn, payload );
+  fd_acct_addr_t * alts = (!alt_cnt||serializing) ? NULL : sched->aluts;
+  alt_cnt = alts ? alt_cnt : 0UL;
+  if( FD_UNLIKELY( fd_chkdup_check( sched->chkdup, imms, imm_cnt, alts, alt_cnt ) ) ) {
+    FD_LOG_INFO(( "bad block: duplicate accounts in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
+    return FD_SCHED_BAD_BLOCK;
+  }
+
   ulong bank_idx = (ulong)(block-sched->block_pool);
-  ulong txn_idx   = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, block->fec_buf+block->fec_buf_soff, serializing ? NULL : block->aluts, serializing );
+  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
   FD_TEST( txn_idx!=0UL );
   sched->metrics->txn_parsed_cnt++;
   sched->metrics->alut_serializing_cnt += (uint)serializing;
@@ -2020,8 +2338,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
   txn_p->end_shred_idx = (ushort)fd_sort_up_uint_split( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
 
-  fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
-  fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
+  fd_memcpy( txn_p->payload, payload, pay_sz );
+  fd_memcpy( TXN(txn_p),     txn,     txn_sz );
   txn_bitset_remove( sched->exec_done_set, txn_idx );
   txn_bitset_remove( sched->sigverify_done_set, txn_idx );
   txn_bitset_remove( sched->poh_mixin_done_set, txn_idx );
@@ -2100,30 +2418,73 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   FD_TEST( block->poh_hashing_done_cnt-block->poh_hash_cmp_done_cnt>0 );
 
   /* The microblock we would like to do mixin on is at the head of the
-     queue. */
+     queue.  It may have had some mixin, it may have never had any
+     mixin.  In the case of the former, we should continue to mixin the
+     same head microblock until it's done, lest the per-block bmtree
+     gets clobbered when we start a new one. */
   ulong mblk_idx = mblk_slist_idx_pop_head( block->mblks_mixin_in_progress, sched->mblk_pool );
   fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-  ulong start_txn_idx = mblk->start_txn_idx;
 
   if( FD_UNLIKELY( mblk->end_txn_idx>block->txn_parsed_cnt ) ) {
-    /* Very rarely, we've finished hashing, but not all transactions in
-       the microblock have been parsed out.  This can happen if we
-       haven't received all the FEC sets for this microblock.  We can't
-       yet fully mixin the microblock.  So we'll stick it back into the
-       end of the queue. */
+    /* A partially parsed microblock is by definition at the end of the
+       FEC stream.  If such a microblock is in progress, there should be
+       no other microblock in this block so far that hasn't been
+       dispatched, because microblocks are dispatched in parse order. */
+    if( FD_UNLIKELY( block->mblk_unhashed_cnt ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_CRIT(( "invariant violation end_txn_idx %lu: %s", mblk->end_txn_idx, sched->print_buf ));
+    }
+
+    /* If we've decided to start mixin on a partially parsed microblock,
+       there better be nothing else in-progress.  Otherwise, they might
+       clobber the per-block bmtree for mixin. */
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_hashing_in_flight_cnt||!mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool )||!mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool )) ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_CRIT(( "invariant violation end_txn_idx %lu start_txn_idx %lu curr_txn_idx %lu: %s", mblk->end_txn_idx, mblk->start_txn_idx, mblk->curr_txn_idx, sched->print_buf ));
+    }
+  }
+
+  /* Very rarely, we've finished hashing, but not all transactions in
+     the microblock have been parsed out.  This can happen if we haven't
+     received all the FEC sets for this microblock.  We can't yet fully
+     mixin the microblock.  So we'll stick it back into the end of the
+     queue, and try to see if there's a fully parsed microblock.
+     Unless, there's truly nothing else to mixin.  Then we would start
+     mixin with the partially parsed microblock.  We do this because the
+     txn pool is meant to be an OOO scheduling window not tied to
+     max_live_slots sizing requirements, so there shouldn't be a way for
+     external input to tie up txn pool entries for longer than
+     necessary. */
+  if( FD_UNLIKELY( mblk->curr_txn_idx>=block->txn_parsed_cnt || /* Nothing more to mixin for this microblock. */
+                   (mblk->end_txn_idx>block->txn_parsed_cnt &&  /* There is something to mixin, but the microblock isn't fully parsed yet ... */
+                    mblk->curr_txn_idx==mblk->start_txn_idx &&  /* ... and we haven't started mixin on it yet ... */
+                    (block->poh_hashing_in_flight_cnt ||        /* ... and another microblock is in-progress and might preempt this microblock and clobber the bmtree, so we shouldn't start the partial microblock just yet. */
+                     !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ||
+                     !mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool ))) ) ) {
     mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
-    /* Invariant: we wouldn't start to mixin unless the microblock is
-       fully parsed. */
-    FD_TEST( mblk->curr_txn_idx==start_txn_idx );
 
     /* No other microblock in the mixin queue. */
     if( FD_UNLIKELY( block->poh_hashing_done_cnt-block->poh_hash_cmp_done_cnt==1 ) ) return 0;
 
     /* At this point, there's at least one more microblock in the mixin
-       queue we could try. */
+       queue we could try.  It's a predecessor (in parse order) that
+       finished hashing later than the partially parsed microblock at
+       the head of the mixin queue. */
+
+    /* It should never clobber the bmtree for a microblock that has had some mixin done on it. */
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_CRIT(( "invariant violation curr_txn_idx %lu start_txn_idx %lu: %s", mblk->curr_txn_idx, mblk->start_txn_idx, sched->print_buf ));
+    }
+
     mblk_idx = mblk_slist_idx_pop_head( block->mblks_mixin_in_progress, sched->mblk_pool );
     mblk = sched->mblk_pool+mblk_idx;
-    start_txn_idx = mblk->start_txn_idx;
+
+    /* It should be a fresh microblock for mixin. */
+    FD_TEST( mblk->curr_txn_idx==mblk->start_txn_idx );
     /* Invariant: at any given point in time, there can be at most one
        microblock that hasn't been fully parsed yet, due to the nature
        of sequential parsing.  So this microblock has to be fully
@@ -2131,8 +2492,10 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     FD_TEST( mblk->end_txn_idx<=block->txn_parsed_cnt );
   }
 
+  FD_TEST( mblk->curr_txn_idx<mblk->end_txn_idx );
+
   /* Now mixin. */
-  if( FD_LIKELY( mblk->curr_txn_idx==start_txn_idx ) ) block->bmtree = fd_bmtree_commit_init( block->bmtree_mem, 32UL, 1UL, 0UL ); /* Optimize for single-transaction microblocks, which are the majority. */
+  if( FD_LIKELY( mblk->curr_txn_idx==mblk->start_txn_idx ) ) block->bmtree = fd_bmtree_commit_init( block->bmtree_mem, 32UL, 1UL, 0UL ); /* Optimize for single-transaction microblocks, which are the majority. */
 
   ulong txn_gidx = block->txn_idx[ mblk->curr_txn_idx ];
   fd_txn_p_t * _txn = sched->txn_pool+txn_gidx;
@@ -2146,6 +2509,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
   /* Release the txn_idx. */
   txn_bitset_insert( sched->poh_mixin_done_set, txn_gidx );
+  sched->metrics->txn_mixin_done_cnt++;
   if( txn_bitset_test( sched->exec_done_set, txn_gidx ) && txn_bitset_test( sched->sigverify_done_set, txn_gidx ) ) {
     fd_rdisp_complete_txn( sched->rdisp, txn_gidx, 1 );
     sched->txn_pool_free_cnt++;
@@ -2158,16 +2522,18 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   if( FD_LIKELY( mblk->curr_txn_idx==mblk->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
     block->poh_hash_cmp_done_cnt++;
+    sched->metrics->mblk_poh_done_cnt++;
     uchar * root = fd_bmtree_commit_fini( block->bmtree );
     uchar mixin_buf[ 64 ];
     fd_memcpy( mixin_buf, mblk->curr_hash, 32UL );
     fd_memcpy( mixin_buf+32UL, root, 32UL );
     fd_sha256_hash( mixin_buf, 64UL, mblk->curr_hash );
     free_mblk( sched, block, (uint)mblk_idx );
-    if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
+    /* Bypass PoH verification for fuzzing/testing throughput. */
+    if( FD_UNLIKELY( !sched->bypass_poh_verify && memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
       FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
-      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
+      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, mblk->start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
       return -1;
     }
   } else {
@@ -2181,6 +2547,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 static void
 try_activate_block( fd_sched_t * sched ) {
+  /* Early return if there's already an active block. */
+  if( FD_LIKELY( sched->active_bank_idx!=ULONG_MAX ) ) return;
 
   /* See if there are any allocated staging lanes that we can activate
      for scheduling ... */
@@ -2192,12 +2560,13 @@ try_activate_block( fd_sched_t * sched ) {
     ulong              head_idx     = sched->staged_head_bank_idx[ lane_idx ];
     fd_sched_block_t * head_block   = block_pool_ele( sched, head_idx );
     fd_sched_block_t * parent_block = block_pool_ele( sched, head_block->parent_idx );
-    if( FD_UNLIKELY( parent_block->dying ) ) {
-      /* Invariant: no child of a dying block should be staged. */
-      FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, parent slot %lu on lane %d has parent_block->dying set, slot %lu, parent slot %lu",
-                    head_idx, head_block->slot, head_block->parent_slot, lane_idx, parent_block->slot, parent_block->parent_slot ));
-    }
-    //FIXME: restore this invariant check when we have immediate demotion of dying blocks
+    //FIXME: restore these invariant checks when we have immediate demotion of dying blocks
+    //Today, dying blocks can remain staged if they have in-flight transactions.
+    // if( FD_UNLIKELY( parent_block->dying ) ) {
+    //   /* Invariant: no child of a dying block should be staged. */
+    //   FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, parent slot %lu on lane %d has parent_block->dying set, slot %lu, parent slot %lu",
+    //                 head_idx, head_block->slot, head_block->parent_slot, lane_idx, parent_block->slot, parent_block->parent_slot ));
+    // }
     // if( FD_UNLIKELY( head_block->dying ) ) {
     //   /* Invariant: no dying block should be staged. */
     //   FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, prime %lu on lane %u has head_block->dying set",
@@ -2206,9 +2575,13 @@ try_activate_block( fd_sched_t * sched ) {
     if( block_is_done( parent_block ) && block_is_activatable( head_block ) ) {
       /* ... Yes, on this staging lane the parent block is done.  So we
          can activate the staged child. */
-      if( FD_UNLIKELY( head_idx!=sched->last_active_bank_idx ) ) { /* Unlikely because lane switching only possible under forking. */
-        FD_LOG_DEBUG(( "activating block %lu:%lu: lane switch to %d", head_block->slot, head_idx, lane_idx ));
-        sched->metrics->lane_switch_cnt++;
+      if( FD_UNLIKELY( head_idx!=sched->last_active_bank_idx ) ) { /* Unlikely because only possible under forking or on slot boundary. */
+        if( FD_UNLIKELY( sched->last_active_bank_idx!=head_block->parent_idx ) ) { /* Forking is rare. */
+          FD_LOG_DEBUG(( "activating block %lu:%lu: lane switch to %d", head_block->slot, head_idx, lane_idx ));
+          sched->metrics->lane_switch_cnt++;
+        } else {
+          FD_LOG_DEBUG(( "activating block %lu:%lu: lane %d waking up on slot boundary", head_block->slot, head_idx, lane_idx ));
+        }
       }
       sched->active_bank_idx = head_idx;
       return;
@@ -2269,15 +2642,25 @@ try_activate_block( fd_sched_t * sched ) {
          This invariant, by induction, gives us the guarantee that at
          least one of the lanes can be activated. */
       for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
-        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) {
-          FD_LOG_CRIT(( "invariant violation: lane %d is not demotable", l ));
-        }
+        /* We would be able to assert that all lanes are demotable,
+           except that abandoned blocks are given no grace period for
+           deactivation.  So there could be lanes transiently occupied
+           by dying blocks that are neither demotable (due to in-flight
+           tasks) nor activatable (due to being dying).  If
+           rdisp_demote() supported non-empty blocks, then we could
+           probably restore the assertion. */
+        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) continue;
         ulong demoted_cnt = demote_lane( sched, l );
         if( FD_UNLIKELY( demoted_cnt!=1UL ) ) {
           FD_LOG_CRIT(( "invariant violation: %lu blocks demoted from lane %d, expected 1 demotion", demoted_cnt, l ));
         }
         sched->metrics->lane_demoted_cnt++;
       }
+      /* We weren't able to successfully demote anything.  This is
+         likely because all lanes are occupied by dying blocks with
+         in-flight tasks.  We would get another chance to try to demote
+         when the last in-flight task on any lane completes. */
+      if( FD_UNLIKELY( sched->staged_bitset==fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) ) ) return;
     }
     FD_TEST( sched->staged_bitset!=fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) );
     int lane_idx = fd_ulong_find_lsb( ~sched->staged_bitset );
@@ -2430,24 +2813,58 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
   }
 }
 
-/* It's safe to call this function more than once on the same block.
-   The final call is when there are no more in-flight tasks for this
-   block, at which point the block will be pruned from sched. */
+/* This function tells sched that the subtree is no longer worth
+   replaying.  It can happen as a result of one of the following.
+     - Bad block at head of lane.
+     - Bad block at tail of lane.
+     - Root notify.
+
+   It's safe to call this function more than once on the same block. */
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   subtree_mark_and_maybe_prune_rdisp( sched, block );
-  if( block_is_prunable( block ) ) {
-    fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
-    if( FD_LIKELY( parent ) ) {
-      /* Splice the block out of its parent's children list. */
-      ulong block_idx = block_to_idx( sched, block );
-      ulong * idx_p = &parent->child_idx;
-      while( *idx_p!=block_idx ) {
-        idx_p = &(block_pool_ele( sched, *idx_p )->sibling_idx);
-      }
-      *idx_p = block->sibling_idx;
-    }
-    subtree_prune( sched, block_to_idx( sched, block ), ULONG_MAX );
+  /* We do not gate refcnt releases on the entire subtree being
+     prunable.  In the root notify case there can be in-flight tasks in
+     the middle of a subtree, and gating on whole-subtree prunability
+     would defer the release of an otherwise prunable block, e.g. an
+     inactive sibling of an in-flight block, to a later abandon such as
+     a subsequent root notify.  That could stall bank reclamation.
+
+     The sched fork tree still stays in sync with the banks tree.  This
+     is to prevent attacks targeting lifetime discrepancy.  So while we
+     know that the subtree can be pruned from sched at this point, we
+     only release refcnts here and stop short of actually pruning, which
+     remains solely initiated by banks. */
+  subtree_release_refcnt( sched, block );
+}
+
+/* Release the bank refcnt for every block in the subtree that sched is
+   done with.  This is evaluated per block.  A block's refcnt is
+   released as soon as that block individually qualifies, independent of
+   whether its siblings or descendants still have in-flight tasks.  This
+   is safe because the actual pruning is initiated separately by banks,
+   and gated on the whole subtree's refcnts reaching zero.  Releasing
+   refcnts eagerly per block get us there sooner.  Blocks that are still
+   in-flight will be released when their last task drains.  This
+   function is idempotent. */
+static void
+subtree_release_refcnt( fd_sched_t * sched, fd_sched_block_t * block ) {
+  FD_TEST( block->in_sched );
+  if( block->refcnt && block_is_prunable( block ) ) {
+    FD_TEST( block->dying ); /* The happy path releases the refcnt on full replay.  Only bad blocks end up here. */
+    FD_TEST( !block->block_end_done ); /* Implied by an outstanding refcnt.  The happy path releases the refcnt on full replay. */
+    block->refcnt = 0;
+    FD_TEST( ref_q_avail( sched->ref_q ) );
+    ref_q_push_tail( sched->ref_q, block_to_idx( sched, block ) );
+    if( FD_LIKELY( block->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, releasing refcnt without full replay", block->slot, block_to_idx( sched, block ) ));
+    else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, releasing refcnt without any replay", block->slot, block_to_idx( sched, block ) ));
+  }
+
+  ulong child_idx = block->child_idx;
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child_block = block_pool_ele( sched, child_idx );
+    subtree_release_refcnt( sched, child_block );
+    child_idx = child_block->sibling_idx;
   }
 }
 
@@ -2458,21 +2875,9 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
   fd_sched_block_t * tail = head;
 
   while( head ) {
+    FD_TEST( !head->refcnt );
     FD_TEST( head->in_sched );
     head->in_sched = 0;
-    if( head->refcnt ) {
-      FD_TEST( !head->block_end_done );
-      head->refcnt = 0;
-      if( FD_UNLIKELY( !ref_q_avail( sched->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
-      ref_q_push_tail( sched->ref_q, block_to_idx( sched, head ) );
-    }
-
-    if( FD_UNLIKELY( !head->block_end_done ) ) {
-      sched->print_buf_sz = 0UL;
-      print_block_metrics( sched, head );
-      if( FD_LIKELY( head->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, pruning without full replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
-      else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, pruning without any replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
-    }
 
     ulong child_idx = head->child_idx;
     while( child_idx!=ULONG_MAX ) {
@@ -2488,13 +2893,20 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     }
 
     /* Prune the current block.  We will never publish halfway into a
-       staging lane, because anything on the rooted fork should have
-       finished replaying gracefully and be out of the dispatcher.  In
-       fact, anything that we are publishing away should be out of the
-       dispatcher at this point.  And there should be no more in-flight
-       transactions. */
+       staging lane, because anything that we are publishing away should
+       be out of the dispatcher at this point, much less staged.
+         - Anything on the rooted fork should have finished replaying
+           gracefully and be out of the dispatcher.
+         - Anything on minority forks should have been marked dying and
+           be taken out of the dispatcher.
+
+       There should be no more in-flight tasks either.  Prunes are
+       initiated by banks, and the refcnt on the bank won't drop to zero
+       unless all in-flight tasks have been drained.  So the fact that
+       we're pruning implies that the bank thinks there's nothing more
+       in-flight. */
     if( FD_UNLIKELY( block_is_in_flight( head ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has transactions in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
+      FD_LOG_CRIT(( "invariant violation: block has tasks in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
                     head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->slot, head->parent_slot ));
     }
     if( FD_UNLIKELY( head->in_rdisp ) ) {
@@ -2508,7 +2920,13 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     free_mblk_slist( sched, head, head->mblks_unhashed );
     free_mblk_slist( sched, head, head->mblks_hashing_in_progress );
     free_mblk_slist( sched, head, head->mblks_mixin_in_progress );
-    head->mblk_cnt = 0U;
+
+    if( FD_UNLIKELY( !head->block_end_done ) ) {
+      sched->print_buf_sz = 0UL;
+      print_block_metrics( sched, head );
+      if( FD_LIKELY( head->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, pruning without full replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
+      else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, pruning without any replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
+    }
 
     sched->block_pool_popcnt--;
 
@@ -2696,6 +3114,9 @@ stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx ) 
   if( FD_LIKELY( head_bank_idx!=ULONG_MAX ) ) {
     sched->metrics->lane_promoted_cnt++;
     sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
+    /* No need to update staged_popcnt_wmk because the fact that there
+       are unstaged blocks implies we already maxed out lanes at one
+       point. */
     sched->staged_head_bank_idx[ lane_idx ] = head_bank_idx;
   }
   return head_bank_idx;
@@ -2748,7 +3169,7 @@ demote_lane( fd_sched_t * sched, int lane_idx ) {
 
     int ret = fd_rdisp_demote_block( sched->rdisp, bank_idx );
     if( FD_UNLIKELY( ret!=0 ) ) {
-      FD_LOG_CRIT(( "fd_rdisp_demote_block failed for slot %lu, bank_idx %lu, lane %d", block->slot, bank_idx, lane_idx ));
+      FD_LOG_CRIT(( "fd_rdisp_demote_block failed for block %lu:%lu, lane %d", block->slot, bank_idx, lane_idx ));
     }
     FD_LOG_DEBUG(( "block %lu:%lu exited lane %lu: demote", block->slot, bank_idx, block->staging_lane ));
     block->staged = 0;

@@ -19,6 +19,16 @@
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
+/* limit_instruction_accounts limits the number of accounts an
+   instruction can reference to 255. Any transactions that violate this
+   limit are invalid and cannot be included in a block.
+
+   To avoid feature-gating Pack, we always throw out transactions that
+   violate this limit.
+
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
+#define FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION (255UL)
+
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
    correspondence between transactions and parity shreds is somewhat
@@ -48,6 +58,9 @@
  */
 #define FD_PACK_MAX_TXN_PER_BUNDLE      5UL
 
+#define FD_PACK_ACCT_BLOCKLIST_LG_MAX   4
+#define FD_PACK_ACCT_BLOCKLIST_MAX      (1UL<<FD_PACK_ACCT_BLOCKLIST_LG_MAX)
+
 /* The percentage of the transaction fees that are burned */
 #define FD_PACK_TXN_FEE_BURN_PCT        50UL
 
@@ -67,7 +80,7 @@ struct fd_pack_limits {
      Similarly, a block in where the sum of the cost of all transactions
      that write to a given account exceeds max_write_cost_per_acct is
      invalid. */
-  ulong max_cost_per_block;          /* in [0, ULONG_MAX) */
+  ulong max_cost_per_block;          /* in [0, UINT_MAX) */
   ulong max_vote_cost_per_block;     /* in [0, max_cost_per_block] */
   ulong max_write_cost_per_acct;     /* in [0, max_cost_per_block] */
 
@@ -96,6 +109,16 @@ struct fd_pack_limits {
   ulong max_txn_per_microblock;      /* in [0, 16777216] */
   ulong max_microblocks_per_block;   /* in [0, 1e12) */
 
+  /* max_allocated_data_per_block is a consensus-critical constant that
+     limits the total amount of data that can be allocated by
+     transactions in a block.  This includes new accounts and extending
+     existing accounts.  This limit is not especially well specified,
+     and rarely comes close to being hit in production, so we use a
+     conservative estimate when packing to ensure we never hit it.  It
+     is currently limited to 100 MB, without any features to change it,
+     but we include it here with other limits in case it is change-able
+     in the future. */
+  ulong max_allocated_data_per_block; /* in [1, 100,000,000 ] */
 };
 typedef struct fd_pack_limits fd_pack_limits_t;
 
@@ -151,6 +174,7 @@ struct fd_pack_limits_usage {
   fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
   ulong block_data_bytes;
   ulong microblocks;
+  ulong alloc;
 };
 
 typedef struct fd_pack_limits_usage fd_pack_limits_usage_t;
@@ -210,17 +234,25 @@ fd_pack_footprint( ulong                    pack_depth,
    local address space with the required alignment and footprint.
    pack_depth, bundle_meta_sz, bank_tile_cnt, and limits are as above.
    rng is a local join to a random number generator used to perturb
-   estimates.
+   estimates.  acct_blocklist is a list of accounts that cannot be read
+   or written to.  acct_blocklist is accessed acct_blocklist[i] for i in
+   [0, acct_blocklist_cnt).  acct_blocklist==NULL is okay if
+   acct_blocklist_cnt==0.  acct_blocklist_cnt must be no more than
+   FD_PACK_ACCT_BLOCKLIST_MAX.  acct_blocklist must not contain
+   duplicates or the zero address.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
-void * fd_pack_new( void                   * mem,
-                    ulong                    pack_depth,
-                    ulong                    bundle_meta_sz,
-                    ulong                    bank_tile_cnt,
-                    fd_pack_limits_t const * limits,
-                    fd_rng_t               * rng );
+void *
+fd_pack_new( void                   * mem,
+             ulong                    pack_depth,
+             ulong                    bundle_meta_sz,
+             ulong                    bank_tile_cnt,
+             fd_pack_limits_t const * limits,
+             fd_acct_addr_t const *   acct_blocklist,
+             ulong                    acct_blocklist_cnt,
+             fd_rng_t               * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
@@ -234,7 +266,7 @@ fd_pack_t * fd_pack_join( void * mem );
 
 /* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
    in fd_pack.c. */
-#define FD_PACK_PENDING_TXN_CNT_OFF 72
+#define FD_PACK_PENDING_TXN_CNT_OFF 80
 FD_FN_PURE static inline ulong
 fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
@@ -361,10 +393,14 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
     * INVALID_NONCE: the transaction looks like a durable nonce
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
-      account in the bundle blacklist.
+      account in the bundle blacklist, or the bundle contains a vote.
+    * ACCT_BLOCKLIST: the transaction included an account address in the
+      account blocklist.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock
       the exact same durable nonce (nonce account, authority, and block
       hash).
+    * INSTR_ACCT_CNT: the transaction includes an instruction that
+      references too many accounts.
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -387,15 +423,17 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
 #define FD_PACK_INSERT_REJECT_WRITES_SYSVAR         (-11)
 #define FD_PACK_INSERT_REJECT_INVALID_NONCE         (-12)
 #define FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST      (-13)
-#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-14)
+#define FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST        (-14)
+#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-15)
+#define FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT        (-16)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 14
-#define FD_PACK_INSERT_RETVAL_CNT 21
+#define FD_PACK_INSERT_RETVAL_OFF 16
+#define FD_PACK_INSERT_RETVAL_CNT 23
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_NONCE_CONFLICT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of

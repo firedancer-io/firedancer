@@ -23,7 +23,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_BUNDLE       (5)  /* Bundle tile */
 #define FD_KEYGUARD_ROLE_EVENT        (6)  /* Event tile */
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
-#define FD_KEYGUARD_ROLE_CNT          (8)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
+#define FD_KEYGUARD_ROLE_CNT          (9)  /* number of known roles */
 
 /* Payload types ******************************************************/
 
@@ -55,6 +56,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519                (1)  /* ed25519_sign(sha256(data)) */
 #define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519         (2)  /* ed25519_sign(pubkey-data) */
 #define FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 (3)  /* ed25519_sign(FD_EVENTS_AUTH-data)) */
+#define FD_KEYGUARD_SIGN_TYPE_CNT                           (4)  /* number of sign types */
 
 /* Type confusion/ambiguity checks ************************************/
 

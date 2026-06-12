@@ -14,6 +14,9 @@ main( int     argc,
 #else
 
 #include "fd_grpc_client_private.h"
+#include "../../util/tmpl/fd_unit_test.c"
+
+static fd_grpc_client_t * client;
 
 /* test_grpc_client_mock_conn injects a fake connection state into the
    gRPC client. */
@@ -68,8 +71,7 @@ cb_rx_timeout( void * app_ctx,
   g_timeout_cnt++;
 }
 
-static void
-test_header_deadline( fd_grpc_client_t * client ) {
+FD_UNIT_TEST( header_deadline ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
 
@@ -107,8 +109,7 @@ test_header_deadline( fd_grpc_client_t * client ) {
   FD_TEST( fd_uint_bswap( rst_stream.error_code      )==FD_H2_ERR_CANCEL );
 }
 
-static void
-test_rx_end_deadline( fd_grpc_client_t * client ) {
+FD_UNIT_TEST( rx_end_deadline ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
 
@@ -126,8 +127,7 @@ test_rx_end_deadline( fd_grpc_client_t * client ) {
   FD_TEST( client->stream_cnt==0 );
 }
 
-static void
-test_rx_stream_quota( fd_grpc_client_t * client ) {
+FD_UNIT_TEST( rx_stream_quota ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
 
@@ -146,8 +146,7 @@ test_rx_stream_quota( fd_grpc_client_t * client ) {
   FD_TEST( fd_uint_bswap( window_update.increment )==client->conn->self_settings.initial_window_size / 2 + 2 );
 }
 
-static void
-test_stream_release( fd_grpc_client_t * client ) {
+FD_UNIT_TEST( stream_release ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
   fd_grpc_h2_stream_t * stream0 = fd_grpc_client_stream_acquire( client, 0UL );
@@ -171,8 +170,7 @@ test_stream_release( fd_grpc_client_t * client ) {
   FD_TEST( client->stream_cnt==0 );
 }
 
-static void
-test_rx_headers( fd_grpc_client_t * client ) {
+FD_UNIT_TEST( rx_headers ) {
   /* Header-only response */
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
@@ -217,6 +215,82 @@ test_rx_headers( fd_grpc_client_t * client ) {
   FD_TEST( client->stream_cnt==0 );
 }
 
+FD_UNIT_TEST( error_data_end_stream_releases_stream ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+  stream->hdrs.h2_status     = 500U;
+  stream->hdrs.is_grpc_proto = 0U;
+  fd_h2_stream_close_tx( &stream->s, client->conn );
+  fd_h2_stream_rx_data( &stream->s, client->conn, FD_H2_FLAG_END_STREAM );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+
+  ulong const rx_start_cnt = g_rx_start_cnt;
+  ulong const rx_end_cnt   = g_rx_end_cnt;
+  uchar const body[] = { 'o', 'o', 'p', 's' };
+  fd_grpc_h2_cb_data( client->conn, &stream->s, body, sizeof(body), FD_H2_FLAG_END_STREAM );
+
+  FD_TEST( g_rx_start_cnt==rx_start_cnt );
+  FD_TEST( g_rx_end_cnt  ==rx_end_cnt+1UL );
+  FD_TEST( g_cb_request_ctx==1234UL );
+  FD_TEST( g_cb_resp_hdrs.h2_status==500U );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+}
+
+FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+  client->conn->peer_settings.max_concurrent_streams = 1U;
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 0UL );
+  ulong stream_id = stream->s.stream_id;
+  FD_TEST( client->conn->stream_active_cnt[1]==1U );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  fd_grpc_h2_cb_headers( client->conn, &stream->s, "corrupt", 7UL, FD_H2_FLAG_END_HEADERS );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+  FD_TEST( g_rx_end_cnt>0UL );
+
+  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+  fd_h2_rst_stream_t rst_stream;
+  fd_h2_rbuf_pop_copy( client->frame_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+  FD_TEST( rst_stream.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ) );
+  FD_TEST( rst_stream.hdr.flags==0 );
+  FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
+  FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_PROTOCOL );
+
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+  client->conn->peer_settings.max_concurrent_streams = 1U;
+
+  stream = fd_grpc_client_stream_acquire( client, 1UL );
+  stream_id = stream->s.stream_id;
+  stream->hdrs.h2_status     = 200U;
+  stream->hdrs.is_grpc_proto = 1U;
+  FD_TEST( client->conn->stream_active_cnt[1]==1U );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  fd_grpc_hdr_t hdr = {
+    .compressed = 0U,
+    .msg_sz     = fd_uint_bswap( (uint)client->frame_rx_buf_max )
+  };
+  fd_grpc_h2_cb_data( client->conn, &stream->s, &hdr, sizeof(hdr), 0UL );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+  fd_h2_rbuf_pop_copy( client->frame_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+  FD_TEST( rst_stream.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ) );
+  FD_TEST( rst_stream.hdr.flags==0 );
+  FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
+  FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -234,14 +308,10 @@ main( int     argc,
   fd_grpc_client_metrics_t metrics = {0};
   void * app_ctx = (void *)( 0x1234UL );
   ulong rng_seed = 1UL;
-  fd_grpc_client_t * client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, rng_seed );
+  client = fd_grpc_client_new( client_mem, &callbacks, &metrics, app_ctx, buf_max, rng_seed );
   FD_TEST( client );
 
-  test_header_deadline( client );
-  test_rx_end_deadline( client );
-  test_rx_stream_quota( client );
-  test_stream_release ( client );
-  test_rx_headers     ( client );
+  fd_unit_tests( argc, argv );
 
   fd_grpc_client_delete( client );
 

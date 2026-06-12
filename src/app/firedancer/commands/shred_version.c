@@ -39,4 +39,9 @@ action_t fd_action_shred_version = {
   .name        = "shred-version",
   .fn          = shred_version_cmd_fn,
   .description = "Retrieve the current shred version from the entrypoints",
+  .detail      = "Connects to the gossip entrypoints listed in the configuration file using the\n"
+                 "IP echo protocol, prints the cluster's current shred version to stdout, and\n"
+                 "exits.  Useful for filling in [consensus.expected_shred_version].  Does not\n"
+                 "require a running validator, but the entrypoints must be reachable.",
+  .usage       = "shred-version",
 };

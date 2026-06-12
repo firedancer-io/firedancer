@@ -2,9 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
 #include "info/fd_instr_info.h"
-#include "sysvar/fd_sysvar_cache.h"
-#include "../fd_flamenco_base.h"
-#include "../../ballet/txn/fd_txn.h"
 #include "../../disco/fd_txn_p.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
@@ -68,7 +65,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
 /*
   Execute the given transaction.
 
-  Makes changes to the Funk accounts DB. */
+  Makes changes to the accounts DB. */
 int
 fd_execute_txn( fd_runtime_t *      runtime,
                 fd_bank_t *         bank,
@@ -76,30 +73,26 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_txn_out_t *      txn_out );
 
 int
-fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
-                                            fd_bank_t *         bank,
+fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
                                             fd_txn_in_t const * txn_in,
                                             fd_txn_out_t *      txn_out );
 
-void
+int
 fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_bank_t *         bank,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out );
 
 void
-fd_executor_setup_txn_account_keys( fd_txn_in_t const * txn_in,
-                                    fd_txn_out_t *      txn_out );
+fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
+                                           fd_txn_in_t const * txn_in,
+                                           fd_txn_out_t *      txn_out );
 
 int
 fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_bank_t *         bank,
                                          fd_txn_in_t const * txn_in,
                                          fd_txn_out_t *      txn_out );
-
-void
-fd_executor_reclaim_account( fd_account_meta_t * meta,
-                             ulong               slot );
 
 /* fd_executor_instr_strerror converts an FD_EXECUTOR_INSTR_ERR_{...}
    code into a human readable cstr.  The lifetime of the returned
@@ -110,14 +103,12 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
-                                       fd_bank_t *         bank,
+fd_executor_load_transaction_accounts( fd_bank_t *         bank,
                                        fd_txn_in_t const * txn_in,
                                        fd_txn_out_t *      txn_out );
 
 int
-fd_executor_validate_account_locks( fd_bank_t *          bank,
-                                    fd_txn_out_t const * txn_out );
+fd_executor_validate_account_locks( fd_txn_out_t const * txn_out );
 
 int
 fd_executor_consume_cus( fd_txn_out_t * txn_out,
@@ -135,6 +126,11 @@ int
 fd_instr_stack_pop( fd_runtime_t *          runtime,
                     fd_txn_out_t *          txn_out,
                     fd_instr_info_t const * instr );
+
+int
+fd_execute_instr_end( fd_exec_instr_ctx_t *   instr_ctx,
+                      fd_instr_info_t const * instr,
+                      int                     instr_exec_result );
 
 FD_PROTOTYPES_END
 

@@ -21,6 +21,17 @@ AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report di
 # Dry rules that should set up dependency targets, but not generate them
 DRY_RULES:=check show-deps proof
 
+# Quiet/verbose build switch
+Q=@
+ifeq ($(VERBOSE),1)
+Q=
+ARFLAGS:=$(ARFLAGS)v
+MKDIR+=-v
+CP+=-v
+RM+=-v
+RMDIR+=-v
+endif
+
 all: info bin include lib unit-test fuzz-test
 
 help:
@@ -30,6 +41,7 @@ help:
 	# SHELL           = $(SHELL)
 	# BASEDIR         = $(BASEDIR)
 	# BUILDDIR        = $(BUILDDIR)
+	# VERBOSE         = $(VERBOSE)
 	# OBJDIR          = $(OBJDIR)
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
@@ -139,17 +151,6 @@ endef
 add-hdrs = $(eval $(call _add-hdrs,$(1)))
 
 ##############################
-# Usage: $(call add-examples,examples)
-
-define _add-examples
-
-include: $(foreach example,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/example/%,$(OBJDIR)/$(MKPATH)$(example)))
-
-endef
-
-add-examples = $(eval $(call _add-examples,$(1)))
-
-##############################
 # Usage: $(call add-scripts,scripts)
 # Usage: $(call add-test-scripts,scripts)
 
@@ -158,7 +159,7 @@ add-examples = $(eval $(call _add-examples,$(1)))
 define _add-script
 
 $(OBJDIR)/$(1)/$(2): $(MKPATH)$(2)
-	$(MKDIR) $$(dir $$@) && \
+	$(Q)$(MKDIR) $$(dir $$@) && \
 $(CP) $$< $$@ && \
 chmod 755 $$@ && \
 $(TOUCH) $$@
@@ -197,8 +198,9 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 $(1): $(OBJDIR)/$(5)/$(1)
 
 $(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
-	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $(LDFLAGS) -o $$@
+	@echo -e "LD\t$$(notdir $$@) ($(5))"
+	$(Q)$(MKDIR) $$(dir $$@) && \
+$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
@@ -237,7 +239,7 @@ $(OBJDIR)/fuzz-test/$(1): $(FUZZ_EXTRA)
 
 .PHONY: $(1)_unit
 $(1)_unit:
-	$(MKDIR) "corpus/$(1)" && \
+	$(Q)$(MKDIR) "corpus/$(1)" && \
 $(MKDIR) -p "$(OBJDIR)/cov/raw" && \
 FD_LOG_PATH="" \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_unit.profraw" \
@@ -291,49 +293,44 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
+$(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
+DEPFLAGS=-MD -MP -MF $(basename $@).d -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
 
-$(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
+$(OBJDIR)/obj/%.o : src/%.c
+	@echo -e "CC\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(OBJDIR)/obj/%.o : src/%.cxx
+	@echo -e "CXX\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(OBJDIR)/obj/%.o : src/%.S
+	@echo -e "AS\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.S : src/%.c
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
-$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.S : src/%.cxx
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
+$(OBJDIR)/obj/%.i : src/%.c
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.i : src/%.cxx
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -E $< -o $@
 
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
@@ -342,18 +339,14 @@ $(OBJDIR)/obj/%.check : src/%.cxx
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
-	$(MKDIR) $(dir $@) && \
+	@echo -e "AR\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 $(RM) $@ && \
 $(AR) $(ARFLAGS) $@ $^ && \
 $(RANLIB)  $@
 
 $(OBJDIR)/include/firedancer/% : src/%
-	$(MKDIR) $(dir $@) && \
-$(CP) $^ $@ && \
-$(TOUCH) $@
-
-$(OBJDIR)/example/% : src/%
-	$(MKDIR) $(dir $@) && \
+	$(Q)$(MKDIR) $(dir $@) && \
 $(CP) $^ $@ && \
 $(TOUCH) $@
 
@@ -384,8 +377,10 @@ show-deps:
 check: $(DEPFILES:.d=.check)
 
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES) $(DRY_RULES)),)
-# Generate dependency files
-include $(DEPFILES)
+# Include dependency files emitted as a side effect of C/C++ object builds.
+# The leading dash avoids the old up-front dependency generation pass on clean
+# trees, which kept make busy before it could start compiling objects.
+-include $(DEPFILES)
 endif
 
 # Define the asm target.  Must be after the make fragments include so that
@@ -483,7 +478,7 @@ endif
   -format=lcov                          \
   $(addprefix -instr-profile=,$<)       \
   $(OBJDIR)/cov/mappings.ar             \
-  --ignore-filename-regex="test_.*\\.c" \
+  --ignore-filename-regex="(test_|fuzz_).*\\.c" \
 > $@
 
 # llvm-cov step 2.1

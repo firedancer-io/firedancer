@@ -2,17 +2,12 @@
 #define HEADER_fd_src_discof_replay_fd_exec_h
 
 #include "../../disco/fd_txn_p.h"
-#include "../../flamenco/types/fd_types_custom.h"
-
-/* FIXME: SIMD-0180 - set the correct epochs */
-#define FD_SIMD0180_ACTIVE_EPOCH_TESTNET (829)
-#define FD_SIMD0180_ACTIVE_EPOCH_MAINNET (841)
+#include "../../flamenco/fd_flamenco_base.h"
 
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXECRP_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */
-#define FD_EXECRP_TT_LTHASH        (3UL) /* Account lthash. */
-#define FD_EXECRP_TT_POH_HASH      (4UL) /* PoH hashing. */
+#define FD_EXECRP_TT_POH_HASH      (3UL) /* PoH hashing. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the
@@ -84,9 +79,16 @@ struct fd_execrp_txn_exec_done_msg {
   int txn_err;
 
   /* used by monitoring tools */
-  ulong slot;
+  ulong  slot;
   ushort start_shred_idx;
   ushort end_shred_idx;
+
+  /* vote.slot==ULONG_MAX if this was not a vote transaction */
+  struct {
+    ulong slot;
+    fd_pubkey_t identity[ 1 ];
+    fd_pubkey_t vote_acct[ 1 ];
+  } vote;
 };
 typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 

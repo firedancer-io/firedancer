@@ -104,7 +104,7 @@ fd_pb_encoder_out( fd_pb_encoder_t * encoder ) {
 
 static inline ulong
 fd_pb_encoder_out_sz( fd_pb_encoder_t * encoder ) {
-  FD_CRIT( encoder->cur >= encoder->buf0, "corrupt encoder state" );
+  FD_CHECK_CRIT( encoder->cur >= encoder->buf0, "corrupt encoder state" );
   return (ulong)encoder->cur - (ulong)encoder->buf0;
 }
 
@@ -113,7 +113,7 @@ fd_pb_encoder_out_sz( fd_pb_encoder_t * encoder ) {
 
 static inline ulong
 fd_pb_encoder_space( fd_pb_encoder_t const * encoder ) {
-  FD_CRIT( encoder->cur <= encoder->buf1, "corrupt encoder state" );
+  FD_CHECK_CRIT( encoder->cur <= encoder->buf1, "corrupt encoder state" );
   return (ulong)encoder->buf1 - (ulong)encoder->cur;
 }
 
@@ -155,14 +155,14 @@ fd_pb_lp_open( fd_pb_encoder_t * encoder,
 
 static FD_FN_UNUSED fd_pb_encoder_t *
 fd_pb_lp_close( fd_pb_encoder_t * encoder ) {
-  FD_CRIT( encoder->depth, "unmatched lp_close" );
+  FD_CHECK_CRIT( encoder->depth, "unmatched lp_close" );
   uint    depth = --encoder->depth;
   uchar * lp    = encoder->buf0 + encoder->lp_off[ depth ];
   uchar * sub0  = lp + fd_pb_varint32_sz_max;
   uchar * sub1  = encoder->cur;
   ulong   sz    = (ulong)( sub1-sub0 );
-  FD_CRIT( sub0<=sub1,          "corrupt submessage state" );
-  FD_CRIT( sub1<=encoder->buf1, "out-of-bounds write"      );
+  FD_CHECK_CRIT( sub0<=sub1,          "corrupt submessage state" );
+  FD_CHECK_CRIT( sub1<=encoder->buf1, "out-of-bounds write"      );
   if( FD_UNLIKELY( sz>UINT_MAX ) ) {
     FD_LOG_WARNING(( "pb_encode failed: submessage is too large" ));
   }

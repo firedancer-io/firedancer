@@ -146,6 +146,9 @@ test_rtt_update( fd_quic_conn_t * client_conn, fd_quic_t * server_quic ) {
     .var_rtt      = 0.0f,
     .min_rtt      = TEST_DEFAULT_ONE_WAY_LATENCY,
   };
+  FD_TEST( fd_quic_calc_expiry_duration( client_conn, 1, 0 ) == FD_QUIC_K_GRANULARITY_NS );
+  FD_TEST( fd_quic_calc_expiry_duration( client_conn, 0, 0 ) ==
+           (long)( TEST_DEFAULT_ONE_WAY_LATENCY + (float)FD_QUIC_K_GRANULARITY_NS + client_conn->peer_max_ack_delay_ns ) );
   FD_LOG_NOTICE(( "test_rtt_update: pass" ));
 }
 
@@ -165,7 +168,11 @@ test_retx_pto( fd_quic_conn_t * client_conn, fd_quic_t * server_quic FD_PARAM_UN
     float rtt_var       = client_conn->rtt->var_rtt;
     ulong orig_retx_cnt = client_quic->metrics.pkt_retransmissions_cnt[3];
 
-    long pto_duration = (long)( smoothed_rtt + (4.0f * rtt_var) + client_conn->peer_max_ack_delay_ns );
+    long pto_duration = fd_quic_calc_expiry_duration( client_conn, 0, 0 );
+    FD_TEST( pto_duration ==
+             (long)( smoothed_rtt +
+                     fmaxf( 4.0f * rtt_var, (float)FD_QUIC_K_GRANULARITY_NS ) +
+                     client_conn->peer_max_ack_delay_ns ) );
     long expiry_time  = send_time + pto_duration;
          now          = expiry_time-1;
     fd_quic_service( client_quic, now );
@@ -252,7 +259,7 @@ test_loss_time_threshold( fd_quic_conn_t * client_conn, fd_quic_t * server_quic 
     fd_quic_service( server_quic, now );
 
     /* assert retx fires when time \in (time_threshold_expiry, pkt_meta->expiry) */
-    long loss_duration = (long)( 1.125f * fmaxf( client_conn->rtt->smoothed_rtt, client_conn->rtt->latest_rtt ) );
+    long loss_duration = fd_quic_calc_expiry_duration( client_conn, 1, 0 );
     long time_threshold_expiry = first_send_time + loss_duration;
 
     FD_TEST( now < time_threshold_expiry );
@@ -434,7 +441,7 @@ main( int     argc,
   FD_TEST( fd_quic_init( client_quic ) );
   fd_quic_sync_clocks( server_quic, client_quic, now );
 
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
@@ -456,4 +463,3 @@ main( int     argc,
   test_loss_skip_threshold( client_conn, server_quic );
   test_stream_retx_multi_packet( client_conn, server_quic );
 }
-

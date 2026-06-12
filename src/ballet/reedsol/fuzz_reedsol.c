@@ -14,6 +14,7 @@ LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   atexit( fd_halt );
   fd_log_level_core_set(3); /* crash on warning log */
@@ -47,7 +48,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar const * data_shreds = test->data;
   uchar parity_shreds[ SHRED_SZ_MAX * FD_REEDSOL_PARITY_SHREDS_MAX ];
   uchar recovered_shreds[ SHRED_SZ_MAX * ( FD_REEDSOL_PARITY_SHREDS_MAX+1UL ) ];
-  
+
   uchar const * d[ FD_REEDSOL_DATA_SHREDS_MAX   ];
   uchar *       p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
   uchar *       r[ FD_REEDSOL_PARITY_SHREDS_MAX+1UL ];

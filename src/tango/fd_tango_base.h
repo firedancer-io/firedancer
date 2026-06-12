@@ -198,6 +198,10 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
   __m256i avx; /* Possibly non-atomic but can hold the metadata in a single register */
 # endif
 
+# if FD_HAS_ARM
+  ulong ul[4];
+# endif
+
 };
 
 typedef union fd_frag_meta fd_frag_meta_t;
@@ -359,6 +363,29 @@ FD_FN_CONST static inline ulong fd_frag_meta_avx_tsorig( __m256i avx ) { return 
 FD_FN_CONST static inline ulong fd_frag_meta_avx_tspub ( __m256i avx ) { return (ulong)(uint  )_mm256_extract_epi32( avx,  7 ); }
 
 #endif
+
+#if FD_HAS_ARM
+
+FD_FN_CONST static inline ulong
+fd_frag_meta_ul2( ulong chunk,
+                  ulong sz,
+                  ulong ctl ) {
+  return chunk | (sz<<32) | (ctl<<48);
+}
+
+FD_FN_CONST static inline ulong
+fd_frag_meta_ul3( ulong tsorig,
+                  ulong tspub ) {
+  return tsorig | (tspub<<32);
+}
+
+FD_FN_CONST static inline ulong fd_frag_meta_ul2_chunk ( ulong ul2 ) { return (ulong)(uint  )( ul2      & 0xFFFFFFFFUL); }
+FD_FN_CONST static inline ulong fd_frag_meta_ul2_sz    ( ulong ul2 ) { return (ulong)(ushort)((ul2>>32) &     0xFFFFUL); }
+FD_FN_CONST static inline ulong fd_frag_meta_ul2_ctl   ( ulong ul2 ) { return (ulong)(ushort)((ul2>>48) &     0xFFFFUL); }
+FD_FN_CONST static inline ulong fd_frag_meta_ul3_tsorig( ulong ul3 ) { return (ulong)(uint  )( ul3      & 0xFFFFFFFFUL); }
+FD_FN_CONST static inline ulong fd_frag_meta_ul3_tspub ( ulong ul3 ) { return (ulong)(uint  )( ul3>>32 );                }
+
+#endif /* FD_HAS_ARM */
 
 /* fd_frag_meta_ts_{comp,decomp}:  Given the longs ts and tsref that
    are reasonably close to each other (|ts-tsref| < 2^31 ... about

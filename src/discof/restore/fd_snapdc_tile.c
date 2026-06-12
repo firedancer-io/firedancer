@@ -100,6 +100,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               chunk,
                      ulong               sz ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
 
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
@@ -145,7 +146,8 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
-        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
+        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame for %s snapshot",
+                         ctx->full ? "full" : "incremental" ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
@@ -179,7 +181,9 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
 
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }
@@ -201,7 +205,8 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+    FD_LOG_ERR(( "received unexpected data frag in state %s (%lu)",
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu && sz>=ctx->in.frag_pos );
@@ -241,7 +246,9 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
       sz-ctx->in.frag_pos,
       &in_consumed );
   if( FD_UNLIKELY( ZSTD_isError( frame_res ) ) ) {
-    FD_LOG_WARNING(( "error while decompressing snapshot (%u-%s)", ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
+    FD_LOG_WARNING(( "error while decompressing %s snapshot (%u-%s)",
+                     ctx->full ? "full" : "incremental",
+                     ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
     ctx->state = FD_SNAPSHOT_STATE_ERROR;
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     return 0;
@@ -315,8 +322,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -336,7 +343,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
-  fd_topo_link_t * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
+  fd_topo_link_t const * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
   FD_TEST( 0==strcmp( snapin_link->name, "snapdc_in" ) );
   ctx->out.mem    = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, snapin_link->dcache );
@@ -351,7 +358,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.mem, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu",
                  scratch_top - (ulong)scratch - scratch_footprint( tile ),
@@ -362,7 +369,7 @@ unprivileged_init( fd_topo_t *      topo,
 /* handle_data_frag can publish one data frag plus an error frag */
 #define STEM_BURST 2UL
 
-#define STEM_LAZY  1000L
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapdc_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapdc_tile_t)

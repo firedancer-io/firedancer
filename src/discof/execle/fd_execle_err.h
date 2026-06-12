@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_bank_fd_bank_err_h
-#define HEADER_fd_src_discof_bank_fd_bank_err_h
+#ifndef HEADER_fd_src_discof_execle_fd_execle_err_h
+#define HEADER_fd_src_discof_execle_fd_execle_err_h
 
 #include "../../util/log/fd_log.h"
 #include "../../flamenco/runtime/fd_runtime_err.h"
@@ -10,7 +10,7 @@ fd_execle_err_from_runtime_err( int err ) {
    switch( err ) {
       case FD_RUNTIME_EXECUTE_SUCCESS:                                 return FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX;
 
-      case FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR:                       return FD_METRICS_ENUM_TRANSACTION_RESULT_V_INSTRUCTON_ERROR_IDX;
+      case FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR:                       return FD_METRICS_ENUM_TRANSACTION_RESULT_V_INSTRUCTION_ERROR_IDX;
 
       case FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND:                       return FD_METRICS_ENUM_TRANSACTION_RESULT_V_ACCOUNT_NOT_FOUND_IDX;
       case FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND:               return FD_METRICS_ENUM_TRANSACTION_RESULT_V_PROGRAM_ACCOUNT_NOT_FOUND_IDX;
@@ -29,6 +29,7 @@ fd_execle_err_from_runtime_err( int err ) {
       case FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED:  return FD_METRICS_ENUM_TRANSACTION_RESULT_V_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED_IDX;
       case FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION:                   return FD_METRICS_ENUM_TRANSACTION_RESULT_V_DUPLICATE_INSTRUCTION_IDX;
       case FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT: return FD_METRICS_ENUM_TRANSACTION_RESULT_V_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT_IDX;
+      case FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE:                        return FD_METRICS_ENUM_TRANSACTION_RESULT_V_SANITIZE_FAILURE_IDX;
 
       case FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE:                          return FD_METRICS_ENUM_TRANSACTION_RESULT_V_ACCOUNT_IN_USE_IDX;
       case FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE:                    return FD_METRICS_ENUM_TRANSACTION_RESULT_V_ACCOUNT_LOADED_TWICE_IDX;
@@ -38,10 +39,11 @@ fd_execle_err_from_runtime_err( int err ) {
       case FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT:             return FD_METRICS_ENUM_TRANSACTION_RESULT_V_INSUFFICIENT_FUNDS_FOR_RENT_IDX;
       case FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION:                  return FD_METRICS_ENUM_TRANSACTION_RESULT_V_UNBALANCED_TRANSACTION_IDX;
 
+      case FD_RUNTIME_TXN_ERR_BUNDLE_PEER:                             return FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX;
+
       case FD_RUNTIME_TXN_ERR_CALL_CHAIN_TOO_DEEP:
       case FD_RUNTIME_TXN_ERR_MISSING_SIGNATURE_FOR_FEE:
       case FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX:
-      case FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE:
       case FD_RUNTIME_TXN_ERR_CLUSTER_MAINTENANCE:
       case FD_RUNTIME_TXN_ERR_ACCOUNT_BORROW_OUTSTANDING:
       case FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT:
@@ -61,4 +63,4 @@ fd_execle_err_from_runtime_err( int err ) {
     return 0;
 }
 
-#endif /* HEADER_fd_src_discof_bank_fd_bank_err_h */
+#endif /* HEADER_fd_src_discof_execle_fd_execle_err_h */

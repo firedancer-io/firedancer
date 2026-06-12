@@ -18,9 +18,10 @@
 
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 #include "../../waltz/http/fd_http_server.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../topo/fd_topo.h"
 
 #if FD_HAS_ZSTD
@@ -85,6 +86,23 @@ struct fd_gui_geoip_node {
 
 typedef struct fd_gui_geoip_node fd_gui_geoip_node_t;
 
+struct fd_gui_wfs_peer {
+  fd_pubkey_t identity_key;
+  ulong       stake;
+  int         is_online;
+  long        update_time_nanos;
+
+  ulong       fresh_prev;
+  ulong       fresh_next;
+};
+typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
+
+#define DLIST_NAME  wfs_fresh_dlist
+#define DLIST_ELE_T fd_gui_wfs_peer_t
+#define DLIST_PREV  fresh_prev
+#define DLIST_NEXT  fresh_next
+#include "../../util/tmpl/fd_dlist.c"
+
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
@@ -108,43 +126,45 @@ struct fd_gui_peers_metric_rate {
 };
 typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
-#define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000UL)
+#define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000L)
 
-static inline long
-fd_gui_peers_adaptive_ema( long last_update_time,
-                           long current_time,
-                           long current_value,
-                           long value_at_last_update ) {
-    if( FD_UNLIKELY( last_update_time==0) ) return current_value;
+/* fd_gui_ema computes an adaptive exponential moving average tick.
+   Given the previous EMA value, a new sample, timestamps, and a
+   half-life (all in nanoseconds), returns the updated EMA.  On the
+   first call (last_update_nanos==0) the new sample is returned as-is
+   to seed the series. */
 
-    long elapsed_time = current_time - last_update_time;
-    if( FD_UNLIKELY( elapsed_time<=0 ) ) return value_at_last_update;
+static inline double
+fd_gui_ema( long   last_update_nanos,
+            long   now_nanos,
+            double new_sample,
+            double prev_ema,
+            long   half_life_ns ) {
+  if( FD_UNLIKELY( last_update_nanos==0L ) ) return new_sample;
 
-    // Calculate alpha using half-life formula
-    // alpha = 1 - exp(-ln(2) * elapsed_time / half_life)
-    double decay_factor = 0.69314718055994 * ((double)elapsed_time / (double)FD_GUI_PEERS_EMA_HALF_LIFE_NS);
-    double alpha = 1.0 - exp(-decay_factor);
+  long dt = now_nanos - last_update_nanos;
+  if( FD_UNLIKELY( dt<=0L ) ) return prev_ema;
 
-    if( FD_UNLIKELY( alpha>1.0 ) ) alpha = 1.0;
-    if( FD_UNLIKELY( alpha<0.0 ) ) alpha = 0.0;
-
-    return (long)(alpha * (double)current_value + (1.0 - alpha) * (double)value_at_last_update);
+  double alpha = 1.0 - exp( -0.69314718055994 * (double)dt / (double)half_life_ns );
+  return alpha * new_sample + (1.0 - alpha) * prev_ema;
 }
 
-struct fd_gui_peers_vote {
-  fd_pubkey_t node_account;
-  fd_pubkey_t vote_account;
-  ulong       stake;
-  ulong       last_vote_slot;
-  long        last_vote_timestamp;
-  uchar       commission;
-  ulong       epoch;
-  ulong       epoch_credits;
+struct fd_gui_peers_voter {
+  fd_vote_stake_weight_t weight;
+  ulong vote_slot;
 };
+typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
 
-typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
+struct fd_gui_peers_voter_idx {
+  fd_pubkey_t key;
+  ulong       idx;
+};
+typedef struct fd_gui_peers_voter_idx fd_gui_peers_voter_idx_t;
 
-struct fd_gui_peers_node {
+/* fd_gui_peers_row_t holds all of the per-peer state that is read when
+   formatting websocket viewport messages snapshotted into a client's
+   viewport. */
+struct fd_gui_peers_row {
   int valid;
   long update_time_nanos;
   fd_pubkey_t pubkey;
@@ -159,15 +179,16 @@ struct fd_gui_peers_node {
 
   int         has_vote_info;
   fd_pubkey_t vote_account;
-  ulong       stake; /* if has_vote_info==0 then stake==ULONG_MAX */
-  ulong       last_vote_slot;
-  long        last_vote_timestamp;
-  uchar       commission;
-  ulong       epoch;
-  ulong       epoch_credits;
+  int         delinquent;
+  ulong       stake;
+
   uchar       country_code_idx;
   uint        city_name_idx;
-  int         delinquent;
+};
+typedef struct fd_gui_peers_row fd_gui_peers_row_t;
+
+struct fd_gui_peers_node {
+  fd_gui_peers_row_t row;
 
   struct {
     ulong next;
@@ -277,7 +298,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_NAME  fd_gui_peers_node_pubkey_map
 #define MAP_ELE_T fd_gui_peers_node_t
 #define MAP_KEY_T fd_pubkey_t
-#define MAP_KEY   pubkey
+#define MAP_KEY   row.pubkey
 #define MAP_IDX_T ulong
 #define MAP_NEXT  pubkey_map.next
 #define MAP_PREV  pubkey_map.prev
@@ -289,7 +310,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_NAME  fd_gui_peers_node_sock_map
 #define MAP_ELE_T fd_gui_peers_node_t
 #define MAP_KEY_T fd_gossip_socket_t
-#define MAP_KEY   contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]
+#define MAP_KEY   row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]
 #define MAP_IDX_T ulong
 #define MAP_NEXT  sock_map.next
 #define MAP_PREV  sock_map.prev
@@ -314,15 +335,15 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "Pubkey",       pubkey,                                                                   live_table_col_pubkey_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Name",         name,                                                                     live_table_col_name_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Country",      country_code_idx,                                                         live_table_col_uchar_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
+  LIVE_TABLE_COL_ENTRY( "Stake",        row.stake,                                                                    live_table_col_stake_lt  ), \
+  LIVE_TABLE_COL_ENTRY( "Pubkey",       row.pubkey,                                                                   live_table_col_pubkey_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Name",         row.name,                                                                     live_table_col_name_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Country",      row.country_code_idx,                                                         live_table_col_uchar_lt  ), \
+  LIVE_TABLE_COL_ENTRY( "IP Addr",      row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
@@ -335,8 +356,8 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Total", gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Total",  gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
+  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { -1, 0 } })
@@ -348,7 +369,7 @@ struct fd_gui_peers_ws_conn {
 
   ulong start_row;
   ulong row_cnt;
-  fd_gui_peers_node_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
+  fd_gui_peers_row_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
   fd_gui_peers_live_table_sort_key_t sort_key;
 };
 
@@ -375,7 +396,7 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_bandwidth_tracking_t * bw_tracking;
 
   fd_http_server_t * http;
-  fd_topo_t * topo;
+  fd_topo_t const * topo;
 
   ulong max_ws_conn_cnt;
   ulong open_ws_conn_cnt;
@@ -387,17 +408,57 @@ struct fd_gui_peers_ctx {
 
   ulong slot_voted; /* last vote slot for this validator */
 
-  fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-  fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
+  /* stakes is sorted descending by identity pubkey.  vote_idx is sorted
+     descending by vote account pubkey, each entry pointing back into
+     the stakes array. */
+  struct {
+    ulong epoch;
+
+    ulong                    stakes_cnt;
+    fd_gui_peers_voter_t     stakes  [ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+  } epochs[ 2 ];
+
+  union {
+    struct {
+      int   actions[ FD_CONTACT_INFO_TABLE_SIZE ];
+      ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
+    };
+    struct {
+      ulong wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
+    };
+    struct {
+      fd_stake_weight_t      manifest_id_weights  [ FD_VOTE_ACCOUNTS_MAX ];
+      fd_vote_stake_weight_t manifest_vote_weights[ FD_VOTE_ACCOUNTS_MAX ];
+    };
+    fd_gui_peers_voter_t voters_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    struct {
+      fd_gui_peers_row_t viewport    [ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* new rows snapshotted from live_table */
+      fd_gui_peers_row_t viewport_ref[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ]; /* old baseline, diff reference */
+      ulong viewport_cnt;
+    };
+  } scratch;
 
 #if FD_HAS_ZSTD
   ZSTD_DCtx * zstd_dctx;
 #endif
 
   fd_gui_ip_db_t dbip;
+
+  int                       wfs_enabled;
+  fd_gui_wfs_peer_t         wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
+  ulong                     wfs_peers_cnt;
+  int                       wfs_peers_valid;
+  int                       wfs_stakes_sent;
+  wfs_fresh_dlist_t         wfs_fresh_dlist[ 1 ];
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
+
+/* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
+FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
+                  sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
+                  wfs_peers_vote_accounts );
 
 FD_PROTOTYPES_BEGIN
 
@@ -410,8 +471,9 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt );
 void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
-                  fd_topo_t *        topo,
+                  fd_topo_t const *  topo,
                   ulong              max_ws_conn_cnt,
+                  char const *       wfs_expected_bank_hash_cstr,
                   long               now );
 
 fd_gui_peers_ctx_t *
@@ -445,16 +507,37 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    long                               now );
 
 void
-fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
-                                 fd_gui_peers_vote_t * votes,
-                                 ulong                 vote_cnt,
-                                 long                  now,
-                                 fd_pubkey_t *         identity );
+fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
+                          fd_pubkey_t const *  vote_account,
+                          ulong                vote_slot,
+                          int                  is_us );
+
+/* fd_gui_peers_update_delinquency is called infrequently (currently,
+   once per slot) and scans the cluster for any nodes that are
+   delinquent, publishing delinquency updates to the frontend. */
+void
+fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
+                                 long                 now );
+
+/* fd_gui_peers_handle_epoch_info is called at the epoch boundary and
+   publishes updates for peer stake information. */
+void
+fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
+                                fd_epoch_info_msg_t const * epoch_info,
+                                long                        now );
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
                                     ulong                 sz );
+
+void
+fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
+                                      fd_snapshot_manifest_t const * manifest,
+                                      long                           now );
+
+void
+fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers );
 
 /* fd_gui_peers_ws_message handles incoming websocket request payloads
    requesting peer-related responses.  ws_conn_id is the connection id

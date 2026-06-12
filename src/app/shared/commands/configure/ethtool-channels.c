@@ -54,7 +54,7 @@ get_ports( fd_config_t const * config,
   if( config->is_firedancer ) {
     ADD_PORT( config->gossip.port                              );
     ADD_PORT( config->tiles.repair.repair_intake_listen_port   );
-    ADD_PORT( config->tiles.repair.repair_serve_listen_port    );
+    ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
     ADD_PORT( config->tiles.txsend.txsend_src_port             );
   }
 #undef ADD_PORT
@@ -69,6 +69,7 @@ static int
 init_device( char const *        device,
              fd_config_t const * config,
              int                 dedicated_mode,
+             int                 listen_gre,
              int                 strict,
              uint                device_cnt ) {
   FD_TEST( dedicated_mode || strict );
@@ -159,6 +160,20 @@ init_device( char const *        device,
                                 "Try `net.xdp.rss_queue_mode=\"simple\"` or `layout.net_tile_count=1`", device ));
       else         return 1;
     }
+
+    /* It's rather unfortunate, but given the APIs that ethtool exposes,
+       we can't do much better than sending all GRE packets to a single
+       queue.  At least more recent Mellanox NICs certainly do support
+       RSS based on the inner header, but it's not possible to configure
+       this in a generic way. */
+    int gre_ntuple_error = 0;
+    if( listen_gre ) gre_ntuple_error = fd_ethtool_ioctl_ntuple_set_gre( &ioc, rule_idx++, 0U );
+    if( FD_UNLIKELY( gre_ntuple_error ) ) {
+      FD_LOG_ERR(( "error configuring network device (%s), failed to install ntuple rule "
+                   "to route GRE packets to Firedancer.  If you require GRE-wrapped "
+                   "traffic (e.g. with DoubleZero), set `net.xdp.rss_queue_mode=\"simple\"`.  "
+                   "Otherwise, set `net.xdp.listen_gre=false`.", device ));
+    }
   }
 
   return 0;
@@ -179,6 +194,8 @@ init( fd_config_t const * config ) {
     device_cnt = fd_bonding_slave_cnt( config->net.interface );
   }
 
+  int listen_gre = config->net.xdp.listen_gre;
+
   /* If the mode was auto, we will try to init in dedicated mode but will
      not fail the stage if this is not successful.  If the mode was
      dedicated, we will require success. */
@@ -189,10 +206,10 @@ init( fd_config_t const * config ) {
       fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
       for( ; !failed && !fd_bonding_slave_iter_done( iter );
           fd_bonding_slave_iter_next( iter ) ) {
-        failed = init_device( fd_bonding_slave_iter_ele( iter ), config, 1, only_dedicated, device_cnt );
+        failed = init_device( fd_bonding_slave_iter_ele( iter ), config, 1, listen_gre, only_dedicated, device_cnt );
       }
     } else {
-      failed = init_device( config->net.interface, config, 1, only_dedicated, device_cnt );
+      failed = init_device( config->net.interface, config, 1, listen_gre, only_dedicated, device_cnt );
     }
     if( !failed ) return;
     FD_TEST( !only_dedicated );
@@ -218,10 +235,10 @@ init( fd_config_t const * config ) {
     fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, config->net.interface );
     for( ; !fd_bonding_slave_iter_done( iter );
         fd_bonding_slave_iter_next( iter ) ) {
-      init_device( fd_bonding_slave_iter_ele( iter ), config, 0, 1, device_cnt );
+      init_device( fd_bonding_slave_iter_ele( iter ), config, 0, listen_gre, 1, device_cnt );
     }
   } else {
-    init_device( config->net.interface, config, 0, 1, device_cnt );
+    init_device( config->net.interface, config, 0, listen_gre, 1, device_cnt );
   }
 }
 
@@ -248,7 +265,7 @@ check_device_is_modified( char const * device ) {
   }
 
   int ntuple_rules_empty;
-  FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty ) );
+  FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty ) );
   if( !ntuple_rules_empty ) return 1;
 
   return 0;
@@ -296,13 +313,14 @@ check_device_is_configured( char const *        device,
 
   if( !dedicated_mode ) {
     int ntuple_rules_empty;
-    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty ) );
     if( !ntuple_rules_empty ) return 0;
   } else {
     int ports_valid;
     ushort ports[ 32 ];
     uint port_cnt = get_ports( config, ports );
-    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, port_cnt, queue_cnt, &ports_valid ));
+    int listen_gre = config->net.xdp.listen_gre;
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, ports, port_cnt, queue_cnt, listen_gre ? 0U : UINT_MAX, &ports_valid ));
     if( !ports_valid ) return 0;
   }
 
@@ -390,7 +408,7 @@ fini_device( char const * device ) {
   uint rxfh_table_orig_ele_cnt;
   error |= (0!=fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table_orig, &rxfh_table_orig_ele_cnt ));
   int ntuple_rules_empty_orig;
-  error |= (0!=fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty_orig ));
+  error |= (0!=fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty_orig ));
   if( FD_UNLIKELY( error ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to determine initial state", device ));
 
@@ -415,7 +433,7 @@ fini_device( char const * device ) {
   uint rxfh_table_new_ele_cnt;
   error |= (0!=fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table_new, &rxfh_table_new_ele_cnt ));
   int ntuple_rules_empty_new;
-  error |= (0!=fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty_new ));
+  error |= (0!=fd_ethtool_ioctl_ntuple_validate( &ioc, NULL, 0, 0, UINT_MAX, &ntuple_rules_empty_new ));
   if( FD_UNLIKELY( error ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to determine final state", device ));
 

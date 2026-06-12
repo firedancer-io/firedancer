@@ -26,13 +26,23 @@ fd_sshttp_snapshot_name( fd_sshttp_t const * http );
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http );
 
-void
+/* fd_sshttp_init initializes an sshttp connection to the given server.
+   addr is the resolved IP address and port.  hostname is a
+   null-terminated string used for the Host header and TLS SNI.
+   is_https indicates whether TLS should be used.  path points to the
+   URL path of length path_len.  hops is the maximum number of HTTP
+   redirects to follow, pass ULONG_MAX to preserve the current hops
+   value (e.g. when following a redirect internally).  now is the
+   current timestamp.  Returns 0 on success and -1 on failure. */
+
+int
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  hostname,
                 int           is_https,
                 char const *  path,
                 ulong         path_len,
+                ulong         hops,
                 long          now );
 
 void

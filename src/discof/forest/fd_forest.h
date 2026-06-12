@@ -2,29 +2,33 @@
 #define HEADER_fd_src_discof_forest_fd_forest_h
 
 /* Forest is an API for repairing blocks as they are discovered from the
-   cluster via Turbine or Gossip.  Shreds (from Turbine) and votes (from
-   Gossip) inform forest that a block with the given slot they are
-   associated with exists.  Blk repair ensures that this block is
-   received in its entirety by requesting repairs for missing shreds for
-   the block.
+   cluster via Turbine or Gossip.  Shreds (from Turbine) and
+   confirmations (from Tower) inform forest that slot exists.  Repair
+   ensures that this block is received in its entirety by requesting
+   repairs for missing shreds for the block.
 
-   Note forest needs to track the strict subset of shreds that are known
-   by fec_resolver, store, and reasm.  If any of these structures have
-   evicted shreds, forest needs to clear out the corresponding FEC sets
-   from forest to be re-requested. It's okay if shreds are evicted from
-   reasm and we re-request for them and they pass through fec_resolver
-   again. Although we could be creating duplicate ctxs, thats fine!  We
-   might later on get an evict notice for the second incomplete ctx but
-   that's okay too!!! just have a bunch of useless messages that
-   eventually will get ignored when we publish past it!!!!
+   Note that forest needs to track the strict subset of shreds that are
+   known by fec_resolver, store, and reasm.  If any of these structures
+   have evicted shreds, forest needs to clear out the corresponding FEC
+   sets from forest to be re-requested.  It's okay if shreds are evicted
+   from reasm and we re-request for them and they pass through
+   fec_resolver again. Although we could be creating duplicate ctxs,
+   thats fine!  We might later on get an evict notice for the second
+   incomplete ctx but that's okay too!!! just have a bunch of useless
+   messages that eventually will get ignored when we publish past it!!!!
 
    Like other fork-aware structures, forest maintains a tree that
-   records the ancestry of slots.  It also maintains a frontier, which
-   models the leaves of the tree ie. the oldest (in ancestry) blocks
-   that still need to be repaired (across multiple forks).
+   records the ancestry of slots.  It also maintains references to the
+   tips of each known fork (the frontier map), and also the latest
+   slot we finished repairing on each fork (the consumed map).  Any slot
+   that doesn't have a known ancestry connecting it back to the root yet
+   is part of the orphaned map.  And the head of every orphaned tree is
+   part of the subtrees map.  While this seems very verbose, it allows
+   for fast iteration and lookup of the different types of slots.
 
-   Forest constructs the ancestry tree backwards, and then repairs the
-   tree forwards (using BFS). */
+   fd_policy makes orphan requests that recover gaps between orphaned
+   subtrees and the main ancestry tree, and then the forest iterator
+   suggest repairs to make progress on the tree forwards (using BFS). */
 
 /* Merkle root tracking.
    For each FEC set in the slot, we record the merkle root of the first
@@ -51,15 +55,14 @@
      - Imagine we get shred 0-15 of FEC_A. then get shreds 16-31 of
        FEC_B. We would have set the merkle root to the null hash for
        that FEC set, but fec_resolver would not be able to complete the
-       FEC because from a shred index pov, we don't have anything we
+       FEC because from a shred index POV, we don't have anything we
        need to repair (and we won't be making any new requests for that
        FEC set).
-
-       We can't ignore shreds of FEC_B though, because it's difficult to
-       differentiate between a slot where we haven't finished repairing,
-       or a slot where we can't repair because the version we have is a
-       bad version and fake.  So merkle chaining verification can only
-       be performed on slots that have all the shreds received.
+       It's difficult to differentiate between a slot where we haven't
+       finished repairing, and a slot we can't repair because the
+       version we have is a bad version.  So merkle chaining
+       verification can only be performed on slots that have all the
+       shreds received.
 
   3. We receive some shreds for both FEC_A and FEC_B, but get a FEC
      completion for FEC_B.
@@ -69,14 +72,15 @@
         first, so overwrite our merkle root entry. It's likely being
         overwritten from the null_hash to the FEC_B merkle root.
 
-  So unfortunately...because of case 2, we can no longer rely on the
-  condition that the slot will complete with all the FEC completions.
-  But we can still rely on that at lease some version of all the shreds
-  in the slot will arrive eventually.
+  So unfortunately...because of case 2, we determine "slot completion"
+  status when all the shreds in the slot have been received, NOT when
+  the slot completes with all the FEC completions. We can rely on that
+  at least some version of all the shreds in the slot will arrive
+  eventually.
 
   As soon as we have a confirmed block id, we can verify the slot by
   verifying the chain of merkle roots backwards.  As the CMRs correctly
-  chain, the verified bit on each FEC set is set to 1. If they don't
+  chain, the verified status on each FEC set is set.  If they don't
   chain, we dump & repair that specific FEC set. For example, say the
   2nd & 3rd FEC set is incorrect. In this case, the merkle roots array
   and bitset will look like the following after one call of
@@ -122,25 +126,14 @@
   There may be forks as well, but only one fork can be confirmed.
 */
 
-/* FD_FOREST_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
 #include "../../disco/fd_disco_base.h"
-
-#ifndef FD_FOREST_USE_HANDHOLDING
-#define FD_FOREST_USE_HANDHOLDING 1
-#endif
-
-#define FD_FOREST_VER_UNINIT (0UL)
-#define FD_FOREST_VER_INVAL  (ULONG_MAX)
+#include "../../disco/shred/fd_fec_set.h"
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
 #define SET_NAME fd_forest_blk_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
-
-#define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / 32UL) /* 1024 */
 
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
@@ -164,20 +157,24 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
+  fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* received data shred idxs */
   struct {
     fd_hash_t mr;
     fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
-  fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
-                               on confirmation, and don't know the index of the last fec set until we repair the slot
-                               hash_null if not confirmed. */
-  uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive. complete_idx / 32UL,
-                               if the last merkle root is verified, 5 if every merkle root after fec set 5*32 is verified */
+  } merkle_roots[ FD_FEC_BLK_MAX ]; /* received merkle roots. mr is initialized to null hash, written to when a shred is
+                                       received. invalidated to invalid_mr on multiple versions of the merkle root are detected. */
 
-  uchar confirmed; /* 1 if all the FECs the slot has been confirmed, 0 otherwise */
-  uchar consumed;  /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
-  /* only consumed slots may be fec_chain_verified */
+  fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
+                               on confirmation, and don't know the index of the last fec set until we repair the slot.
+                               hash_null if unknown.  Otherwise populated by the child slot's CMR on confirmation,
+                               or by a confirmation msg from tower.  Has no bearing on if the full slot is correct or not. */
+  uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive.  Equivalent to complete_idx / 32UL
+                               if the last merkle root is verified, n if every merkle root after fec set n*32 is verified.
+                               Otherwise, it is UINT_MAX.  If non-UINT_MAX, then confirmed_bid must be populated (but not
+                               the vice versa). */
+
+  uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
+                            can be populated before this is set to 1. */
 
   int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
                                  ticks received, this will be a lower bound estimate on the highest tick we have seen.
@@ -229,9 +226,10 @@ typedef struct fd_forest_blk fd_forest_blk_t;
    The following maps/pools are used to track future requests.
 
    Requests:
-    - slots that branch from the main tree (ancestry) that are being repaired /
-      have yet to be repaired.  Maintained in a dlist, where the head
-      is the current slot being repaired.
+    - slots that branch from the main tree (ancestry) that are being
+      repaired / have yet to be repaired.  Maintained in a dlist, where
+      the head is the current slot being repaired.  Any slot in the
+      requests list must be in ancestry or frontier.
 
    Orphreqs (orphaned requests):
     - slots that branch from the unconnected trees (subtrees/orphans) that are being repaired /
@@ -250,8 +248,7 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 
     Consumed:
     - slots where the entire ancestry up to the root has been completed.
-      This is what we are repairing next.  There should be <= num forks
-      elements in the consumed map.
+      There should be <= num forks elements in the consumed map.
 */
 struct fd_forest_ref {
   ulong idx;             /* forest pool idx of the ele this ref refers to */
@@ -261,7 +258,7 @@ struct fd_forest_ref {
 };
 typedef struct fd_forest_ref fd_forest_ref_t;
 
-#define MAP_NAME     fd_forest_requests  /* TODO this map could be redundant (i.e. we only need the deque).  Also this is awkwardly coupled between forest and policy */
+#define MAP_NAME     fd_forest_requests
 #define MAP_ELE_T    fd_forest_ref_t
 #define MAP_KEY      idx
 #define MAP_NEXT     hash
@@ -354,7 +351,6 @@ typedef struct fd_forest_iter fd_forest_iter_t;
 struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
   ulong wksp_gaddr;     /* wksp gaddr of fd_forest in the backing wksp, non-zero gaddr */
-  ulong ver_gaddr;      /* wksp gaddr of version fseq, incremented on write ops */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* leaves that needs repair */
@@ -416,10 +412,8 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
-      fd_fseq_align(),            fd_fseq_footprint()                     ),
       fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) ),
       fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
@@ -482,12 +476,6 @@ fd_forest_delete( void * forest );
 fd_forest_t *
 fd_forest_init( fd_forest_t * forest, ulong root );
 
-/* fd_forest_fini finishes an forest.  Assumes forest is
-   a valid local join and no one else is joined. */
-
-fd_forest_t *
-fd_forest_fini( fd_forest_t * forest );
-
 /* Accessors */
 
 /* fd_forest_wksp returns the local join to the wksp backing the
@@ -498,25 +486,6 @@ fd_forest_fini( fd_forest_t * forest );
 FD_FN_PURE static inline fd_wksp_t *
 fd_forest_wksp( fd_forest_t const * forest ) {
   return (fd_wksp_t *)( ( (ulong)forest ) - forest->wksp_gaddr );
-}
-
-/* fd_forest_{ver, ver_const} returns the local join to the version
-   number fseq.  The lifetime of the returned pointer is at least as
-   long as the lifetime of the local join.  Assumes forest is a
-   current local join.  If value is ULONG_MAX, ghost is uninitialized or
-   invalid.  Query pre- & post-read:
-
-   odd:  if either pre or post is odd, discard read.
-   even: if pre == post, read is consistent. */
-
-FD_FN_PURE static inline ulong *
-fd_forest_ver( fd_forest_t * forest ) {
-  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->ver_gaddr );
-}
-
-FD_FN_PURE static inline ulong const *
-fd_forest_ver_const( fd_forest_t const * forest ) {
-  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->ver_gaddr );
 }
 
 /* fd_forest_{pool, pool_const} returns a pointer in the caller's address
@@ -716,10 +685,22 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 /* Operations */
 
 /* fd_forest_blk_insert inserts a new block into the forest.  Assumes
-   slot >= forest->smr, and the blk pool has a free element (if
-   handholding is enabled, explicitly checks and errors).  This blk
-   insert is idempotent, and can be called multiple times with the same
-   slot. Returns the inserted forest ele. */
+   slot >= forest->root.  blk_insert can also be called to create a
+   sentinel block, i.e. a placeholder block that we know exists but
+   don't know the parent slot of.  The caller should pass in parent_slot
+   == ULONG_MAX.  In this case, the block inserted will remain an
+   orphan/subtree at least until the next blk_insert is called with a
+   different parent_slot, after which point no more updates to the
+   parent_slot will be allowed.  For non-sentinel blocks, blk insert is
+   idempotent, and can be called multiple times with the same slot.
+
+   If the forest pool is full at the time of insertion, a block will be
+   chosen for eviction (see fd_forest.c:evict for more details).  If the
+   caller passes in a non-NULL evicted pointer, the evicted slot will be
+   stored to the pointer.
+
+   Returns the inserted (or existing) forest ele.  NULL if the forest
+   pool is full and no block could be evicted. */
 
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted );
@@ -728,10 +709,21 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
 #define SHRED_SRC_REPAIR    1
 #define SHRED_SRC_RECOVERED 2
 
-/* fd_forest_shred_insert inserts a new shred into the forest.
-   Assumes slot is already in forest, and should typically be called
-   directly after fd_forest_block_insert. Returns the forest ele
-   corresponding to the shred slot. */
+/* fd_forest_shred_insert inserts a new shred into the forest. Assumes
+   slot is already in forest, and should typically be preceded by a
+   fd_forest_blk_insert. Returns the forest ele corresponding to the
+   shred slot if the shred is accepted, and NULL if the shred is
+   rejected.  A shred can only be rejected if slot is able to verify
+   that this shred does not belong to the canonical FEC set.
+
+   A possible side effect of data_shred_insert is that it may update the
+   parent slot of the block IF the inserted shred has a verifiably
+   correct merkle root.  Note this is different from a sentinel block
+   parent update. A data shred insert can only update the parent slot if
+   the data shred has a verified merkle root, and the parent slot is
+   incorrect.  A sentinel block will update its parent with the first
+   parent slot it receives, but it can be later updated with a
+   data_shred_insert.  Each update type can only be performed once. */
 
 fd_forest_blk_t *
 fd_forest_data_shred_insert( fd_forest_t * forest,
@@ -745,14 +737,14 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              fd_hash_t *   mr,
                              fd_hash_t *   cmr );
 
-/* TODO: Does merkle validation need to happen for coding shreds as well*/
 fd_forest_blk_t *
 fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
 
 /* fd_forest_fec_insert inserts a new fully completed FEC set into the
    forest. Assumes slot is already in forest, and should typically be
    called directly after fd_forest_block_insert. Returns the forest ele
-   corresponding to the shred slot. */
+   corresponding to the shred slot if the FEC was accepted, NULL
+   otherwise. */
 
 fd_forest_blk_t *
 fd_forest_fec_insert( fd_forest_t * forest,
@@ -784,14 +776,18 @@ fd_forest_fec_insert( fd_forest_t * forest,
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );
 
-/* fd_forest_fec_chain_verify verifies the chain of merkle roots for a given block.
-   Returns a pointer to the first slot that does not confirm, or NULL if the chain is valid. */
+/* fd_forest_fec_chain_verify verifies the chain of merkle roots for a
+   given block. Should only be called on a block that has all the shreds
+   received. Returns a pointer to the first slot that does not confirm,
+   or NULL if the chain is valid. */
 fd_forest_blk_t *
 fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * mr );
 
 void
 fd_forest_confirm( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * bid );
 
+/* fd_forest_merkle_last_incorrect_idx returns the highest incorrect FEC
+   index for a given block. */
 static inline uint
 fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
   ulong first_verified_fec = ele->lowest_verified_fec;

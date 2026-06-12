@@ -91,6 +91,18 @@ sol_compat_txn_execute_v1( uchar *       out,
                            ulong         in_sz );
 
 int
+sol_compat_bundle_execute_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz );
+
+int
+sol_compat_txn_cost_v1( uchar *       out,
+                        ulong *       out_sz,
+                        uchar const * in,
+                        ulong         in_sz );
+
+int
 sol_compat_block_execute_v1( uchar *       out,
                              ulong *       out_sz,
                              uchar const * in,
@@ -101,6 +113,24 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
                                   ulong *       out_sz,
                                   uchar const * in,
                                   ulong         in_sz );
+
+int
+sol_compat_gossip_decode_v1( uchar *       out,
+                             ulong *       out_sz,
+                             uchar const * in,
+                             ulong         in_sz );
+
+int
+sol_compat_elf_loader_v1( uchar *       out,
+                          ulong *       out_sz,
+                          uchar const * in,
+                          ulong         in_sz );
+
+int
+sol_compat_vm_serialize_execute_v1( uchar *       out,
+                                    ulong *       out_sz,
+                                    uchar const * in,
+                                    ulong         in_sz );
 
 int
 sol_compat_shred_parse_v1( uchar *       out,

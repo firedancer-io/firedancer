@@ -1,5 +1,6 @@
 /* Topology support routines for the net tile */
 
+#define _GNU_SOURCE
 #include "fd_net_tile.h"
 #include "../topo/fd_topob.h"
 #include "../netlink/fd_netlink_tile.h"
@@ -52,7 +53,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.prefbusy_stall_timeout_nanos = (long)net_cfg->xdp.prefbusy_stall_timeout_micros * 1000L;
 
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
-  tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->xdp.netdev_tbl_obj_id      = netlink_tile->netlink.netdev_tbl_obj_id;
   tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
   tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
   tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
@@ -119,6 +120,10 @@ fd_topos_net_tiles( fd_topo_t *             topo,
       for( slave_cnt=0U;
            /*         */ !fd_bonding_slave_iter_done( iter );
            slave_cnt++,  fd_bonding_slave_iter_next( iter ) ) {
+        if( FD_UNLIKELY( slave_cnt>=FD_NET_BOND_SLAVE_MAX ) ) {
+          FD_LOG_ERR(( "bond interface %s has too many slave devices; max is %u (see [net.xdp.native_bond])",
+                       net_cfg->interface, FD_NET_BOND_SLAVE_MAX ));
+        }
         uint if_idx = if_nametoindex( fd_bonding_slave_iter_ele( iter ) );
         if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", fd_bonding_slave_iter_ele( iter ) ));
         devices[ slave_cnt ] = if_idx;

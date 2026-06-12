@@ -2,14 +2,12 @@
 #include "../fd_action.h"
 
 #include "../../../waltz/ip/fd_fib4.h"
-#include "../../../waltz/mib/fd_dbl_buf.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../util/pod/fd_pod_format.h"
 
 #include <net/if.h>
 #include <stdio.h>
-#include <stdlib.h> /* aligned_alloc */
 
 void
 netconf_cmd_fn( args_t *   args,
@@ -32,16 +30,10 @@ netconf_cmd_fn( args_t *   args,
   fd_topo_join_workspace( topo, netbase, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   puts( "\nINTERFACES\n" );
-  fd_dbl_buf_t * netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) );
-  FD_TEST( netdev_buf );
-  void * netdev_copy = aligned_alloc( fd_netdev_tbl_align(), fd_dbl_buf_obj_mtu( netdev_buf ) );
-  fd_dbl_buf_read( netdev_buf, fd_dbl_buf_obj_mtu( netdev_buf ), netdev_copy, NULL );
   fd_netdev_tbl_join_t netdev[1];
-  FD_TEST( fd_netdev_tbl_join( netdev, netdev_copy ) );
+  FD_TEST( fd_netdev_tbl_join( netdev, fd_topo_obj_laddr( topo, tile->netlink.netdev_tbl_obj_id ) ) );
   fd_netdev_tbl_fprintf( netdev, stdout );
   fd_netdev_tbl_leave( netdev );
-  free( netdev_copy );
-  fd_dbl_buf_leave( netdev_buf );
 
   puts( "\nIPv4 ROUTES (main)\n" );
   fd_fib4_t fib4_main[1];
@@ -76,4 +68,7 @@ action_t fd_action_netconf = {
   .require_config = 1,
   .perm           = NULL,
   .description    = "Print network configuration",
+  .detail         = "Connects to a running validator and prints the networking state its\n"
+                    "net tiles have discovered, including the routing (FIB), interface (MIB), and\n"
+                    "neighbor (ARP) tables.",
 };

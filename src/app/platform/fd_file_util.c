@@ -134,8 +134,10 @@ fd_file_util_rmtree( char const * path,
   }
 
   struct dirent * entry;
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     char path1[ PATH_MAX ];
@@ -162,7 +164,7 @@ fd_file_util_rmtree( char const * path,
     }
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) )   return -1;
+  if( FD_UNLIKELY( errno ) )                    return -1;
   if( FD_UNLIKELY( -1==closedir( dir ) ) )      return -1;
   if( FD_LIKELY( remove_root && -1==rmdir( path ) ) ) return -1;
 

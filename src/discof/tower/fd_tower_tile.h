@@ -17,8 +17,8 @@
    confirmations.  There are multiple confirmation levels:
 
    - propagation confirmed: a block is propagated if it has received
-     votes from at least 1/3 of stake in the cluster.  This threshold is
-     important in two contexts:
+     votes from more than 1/3 of stake in the cluster.  This threshold
+     is important in two contexts:
 
      1. When becoming leader, we need to check that our previous leader
         block _as of_ the parent slot we're building on, has propagated.
@@ -33,7 +33,7 @@
         which our last ancestor leader block failed to propagate.
 
    - duplicate confirmed: a block is duplicate confirmed if it has
-     received votes from at least 52% of stake in the cluster.  The
+     received votes from more than 52% of stake in the cluster.  The
      "duplicate" adjective is a bit of a misnomer, and a more accurate
      technical term is equivocation: two (or more) different blocks for
      the same slot.  This threshold is important for consensus safety,
@@ -42,12 +42,12 @@
      duplicate confirmed, even if there is equivocation.
 
    - optimistically confirmed: a block is optimistically confirmed if it
-     has received votes from at least 2/3 of stake in the cluster.  This
-     threshold is important for end-users, who rely on the "confirmed"
-     commitment status of blocks (queryable via RPC) to determine that
-     their transaction has landed on a block that will not rollback.
-     This is unimplemented in Firedancer and only relevant for RPC.
-     (TODO verify this?)
+     has received votes from more than 2/3 of stake in the cluster.
+     This threshold is important for end-users, who rely on the
+     "confirmed" commitment status of blocks (queryable via RPC) to
+     determine that their transaction has landed on a block that will
+     not rollback. This is unimplemented in Firedancer and only relevant
+     for RPC. (TODO verify this?)
 
    - super confirmed: same as optimistic, but the stake threshold is 4/5
      of stake.  This is used during boot for `--wait-for-supermajority`.
@@ -80,7 +80,9 @@
 #define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC (2)
 #define FD_TOWER_SLOT_CONFIRMED_SUPER      (3)
 #define FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT  (4)
+#define FD_TOWER_SLOT_CONFIRMED_RATIO_CNT  FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT
 #define FD_TOWER_SLOT_CONFIRMED_LEVELS     { FD_TOWER_SLOT_CONFIRMED_PROPAGATED, FD_TOWER_SLOT_CONFIRMED_DUPLICATE, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC, FD_TOWER_SLOT_CONFIRMED_SUPER }
+#define FD_TOWER_SLOT_CONFIRMED_RATIOS     { 1.0/3,                              0.52,                              2.0/3,                              4.0/5 }
 
 struct fd_tower_slot_confirmed {
   int       level;    /* the confirmation level, see FD_TOWER_SLOT_CONFIRMED_{...} above */

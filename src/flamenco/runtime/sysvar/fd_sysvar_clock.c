@@ -1,11 +1,9 @@
-#include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_system_ids.h"
-#include "../program/fd_program_util.h"
+#include "../sysvar/fd_sysvar.h"
 #include "../program/vote/fd_vote_state_versioned.h"
-#include "../../accdb/fd_accdb_sync.h"
 
 /* Syvar Clock Possible Values:
   slot:
@@ -47,75 +45,61 @@
    Solana's behavior. */
 #define NS_IN_S ((long)1e9)
 
+/* FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX specifies the max number of stake
+   weights processed in a clock update. */
+
+#define FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX (10240UL)
+
 /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2110-L2117 */
 static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
-      (long)fd_bank_genesis_creation_time_get( bank ),
-      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ).ud ) / NS_IN_S ) );
+      (long)bank->f.genesis_creation_time,
+      (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.ns_per_slot.ud ) / NS_IN_S ) );
 }
 
-void
-fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid,
-                       fd_capture_ctx_t *        capture_ctx,
-                       fd_sol_sysvar_clock_t *   clock ) {
-  uchar enc[ sizeof(fd_sol_sysvar_clock_t) ];
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + sizeof(fd_sol_sysvar_clock_t),
-  };
-  if( FD_UNLIKELY( fd_sol_sysvar_clock_encode( clock, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
+static void
+fd_sysvar_clock_write( fd_bank_t *                   bank,
+                       fd_accdb_t *                  accdb,
+                       fd_capture_ctx_t *            capture_ctx,
+                       fd_sol_sysvar_clock_t const * clock ) {
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
 }
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
-                      fd_funk_txn_xid_t const * xid,
-                      fd_sol_sysvar_clock_t *   clock ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_clock_id ) ) ) {
+fd_sysvar_clock_read( fd_accdb_t *            accdb,
+                      fd_accdb_fork_id_t      fork_id,
+                      fd_sol_sysvar_clock_t * clock ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_clock_id.uc );
+  if( FD_UNLIKELY( !acc.lamports || acc.data_len<sizeof(fd_sol_sysvar_clock_t) ) ) {
+    /* This check is needed as a quirk of the fuzzer. If a sysvar
+       account exists in the accounts database, but doesn't have any
+       lamports, this means that the account does not exist.  This
+       wouldn't happen in a real execution environment. */
+    fd_accdb_unread_one( accdb, &acc );
     return NULL;
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  fd_sol_sysvar_clock_t * res = fd_bincode_decode_static(
-      sol_sysvar_clock, clock,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL );
-  fd_accdb_close_ro( accdb, ro );
-  return res;
+  fd_memcpy( clock, acc.data, sizeof(fd_sol_sysvar_clock_t) );
+  fd_accdb_unread_one( accdb, &acc );
+  return clock;
 }
 
 void
-fd_sysvar_clock_init( fd_bank_t *               bank,
-                      fd_accdb_user_t *         accdb,
-                      fd_funk_txn_xid_t const * xid,
-                      fd_capture_ctx_t *        capture_ctx ) {
+fd_sysvar_clock_init( fd_bank_t *        bank,
+                      fd_accdb_t *       accdb,
+                      fd_capture_ctx_t * capture_ctx ) {
   long timestamp = unix_timestamp_from_genesis( bank );
 
   fd_sol_sysvar_clock_t clock = {
-    .slot                  = fd_bank_slot_get( bank ),
+    .slot                  = bank->f.slot,
     .epoch                 = 0,
     .epoch_start_timestamp = timestamp,
     .leader_schedule_epoch = 1,
     .unix_timestamp        = timestamp,
   };
-  fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, &clock );
+  fd_sysvar_clock_write( bank, accdb, capture_ctx, &clock );
 }
 
 #define SORT_NAME  sort_stake_ts
@@ -123,63 +107,129 @@ fd_sysvar_clock_init( fd_bank_t *               bank,
 #define SORT_BEFORE(a,b) ( (a).timestamp < (b).timestamp )
 #include "../../../util/tmpl/fd_sort.c"
 
-/* get_timestamp_estimate calculates a timestamp estimate.  Does not
-   modify the slot context.  Walks all cached vote accounts (from the
-   "bank") and calculates a unix timestamp estimate. Returns the
-   timestamp estimate.  spad is used for scratch allocations (allocates
-   a treap of size FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX). Crashes the
-   process with FD_LOG_ERR on failure (e.g. too many vote accounts).
-
-  https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
-long
-get_timestamp_estimate( fd_accdb_user_t *         accdb,
-                        fd_funk_txn_xid_t const * xid,
-                        fd_bank_t *               bank,
-                        fd_sol_sysvar_clock_t *   clock,
-                        fd_runtime_stack_t *      runtime_stack ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
-  ulong                       current_slot   = fd_bank_slot_get( bank );
+static void
+accum_vote_stakes_no_vat( fd_bank_t *               bank,
+                          fd_accdb_t *              accdb,
+                          fd_runtime_stack_t *      runtime_stack,
+                          uint128 *                 total_stake_out,
+                          ulong *                   ts_ele_cnt_out ) {
 
   ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
   ulong ts_ele_cnt = 0UL;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
   uint128 total_stake = 0UL;
 
-  /* A timestamp estimate is calculated at every slot using the most
-     recent vote states of voting validators. This estimated is based on
-     a stake weighted median using the stake as of the end of epoch E-2
-     if we are currently in epoch E. We do not count vote accounts that
-     have not voted in an epoch's worth of slots (432k). */
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
+  ulong                       current_slot   = bank->f.slot;
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  ushort             fork_idx    = bank->data->vote_stakes_fork_id;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ushort             fork_idx    = bank->vote_stakes_fork_id;
+
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
-       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
-    /* TODO: Replace accdb query with vote account cache lookup. */
-    fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
-      FD_LOG_CRIT(( "failed to open accdb ro for vote account" ));
+    ulong last_vote_slot;
+    long  last_vote_timestamp;
+    uchar is_valid = 1;
+    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
+    if( FD_UNLIKELY( !found ) ) {
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
+      if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
+        fd_accdb_unread_one( accdb, &acc );
+        continue;
+      }
+
+      fd_vote_block_timestamp_t last_vote;
+      FD_TEST( !fd_vote_account_last_timestamp( acc.data, acc.data_len, &last_vote ) );
+      fd_accdb_unread_one( accdb, &acc );
+      last_vote_slot      = last_vote.slot;
+      last_vote_timestamp = last_vote.timestamp;
     }
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
-      fd_accdb_close_ro( accdb, ro );
-      continue;
-    }
-    fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
-    fd_accdb_close_ro( accdb, ro );
+    if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
-    int err = fd_ulong_checked_sub( current_slot, last_vote.slot, &slot_delta );
+    int err = fd_ulong_checked_sub( current_slot, last_vote_slot, &slot_delta );
+    if( FD_UNLIKELY( err ) ) {
+      /* Don't count vote accounts with a last vote slot that is greater
+          than the current slot. */
+      continue;
+    }
+
+    /* Don't count vote accounts that haven't voted in the past 432k
+        slots (length of an epoch).
+        https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2446-L2447 */
+    if( FD_UNLIKELY( slot_delta>epoch_schedule->slots_per_epoch ) ) {
+      continue;
+    }
+
+    /* Calculate the timestamp estimate by taking the last vote
+        timestamp and adding the estimated time since the last vote
+        (delta from last vote slot to current slot * slot duration).
+        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
+    ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
+    long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
+
+    /* For each timestamp, accumulate the stake from E-2.  If the acc
+        for the timestamp doesn't exist yet, insert it.  Otherwise,
+        update the existing acc.
+        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
+    ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
+      .timestamp = estimate,
+      .stake     = { .ud=stake_t_2 },
+    };
+    ts_ele_cnt++;
+
+    /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
+    total_stake += stake_t_2;
+  }
+  fd_vote_stakes_fork_iter_fini( vote_stakes );
+
+  *total_stake_out = total_stake;
+  *ts_ele_cnt_out  = ts_ele_cnt;
+}
+
+static void
+accum_vote_stakes_vat( fd_bank_t *          bank,
+                       fd_runtime_stack_t * runtime_stack,
+                       uint128 *            total_stake_out,
+                       ulong *              ts_ele_cnt_out ) {
+
+  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
+  ulong ts_ele_cnt = 0UL;
+
+  uint128 total_stake = 0UL;
+
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
+  ulong                       current_slot   = bank->f.slot;
+
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
+
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
+       !fd_top_votes_iter_done( top_votes, iter );
+       fd_top_votes_iter_next( top_votes, iter ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake_t_2;
+    ulong       last_vote_slot;
+    long        last_vote_timestamp;
+    uchar       is_valid;
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp, &is_valid );
+    if( FD_UNLIKELY( !is_valid ) ) continue;
+
+    /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
+    ulong slot_delta;
+    int err = fd_ulong_checked_sub( current_slot, last_vote_slot, &slot_delta );
     if( FD_UNLIKELY( err ) ) {
       /* Don't count vote accounts with a last vote slot that is greater
          than the current slot. */
@@ -187,23 +237,23 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
     }
 
     /* Don't count vote accounts that haven't voted in the past 432k
-       slots (length of an epoch).
-       https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2446-L2447 */
+        slots (length of an epoch).
+        https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2446-L2447 */
     if( FD_UNLIKELY( slot_delta>epoch_schedule->slots_per_epoch ) ) {
       continue;
     }
 
     /* Calculate the timestamp estimate by taking the last vote
-       timestamp and adding the estimated time since the last vote
-       (delta from last vote slot to current slot * slot duration).
-       https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
+        timestamp and adding the estimated time since the last vote
+        (delta from last vote slot to current slot * slot duration).
+        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
     ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
-    long  estimate = last_vote.timestamp + (long)(offset / NS_IN_S);
+    long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
 
     /* For each timestamp, accumulate the stake from E-2.  If the entry
-       for the timestamp doesn't exist yet, insert it.  Otherwise,
-       update the existing entry.
-       https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
+        for the timestamp doesn't exist yet, insert it.  Otherwise,
+        update the existing entry.
+        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
       .stake     = { .ud=stake_t_2 },
@@ -214,10 +264,53 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
     total_stake += stake_t_2;
   }
 
-  fd_bank_vote_stakes_end_locking_modify( bank );
+  *total_stake_out = total_stake;
+  *ts_ele_cnt_out  = ts_ele_cnt;
+}
+
+/* get_timestamp_estimate calculates a timestamp estimate.  Does not
+   modify the slot context.  Walks all cached vote accounts (from the
+   "bank") and calculates a unix timestamp estimate. Returns the
+   timestamp estimate.  spad is used for scratch allocations (allocates
+   a treap of size FD_SYSVAR_CLOCK_STAKE_WEIGHTS_MAX). Crashes the
+   process with FD_LOG_ERR on failure (e.g. too many vote accounts).
+
+  https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
+static long
+get_timestamp_estimate( fd_bank_t *             bank,
+                        fd_accdb_t *            accdb,
+                        fd_sol_sysvar_clock_t * clock,
+                        fd_runtime_stack_t *    runtime_stack,
+                        ulong const *           parent_epoch,
+                        int *                   out_estimate_present ) {
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
+  ulong                       current_slot   = bank->f.slot;
+
+  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
+  ulong  ts_ele_cnt   = 0UL;
+  uint128 total_stake = 0UL;
+
+  /* A timestamp estimate is calculated at every slot using the most
+     recent vote states of voting validators. This estimated is based on
+     a stake weighted median using the stake as of the end of epoch E-2
+     if we are currently in epoch E. We do not count vote accounts that
+     have not voted in an epoch's worth of slots (432k). */
+
+  ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+
+  if( curr_epoch>=vat_epoch+1UL ) {
+    accum_vote_stakes_vat( bank, runtime_stack, &total_stake, &ts_ele_cnt );
+  } else {
+    accum_vote_stakes_no_vat( bank, accdb, runtime_stack, &total_stake, &ts_ele_cnt );
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L56-L58 */
   if( FD_UNLIKELY( total_stake==0UL ) ) {
+    *out_estimate_present = 0;
     return 0L;
   }
 
@@ -237,9 +330,11 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
 
   int const fix_estimate_into_u64 = FD_FEATURE_ACTIVE_BANK( bank, warp_timestamp_again );
 
-  /* Bound estimate by `max_allowable_drift` since the start of the epoch
+  /* Bound estimate by `max_allowable_drift` since the start of the
+     epoch.
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L69-L99 */
-  ulong epoch_start_slot      = fd_epoch_slot0( epoch_schedule, clock->epoch );
+  ulong epoch_for_start_slot  = parent_epoch ? *parent_epoch : curr_epoch;
+  ulong epoch_start_slot      = fd_epoch_slot0( epoch_schedule, epoch_for_start_slot );
   long  epoch_start_timestamp = clock->epoch_start_timestamp;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L71-L72 */
@@ -268,6 +363,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
         (long)max_allowable_drift_fast / NS_IN_S );
   }
 
+  *out_estimate_present = 1;
   return estimate;
 }
 
@@ -275,18 +371,17 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
    parent_epoch = NULL
    https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2158-L2215 */
 void
-fd_sysvar_clock_update( fd_bank_t *               bank,
-                        fd_accdb_user_t *         accdb,
-                        fd_funk_txn_xid_t const * xid,
-                        fd_capture_ctx_t *        capture_ctx,
-                        fd_runtime_stack_t *      runtime_stack,
-                        ulong const *             parent_epoch ) {
+fd_sysvar_clock_update( fd_bank_t *          bank,
+                        fd_accdb_t *         accdb,
+                        fd_capture_ctx_t *   capture_ctx,
+                        fd_runtime_stack_t * runtime_stack,
+                        ulong const *        parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, xid, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       current_slot   = fd_bank_slot_get( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       current_slot   = bank->f.slot;
   ulong                       current_epoch  = fd_slot_to_epoch( epoch_schedule, current_slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2159 */
@@ -297,10 +392,12 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* TODO: Are we handling slot 0 correctly?
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2176-L2183 */
-  long timestamp_estimate = get_timestamp_estimate( accdb, xid, bank, clock, runtime_stack );
+  int  estimate_present   = 0;
+  long timestamp_estimate = get_timestamp_estimate( bank, accdb, clock, runtime_stack, parent_epoch, &estimate_present );
 
-  /* If the timestamp was successfully calculated, use it. It not keep the old one. */
-  if( FD_LIKELY( timestamp_estimate!=0L ) ) {
+  /* If the timestamp was successfully calculated, use it. Otherwise,
+     keep the old one. */
+  if( FD_LIKELY( estimate_present ) ) {
     unix_timestamp = timestamp_estimate;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2180-L2182 */
@@ -331,5 +428,5 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2209-L2214 */
-  fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, clock );
+  fd_sysvar_clock_write( bank, accdb, capture_ctx, clock );
 }

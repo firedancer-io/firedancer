@@ -3,6 +3,7 @@
 
 //#include "fd_util_base.h"          /* includes stdalign.h string.h limits.h float.h */
 //#include "sanitize/fd_sanitize.h"  /* includes fd_util_base.h (fd_asan.h fd_msan.h) */
+#include "fd_version.h"              /* includes fd_util_base.h */
 //#include "bits/fd_bits.h"          /* includes sanitize/fd_sanitize.h (fd_bits_find_lsb.h fd_bits_find_msb.h fd_bits_tg.h) */
 //#include "io/fd_io.h"              /* includes bits/fd_bits.h */
 //#include "cstr/fd_cstr.h"          /* includes bits/fd_bits.h */
@@ -206,11 +207,10 @@ FD_PROTOTYPES_BEGIN
        These configure the behaviors of the logger.
 
        A non-zero colorize indicates stderr log messages should be
-       colorized.  default is disabled unless either
-       COLORTERM==truecolor or TERM==*256color* in the environment.
-       (This can also be enabled / disabled on the fly by the program
-       itself.) Note that the permanent log is _never_ colorized to aid
-       in robust log file message archiving.
+       colorized. See the documentation for fd_log_should_colorize()
+       for more info on how it's decided. (This can also be enabled /
+       disabled on the fly by the program itself.) Note that the permanent
+       log is _never_ colorized to aid in robust log file message archiving.
 
        logfile is the minimal level for which the logger should write
        detailed messages to the permanent log file (if there is one).

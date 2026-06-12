@@ -60,14 +60,6 @@ fd_zksdk_transcript_append_commitment( fd_zksdk_transcript_t * transcript,
   fd_merlin_transcript_append_message( transcript, label, label_len, commitment, 32 );
 }
 
-static inline void
-fd_zksdk_transcript_append_handle( fd_zksdk_transcript_t * transcript,
-                                   char const * const      label,
-                                   uint const              label_len,
-                                   uchar const             handle[ 32 ] ) {
-  fd_merlin_transcript_append_message( transcript, label, label_len, handle, 32 );
-}
-
 /*
  * Domain separators
  */

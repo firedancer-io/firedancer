@@ -93,7 +93,7 @@ dynamic_port_range = "8900-9000"
 # STDERR and STDOUT from the launcher.  An example log message would
 # look something like:
 #
-#    NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+#    NOTICE  01-23 04:56:07.890123 45678 f0 0 file.c(901): 1 is the loneliest number
 #
 # to the ephemeral log (stderr) and log something like:
 #
@@ -810,12 +810,6 @@ dynamic_port_range = "8900-9000"
     # the agave runtime for execution, which takes various locks and
     # uses concurrent data structures which slow down with multiple
     # parallel users.
-    #
-    # If using the revenue scheduling strategy (see tiles.pack), the
-    # bank tile count can be increased, and more bank tiles will likely
-    # result in better blocks.  Adding too many bank tiles does have
-    # diminishing returns, and it's suggested to experiment with values
-    # around 10-20.
     bank_tile_count = 4
 
     # How many shred tiles to run.  Should be set to 1.  This is
@@ -1118,6 +1112,21 @@ dynamic_port_range = "8900-9000"
         #   back to "simple" mode if necessary.
         rss_queue_mode = "simple"
 
+        # Some specialized networking setups, including DoubleZero,
+        # deliver packets to the validator in a GRE tunnel.  By default,
+        # when using rss_queue_mode="dedicated", Firedancer ignores all
+        # GRE-wrapped traffic.  Setting listen_gre = true causes
+        # Firedancer to install an ethtool 'ntuple' rule routing GRE
+        # traffic to a Firedancer net tile, enabling Firedancer to see
+        # GRE-wrapped traffic.  Unfortunately, few NICs are compatible
+        # with this class of rule, but ConnectX NICs (mlx5) are known to
+        # support listen_gre = true.  If your NIC does not support the
+        # rule and you must use GRE tunnels, set rss_queue_mode =
+        # "simple".  If rss_queue_mode is simple, this option is
+        # ignored, and Firedancer automatically listens to GRE-wrapped
+        # traffic when a GRE tunnel interface is configured.
+        listen_gre = false
+
         # Enable native network bonding support.
         #
         # If native_bond is set to 'true' and [net.interface] is a 'bond'
@@ -1381,7 +1390,7 @@ dynamic_port_range = "8900-9000"
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports three different strategies which
+        # The Firedancer team supports two different strategies which
         # are described below:
         #
         #  "perf"
@@ -1402,24 +1411,20 @@ dynamic_port_range = "8900-9000"
         #   When using the balanced mode, there is no reason to increase
         #   bank tile count beyond the default of 4.
         #
-        #  "revenue"
-        #   Fill blocks extremely lazily, saving most work for the end
-        #   of the block.  This strategy results in high revenue from
-        #   MEV, but results in regularly unfull blocks, and decreased
-        #   priority fees compared to the balanced strategy.
-        #
-        #   When scheduling with the revenue mode, it is suggested to
-        #   use a high number of bank tiles.  The more bank tiles in
-        #   use, the faster the scheduler can fill blocks during the
-        #   short working window at the end of each slot.
-        #
-        #   WARNING: The revenue scheduler is deprecated and will be
-        #   removed in a future version.
-        #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
+
+        # If the pack tile receives a transaction that reads from or
+        # writes to an address in the account_blocklist, it will reject
+        # the transaction immediately and not consider it for inclusion
+        # in any blocks this validator produces as leader.  This does
+        # not prevent replaying blocks that contain transactions that
+        # access an account in the blocklist.  Up to 16 addresses are
+        # currently allowed.  account_blocklist should be a list of
+        # base58-encoded public keys.
+        account_blocklist = []
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the

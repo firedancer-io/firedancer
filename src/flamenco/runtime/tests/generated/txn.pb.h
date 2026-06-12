@@ -49,7 +49,7 @@ typedef struct fd_exec_test_transaction_message {
     pb_size_t account_keys_count;
     pb_bytes_array_t **account_keys;
     /* Recent blockhash provided in message */
-    pb_bytes_array_t *recent_blockhash;
+    pb_byte_t recent_blockhash[32];
     /* The instructions this transaction executes */
     pb_size_t instructions_count;
     struct fd_exec_test_compiled_instruction *instructions;
@@ -79,10 +79,6 @@ typedef struct fd_exec_test_txn_bank {
     bool has_fee_rate_governor;
     fd_exec_test_fee_rate_governor_t fee_rate_governor;
     uint64_t total_epoch_stake;
-    bool has_epoch_schedule;
-    fd_exec_test_epoch_schedule_t epoch_schedule;
-    bool has_rent;
-    fd_exec_test_rent_t rent;
     bool has_features;
     fd_exec_test_feature_set_t features;
 } fd_exec_test_txn_bank_t;
@@ -159,9 +155,9 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_DEFAULT {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT {{0}, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, {0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, {0}, 0, NULL}
-#define FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT       {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT, false, FD_EXEC_TEST_RENT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT       {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
 #define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
@@ -169,9 +165,9 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, {0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, {0}, 0, NULL}
-#define FD_EXEC_TEST_TXN_BANK_INIT_ZERO          {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO, false, FD_EXEC_TEST_RENT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_BANK_INIT_ZERO          {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
 #define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0, 0, NULL, 0, NULL}
@@ -200,8 +196,6 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_BANK_RBH_LAMPORTS_PER_SIGNATURE_TAG 2
 #define FD_EXEC_TEST_TXN_BANK_FEE_RATE_GOVERNOR_TAG 3
 #define FD_EXEC_TEST_TXN_BANK_TOTAL_EPOCH_STAKE_TAG 4
-#define FD_EXEC_TEST_TXN_BANK_EPOCH_SCHEDULE_TAG 5
-#define FD_EXEC_TEST_TXN_BANK_RENT_TAG           6
 #define FD_EXEC_TEST_TXN_BANK_FEATURES_TAG       7
 #define FD_EXEC_TEST_TXN_CONTEXT_TX_TAG          1
 #define FD_EXEC_TEST_TXN_CONTEXT_ACCOUNT_SHARED_DATA_TAG 2
@@ -251,7 +245,7 @@ X(a, POINTER,  REPEATED, UINT32,   readonly_indexes,   3)
 X(a, STATIC,   SINGULAR, BOOL,     is_legacy,         1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  header,            2) \
 X(a, POINTER,  REPEATED, BYTES,    account_keys,      3) \
-X(a, POINTER,  SINGULAR, BYTES,    recent_blockhash,   5) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, recent_blockhash,   5) \
 X(a, POINTER,  REPEATED, MESSAGE,  instructions,      6) \
 X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   7)
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_CALLBACK NULL
@@ -273,15 +267,11 @@ X(a, POINTER,  REPEATED, MESSAGE,  blockhash_queue,   1) \
 X(a, STATIC,   SINGULAR, UINT32,   rbh_lamports_per_signature,   2) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  fee_rate_governor,   3) \
 X(a, STATIC,   SINGULAR, UINT64,   total_epoch_stake,   4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_schedule,    5) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  rent,              6) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  features,          7)
 #define FD_EXEC_TEST_TXN_BANK_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_BANK_DEFAULT NULL
 #define fd_exec_test_txn_bank_t_blockhash_queue_MSGTYPE fd_exec_test_blockhash_queue_entry_t
 #define fd_exec_test_txn_bank_t_fee_rate_governor_MSGTYPE fd_exec_test_fee_rate_governor_t
-#define fd_exec_test_txn_bank_t_epoch_schedule_MSGTYPE fd_exec_test_epoch_schedule_t
-#define fd_exec_test_txn_bank_t_rent_MSGTYPE fd_exec_test_rent_t
 #define fd_exec_test_txn_bank_t_features_MSGTYPE fd_exec_test_feature_set_t
 
 #define FD_EXEC_TEST_TXN_CONTEXT_FIELDLIST(X, a) \

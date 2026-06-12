@@ -11,12 +11,6 @@ class Tile(Enum):
     SNAPDC = 5
     SNAPIN = 6
     SNAPWR = 7
-    SNAPWH = 8
-    SNAPLA = 9
-    SNAPLS = 10
-    SNAPWM = 11
-    SNAPLH = 12
-    SNAPLV = 13
 
     NETLNK = 14
     NET = 15
@@ -35,17 +29,18 @@ class Tile(Enum):
     GOSSVF = 27
     GOSSIP = 28
     REPAIR = 29
-    REPLAY = 30
-    EXECRP = 31
-    ACCDB = 32
-    TOWER = 33
-    TXSEND = 34
+    RSERVE = 30
+    REPLAY = 31
+    EXECRP = 32
+    ACCDB = 33
+    TOWER = 34
+    TXSEND = 35
 
-    DIAG = 35
-    EVENT = 36
-    GUI = 37
-    METRIC = 38
-    RPC = 39
+    DIAG = 36
+    EVENT = 37
+    GUI = 38
+    METRIC = 39
+    RPC = 40
 
     RESOLH = 100
     BANK = 101
@@ -66,10 +61,11 @@ class HistogramConverter(Enum):
     NANOSECONDS = 2
 
 class EnumValue:
-    def __init__(self, value: int, name: str, label: str):
+    def __init__(self, value: int, name: str, label: str, normalize: bool = True):
         self.value = value
         self.name = name
         self.label = label
+        self.normalize = normalize
 
 class MetricEnum:
     def __init__(self, name: str, values: List[EnumValue]):
@@ -215,7 +211,8 @@ def parse_metrics(xml_data: str) -> Metrics:
                 EnumValue(
                     value=int(value.attrib['value']),
                     name=value.attrib['name'],
-                    label=value.attrib['label']
+                    label=value.attrib['label'],
+                    normalize=(enum.attrib.get('normalize', 'true').lower() == 'true')
                 )
                 for value in enum.findall('int')
             ]

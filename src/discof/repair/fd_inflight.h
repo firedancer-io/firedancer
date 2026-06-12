@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_discof_repair_fd_inflight_h
 #define HEADER_fd_src_discof_repair_fd_inflight_h
 
-#include "../../flamenco/types/fd_types.h"
 #include "fd_policy.h"
 
 /* fd_inflight tracks repair requests that are inflight to other
@@ -11,7 +10,6 @@
    critical. Repair tile relies on this module to be able to re-request
    any shreds that it has sent, because policy next does not request any
    shred twice.
-   (TODO should this be rolled into policy.h?)
 
    Requests are key-ed by (slot, shred_idx, nonce) as in the current
    strategy (see fd_policy.h).  Since we generate the nonce based on the
@@ -36,7 +34,6 @@ struct __attribute__((aligned(128UL))) fd_inflight {
   ulong             prev;          /* for fd_map_chain */
   long              timestamp_ns;  /* timestamp when request was created (nanoseconds) */
   fd_pubkey_t       pubkey;        /* public key of the peer */
-
 
   /* Reserved for DLL eviction */
   ulong             prevll;      /* pool index of previous element in DLL */
@@ -86,6 +83,7 @@ struct fd_inflights {
   fd_inflight_map_t   * popped_map;
   fd_inflight_dlist_t   outstanding_dl[1];
   fd_inflight_dlist_t   popped_dl[1];
+  ulong                 popped_cnt;
 };
 typedef struct fd_inflights fd_inflights_t;
 
@@ -101,10 +99,10 @@ fd_inflights_footprint( void ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_inflights_t),   sizeof(fd_inflights_t)                             ),
-      fd_inflight_pool_align(),  fd_inflight_pool_footprint ( FD_INFLIGHT_REQ_MAX ) ),
-      fd_inflight_map_align(),   fd_inflight_map_footprint  ( chain_cnt           ) ),
-      fd_inflight_map_align(),   fd_inflight_map_footprint  ( chain_cnt           ) ),
+      alignof(fd_inflights_t),  sizeof(fd_inflights_t)                            ),
+      fd_inflight_pool_align(), fd_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) ),
+      fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) ),
+      fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) ),
     fd_inflights_align() );
 }
 
@@ -118,14 +116,18 @@ fd_inflights_join( void * shmem );
 void
 fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey, ulong slot, ulong shred_idx );
 
+/* Matches a shred response to an inflight entry.  Returns the RTT in
+   nanoseconds if a match is found, 0 otherwise.  This will remove all
+   entries with the same (nonce, slot, shred_idx) tuple from both the
+   outstanding and popped maps, and credits the response to the oldest
+   entry. */
 long
-fd_inflights_request_remove( fd_inflights_t * table, ulong nonce, ulong slot, ulong shred_idx, fd_pubkey_t * peer_out );
+fd_inflights_request_match( fd_inflights_t * table, ulong nonce, ulong slot, ulong shred_idx, fd_pubkey_t * peer_out );
 
 /* Important! Caller must guarantee that the request list is not empty.
    This function cannot fail and will always try to populate the output
    parameters. Typical use should only call this after
    fd_inflights_should_drain returns true. */
-
 void
 fd_inflights_request_pop( fd_inflights_t * table, ulong * nonce_out, ulong * slot_out, ulong * shred_idx_out );
 
@@ -135,10 +137,19 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
   if( FD_UNLIKELY( fd_inflight_dlist_is_empty( table->outstanding_dl, table->pool ) ) ) return 0;
 
   fd_inflight_t * inflight_req = fd_inflight_dlist_ele_peek_head( table->outstanding_dl, table->pool );
-  if( FD_UNLIKELY( inflight_req->timestamp_ns + FD_POLICY_DEDUP_TIMEOUT < now ) ) return 1;
+  if( FD_UNLIKELY( inflight_req->timestamp_ns + FD_REQLIM_DEDUP_TIMEOUT < now ) ) return 1;
   return 0;
 }
 
+/* Returns the number of new outstanding requests that can be made
+   until the inflight pool is full, and there are no popped
+   requests to evict.  If this is 0, then the next insert would
+   evict an outstanding request. */
+
+static inline ulong
+fd_inflights_outstanding_free( fd_inflights_t * table ) {
+  return fd_inflight_pool_free( table->pool ) + table->popped_cnt;
+}
 
 void
 fd_inflights_print( fd_inflight_dlist_t * dlist, fd_inflight_t * pool );

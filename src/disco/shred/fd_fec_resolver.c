@@ -122,12 +122,17 @@ struct done_ele {
      signature.  If a malicious leader equivocates and produces two FEC
      sets which have the same hash for us, a task which takes a decent
      but doable amount of effort, the only impact is that we would
-     reject the shreds with SHRED_IGNORED instead of SHRED_EQUIOC, which
-     is not a big deal.  It's documented that SHRED_EQUIVOC detection is
-     on a best-effort basis. */
+     reject the shreds with SHRED_IGNORED instead of SHRED_EQUIVOC,
+     which is not a big deal.  It's documented that SHRED_EQUIVOC
+     detection is on a best-effort basis.  If we detect an equivocation
+     for this (slot, FEC set idx), sig_hash gets set to
+     SIG_HASH_EQUIVOC, and we start returning SHRED_IGNORED for any
+     non-repair shred for that (slot, FEC set idx). */
   uint           sig_hash;
 };
 typedef struct done_ele done_ele_t;
+FD_STATIC_ASSERT( sizeof(done_ele_t)==32UL, done_ele_t );
+#define SIG_HASH_EQUIVOC UINT_MAX
 
 #define MAP_NAME              done_map
 #define MAP_KEY               key
@@ -170,6 +175,9 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* expected_shred_version: discard all shreds with a shred version
      other than the specified value */
   ushort expected_shred_version;
+
+  /* Test/fuzz mode: bypass Merkle+Ed25519 verification in add_shred. */
+  uchar  bypass_verify;
 
   /* ctx_pool: A flat array (not an fd_pool) of the set_ctx_t
      structures used to back ctx_map, ctx_treap, and the ctx
@@ -249,6 +257,14 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* seed: done_map uses seed to compute a 32-bute hash of the FEC set's
      signature. */
   ulong seed;
+
+  /* discard_unexpected_data_complete_shreds: activation slot for
+     discard_unexpected_data_complete_shreds.
+
+     This feature rejects data shreds with the DATA_COMPLETE flag set
+     at the wrong position within an FEC set (i.e. not the last data
+     shred). */
+  ulong discard_unexpected_data_complete_shreds;
 
   /* sha512 and reedsol are used for calculations while adding a shred.
      Their state outside a call to add_shred is indeterminate. */
@@ -356,17 +372,19 @@ fd_fec_resolver_new( void                    * shmem,
 
   fd_sha512_new( resolver->sha512 );
 
-  resolver->depth                  = depth;
-  resolver->partial_depth          = partial_depth;
-  resolver->complete_depth         = complete_depth;
-  resolver->done_depth             = done_depth;
-  resolver->expected_shred_version = 0;
-  resolver->free_list_cnt          = depth+partial_depth;
-  resolver->signer                 = signer;
-  resolver->sign_ctx               = sign_ctx;
-  resolver->max_shred_idx          = max_shred_idx;
-  resolver->slot_old               = 0UL;
-  resolver->seed                   = seed3;
+  resolver->depth                                   = depth;
+  resolver->partial_depth                           = partial_depth;
+  resolver->complete_depth                          = complete_depth;
+  resolver->done_depth                              = done_depth;
+  resolver->expected_shred_version                  = 0;
+  resolver->bypass_verify                           = 0;
+  resolver->free_list_cnt                           = depth+partial_depth;
+  resolver->signer                                  = signer;
+  resolver->sign_ctx                                = sign_ctx;
+  resolver->max_shred_idx                           = max_shred_idx;
+  resolver->slot_old                                = 0UL;
+  resolver->seed                                    = seed3;
+  resolver->discard_unexpected_data_complete_shreds = ULONG_MAX;
   return shmem;
 }
 
@@ -412,6 +430,18 @@ fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
 }
 
 void
+fd_fec_resolver_set_bypass_verify( fd_fec_resolver_t * resolver,
+                                   int                 bypass_verify ) {
+  resolver->bypass_verify = (uchar)!!bypass_verify;
+}
+
+void
+fd_fec_resolver_set_discard_unexpected_data_complete_shreds( fd_fec_resolver_t * resolver,
+                                                             ulong               activation_slot ) {
+  resolver->discard_unexpected_data_complete_shreds = activation_slot;
+}
+
+void
 fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
                                   ulong               slot_old ) {
   if( FD_UNLIKELY( slot_old <= resolver->slot_old ) ) return;
@@ -447,7 +477,21 @@ fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
     ctx_list_ele_push_head ( free_list, min_ele, ctx_pool );
     resolver->free_list_cnt++;
   }
+}
 
+static inline void
+ensure_done_pool_free( done_ele_t  * done_pool,
+                       done_heap_t * done_heap,
+                       done_map_t  * done_map ) {
+  if( FD_UNLIKELY( !done_pool_free( done_pool ) ) ) {
+    /* Done map is full, so we'll forget about the oldest slot */
+    ulong worst_idx = done_heap_idx_peek_min( done_heap );
+    FD_TEST( worst_idx!=done_heap_idx_null() ); /* Done pool can't be empty and full at the same time */
+    done_heap_idx_remove_min( done_heap,            done_pool );
+    done_map_idx_remove_fast( done_map,  worst_idx, done_pool );
+    done_pool_idx_release( done_pool, worst_idx );
+    /* Now it's not empty */
+  }
 }
 
 
@@ -489,6 +533,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( FD_UNLIKELY( shred_sz<fd_shred_sz( shred )                               ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( shred->idx>=resolver->max_shred_idx                         ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( shred->fec_set_idx>resolver->max_shred_idx-FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->idx-shred->fec_set_idx>=FD_FEC_SHRED_CNT             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->fec_set_idx%FD_FEC_SHRED_CNT!=0UL                    ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   uchar variant    = shred->variant;
   uchar shred_type = fd_shred_type( variant );
@@ -498,7 +544,25 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( !is_data_shred ) { /* Roughly 50/50 branch */
     if( FD_UNLIKELY( (shred->code.data_cnt!=FD_FEC_SHRED_CNT) | (shred->code.code_cnt!=FD_FEC_SHRED_CNT) ) )
       return FD_FEC_RESOLVER_SHRED_REJECTED;
-    if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( shred->code.idx!=shred->idx%FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  } else {
+    /* if the shred's parent is for a slot we've already pruned, ignore it. */
+    if( FD_UNLIKELY( shred->slot-shred->data.parent_off<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+
+    /* if it has slot complete, it must be the last one in the FEC. */
+    if( FD_UNLIKELY( (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && ((1UL+shred->idx) % FD_FEC_SHRED_CNT) ) ) {
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
+
+    /* discard_unexpected_data_complete_shreds:
+       if it has data complete, it must be the last data shred in the FEC set
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/ledger/src/shred.rs#L817-L825 */
+    if( FD_UNLIKELY( ( shred->slot >= resolver->discard_unexpected_data_complete_shreds ) &&
+                     ( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE )             &&
+                     ( shred->idx != ( shred->fec_set_idx + ( FD_FEC_SHRED_CNT - 1UL ) ) ) ) ) {
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
   }
 
   if( FD_UNLIKELY( (shred_type==FD_SHRED_TYPE_LEGACY_DATA) | (shred_type==FD_SHRED_TYPE_LEGACY_CODE) ) ) {
@@ -512,23 +576,38 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* Is this FEC set in progress? */
   set_ctx_t * ctx = ctx_map_ele_query( ctx_map, w_sig, NULL, ctx_pool );
 
+  /* If we detect a different signature for the same (slot, FEC set
+     idx), it means either the shred is invalid, or the leader is
+     equivocating.  We can't tell which without verifying the shred
+     though. */
+  int equivoc_or_invalid = 0;
+
   /* If it's not in progress and it's repair, we will allocate a context
      for it, assuming all the other checks pass.  If it's from Turbine,
-     we'll be a little more sceptical about it: if we've already seen a
+     we'll be a little more skeptical about it: if we've already seen a
      FEC set for that same (slot, FEC set idx) pair, then we won't take
-     it. */
+     it, either rejecting it here, or setting equivoc_or_invalid to
+     reject it later. */
   if( FD_UNLIKELY( (ctx==NULL) & (!is_repair) ) ) {
     /* Most likely, it's just done. */
     slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
     done_ele_t * done_ele = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
     if( FD_LIKELY( done_ele ) ) {
       ulong sig_hash = fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
-      return fd_int_if( (uint)sig_hash==done_ele->sig_hash, FD_FEC_RESOLVER_SHRED_IGNORED, FD_FEC_RESOLVER_SHRED_EQUIVOC );
+      /* It's possible (with probability 2^-32, about 1/year at current
+         rates) for fd_hash to return SIG_HASH_EQUIVOC.  In this case,
+         we may miss an equivocation and just always return
+         SHRED_IGNORED for subsequent Turbine shreds for that FEC set.
+         Because the hash is validator specific, it just means we'll
+         rely on another node to produce the equivocation proof, and
+         we'll act as if we hadn't seen the equivocating shreds. */
+      if( FD_LIKELY( ((uint)sig_hash==done_ele->sig_hash) | (done_ele->sig_hash==SIG_HASH_EQUIVOC) ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+      equivoc_or_invalid = 1;
     }
 
     /* If it's not done, then check for the unlikely case we have it
        in progress with a different signature. */
-    if( FD_UNLIKELY( ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool ) ) ) return FD_FEC_RESOLVER_SHRED_EQUIVOC;
+    if( FD_UNLIKELY( ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool ) ) ) equivoc_or_invalid = 1;
   }
 
   /* If we've made it here, then we'll keep this shred as long as
@@ -561,17 +640,11 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   if( FD_UNLIKELY( ( shred->fec_set_idx % FD_FEC_SHRED_CNT ) != 0UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( in_type_idx >= FD_FEC_SHRED_CNT ) )                  return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( is_data_shred ) {
-    /* if it has data complete, it must be the last one in the FEC. */
-    if( FD_UNLIKELY( (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && ((1UL+shred->idx) % FD_FEC_SHRED_CNT) ) )
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
-  }
 
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, 2*FD_FEC_SHRED_CNT). */
 
-  if( FD_UNLIKELY( tree_depth>FD_SHRED_MERKLE_LAYER_CNT-1UL          ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( fd_bmtree_depth( shred_idx+1UL ) > tree_depth+1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
 
@@ -604,7 +677,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       ctx_list_ele_push_tail ( free_list, victim_ctx, ctx_pool );
       resolver->free_list_cnt++;
 
-      FD_MCNT_INC( SHRED, FEC_SET_SPILLED, 1UL );
+      FD_MCNT_INC( SHRED, FEC_SPILLED, 1UL );
     }
     /* Now we know |free_list|>partial_depth */
 
@@ -618,21 +691,53 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     tree = fd_bmtree_commit_init( ctx->_footprint, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
     FD_TEST( tree==ctx->tree );
 
-    fd_bmtree_node_t _root[1];
-    fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-    int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
-    if( FD_UNLIKELY( !rv ) ) {
-      ctx_list_ele_push_head( free_list, ctx, ctx_pool );
-      resolver->free_list_cnt++;
-      FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    fd_bmtree_node_t _root[1] = {0};
+    if( FD_LIKELY( !resolver->bypass_verify ) ) {
+      fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
+      int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
+      if( FD_UNLIKELY( !rv ) ) {
+        ctx_list_ele_push_head( free_list, ctx, ctx_pool );
+        resolver->free_list_cnt++;
+        FD_MCNT_INC( SHRED, SHRED_INITIAL_REJECTED, 1UL );
+        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      }
+
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
+        ctx_list_ele_push_head( free_list, ctx, ctx_pool );
+        resolver->free_list_cnt++;
+        FD_MCNT_INC( SHRED, SHRED_INITIAL_REJECTED, 1UL );
+        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      }
     }
 
-    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
+    /* Copy the merkle root into the output arg. */
+    if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, _root, sizeof(fd_bmtree_node_t) );
+
+    if( FD_UNLIKELY( equivoc_or_invalid ) ) {
+      /* It wasn't invalid, so it must be equivoc */
       ctx_list_ele_push_head( free_list, ctx, ctx_pool );
       resolver->free_list_cnt++;
-      FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
+      /* We want to record that we've sigverified the shred somewhere so
+         that if an attacker sends it to us again, we don't have to
+         verify it again.  We do that by inserting it into the done_map
+         with SIG_HASH_EQUIVOC. */
+      slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+      done_ele_t * done = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
+      if( FD_LIKELY( done ) ) done->sig_hash = SIG_HASH_EQUIVOC;
+      else {
+        ensure_done_pool_free( done_pool, done_heap, done_map );
+
+        done = done_pool_ele_acquire( done_pool );
+
+        done->key.slot    = shred->slot;
+        done->key.fec_idx = shred->fec_set_idx;
+        done->sig_hash    = SIG_HASH_EQUIVOC;
+
+        done_heap_ele_insert( done_heap, done, done_pool );
+        done_map_ele_insert ( done_map,  done, done_pool );
+      }
+
+      return FD_FEC_RESOLVER_SHRED_EQUIVOC;
     }
 
     /* This seems like a legitimate FEC set, so we populate the rest of
@@ -658,11 +763,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     ctx_map_ele_insert  ( ctx_map,   ctx, ctx_pool );
     ctx_treap_ele_insert( ctx_treap, ctx, ctx_pool );
 
-    /* Copy the merkle root into the output arg. */
-    if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, ctx->root.hash, sizeof(fd_bmtree_node_t) );
-
   } else {
     /* This is not the first shred in the set */
+
+    /* Verify that the shred's slot and fec_set_idx match the context
+       established by the first shred. */
+    if( FD_UNLIKELY( shred->slot!=ctx->slot || shred->fec_set_idx!=ctx->fec_set_idx ) ) {
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
 
     /* First ensure that all the shreds in the FEC set have consistent
        variants.  They all must have the same tree_depth and the same
@@ -671,13 +779,20 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
-    fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-    int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
-    if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( resolver->bypass_verify ) ) {
+      if( FD_LIKELY( out_merkle_root ) ) *out_merkle_root = ctx->root;
+    } else {
+      fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
+      int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
+      if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
 
     /* Check to make sure this is not a duplicate */
     int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
-    if( FD_UNLIKELY( shred_dup ) ) return FD_FEC_RESOLVER_SHRED_DUPLICATE;
+    if( FD_UNLIKELY( shred_dup ) ) {
+      *out_shred = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].s : ctx->set->parity_shreds[ in_type_idx ].s;
+      return FD_FEC_RESOLVER_SHRED_DUPLICATE;
+    }
   }
 
   /* At this point, the shred has passed Merkle validation and is new.
@@ -706,15 +821,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      so we can consider it done either way. */
 
   done_ele_t * done = NULL;
-  if( FD_UNLIKELY( !done_pool_free( done_pool ) ) ) {
-    /* Done map is full, so we'll forget about the oldest slot */
-    ulong worst_idx = done_heap_idx_peek_min( done_heap );
-    FD_TEST( worst_idx!=done_heap_idx_null() ); /* Done pool can't be empty and full at the same time */
-    done_heap_idx_remove_min( done_heap,            done_pool );
-    done_map_idx_remove_fast( done_map,  worst_idx, done_pool );
-    done_pool_idx_release( done_pool, worst_idx );
-    /* Now it's not empty */
-  }
+  ensure_done_pool_free( done_pool, done_heap, done_map );
 
   /* If it's already in the done map, we don't need to re-insert it.
      It's not very clear what we should do if the sig_hashes differ, but
@@ -763,7 +870,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
        slash-able offense. */
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
-    FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+    FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -777,12 +884,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       if( FD_LIKELY( fd_shred_is_chained( shred_type ) ) ) {
         fd_memcpy( set->data_shreds[i].b+fd_shred_chain_off( ctx->data_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
-      fd_bmtree_hash_leaf( leaf, set->data_shreds[i].b+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-      if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
-        ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
-        resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
-        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      if( FD_LIKELY( !resolver->bypass_verify ) ) {
+        fd_bmtree_hash_leaf( leaf, set->data_shreds[i].b+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
+          ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
+          resolver->free_list_cnt++;
+          FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
+          return FD_FEC_RESOLVER_SHRED_REJECTED;
+        }
       }
     }
   }
@@ -804,41 +913,49 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         fd_memcpy( set->parity_shreds[i].b+fd_shred_chain_off( ctx->parity_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
 
-      fd_bmtree_hash_leaf( leaf, set->parity_shreds[i].b+sizeof(fd_ed25519_sig_t), parity_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-      if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaf, NULL, 0, NULL ) ) ) {
-        ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
-        resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
-        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      if( FD_LIKELY( !resolver->bypass_verify ) ) {
+        fd_bmtree_hash_leaf( leaf, set->parity_shreds[i].b+sizeof(fd_ed25519_sig_t), parity_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaf, NULL, 0, NULL ) ) ) {
+          ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
+          resolver->free_list_cnt++;
+          FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
+          return FD_FEC_RESOLVER_SHRED_REJECTED;
+        }
       }
     }
   }
 
   /* Check that the whole Merkle tree is consistent. */
-  if( FD_UNLIKELY( !fd_bmtree_commitp_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
+  if( FD_UNLIKELY( !resolver->bypass_verify && !fd_bmtree_commitp_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
-    FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+    FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
   /* Check that all the fields that are supposed to be consistent across
      an FEC set actually are. */
-  fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ );
-  fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ );
+  fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ, resolver->max_shred_idx );
+  fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ, resolver->max_shred_idx );
   int reject = (!base_data_shred) | (!base_parity_shred);
+
+  /* Check idx of base shreds */
+  reject = reject || ((base_data_shred->idx!=ctx->fec_set_idx) | (base_parity_shred->idx!=ctx->fec_set_idx) |
+                      (base_data_shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE));
 
   for( ulong i=1UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
     /* Technically, we only need to re-parse the ones we recovered with
        Reedsol, but parsing is pretty cheap and the rest of the
        validation we need to do on all of them. */
-    fd_shred_t const * parsed = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ );
+    fd_shred_t const * parsed = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ, resolver->max_shred_idx );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
     reject |= parsed->variant         != base_data_shred->variant;
     reject |= parsed->slot            != base_data_shred->slot;
     reject |= parsed->version         != base_data_shred->version;
     reject |= parsed->fec_set_idx     != base_data_shred->fec_set_idx;
     reject |= parsed->data.parent_off != base_data_shred->data.parent_off;
+    reject |= parsed->idx             != (uint)(ctx->fec_set_idx+i);
+    reject |= (i!=FD_FEC_SHRED_CNT-1UL) && (parsed->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
 
     reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
                 !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
@@ -846,13 +963,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   }
 
   for( ulong i=0UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
-    fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ );
+    fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ, resolver->max_shred_idx );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
     reject |= fd_shred_type( parsed->variant )       != fd_shred_swap_type( fd_shred_type( base_data_shred->variant ) );
     reject |= fd_shred_merkle_cnt( parsed->variant ) != fd_shred_merkle_cnt( base_data_shred->variant );
     reject |= parsed->slot                           != base_data_shred->slot;
     reject |= parsed->version                        != base_data_shred->version;
     reject |= parsed->fec_set_idx                    != base_data_shred->fec_set_idx;
+    reject |= parsed->idx                            != (uint)(ctx->fec_set_idx+i);
     reject |= parsed->code.data_cnt                  != base_parity_shred->code.data_cnt;
     reject |= parsed->code.code_cnt                  != base_parity_shred->code.code_cnt;
     reject |= parsed->code.idx                       != (ushort)i;
@@ -864,7 +982,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( FD_UNLIKELY( reject ) ) {
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
-    FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+    FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 

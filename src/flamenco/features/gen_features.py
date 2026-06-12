@@ -125,7 +125,7 @@ fd_feature_id_t const ids[] = {{""",
         if x.get("reverted"):
             print(f",\n    .reverted                  = {x.get('reverted')}", file=body, end="")
         if x.get("hardcode_for_fuzzing"):
-            print(f",\n    .hardcode_for_fuzzing = 1", file=body, end="")
+            print(f",\n    .hardcode_for_fuzzing      = 1", file=body, end="")
         print(" },\n", file=body)
     print(
         f"""  {{ .index = ULONG_MAX }}

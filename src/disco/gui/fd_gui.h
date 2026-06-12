@@ -10,17 +10,20 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/fd_util_base.h"
 #include "../../util/hist/fd_histf.h"
 #include "../../waltz/http/fd_http_server.h"
+#include "../../flamenco/accdb/fd_accdb_cache.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 
 /* frankendancer only */
-#define FD_GUI_MAX_PEER_CNT ( 40200UL)
+#define FD_GUI_MAX_PEER_CNT (108000UL)
 
 /* frankendancer only */
 #define FD_GUI_START_PROGRESS_TYPE_INITIALIZING                       ( 0)
@@ -36,6 +39,24 @@
 #define FD_GUI_START_PROGRESS_TYPE_HALTED                             (10)
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
+
+#define FD_GUI_NETWORK_EMA_HALF_LIFE_NS (1000000000L) /* 1 second in nanoseconds */
+#define FD_GUI_NET_PROTO_CNT            (5UL)         /* turbine, gossip, tpu, repair, metric */
+#define FD_GUI_NET_RATE_MAX_WINDOW_NS   (300L*1000L*1000L*1000L) /* 5 minutes in nanoseconds */
+
+/* Monotonic deque element for sliding-window max tracking of
+   EMA-smoothed network throughput. */
+struct fd_gui_rate_entry {
+  long   ts_nanos;
+  double value;
+};
+typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
+
+/* At 100 ms sampling, 5 minutes = 3000 samples. */
+#define DEQUE_NAME fd_gui_rate_deque
+#define DEQUE_T    fd_gui_rate_entry_t
+#define DEQUE_MAX  4096UL
+#include "../../util/tmpl/fd_deque.c"
 
 /* frankendancer only */
 struct fd_gui_gossip_peer {
@@ -95,11 +116,12 @@ struct fd_gui_validator_info {
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
 
+#define FD_GUI_PROGCACHE_HISTORY_CNT               (600UL) /* 60s / 100ms */
+
 #define FD_GUI_TILE_TIMER_SNAP_CNT                   (512UL)
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
 #define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
 #define FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT (50UL)  /* 500ms / 10ms */
-#define FD_GUI_TILE_TIMER_TILE_CNT                   (256UL)
 
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
@@ -108,8 +130,9 @@ struct fd_gui_validator_info {
 #define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               (1)
 #define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        (2)
 #define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT (3)
-#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  (4)
-#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      (5)
+#define FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY    (4)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  (5)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      (6)
 
 #define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
 #define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
@@ -224,7 +247,7 @@ struct fd_gui_validator_info {
    Ideally, we have enough space to store an epoch's worth of events,
    but we are limited by realistic memory consumption.  Instead, we pick
    bound heuristically. */
-#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
+#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 12UL)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
 #define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
@@ -251,6 +274,7 @@ struct fd_gui_tile_timers {
   ulong  nivcsw;
   ulong  minflt;
   ulong  majflt;
+  ulong  interrupts;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
@@ -272,11 +296,64 @@ struct fd_gui_network_stats {
     ulong gossip;
     ulong tpu;
     ulong repair;
+    ulong rserve;
     ulong metric;
   } in, out;
 };
 
 typedef struct fd_gui_network_stats fd_gui_network_stats_t;
+
+struct fd_gui_accounts_stats {
+  /* Raw counters/gauges read from tile metric pages.  Stored so we can
+     compute deltas (and per-second rates) against a previous snapshot. */
+  long  sample_time_nanos;
+
+  /* Disk (gauges from accdb tile). */
+  ulong accounts_total;
+  ulong accounts_capacity;
+  ulong disk_allocated_bytes;
+  ulong disk_current_bytes;
+  ulong disk_used_bytes;
+
+  /* Compaction (gauges + counters from accdb tile). */
+  ulong in_compaction;
+  ulong compactions_requested;
+  ulong compactions_completed;
+  ulong accounts_relocated_bytes;
+
+  /* Cache occupancy (gauges from accdb tile, per class). */
+  ulong cache_class_used           [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_class_max            [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_class_reserved       [ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Preeviction thresholds, expressed as used-slot counts directly
+     comparable to cache_class_used / cache_class_max. */
+  ulong cache_class_target_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_class_low_water_used [ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* Aggregate counters summed across all accdb consumer tiles. */
+  ulong acquired;                   /* total acquires */
+  ulong acquired_writable;          /* writable subset of acquires (RW tiles only) */
+  ulong acquired_per_class           [ FD_ACCDB_CACHE_CLASS_CNT ]; /* acquires attributed to a class (RW tiles only) */
+  ulong acquired_writable_per_class  [ FD_ACCDB_CACHE_CLASS_CNT ]; /* writable acquires attributed to a class (RW tiles only) */
+  ulong not_found_per_class          [ FD_ACCDB_CACHE_CLASS_CNT ]; /* misses, per class */
+  ulong evicted_per_class            [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong preevicted_per_class         [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong committed_new_per_class      [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* IO counters.  bytes_written/read_ops/write_ops are summed across
+     all consumer tiles; bytes_written_accdb is the bytes written by
+     the accdb tile itself (background preevict + compaction), used to
+     compute the prewrite ratio. */
+  ulong bytes_read;
+  ulong bytes_copied;
+  ulong bytes_written;
+  ulong bytes_written_accdb;
+  ulong read_ops;
+  ulong write_ops;
+};
+
+typedef struct fd_gui_accounts_stats fd_gui_accounts_stats_t;
 
 struct fd_gui_leader_slot {
   ulong slot;
@@ -303,9 +380,12 @@ struct fd_gui_leader_slot {
      downsampled to be at most FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT
      samples (e.g. if there was an unusually long leader slot) and
      inserted into historical storage with capacity FD_GUI_LEADER_CNT.
-     FD_GUI_TILE_TIMER_TILE_CNT is the maximum number of tiles supported. */
-  fd_gui_tile_timers_t tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
-  ulong                tile_timers_sample_cnt;
+
+     The tile_timers pointer references trailing storage allocated
+     in fd_gui_footprint, with gui->tile_cnt elements per sample.
+     Sized as tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ tile_cnt ]. */
+  fd_gui_tile_timers_t * tile_timers;
+  ulong                  tile_timers_sample_cnt;
 
   fd_gui_scheduler_counts_t scheduler_counts[ FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT ][ 1 ];
   ulong                     scheduler_counts_sample_cnt;
@@ -329,6 +409,10 @@ struct fd_gui_leader_slot {
 
   fd_done_packing_t scheduler_stats[ 1 ];
 
+  /* The initial, maximum number of microblocks that could be packed
+     into this slot. */
+  ulong max_microblocks;
+
   uchar unbecame_leader: 1;
 };
 
@@ -340,24 +424,6 @@ struct fd_gui_turbine_slot {
 };
 
 typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
-
-struct fd_gui_slot_completed {
-  ulong slot;
-  long  completed_time;
-  ulong parent_slot;
-  uint  max_compute_units;
-  uint  total_txn_cnt;
-  uint  vote_txn_cnt;
-  uint  failed_txn_cnt;
-  uint  nonvote_failed_txn_cnt;
-  ulong transaction_fee;
-  ulong priority_fee;
-  ulong tips;
-  uint  compute_units;
-  uint  shred_cnt;
-};
-
-typedef struct fd_gui_slot_completed fd_gui_slot_completed_t;
 
 struct fd_gui_slot_staged_shred_event {
   long   timestamp;
@@ -420,21 +486,14 @@ struct __attribute__((packed)) fd_gui_txn {
   uint compute_units_consumed  : 21; /* <= 1.4M */
   uint bank_idx                :  6; /* in [0, 64) */
   uint error_code              :  6; /* in [0, 64) */
-  int timestamp_delta_start_nanos;
-  int timestamp_delta_end_nanos;
 
-  /* txn_{}_pct is used as a fraction of the total microblock
-     duration. For example, txn_load_end_pct can be used to find the
-     time when this transaction started executing:
+  /* relative to leader start */
+  float           microblock_start_ns_dt;
+  float           microblock_end_ns_dt;
 
-     timestamp_delta_start_exec_nanos = (
-       (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
-       ((double)txn_{}_pct/UCHAR_MAX)
-     ) */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
+  /* relative to microblock_start */
+  fd_txn_ns_dt_t txn_ns_dt;
+
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
   uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
   uint  source_ipv4;
@@ -517,16 +576,17 @@ struct fd_gui_slot {
   int   skipped;
   int   must_republish;
   int   level;
-  uint  total_txn_cnt;
-  uint  vote_txn_cnt;
-  uint  failed_txn_cnt;
-  uint  nonvote_failed_txn_cnt;
   uint  compute_units;
   ulong transaction_fee;
   ulong priority_fee;
   ulong tips;
   uint  shred_cnt;
   uchar vote_latency;
+
+  uint vote_success;
+  uint vote_failed;
+  uint nonvote_success;
+  uint nonvote_failed;
 
   /* Some slot info is only tracked for our own leader slots. These
      slots are kept in a separate buffer. */
@@ -548,9 +608,49 @@ struct fd_gui_slot {
 
 typedef struct fd_gui_slot fd_gui_slot_t;
 
+struct fd_gui_boot_progress {
+  uchar phase;
+  long joining_gossip_time_nanos;
+  struct {
+    ulong  slot;
+    uint   peer_addr;
+    ushort peer_port;
+    ulong  total_bytes_compressed;
+    long   reset_time_nanos;          /* UNIX nanosecond timestamp */
+    long   sample_time_nanos;
+    ulong  reset_cnt;
+
+    ulong read_bytes_compressed;
+    char  read_path[ PATH_MAX+30UL ]; /* URL or filesystem path.  30 is fd_cstr_nlen( "https://255.255.255.255:12345/", ULONG_MAX ) */
+
+    ulong decompress_bytes_decompressed;
+    ulong decompress_bytes_compressed;
+
+    ulong insert_bytes_decompressed;
+    char  insert_path[ PATH_MAX ];
+    ulong insert_accounts_current;
+  } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
+
+  ulong wfs_total_stake;
+  ulong wfs_connected_stake;
+  ulong wfs_total_peers;
+  ulong wfs_connected_peers;
+  ulong wfs_attempt;
+
+  long  catching_up_time_nanos;
+  ulong catching_up_first_replay_slot;
+};
+
+typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;
+
 struct fd_gui {
   fd_http_server_t * http;
-  fd_topo_t * topo;
+  fd_topo_t const * topo;
+  fd_accdb_shmem_t const * accdb_shmem;
+
+  double tick_per_ns;
+
+  ulong tile_cnt;
 
   long next_sample_400millis;
   long next_sample_100millis;
@@ -570,6 +670,10 @@ struct fd_gui {
     int          is_full_client;
     char const * version;
     char const * cluster;
+
+    char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    ushort expected_shred_version;
+    int    wfs_enabled;
 
     ulong vote_distance;
     int vote_state;
@@ -605,33 +709,10 @@ struct fd_gui {
         ulong startup_waiting_for_supermajority_slot;
         ulong startup_waiting_for_supermajority_stake_pct;
       } startup_progress;
-      struct { /* used in the full client */
-        uchar phase;
-        long joining_gossip_time_nanos;
-        struct {
-          ulong  slot;
-          uint   peer_addr;
-          ushort peer_port;
-          ulong  total_bytes_compressed;
-          long   reset_time_nanos;          /* UNIX nanosecond timestamp */
-          long   sample_time_nanos;
-          ulong  reset_cnt;
-
-          ulong read_bytes_compressed;
-          char  read_path[ PATH_MAX+30UL ]; /* URL or filesystem path.  30 is fd_cstr_nlen( "https://255.255.255.255:12345/", ULONG_MAX ) */
-
-          ulong decompress_bytes_decompressed;
-          ulong decompress_bytes_compressed;
-
-          ulong insert_bytes_decompressed;
-          char  insert_path[ PATH_MAX ];
-          ulong insert_accounts_current;
-        } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
-
-        long  catching_up_time_nanos;
-        ulong catching_up_first_replay_slot;
-      } boot_progress;
+      fd_gui_boot_progress_t boot_progress;
     };
+
+    fd_gui_boot_progress_t prev_boot_progress;
 
     int schedule_strategy;
 
@@ -647,6 +728,7 @@ struct fd_gui {
     ulong resolv_tile_cnt;
     ulong bank_tile_cnt;
     ulong execle_tile_cnt;
+    ulong execrp_tile_cnt;
     ulong shred_tile_cnt;
 
     ulong slot_rooted;
@@ -675,9 +757,157 @@ struct fd_gui {
     ulong late_votes_sz;
 
     ulong estimated_tps_history_idx;
-    ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
+    struct {
+     ulong vote_failed;
+     ulong vote_success;
+     ulong nonvote_success;
+     ulong nonvote_failed;
+    } estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ];
 
     fd_gui_network_stats_t network_stats_current[ 1 ];
+    fd_gui_network_stats_t network_stats_prev[ 1 ];
+    int                    network_stats_has_prev;
+
+    /* EMA-smoothed network throughput (bytes/sec) with a 1-second
+       half-life. */
+    double                   ingress_ema[ FD_GUI_NET_PROTO_CNT ];
+    double                   egress_ema[ FD_GUI_NET_PROTO_CNT ];
+    long                     net_rate_prev_ts;
+    int                      net_rate_ema_ready;
+    fd_gui_rate_entry_t *    ingress_maxq;
+    fd_gui_rate_entry_t *    egress_maxq;
+
+    fd_gui_accounts_stats_t accounts_stats_reference[ 1 ];
+    fd_gui_accounts_stats_t accounts_stats_current  [ 1 ];
+    int                     accounts_stats_have_reference;
+    /* Triangular-weighted moving window over per-snap deltas.  Snap
+       cadence is ~100ms, window is FD_GUI_ACCDB_WIN_SAMPLES samples
+       (~5s).  The output rate for any metric is:
+
+         rate = sum( w[i] * delta[i] ) / sum( w[i] * dt[i] )
+
+       where w[i] is the triangular weight (newest sample heaviest,
+       oldest weight=1).  This is fully caught up to a new rate after
+       the window length but smoother than a boxcar (no cliff edge as
+       samples age out). */
+#   define FD_GUI_ACCDB_WIN_SAMPLES 50UL
+    ulong                   accdb_win_idx;        /* next write index */
+    ulong                   accdb_win_count;      /* samples filled, capped at FD_GUI_ACCDB_WIN_SAMPLES */
+    long                    accdb_win_dt_nanos [ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Aggregate delta rings (units per snap). */
+    ulong                   agg_acquired_win          [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_acquired_writable_win [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_read_win        [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_copied_win      [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_written_win     [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_written_accdb_win[FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_read_ops_win          [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_write_ops_win         [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_relocated_bytes_win   [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_misses_win            [ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Per-class delta rings (units per snap). */
+    ulong                   class_acq_win         [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_acq_wr_win      [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_not_found_win   [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_evicted_win     [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_preevicted_win  [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_commit_new_win  [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_commit_over_win [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Per-partition triangular-weighted windows for read/write rates.
+       Sized to match the accdb partition pool ceiling (8192).  Rates
+       are derived in fd_gui_printf via fd_gui_accdb_weighted_rate. */
+#   define FD_GUI_MAX_PARTITIONS 8192UL
+    ulong                   partition_cnt;            /* live count from accdb_shmem; <= FD_GUI_MAX_PARTITIONS */
+    ulong                   partition_read_ops_win    [ FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   partition_bytes_read_win  [ FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   partition_write_ops_win   [ FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   partition_bytes_written_win[FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Per-partition snapshots (most recent values, for non-rate fields:
+       offset, layer, write_offset, bytes_freed, ticks, compaction state). */
+    fd_accdb_shmem_partition_info_t partitions[ FD_GUI_MAX_PARTITIONS ];
+
+    /* Cumulative counters from the previous snap for delta computation. */
+    ulong                   partition_prev_read_ops    [ FD_GUI_MAX_PARTITIONS ];
+    ulong                   partition_prev_bytes_read  [ FD_GUI_MAX_PARTITIONS ];
+    ulong                   partition_prev_write_ops   [ FD_GUI_MAX_PARTITIONS ];
+    ulong                   partition_prev_bytes_written[FD_GUI_MAX_PARTITIONS ];
+
+    /* Per-tile accdb stats.  At init we walk the topology and assign a
+       slot to each tile that uses the account database (execle, execrp,
+       replay, tower, rpc, resolv, snapwr).  Each slot keeps cumulative
+       previous values for delta computation and a triangular-weighted
+       delta ring (same cadence / weighting as the aggregate rings). */
+#   define FD_GUI_MAX_ACCDB_TILES 64UL
+    /* Tile kinds.  Determines which subset of metrics to read. */
+#   define FD_GUI_ACCDB_TILE_KIND_RW     0  /* execle, execrp, replay, tower */
+#   define FD_GUI_ACCDB_TILE_KIND_RO     1  /* rpc, resolv */
+#   define FD_GUI_ACCDB_TILE_KIND_SNAPWR 2  /* snapwr (direct disk writer during snapshot load) */
+#   define FD_GUI_ACCDB_TILE_KIND_ACCDB  3  /* accdb tile itself (prewrite + compaction writes) */
+    ulong                   accdb_tile_cnt;
+    ushort                  accdb_tile_topo_idx [ FD_GUI_MAX_ACCDB_TILES ]; /* index into topo->tiles */
+    uchar                   accdb_tile_kind     [ FD_GUI_MAX_ACCDB_TILES ];
+
+    /* Most-recent cumulative values per tile, plus the snapshot from
+       the previous snap for delta computation. */
+    ulong                   tile_cur_acquired          [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_acquired_writable [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_bytes_read        [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_bytes_copied      [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_bytes_written     [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_read_ops          [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_write_ops         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_misses            [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_evicted           [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_committed         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_acquire_calls     [ FD_GUI_MAX_ACCDB_TILES ];
+    uchar                   tile_cur_status            [ FD_GUI_MAX_ACCDB_TILES ]; /* 1=running, 2=shutdown */
+
+    ulong                   tile_prev_acquired         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_acquired_writable[ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_bytes_read       [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_bytes_copied     [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_bytes_written    [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_read_ops         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_write_ops        [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_misses           [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_evicted          [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_committed        [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_acquire_calls    [ FD_GUI_MAX_ACCDB_TILES ];
+
+    /* Per-tile delta rings. */
+    ulong                   tile_acquired_win         [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_acquired_writable_win[ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_bytes_read_win       [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_bytes_copied_win     [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_bytes_written_win    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_read_ops_win         [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_write_ops_win        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_misses_win           [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_evicted_win          [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_committed_win        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_acquire_calls_win    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* 60s-history rings for the per-tile sparkline.  Each bucket is the
+       sum of per-snap deltas that fell into that bucket window.
+       index 0 = current bucket (in-flight), older buckets follow.  When
+       a bucket interval elapses we shift right (older buckets drop off
+       the end) and start a new index-0 bucket.  240 buckets x 250ms =
+       60 second window. */
+#   define FD_GUI_ACCDB_SPARKLINE_SAMPLES   240UL
+#   define FD_GUI_ACCDB_SPARKLINE_BUCKET_NS 250000000L
+    long                    tile_sparkline_bucket_start_nanos [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_sparkline_acq_bucket         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_sparkline_acq_wr_bucket      [ FD_GUI_MAX_ACCDB_TILES ];
+    /* Per-second rates (units/second) for the last N completed buckets.
+       Newest at index 0, oldest at the end.  Filled lazily as snaps
+       complete each bucket interval. */
+    double                  tile_sparkline_acq_history    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
+    double                  tile_sparkline_acq_wr_history [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
+    ulong                   tile_sparkline_count          [ FD_GUI_MAX_ACCDB_TILES ];  /* completed buckets, capped at FD_GUI_ACCDB_SPARKLINE_SAMPLES */
 
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
@@ -685,10 +915,18 @@ struct fd_gui {
     fd_gui_tile_stats_t tile_stats_reference[ 1 ];
     fd_gui_tile_stats_t tile_stats_current[ 1 ];
 
-    ulong                tile_timers_snap_idx;
-    ulong                tile_timers_snap_idx_slot_start;
-    /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
-    fd_gui_tile_timers_t tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+    ulong progcache_history_idx;
+    ulong progcache_hits_history   [ FD_GUI_PROGCACHE_HISTORY_CNT ];
+    ulong progcache_lookups_history[ FD_GUI_PROGCACHE_HISTORY_CNT ];
+    ulong progcache_hits_1min;
+    ulong progcache_lookups_1min;
+
+    ulong                  tile_timers_snap_idx;
+    ulong                  tile_timers_snap_idx_slot_start;
+    /* Temporary storage for samples.  Will be downsampled into
+       leader history on slot end.  Sized as
+       tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ tile_cnt ] */
+    fd_gui_tile_timers_t * tile_timers_snap;
 
     ulong                     scheduler_counts_snap_idx;
     ulong                     scheduler_counts_snap_idx_slot_start;
@@ -731,10 +969,9 @@ struct fd_gui {
 
       ulong start_slot;
       ulong end_slot;
-      ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
-      fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
 
       ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */
       fd_gui_slot_rankings_t rankings[ 1 ]; /* global slot rankings */
@@ -772,36 +1009,55 @@ struct fd_gui {
     ulong history_tail;          /* history_tail % FD_GUI_SHREDS_HISTORY_SZ is one past the last valid event in history */
     fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
 
-    /* scratch space for stable sorts */
+    /* scratch space for archiving staged events */
     fd_gui_slot_staged_shred_event_t _staged_scratch [ FD_GUI_SHREDS_STAGING_SZ ];
-    fd_gui_slot_staged_shred_event_t _staged_scratch2[ FD_GUI_SHREDS_STAGING_SZ ];
   } shreds; /* full client */
 };
 
 typedef struct fd_gui fd_gui_t;
+
+/* fd_gui_staged_push returns a pointer to the next free staging slot
+   and advances staged_tail.  If the ring is full staged_head is
+   advanced first so the oldest entry is silently dropped. */
+static inline fd_gui_slot_staged_shred_event_t *
+fd_gui_staged_push( fd_gui_t * gui ) {
+  if( FD_UNLIKELY( gui->shreds.staged_tail - gui->shreds.staged_head >= FD_GUI_SHREDS_STAGING_SZ ) ) {
+    gui->shreds.staged_head = gui->shreds.staged_tail - FD_GUI_SHREDS_STAGING_SZ + 1UL;
+    if( FD_UNLIKELY( gui->shreds.staged_next_broadcast < gui->shreds.staged_head ) ) {
+      gui->shreds.staged_next_broadcast = gui->shreds.staged_head;
+    }
+  }
+  fd_gui_slot_staged_shred_event_t * dst =
+      &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+  gui->shreds.staged_tail++;
+  return dst;
+}
 
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
 fd_gui_align( void );
 
-FD_FN_CONST ulong
-fd_gui_footprint( void );
+ulong
+fd_gui_footprint( ulong tile_cnt );
 
 void *
-fd_gui_new( void *                shmem,
-            fd_http_server_t *    http,
-            char const *          version,
-            char const *          cluster,
-            uchar const *         identity_key,
-            int                   has_vote_key,
-            uchar const *         vote_key,
-            int                   is_full_client,
-            int                   snapshots_enabled,
-            int                   is_voting,
-            int                   schedule_strategy,
-            fd_topo_t *           topo,
-            long                  now );
+fd_gui_new( void *                   shmem,
+            fd_http_server_t *       http,
+            char const *             version,
+            char const *             cluster,
+            uchar const *            identity_key,
+            int                      has_vote_key,
+            uchar const *            vote_key,
+            int                      is_full_client,
+            int                      snapshots_enabled,
+            int                      is_voting,
+            int                      schedule_strategy,
+            char const *             wfs_expected_bank_hash_cstr,
+            ushort                   expected_shred_version,
+            fd_topo_t const *        topo,
+            fd_accdb_shmem_t const * accdb_shmem,
+            long                     now );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
@@ -843,7 +1099,7 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
-                                   long         now,
+                                   long         tspub_ns,
                                    ulong        _slot,
                                    fd_txn_e_t * txns,
                                    ulong        txn_cnt,
@@ -851,18 +1107,15 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    ulong        pack_txn_idx );
 
 void
-fd_gui_microblock_execution_end( fd_gui_t *   gui,
-                                 long         now,
-                                 ulong        bank_idx,
-                                 ulong        _slot,
-                                 ulong        txn_cnt,
-                                 fd_txn_p_t * txns,
-                                 ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
-                                 ulong        tips );
+fd_gui_microblock_execution_end( fd_gui_t *     gui,
+                                 long           tspub_ns,
+                                 ulong          bank_idx,
+                                 ulong          _slot,
+                                 ulong          txn_cnt,
+                                 fd_txn_p_t *   txns,
+                                 ulong          pack_txn_idx,
+                                 fd_txn_ns_dt_t txn_ns_dt,
+                                 ulong          tips );
 
 int
 fd_gui_poll( fd_gui_t * gui, long now );
@@ -904,6 +1157,10 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snapct_update_t const * msg );
 
 void
+fd_gui_stage_snapshot_manifest( fd_gui_t *                       gui,
+                                 fd_snapshot_manifest_t const *    manifest );
+
+void
 fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                fd_stake_weight_msg_t const * leader_schedule,
                                long                          now );
@@ -914,8 +1171,8 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           long                        now );
 
 void
-fd_gui_handle_notarization_update( fd_gui_t *                        gui,
-                                   fd_tower_slot_confirmed_t const * notar );
+fd_gui_handle_votes_update( fd_gui_t *                        gui,
+                                   fd_tower_slot_confirmed_t const * votes );
 
 void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,
@@ -923,14 +1180,10 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             long                         now );
 
 void
-fd_gui_handle_replay_update( fd_gui_t *                gui,
-                             fd_gui_slot_completed_t * slot_completed,
-                             fd_hash_t const *         block_hash,
-                             ulong                     vote_slot,
-                             ulong                     storage_slot,
-                             ulong                     root_slot,
-                             ulong                     identity_balance,
-                             long                      now );
+fd_gui_handle_replay_update( fd_gui_t *                         gui,
+                             fd_replay_slot_completed_t const * slot_completed,
+                             ulong                              vote_slot,
+                             long                               now );
 
 void
 fd_gui_handle_genesis_hash( fd_gui_t *        gui,

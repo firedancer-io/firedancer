@@ -316,7 +316,8 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
    (i.e. all the writable accounts followed by all the read-only
    accounts).  alts may be NULL, even if the transaction specifies that
    it loads accounts from an address lookup table; in this case,
-   addresses from ALTs are ignored.
+   addresses from ALTs are ignored.  There must be no duplicate accounts
+   in the transaction to be added.
 
    Shockingly, this dispatcher does not retain any read interest (much
    less write interest) in the transaction (txn, payload, or alts).  On

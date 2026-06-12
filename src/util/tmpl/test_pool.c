@@ -22,6 +22,15 @@ typedef struct myele myele_t;
 #define POOL_MAGIC    0x1UL
 #include "fd_pool.c"
 
+#define POOL_NAME     mypool_lazy
+#define POOL_T        myele_t
+#define POOL_NEXT     pool_next
+#define POOL_IDX_T    ushort
+#define POOL_SENTINEL HAS_SENTINEL
+#define POOL_LAZY     1
+#define POOL_MAGIC    0x2UL
+#include "fd_pool.c"
+
 #define ACQUIRED_MAX (1024UL)
 static ushort acquired_idx[ ACQUIRED_MAX ];
 static ulong  acquired_cnt = 0UL;
@@ -256,6 +265,118 @@ main( int     argc,
 
   FD_TEST( !mypool_delete( scratch ) ); /* Bad magic */
   FD_TEST( !mypool_join  ( scratch ) ); /* Bad magic */
+
+  /* Test POOL_LAZY variant */
+
+  FD_LOG_NOTICE(( "Testing POOL_LAZY construction" ));
+
+  ulong lazy_max = fd_ulong_min( max, mypool_lazy_max_for_footprint( SCRATCH_FOOTPRINT ) );
+
+  void * lazy_shpool = mypool_lazy_new( scratch, lazy_max ); FD_TEST( lazy_shpool );
+  myele_t * lazy_pool = mypool_lazy_join( lazy_shpool ); FD_TEST( lazy_pool );
+
+  FD_LOG_NOTICE(( "Testing POOL_LAZY accessors" ));
+
+  FD_TEST( mypool_lazy_max ( lazy_pool )==lazy_max );
+# if HAS_SENTINEL
+  FD_TEST( mypool_lazy_free( lazy_pool )==lazy_max-1UL );
+  FD_TEST( mypool_lazy_used( lazy_pool )==1UL           );
+# else
+  FD_TEST( mypool_lazy_free( lazy_pool )==lazy_max );
+  FD_TEST( mypool_lazy_used( lazy_pool )==0UL      );
+# endif
+
+  FD_LOG_NOTICE(( "Testing POOL_LAZY operations" ));
+
+  acquired_cnt = 0UL;
+  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+
+    uint r = fd_rng_uint( rng );
+    int op = (int)(r & 3U); r>>=2;
+
+    switch( op ) {
+    case 0:
+      if( mypool_lazy_free( lazy_pool ) ) {
+        ulong idx = mypool_lazy_idx_acquire( lazy_pool );
+        FD_TEST( mypool_lazy_idx_test( lazy_pool, idx ) && idx<lazy_max );
+#       if HAS_SENTINEL
+        FD_TEST( !!idx );
+#       endif
+        for( ulong acq=0UL; acq<acquired_cnt; acq++ ) FD_TEST( idx!=(ulong)acquired_idx[ acq ] );
+        acquired_idx[ acquired_cnt++ ] = (ushort)idx;
+      }
+      break;
+
+    case 1:
+      if( acquired_cnt ) {
+        ulong acq = fd_rng_ulong_roll( rng, acquired_cnt );
+        mypool_lazy_idx_release( lazy_pool, (ulong)acquired_idx[ acq ] );
+        acquired_idx[ acq ] = acquired_idx[ --acquired_cnt ];
+      }
+      break;
+
+    case 2:
+      if( mypool_lazy_free( lazy_pool ) ) {
+        myele_t * ele = mypool_lazy_ele_acquire( lazy_pool );
+        FD_TEST( mypool_lazy_ele_test( lazy_pool, ele ) && ele );
+#       if HAS_SENTINEL
+        FD_TEST( ele!=lazy_pool );
+#       endif
+        ulong idx = mypool_lazy_idx( lazy_pool, ele );
+        for( ulong acq=0UL; acq<acquired_cnt; acq++ ) FD_TEST( idx!=(ulong)acquired_idx[ acq ] );
+        acquired_idx[ acquired_cnt++ ] = (ushort)mypool_lazy_idx( lazy_pool, ele );
+      }
+      break;
+
+    case 3:
+      if( acquired_cnt ) {
+        ulong acq = fd_rng_ulong_roll( rng, acquired_cnt );
+        mypool_lazy_ele_release( lazy_pool, lazy_pool + acquired_idx[ acq ] );
+        acquired_idx[ acq ] = acquired_idx[ --acquired_cnt ];
+      }
+      break;
+
+    default:
+      break;
+    }
+
+    FD_TEST( (mypool_lazy_free( lazy_pool ) + mypool_lazy_used( lazy_pool ))==lazy_max );
+#   if HAS_SENTINEL
+    FD_TEST( mypool_lazy_used( lazy_pool )==(acquired_cnt+1UL) );
+#   else
+    FD_TEST( mypool_lazy_used( lazy_pool )==acquired_cnt       );
+#   endif
+  }
+
+  /* Test POOL_LAZY reset */
+
+  FD_LOG_NOTICE(( "Testing POOL_LAZY reset" ));
+
+  while( acquired_cnt ) {
+    mypool_lazy_idx_release( lazy_pool, (ulong)acquired_idx[ --acquired_cnt ] );
+  }
+  mypool_lazy_reset( lazy_pool );
+
+# if HAS_SENTINEL
+  FD_TEST( mypool_lazy_free( lazy_pool )==lazy_max-1UL );
+# else
+  FD_TEST( mypool_lazy_free( lazy_pool )==lazy_max );
+# endif
+
+  /* Acquire all after reset to verify bump allocation works again */
+  ulong lazy_free = mypool_lazy_free( lazy_pool );
+  for( ulong i=0UL; i<lazy_free; i++ ) {
+    ulong idx = mypool_lazy_idx_acquire( lazy_pool );
+    FD_TEST( idx<lazy_max );
+#   if HAS_SENTINEL
+    FD_TEST( !!idx );
+#   endif
+  }
+  FD_TEST( mypool_lazy_free( lazy_pool )==0UL );
+
+  FD_LOG_NOTICE(( "Testing POOL_LAZY deconstruction" ));
+  FD_TEST( mypool_lazy_leave( lazy_pool )==lazy_shpool );
+  FD_TEST( mypool_lazy_delete( lazy_shpool )==(void *)scratch );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

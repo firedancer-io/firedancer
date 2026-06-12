@@ -172,57 +172,28 @@ fd_quic_buffer_load( fd_quic_buffer_t * buf,
                      uchar *            data,
                      ulong              data_sz );
 
-/* returns the alignment of the fd_quic_stream_t */
-FD_FN_CONST inline
-ulong
+FD_FN_CONST inline ulong
 fd_quic_stream_align( void ) {
   return 128ul;
 }
 
-/* returns the required footprint of fd_quic_stream_t
-
-   args
-     tx_buf_sz    the size of the tx buffer */
-FD_FN_CONST
-ulong
+FD_FN_CONST ulong
 fd_quic_stream_footprint( ulong tx_buf_sz );
 
-/* returns a newly initialized stream
-
-   args
-     mem          the memory aligned to fd_quic_stream_align, and at least fd_quic_stream_footprint
-                    bytes
-     tx_buf_sz    the size of the tx buffer */
 fd_quic_stream_t *
-fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz );
+fd_quic_stream_new( void *           mem,
+                    fd_quic_conn_t * conn,
+                    ulong            tx_buf_sz );
 
-/* delete a stream
+static inline ulong
+fd_quic_tx_ack_bufsz( ulong tx_bufsz ) {
+  return (tx_bufsz >> 3UL) + 1UL;
+}
 
-   args
-     stream       the stream to free */
-void
-fd_quic_stream_delete( fd_quic_stream_t * stream );
-
-
-/* set stream context
-
-   args
-     stream      the stream with which to associate the context
-     context     the user-defined context associated with the stream */
-void
-fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
-
-
-/* get stream context
-
-   args
-     stream      the stream from which to obtain the context
-
-   returns
-     context     the user defined context associated with the stream */
-void *
-fd_quic_stream_get_context( fd_quic_stream_t * stream );
-
+static inline ulong
+fd_quic_stream_tx_ack_bufsz( fd_quic_stream_t const * stream ) {
+  return fd_quic_tx_ack_bufsz( stream->tx_buf.cap );
+}
 
 FD_PROTOTYPES_END
 

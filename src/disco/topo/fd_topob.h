@@ -23,6 +23,13 @@
 #define FD_TOPOB_UNRELIABLE 0
 #define FD_TOPOB_RELIABLE 1
 
+/* Tile priority types used by fd_topob_auto_layout to classify tiles
+   into scheduling categories. */
+#define FD_TOPOB_PRIORITY_FLOATING (1)
+#define FD_TOPOB_PRIORITY_STARTUP  (2)
+#define FD_TOPOB_PRIORITY_NORMAL   (3)
+#define FD_TOPOB_PRIORITY_CRITICAL (4)
+
 FD_PROTOTYPES_BEGIN
 
 /* Initialize a new fd_topo_t with the given app name and at the memory address
@@ -161,6 +168,10 @@ void
 fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks );
 
+
+/* Classify a tile name into one of the FD_TOPOB_PRIORITY_* categories. */
+int
+fd_topob_tile_priority_type( char const * name );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_topo_fd_topob_h */

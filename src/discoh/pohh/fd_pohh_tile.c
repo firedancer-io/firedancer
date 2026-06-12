@@ -317,7 +317,7 @@
 #include "../../disco/shred/fd_shredder.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../disco/plugin/fd_plugin.h"
+#include "../plugin/fd_plugin.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 
 #include <string.h>
@@ -386,8 +386,16 @@ struct fd_pohh_tile {
   double slot_duration_ns;
   double hashcnt_duration_ns;
   ulong  hashcnt_per_slot;
-  /* Constant, fixed at initialization.  The maximum number of
-     microblocks that the pack tile can publish in each slot. */
+
+  /* The maximum number of real microblocks that the pack tile is
+     allowed to publish in each slot.
+
+     While we are leader, PoH internally treats this limit as having
+     one extra phantom "microblock" reserved for the done_packing
+     message, so that PoH does not finish the slot before pack
+     confirms it is done.  Pack itself is configured with the
+     un-inflated limit and never publishes more than this many real
+     microblocks per slot. */
   ulong max_microblocks_per_slot;
 
   /* Consensus-critical slot cost limits. */
@@ -446,11 +454,6 @@ struct fd_pohh_tile {
      implement for now. */
   uint expect_pack_idx;
 
-  /* If we have received the slot done message from pack yet.  We are
-     not allowed to fully finish hashing the block until this happens so
-     that we know which slot the slot_done message is arriving for. */
-  int slot_done;
-
   /* Pack and bank tiles need a reference to the bank object with a
      slightly different lifetime than current_leader_bank, particularly
      when we switch forks in the middle of a leader slot.  We need to
@@ -466,6 +469,19 @@ struct fd_pohh_tile {
      behalf of the pack tile is acquired, and NULL when it is not
      acquired. */
   void const * pack_leader_bank;
+
+  /* Store tile needs another reference to the bank object with its
+     own lifetime requirements.  We need to set the block_id of a
+     slot to the merkle root of the last FEC set in the slot.  We
+     also want to make sure that we correctly release the reference
+     in case we abandon a slot midway and never send a SLOT_COMPLETE.
+     For the latter part, we track the slot we acquired the bank for
+     so that we can signal to release it if we have moved on from
+     that slot.  Since poh does not have a direct link to store,
+     we pass the bank pointer using the poh_shred -> shred_store
+     route.*/
+  void const * store_leader_bank;
+  ulong        store_leader_bank_slot;
 
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
@@ -680,12 +696,12 @@ poh_link_publish( poh_link_t *  link,
 }
 
 static void
-poh_link_init( poh_link_t *     link,
-               fd_topo_t *      topo,
-               fd_topo_tile_t * tile,
-               ulong            out_idx ) {
-  fd_topo_link_t * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
-  fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
+poh_link_init( poh_link_t *           link,
+               fd_topo_t const *      topo,
+               fd_topo_tile_t const * tile,
+               ulong                  out_idx ) {
+  fd_topo_link_t const * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
+  fd_topo_wksp_t const * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
 
   link->mem      = wksp->wksp;
   link->depth    = fd_mcache_depth( topo_link->mcache );
@@ -697,7 +713,7 @@ poh_link_init( poh_link_t *     link,
   link->cr_avail = 0UL;
   link->rx_cnt   = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * _tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * _tile = &topo->tiles[ i ];
     for( ulong j=0UL; j<_tile->in_cnt; j++ ) {
       if( _tile->in_link_id[ j ]==topo_link->id && _tile->in_link_reliable[ j ] ) {
         FD_TEST( link->rx_cnt<32UL );
@@ -914,34 +930,62 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
     return 1;
   }
 
+  fd_pubkey_t const * reset_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->reset_slot );
+  if( FD_UNLIKELY( reset_leader && fd_memeq( reset_leader, ctx->identity_key.uc, 32UL ) ) ) {
+    /* Surprisingly, in some rare cases where we're skipping ourselves,
+       the following can occur:
+         Reset onto n-1
+         Tick into slot n, become leader for slot n, skipping slot n-1
+         Prior leader start publishing slot n-1
+         max_active_descendant is set to n
+         Switch forks, abandon slot n, reset onto slot n
+       In this case, next_leader_slot is n+1 because we can't become
+       leader again for slot n.  We don't want to give ourselves any
+       grace time though;  we want to start n+1 as soon as the hashing
+       is ready. */
+    fd_ext_poh_write_unlock();
+    return 1;
+  }
+
   long now_ns = fd_log_wallclock();
   long expected_start_time_ns = ctx->reset_slot_start_ns + (long)((double)(ctx->next_leader_slot-ctx->reset_slot)*ctx->slot_duration_ns);
 
-  /* If a prior leader is still in the process of publishing their slot,
-     delay ours to let them finish ... unless they are so delayed that
-     we risk getting skipped by the leader following us.  1.2 seconds
-     is a reasonable default here, although any value between 0 and 1.6
-     seconds could be considered reasonable.  This is arbitrary and
-     chosen due to intuition. */
+  /* Now we're faced with the question of how much grace to give the
+     prior leader before trying to skip them.  If they are still in the
+     process of publishing their slot, delay ours to let them finish ...
+     unless they are so delayed that we risk getting skipped by the
+     leader following us.  1.2 seconds is a reasonable default here,
+     although any value between 0 and 1.6 seconds could be considered
+     reasonable.  If they haven't started their last block, but we're
+     reset on their second to last block, we'll give them an extra
+     400ms.  This is arbitrary and chosen due to intuition. */
 
-  if( FD_UNLIKELY( now_ns<expected_start_time_ns+(long)(3.0*ctx->slot_duration_ns) ) ) {
-    /* If the max_active_descendant is >= next_leader_slot, we waited
-       too long and a leader after us started publishing to try and skip
-       us.  Just start our leader slot immediately, we might win ... */
+  long start_time_with_grace_ns = expected_start_time_ns;
 
-    if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot && ctx->max_active_descendant<ctx->next_leader_slot ) ) {
-      /* If one of the leaders between the reset slot and our leader
-         slot is in the process of publishing (they have a descendant
-         bank that is in progress of being replayed), then keep waiting.
-         We probably wouldn't get a leader slot out before they
-         finished.
+  if( FD_UNLIKELY( ctx->max_active_descendant>=ctx->next_leader_slot ) ) {
+     /* If the max_active_descendant is >= next_leader_slot, we waited
+        too long and a leader after us started publishing to try and skip
+        us.  Just start our leader slot immediately, we might win ... */
+    start_time_with_grace_ns = now_ns;
+  } else if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot ) ) {
+    /* If one of the leaders between the reset slot and our leader
+       slot is in the process of publishing (they have a descendant
+       bank that is in progress of being replayed), then keep waiting.
+       We probably wouldn't get a leader slot out before they
+       finished. */
+    start_time_with_grace_ns += (long)(3.0*ctx->slot_duration_ns);
+  } else if( FD_LIKELY( ctx->next_leader_slot==ctx->reset_slot+1UL ) ) {
+    /* We finished replaying the slot two before ours, which means the
+       prior leader is probably online, but they haven't started
+       publishing the slot immediately prior to ours.  Give the prior
+       leader a little more time. */
+    start_time_with_grace_ns += (long)(1.0*ctx->slot_duration_ns);
+  }
 
-         Unless... we are past the deadline to start our slot by more
-         than 1.2 seconds, in which case we should probably start it to
-         avoid getting skipped by the leader behind us. */
-      fd_ext_poh_write_unlock();
-      return 0;
-    }
+
+  if( FD_UNLIKELY( now_ns<start_time_with_grace_ns ) ) {
+    fd_ext_poh_write_unlock();
+    return 0;
   }
 
   fd_ext_poh_write_unlock();
@@ -1054,15 +1098,32 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   if( FD_UNLIKELY( leader->ticks_per_slot+leader->total_skipped_ticks>=MAX_SKIPPED_TICKS ) )
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
 
-  ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
-  fd_stem_publish( ctx->stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
-
-  /* increment refcount for pack's reference to the current leader bank */
+  /* increment refcount once for pack's reference to the current leader bank
+     and once for store's reference. */
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) {
     ctx->pack_leader_bank = ctx->current_leader_bank;
     fd_ext_bank_acquire( ctx->pack_leader_bank );
+
+    FD_TEST( ctx->store_leader_bank_slot==ULONG_MAX );
+    ctx->store_leader_bank = ctx->current_leader_bank;
+    ctx->store_leader_bank_slot = slot;
+    fd_ext_bank_acquire( ctx->store_leader_bank );
   }
+
+  ulong pack_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
+  fd_stem_publish( ctx->stem, ctx->pack_out->idx, pack_sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+
+  /* We acquired another leader bank earlier that the store tile will use
+     to set the block_id for the slot we produce.  We send this through
+     the existing poh_shred and shred_store links. */
+  void const ** msg = (void const **)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+  *msg = ctx->current_leader_bank;
+
+  ulong shred_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_LEADER_BANK, 0UL );
+  fd_stem_publish( ctx->stem, ctx->shred_out->idx, shred_sig, ctx->shred_out->chunk, sizeof(void const *), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->shred_seq = ctx->stem->seqs[ ctx->shred_out->idx ];
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sizeof(void const *), ctx->shred_out->chunk0, ctx->shred_out->wmark );
 }
 
 /* The PoH tile knows when it should become leader by waiting for its
@@ -1094,14 +1155,6 @@ fd_ext_poh_begin_leader( void const * bank,
     ctx->hashcnt_per_slot = ctx->ticks_per_slot*hashcnt_per_tick;
     ctx->hashcnt_per_tick = hashcnt_per_tick;
 
-    if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
-    }
-
     /* Discard any ticks we might have done in the interim.  They will
        have the wrong number of hashes per tick.  We can just catch back
        up quickly if not too many slots were skipped and hopefully
@@ -1125,8 +1178,15 @@ fd_ext_poh_begin_leader( void const * bank,
     ctx->hashcnt = 0UL;
   }
 
+  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
+  }
+
   ctx->current_leader_bank     = bank;
-  ctx->slot_done               = 0;
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
 
@@ -1157,6 +1217,16 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
   publish_became_leader( ctx, slot, epoch );
+
+  /* PoH ends the slot once it "ticks" through all of the hashes, but
+     we only want that to happen if we received a done packing message
+     from pack, so we always reserve an empty microblock at the end so
+     the tick advance will not end the slot without being told.
+
+     This should be after publish_became_leader so that pack receives
+     the original (un-inflated) max_microblocks_per_slot. */
+  ctx->max_microblocks_per_slot += 1UL;
+
   FD_LOG_INFO(( "fd_ext_poh_begin_leader(slot=%lu, highwater_leader_slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, ctx->highwater_leader_slot, ctx->last_slot, ctx->last_hashcnt ));
 
   fd_ext_poh_write_unlock();
@@ -1228,6 +1298,15 @@ maybe_change_identity( fd_pohh_tile_t * ctx,
 
 static CALLED_FROM_RUST void
 no_longer_leader( fd_pohh_tile_t * ctx ) {
+  /* If we acquired a bank for the store tile and never produced its
+     block_complete entry, the store tile never gets the chance to
+     drop the refcount, so we drop it directly here. */
+  if( FD_UNLIKELY( ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    fd_ext_bank_release( ctx->store_leader_bank );
+    ctx->store_leader_bank = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
+  }
+
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
@@ -1303,14 +1382,14 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     ctx->hashcnt_duration_ns = (double)ctx->tick_duration_ns/(double)hashcnt_per_tick;
     ctx->hashcnt_per_slot = ctx->ticks_per_slot*hashcnt_per_tick;
     ctx->hashcnt_per_tick = hashcnt_per_tick;
+  }
 
-    if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
-    }
+  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
   }
 
   /* When we reset, we need to allow PoH to tick freely again rather
@@ -1452,6 +1531,15 @@ publish_tick( fd_pohh_tile_t *      ctx,
   } else {
     ctx->last_hashcnt = hashcnt;
   }
+
+  /* The store tile will release the bank refcount when an FEC set with
+     SLOT_COMPLETE arrives, so we drop our local tracking and suppress
+     the END type frag in no_longer_leader. */
+  if( FD_UNLIKELY( meta->block_complete && ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    FD_TEST( ctx->store_leader_bank_slot==slot );
+    ctx->store_leader_bank = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
+  }
 }
 
 static inline void
@@ -1533,10 +1621,6 @@ after_credit( fd_pohh_tile_t *    ctx,
      that we can mixin any potential microblocks still coming from the
      pack tile for this slot. */
   ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
-
-  /* We don't want to tick over (finish) the slot until pack tell us
-     it's done.  If we're waiting on pack, then we clamp to [0, 1] */
-  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_min( 1UL, max_remaining_microblocks );
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
@@ -1678,7 +1762,7 @@ after_credit( fd_pohh_tile_t *    ctx,
     long expected_slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(ctx->slot-ctx->reset_slot)*ctx->slot_duration_ns);
     double actual_slot_duration_ns = ctx->slot_duration_ns<(double)(ctx->leader_bank_start_ns - expected_slot_start_ns) ? 0.0 : ctx->slot_duration_ns - (double)(ctx->leader_bank_start_ns - expected_slot_start_ns);
     double actual_hashcnt_duration_ns = actual_slot_duration_ns / (double)ctx->hashcnt_per_slot;
-    target_hashcnt = fd_ulong_if( actual_hashcnt_duration_ns==0.0, restricted_hashcnt, (ulong)((double)(now - ctx->leader_bank_start_ns) / actual_hashcnt_duration_ns) );
+    target_hashcnt = actual_hashcnt_duration_ns==0.0 ? restricted_hashcnt : (ulong)((double)(now - ctx->leader_bank_start_ns) / actual_hashcnt_duration_ns);
   }
   /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
   target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );
@@ -1815,12 +1899,16 @@ before_frag( fd_pohh_tile_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_BANK && ctx->in_kind[ in_idx ]!=IN_KIND_PACK ) ) return 0;
 
-  if( FD_UNLIKELY( sig==ULONG_MAX ) ) {
-    /* Banks are drained, release pack's owenership of the current bank */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING ) ) {
+    /* Banks are drained, release pack's ownership of the current bank */
     if( FD_UNLIKELY( ctx->pack_leader_bank ) ) fd_ext_bank_release( ctx->pack_leader_bank );
     ctx->pack_leader_bank = NULL;
     return 1; /* discard */
   }
+
+  /* Firedancer publishes dynamic microblock bound updates over the
+     pack_poh link.  Frankendancer does not use them. */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1; /* discard */
 
   uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
   FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
@@ -1882,15 +1970,18 @@ during_frag( fd_pohh_tile_t * ctx,
        exact bound for once we receive them. */
     ctx->skip_frag = 1;
     if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
+    fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
     FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
-    fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    FD_TEST( done_packing->microblocks_in_slot<=ctx->max_microblocks_per_slot-1UL );
     FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                   ctx->slot,
                   ctx->microblocks_lower_bound,
                   done_packing->microblocks_in_slot ));
-    ctx->slot_done = 1;
-    ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
+
+    ctx->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
+                                  + (ctx->max_microblocks_per_slot-1UL) /* the canonical microblock limit */
+                                  - done_packing->microblocks_in_slot /* the actual microblock count */;
     return;
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>USHORT_MAX ) )
@@ -1953,6 +2044,14 @@ publish_microblock( fd_pohh_tile_t *    ctx,
   fd_stem_publish( stem, ctx->shred_out->idx, new_sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+
+  /* Can only happen in low power mode. Refer to comment in publish_tick()
+     for more details */
+  if( FD_UNLIKELY( meta->block_complete && ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    FD_TEST( ctx->store_leader_bank_slot==slot );
+    ctx->store_leader_bank = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
+  }
 }
 
 static inline void
@@ -2072,6 +2171,11 @@ after_frag( fd_pohh_tile_t *    ctx,
 
   if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
+  }
+
+  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
+
+  if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     if( FD_UNLIKELY( ctx->slot>ctx->next_leader_slot ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
@@ -2086,13 +2190,11 @@ after_frag( fd_pohh_tile_t *    ctx,
       }
     }
   }
-
-  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -2104,10 +2206,11 @@ privileged_init( fd_topo_t *      topo,
   const uchar * identity_key = fd_keyload_load( tile->pohh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 
+  ctx->bundle.enabled = tile->pohh.bundle.enabled;
   if( FD_UNLIKELY( !tile->pohh.bundle.vote_account_path[0] ) ) {
-    tile->pohh.bundle.enabled = 0;
+    ctx->bundle.enabled = 0;
   }
-  if( FD_UNLIKELY( tile->pohh.bundle.enabled ) ) {
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_base58_decode_32( tile->pohh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
       const uchar * vote_key = fd_keyload_load( tile->pohh.bundle.vote_account_path, /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
@@ -2252,8 +2355,8 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -2269,7 +2372,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sha256   = NONNULL( fd_sha256_join( fd_sha256_new( sha256 ) ) );
   ctx->current_leader_bank  = NULL;
   ctx->pack_leader_bank     = NULL;
-  ctx->signal_leader_change = NULL;
+  ctx->store_leader_bank    = NULL;
+  ctx->store_leader_bank_slot  = ULONG_MAX;
+  ctx->signal_leader_change    = NULL;
 
   ctx->shred_seq = ULONG_MAX;
   ctx->halted_switching_key = 0;
@@ -2286,20 +2391,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lagged_consecutive_leader_start = tile->pohh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
-  ctx->slot_done               = 1;
   ctx->expect_pack_idx         = 0U;
   ctx->microblocks_lower_bound = 0UL;
 
   ctx->max_active_descendant = 0UL;
 
-  if( FD_UNLIKELY( tile->pohh.bundle.enabled ) ) {
-    ctx->bundle.enabled = 1;
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     NONNULL( fd_bundle_crank_gen_init( ctx->bundle.gen, (fd_acct_addr_t const *)tile->pohh.bundle.tip_distribution_program_addr,
              (fd_acct_addr_t const *)tile->pohh.bundle.tip_payment_program_addr,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, "NAN", 0UL ) ); /* last three arguments are properly bogus */
-  } else {
-    ctx->bundle.enabled = 0;
   }
 
   ulong pohh_shred_obj_id = fd_pod_query_ulong( topo->props, "pohh_shred", ULONG_MAX );
@@ -2362,8 +2463,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                        FD_MHIST_SECONDS_MAX( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -2391,14 +2492,15 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ )
     ctx->features_activation->slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 /* One tick, one microblock, one plugin slot end, one plugin slot start,
-   one leader update, and one features activation. */
-#define STEM_BURST (6UL)
+   one leader update, one features activation, and one leader bank
+   handoff. */
+#define STEM_BURST (7UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

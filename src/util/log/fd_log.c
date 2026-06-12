@@ -9,7 +9,7 @@
 #if FD_LOG_STYLE==0 /* POSIX style */
 
 #if !defined(FD_HAS_BACKTRACE)
-#if __has_include( <execinfo.h> ) && !FD_HAS_ASAN && !FD_HAS_MSAN
+#if __has_include( <execinfo.h> ) && !FD_HAS_ASAN && !FD_HAS_MSAN && FD_HAS_HOSTED
 #define FD_HAS_BACKTRACE 1
 #else
 #define FD_HAS_BACKTRACE 0
@@ -47,22 +47,7 @@
 #endif /* defined(__FreeBSD__) */
 
 #include "../tile/fd_tile_private.h"
-
-#ifdef __has_include
-#if __has_include("../../app/fdctl/version.h")
-#include "../../app/fdctl/version.h"
-#endif
-#endif
-
-#ifndef FDCTL_MAJOR_VERSION
-#define FDCTL_MAJOR_VERSION 0
-#endif
-#ifndef FDCTL_MINOR_VERSION
-#define FDCTL_MINOR_VERSION 0
-#endif
-#ifndef FDCTL_PATCH_VERSION
-#define FDCTL_PATCH_VERSION 0
-#endif
+#include "../fd_version.h"
 
 #ifdef FD_BUILD_INFO
 FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
@@ -567,12 +552,6 @@ void fd_log_enable_unclean_exit( void ) { fd_log_private_unclean_exit = 1; }
 
 #define FD_LOG_BUF_SZ (32UL*4096UL)
 
-/* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
-   between different _processes_ that share the same fd. */
-
-static int fd_log_private_shared_lock_local[1] __attribute__((aligned(128))); /* location of lock if boot mmap fails */
-       int * fd_log_private_shared_lock  = fd_log_private_shared_lock_local;  /* Local lock outside boot/halt, init at boot */
-
 /* File descriptor to restore when logging a message that will terminate
    the application, incase it was redirected to some other consumer in
    the process which will not be able to process it in time */
@@ -594,61 +573,6 @@ fd_log_private_fprintf_0( int          fd,
      - Consider moving to util/io as fd_io_printf or renaming to
        fd_log_printf?
      - Is msg better to have on stack or in thread local storage?
-     - Is msg even necessary given shared lock? (probably still useful to
-       keep the message write to be a single-system-call best effort)
-     - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
-       the fd_io_write below is guaranteed to be a single system call) */
-
-  char msg[ FD_LOG_BUF_SZ ];
-
-  va_list ap;
-  va_start( ap, fmt );
-  int len = vsnprintf( msg, FD_LOG_BUF_SZ, fmt, ap );
-  if( len<0                        ) len = 0;                        /* cmov */
-  if( len>(int)(FD_LOG_BUF_SZ-1UL) ) len = (int)(FD_LOG_BUF_SZ-1UL); /* cmov */
-  msg[ len ] = '\0';
-  va_end( ap );
-
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
-  FD_COMPILER_MFENCE();
-# endif
-
-  ulong wsz;
-  fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
-
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
-  FD_COMPILER_MFENCE();
-# endif
-
-}
-
-/* This is the same as fd_log_private_fprintf_0 except that it does not try to
-   take a lock when writing to the log file.  This should almost never be used
-   except in exceptional cases when logging while the process is shutting down.
-
-   It exists because if a child process dies while holding the lock, we may
-   want to log some diagnostic messages when tearing down the process tree. */
-void
-fd_log_private_fprintf_nolock_0( int          fd,
-                                 char const * fmt, ... ) {
-
-  /* Note: while this function superficially looks vdprintf-ish, we don't
-     use that as it can do all sorts of unpleasantness under the hood
-     (fflush, mutex / futex on fd, non-AS-safe buffering, ...) that this
-     function deliberately avoids.  Also, the function uses the shared
-     lock to help keep messages generated from processes that share the
-     same log fd sane. */
-
-  /* TODO:
-     - Consider moving to util/io as fd_io_printf or renaming to
-       fd_log_printf?
-     - Is msg better to have on stack or in thread local storage?
-     - Is msg even necessary given shared lock? (probably still useful to
-       keep the message write to be a single-system-call best effort)
      - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
        the fd_io_write below is guaranteed to be a single system call) */
 
@@ -664,6 +588,7 @@ fd_log_private_fprintf_nolock_0( int          fd,
 
   ulong wsz;
   fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
+
 }
 
 /* Log buffer used by fd_log_private_0 and fd_log_private_hexdump_msg */
@@ -908,9 +833,11 @@ fd_log_private_1( int          level,
       /* 7 */ TEXT_RED TEXT_BOLD TEXT_UNDERLINE TEXT_BLINK "EMERG  " TEXT_NORMAL
     };
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
+    char const * stem = strrchr( file, '/' );
+    char const * file_name = stem ? stem+1 : file;
     fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
                               fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
-                              now_short_cstr, tid,cpu,thread, file, line, msg );
+                              now_short_cstr, tid,cpu,thread, file_name, line, msg );
   }
 
   if( level<fd_log_level_flush() ) return;
@@ -945,20 +872,6 @@ fd_log_private_2( int          level,
     exit(1); /* atexit will call fd_log_private_cleanup implicitly */
   }
 
-  abort();
-}
-
-void
-fd_log_private_raw_2( char const * file,
-                      int          line,
-                      char const * func,
-                      char const * msg ) {
-  fd_log_private_fprintf_nolock_0( fd_log_private_stderr_fileno, "%s(%i)[%s]: %s\n", file, line, func, msg );
-# if defined(__linux__)
-  syscall( SYS_exit_group, 1 );
-# else
-  exit(1);
-# endif
   abort();
 }
 
@@ -1026,12 +939,6 @@ fd_log_private_sig_abort( int         sig,
                           void *      context ) {
   (void)sig; (void)info; (void)context;
 
-  /* Thread could have caught signal while holding a lock.
-     Hack around this re-entrancy problem by pointing the log lock to
-     a dummy buffer. */
-  static FD_TL int lock = 0;
-  fd_log_private_shared_lock = &lock;
-
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
   FD_LOG_ERR_NOEXIT(( "Received signal %s", fd_io_strsignal( sig ) ));
 #undef FD_LOG_ERR_NOEXIT
@@ -1072,9 +979,9 @@ fd_log_private_open_path( int          cmdline,
     char tag[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     fd_log_wallclock_cstr( fd_log_wallclock(), tag );
     for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
-    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
-                              FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION,
-                              fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
+    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%lu.%lu.%lu_%lu_%s_%s_%s",
+                               fd_major_version, fd_minor_version, fd_patch_version,
+                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
     if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
   }
   else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */
@@ -1108,8 +1015,6 @@ fd_log_private_boot( int  *   pargc,
 //FD_LOG_INFO(( "fd_log: booting" )); /* Log not online yet */
 
   char buf[ FD_LOG_NAME_MAX ];
-
-  fd_log_private_shared_lock  = fd_log_private_shared_lock_local;
 
   /* Init our our application logical ids */
   /* FIXME: CONSIDER EXPLICIT SPECIFICATION OF RANGE OF THREADS
@@ -1186,12 +1091,7 @@ fd_log_private_boot( int  *   pargc,
     char const * cstr = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-colorize", "FD_LOG_COLORIZE", NULL );
     if( cstr ) { colorize = fd_cstr_to_int( cstr ); break; }
 
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-    if( cstr && !strcmp( cstr, "truecolor" ) ) { colorize = 1; break; }
-
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    if( cstr && strstr( cstr, "256color" ) ) { colorize = 1; break; }
-
+    colorize = fd_log_should_colorize();
   } while(0);
   fd_log_colorize_set( colorize );
 
@@ -1278,8 +1178,7 @@ fd_log_private_boot( int  *   pargc,
 }
 
 void
-fd_log_private_boot_custom( int *        lock,
-                            ulong        app_id,
+fd_log_private_boot_custom( ulong        app_id,
                             char const * app,
                             ulong        thread_id,
                             char const * thread,
@@ -1300,8 +1199,6 @@ fd_log_private_boot_custom( int *        lock,
                             int          level_core,
                             int          log_fd,
                             char const * log_path ) {
-  fd_log_private_shared_lock  = lock;
-
   fd_log_private_app_id_set( app_id );
   fd_log_private_app_set( app );
   fd_log_private_thread_id_set( thread_id );
@@ -1436,19 +1333,6 @@ fd_log_private_halt( void ) {
 # endif
   fd_log_private_app[0]         = '\0';
   fd_log_private_app_id         = 0UL;
-
-  if( FD_LIKELY( fd_log_private_shared_lock!=fd_log_private_shared_lock_local ) ) {
-    /* Note: the below will not unmap this in any clones that also
-       inherited this mapping unless they were cloned with CLONE_VM.  In
-       cases like this, the caller is expected to handle the cleanup
-       semantics sanely (e.g. only have the parent do boot/halt and then
-       children only use log while parent has log booted). */
-    if( FD_UNLIKELY( munmap( fd_log_private_shared_lock, sizeof(int) ) ) )
-      fd_log_private_fprintf_0( STDERR_FILENO,
-                                "munmap( fd_log_private_shared_lock, sizeof(int) ) failed (%i-%s); attempting to continue",
-                                errno, fd_io_strerror( errno ) );
-  }
-  fd_log_private_shared_lock = NULL;
 
 //FD_LOG_INFO(( "fd_log: halt success" )); /* Log not online anymore */
 }
@@ -1625,6 +1509,82 @@ fd_log_private_stack_discover( ulong   stack_sz,
 
   *_stack0 = stack0;
   *_stack1 = stack1;
+}
+
+
+int
+fd_log_should_colorize( void ) {
+  char const * no_color = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "NO_COLOR", NULL );
+  if( FD_UNLIKELY( no_color && no_color[0]!='\0' ) ) return 0;
+
+  if( FD_UNLIKELY( !isatty( STDERR_FILENO ) ) ) return 0;
+
+  char const * term = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
+  if( FD_UNLIKELY( !term || !strcmp( term, "dumb" ) ) ) return 0;
+
+  char const * dirs[] = {
+    fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERMINFO", NULL ),
+    NULL,
+    "/usr/share/terminfo",
+    "/usr/lib/terminfo",
+    "/etc/terminfo",
+  };
+  char homebuf[ PATH_MAX ];
+  char const * home = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "HOME", NULL );
+  if( FD_LIKELY( home ) ) {
+    snprintf( homebuf, sizeof(homebuf), "%s/.terminfo", home );
+    dirs[1] = homebuf;
+  }
+
+  FILE * f = NULL;
+  char path[ PATH_MAX ];
+  for( ulong i=0UL; i<(sizeof(dirs)/sizeof(dirs[0])); i++ ) {
+    if( FD_UNLIKELY( !dirs[i] ) ) continue;
+    snprintf( path, sizeof(path), "%s/%c/%s", dirs[i], term[0], term );
+    f = fopen( path, "rb" );
+    if( f ) break;
+    snprintf( path, sizeof(path), "%s/%02x/%s", dirs[i], (uchar)term[0], term );
+    f = fopen( path, "rb" );
+    if( f ) break;
+  }
+  if( FD_UNLIKELY( !f ) ) return 0;
+
+  ushort hdr[6];
+  if( FD_UNLIKELY( fread( hdr, 2, 6, f )!=6 ) ) goto fail;
+
+  ushort magic    = hdr[0];
+  ushort name_sz  = hdr[1];
+  ushort bool_cnt = hdr[2];
+  ushort num_cnt  = hdr[3];
+
+  uint num_width;
+  if(      magic==0x011A ) num_width = 2;
+  else if( magic==0x021E ) num_width = 4;
+  else goto fail;
+
+  if( FD_UNLIKELY( 13>=num_cnt ) ) goto fail;
+
+  long skip = (long)name_sz + (long)bool_cnt;
+  if( skip%2 ) skip++;
+  skip += 13L * (long)num_width;
+
+  if( FD_UNLIKELY( fseek( f, skip, SEEK_CUR ) ) ) goto fail;
+
+  int colors;
+  if( num_width==2 ) {
+    short v;
+    if( FD_UNLIKELY( fread( &v, 2, 1, f )!=1 ) ) goto fail;
+    colors = v;
+  } else {
+    if( FD_UNLIKELY( fread( &colors, 4, 1, f )!=1 ) ) goto fail;
+  }
+
+  fclose( f );
+  return colors>0;
+
+fail:
+  fclose( f );
+  return 0;
 }
 
 #elif FD_LOG_STYLE==1 /* generic embedded target */

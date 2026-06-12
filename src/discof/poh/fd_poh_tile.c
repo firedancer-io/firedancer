@@ -1,8 +1,11 @@
 #include "fd_poh.h"
-#include "generated/fd_poh_tile_seccomp.h"
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
+#include "../../disco/fd_clock_tile.h"
+#include "../../discof/fd_startup.h"
+#include <time.h>
+#include "generated/fd_poh_tile_seccomp.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_PACK   (1)
@@ -62,6 +65,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+during_housekeeping( fd_poh_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->poh->clock ) ) ) {
+    fd_clock_tile_recal( ctx->poh->clock );
+  }
+}
+
+static inline void
 after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
@@ -118,7 +128,24 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
      we just drop it.  We shouldn't send it at all in future. */
-  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
+
+  /* Pack periodically publishes a tighter microblock bound over the
+     pack_poh link. */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    if( FD_UNLIKELY( !fd_poh_have_leader_bank( ctx->poh ) ) ) return 0; /* must have become leader first */
+    FD_TEST( sz==sizeof(ulong) );
+    ulong const * new_max = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_poh_update_max_microblocks( ctx->poh, *new_max );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE && ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    fd_poh_wfs_done( ctx->poh );
     ctx->idle_cnt = 0UL;
     return 0;
   }
@@ -165,15 +192,17 @@ returnable_frag( fd_poh_tile_t *     ctx,
     case IN_KIND_REPLAY: {
       if( FD_LIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot );
+        fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot, became_leader->slot_start_ns );
       } else if( sig==REPLAY_SIG_RESET ) {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
+        ctx->poh->wfs_paused = reset->wfs_paused;
       }
       break;
     }
     case IN_KIND_EXECLE: {
       ulong target_slot = fd_disco_execle_sig_slot( sig );
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
@@ -214,8 +243,8 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -227,8 +256,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->idle_cnt = 0UL;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -246,9 +275,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  fd_clock_tile_init( ctx->poh->clock );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong
@@ -289,6 +322,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 

@@ -55,6 +55,12 @@
 #define FD_GOSSIP_FAILED_NO_CONTACT_INFO (1)
 #define FD_GOSSIP_FAILED_WALLCLOCK       (2)
 
+/* FD_GOSSIP_STAKED_THRESHOLD is the minimum stake (in lamports) at
+   which a node is considered an active participant (e.g. it does not
+   need to maintain a connection by responding to pings), whereas nodes
+   below this threshold are treated as unstaked.  This is 100 SOL. */
+#define FD_GOSSIP_STAKED_THRESHOLD (100UL*1000000000UL)
+
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof((fd_gossip_update_message_t *)0)->contact_info)
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof((fd_gossip_update_message_t *)0)->contact_info_remove)
 #define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof((fd_gossip_update_message_t *)0)->vote)
@@ -78,6 +84,7 @@
 #define FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED     (3)
 #define FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES     (4)
 #define FD_GOSSIP_UPDATE_TAG_WFS_DONE            (5)
+#define FD_GOSSIP_UPDATE_TAG_PEER_SATURATED      (6)
 
 #define FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP            ( 0)
 #define FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ( 1)
@@ -223,6 +230,12 @@ struct fd_gossip_epoch_slots {
 
 typedef struct fd_gossip_epoch_slots fd_gossip_epoch_slots_t;
 
+struct fd_gossip_lowest_slot {
+  ulong lowest;
+};
+
+typedef struct fd_gossip_lowest_slot fd_gossip_lowest_slot_t;
+
 struct fd_gossip_value {
   uint tag;
 
@@ -236,7 +249,6 @@ struct fd_gossip_value {
   union {
     // DEPRECATED OR UNUSED
     // fd_gossip_legacy_contact_info_t           legacy_contact_info[ 1 ];
-    // fd_gossip_lowest_slot_t                   lowest_slot[ 1 ];
     // fd_gossip_legacy_snapshot_hashes_t        legacy_snapshot_hashes[ 1 ];
     // fd_gossip_account_hashes_t                account_hashes[ 1 ];
     // fd_gossip_legacy_version_t                legacy_version[ 1 ];
@@ -244,6 +256,7 @@ struct fd_gossip_value {
     // fd_gossip_restart_last_voted_fork_slots_t restart_last_voted_fork_slots[ 1 ];
     // fd_gossip_restart_heaviest_fork_t         restart_heaviest_fork[ 1 ];
 
+    fd_gossip_lowest_slot_t     lowest_slot[ 1 ];
     fd_gossip_vote_t            vote[ 1 ];
     fd_gossip_node_instance_t   node_instance[ 1 ];
     fd_gossip_duplicate_shred_t duplicate_shred[ 1 ];
