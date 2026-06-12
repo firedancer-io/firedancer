@@ -474,6 +474,7 @@ deprecate_rent_exemption_threshold( fd_bank_t *        bank,
   rent.lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
     (double)rent.lamports_per_uint8_year * rent.exemption_threshold );
   rent.exemption_threshold     = FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD;
+  rent.burn_percent            = FD_SIMD_0194_NEW_BURN_PERCENT;
 
   /* We don't refresh the sysvar cache here. The cache is refreshed in
      fd_sysvar_cache_restore, which is called at the start of every
