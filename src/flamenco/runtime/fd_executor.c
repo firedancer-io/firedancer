@@ -523,7 +523,7 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
       break;
     }
   }
-  if( FD_UNLIKELY( !programdata_ref ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+  if( FD_UNLIKELY( !programdata_ref || !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
   ulong programdata_sz = programdata_ref->data_len;
 
   /* Try to accumulate the programdata's data size
