@@ -288,7 +288,8 @@ bz2_malloc( void * opaque,
             int    size ) {
   fd_alloc_t * alloc = (fd_alloc_t *)opaque;
 
-  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)(items*size) );
+  if( FD_UNLIKELY( items<=0 || size<=0 ) ) return NULL;
+  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)items*(ulong)size );
   if( FD_UNLIKELY( !result ) ) return NULL;
   return result;
 }

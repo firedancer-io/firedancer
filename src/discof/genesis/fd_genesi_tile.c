@@ -27,7 +27,8 @@ bz2_malloc( void * opaque,
             int    size ) {
   fd_alloc_t * alloc = (fd_alloc_t *)opaque;
 
-  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)(items*size) );
+  if( FD_UNLIKELY( items<=0 || size<=0 ) ) return NULL;
+  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)items*(ulong)size );
   if( FD_UNLIKELY( !result ) ) return NULL;
   return result;
 }
@@ -194,7 +195,7 @@ after_credit( fd_genesi_tile_t *  ctx,
   if( FD_LIKELY( ctx->local_genesis ) ) {
     FD_TEST( -1!=ctx->in_fd );
 
-    ulong msg_sz = sizeof(fd_genesis_meta_t) + ctx->genesis_blob_sz;
+    ulong msg_sz; FD_TEST( !__builtin_uaddl_overflow( sizeof(fd_genesis_meta_t), ctx->genesis_blob_sz, &msg_sz ) );
     if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
       FD_LOG_ERR(( "The genesis file `%s` is too large for this Firedancer build (msg_sz=%lu exceeds FD_GENESIS_TILE_MTU=%lu).\n"
                    "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_TILE_MTU.",
