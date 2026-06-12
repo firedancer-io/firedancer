@@ -235,6 +235,9 @@ cat <<EOF > ${CONFIG_FILE}
             allow_list = []
 [layout]
     execrp_tile_count = $EXECRP_TILE_COUNT
+[hugetlbfs]
+    max_page_size = "huge"
+    gigantic_page_threshold_mib = 1073741824
 [tiles]
 
     [tiles.replay]

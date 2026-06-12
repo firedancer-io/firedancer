@@ -8,6 +8,23 @@
    FD_HAS_ATOMIC but this is to minimize amount of code differences to
    test.) */
 
+/* FD_HAS_MEMGUARD enables an allocator-native memory corruption
+   detector (see "memguard" section below).  Build with
+   EXTRAS=memguard. */
+
+#ifndef FD_HAS_MEMGUARD
+#define FD_HAS_MEMGUARD 0
+#endif
+
+/* fd_alloc_free_impl is the raw free path.  When FD_HAS_MEMGUARD, the
+   public fd_alloc_free wraps this with guard validation and internal
+   superblock management uses this directly (superblocks are not
+   guarded). */
+
+static void
+fd_alloc_free_impl( fd_alloc_t * join,
+                    void *       laddr );
+
 /* sizeclass APIs *****************************************************/
 
 /* fd_alloc_preferred_sizeclass returns the tightest fitting sizeclass
@@ -574,14 +591,14 @@ fd_alloc_delete( void * shalloc ) {
       ulong superblock_gaddr =
         fd_alloc_private_active_slot_replace( alloc->active_slot + sizeclass + FD_ALLOC_SIZECLASS_CNT*cgroup_idx, 0UL );
       if( FD_UNLIKELY( superblock_gaddr ) )
-        fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
+        fd_alloc_free_impl( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
 
     fd_alloc_vgaddr_t * inactive_stack = alloc->inactive_stack + sizeclass;
     for(;;) {
       ulong superblock_gaddr = fd_alloc_private_inactive_stack_pop( inactive_stack, wksp );
       if( FD_LIKELY( !superblock_gaddr ) ) break;
-      fd_alloc_free( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
+      fd_alloc_free_impl( alloc, (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr ) );
     }
 
   }
@@ -754,7 +771,8 @@ fd_alloc_malloc_at_least_impl( fd_alloc_t * join,
            (currently should be irrelevant as the sizeclasses are
            designed to tightly nest). */
 
-        superblock = fd_alloc_malloc( join, FD_ALLOC_SUPERBLOCK_ALIGN, superblock_footprint );
+        ulong sb_max;
+        superblock = fd_alloc_malloc_at_least_impl( join, FD_ALLOC_SUPERBLOCK_ALIGN, superblock_footprint, &sb_max );
         if( FD_UNLIKELY( !superblock ) ) {
           *max = 0UL;
           return NULL;
@@ -887,19 +905,9 @@ fd_alloc_malloc_at_least_impl( fd_alloc_t * join,
   return fd_alloc_hdr_store( (void *)alloc_laddr, superblock, block_idx, sizeclass );
 }
 
-void *
-fd_alloc_malloc_at_least( fd_alloc_t * join,
-                          ulong        align,
-                          ulong        sz,
-                          ulong *      max ) {
-  void * res = fd_alloc_malloc_at_least_impl( join, align, sz, max );
-  fd_msan_poison( res, *max );
-  return res;
-}
-
-void
-fd_alloc_free( fd_alloc_t * join,
-               void *       laddr ) {
+static void
+fd_alloc_free_impl( fd_alloc_t * join,
+                    void *       laddr ) {
 
   /* Handle NULL alloc and/or NULL laddr */
 
@@ -1094,12 +1102,251 @@ fd_alloc_free( fd_alloc_t * join,
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_alloc_block_set_cnt( deletion_candidate_free_blocks )==block_cnt ) ) /* Candidate empty -> delete it */
-      fd_alloc_free( join, deletion_candidate );
+      fd_alloc_free_impl( join, deletion_candidate );
     else /* Candidate not empty -> return it to circulation */
       fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, deletion_candidate_gaddr );
 
     return;
   }
+}
+
+/* memguard ***********************************************************/
+
+/* When FD_HAS_MEMGUARD, every allocation made through the public
+   fd_alloc API is wrapped in guard regions and freed memory is
+   quarantined:
+
+     [ impl allocation                                              ]
+     [ pad (0xCB) | guard hdr 32B | user data (sz) | tail 32B (0xCD) ]
+                                  ^ pointer returned to caller
+
+   Detects, at free / quarantine-eviction time:
+   - buffer overflow  (tail redzone bytes clobbered)
+   - buffer underflow (guard hdr / pad bytes clobbered)
+   - double free      (guard hdr magic already in FREED state)
+   - wild free        (no valid guard hdr behind pointer)
+   - write-after-free (freed memory is filled with 0xFD and parked in a
+     per-thread quarantine ring; the fill pattern is verified before the
+     memory is really released for reuse)
+
+   This is a rough prototype: detection happens at check points rather
+   than at the faulting instruction (use EXTRAS=deepasan for that), and
+   use-after-free *reads* are not detectable by this scheme. */
+
+#if FD_HAS_MEMGUARD
+
+#define FD_ALLOC_MEMGUARD_GUARD_SZ   (32UL)
+#define FD_ALLOC_MEMGUARD_LIVE_MAGIC (0xFDA110CC0DE11FEUL)
+#define FD_ALLOC_MEMGUARD_FREE_MAGIC (0xFDA110CC0DEDEADUL)
+#define FD_ALLOC_MEMGUARD_PAD_BYTE   ((uchar)0xCB)
+#define FD_ALLOC_MEMGUARD_TAIL_BYTE  ((uchar)0xCD)
+#define FD_ALLOC_MEMGUARD_FREE_BYTE  ((uchar)0xFD)
+
+#define FD_ALLOC_MEMGUARD_QUAR_MAX       (2048UL)    /* entries per thread (power of 2) */
+#define FD_ALLOC_MEMGUARD_QUAR_BYTES_MAX (64UL<<20)  /* bytes per thread */
+
+struct fd_alloc_memguard_hdr {
+  ulong magic;  /* {LIVE,FREE}_MAGIC ^ (ulong)user */
+  ulong sz;     /* size the caller requested */
+  ulong prefix; /* user laddr - impl laddr, >= GUARD_SZ */
+  ulong canary; /* LIVE_MAGIC ^ sz */
+};
+typedef struct fd_alloc_memguard_hdr fd_alloc_memguard_hdr_t;
+
+FD_STATIC_ASSERT( sizeof(fd_alloc_memguard_hdr_t)==FD_ALLOC_MEMGUARD_GUARD_SZ, memguard );
+
+struct fd_alloc_memguard_quar {
+  fd_alloc_t * join;
+  uchar *      user;
+  ulong        sz;
+  ulong        prefix;
+};
+typedef struct fd_alloc_memguard_quar fd_alloc_memguard_quar_t;
+
+static FD_TL fd_alloc_memguard_quar_t fd_alloc_memguard_quar[ FD_ALLOC_MEMGUARD_QUAR_MAX ];
+static FD_TL ulong fd_alloc_memguard_quar_head  = 0UL; /* oldest entry, next to evict */
+static FD_TL ulong fd_alloc_memguard_quar_cnt   = 0UL;
+static FD_TL ulong fd_alloc_memguard_quar_bytes = 0UL;
+static FD_TL ulong fd_alloc_memguard_quar_probe = 0UL;
+
+static uchar const *
+fd_alloc_memguard_scan( uchar const * p,
+                        ulong         n,
+                        uchar         b ) {
+  for( ulong i=0UL; i<n; i++ ) if( FD_UNLIKELY( p[i]!=b ) ) return p+i;
+  return NULL;
+}
+
+__attribute__((noreturn)) static void
+fd_alloc_memguard_fail( char const *  what,
+                        uchar const * user,
+                        ulong         sz,
+                        uchar const * bad ) {
+  FD_LOG_HEXDUMP_WARNING(( "memguard guard hdr", user-FD_ALLOC_MEMGUARD_GUARD_SZ, FD_ALLOC_MEMGUARD_GUARD_SZ ));
+  if( bad ) {
+    ulong  ctx_lo = fd_ulong_max( (ulong)bad-32UL, (ulong)(user-FD_ALLOC_MEMGUARD_GUARD_SZ) );
+    FD_LOG_HEXDUMP_WARNING(( "memguard bad byte context", (void const *)ctx_lo, 64UL ));
+    FD_LOG_CRIT(( "MEMGUARD: %s: alloc %p sz %lu, first bad byte at %p (offset %ld from alloc start)",
+                  what, (void const *)user, sz, (void const *)bad, (long)( bad-user ) ));
+  }
+  FD_LOG_CRIT(( "MEMGUARD: %s: alloc %p sz %lu", what, (void const *)user, sz ));
+}
+
+/* fd_alloc_memguard_quar_verify checks that a quarantined (freed)
+   allocation still holds the free fill pattern, tail redzone and FREED
+   guard hdr.  Any deviation means something wrote through a dangling
+   pointer after free. */
+
+static void
+fd_alloc_memguard_quar_verify( fd_alloc_memguard_quar_t const * q ) {
+  uchar *                   user = q->user;
+  fd_alloc_memguard_hdr_t * g    = (fd_alloc_memguard_hdr_t *)( user-FD_ALLOC_MEMGUARD_GUARD_SZ );
+  if( FD_UNLIKELY( ( g->magic !=(FD_ALLOC_MEMGUARD_FREE_MAGIC ^ (ulong)user) ) |
+                   ( g->sz    !=q->sz                                        ) |
+                   ( g->prefix!=q->prefix                                    ) ) )
+    fd_alloc_memguard_fail( "write-after-free (guard hdr of freed alloc clobbered)", user, q->sz, NULL );
+  uchar const * bad = fd_alloc_memguard_scan( user, q->sz, FD_ALLOC_MEMGUARD_FREE_BYTE );
+  if( FD_UNLIKELY( bad ) )
+    fd_alloc_memguard_fail( "write-after-free (freed bytes modified while quarantined)", user, q->sz, bad );
+  bad = fd_alloc_memguard_scan( user+q->sz, FD_ALLOC_MEMGUARD_GUARD_SZ, FD_ALLOC_MEMGUARD_TAIL_BYTE );
+  if( FD_UNLIKELY( bad ) )
+    fd_alloc_memguard_fail( "write-after-free (tail redzone of freed alloc clobbered)", user, q->sz, bad );
+}
+
+static void
+fd_alloc_memguard_quar_evict( void ) {
+  fd_alloc_memguard_quar_t * q = &fd_alloc_memguard_quar[ fd_alloc_memguard_quar_head ];
+  fd_alloc_memguard_quar_verify( q );
+  fd_alloc_memguard_quar_bytes -= q->prefix + q->sz + FD_ALLOC_MEMGUARD_GUARD_SZ;
+  fd_alloc_memguard_quar_head   = (fd_alloc_memguard_quar_head+1UL) & (FD_ALLOC_MEMGUARD_QUAR_MAX-1UL);
+  fd_alloc_memguard_quar_cnt--;
+  fd_alloc_free_impl( q->join, q->user - q->prefix );
+}
+
+/* fd_alloc_memguard_quar_probe_one opportunistically re-verifies one
+   quarantined entry per call so write-after-free detection latency
+   isn't bounded only by quarantine eviction. */
+
+static void
+fd_alloc_memguard_quar_probe_one( void ) {
+  ulong cnt = fd_alloc_memguard_quar_cnt;
+  if( FD_LIKELY( !cnt ) ) return;
+  ulong idx = ( fd_alloc_memguard_quar_head + (fd_alloc_memguard_quar_probe++ % cnt) ) & (FD_ALLOC_MEMGUARD_QUAR_MAX-1UL);
+  fd_alloc_memguard_quar_verify( &fd_alloc_memguard_quar[ idx ] );
+}
+
+static void
+fd_alloc_memguard_quar_push( fd_alloc_t * join,
+                             uchar *      user,
+                             ulong        sz,
+                             ulong        prefix ) {
+  ulong footprint = prefix + sz + FD_ALLOC_MEMGUARD_GUARD_SZ;
+  if( FD_UNLIKELY( footprint>FD_ALLOC_MEMGUARD_QUAR_BYTES_MAX ) ) {
+    /* Too big to quarantine ... release immediately */
+    fd_alloc_free_impl( join, user-prefix );
+    return;
+  }
+  while( (fd_alloc_memguard_quar_cnt>=FD_ALLOC_MEMGUARD_QUAR_MAX) |
+         ((fd_alloc_memguard_quar_bytes+footprint)>FD_ALLOC_MEMGUARD_QUAR_BYTES_MAX) )
+    fd_alloc_memguard_quar_evict();
+  ulong idx = (fd_alloc_memguard_quar_head + fd_alloc_memguard_quar_cnt) & (FD_ALLOC_MEMGUARD_QUAR_MAX-1UL);
+  fd_alloc_memguard_quar[ idx ] = (fd_alloc_memguard_quar_t){ .join = join, .user = user, .sz = sz, .prefix = prefix };
+  fd_alloc_memguard_quar_cnt++;
+  fd_alloc_memguard_quar_bytes += footprint;
+}
+
+static void *
+fd_alloc_memguard_malloc( fd_alloc_t * join,
+                          ulong        align,
+                          ulong        sz,
+                          ulong *      max ) {
+  align = fd_ulong_if( !align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align );
+  if( FD_UNLIKELY( (!sz) | (!fd_ulong_is_pow2( align )) ) ) { *max = 0UL; return NULL; }
+
+  ulong prefix  = fd_ulong_max( align, FD_ALLOC_MEMGUARD_GUARD_SZ ); /* keeps user laddr aligned */
+  ulong real_sz = prefix + sz + FD_ALLOC_MEMGUARD_GUARD_SZ;
+  if( FD_UNLIKELY( real_sz<=sz ) ) { *max = 0UL; return NULL; } /* overflow */
+
+  ulong   real_max;
+  uchar * real = fd_alloc_malloc_at_least_impl( join, prefix, real_sz, &real_max );
+  if( FD_UNLIKELY( !real ) ) { *max = 0UL; return NULL; }
+
+  uchar * user = real + prefix;
+  if( prefix>FD_ALLOC_MEMGUARD_GUARD_SZ ) fd_memset( real, FD_ALLOC_MEMGUARD_PAD_BYTE, prefix-FD_ALLOC_MEMGUARD_GUARD_SZ );
+  fd_alloc_memguard_hdr_t * g = (fd_alloc_memguard_hdr_t *)( user-FD_ALLOC_MEMGUARD_GUARD_SZ );
+  g->magic  = FD_ALLOC_MEMGUARD_LIVE_MAGIC ^ (ulong)user;
+  g->sz     = sz;
+  g->prefix = prefix;
+  g->canary = FD_ALLOC_MEMGUARD_LIVE_MAGIC ^ sz;
+  fd_memset( user+sz, FD_ALLOC_MEMGUARD_TAIL_BYTE, FD_ALLOC_MEMGUARD_GUARD_SZ );
+
+  fd_alloc_memguard_quar_probe_one();
+
+  *max = sz; /* no at_least slack: the tail redzone sits right behind sz */
+  return user;
+}
+
+static void
+fd_alloc_memguard_free( fd_alloc_t * join,
+                        void *       laddr ) {
+  if( FD_UNLIKELY( !laddr ) ) return;
+
+  uchar *                   user = laddr;
+  fd_alloc_memguard_hdr_t * g    = (fd_alloc_memguard_hdr_t *)( user-FD_ALLOC_MEMGUARD_GUARD_SZ );
+
+  if( FD_UNLIKELY( g->magic==(FD_ALLOC_MEMGUARD_FREE_MAGIC ^ (ulong)user) ) )
+    fd_alloc_memguard_fail( "double free", user, g->sz, NULL );
+  if( FD_UNLIKELY( g->magic!=(FD_ALLOC_MEMGUARD_LIVE_MAGIC ^ (ulong)user) ) )
+    fd_alloc_memguard_fail( "wild free or buffer underflow (no valid guard hdr behind pointer)", user, 0UL, NULL );
+
+  ulong sz     = g->sz;
+  ulong prefix = g->prefix;
+
+  if( FD_UNLIKELY( g->canary!=(FD_ALLOC_MEMGUARD_LIVE_MAGIC ^ sz) ) )
+    fd_alloc_memguard_fail( "buffer underflow (guard canary clobbered)", user, sz, NULL );
+
+  uchar const * bad = fd_alloc_memguard_scan( user+sz, FD_ALLOC_MEMGUARD_GUARD_SZ, FD_ALLOC_MEMGUARD_TAIL_BYTE );
+  if( FD_UNLIKELY( bad ) )
+    fd_alloc_memguard_fail( "buffer overflow (tail redzone clobbered)", user, sz, bad );
+
+  if( prefix>FD_ALLOC_MEMGUARD_GUARD_SZ ) {
+    bad = fd_alloc_memguard_scan( user-prefix, prefix-FD_ALLOC_MEMGUARD_GUARD_SZ, FD_ALLOC_MEMGUARD_PAD_BYTE );
+    if( FD_UNLIKELY( bad ) )
+      fd_alloc_memguard_fail( "buffer underflow (pad bytes clobbered)", user, sz, bad );
+  }
+
+  g->magic = FD_ALLOC_MEMGUARD_FREE_MAGIC ^ (ulong)user;
+  fd_memset( user, FD_ALLOC_MEMGUARD_FREE_BYTE, sz );
+
+  fd_alloc_memguard_quar_push( join, user, sz, prefix );
+  fd_alloc_memguard_quar_probe_one();
+}
+
+#endif /* FD_HAS_MEMGUARD */
+
+void *
+fd_alloc_malloc_at_least( fd_alloc_t * join,
+                          ulong        align,
+                          ulong        sz,
+                          ulong *      max ) {
+  if( FD_UNLIKELY( !max ) ) return NULL;
+# if FD_HAS_MEMGUARD
+  void * res = fd_alloc_memguard_malloc( join, align, sz, max );
+# else
+  void * res = fd_alloc_malloc_at_least_impl( join, align, sz, max );
+# endif
+  fd_msan_poison( res, *max );
+  return res;
+}
+
+void
+fd_alloc_free( fd_alloc_t * join,
+               void *       laddr ) {
+# if FD_HAS_MEMGUARD
+  fd_alloc_memguard_free( join, laddr );
+# else
+  fd_alloc_free_impl( join, laddr );
+# endif
 }
 
 void
@@ -1151,7 +1398,7 @@ fd_alloc_compact( fd_alloc_t * join ) {
          stack (it also will have at least one free block for the same
          reasons). */
 
-      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free( join, superblock );
+      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free_impl( join, superblock );
       else {
         ulong displaced_superblock_gaddr = fd_alloc_private_active_slot_replace( active_slot, superblock_gaddr );
         if( FD_UNLIKELY( displaced_superblock_gaddr ) )
@@ -1180,7 +1427,7 @@ fd_alloc_compact( fd_alloc_t * join ) {
       if( !superblock_gaddr ) break; /* application dependent branch prob */
       fd_alloc_superblock_t * superblock = (fd_alloc_superblock_t *)fd_wksp_laddr_fast( wksp, superblock_gaddr );
 
-      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free( join, superblock );
+      if( fd_alloc_block_set_cnt( superblock->free_blocks )==block_cnt ) fd_alloc_free_impl( join, superblock );
       else fd_alloc_private_inactive_stack_push( local_stack, wksp, superblock_gaddr );
     }
 
@@ -1199,6 +1446,13 @@ int
 fd_alloc_is_empty( fd_alloc_t * join ) {
   fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
   if( FD_UNLIKELY( !alloc ) ) return 0;
+
+# if FD_HAS_MEMGUARD
+  /* Quarantined frees are still outstanding allocations from the
+     allocator's perspective ... verify and release them all (only
+     covers this thread's quarantine). */
+  while( fd_alloc_memguard_quar_cnt ) fd_alloc_memguard_quar_evict();
+# endif
 
   fd_alloc_compact( join );
 

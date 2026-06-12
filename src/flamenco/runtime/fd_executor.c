@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "fd_executor.h"
 #include "fd_runtime.h"
 #include "fd_runtime_helpers.h"
@@ -1000,6 +1001,54 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_txn_in_t const * txn_in,
                   fd_txn_out_t *      txn_out,
                   fd_instr_info_t *   instr ) {
+
+#ifdef FD_MEMCHECK_CANARY
+  /* Sanity canary: deliberately corrupt memory on the first executed
+     instruction to prove the enabled sanitizers actually fire inside the
+     live backtest replay.  Mode is FD_INJECT_BUG if it reaches the tile,
+     else the compile-time default.  Compiled in only with EXTRAS=canary. */
+# ifndef FD_CANARY_DEFAULT_MODE
+#   define FD_CANARY_DEFAULT_MODE "spad"
+# endif
+  {
+    static int volatile fd_canary_fired = 0;
+    char const * inj = getenv( "FD_INJECT_BUG" );
+    if( !inj ) inj = FD_CANARY_DEFAULT_MODE; /* env doesn't reach tiles; use compile-time default */
+    /* Atomic single-fire so concurrent execrp tiles don't race on the
+       shared canary buffer (which would un/re-poison out from under each
+       other and give a false "not detected"). */
+    if( FD_UNLIKELY( inj[0] && __sync_bool_compare_and_swap( &fd_canary_fired, 0, 1 ) ) ) {
+      if( !strcmp( inj, "spad" ) ) {
+        /* Custom-allocator (fd_spad) deepasan poisoning: write 1 byte past
+           an fd_spad allocation -> use-after-poison. */
+        static uchar fd_canary_smem[ 8192 ] __attribute__((aligned(128)));
+        fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_canary_smem, 4096UL ) );
+        fd_spad_push( spad );
+        uchar * p = fd_spad_alloc( spad, 1UL, 64UL );
+        FD_LOG_WARNING(( "CANARY: writing 1 byte past a 64B fd_spad alloc at %p", (void *)p ));
+        p[ 64 ] = 0xAA;
+        FD_LOG_WARNING(( "CANARY: spad OOB write completed WITHOUT detection (p[64]=%u)", (uint)p[64] ));
+      } else if( !strcmp( inj, "heap" ) ) {
+        /* Baseline ASAN: libc heap-buffer-overflow. */
+        volatile uchar * p = (volatile uchar *)malloc( 64UL );
+        FD_LOG_WARNING(( "CANARY: writing 1 byte past a 64B malloc at %p", (void *)p ));
+        p[ 64 ] = 0xAA;
+        FD_LOG_WARNING(( "CANARY: heap OOB write completed WITHOUT detection" ));
+      } else if( !strcmp( inj, "uaf" ) ) {
+        /* fd_spad use-after-free: read after frame pop -> use-after-poison. */
+        static uchar fd_canary_smem2[ 8192 ] __attribute__((aligned(128)));
+        fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_canary_smem2, 4096UL ) );
+        fd_spad_push( spad );
+        uchar * p = fd_spad_alloc( spad, 1UL, 64UL );
+        p[ 0 ] = 0x11;
+        fd_spad_pop( spad ); /* frame popped -> p is now poisoned */
+        FD_LOG_WARNING(( "CANARY: reading fd_spad alloc after frame pop at %p", (void *)p ));
+        FD_LOG_WARNING(( "CANARY: use-after-pop read got %u WITHOUT detection", (uint)p[0] ));
+      }
+    }
+  }
+#endif
+
   fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
   int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
