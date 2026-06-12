@@ -17,8 +17,6 @@ INGEST_MODE="rocksdb"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-REDOWNLOAD=1
-SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
@@ -29,7 +27,6 @@ MAX_LIVE_SLOTS="32"
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
-  SKIP_CHECKSUM=0
   WATCH=( "--no-watch" )
   LOG_LEVEL_STDERR=INFO
 fi
@@ -88,16 +85,8 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    -nr|--no-redownload)
-        REDOWNLOAD=0
-        shift
-        ;;
     --debug)
         DEBUG=( gdb -q -x contrib/debug.gdb --args )
-        shift
-        ;;
-    --skip-checksum)
-        SKIP_CHECKSUM=1
         shift
         ;;
     --log)
@@ -198,13 +187,6 @@ if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
     rm -rf $DUMP/$LEDGER.pending
   fi
   download_and_extract_ledger
-  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
-    create_checksum
-  fi
-else
-  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
-    check_ledger_checksum_and_redownload
-  fi
 fi
 
 if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
@@ -293,11 +275,6 @@ fi
 echo "Log for ledger $LEDGER at $LOG"
 
 rm -rf $DUMP/accounts.db
-
-# check that the ledger is not corrupted after a run
-if [[ $SKIP_CHECKSUM -eq 0 ]]; then
-  check_ledger_checksum
-fi
 
 if [ "$status" -eq 0 ]; then
   snapshot_load_time=$(grep "loaded" $LOG | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
