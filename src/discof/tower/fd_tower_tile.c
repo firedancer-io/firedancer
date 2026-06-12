@@ -629,7 +629,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
     fd_txn_p_t       txn[1];
     fd_tower_blk_t * parent_tower_blk = fd_tower_blocks_query( ctx->tower, slot_completed->parent_slot );
     FD_TEST( parent_tower_blk );
-    fd_hash_t const * recent_blockhash = fd_type_pun_const( parent_tower_blk->block_hash.uc );
+    fd_hash_t const * recent_blockhash = &parent_tower_blk->block_hash;
     fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, recent_blockhash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
