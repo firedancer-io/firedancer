@@ -529,12 +529,19 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
+  uchar sign_request[ 132 ];
+  static char const sign_prefix[ 100 ] =
+    "                                "  /* 32 spaces */
+    "                                "  /* 32 spaces */
+    "Firedancer event challenge-response\x00";
+  memcpy( sign_request,     sign_prefix,    sizeof(sign_prefix) );
+  memcpy( sign_request+100, challenge_data, 32UL                );
+
   uchar signed_challenge[ 64UL ];
   fd_keyguard_client_sign( client->keyguard_client,
                            signed_challenge,
-                           challenge_data,
-                           32UL,
-                           FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 );
+                           sign_request, 132UL,
+                           FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   fd_pb_encoder_t confirm_req[1];
   uchar buffer[ 128UL ];
