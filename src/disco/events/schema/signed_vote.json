@@ -11,6 +11,24 @@
         "vote_slot":      { "type": "UInt64",    "description": "Slot being voted on (top of tower)" },
         "vote_bank_hash": { "type": "Pubkey",    "description": "Bank hash of the slot being voted on" },
         "vote_block_id":  { "type": "Pubkey",    "description": "Block ID of the slot being voted on" },
-        "txn_blockhash":  { "type": "Pubkey",    "description": "Recent blockhash parameter of the vote transaction" }
+        "txn_blockhash":  { "type": "Pubkey",    "description": "Recent blockhash parameter of the vote transaction" },
+        "tower": {
+            "type": "Array",
+            "description": "Tower of slots being voted on (oldest to newest)",
+            "element": {
+                "type": "Tuple",
+                "description": "Slot that was voted on",
+                "fields": {
+                    "slot": {
+                        "type": "UInt64",
+                        "description": "Slot being voted on / locked out for"
+                    },
+                    "confirmation_count": {
+                        "type": "UInt8",
+                        "description": "Confirmation count (higher = closer to root)"
+                    }
+                }
+            }
+        }
     }
 }
