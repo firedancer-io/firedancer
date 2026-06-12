@@ -78,6 +78,13 @@ fd_keyguard_payload_match( uchar const * data,
 
 struct fd_keyguard_authority {
   uchar identity_pubkey[32];
+  /* Pack tile is allowed to sign a transaction that invokes these two
+     programs that come from the config.toml.  We need to check these
+     programs, because otherwise an attacker with RCE on pack can make
+     the validator sign a transaction that invokes their malicious
+     program which drains the identity key. */
+  uchar tip_payment_program[32];
+  uchar tip_distribution_program[32];
 };
 
 typedef struct fd_keyguard_authority fd_keyguard_authority_t;
