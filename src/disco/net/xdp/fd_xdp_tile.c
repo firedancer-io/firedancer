@@ -208,7 +208,7 @@ typedef struct {
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
   ushort gossip_listen_port;
-  ushort repair_intake_listen_port;
+  ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
 
@@ -985,7 +985,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   } else if( FD_UNLIKELY( udp_dstport==ctx->gossip_listen_port ) ) {
     proto = DST_PROTO_GOSSIP;
     out = ctx->gossvf_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
+  } else if( FD_UNLIKELY( udp_dstport==ctx->repair_client_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
     if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
     else                                      out = ctx->shred_out;
@@ -1006,7 +1006,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
                   ctx->quic_transaction_listen_port,
                   ctx->legacy_transaction_listen_port,
                   ctx->gossip_listen_port,
-                  ctx->repair_intake_listen_port,
+                  ctx->repair_client_listen_port,
                   ctx->repair_serve_listen_port ));
   }
 
@@ -1404,7 +1404,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
   ctx->gossip_listen_port             = tile->net.gossip_listen_port;
-  ctx->repair_intake_listen_port      = tile->net.repair_intake_listen_port;
+  ctx->repair_client_listen_port      = tile->net.repair_client_listen_port;
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
   ctx->txsend_src_port                = tile->net.txsend_src_port;
 
@@ -1482,7 +1482,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossvf_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+  } else if( FD_UNLIKELY( ctx->repair_client_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));

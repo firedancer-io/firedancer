@@ -262,7 +262,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.rpc.send_buffer_size_mb                    );
   CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
 
-  CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
+  CFG_POP      ( ushort, tiles.repair.repair_client_listen_port           );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
   CFG_POP      ( bool,   tiles.rserve.enabled                             );
@@ -362,6 +362,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_RENAMED( development.net.provider,                 net.provider                   );
   CFG_RENAMED( development.net.sock_receive_buffer_size, net.socket.receive_buffer_size );
   CFG_RENAMED( development.net.sock_send_buffer_size,    net.socket.send_buffer_size    );
+
+  CFG_RENAMED( tiles.repair.repair_intake_listen_port,   tiles.repair.repair_client_listen_port );
 
 # undef CFG_RENAMED
 

@@ -1440,7 +1440,7 @@ telemetry = true
 
     # TODO: DOCS
     [tiles.repair]
-        repair_intake_listen_port = 8701
+        repair_client_listen_port = 8701
 
         # Slot max is the maximum number of slots that repair tile can
         # maintain at once.  This is expected to be the largest at
