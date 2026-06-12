@@ -1139,7 +1139,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
     }
     tile->net.gossip_listen_port               = config->gossip.port;
-    tile->net.repair_intake_listen_port        = config->tiles.repair.repair_intake_listen_port;
+    tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = config->tiles.repair.repair_serve_listen_port;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
 
@@ -1215,7 +1215,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.tvu              = config->tiles.shred.shred_listen_port;
     tile->gossip.ports.tpu              = config->tiles.quic.regular_transaction_listen_port;
     tile->gossip.ports.tpu_quic         = config->tiles.quic.quic_transaction_listen_port;
-    tile->gossip.ports.repair           = config->tiles.repair.repair_intake_listen_port;
+    tile->gossip.ports.repair           = config->tiles.repair.repair_client_listen_port;
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
@@ -1288,7 +1288,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
-    tile->repair.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
+    tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.repair_serve_listen_port  = config->tiles.repair.repair_serve_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
     tile->repair.repair_sign_cnt           = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
