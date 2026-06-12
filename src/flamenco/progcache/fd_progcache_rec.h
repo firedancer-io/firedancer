@@ -86,9 +86,11 @@ fd_progcache_rec_calldests( fd_progcache_rec_t const * rec,
 
 extern int const fd_progcache_use_malloc;
 
-/* fd_progcache_rec_{align,footprint} give the params of backing memory
-   of a progcache_rec object for the given ELF info.  If elf_info is
-   NULL, implies a non-executable cache entry (sizeof(fd_progcache_rec_t)). */
+/* fd_progcache_val_{align,footprint} give the params of variable-size
+   backing memory for an executable cache entry with the given ELF info.
+   elf_info must describe a successfully peeked ELF.  Non-executable
+   cache entries do not allocate value storage; fd_progcache_rec_nx marks
+   their fixed record with data_gaddr==0. */
 
 FD_FN_CONST static inline ulong
 fd_progcache_val_align( void ) {
