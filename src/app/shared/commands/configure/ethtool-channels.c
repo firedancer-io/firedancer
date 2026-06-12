@@ -53,7 +53,7 @@ get_ports( fd_config_t const * config,
   ADD_PORT( config->tiles.quic.regular_transaction_listen_port );
   if( config->is_firedancer ) {
     ADD_PORT( config->gossip.port                              );
-    ADD_PORT( config->tiles.repair.repair_intake_listen_port   );
+    ADD_PORT( config->tiles.repair.repair_client_listen_port   );
     ADD_PORT( config->tiles.repair.repair_serve_listen_port    );
     ADD_PORT( config->tiles.txsend.txsend_src_port             );
   }

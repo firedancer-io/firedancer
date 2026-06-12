@@ -190,7 +190,7 @@ privileged_init( fd_topo_t const *      topo,
     (ushort)tile->sock.net.quic_transaction_listen_port,
     (ushort)tile->sock.net.shred_listen_port,
     (ushort)tile->sock.net.gossip_listen_port,
-    (ushort)tile->sock.net.repair_intake_listen_port,
+    (ushort)tile->sock.net.repair_client_listen_port,
     (ushort)tile->sock.net.repair_serve_listen_port,
     (ushort)tile->sock.net.txsend_src_port
   };
@@ -219,8 +219,8 @@ privileged_init( fd_topo_t const *      topo,
     ushort port = (ushort)udp_port_candidates[ candidate_idx ];
 
     /* Validate value of REPAIR_SHRED_SOCKET_ID */
-    if( tile->sock.net.repair_intake_listen_port &&
-       udp_port_candidates[candidate_idx]==tile->sock.net.repair_intake_listen_port )
+    if( tile->sock.net.repair_client_listen_port &&
+       udp_port_candidates[candidate_idx]==tile->sock.net.repair_client_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
     if( tile->sock.net.repair_serve_listen_port &&
        udp_port_candidates[candidate_idx]==tile->sock.net.repair_serve_listen_port )
