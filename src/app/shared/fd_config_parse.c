@@ -94,7 +94,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
 
-  CFG_POP      ( bool,   runtime.fixed_fec_sets                              );
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
@@ -117,6 +116,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
+  CFG_POP      ( bool,   development.fixed_fec_sets                          );
 
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
 
