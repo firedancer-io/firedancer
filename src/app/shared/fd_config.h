@@ -115,7 +115,6 @@ struct fd_configf {
 
   struct {
     ulong max_live_slots;
-    int   fixed_fec_sets;
     ulong max_fork_width;
 
     struct {
@@ -159,6 +158,7 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
+    int fixed_fec_sets;
     struct {
       int validate_genesis_hash;
     } genesis;

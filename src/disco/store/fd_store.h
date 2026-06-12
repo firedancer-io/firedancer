@@ -24,8 +24,8 @@
    Shreds are coalesced and inserted into the store as bytes.  The data
    buffer for each FEC set element is allocated separately in a
    contiguous region and referenced by gaddr.  The max bytes per FEC set
-   is configurable via the fixed_fec_sets runtime config parameter (see
-   default.toml for details).
+   is configurable via the fixed_fec_sets development config parameter
+   (see default.toml for details).
 
    The shared memory used by a store instance is within a workspace such
    that it is also persistent and remotely inspectable.  Store is
