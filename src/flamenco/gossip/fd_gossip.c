@@ -19,6 +19,14 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_CNT,
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
 
+struct vote_entry {
+  int   is_occupied;
+  ulong vote_slot;
+  long  wallclock_ns;
+};
+
+typedef struct vote_entry vote_entry_t;
+
 struct stake {
   fd_pubkey_t pubkey;
   ulong       stake;
@@ -122,8 +130,43 @@ struct fd_gossip_private {
     fd_gossip_value_t ci[1];
   } my_contact_info;
 
+  vote_entry_t my_votes[ FD_GOSSIP_VOTE_IDX_MAX ]; /* Indexed by CRDS vote index */
+
   fd_gossip_out_ctx_t * gossip_net_out;
 };
+
+static void
+vote_purge_cb( void *        ctx,
+               uchar         vote_index,
+               uchar const * pubkey ) {
+  fd_gossip_t * gossip = (fd_gossip_t *)ctx;
+
+  if( FD_LIKELY( memcmp( pubkey, gossip->identity_pubkey, sizeof(fd_pubkey_t) ) ) ) return;
+
+  if( FD_LIKELY( vote_index<FD_GOSSIP_VOTE_IDX_MAX ) ) gossip->my_votes[ vote_index ].is_occupied = 0;
+}
+
+/* my_votes_pick_idx returns the CRDS vote index to use for the next
+   vote.  If a free slot exists, returns the lowest free index.
+   Otherwise returns the index with the lowest (wallclock, vote_idx)
+   (matching Agave). */
+static ulong
+my_votes_pick_idx( vote_entry_t const * my_votes ) {
+  long  min_wc    = LONG_MAX;
+  ulong evict_idx = ULONG_MAX;
+  ulong free_idx  = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GOSSIP_VOTE_IDX_MAX; i++ ) {
+    if( FD_LIKELY( !my_votes[ i ].is_occupied ) ) {
+      if( FD_LIKELY( free_idx==ULONG_MAX ) ) free_idx = i;
+      continue;
+    }
+    if( FD_UNLIKELY( my_votes[ i ].wallclock_ns<min_wc || (my_votes[ i ].wallclock_ns==min_wc && i<evict_idx) ) ) {
+      min_wc    = my_votes[ i ].wallclock_ns;
+      evict_idx = i;
+    }
+  }
+  return free_idx!=ULONG_MAX ? free_idx : evict_idx;
+}
 
 FD_FN_CONST ulong
 fd_gossip_align( void ) {
@@ -261,7 +304,7 @@ fd_gossip_new( void *                           shmem,
   gossip->wsample = fd_gossip_wsample_join( fd_gossip_wsample_new( wsample, rng, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( gossip->wsample );
 
-  gossip->crds = fd_crds_join( fd_crds_new( crds, entrypoints, entrypoints_len, gossip->wsample, active_set, rng, max_values, gossip->purged, activity_update_fn, activity_update_fn_ctx, gossip_update_out ) );
+  gossip->crds = fd_crds_join( fd_crds_new( crds, entrypoints, entrypoints_len, gossip->wsample, active_set, rng, max_values, gossip->purged, activity_update_fn, activity_update_fn_ctx, vote_purge_cb, gossip, gossip_update_out ) );
   FD_TEST( gossip->crds );
 
   gossip->active_set = fd_active_set_join( fd_active_set_new( active_set, gossip->wsample, gossip->crds, rng, identity_pubkey, 0UL, send_fn, send_ctx ) );
@@ -307,6 +350,8 @@ fd_gossip_new( void *                           shmem,
   refresh_contact_info( gossip, now );
 
   fd_memset( gossip->metrics, 0, sizeof(fd_gossip_metrics_t) );
+
+  for( ulong i=0; i<FD_GOSSIP_VOTE_IDX_MAX; i++ ) gossip->my_votes[ i ].is_occupied = 0;
 
   return gossip;
 }
@@ -392,6 +437,22 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
 
   refresh_contact_info( gossip, now );
+
+  /* Clear the vote tracker and repopulate it with any votes for the
+     new identity that already exist in CRDS. */
+
+  for( ulong i=0; i<FD_GOSSIP_VOTE_IDX_MAX; i++ ) {
+    ulong vote_slot;
+    ulong wallclock_ms;
+    gossip->my_votes[ i ].is_occupied = 0;
+    if( FD_UNLIKELY( fd_crds_vote_query( gossip->crds, identity_pubkey, (uchar)i, &vote_slot, &wallclock_ms ) ) ) {
+      gossip->my_votes[ i ] = (vote_entry_t){
+        .is_occupied  = 1,
+        .vote_slot    = vote_slot,
+        .wallclock_ns = (long)FD_MILLI_TO_NANOSEC( wallclock_ms ),
+      };
+    }
+  }
 }
 
 void
@@ -884,23 +945,62 @@ fd_gossip_push( fd_gossip_t *             gossip,
 
 int
 fd_gossip_push_vote( fd_gossip_t *       gossip,
+                     ulong               vote_slot,
                      uchar const *       txn,
                      ulong               txn_sz,
                      fd_stem_context_t * stem,
                      long                now ) {
+
+  FD_TEST( vote_slot!=ULONG_MAX );
+
+  ulong now_ms = (ulong)FD_NANOSEC_TO_MILLI( now );
+
+  ulong vote_idx = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GOSSIP_VOTE_IDX_MAX; i++ ) {
+    if( FD_LIKELY( !gossip->my_votes[ i ].is_occupied ) ) continue;
+    /* Vote Refresh: same slot, new transaction (e.g. new blockhash).
+       Reuse the same CRDS vote index. */
+    if( FD_UNLIKELY( gossip->my_votes[ i ].vote_slot==vote_slot ) ) {
+      vote_idx = i;
+      break;
+    }
+    if( FD_UNLIKELY( gossip->my_votes[ i ].vote_slot>vote_slot ) ) {
+      FD_LOG_ERR(( "Existing vote (%lu) higher than newly cast vote (%lu). This might occur on a non-malicious node if "
+                   "there is already another node casting votes for this identity joined to the cluster.",
+                   gossip->my_votes[ i ].vote_slot, vote_slot ));
+    }
+  }
+
+  if( FD_LIKELY( vote_idx==ULONG_MAX ) ) {
+    vote_idx = my_votes_pick_idx( gossip->my_votes );
+  }
+  FD_TEST( vote_idx<FD_GOSSIP_VOTE_IDX_MAX );
+
   fd_gossip_value_t value = {
-    .tag = FD_GOSSIP_VALUE_VOTE,
-    .wallclock = (ulong)FD_NANOSEC_TO_MILLI( now ),
+    .tag       = FD_GOSSIP_VALUE_VOTE,
+    .wallclock = now_ms,
     .vote = {{
-      .index = 0UL, /* TODO */
+      .index = (uchar)vote_idx,
+      .vote_slot = vote_slot,
       .transaction_len = txn_sz,
     }}
   };
-  fd_memcpy( value.origin, gossip->identity_pubkey, 32UL );
+  fd_memcpy( value.origin, gossip->identity_pubkey, sizeof(fd_pubkey_t) );
   FD_TEST( txn_sz<=sizeof(value.vote->transaction) );
   fd_memcpy( value.vote->transaction, txn, txn_sz );
 
-  return fd_gossip_push( gossip, &value, stem, now );
+  if( FD_UNLIKELY( fd_gossip_push( gossip, &value, stem, now ) ) ) {
+    /* CRDS insert failed (stale or duplicate).  Do not record in tracker. */
+    return -1;
+  }
+
+  gossip->my_votes[ vote_idx ] = (vote_entry_t){
+    .is_occupied  = 1,
+    .vote_slot    = vote_slot,
+    .wallclock_ns = now,
+  };
+
+  return 0;
 }
 
 int

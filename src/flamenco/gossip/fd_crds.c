@@ -90,6 +90,7 @@ struct fd_crds_entry_private {
   union {
     fd_crds_contact_info_entry_t * ci;
     ulong node_instance_token;
+    ulong vote_slot;
   };
 
   /* When an originator creates a CRDS message, they attach their local
@@ -327,6 +328,9 @@ struct fd_crds_private {
   fd_gossip_activity_update_fn activity_update_fn;
   void *                       activity_update_fn_ctx;
 
+  fd_crds_vote_purge_fn vote_purge_fn;
+  void *                vote_purge_fn_ctx;
+
   fd_sha256_t sha256[1];
 
   int has_staked_node;
@@ -391,6 +395,8 @@ fd_crds_new( void *                       shmem,
              fd_gossip_purged_t *         purged,
              fd_gossip_activity_update_fn activity_update_fn,
              void *                       activity_update_fn_ctx,
+             fd_crds_vote_purge_fn        vote_purge_fn,
+             void *                       vote_purge_fn_ctx,
              fd_gossip_out_ctx_t *        gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -439,6 +445,10 @@ fd_crds_new( void *                       shmem,
   FD_TEST( crds->activity_update_fn );
 
   crds->activity_update_fn_ctx = activity_update_fn_ctx;
+
+  crds->vote_purge_fn     = vote_purge_fn;
+  FD_TEST( crds->vote_purge_fn );
+  crds->vote_purge_fn_ctx = vote_purge_fn_ctx;
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -609,6 +619,10 @@ crds_release( fd_crds_t *         crds,
   if( FD_UNLIKELY( evicting ) ) crds->metrics->evicted_cnt++;
   else                          crds->metrics->expired_cnt++;
 
+  if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_VOTE ) ) {
+    crds->vote_purge_fn( crds->vote_purge_fn_ctx, entry->key.vote_index, entry->key.pubkey );
+  }
+
   crds_pool_ele_release( crds->pool, entry );
 }
 
@@ -762,6 +776,7 @@ publish_update_msg( fd_crds_t *               crds,
       }
 
       msg->vote->value->index = entry->key.vote_index;
+      msg->vote->value->vote_slot = entry_view->vote->vote_slot;
       msg->vote->value->transaction_len = entry_view->vote->transaction_len;
       fd_memcpy( msg->vote->value->transaction, entry_view->vote->transaction, entry_view->vote->transaction_len );
       break;
@@ -911,6 +926,8 @@ fd_crds_insert( fd_crds_t *               crds,
   } else if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     *incumbent->ci->contact_info            = *value->contact_info;
     incumbent->ci->received_wallclock_nanos = now;
+  } else if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_VOTE ) ) {
+    incumbent->vote_slot = value->vote->vote_slot;
   }
 
   crds_index( crds, incumbent );
@@ -973,6 +990,26 @@ fd_crds_ci_idx( fd_crds_t const * crds,
   if( FD_UNLIKELY( !ci_entry ) ) return ULONG_MAX;
   FD_TEST( ci_entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   return crds_contact_info_pool_idx( crds->ci_pool, ci_entry->ci );
+}
+
+int
+fd_crds_vote_query( fd_crds_t const * crds,
+                    uchar const *     pubkey,
+                    uchar             vote_index,
+                    ulong *           vote_slot_out,
+                    ulong *           wallclock_out ) {
+  fd_crds_key_t lookup_key = {
+    .tag        = FD_GOSSIP_VALUE_VOTE,
+    .vote_index = vote_index,
+  };
+  fd_memcpy( lookup_key.pubkey, pubkey, 32UL );
+
+  fd_crds_entry_t const * entry = lookup_map_ele_query( crds->lookup_map, &lookup_key, NULL, crds->pool );
+  if( FD_UNLIKELY( !entry ) ) return 0;
+
+  *vote_slot_out = entry->vote_slot;
+  *wallclock_out = entry->wallclock;
+  return 1;
 }
 
 struct fd_crds_mask_iter_private {

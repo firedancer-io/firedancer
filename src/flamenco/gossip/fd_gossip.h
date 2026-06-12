@@ -215,6 +215,7 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
 
 int
 fd_gossip_push_vote( fd_gossip_t *       gossip,
+                     ulong               vote_slot,
                      uchar const *       txn,
                      ulong               txn_sz,
                      fd_stem_context_t * stem,

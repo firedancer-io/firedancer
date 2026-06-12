@@ -13,7 +13,6 @@
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/epoch_slots.rs#L16 */
 #define MAX_SLOTS_PER_EPOCH_SLOT (2048UL*8UL)
 
-#define FD_GOSSIP_VOTE_IDX_MAX (32)
 #define FD_GOSSIP_EPOCH_SLOTS_IDX_MAX (255U)
 #define FD_GOSSIP_DUPLICATE_SHRED_IDX_MAX (512U)
 
@@ -112,19 +111,83 @@
 
 static int
 deser_vote_instruction( uchar const * data,
-                        ulong         data_len ) {
+                        ulong         data_len,
+                        ulong *       vote_slot_out ) {
   fd_vote_instruction_t vote_instruction[1];
   CHECK( fd_vote_instruction_deserialize( vote_instruction, data, data_len ) );
-  CHECK(
-    vote_instruction->discriminant==fd_vote_instruction_enum_vote ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_vote_switch ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_update_vote_state ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_update_vote_state_switch ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_compact_update_vote_state  ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_compact_update_vote_state_switch  ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_tower_sync  ||
-    vote_instruction->discriminant==fd_vote_instruction_enum_tower_sync_switch );
+
+  /* When we switch identities, we need to fill the vote tracker with
+     existing votes for the new identity.  The vote tracker uses vote_slot
+     to check for invariants (i.e. slots are monotonically increasing).
+
+     Consider the case where identity is switched from node A to B, and
+     node B starts sending votes older than those sent by node A.  This
+     is illegal and will result in a crash. */
+  ulong vote_slot = ULONG_MAX;
+  switch( vote_instruction->discriminant ) {
+    case fd_vote_instruction_enum_vote: {
+      /* slots is a deque of ulong.  Last element = highest slot. */
+      fd_vote_t * v = &vote_instruction->vote;
+      ulong cnt = deq_ulong_cnt( v->slots );
+      CHECK( cnt );
+      vote_slot = *deq_ulong_peek_tail( v->slots );
+      break;
+    }
+    case fd_vote_instruction_enum_vote_switch: {
+      fd_vote_t * v = &vote_instruction->vote_switch.vote;
+      ulong cnt = deq_ulong_cnt( v->slots );
+      CHECK( cnt );
+      vote_slot = *deq_ulong_peek_tail( v->slots );
+      break;
+    }
+    case fd_vote_instruction_enum_update_vote_state: {
+      fd_vote_state_update_t * u = &vote_instruction->update_vote_state;
+      ulong cnt = deq_fd_vote_lockout_t_cnt( u->lockouts );
+      CHECK( cnt );
+      vote_slot = deq_fd_vote_lockout_t_peek_tail( u->lockouts )->slot;
+      break;
+    }
+    case fd_vote_instruction_enum_update_vote_state_switch: {
+      fd_vote_state_update_t * u = &vote_instruction->update_vote_state_switch.vote_state_update;
+      ulong cnt = deq_fd_vote_lockout_t_cnt( u->lockouts );
+      CHECK( cnt );
+      vote_slot = deq_fd_vote_lockout_t_peek_tail( u->lockouts )->slot;
+      break;
+    }
+    case fd_vote_instruction_enum_compact_update_vote_state: {
+      fd_compact_vote_state_update_t * c = &vote_instruction->compact_update_vote_state;
+      CHECK( c->lockouts_len );
+      ulong slot = c->root!=ULONG_MAX ? c->root : 0UL;
+      for( ulong i=0UL; i<c->lockouts_len; i++ ) slot += c->lockouts[i].offset;
+      vote_slot = slot;
+      break;
+    }
+    case fd_vote_instruction_enum_compact_update_vote_state_switch: {
+      fd_compact_vote_state_update_t * c = &vote_instruction->compact_update_vote_state_switch.compact_vote_state_update;
+      CHECK( c->lockouts_len );
+      ulong slot = c->root!=ULONG_MAX ? c->root : 0UL;
+      for( ulong i=0UL; i<c->lockouts_len; i++ ) slot += c->lockouts[i].offset;
+      vote_slot = slot;
+      break;
+    }
+    case fd_vote_instruction_enum_tower_sync: {
+      fd_tower_sync_t * t = &vote_instruction->tower_sync;
+      CHECK( t->lockouts_cnt );
+      vote_slot = t->lockouts[ t->lockouts_cnt-1UL ].slot;
+      break;
+    }
+    case fd_vote_instruction_enum_tower_sync_switch: {
+      fd_tower_sync_t * t = &vote_instruction->tower_sync_switch.tower_sync;
+      CHECK( t->lockouts_cnt );
+      vote_slot = t->lockouts[ t->lockouts_cnt-1UL ].slot;
+      break;
+    }
+    default:
+      return 0;
+  }
   // Oddly, trailing garbage is allowed here at the end of the instruction
+
+  *vote_slot_out = vote_slot;
   return 1;
 }
 
@@ -168,7 +231,7 @@ deser_vote_txn( fd_gossip_vote_t * vote,
       CHECK( accounts_len );
       uchar const * account_key = account_keys+32UL*program_id_index;
       CHECK( !memcmp( account_key, fd_solana_vote_program_id.uc, 32UL ) );
-      CHECK( deser_vote_instruction( data, data_len ) );
+      CHECK( deser_vote_instruction( data, data_len, &vote->vote_slot ) );
     }
   }
 
@@ -188,7 +251,7 @@ deser_vote( fd_gossip_value_t * value,
             uchar const **      payload,
             ulong *             payload_sz ) {
   READ_U8( value->vote->index, payload, payload_sz );
-  CHECK( value->vote->index<FD_GOSSIP_VOTE_IDX_MAX );
+  CHECK( value->vote->index<FD_GOSSIP_VOTE_IDX_WIRE_MAX );
   READ_BYTES( value->origin, 32UL, payload, payload_sz );
 
   CHECK( deser_vote_txn( value->vote, payload, payload_sz ) );
