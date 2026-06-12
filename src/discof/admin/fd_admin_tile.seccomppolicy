@@ -1,0 +1,6 @@
+uint logfile_fd
+
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+fsync: (eq (arg 0) logfile_fd)
