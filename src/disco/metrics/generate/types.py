@@ -49,6 +49,7 @@ class Tile(Enum):
     PLUGIN = 104
     BACKT = 105
     BENCHS = 106
+    GUIH = 107
 
 class MetricType(Enum):
     COUNTER = 0

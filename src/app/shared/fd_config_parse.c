@@ -323,7 +323,6 @@ fd_config_extract_pod( uchar *       pod,
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
     CFG_POP    ( bool,   development.gui.websocket_compression            );
   }
-  CFG_POP      ( cstr,   development.gui.frontend_release_channel         );
 
   CFG_POP      ( ulong,  development.accdb.partition_size_gib             );
 

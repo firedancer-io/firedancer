@@ -275,13 +275,13 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
-    fd_topob_wksp( topo, "gui"          );
-    /**/                 fd_topob_tile( topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
-    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pohh_pack",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_pohh",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bank_pohh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_wksp( topo, "guih"         );
+    /**/                 fd_topob_tile( topo, "guih",    "guih",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
+    /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pohh_pack",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "pack_pohh",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "guih",   0UL,           "metric_in", "bank_pohh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
@@ -319,7 +319,7 @@ fd_topo_initialize( config_t * config ) {
          shared flow control credits when publishing many packets at
          once. */
       fd_topob_link( topo, "bundle_status", "bundle_status", 65536UL, sizeof(fd_bundle_block_engine_update_t), 1UL );
-      fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "bundle_status", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_in( topo, "guih", 0UL, "metric_in", "bundle_status", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
       fd_topob_tile_out( topo, "bundle", 0UL, "bundle_status", 0UL );
     }
   }
@@ -411,7 +411,7 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
-    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile->gui.tile_cnt = topo->tile_cnt;
+    if( FD_UNLIKELY( !strcmp( tile->name, "guih" ) ) ) tile->gui.tile_cnt = topo->tile_cnt;
   }
 
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 1 );
@@ -552,7 +552,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "guih" ) ) ) {
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gui.gui_listen_address, &tile->gui.listen_addr ) ) )
       FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
@@ -566,7 +566,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.send_buffer_size_mb       = config->tiles.gui.send_buffer_size_mb;
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = config->development.gui.websocket_compression;
-    tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
     tile->gui.accdb_obj_id              = ULONG_MAX;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {

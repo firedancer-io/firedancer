@@ -374,8 +374,6 @@ struct fd_config {
 
     struct {
       int websocket_compression;
-      char frontend_release_channel[ 16 ];
-      int  frontend_release_channel_enum;
     } gui;
 
     struct {

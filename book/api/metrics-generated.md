@@ -1775,3 +1775,18 @@
 | <span class="metrics-name">benchs_&#8203;txn_&#8203;tx</span> | counter | Benchmark transactions sent |
 
 </div>
+
+## Guih Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">guih_&#8203;conn_&#8203;active</span> | gauge | Active HTTP connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection |
+| <span class="metrics-name">guih_&#8203;websocket_&#8203;conn_&#8203;active</span> | gauge | Active WebSocket connections to the GUI service |
+| <span class="metrics-name">guih_&#8203;websocket_&#8203;frame_&#8203;tx</span> | counter | WebSocket frames sent to all connections to the GUI service |
+| <span class="metrics-name">guih_&#8203;websocket_&#8203;frame_&#8203;rx</span> | counter | WebSocket frames received from all connections to the GUI service |
+| <span class="metrics-name">guih_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all connections to the GUI service |
+| <span class="metrics-name">guih_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all connections to the GUI service |
+
+</div>

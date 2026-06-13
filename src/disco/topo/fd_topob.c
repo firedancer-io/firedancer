@@ -423,7 +423,8 @@ static char const * ALWAYS[] = {
   "event",  /* FIREDANCER only */
   "store",  /* FRANK only */
   "plugin", /* FRANK only */
-  "gui",
+  "gui",    /* FIREDANCER only */
+  "guih",   /* FRANK only */
   "rpc",    /* FIREDANCER only */
   "gossvf", /* FIREDANCER only */
   "gossip", /* FIREDANCER only */
@@ -442,6 +443,7 @@ static char const * CRITICAL_TILES[] = {
   "poh",
   "pohh",
   "gui",
+  "guih",
   NULL
 };
 

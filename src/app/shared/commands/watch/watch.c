@@ -1033,23 +1033,43 @@ static uint
 write_gui( config_t const * config,
            ulong const *    cur_tile,
            ulong const *    prev_tile ) {
-  (void)cur_tile;
+  char const * gui_name = "gui";
+  ulong gui_tile_idx = fd_topo_find_tile( &config->topo, gui_name, 0UL );
 
-  ulong gui_tile_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
-  if( gui_tile_idx==ULONG_MAX ) return 0U;
+  ulong off_conn_active, off_websocket_conn_active, off_websocket_frame_tx, off_websocket_frame_rx;
+  char * bytes_read_s;
+  char * bytes_written_s;
+  if( FD_LIKELY( gui_tile_idx!=ULONG_MAX ) ) {
+    off_conn_active           = MIDX( GAUGE,   GUI, CONN_ACTIVE           );
+    off_websocket_conn_active = MIDX( GAUGE,   GUI, WEBSOCKET_CONN_ACTIVE );
+    off_websocket_frame_tx    = MIDX( COUNTER, GUI, WEBSOCKET_FRAME_TX    );
+    off_websocket_frame_rx    = MIDX( COUNTER, GUI, WEBSOCKET_FRAME_RX    );
 
-  ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONN_ACTIVE ) ]+
-                           cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONN_ACTIVE ) ];
+    bytes_read_s              = DIFF_BYTES( gui_name, COUNTER, GUI, BYTES_READ    );
+    bytes_written_s           = DIFF_BYTES( gui_name, COUNTER, GUI, BYTES_WRITTEN );
+  } else {
+    gui_name = "guih";
+    gui_tile_idx = fd_topo_find_tile( &config->topo, gui_name, 0UL );
+    if( FD_UNLIKELY( gui_tile_idx==ULONG_MAX ) ) return 0U;
+    off_conn_active           = MIDX( GAUGE,   GUIH, CONN_ACTIVE           );
+    off_websocket_conn_active = MIDX( GAUGE,   GUIH, WEBSOCKET_CONN_ACTIVE );
+    off_websocket_frame_tx    = MIDX( COUNTER, GUIH, WEBSOCKET_FRAME_TX    );
+    off_websocket_frame_rx    = MIDX( COUNTER, GUIH, WEBSOCKET_FRAME_RX    );
 
+    bytes_read_s              = DIFF_BYTES( gui_name, COUNTER, GUIH, BYTES_READ    );
+    bytes_written_s           = DIFF_BYTES( gui_name, COUNTER, GUIH, BYTES_WRITTEN );
+  }
+
+  ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+off_conn_active ]+cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+off_websocket_conn_active ];
   ulong gui_total_ticks = total_regime( &cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ ] );
   gui_total_ticks = fd_ulong_max( gui_total_ticks, 1UL );
-  double gui_backp_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)gui_total_ticks;
-  double gui_idle_pct = 100.0*(double)diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gui_total_ticks;
-  double gui_busy_pct = 100.0 - gui_backp_pct - gui_idle_pct;
+  double gui_backp_pct = 100.0*(double)diff_tile( config, gui_name, prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)gui_total_ticks;
+  double gui_idle_pct  = 100.0*(double)diff_tile( config, gui_name, prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gui_total_ticks;
+  double gui_busy_pct  = 100.0 - gui_backp_pct - gui_idle_pct;
 
-  long sent_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAME_TX ) );
+  long sent_frame_count = diff_tile( config, gui_name, prev_tile, cur_tile, off_websocket_frame_tx );
   char * sent_frame_count_s = COUNT( (ulong)sent_frame_count );
-  long received_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAME_RX ) );
+  long received_frame_count = diff_tile( config, gui_name, prev_tile, cur_tile, off_websocket_frame_rx );
 
   PRINT( "👁  " BOLD CYAN "GUI........." RESET UNBOLD
          " " BOLD "CONNS"  UNBOLD " %lu"
@@ -1059,8 +1079,8 @@ write_gui( config_t const * config,
     connection_count,
     COUNT( (ulong)received_frame_count ),
     sent_frame_count_s,
-    DIFF_BYTES( "gui", COUNTER, GUI, BYTES_READ ),
-    DIFF_BYTES( "gui", COUNTER, GUI, BYTES_WRITTEN ),
+    bytes_read_s,
+    bytes_written_s,
     gui_busy_pct );
   return 1U;
 }
