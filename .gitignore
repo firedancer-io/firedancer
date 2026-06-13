@@ -5,7 +5,7 @@ bin
 dump
 unit-test
 tmp
-# frontend
+frontend
 .DS_Store
 
 genhtml/
