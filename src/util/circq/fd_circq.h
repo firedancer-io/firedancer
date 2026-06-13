@@ -30,6 +30,40 @@
 
 #define FD_CIRCQ_ALIGN (4096UL)
 
+/* FD_CIRCQ_EVICT_BATCH_MAX is the maximum number of entries delivered to
+   the batch eviction callback in a single invocation. */
+
+#define FD_CIRCQ_EVICT_BATCH_MAX (256UL)
+
+/* fd_circq_evict_entry_t describes one message about to be evicted:
+   payload points at the message's payload bytes within the circq data
+   region (NOT including the internal circq message header) and sz is the
+   payload footprint. */
+
+struct fd_circq_evict_entry {
+  uchar const * payload;
+  ulong         sz;
+};
+
+typedef struct fd_circq_evict_entry fd_circq_evict_entry_t;
+
+/* fd_circq_batch_evict_cb_t is invoked immediately before a contiguous
+   run of messages is dropped from the front of the buffer.  batch points
+   at cnt entries (payload+sz), in oldest-first order, each describing one
+   message's payload.  ctx is the value registered via
+   fd_circq_set_batch_evict_cb.  The callback MUST NOT push to, evict
+   from, or otherwise mutate the circq.
+
+   A single eviction may invoke the callback more than once: the run is
+   delivered in batches of at most FD_CIRCQ_EVICT_BATCH_MAX entries, and a
+   wrapping eviction is delivered as separate invocations per contiguous
+   run (a batch never straddles the buffer wrap). */
+
+typedef void
+(*fd_circq_batch_evict_cb_t)( void *                         ctx,
+                              fd_circq_evict_entry_t const * batch,
+                              ulong                          cnt );
+
 struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   /* Current count of elements in the queue. */
   ulong cnt;
@@ -45,6 +79,9 @@ struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   ulong cursor;          /* Current offset in buffer for iteration, or ULONG_MAX if at end */
   ulong cursor_seq;      /* Monotonic counter - cursor value for current position */
   ulong cursor_push_seq; /* Monotonic counter - incremented on each push */
+
+  fd_circq_batch_evict_cb_t batch_evict_cb;
+  void *                    batch_evict_ctx;
 
   struct {
     ulong drop_cnt;
@@ -107,7 +144,10 @@ fd_circq_cursor_advance( fd_circq_t * circq,
 /* fd_circq_pop_until removes messages from the front of the circular
    buffer up to and including the message with the given cursor value.
    Returns 0 on success, or -1 if the given cursor value is invalid
-   (i.e., larger than highest cursor value returned by cursor_advance). */
+   (i.e., larger than highest cursor value returned by cursor_advance).
+
+   The popped messages are also delivered oldest-first to the batch
+   eviction callback. */
 
 int
 fd_circq_pop_until( fd_circq_t * circq,
@@ -119,6 +159,13 @@ fd_circq_pop_until( fd_circq_t * circq,
 
 void
 fd_circq_reset_cursor( fd_circq_t * circq );
+
+/* fd_circq_cursor returns the current cursor.  The message returned by
+   fd_circq_cursor_advance will have a cursor of fd_circq_cursor()-1
+   until the cursor is advanced again. */
+
+FD_FN_PURE ulong
+fd_circq_cursor( fd_circq_t const * circq );
 
 /* fd_circq_bytes_used returns the total number of bytes currently used
    in the circular buffer, including message metadata and padding. */
@@ -133,6 +180,16 @@ fd_circq_bytes_used( fd_circq_t const * circq );
 
 ulong
 fd_circq_unsent_cnt( fd_circq_t const * circq );
+
+/* fd_circq_set_batch_evict_cb registers (or clears, when cb is NULL) the
+   batch eviction callback and its context (see
+   fd_circq_batch_evict_cb_t).  The callback is reset to none by
+   fd_circq_new. */
+
+void
+fd_circq_set_batch_evict_cb( fd_circq_t *              circq,
+                             fd_circq_batch_evict_cb_t cb,
+                             void *                    ctx );
 
 FD_PROTOTYPES_END
 

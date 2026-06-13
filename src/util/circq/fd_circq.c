@@ -15,6 +15,17 @@ struct __attribute__((aligned(8UL))) fd_circq_message_private {
 
 typedef struct fd_circq_message_private fd_circq_message_t;
 
+/* msg_payload returns a message->align-aligned pointer to the payload
+   bytes of message. */
+
+static inline uchar *
+msg_payload( fd_circq_t *         circq,
+             ulong                off,
+             fd_circq_message_t * message ) {
+  uchar * buf = (uchar *)(circq+1);
+  return buf + fd_ulong_align_up( off+sizeof( fd_circq_message_t ), message->align );
+}
+
 FD_FN_CONST ulong
 fd_circq_align( void ) {
   return FD_CIRCQ_ALIGN;
@@ -36,6 +47,8 @@ fd_circq_new( void * shmem,
   circq->cursor = ULONG_MAX;
   circq->cursor_seq = 0UL;
   circq->cursor_push_seq = 0UL;
+  circq->batch_evict_cb = NULL;
+  circq->batch_evict_ctx = NULL;
 
   memset( &circq->metrics, 0, sizeof( circq->metrics ) );
 
@@ -95,29 +108,58 @@ overrun_recover( fd_circq_t * circq ) {
   if( FD_UNLIKELY( circq->cursor_seq<=oldest_seq ) ) circq->cursor = ULONG_MAX;
 }
 
+/* evict_one_unrecorded drops the current head message, performing all the
+   per-message bookkeeping. */
+
+static void
+evict_one_unrecorded( fd_circq_t * circq ) {
+  uchar * buf = (uchar *)(circq+1);
+
+  fd_circq_message_t * head = (fd_circq_message_t *)(buf+circq->head);
+
+  circq->cnt--;
+  circq->metrics.drop_cnt++;
+  if( FD_LIKELY( !circq->cnt ) ) circq->head = circq->tail = 0UL;
+  else                           circq->head = head->next;
+  overrun_recover( circq );
+}
+
 static void
 evict( fd_circq_t * circq,
        ulong        from,
        ulong        to ) {
   uchar * buf = (uchar *)(circq+1);
 
+  fd_circq_evict_entry_t pending[ FD_CIRCQ_EVICT_BATCH_MAX ];
+  ulong                  pending_cnt = 0UL;
+  int                    have_cb     = !!circq->batch_evict_cb;
+
   for(;;) {
-    if( FD_UNLIKELY( !circq->cnt ) ) return;
+    if( FD_UNLIKELY( !circq->cnt ) ) break;
 
     fd_circq_message_t * head = (fd_circq_message_t *)(buf+circq->head);
 
     ulong start = circq->head;
     ulong end = fd_ulong_align_up( start + sizeof( fd_circq_message_t ), head->align ) + head->footprint;
 
-    if( FD_UNLIKELY( (start<to && end>from) ) ) {
-      circq->cnt--;
-      circq->metrics.drop_cnt++;
-      if( FD_LIKELY( !circq->cnt ) ) circq->head = circq->tail = 0UL;
-      else                           circq->head = head->next;
-      overrun_recover( circq );
-    } else {
-      break;
+    if( FD_LIKELY( !(start<to && end>from) ) ) break;
+
+    /* Flush a full batch before overflow. */
+    if( FD_UNLIKELY( have_cb ) ) {
+      if( FD_UNLIKELY( pending_cnt==FD_CIRCQ_EVICT_BATCH_MAX ) ) {
+        circq->batch_evict_cb( circq->batch_evict_ctx, pending, pending_cnt );
+        pending_cnt = 0UL;
+      }
+      pending[ pending_cnt ].payload = msg_payload( circq, circq->head, head );
+      pending[ pending_cnt ].sz      = head->footprint;
+      pending_cnt++;
     }
+
+    evict_one_unrecorded( circq );
+  }
+
+  if( FD_UNLIKELY( have_cb && pending_cnt ) ) {
+    circq->batch_evict_cb( circq->batch_evict_ctx, pending, pending_cnt );
   }
 }
 
@@ -149,14 +191,17 @@ fd_circq_push_back( fd_circq_t * circq,
     current = fd_ulong_align_up( fd_ulong_align_up( circq->tail+sizeof( fd_circq_message_t ), message->align )+message->footprint, alignof( fd_circq_message_t ) );
   }
 
-  if( FD_UNLIKELY( current+required>circq->size ) ) {
+  /* The end offset of a message placed at current */
+  ulong current_end = fd_ulong_align_up( current + sizeof( fd_circq_message_t ), align ) + footprint;
+
+  if( FD_UNLIKELY( current_end>circq->size ) ) {
     evict( circq, current, circq->size );
     evict( circq, 0UL, required );
 
     circq->tail = 0UL;
     if( FD_LIKELY( circq->cnt && message ) ) message->next = 0UL;
   } else {
-    evict( circq, current, current+required );
+    evict( circq, current, current_end );
 
     circq->tail = current;
     if( FD_LIKELY( circq->cnt && message ) ) message->next = current;
@@ -168,7 +213,7 @@ fd_circq_push_back( fd_circq_t * circq,
   next_message->footprint = footprint;
   next_message->next = ULONG_MAX;
   circq->cursor_push_seq++;
-  return (uchar *)(next_message+1);
+  return msg_payload( circq, circq->tail, next_message );
 }
 
 void
@@ -204,7 +249,7 @@ fd_circq_cursor_advance( fd_circq_t * circq,
   fd_circq_message_t * current_msg = (fd_circq_message_t *)(buf+circq->cursor);
   circq->cursor_seq++;
   if( FD_LIKELY( msg_sz ) ) *msg_sz = current_msg->footprint;
-  return (uchar *)(current_msg+1);
+  return msg_payload( circq, circq->cursor, current_msg );
 }
 
 int
@@ -217,17 +262,50 @@ fd_circq_pop_until( fd_circq_t * circq,
 
   ulong to_pop = fd_ulong_min( cursor-oldest_seq+1UL, circq->cnt );
 
+  /* Pop oldest-first, gathering the dropped payloads into batches
+     delivered to the eviction callback (if registered).  As in evict(),
+     a batch is flushed when it fills (FD_CIRCQ_EVICT_BATCH_MAX) and at
+     each buffer wrap, so a batch never straddles the wrap. */
+
   uchar * buf = (uchar *)(circq+1);
+
+  fd_circq_evict_entry_t pending[ FD_CIRCQ_EVICT_BATCH_MAX ];
+  ulong                  pending_cnt = 0UL;
+  int                    have_cb     = !!circq->batch_evict_cb;
+
   for( ulong i=0UL; i<to_pop; i++ ) {
     fd_circq_message_t * message = (fd_circq_message_t *)(buf+circq->head);
+    ulong next  = message->next;
+    int   wraps = next<circq->head; /* head about to wrap to a lower offset */
+
+    if( FD_UNLIKELY( have_cb ) ) {
+      if( FD_UNLIKELY( pending_cnt==FD_CIRCQ_EVICT_BATCH_MAX ) ) {
+        circq->batch_evict_cb( circq->batch_evict_ctx, pending, pending_cnt );
+        pending_cnt = 0UL;
+      }
+      pending[ pending_cnt ].payload = msg_payload( circq, circq->head, message );
+      pending[ pending_cnt ].sz      = message->footprint;
+      pending_cnt++;
+    }
+
     circq->cnt--;
 
     if( FD_UNLIKELY( !circq->cnt ) ) {
       circq->head = circq->tail = 0UL;
     } else {
-      circq->head = message->next;
+      circq->head = next;
       FD_TEST( circq->head<circq->size );
     }
+
+    /* Flush before crossing the wrap so a batch stays contiguous. */
+    if( FD_UNLIKELY( have_cb && wraps && pending_cnt ) ) {
+      circq->batch_evict_cb( circq->batch_evict_ctx, pending, pending_cnt );
+      pending_cnt = 0UL;
+    }
+  }
+
+  if( FD_UNLIKELY( have_cb && pending_cnt ) ) {
+    circq->batch_evict_cb( circq->batch_evict_ctx, pending, pending_cnt );
   }
 
   if( FD_UNLIKELY( !circq->cnt ) ) circq->cursor = ULONG_MAX;
@@ -238,6 +316,11 @@ fd_circq_pop_until( fd_circq_t * circq,
 void
 fd_circq_reset_cursor( fd_circq_t * circq ) {
   circq->cursor = ULONG_MAX;
+}
+
+ulong
+fd_circq_cursor( fd_circq_t const * circq ) {
+  return circq->cursor_seq;
 }
 
 ulong
@@ -257,4 +340,12 @@ ulong
 fd_circq_unsent_cnt( fd_circq_t const * circq ) {
   if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) return circq->cnt;
   return fd_ulong_min( circq->cursor_push_seq - circq->cursor_seq, circq->cnt );
+}
+
+void
+fd_circq_set_batch_evict_cb( fd_circq_t *              circq,
+                             fd_circq_batch_evict_cb_t cb,
+                             void *                    ctx ) {
+  circq->batch_evict_cb  = cb;
+  circq->batch_evict_ctx = ctx;
 }

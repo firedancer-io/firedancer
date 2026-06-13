@@ -2,8 +2,12 @@ ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_gui.h fd_gui_printf.h fd_gui_peers.h fd_gui_config_parse.h fd_gui_metrics.h)
 $(call add-objs,fd_gui fd_gui_printf fd_gui_peers fd_gui_config_parse fd_gui_tile generated/http_import_dist,fd_disco)
 $(OBJDIR)/obj/disco/gui/fd_gui_tile.o: book/public/fire.svg
+$(call add-hdrs,fd_gui_store_tmpl.c)
 $(call make-unit-test,test_live_table,test_live_table,fd_disco fd_util)
+$(call make-unit-test,test_gui_store,test_gui_store,fd_disco fd_util)
+$(call run-unit-test,test_gui_store)
 $(call make-fuzz-test,fuzz_config_parser,fuzz_config_parser,fd_disco fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_gui_store,fuzz_gui_store,fd_disco fd_util)
 
 src/disco/gui/dist_cmp/%.zst: src/disco/gui/dist/%
 	mkdir -p $(@D);
