@@ -110,6 +110,141 @@ expect_rpc_response( fd_rpc_tile_t * ctx,
   cJSON_Delete( got );
 }
 
+static int
+cstr_eq( char const * a, char const * b ) {
+  return fd_int_if( !a || !b, a==b, 0==strcmp( a, b ) );
+}
+
+static fd_http_server_response_t
+cors_request( fd_rpc_tile_t * ctx,
+              uchar           method,
+              char const *    path,
+              char const *    origin,
+              char const *    body ) {
+  struct fd_http_server_connection * conn = &ctx->http->conns[0];
+  conn->state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
+  conn->request_bytes          = (char *)( body ? body : "" );
+  conn->request_bytes_read     = body ? (ulong)strlen( body ) : 0UL;
+  conn->response._body_off     = 0UL;
+  conn->response._body_len     = 0UL;
+  conn->response_bytes_written = 0UL;
+
+  fd_http_server_request_t http_req = {
+    .method = method,
+    .path   = path,
+    .ctx    = ctx,
+    .headers = {
+      .content_type = "application/json",
+      .origin       = origin ? origin : "", /* server NUL-fills missing headers */
+    },
+    .post = {
+      .body     = (uchar const *)( body ? body : "" ),
+      .body_len = body ? strlen( body ) : 0UL,
+    },
+  };
+  return rpc_http_request( &http_req );
+}
+
+static void
+test_cors( fd_rpc_tile_t * ctx ) {
+  static char const allowlist[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ] = {
+    "https://explorer.example.com",
+    "http://127.0.0.1",
+  };
+  char const * good_origin = "http://127.0.0.1";
+  char const * bad_origin  = "https://evil.example.com";
+  char const * body        = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}";
+
+  /* ---- CORS disabled: no CORS headers, no origin rejection ---- */
+
+  ctx->cors_origin_cnt = 0UL;
+  ctx->cors_origin     = NULL;
+
+  {
+    /* A present, would-be-disallowed origin must NOT be rejected when
+       CORS is off, and no ACAO header should be emitted. */
+    fd_http_server_response_t res = cors_request( ctx, FD_HTTP_SERVER_METHOD_POST, "/", bad_origin, body );
+    FD_TEST( res.status==200 );
+    FD_TEST( res.access_control_allow_origin==NULL );
+
+    /* OPTIONS is not special-cased when CORS is off; it falls through to
+       the 405 path with the plain (no-OPTIONS) Allow set. */
+    fd_http_server_response_t opt = cors_request( ctx, FD_HTTP_SERVER_METHOD_OPTIONS, "/", NULL, NULL );
+    FD_TEST( opt.status==405 );
+    FD_TEST( cstr_eq( opt.allow, "GET, POST" ) );
+    FD_TEST( opt.access_control_allow_origin==NULL );
+  }
+
+  /* ---- CORS enabled ---- */
+
+  ctx->cors_origin_cnt = 2UL;
+  ctx->cors_origin     = allowlist;
+
+  /* (1) Allowed origin */
+  {
+    /* Preflight */
+    fd_http_server_response_t opt = cors_request( ctx, FD_HTTP_SERVER_METHOD_OPTIONS, "/", good_origin, NULL );
+    FD_TEST( opt.status==204 );
+    FD_TEST( cstr_eq( opt.access_control_allow_origin,  good_origin ) );
+    FD_TEST( cstr_eq( opt.access_control_allow_methods, "GET, POST, OPTIONS" ) );
+    FD_TEST( cstr_eq( opt.access_control_allow_headers, "Content-Type, Authorization" ) );
+    FD_TEST( opt.access_control_max_age==86400UL );
+
+    /* Actual POST is dispatched and the response carries ACAO */
+    fd_http_server_response_t res = cors_request( ctx, FD_HTTP_SERVER_METHOD_POST, "/", good_origin, body );
+    FD_TEST( res.status==200 );
+    FD_TEST( cstr_eq( res.access_control_allow_origin, good_origin ) );
+
+    /* GET /health is a valid simple request */
+    fd_http_server_response_t health = cors_request( ctx, FD_HTTP_SERVER_METHOD_GET, "/health", good_origin, NULL );
+    FD_TEST( health.status==200 );
+    FD_TEST( cstr_eq( health.access_control_allow_origin, good_origin ) );
+  }
+
+  /* (2) Disallowed origin */
+  {
+    /* Preflight from a disallowed origin gets a 204 with no allow
+       headers (browser will block the actual request). */
+    fd_http_server_response_t opt = cors_request( ctx, FD_HTTP_SERVER_METHOD_OPTIONS, "/", bad_origin, NULL );
+    FD_TEST( opt.status==204 );
+    FD_TEST( opt.access_control_allow_origin ==NULL );
+    FD_TEST( opt.access_control_allow_methods==NULL );
+    FD_TEST( opt.access_control_allow_headers==NULL );
+    FD_TEST( opt.access_control_max_age==0UL );
+
+    /* A simple POST from a disallowed origin must be rejected BEFORE
+       dispatch with 403, so side-effecting calls cannot run. */
+    fd_http_server_response_t res = cors_request( ctx, FD_HTTP_SERVER_METHOD_POST, "/", bad_origin, body );
+    FD_TEST( res.status==403 );
+    FD_TEST( res.access_control_allow_origin==NULL );
+  }
+
+  /* (3) Missing Origin header (non-browser clients like curl) */
+  {
+    /* No origin -> request is processed normally and no ACAO emitted. */
+    fd_http_server_response_t res = cors_request( ctx, FD_HTTP_SERVER_METHOD_POST, "/", NULL, body );
+    FD_TEST( res.status==200 );
+    FD_TEST( res.access_control_allow_origin==NULL );
+
+    fd_http_server_response_t health = cors_request( ctx, FD_HTTP_SERVER_METHOD_GET, "/health", NULL, NULL );
+    FD_TEST( health.status==200 );
+    FD_TEST( health.access_control_allow_origin==NULL );
+  }
+
+  /* 405 / Allow behavior: PUT is parsed but unsupported.  With CORS on
+     the Allow set advertises OPTIONS too.  A missing origin is not
+     rejected, so the 405 path is reached. */
+  {
+    fd_http_server_response_t res = cors_request( ctx, FD_HTTP_SERVER_METHOD_PUT, "/", NULL, "" );
+    FD_TEST( res.status==405 );
+    FD_TEST( cstr_eq( res.allow, "GET, POST, OPTIONS" ) );
+  }
+
+  /* Restore CORS-off state for any subsequent tests. */
+  ctx->cors_origin_cnt = 0UL;
+  ctx->cors_origin     = NULL;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -206,10 +341,22 @@ main( int     argc,
   FD_TEST( ctx->http->oring_sz );
   unprivileged_init( topo, tile );
 
+  /* Register a thread-local metrics region so that FD_MCNT_INC calls in
+     the dispatched RPC handlers (e.g. _getHealth) have a valid base
+     pointer.  The tile runtime normally does this; the unit test must do
+     it explicitly. */
+  void * metrics_mem = fd_wksp_alloc_laddr( wksp, FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( 0UL ), 1UL );
+  FD_TEST( metrics_mem );
+  fd_metrics_register( fd_metrics_new( metrics_mem, 0UL ) );
+
   expect_rpc_response( ctx,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
       "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32005,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":1}"
   );
+
+  /* -- CORS filtering: preflight, origin allow/deny, 405/Allow -- */
+
+  test_cors( ctx );
 
   /* -- getMultipleAccounts -- */
 

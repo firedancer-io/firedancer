@@ -549,22 +549,56 @@ read_conn_http( fd_http_server_t * http,
 
   char content_type_nul_terminated[ 128 ] = {0};
   char accept_encoding_nul_terminated[ 128 ] = {0};
+  char origin_nul_terminated[ 256 ] = {0};
+  int  content_type_seen   = 0;
+  int  origin_seen         = 0;
+  ulong accept_encoding_len = 0UL;
   for( ulong i=0UL; i<num_headers; i++ ) {
     if( FD_LIKELY( headers[ i ].name_len==12UL && !strncasecmp( headers[ i ].name, "Content-Type", 12UL ) ) ) {
+      /* RFC 9110 s8.3: a message must not contain more than one
+         Content-Type header. */
+      if( FD_UNLIKELY( content_type_seen ) ) {
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
       if( FD_UNLIKELY( headers[ i ].value_len>(sizeof(content_type_nul_terminated)-1UL) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
         return;
       }
-      memcpy( content_type_nul_terminated, headers[ i ].value, headers[ i ].value_len );
-      break;
+      fd_memcpy( content_type_nul_terminated, headers[ i ].value, headers[ i ].value_len );
+      content_type_seen = 1;
     }
 
     if( FD_LIKELY( headers[ i ].name_len==15UL && !strncasecmp( headers[ i ].name, "Accept-Encoding", 15UL ) ) ) {
-      if( FD_UNLIKELY( headers[ i ].value_len>(sizeof(accept_encoding_nul_terminated)-1UL) ) ) {
+      /* RFC 9110 s5.3: a recipient may combine multiple field lines
+         with the same name into one comma-separated list. */
+      ulong sep_len = fd_ulong_if( !!accept_encoding_len, 2UL, 0UL ); /* ", " between entries */
+      if( FD_UNLIKELY( accept_encoding_len+sep_len+headers[ i ].value_len>(sizeof(accept_encoding_nul_terminated)-1UL) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
         return;
       }
-      memcpy( accept_encoding_nul_terminated, headers[ i ].value, headers[ i ].value_len );
+      if( FD_UNLIKELY( sep_len ) ) {
+        accept_encoding_nul_terminated[ accept_encoding_len     ] = ',';
+        accept_encoding_nul_terminated[ accept_encoding_len+1UL ] = ' ';
+        accept_encoding_len += sep_len;
+      }
+      fd_memcpy( accept_encoding_nul_terminated+accept_encoding_len, headers[ i ].value, headers[ i ].value_len );
+      accept_encoding_len += headers[ i ].value_len;
+    }
+
+    if( FD_LIKELY( headers[ i ].name_len==6UL && !strncasecmp( headers[ i ].name, "Origin", 6UL ) ) ) {
+      /* RFC 6454 s7.1: the Origin header must not occur more than once.
+         Reject duplicates rather than silently using the last one. */
+      if( FD_UNLIKELY( origin_seen ) ) {
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
+      if( FD_UNLIKELY( headers[ i ].value_len>(sizeof(origin_nul_terminated)-1UL) ) ) {
+        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+        return;
+      }
+      fd_memcpy( origin_nul_terminated, headers[ i ].value, headers[ i ].value_len );
+      origin_seen = 1;
     }
   }
 
@@ -662,6 +696,7 @@ read_conn_http( fd_http_server_t * http,
 
     .headers.content_type       = content_type_nul_terminated,
     .headers.accept_encoding    = accept_encoding_nul_terminated,
+    .headers.origin             = origin_nul_terminated,
     .headers.compress_websocket = compress_websocket,
     .headers.upgrade_websocket  = conn->upgrade_websocket,
   };
@@ -893,6 +928,9 @@ write_conn_http( fd_http_server_t * http,
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 400 Bad Request\r\nContent-Length: %lu\r\n", body_len ) );
           break;
         }
+        case 403:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n" ) );
+          break;
         case 404:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n" ) );
           break;
@@ -927,10 +965,21 @@ write_conn_http( fd_http_server_t * http,
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_encoding_len, "Content-Encoding: %s\r\n", conn->response.content_encoding ) );
         response_len += content_encoding_len;
       }
+      if( FD_LIKELY( conn->response.allow ) ) {
+        ulong allow_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &allow_len, "Allow: %s\r\n", conn->response.allow ) );
+        response_len += allow_len;
+      }
       if( FD_LIKELY( conn->response.access_control_allow_origin ) ) {
         ulong access_control_allow_origin_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &access_control_allow_origin_len, "Access-Control-Allow-Origin: %s\r\n", conn->response.access_control_allow_origin ) );
         response_len += access_control_allow_origin_len;
+
+        if( FD_LIKELY( strcmp( conn->response.access_control_allow_origin, "*" ) ) ) {
+          ulong vary_len;
+          FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &vary_len, "Vary: Origin\r\n" ) );
+          response_len += vary_len;
+        }
       }
       if( FD_LIKELY( conn->response.access_control_allow_methods ) ) {
         ulong access_control_allow_methods_len;

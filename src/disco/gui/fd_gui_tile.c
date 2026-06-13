@@ -25,6 +25,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/fd_clock_tile.h"
+#include "../../waltz/http/fd_http.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
@@ -123,6 +124,9 @@ typedef struct {
   } parsed;
 
   fd_http_server_t * gui_server;
+
+  ulong       cors_origin_cnt;
+  char const  (*cors_origin)[ FD_HTTP_CORS_ORIGIN_SZ ];
 
   long next_poll_deadline;
 
@@ -494,13 +498,33 @@ after_frag( fd_gui_ctx_t *      ctx,
 
 static fd_http_server_response_t
 gui_http_request( fd_http_server_request_t const * request ) {
+  fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)request->ctx;
+
+  char const * allow_origin = fd_http_cors_match_origin( ctx->cors_origin, ctx->cors_origin_cnt, request->headers.origin );
+
+  if( FD_UNLIKELY( ctx->cors_origin_cnt && request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) ) {
+    return (fd_http_server_response_t){
+      .status                       = 204,
+      .access_control_allow_origin  = allow_origin,
+      .access_control_allow_methods = allow_origin ? "GET, OPTIONS" : NULL,
+      .access_control_max_age       = allow_origin ? 86400UL : 0UL,
+    };
+  }
+
   if( FD_UNLIKELY( request->method!=FD_HTTP_SERVER_METHOD_GET ) ) {
     return (fd_http_server_response_t){
-      .status = 405,
+      .status                      = 405,
+      .allow                       = ctx->cors_origin_cnt ? "GET, OPTIONS" : "GET",
+      .access_control_allow_origin = allow_origin,
     };
   }
 
   if( FD_LIKELY( !strcmp( request->path, "/websocket" ) ) ) {
+    if( FD_UNLIKELY( ctx->cors_origin_cnt && request->headers.origin && request->headers.origin[ 0 ] && !allow_origin ) ) {
+      return (fd_http_server_response_t){
+        .status = 403,
+      };
+    }
     return (fd_http_server_response_t){
       .status            = 200,
       .upgrade_websocket = 1,
@@ -509,6 +533,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
 #else
       .compress_websocket = 0,
 #endif
+      .access_control_allow_origin = allow_origin,
     };
   } else if( FD_LIKELY( !strcmp( request->path, "/favicon.svg" ) ) ) {
     return (fd_http_server_response_t){
@@ -517,6 +542,7 @@ gui_http_request( fd_http_server_request_t const * request ) {
       .static_body_len   = firedancer_svg_sz,
       .content_type      = "image/svg+xml",
       .upgrade_websocket = 0,
+      .access_control_allow_origin = allow_origin,
     };
   }
 
@@ -582,12 +608,14 @@ gui_http_request( fd_http_server_request_t const * request ) {
         .cache_control     = cache_control,
         .content_encoding  = content_encoding,
         .upgrade_websocket = 0,
+        .access_control_allow_origin = allow_origin,
       };
     }
   }
 
   return (fd_http_server_response_t){
     .status            = 404,
+    .access_control_allow_origin = allow_origin,
   };
 }
 
@@ -683,6 +711,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   ctx->topo = topo;
+  ctx->cors_origin_cnt = tile->gui.access_control_allow_origin_cnt;
+  ctx->cors_origin = tile->gui.access_control_allow_origin;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, fd_clock_tile_now( ctx->clock ) ) );
   /* The accounts database is a full-client (Firedancer) feature only.
      Frankendancer has no accdb, so its topology leaves accdb_obj_id

@@ -457,6 +457,8 @@ struct fd_config {
     struct {
       char   prometheus_listen_address[ 16 ];
       ushort prometheus_listen_port;
+      ulong  access_control_allow_origin_cnt;
+      char   access_control_allow_origin[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ];
     } metric;
 
     struct {
@@ -471,6 +473,8 @@ struct fd_config {
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  access_control_allow_origin_cnt;
+      char   access_control_allow_origin[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ];
     } gui;
 
     struct {
@@ -481,6 +485,8 @@ struct fd_config {
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
       int    delay_startup;
+      ulong  access_control_allow_origin_cnt;
+      char   access_control_allow_origin[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ];
     } rpc;
 
     struct {

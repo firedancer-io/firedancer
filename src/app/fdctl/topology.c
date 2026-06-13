@@ -549,6 +549,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
       FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
     tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+    tile->metric.access_control_allow_origin_cnt = config->tiles.metric.access_control_allow_origin_cnt;
+    fd_memcpy( tile->metric.access_control_allow_origin, config->tiles.metric.access_control_allow_origin, sizeof(tile->metric.access_control_allow_origin) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
 
@@ -567,6 +569,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = config->development.gui.websocket_compression;
     tile->gui.accdb_obj_id              = ULONG_MAX;
+    tile->gui.access_control_allow_origin_cnt = config->tiles.gui.access_control_allow_origin_cnt;
+    fd_memcpy( tile->gui.access_control_allow_origin, config->tiles.gui.access_control_allow_origin, sizeof(tile->gui.access_control_allow_origin) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 

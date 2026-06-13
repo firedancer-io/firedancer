@@ -1559,6 +1559,13 @@ telemetry = true
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
+        # List of origins allowed to make cross-origin (CORS) requests
+        # to the HTTP server.  When empty (the default) no CORS headers
+        # are sent, and some (not all) browsers will block cross-origin
+        # requests.  Each entry must be a full origin like
+        # "https://example.com".  The entry "*" allows any origin.
+        access_control_allow_origin = []
+
     # The event tile captures significant events from the system and
     # reports them a remote collection server for analysis.  Whether
     # event reporting is enabled or not is controlled by the top level
@@ -1615,6 +1622,13 @@ telemetry = true
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
 
+        # List of origins allowed to make cross-origin (CORS) requests
+        # to the HTTP server.  When empty (the default) no CORS headers
+        # are sent, and some (not all) browsers will block cross-origin
+        # requests.  Each entry must be a full origin like
+        # "https://example.com".  The entry "*" allows any origin.
+        access_control_allow_origin = []
+
     [tiles.rpc]
         # If the RPC server is enabled.
         enabled = true
@@ -1658,6 +1672,13 @@ telemetry = true
         # RPC to serve a subset of calls even when snapshots are
         # loading.
         delay_startup = true
+
+        # List of origins allowed to make cross-origin (CORS) requests
+        # to the HTTP server.  When empty (the default) no CORS headers
+        # are sent, and some (not all) browsers will block cross-origin
+        # requests.  Each entry must be a full origin like
+        # "https://example.com".  The entry "*" allows any origin.
+        access_control_allow_origin = []
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
