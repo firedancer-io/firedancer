@@ -502,6 +502,19 @@ def generate_c_source(schemas: List[Schema]) -> str:
             "  fd_pb_push_uint64( encoder, 2U, event_id );",
             "  fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );",
             "",
+        ]
+        # Bound the variable-length fields against the generated struct
+        # capacity before any encoder loop dereferences them, so a caller that
+        # sets *_len / *_cnt above capacity is caught rather than reading OOB.
+        bound_checks = []
+        for name, f in s.fields.items():
+            if f.chtype in (ClickHouseType.Bytes, ClickHouseType.String):
+                bound_checks.append(f"  FD_TEST( msg->{name}_len<={f.max_len}UL );")
+            elif f.chtype == ClickHouseType.Array:
+                bound_checks.append(f"  FD_TEST( msg->{name}_cnt<={f.max_len}UL );")
+        if bound_checks:
+            lines += bound_checks + [""]
+        lines += [
             "  fd_pb_submsg_open( encoder, 4U ); /* Event */",
             f"  fd_pb_submsg_open( encoder, {s.id}U ); /* {to_pascal_case(s.name)} */",
         ]
@@ -553,6 +566,7 @@ def main() -> None:
     print(f"Protobuf generated successfully from {len(schemas)} schemas")
 
     gen_dir = Path(__file__).parent / "generated"
+    gen_dir.mkdir(exist_ok=True)
     (gen_dir / "fd_event_gen.h").write_text(generate_c_header(schemas))
     (gen_dir / "fd_event_gen.c").write_text(generate_c_source(schemas))
     eligible = [s.name for s in schemas if schema_is_supported(s)]

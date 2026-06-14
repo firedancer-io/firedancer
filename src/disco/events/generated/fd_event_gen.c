@@ -20,6 +20,9 @@ fd_event_signed_vote_serialize( fd_circq_t *                   circq,
   fd_pb_push_uint64( encoder, 2U, event_id );
   fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
 
+  FD_TEST( msg->signed_txn_len<=1232UL );
+  FD_TEST( msg->tower_cnt<=31UL );
+
   fd_pb_submsg_open( encoder, 4U ); /* Event */
   fd_pb_submsg_open( encoder, 3U ); /* SignedVote */
   if( msg->signed_txn_len ) fd_pb_push_bytes ( encoder, 1U, msg->signed_txn, msg->signed_txn_len );
