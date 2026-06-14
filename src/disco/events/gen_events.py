@@ -347,7 +347,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
         "#ifndef HEADER_fd_src_disco_events_generated_fd_event_gen_h",
         "#define HEADER_fd_src_disco_events_generated_fd_event_gen_h",
         "",
-        '#include "../fd_circq.h"',
+        '#include "../../../util/circq/fd_circq.h"',
         '#include "../fd_event_client.h"',
         '#include "../fd_event_report.h"',
         "",

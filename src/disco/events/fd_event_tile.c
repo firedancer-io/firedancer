@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#include "fd_circq.h"
 #include "fd_event_client.h"
 
 #include "../fd_txn_m.h"
@@ -13,6 +12,7 @@
 #include "../topo/fd_topo.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
+#include "../../util/circq/fd_circq.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../tango/tempo/fd_tempo.h"

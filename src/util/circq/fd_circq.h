@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_events_fd_circq_h
-#define HEADER_fd_src_disco_events_fd_circq_h
+#ifndef HEADER_fd_src_util_circq_fd_circq_h
+#define HEADER_fd_src_util_circq_fd_circq_h
 
 /* The circular buffer is a structure, which stores a queue of messages,
    supporting two operations: push_back and pop_front.  Unlike a regular
@@ -26,7 +26,7 @@
    the next message in the queue, and head, tail are the head and tail
    of the queue respectively. */
 
-#include "../../util/fd_util_base.h"
+#include "../fd_util_base.h"
 
 #define FD_CIRCQ_ALIGN (4096UL)
 
@@ -136,4 +136,4 @@ fd_circq_unsent_cnt( fd_circq_t const * circq );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_disco_events_fd_circq_h */
+#endif /* HEADER_fd_src_util_circq_fd_circq_h */

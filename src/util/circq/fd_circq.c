@@ -1,6 +1,6 @@
 #include "fd_circq.h"
 
-#include "../../util/log/fd_log.h"
+#include "../log/fd_log.h"
 
 struct __attribute__((aligned(8UL))) fd_circq_message_private {
   ulong align;

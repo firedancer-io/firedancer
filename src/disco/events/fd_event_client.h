@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_disco_events_fd_event_client_h
 #define HEADER_fd_src_disco_events_fd_event_client_h
 
-#include "fd_circq.h"
+#include "../../util/circq/fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 
