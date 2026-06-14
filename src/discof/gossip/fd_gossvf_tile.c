@@ -835,7 +835,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   uchar failed[ FD_GOSSIP_MESSAGE_MAX_CRDS ] = {0};
 
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
-    int has_staked_node = ctx->stake.count>0UL;
+    int stakes_loaded = ctx->stake.count>0UL;
     for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
       fd_gossip_value_t const * value = &message->pull_response->values[ i ];
 
@@ -850,7 +850,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
       } else {
         stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)value->origin, NULL, ctx->stake.pool );
         ulong origin_stake = entry ? entry->stake : 0UL;
-        if( !origin_stake && has_staked_node ) accept_after_nanos = now-15L*1000L*1000L*1000L;
+        if( !origin_stake && stakes_loaded ) accept_after_nanos = now-15L*1000L*1000L*1000L;
         else                                   accept_after_nanos = now-432000L*400L*1000L*1000L;
       }
 
