@@ -1137,21 +1137,19 @@ write_conn_ws( fd_http_server_t * http,
     out_idx++;
   }
 
-  struct mmsghdr msg = {0};
-  msg.msg_hdr.msg_iov = iovecs;
-  msg.msg_hdr.msg_iovlen = out_idx;
+  struct msghdr msg = {0};
+  msg.msg_iov = iovecs;
+  msg.msg_iovlen = out_idx;
 
-  int result = sendmmsg( http->pollfds[ conn_idx ].fd, &msg, 1U, MSG_NOSIGNAL );
-  if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) return; /* No data was written, continue. */
-  else if( FD_UNLIKELY( -1==result && is_expected_network_error( errno ) ) ) {
+  long sz = sendmsg( http->pollfds[ conn_idx ].fd, &msg, MSG_NOSIGNAL );
+  if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
+  else if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
     return;
   }
-  else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, fd_io_strerror( errno ) )); /* Unexpected programmer error, abort */
+  else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "write failed (%i-%s)", errno, fd_io_strerror( errno ) )); /* Unexpected programmer error, abort */
 
-  FD_TEST( result==1 );
-
-  ulong sent = (ulong)msg.msg_len;
+  ulong sent = (ulong)sz;
   http->metrics.bytes_written += sent;
 
   for( ulong i=0UL; i<out_idx; i++ ) {
