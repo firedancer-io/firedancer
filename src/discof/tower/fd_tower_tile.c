@@ -620,9 +620,17 @@ publish_slot_done( fd_tower_tile_t *            ctx,
                  found_authority &&
                  identity_matches &&
                  !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
+    /* The reason to use a historical blockhash and not the most recent
+       one is because if a vote txn lands on another validator, they
+       may not have finished processing the slot and therefore the
+       newest blockhash may not be available to the leader yet; this is
+       especially true for the first leader block in a rotation. */
     msg->has_vote_txn = 1;
-    fd_txn_p_t          txn[1];
-    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, &out->vote_block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
+    fd_txn_p_t       txn[1];
+    fd_tower_blk_t * parent_tower_blk = fd_tower_blocks_query( ctx->tower, slot_completed->parent_slot );
+    FD_TEST( parent_tower_blk );
+    fd_hash_t const * recent_blockhash = &parent_tower_blk->block_hash;
+    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, recent_blockhash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
@@ -1271,7 +1279,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( ctx->tower,      ctx->ghost,          ctx->votes,
                                        &out.reset_slot, &out.reset_block_id,
-                                       &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash, &out.vote_block_hash,
+                                       &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
                                        &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) { /* if there is a vote slot we record it. */
     fd_tower_blk_t * vote_tower_blk = fd_tower_blocks_query( ctx->tower, out.vote_slot );

@@ -104,20 +104,23 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( ctx->publishes );
 
   ctx->tower->root = 0UL;
+  fd_tower_blk_t * parent_blk = fd_tower_blocks_insert( ctx->tower, 0UL, ULONG_MAX );
+  FD_TEST( parent_blk );
+  parent_blk->block_hash = (fd_hash_t){ .ul = { 0x66UL } };
   fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot = 1UL, .conf = 1UL } );
 
   fd_replay_slot_completed_t sc;
   memset( &sc, 0, sizeof(sc) );
-  sc.slot     = 1UL;
-  sc.epoch    = 0UL;
-  sc.bank_idx = 123UL;
+  sc.slot        = 1UL;
+  sc.parent_slot = 0UL;
+  sc.epoch       = 0UL;
+  sc.bank_idx    = 123UL;
 
   fd_tower_out_t out;
   memset( &out, 0, sizeof(out) );
   out.vote_slot       = 1UL;
   out.vote_block_id   = (fd_hash_t){ .ul = { 0x33UL } };
   out.vote_bank_hash  = (fd_hash_t){ .ul = { 0x44UL } };
-  out.vote_block_hash = (fd_hash_t){ .ul = { 0x55UL } };
   out.reset_slot      = ULONG_MAX;
   out.root_slot       = ULONG_MAX;
 
@@ -313,6 +316,46 @@ test_count_vote_txn( void ) {
   }
 
   FD_LOG_NOTICE(( "pass: test_count_vote_txn_tower_checks" ));
+}
+
+static void
+test_parent_vote_txn_recent_blockhash( void ) {
+  static fd_tower_tile_t ctx[1];
+  static uchar tower_mem[ 1UL<<20 ] __attribute__((aligned(128)));
+  memset( ctx, 0, sizeof(ctx) );
+  ctx->tower = fd_tower_join( fd_tower_new( tower_mem, 32UL, 1UL, 0UL ) );
+  FD_TEST( ctx->tower );
+
+  fd_tower_blk_t * parent_blk = fd_tower_blocks_insert( ctx->tower, 103UL, 102UL );
+  FD_TEST( parent_blk );
+  parent_blk->block_hash = (fd_hash_t){ .ul = { 1103UL } };
+
+  fd_tower_blk_t * root_blk = fd_tower_blocks_insert( ctx->tower, 104UL, 103UL );
+  FD_TEST( root_blk );
+  root_blk->block_hash = (fd_hash_t){ .ul = { 1104UL } };
+  ctx->tower->root = 104UL;
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot = 120UL, .conf = 1UL } );
+
+  fd_replay_slot_completed_t slot_completed = {0};
+  slot_completed.parent_slot = 103UL;
+  fd_hash_t bank_hash          = { .ul = { 0xAAUL } };
+  fd_hash_t block_id           = { .ul = { 0xBBUL } };
+  fd_pubkey_t validator_identity = { .ul = { 0x11UL } };
+  fd_pubkey_t vote_acc           = { .ul = { 0x22UL } };
+  fd_txn_p_t txnp[1];
+
+  fd_tower_blk_t *  recent_blockhash_blk = fd_tower_blocks_query( ctx->tower, slot_completed.parent_slot );
+  FD_TEST( recent_blockhash_blk );
+  fd_hash_t const * recent_blockhash = fd_type_pun_const( recent_blockhash_blk->block_hash.uc );
+  fd_tower_to_vote_txn( ctx->tower, &bank_hash, &block_id, recent_blockhash, &validator_identity, &validator_identity, &vote_acc, txnp );
+
+  uchar txn_mem[ FD_TXN_MAX_SZ ];
+  ulong parse_result = fd_txn_parse_core( txnp->payload, txnp->payload_sz, txn_mem, NULL, NULL );
+  FD_TEST( parse_result>0UL );
+  fd_txn_t const * txn = (fd_txn_t const *)txn_mem;
+  FD_TEST( 0==memcmp( fd_txn_get_recent_blockhash( txn, txnp->payload ), &parent_blk->block_hash, sizeof(fd_hash_t) ) );
+
+  FD_LOG_NOTICE(( "pass: test_parent_vote_txn_recent_blockhash" ));
 }
 
 /* ---- test_fixture_replay ---- */
@@ -827,6 +870,7 @@ main( int     argc,
 
   test_publish_slot_done_identity_mismatch();
   test_count_vote_txn();
+  test_parent_vote_txn_recent_blockhash();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );
