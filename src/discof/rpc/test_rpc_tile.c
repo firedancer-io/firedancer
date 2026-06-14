@@ -120,6 +120,7 @@ expect_ws_rpc_response( fd_rpc_tile_t * ctx,
                         char const *    rpc_res ) {
   struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ ws_conn_id ];
   ulong prev_send_frame_cnt = conn->send_frame_cnt;
+  ulong prev_stage_off      = ctx->http->stage_off;
 
   ctx->http->pollfds[ ctx->http->max_conns+ws_conn_id ].fd = 0;
   rpc_ws_message( ws_conn_id, (uchar const *)rpc_req, strlen( rpc_req ), ctx );
@@ -129,6 +130,8 @@ expect_ws_rpc_response( fd_rpc_tile_t * ctx,
   ulong frame_idx = (conn->send_frame_idx+conn->send_frame_cnt-1UL) % ctx->http->max_ws_send_frame_cnt;
   fd_http_server_ws_frame_t const * frame = &conn->send_frames[ frame_idx ];
   FD_TEST( !frame->compressed );
+  FD_TEST( frame->off==prev_stage_off );
+  FD_TEST( ctx->http->stage_off==prev_stage_off+frame->len );
   uchar const * got_json    = ctx->http->oring + (frame->off % ctx->http->oring_sz);
   ulong         got_json_sz = frame->len;
 

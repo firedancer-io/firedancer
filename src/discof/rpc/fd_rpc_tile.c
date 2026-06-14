@@ -2295,8 +2295,15 @@ rpc_ws_message( ulong         ws_conn_id,
   }
 
   if( FD_LIKELY( response._body_len ) ) {
-    fd_http_server_memcpy( ctx->http, ctx->http->oring+(response._body_off%ctx->http->oring_sz), response._body_len );
-    if( FD_UNLIKELY( fd_http_server_ws_send( ctx->http, ws_conn_id ) ) )
+    ulong response_body_end = response._body_off + response._body_len;
+
+    ctx->http->stage_off      = response._body_off;
+    ctx->http->stage_len      = response._body_len;
+    ctx->http->stage_comp_len = 0UL;
+
+    int err = fd_http_server_ws_send( ctx->http, ws_conn_id );
+    if( FD_UNLIKELY( ctx->http->stage_off<response_body_end ) ) ctx->http->stage_off = response_body_end;
+    if( FD_UNLIKELY( err ) )
       fd_http_server_ws_close( ctx->http, ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW );
   }
 }
