@@ -83,6 +83,13 @@ fd_accdb_shmem_new( void * shmem,
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );
 
+/* fd_accdb_shmem_set_has_accdb_tile marks that an accdb tile is
+   servicing commands on this shmem instance.  Must be called by the
+   accdb tile during init so that fd_accdb_reset can decide whether
+   to post FD_ACCDB_CMD_CLEAR_DEFERRED. */
+void
+fd_accdb_shmem_set_has_accdb_tile( fd_accdb_shmem_t * accdb );
+
 void
 fd_accdb_shmem_bytes_freed( fd_accdb_shmem_t * accdb,
                             ulong              offset,

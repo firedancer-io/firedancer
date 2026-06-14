@@ -369,6 +369,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->max_accounts     = max_accounts;
   accdb->max_account_writes_per_slot = max_account_writes_per_slot;
   accdb->joiner_cnt_max   = joiner_cnt;
+  accdb->cache_min_reserved = cache_min_reserved;
   accdb->partition_cnt    = partition_cnt;
   accdb->partition_sz     = partition_sz;
   accdb->partition_max    = 0UL;
@@ -424,8 +425,9 @@ fd_accdb_shmem_new( void * shmem,
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
   accdb->shmetrics->accounts_capacity = max_accounts;
 
-  accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
-  accdb->cmd_fork_id = USHORT_MAX;
+  accdb->cmd_op         = FD_ACCDB_CMD_IDLE;
+  accdb->cmd_fork_id    = USHORT_MAX;
+  accdb->has_accdb_tile = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->magic ) = FD_ACCDB_SHMEM_MAGIC;
@@ -472,6 +474,11 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
   compaction_dlist_ele_push_tail( compaction_dlist, partition, partition_pool );
   accdb->shmetrics->in_compaction = 1;
   accdb->shmetrics->compactions_requested++;
+}
+
+void
+fd_accdb_shmem_set_has_accdb_tile( fd_accdb_shmem_t * accdb ) {
+  accdb->has_accdb_tile = 1;
 }
 
 void
