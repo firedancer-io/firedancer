@@ -132,9 +132,7 @@
 #define SET_POP_LSB FD_EXPAND_THEN_CONCAT3(fd_,SET_TYPE,_pop_lsb)
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
@@ -169,17 +167,13 @@ FD_FN_CONST static inline int SET_(valid_idx)( SET_IDX_T i ) { return ((ulong)(l
 
 FD_FN_CONST static inline SET_(t)
 SET_(ele)( SET_IDX_T i ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( i ) ) ) FD_LOG_CRIT(( "invalid index" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( i ), "invalid index" );
   return (SET_(t))(((SET_(t))1) << i);
 }
 
 FD_FN_CONST static inline SET_(t)
 SET_(ele_if)( int c, SET_IDX_T i ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( i ) ) ) FD_LOG_CRIT(( "invalid index" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( i ), "invalid index" );
   return (SET_(t))(((SET_(t))!!c) << i);
 }
 
@@ -193,9 +187,7 @@ FD_FN_CONST static inline int SET_(is_full)  ( SET_(t)   x ) { return x==SET_(fu
 
 FD_FN_CONST static inline int
 SET_(test) ( SET_(t) x, SET_IDX_T i ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !SET_(valid_idx)( i ) ) ) FD_LOG_CRIT(( "invalid index" ));
-# endif
+  FD_DCHECK_CRIT( SET_(valid_idx)( i ), "invalid index" );
   return (int)((x>>i) & ((SET_(t))1));
 }
 
@@ -225,11 +217,9 @@ FD_FN_CONST static inline SET_(t) SET_(insert_if)( int c, SET_(t) x, SET_IDX_T i
 FD_FN_CONST static inline SET_(t) SET_(remove_if)( int c, SET_(t) x, SET_IDX_T i ) { return x & (SET_(t))~SET_(ele_if)(c,i); }
 
 FD_FN_CONST static inline SET_(t) SET_(range)( SET_IDX_T l, SET_IDX_T h ) {
-# if FD_TMPL_USE_HANDHOLDING
   /* Note: the 0<=l test is commented because compilers make babies cry
      with superfluous warnings when SET_IDX_T is an unsigned type. */
-  if( FD_UNLIKELY( !( /*(((SET_(t))0)<=l) &*/ (l<=h) & (h<=SET_(max)()) ) ) ) FD_LOG_CRIT(( "invalid range" ));
-# endif
+  FD_DCHECK_CRIT( /*(((SET_(t))0)<=l) &*/ (l<=h) & (h<=SET_(max)()), "invalid range" );
   /* Compute (2^h) - (2^l) == ones for bits [l,h), with no UB in the
      case where l and/or h == BIT_CNT */
   return (SET_(t))( (((SET_(t))(h<=(SET_IDX_T)SET_(PRIVATE_IDX_MASK))) << (h & (SET_IDX_T)SET_(PRIVATE_IDX_MASK)))
