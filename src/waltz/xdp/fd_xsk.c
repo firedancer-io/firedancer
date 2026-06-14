@@ -6,7 +6,9 @@
 
 #include <errno.h>
 #include <stdio.h> /* snprintf */
+#include <string.h> /* strcmp */
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/mman.h> /* mmap */
 #include <sys/types.h>
 #include <sys/socket.h> /* sendto */
@@ -14,6 +16,24 @@
 
 #include "../../util/log/fd_log.h"
 #include "fd_xsk.h"
+
+/* Support for older kernels */
+
+#ifndef SO_BUSY_POLL
+#define SO_BUSY_POLL 46
+#endif
+
+#ifndef SO_INCOMING_NAPI_ID
+#define SO_INCOMING_NAPI_ID	56
+#endif
+
+#ifndef SO_PREFER_BUSY_POLL
+#define SO_PREFER_BUSY_POLL	69
+#endif
+
+#ifndef SO_BUSY_POLL_BUDGET
+#define SO_BUSY_POLL_BUDGET	70
+#endif
 
 /* Join/leave *********************************************************/
 
@@ -187,6 +207,57 @@ fd_xsk_setup_umem( fd_xsk_t *              xsk,
   return 0;
 }
 
+/* fd_xsk_setup_poll: Setup preferred busy polling if the user has
+   set that to be their preferred polling method */
+
+static void
+fd_xsk_setup_poll( fd_xsk_t *              xsk,
+                   fd_xsk_params_t const * params ) {
+  xsk->prefbusy_poll_enabled = 0;
+  if( 0!=strcmp( params->poll_mode, "prefbusy" ) ) return;
+
+  /* Configure socket options for preferred busy polling */
+
+  int prefbusy_poll = 1;
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &prefbusy_poll, sizeof(int) ) ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_PREFER_BUSY_POLL,1) failed (%i-%s)", err, fd_io_strerror( err ) ));
+    if( err==EINVAL ) {
+      FD_LOG_WARNING(( "Hint: Does your kernel support preferred busy polling? SO_PREFER_BUSY_POLL is available from Linux 5.11 onwards" ));
+    }
+    return;
+  }
+
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL, &params->prefbusy_timebudget_micros, sizeof(uint) ) ) ) {
+    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL,%u) failed (%i-%s)",
+                     params->prefbusy_timebudget_micros, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL_BUDGET, &params->prefbusy_rx_budget, sizeof(uint) ) ) ) {
+    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL_BUDGET,%u) failed (%i-%s)",
+                     params->prefbusy_rx_budget , errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  /* Set socket non blocking */
+
+  int sk_flags = fcntl( xsk->xsk_fd, F_GETFL, 0 );
+  if( FD_UNLIKELY( -1==sk_flags ) ) {
+    FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_GETFL, 0) failed (%i-%s)",
+                     errno, fd_io_strerror( errno ) ));
+    return;
+  }
+  if( FD_UNLIKELY( -1==fcntl( xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK ) ) ) {
+    FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK) failed (%i-%s)",
+                     errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  /* Successfully finished setting up prefbusy polling */
+  xsk->prefbusy_poll_enabled = 1U;
+}
+
 /* fd_xsk_init: Creates and configures an XSK socket object, and
    attaches to a preinstalled XDP program.  The various steps are
    implemented in fd_xsk_setup_{...}. */
@@ -288,6 +359,10 @@ fd_xsk_init( fd_xsk_t *              xsk,
 
   FD_LOG_INFO(( "AF_XDP socket initialized: bind( PF_XDP, ifindex=%u (%s), queue_id=%u, flags=%x ) success",
                 xsk->if_idx, if_indextoname( xsk->if_idx, if_name ), xsk->if_queue_id, flags ));
+
+  /* If requested, enable preferred busy polling */
+
+  fd_xsk_setup_poll( xsk, params );
 
   return xsk;
 
