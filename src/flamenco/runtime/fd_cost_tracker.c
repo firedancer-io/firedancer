@@ -115,29 +115,50 @@ fd_cost_tracker_join( void * shct ) {
   return cost_tracker->cost_tracker;
 }
 
-void
-fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
-                      fd_features_t const * features,
-                      ulong                 slot ) {
-  if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0286;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  } else if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_60m ) ) {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0256;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  } else {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0207;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
+struct slot_cost_limits {
+  ulong account_cost_limit;
+  ulong block_cost_limit;
+  ulong data_size_limit;
+};
+typedef struct slot_cost_limits slot_cost_limits_t;
+
+static slot_cost_limits_t
+slot_params_cost_limits( fd_slot_params_t const * params,
+                         int                      raise_block_limits_to_100m ) {
+  ulong account = params->max_writable_account_units;
+  ulong block   = params->max_block_units;
+  if( raise_block_limits_to_100m ) {
+    account = fd_ulong_sat_mul( account, 100UL ) / 60UL;
+    block   = fd_ulong_sat_mul( block,   100UL ) / 60UL;
   }
+  return (slot_cost_limits_t){
+    .account_cost_limit = account,
+    .block_cost_limit   = block,
+    .data_size_limit    = params->max_block_accounts_data_size_delta,
+  };
+}
+
+void
+fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
+                      fd_features_t const *    features,
+                      fd_slot_params_t const * slot_params,
+                      ulong                    slot ) {
+  /* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L4757-L4764 */
+  slot_cost_limits_t lim = slot_params_cost_limits(
+      slot_params, FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) );
+  cost_tracker->block_cost_limit   = lim.block_cost_limit;
+  cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
+  cost_tracker->account_cost_limit = lim.account_cost_limit;
+  cost_tracker->data_size_limit    = lim.data_size_limit;
 
   if( FD_UNLIKELY( cost_tracker->larger_max_cost_per_block ) ) cost_tracker->block_cost_limit = LARGER_MAX_COST_PER_BLOCK;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/runtime/src/bank.rs#L4472-L4477 */
-  if( FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit ) ) {
-    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL;
+  int reduced = slot_params->max_block_units < FD_SLOT_PARAMS_400MS.max_block_units;
+  if( !reduced ) {
+    cost_tracker->account_cost_limit = FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit )
+                                         ? fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL
+                                         : FD_MAX_WRITABLE_ACCOUNT_UNITS;
   }
 
   cost_tracker->remove_simple_vote_from_cost_model = FD_FEATURE_ACTIVE( slot, features, remove_simple_vote_from_cost_model );
@@ -374,7 +395,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
                                                          get_allocated_accounts_data_size( tx_cost ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L303-L304 */
-  if( FD_UNLIKELY( allocated_accounts_data_size>FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA ) ) {
+  if( FD_UNLIKELY( allocated_accounts_data_size>cost_tracker->data_size_limit ) ) {
     return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT;
   }
 
