@@ -5,9 +5,8 @@ This repo contains two validator clients:
 - **Firedancer** — A fully C-based Solana validator client.
 - **Frankendancer** — Legacy Rust/C hybrid validator.
 
-Unless prompted, only focus on Firedancer and avoid Frankendancer
-specific parts (fdctl, fddev, discoh).  Focus on Firedancer equivalents
-(firedancer-dev, discof).
+Only focus on Firedancer and avoid Frankendancer specific parts
+(fdctl, fddev, discoh).
 
 Firedancer only supports x86-64 on Linux, other targets are not correct
 for example ARM due to TSO assumptions.
