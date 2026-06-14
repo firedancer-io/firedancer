@@ -200,9 +200,6 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uchar  src_mac_addr[6];
-  uint   default_address;
-
   uint   bind_address;
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
@@ -240,6 +237,7 @@ typedef struct {
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;        /* local copy in scratch (hot path) */
   fd_netdev_tbl_join_t netdev_shared;     /* shared table in netbase (seqlock protected) */
+  uint                 default_address;   /* scope global IP of main interface */
   uint                 gre_tunnel_ip;     /* 0 means GRE disabled */
 
   struct {
@@ -372,21 +370,35 @@ net_is_fatal_xdp_error( int err ) {
          err==EPERM;
 }
 
-/* net_gre_tunnel_ip returns the IP address of the GRE tunnel peer if an
-   untagged GRE tunnel exists, returns 0 otherwise. */
+/* netdev_refresh opportunistically reloads the interface table.
+   Updates main interface and GRE tunnel interface info.  If there are
+   multiple GRE tunnels configured, only considers the first one. */
 
-static uint
-net_gre_tunnel_ip( fd_net_ctx_t * ctx ) {
+static void
+netdev_refresh( fd_net_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
+    return;
+  }
+  fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
+
   fd_netdev_t * dev_tbl = ctx->netdev_tbl.dev_tbl;
   ushort        dev_cnt = ctx->netdev_tbl.hdr->dev_cnt;
 
+  ctx->default_address = 0;
+  ctx->gre_tunnel_ip   = 0;
+
   for( ushort if_idx = 0; if_idx<dev_cnt; if_idx++ ) {
     fd_netdev_t const * dev = dev_tbl+if_idx;
-    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) return dev->gre_dst_ip;
+    if( dev->if_idx==ctx->if_virt ) {
+      ctx->default_address = dev->glob_ip4_addr;
+      break;
+    }
+    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) {
+      ctx->gre_tunnel_ip = dev->gre_dst_ip;
+      break;
+    }
   }
-  return 0U;
 }
-
 
 /* net_tx_ready returns 1 if we can submit a job to this TX ring, and 0 otherwise.
    Reasons for block include:
@@ -477,10 +489,7 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
-  if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
-    fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
-  }
-  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
+  netdev_refresh( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -1189,29 +1198,6 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   return frame_off;
 }
 
-/* FIXME source MAC address from netlnk tile instead */
-
-static void
-interface_addrs( const char * interface,
-                 uchar *      mac,
-                 uint *       ip4_addr ) {
-  int fd = socket( AF_INET, SOCK_DGRAM, 0 );
-  struct ifreq ifr;
-  ifr.ifr_addr.sa_family = AF_INET;
-
-  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
-  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
-  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
-
-  if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get IP address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
-  *ip4_addr = ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
-
-  if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
-}
-
 /* privileged_init does the following initialization steps:
 
    - Create an AF_XDP socket
@@ -1243,7 +1229,6 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
 
-  interface_addrs( tile->xdp.if_virt, ctx->src_mac_addr, &ctx->default_address );
   ctx->if_virt = if_nametoindex( tile->xdp.if_virt ); FD_TEST( ctx->if_virt );
 
   /* Load up dcache containing UMEM */
