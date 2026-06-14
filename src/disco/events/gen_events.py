@@ -329,6 +329,7 @@ def serializer_signature(s: Schema, terminator: str) -> List[str]:
         ("fd_circq_t *",                       "circq"),
         ("fd_event_client_t *",                "client"),
         ("long",                               "timestamp_nanos"),
+        ("ulong",                              "link_seq"),
         (f"fd_event_{s.name}_t const *",       "msg"),
     ]
     tw = max(len(t) for t, _ in params)
@@ -348,8 +349,11 @@ def generate_c_header(schemas: List[Schema]) -> str:
         "",
         '#include "../fd_circq.h"',
         '#include "../fd_event_client.h"',
+        '#include "../fd_event_report.h"',
         "",
     ]
+
+    struct_max_names = [f"sizeof(fd_event_{s.name}_t)" for s in eligible]
 
     # Enum #defines, structs, and per-event buffer sizes.
     for s in eligible:
@@ -424,6 +428,18 @@ def generate_c_header(schemas: List[Schema]) -> str:
             "",
         ]
 
+    # Max sizeof over all generated event structs.
+    if struct_max_names:
+        expr = struct_max_names[0]
+        for n in struct_max_names[1:]:
+            expr = f"fd_ulong_max( {n}, {expr} )"
+        lines += [
+            "/* Largest generated event struct; a consumer can stage any incoming",
+            "   event in a buffer of this size. */",
+            f"#define FD_EVENT_GEN_STRUCT_MAX ({expr})",
+            "",
+        ]
+
     # Serializer prototypes.
     lines += ["FD_PROTOTYPES_BEGIN", ""]
     for s in eligible:
@@ -432,6 +448,35 @@ def generate_c_header(schemas: List[Schema]) -> str:
             "   from the client and writing the standard event envelope.  Mirrors",
             "   the hand-written fd_pb_* path. */",
         ] + serializer_signature( s, " );" ) + [""]
+
+    # Dispatch by event type id (the frag sig set by fd_event_report_*).
+    lines += [
+        "/* Serialize an event of the given type id (the schema id carried in the",
+        "   report frag's sig) from a fully-formed fd_event_<name>_t at ev. */",
+        "void",
+        "fd_event_serialize_by_type( ulong               type,",
+        "                            fd_circq_t *        circq,",
+        "                            fd_event_client_t * client,",
+        "                            long                timestamp_nanos,",
+        "                            ulong               link_seq,",
+        "                            void const *        ev,",
+        "                            ulong               ev_sz );",
+        "",
+    ]
+
+    # Per-event report helpers: type-safe wrappers over fd_event_report_ that
+    # ship a fully-formed event struct to the event tile via the thread-local
+    # reporter.  No-op when the calling tile has no event link.
+    for s in eligible:
+        lines += [
+            f"/* Report a {s.name} event ({to_pascal_case(s.name)}, id {s.id}) to the event tile via",
+            "   the thread-local reporter (no-op when the tile has no event link). */",
+            "static inline void",
+            f"fd_event_report_{s.name}( fd_event_{s.name}_t const * msg ) {{",
+            f"  fd_event_report_( {s.id}UL, msg, sizeof(fd_event_{s.name}_t) );",
+            "}",
+            "",
+        ]
 
     lines += ["FD_PROTOTYPES_END", "", "#endif", ""]
     return "\n".join(lines)
@@ -500,7 +545,8 @@ def generate_c_source(schemas: List[Schema]) -> str:
             "  FD_TEST( circq->cursor_push_seq );",
             "  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );",
             "  fd_pb_push_uint64( encoder, 2U, event_id );",
-            "  fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );",
+            "  fd_pb_push_uint64( encoder, 3U, link_seq );",
+            "  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );",
             "",
         ]
         # Bound the variable-length fields against the generated struct
@@ -515,7 +561,7 @@ def generate_c_source(schemas: List[Schema]) -> str:
         if bound_checks:
             lines += bound_checks + [""]
         lines += [
-            "  fd_pb_submsg_open( encoder, 4U ); /* Event */",
+            "  fd_pb_submsg_open( encoder, 5U ); /* Event */",
             f"  fd_pb_submsg_open( encoder, {s.id}U ); /* {to_pascal_case(s.name)} */",
         ]
         # Encode each field.  proto3 omits scalar fields at their default
@@ -531,6 +577,32 @@ def generate_c_source(schemas: List[Schema]) -> str:
             "}",
             "",
         ]
+
+    # Dispatch by event type id.
+    lines += [
+        "void",
+        "fd_event_serialize_by_type( ulong               type,",
+        "                            fd_circq_t *        circq,",
+        "                            fd_event_client_t * client,",
+        "                            long                timestamp_nanos,",
+        "                            ulong               link_seq,",
+        "                            void const *        ev,",
+        "                            ulong               ev_sz ) {",
+        "  switch( type ) {",
+    ]
+    for s in eligible:
+        lines += [
+            f"  case {s.id}UL:",
+            f"    FD_TEST( ev_sz==sizeof(fd_event_{s.name}_t) );",
+            f"    fd_event_{s.name}_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_{s.name}_t const *)ev );",
+            "    break;",
+        ]
+    lines += [
+        '  default: FD_LOG_ERR(( "unexpected event type %lu", type ));',
+        "  }",
+        "}",
+        "",
+    ]
     return "\n".join(lines)
 
 def check_breaking_changes(schema_dir: Path) -> None:

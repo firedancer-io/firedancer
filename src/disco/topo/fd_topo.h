@@ -144,6 +144,10 @@ struct fd_topo_tile {
   ulong out_cnt;                                   /* The number of links that this tile writes to. */
   ulong out_link_id[ FD_TOPO_MAX_TILE_OUT_LINKS ]; /* The link_id of each link that this tile writes to, indexed in [0, link_cnt). */
 
+  ulong event_link_id; /* If not ULONG_MAX, the link_id of a dedicated unreliable link to the event tile that this tile reports
+                          telemetry events on via the thread-local fd_event_report_* macros.  This link is deliberately NOT part
+                          of out_link_id[] / out_cnt: it is written directly (outside fd_stem) by the thread-local reporter. */
+
   ulong tile_obj_id;
   ulong metrics_obj_id;
   ulong id_keyswitch_obj_id; /* keyswitch object id for identity key updates */
@@ -725,6 +729,8 @@ typedef struct {
   ulong        rlimit_data;
   ulong        rlimit_nproc;
   int          for_tpool;
+
+  ulong        max_event_sz;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );

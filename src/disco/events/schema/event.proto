@@ -10,10 +10,12 @@ message StreamEventsRequest {
   uint64 nonce = 1;
   // The unique ID of the event from this application, monotonically increasing from zero, may have gaps if events get dropped
   uint64 event_id = 2;
+  // The producer's per-link sequence number, monotonically increasing from zero, gaps indicate the producer's link to the event tile overran and dropped events
+  uint64 link_seq = 3;
   // The wall clock time when the event was recorded, in nanoseconds since the Unix epoch
-  uint64 timestamp_nanos = 3;
+  uint64 timestamp_nanos = 4;
   // The actual event
-  Event event = 4;
+  Event event = 5;
 }
 
 // Acknowledgement of an event received by the server

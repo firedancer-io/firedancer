@@ -4,6 +4,7 @@
 
 #include "../fd_circq.h"
 #include "../fd_event_client.h"
+#include "../fd_event_report.h"
 
 /* Slot that was voted on */
 struct fd_event_signed_vote_tower {
@@ -33,6 +34,10 @@ typedef struct fd_event_signed_vote fd_event_signed_vote_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SIGNED_VOTE_BUF_MAX (2765UL)
 
+/* Largest generated event struct; a consumer can stage any incoming
+   event in a buffer of this size. */
+#define FD_EVENT_GEN_STRUCT_MAX (sizeof(fd_event_signed_vote_t))
+
 FD_PROTOTYPES_BEGIN
 
 /* Serialize a signed_vote event into the circq, reserving an event id
@@ -42,7 +47,26 @@ void
 fd_event_signed_vote_serialize( fd_circq_t *                   circq,
                                 fd_event_client_t *            client,
                                 long                           timestamp_nanos,
+                                ulong                          link_seq,
                                 fd_event_signed_vote_t const * msg );
+
+/* Serialize an event of the given type id (the schema id carried in the
+   report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
+void
+fd_event_serialize_by_type( ulong               type,
+                            fd_circq_t *        circq,
+                            fd_event_client_t * client,
+                            long                timestamp_nanos,
+                            ulong               link_seq,
+                            void const *        ev,
+                            ulong               ev_sz );
+
+/* Report a signed_vote event (SignedVote, id 3) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_signed_vote( fd_event_signed_vote_t const * msg ) {
+  fd_event_report_( 3UL, msg, sizeof(fd_event_signed_vote_t) );
+}
 
 FD_PROTOTYPES_END
 
