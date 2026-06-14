@@ -2,6 +2,7 @@
 #include "fd_topo.h"
 
 #include "../metrics/fd_metrics.h"
+#include "../events/fd_event_report.h"
 #include "../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
@@ -124,6 +125,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
 
   FD_TEST( tile->metrics );
   fd_metrics_register( tile->metrics );
+  fd_event_register( topo, tile );
 
   FD_MGAUGE_SET( TILE, PID, pid );
   FD_MGAUGE_SET( TILE, TID, tid );

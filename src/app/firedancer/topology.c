@@ -33,6 +33,42 @@
 #include <netdb.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
+extern fd_topo_run_tile_t *      TILES[];
+
+static ulong
+tile_max_event_sz( char const * name ) {
+  for( fd_topo_run_tile_t ** t=TILES; *t; t++ ) {
+    if( FD_UNLIKELY( !strcmp( (*t)->name, name ) ) ) return (*t)->max_event_sz;
+  }
+  return 0UL;
+}
+
+static void
+wire_event_links( fd_topo_t * topo ) {
+  fd_topob_wksp( topo, "event_in" );
+
+  ulong tile_cnt = topo->tile_cnt;
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) continue;
+
+    ulong max_sz = tile_max_event_sz( tile->name );
+    if( FD_LIKELY( !max_sz ) ) continue;
+
+    char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
+    FD_TEST( fd_cstr_printf_check( link_name, sizeof(link_name), NULL, "%s_event", tile->name ) );
+
+    fd_topo_link_t * link = fd_topob_link( topo, link_name, "event_in", 128UL, max_sz, 1UL );
+    link->permit_no_producers = 1; /* written outside fd_stem; topo sees no producer */
+
+    tile->event_link_id = link->id;
+
+    fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+    fd_topob_tile_in( topo, "event", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  }
+}
 
 static void
 parse_ip_port( const char * name, const char * ip_port, fd_topo_ip_port_t *parsed_ip_port) {
@@ -829,7 +865,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "event", "event", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "ipecho_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-    fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "txsend_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
     if( FD_UNLIKELY( config->development.event.report_shreds ) ) {
       /* TODO: This needs to be reliable, else we could miss shreds that
@@ -846,6 +881,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_out( topo, "event",  0UL,              "event_sign", 0UL                                         );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     fd_topob_tile_out( topo, "sign",   0UL,              "sign_event", 0UL                                         );
+
+    wire_event_links( topo );
   }
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {

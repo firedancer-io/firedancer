@@ -172,6 +172,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
+  tile->event_link_id       = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );

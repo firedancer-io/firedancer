@@ -6,6 +6,7 @@ void
 fd_event_signed_vote_serialize( fd_circq_t *                   circq,
                                 fd_event_client_t *            client,
                                 long                           timestamp_nanos,
+                                ulong                          link_seq,
                                 fd_event_signed_vote_t const * msg ) {
   uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_SIGNED_VOTE_BUF_MAX );
   FD_TEST( buffer );
@@ -18,12 +19,13 @@ fd_event_signed_vote_serialize( fd_circq_t *                   circq,
   FD_TEST( circq->cursor_push_seq );
   fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
   fd_pb_push_uint64( encoder, 2U, event_id );
-  fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
+  fd_pb_push_uint64( encoder, 3U, link_seq );
+  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
   FD_TEST( msg->signed_txn_len<=1232UL );
   FD_TEST( msg->tower_cnt<=31UL );
 
-  fd_pb_submsg_open( encoder, 4U ); /* Event */
+  fd_pb_submsg_open( encoder, 5U ); /* Event */
   fd_pb_submsg_open( encoder, 3U ); /* SignedVote */
   if( msg->signed_txn_len ) fd_pb_push_bytes ( encoder, 1U, msg->signed_txn, msg->signed_txn_len );
   fd_pb_push_bytes ( encoder, 2U, msg->vote_account, 32UL );
@@ -43,4 +45,21 @@ fd_event_signed_vote_serialize( fd_circq_t *                   circq,
   fd_pb_submsg_close( encoder );
   fd_pb_submsg_close( encoder );
   fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_serialize_by_type( ulong               type,
+                            fd_circq_t *        circq,
+                            fd_event_client_t * client,
+                            long                timestamp_nanos,
+                            ulong               link_seq,
+                            void const *        ev,
+                            ulong               ev_sz ) {
+  switch( type ) {
+  case 3UL:
+    FD_TEST( ev_sz==sizeof(fd_event_signed_vote_t) );
+    fd_event_signed_vote_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_signed_vote_t const *)ev );
+    break;
+  default: FD_LOG_ERR(( "unexpected event type %lu", type ));
+  }
 }

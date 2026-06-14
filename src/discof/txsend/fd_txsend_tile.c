@@ -21,6 +21,10 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
+#include "../../disco/events/fd_event_report.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../fd_startup.h"
@@ -507,6 +511,57 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
 }
 
 static void
+report_signed_vote( uchar const *    payload,
+                    fd_txn_t const * txn,
+                    uchar const *    signatures,
+                    ulong            vote_txn_sz ) {
+  if( FD_LIKELY( !fd_event_tl ) ) return;
+
+  if( FD_UNLIKELY( txn->instr_cnt!=1UL ) ) return;
+  if( FD_UNLIKELY( txn->acct_addr_cnt<3UL || txn->acct_addr_cnt>4UL ) ) return;
+  fd_txn_instr_t const * instr = &txn->instr[ 0 ];
+  fd_acct_addr_t const * addrs = fd_txn_get_acct_addrs( txn, payload );
+  if( FD_UNLIKELY( 0!=memcmp( addrs[ instr->program_id ].b, fd_solana_vote_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return;
+  if( FD_UNLIKELY( instr->acct_cnt!=2UL ) ) return;
+  uchar const * instr_addrs   = fd_txn_get_instr_accts( instr, payload );
+  uchar const * instr_data    = payload + instr->data_off;
+  ulong         instr_data_sz = instr->data_sz;
+  if( FD_UNLIKELY( instr_data_sz<sizeof(uint) ) ) return;
+  if( FD_UNLIKELY( FD_LOAD( uint, instr_data )!=FD_VOTE_IX_KIND_TOWER_SYNC ) ) return;
+  instr_data += 4; instr_data_sz -= 4;
+
+  fd_compact_tower_sync_serde_t sync[1];
+  if( FD_UNLIKELY( 0!=fd_compact_tower_sync_de( sync, instr_data, instr_data_sz ) ) ) return;
+  if( FD_UNLIKELY( sync->lockouts_cnt==0 || sync->lockouts_cnt>31 ) ) return;
+
+  uchar const * rbh = fd_txn_get_recent_blockhash( txn, payload );
+
+  fd_event_signed_vote_t ev = {0};
+  FD_TEST( vote_txn_sz<=sizeof(ev.signed_txn) );
+  fd_memcpy( ev.signed_txn, payload, vote_txn_sz );
+  ev.signed_txn_len = vote_txn_sz;
+  fd_memcpy( ev.vote_account,   addrs[ instr_addrs[ 0 ] ].b, sizeof(fd_pubkey_t)      );
+  fd_memcpy( ev.vote_authority, addrs[ instr_addrs[ 1 ] ].b, sizeof(fd_pubkey_t)      );
+  fd_memcpy( ev.fee_payer,      addrs[ 0 ].b,                sizeof(fd_pubkey_t)      );
+  fd_memcpy( ev.signature,      signatures,                  sizeof(fd_ed25519_sig_t) );
+  fd_memcpy( ev.vote_bank_hash, sync->hash.uc,               sizeof(fd_hash_t)        );
+  fd_memcpy( ev.vote_block_id,  sync->block_id.uc,           sizeof(fd_hash_t)        );
+  fd_memcpy( ev.txn_blockhash,  rbh,                         sizeof(fd_hash_t)        );
+
+  ulong root_slot = fd_ulong_if( sync->root==ULONG_MAX, 0UL, sync->root );
+  ulong slot      = root_slot;
+  for( ulong i=0UL; i<sync->lockouts_cnt; i++ ) {
+    slot += sync->lockouts[ i ].offset;
+    ev.tower[ i ].slot               = slot;
+    ev.tower[ i ].confirmation_count = (uchar)sync->lockouts[ i ].confirmation_count;
+  }
+  ev.tower_cnt = sync->lockouts_cnt;
+  ev.vote_slot = slot; /* top of tower */
+
+  fd_event_report_signed_vote( &ev );
+}
+
+static void
 handle_vote_msg( fd_txsend_tile_t *           ctx,
                  fd_stem_context_t *          stem,
                  fd_tower_slot_done_t const * slot_done,
@@ -537,6 +592,8 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
 
   FD_BASE58_ENCODE_64_BYTES( signatures, vote_sig_b58 );
   FD_LOG_INFO(( "vote txn for slot %lu created: %s", slot_done->vote_slot, vote_sig_b58 ));
+
+  report_signed_vote( payload, txn, signatures, slot_done->vote_txn_sz );
 
   for( ulong i=0UL; i<3UL; i++ ) {
     ulong target_slot = slot_done->vote_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
@@ -815,6 +872,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 
 fd_topo_run_tile_t fd_tile_txsend = {
   .name                     = "txsend",
+  .max_event_sz             = sizeof(fd_event_signed_vote_t),
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

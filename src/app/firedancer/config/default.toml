@@ -1571,7 +1571,7 @@ telemetry = true
         # If no URL is provided, event reporting is disabled, although
         # it is suggested to leave the default URL in place and set
         # `telemetry` to false to disable event reporting.
-        url = "http://events-in.firedancer.io"
+        url = "https://events-in.firedancer.io"
 
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
