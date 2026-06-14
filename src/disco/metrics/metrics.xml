@@ -1653,12 +1653,20 @@ EXAMPLES
     <int value="14" name="getVersion" label="getVersion" />
 </enum>
 
+<enum name="RpcEventType">
+    <int value="0" name="Vote" label="vote" />
+</enum>
+
 <tile name="rpc">
     <histogram name="RequestDurationSeconds" min="0.000001" max="0.1" converter="seconds">
       <summary>Duration spent in service</summary>
     </histogram>
     <counter name="RequestServed" enum="RpcMethod" summary="Number of RPC requests served" />
     <gauge name="ConnActive" summary="The number of active HTTP connections to the RPC service" />
+    <gauge name="WebsocketConnActive" summary="The number of active WebSocket connections to the RPC service" />
+    <gauge name="WebsocketSubscriptionActive" enum="RpcEventType" summary="The number of active WebSocket subscriptions to the RPC service, broken down by subscription type" />
+    <counter name="WebsocketEventUniqueSent" enum="RpcEventType" summary="Number of unique WebSocket events sent by the RPC service" />
+    <counter name="WebsocketEventSent" enum="RpcEventType" summary="Number of WebSocket events sent by the RPC service across all subscriptions" />
     <counter name="AccdbAccountAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
     <counter name="AccdbAccountWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />

@@ -258,6 +258,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.rpc.rpc_listen_address                     );
   CFG_POP      ( ushort, tiles.rpc.rpc_listen_port                        );
   CFG_POP      ( ulong,  tiles.rpc.max_http_connections                   );
+  CFG_POP      ( ulong,  tiles.rpc.max_websocket_connections              );
   CFG_POP      ( ulong,  tiles.rpc.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.rpc.send_buffer_size_mb                    );
   CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
