@@ -2,9 +2,9 @@
 #include "cstr/fd_cstr.h"
 
 /* Firedancer version */
-__attribute__((weak)) ulong const fd_major_version = 0;
+__attribute__((weak)) ulong const fd_major_version = 1;
 __attribute__((weak)) ulong const fd_minor_version = 1;
-__attribute__((weak)) ulong const fd_patch_version = 1;
+__attribute__((weak)) ulong const fd_patch_version = 0;
 char const * fd_version_cstr = ""; /* set on boot */
 
 /* Commit information */
