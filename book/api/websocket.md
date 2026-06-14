@@ -535,6 +535,9 @@ Some interesting transitions are,
         "loading_full_snapshot_decompress_bytes_compressed": "826495323",
         "loading_full_snapshot_insert_bytes_decompressed": "4864409599",
         "loading_full_snapshot_insert_accounts": 10634591,
+        "loading_full_snapshot_snapwr_in_bytes_decompressed": "4864409599",
+        "loading_full_snapshot_snapwr_out_bytes_decompressed": "4892160000",
+        "loading_full_snapshot_snapwr_accounts": 10634591,
         "loading_incremental_snapshot_elapsed_seconds": null,
         "loading_incremental_snapshot_reset_count": null,
         "loading_incremental_snapshot_slot": null,
@@ -545,6 +548,9 @@ Some interesting transitions are,
         "loading_incremental_snapshot_decompress_bytes_compressed": null,
         "loading_incremental_snapshot_insert_bytes_decompressed": null,
         "loading_incremental_snapshot_insert_accounts": null,
+        "loading_incremental_snapshot_snapwr_in_bytes_decompressed": null,
+        "loading_incremental_snapshot_snapwr_out_bytes_decompressed": null,
+        "loading_incremental_snapshot_snapwr_accounts": null,
         "wait_for_supermajority_bank_hash": "2CeCyRoYmcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5dGFi",
         "wait_for_supermajority_shred_version": "37500",
         "wait_for_supermajority_attempt": 1,
@@ -574,7 +580,10 @@ Some interesting transitions are,
 | loading_{full\|incremental}_snapshot_decompress_bytes_decompressed    | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
-| loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of accounts inserted into the validator's accounts database from this snapshot. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_snapwr_in_bytes_decompressed     | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes consumed from the snapshot by the snapshot write (snapwr) stage so far. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_snapwr_out_bytes_decompressed    | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the number of bytes written to the on-disk account database by the snapshot write (snapwr) stage for this snapshot so far. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_snapwr_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of accounts written to the on-disk account database by the snapshot write (snapwr) stage for this snapshot so far. Otherwise, `null` |
 | wait_for_supermajority_bank_hash                                      | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected bank hash of the snapshot bank.  This ensures all validators join the cluster with the same starting state. `null` if wait for supermajority is not enabled |
 | wait_for_supermajority_shred_version                                  | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected shred version it was configured with.  Shred version is functionally a hash of (genesis_hash, cluster_restart_history) which ensures only nodes which explicitly agree on the restart slot and restart attempt count can communicate with each other. `null` if wait for supermajority is not configured |
 | wait_for_supermajority_attempt                                        | `number\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the number of times this cluster has been restarted onto the snapshot slot, including the current attempt. `null` if wait for supermajority is not configured |
@@ -901,6 +910,7 @@ uses to communicate with the internet.
     "gossip",
     "tpu",
     "repair",
+    "rserve",
     "metrics"
 ]
 ```
@@ -914,6 +924,9 @@ in a client used to consume and forward incoming Solana transactions for
 their next leader slot.
 - repair: a client subsystem which requests any missing block data
 needed by the replay pipeline which may have been lost over the network
+- rserve: "repair serve", a client subsystem which serves repair
+requests from other nodes, responding with any block data they are
+missing
 - metrics: refers to the Firedancer metrics tile, which serves an http
 Prometheus metrics endpoint
 
@@ -922,10 +935,10 @@ Prometheus metrics endpoint
     "topic": "summary",
     "key": "live_network_metrics",
     "value": {
-        "ingress": [12345432, 5431234, 92345, ...],
-        "egress": [12345432, 5431234, 92345, ...],
-        "ingress_ema": [1234543.00, 543123.00, 9234.00, ...],
-        "egress_ema": [1234543.00, 543123.00, 9234.00, ...],
+        "ingress": [12345432, 5431234, 92345, 43210, 8765, ...],
+        "egress": [12345432, 5431234, 92345, 43210, 8765, ...],
+        "ingress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, ...],
+        "egress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, ...],
         "ingress_max_5m": 15000000,
         "egress_max_5m": 14500000,
     }
