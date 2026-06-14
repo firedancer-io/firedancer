@@ -138,6 +138,37 @@ void txn2_correctness( void ) {
 
 }
 
+void test_trailing_payload_contract( void ) {
+  fd_txn_parse_counters_t counters = {0};
+  ulong payload_sz = ULONG_MAX;
+
+  FD_TEST( transaction4_sz+1UL<=FD_TXN_MTU );
+  fd_memcpy( payload_c, transaction4, transaction4_sz );
+  payload_c[ transaction4_sz ] = (uchar)0xa5;
+
+  ulong expected_sz = fd_txn_parse( transaction4, transaction4_sz, test_buf, NULL );
+  FD_TEST( expected_sz );
+  ulong out_sz = fd_txn_parse_core( payload_c, transaction4_sz+1UL, out_buf,
+                                    &counters, &payload_sz );
+  FD_TEST( expected_sz==out_sz );
+  FD_TEST( payload_sz==transaction4_sz );
+  FD_TEST( counters.success_cnt==1UL );
+  FD_TEST( counters.failure_cnt==0UL );
+
+  FD_TEST( !fd_txn_parse( payload_c, transaction4_sz+1UL, out_buf,
+                          &counters ) );
+  FD_TEST( counters.success_cnt==1UL );
+  FD_TEST( counters.failure_cnt==1UL );
+
+  payload_sz = ULONG_MAX;
+  out_sz = fd_txn_parse_core( transaction4, transaction4_sz-1UL, out_buf,
+                              &counters, &payload_sz );
+  FD_TEST( !out_sz );
+  FD_TEST( payload_sz==ULONG_MAX );
+  FD_TEST( counters.success_cnt==1UL );
+  FD_TEST( counters.failure_cnt==2UL );
+}
+
 void test_mutate( uchar const * payload,
     ulong len ) {
   fd_txn_parse_counters_t counters = {0};
@@ -241,6 +272,7 @@ main( int     argc,
 
   txn1_correctness( );
   txn2_correctness( );
+  test_trailing_payload_contract( );
 
   test_performance( transaction1, transaction1_sz );
   test_performance( transaction2, transaction2_sz );
@@ -268,4 +300,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
