@@ -312,10 +312,11 @@ main( int     argc,
     fd_http_server_ws_frame_t const * frame = &conn->send_frames[ frame_idx ];
     FD_TEST( !frame->compressed );
     char const expected[] =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"result\":{\"votePubkey\":\"9Diao4uo6NpeMud7t5wvGnJ3WxDM7iaYxkGtJM36T4dy\","
+        "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"subscription\":0,\"result\":{\"votePubkey\":\"9Diao4uo6NpeMud7t5wvGnJ3WxDM7iaYxkGtJM36T4dy\","
         "\"slots\":[425637581,425637582,425637583,425637584,425637585,425637586,425637587,425637588,425637589,425637590,425637591,425637592,425637593,425637594,425637595,425637596,425637597,425637598,425637599,425637600,425637601,425637602,425637603,425637604,425637605,425637606,425637607,425637608,425637609,425637610,425637611],"
         "\"hash\":\"GFiLqndBXPMfvM18KP1ow35cgL8vitqFeKCU3xFogCxx\",\"timestamp\":1781130981,"
-        "\"signature\":\"2bEoikscia2UbcJhwBY8112BZQuS1icVuNiruAXzZ53qxvbsSg9aiLzHU5JBnW6rXakPjTTjt14cqxdMmUd3qZaq\"},\"subscription\":0}}\n";
+        "\"signature\":\"2bEoikscia2UbcJhwBY8112BZQuS1icVuNiruAXzZ53qxvbsSg9aiLzHU5JBnW6rXakPjTTjt14cqxdMmUd3qZaq\","
+        "\"transaction\":[\"Ak+K5gfbg+NpHO3UTO/QzBfIfgeNSs4njPIIX+aFRKxSvBKCZm7MXtZsIC+RFQkQKgT051zEsImZRljpQUbj1woAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgEBBKgi3FMRExpaRO6SOLvtJElE8QFMt3sk6+UDD5+fLvfft827Ax4np8ywG8B+HFowmxhhKhboEAC4ke6NRg0zZwB6H3uXqqwwUjGjRR9ELjwRK5RPAOeVvcAe35GPwVDg7AdhSB01dHS7fE12JOvTvbPYNV5z0RBD/A2jU4AAAAAAGxVqmLLaYBv9BcHpi++/hhQK10e1ZHromZsZ81RQvskBAwICAZQBDgAAAMy2XhkAAAAAHwEfAR4BHQEcARsBGgEZARgBFwEWARUBFAETARIBEQEQAQ8BDgENAQwBCwEKAQkBCAEHAQYBBQEEAQMBAgEB4qQuTZIXKp1u6K5KsnxFr+ushJ49E/9XN7NB48dr9rEB5eYpagAAAADHpDbUzrLPx+gMBJwQmbfn20XTCpAncuVI3xmG+6ulqw==\",\"base64\"]}}}\n";
     char const * got = (char const *)( ctx->http->oring + (frame->off % ctx->http->oring_sz) );
     if( FD_UNLIKELY( frame->len!=strlen( expected ) || memcmp( got, expected, frame->len ) ) ) {
       FD_LOG_WARNING(( "Expected vote notification:\n---\n%s---", expected ));

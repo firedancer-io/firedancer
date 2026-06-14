@@ -541,15 +541,18 @@ fd_rpc_publish_vote_event( fd_rpc_tile_t *          ctx,
   FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_b58 );
   FD_BASE58_ENCODE_64_BYTES( signature->uc, signature_b58 );
 
+  char txn_base64[ FD_BASE64_ENC_SZ( sizeof(vote->transaction) ) ];
+  ulong txn_base64_len = fd_base64_encode( txn_base64, vote->transaction, vote->transaction_len );
+
   ulong sent_cnt = 0UL;
   for( ulong i=0UL; i<ctx->ws_subscribers_vote_cnt; ) {
     ulong ws_conn_id = ctx->ws_subscribers_vote[ i ];
-    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"result\":{\"votePubkey\":\"%s\",\"slots\":[", vote_pubkey_b58 );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"subscription\":0,\"result\":{\"votePubkey\":\"%s\",\"slots\":[", vote_pubkey_b58 );
     for( ulong j=0UL; j<slots_cnt; j++ ) fd_http_server_printf( ctx->http, "%s%lu", j ? "," : "", slots[ j ] );
     fd_http_server_printf( ctx->http, "],\"hash\":\"%s\",", hash_b58 );
     if( FD_LIKELY( has_timestamp ) ) fd_http_server_printf( ctx->http, "\"timestamp\":%ld,", timestamp );
     else                             fd_http_server_printf( ctx->http, "\"timestamp\":null," );
-    fd_http_server_printf( ctx->http, "\"signature\":\"%s\"},\"subscription\":0}}\n", signature_b58 );
+    fd_http_server_printf( ctx->http, "\"signature\":\"%s\",\"transaction\":[\"%.*s\",\"base64\"]}}}\n", signature_b58, (int)txn_base64_len, txn_base64 );
 
     if( FD_UNLIKELY( fd_http_server_ws_send( ctx->http, ws_conn_id ) ) ) {
       fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
