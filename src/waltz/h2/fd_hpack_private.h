@@ -26,8 +26,18 @@ fd_hpack_static_table[ 62 ];
 /* fd_hpack_rd_varint reads a varint with up to 8 bytes encoded length
    (not including prefix).  addend is (2^n)-1 where n is the varint
    prefix bit count.  prefix is the actual value of the varint prefix.
-   Returns a value in [0,2^56) on success.  Returns ULONG_MAX on decode
-   failure. */
+   Returns `result + addend` on success, where `result` is in
+   [0, 2^56); the maximum possible return value is therefore
+   2^56 - 1 + addend (so [0, 2^56 + 254] across the addend values
+   used by current callers, all of which are < 256).  Returns
+   ULONG_MAX on decode failure.
+
+   API contract: the caller MUST advance rd->src past the prefix byte
+   (e.g. via `b0 = *(rd->src++)`) before calling this function.  This
+   function reads continuation bytes starting at rd->src; if rd->src
+   still points at the prefix byte, the prefix is re-read as the
+   first continuation byte and both the decoded value and the final
+   rd->src position will be wrong. */
 
 static inline ulong
 fd_hpack_rd_varint( fd_hpack_rd_t * rd,
