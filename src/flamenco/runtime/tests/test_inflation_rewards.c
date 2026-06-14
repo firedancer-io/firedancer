@@ -825,6 +825,17 @@ test_epoch_rewards_sysvar_lifecycle( fd_svm_mini_t * mini ) {
 }
 
 static void
+test_stake_rewards_invalid_max_fork_width( void ) {
+  ulong oversz_fork_cnt = FD_STAKE_REWARDS_MAX_FORK_WIDTH + 1UL;
+  ulong footprint = fd_stake_rewards_footprint( 1UL, 1UL, oversz_fork_cnt );
+  FD_TEST( footprint > 0UL );
+  void * mem = aligned_alloc( fd_stake_rewards_align(), footprint );
+  FD_TEST( mem );
+  FD_TEST( !fd_stake_rewards_new( mem, 1UL, 1UL, oversz_fork_cnt, 42UL ) );
+  free( mem );
+}
+
+static void
 test_hash_rewards_into_partitions( void ) {
   ulong max_accs  = 16384UL;
   ulong exp_accs  = 12345UL;
@@ -1385,6 +1396,7 @@ main( int     argc,
   test_multi_validator_proportional( mini );
   test_calculate_points_typical_values( mini );
   test_epoch_rewards_sysvar_lifecycle( mini );
+  test_stake_rewards_invalid_max_fork_width();
   test_hash_rewards_into_partitions();
   test_hash_rewards_into_partitions_empty();
   test_distribute_rewards_capitalization( mini );
