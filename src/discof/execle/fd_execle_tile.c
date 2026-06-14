@@ -394,8 +394,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
      there's always extra bytes at the end to stash the trailer. */
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
+  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), execle_poh_mtu );
 
   /* We have a race window with the GUI, where if the slot is ending it
      will snap these metrics to draw the waterfall, but see them outdated
