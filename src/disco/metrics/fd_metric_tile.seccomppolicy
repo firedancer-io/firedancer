@@ -35,7 +35,7 @@ accept4: (and (eq (arg 0) metrics_socket_fd)
 # arg 0 is the file descriptor to read from.  It can be any of the
 # connected client sockets returned by accept4(2).  To accomodate this,
 # we allow any file descriptor except those which we know are not these
-# connected clients, which are the log file, STDOUT, and the listening
+# connected clients, which are the log file, STDERR, and the listening
 # socket itself.
 read: (not (or (eq (arg 0) 2)
                (eq (arg 0) logfile_fd)
@@ -46,7 +46,7 @@ read: (not (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to send to.  It can be any of the
 # connected client sockets returned by accept4(2).  To accomodate this,
 # we allow any file descriptor except those which we know are not these
-# connected clients, which are the log file, STDOUT, and the listening
+# connected clients, which are the log file, STDERR, and the listening
 # socket itself.
 sendto: (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)
@@ -57,7 +57,7 @@ sendto: (not (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to close.  It can be any of the connected
 # client sockets returned by accept4(2).  To accomodate this, we allow
 # any file descriptor except those which we know are not these connected
-# clients, which are the log file, STDOUT, and the listening socket
+# clients, which are the log file, STDERR, and the listening socket
 # itself.
 close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
