@@ -26,22 +26,25 @@ FD_PROTOTYPES_BEGIN
    In reality, the cost is slightly higher because of transaction fees
    and various CU costs to create the vote and stake accounts.
 
-   For stake accounts, the limit is set to 241M because the rent exempt
-   reserve of creating a valid stake account is
-   241,000,000 accounts * 0.00228 SOL = 549,480 SOL.
-   If you just consider the transaction fee of 0.000005 per account
-   241,000,000 * 0.000005 = 1,205 SOL.
-   This brings our total cost to 550,685 SOL. */
+   For stake accounts, the rent exempt reserve is 0.00228 SOL.  However,
+   new stake accounts must have a minimum balance of 1 SOL as of the
+   feature upgrade_bpf_stake_program_to_v5.  Stake accounts created
+   after the feature must have a balance of 1.00228 SOL.  To guard
+   against a potential attack, we need to guard against the creation of
+   550,000 SOL worth of stake accounts: 550,000 SOL / 1.00228 SOL =
+   roughly 550,000 stake accounts.  In addition to the 1.6 million stake
+   accounts which exist on mainnet today, we must support roughly 2.15
+   million stake accounts. */
 
 #define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (241000000UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are
    chosen to size various caches and maps: they are not intended to be
    exact as they are not consensus critical values. */
 
-#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2000000UL)
+#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2150000UL)
 #define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
@@ -259,7 +262,7 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
    validate parsed lengths throughout the entire architecture. */
 
 #define FD_VOTE_ACCOUNTS_MAX     (40200UL)
-#define FD_STAKE_DELEGATIONS_MAX (3000000UL)
+#define FD_STAKE_DELEGATIONS_MAX FD_RUNTIME_MAX_STAKE_ACCOUNTS
 #define FD_EPOCH_STAKES_LEN      (3UL)
 #define FD_EPOCH_VOTE_STAKES_MAX (40200UL)
 
