@@ -521,7 +521,8 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
       return 0;
     }
     uint tx_wnd_new;
-    if( FD_UNLIKELY( __builtin_uadd_overflow( tx_wnd, increment, &tx_wnd_new ) ) ) {
+    if( FD_UNLIKELY( __builtin_uadd_overflow( tx_wnd, increment, &tx_wnd_new ) ||
+                     tx_wnd_new > 0x7fffffffUL ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
       return 0;
     }
@@ -548,7 +549,8 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
 
     /* Stream-level window update */
     uint tx_wnd_new;
-    if( FD_UNLIKELY( __builtin_uadd_overflow( stream->tx_wnd, increment, &tx_wnd_new ) ) ) {
+    if( FD_UNLIKELY( __builtin_uadd_overflow( stream->tx_wnd, increment, &tx_wnd_new ) ||
+                     tx_wnd_new > 0x7fffffffUL ) ) {
       fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_FLOW_CONTROL );
       cb->rst_stream( conn, stream, FD_H2_ERR_FLOW_CONTROL, 0 );
       /* stream points to freed memory at this point */
