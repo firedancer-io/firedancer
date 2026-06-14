@@ -1623,6 +1623,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
     tile->rpc.delay_startup = config->tiles.rpc.delay_startup;
     tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
+    tile->rpc.max_websocket_connections = config->tiles.rpc.max_websocket_connections;
     tile->rpc.max_http_request_length   = config->tiles.rpc.max_http_request_length;
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 

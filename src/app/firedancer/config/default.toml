@@ -1642,6 +1642,10 @@ telemetry = true
         # memory usage.
         max_http_connections = 1024
 
+        # Maximum number of simultaneous WebSocket connections which can
+        # be open.
+        max_websocket_connections = 128
+
         # Maximum length of an HTTP request including headers.
         max_http_request_length = 8192
 

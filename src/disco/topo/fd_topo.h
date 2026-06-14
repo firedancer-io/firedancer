@@ -386,6 +386,7 @@ struct fd_topo_tile {
       ushort listen_port;
 
       ulong max_http_connections;
+      ulong max_websocket_connections;
       ulong send_buffer_size_mb;
       ulong max_http_request_length;
 

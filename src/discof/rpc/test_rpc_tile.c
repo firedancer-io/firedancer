@@ -6,8 +6,11 @@
 #include "../../tango/fseq/fd_fseq.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 #include <sys/mman.h>
+
+FD_IMPORT_BINARY( vote_tower_sync_txn, "src/discof/rpc/fixtures/vote_tower_sync.bin" );
 
 static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint ) {
@@ -110,10 +113,75 @@ expect_rpc_response( fd_rpc_tile_t * ctx,
   cJSON_Delete( got );
 }
 
+static void
+expect_ws_rpc_response( fd_rpc_tile_t * ctx,
+                        ulong           ws_conn_id,
+                        char const *    rpc_req,
+                        char const *    rpc_res ) {
+  struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ ws_conn_id ];
+  ulong prev_send_frame_cnt = conn->send_frame_cnt;
+
+  ctx->http->pollfds[ ctx->http->max_conns+ws_conn_id ].fd = 0;
+  rpc_ws_message( ws_conn_id, (uchar const *)rpc_req, strlen( rpc_req ), ctx );
+
+  FD_TEST( conn->send_frame_cnt==prev_send_frame_cnt+1UL );
+
+  ulong frame_idx = (conn->send_frame_idx+conn->send_frame_cnt-1UL) % ctx->http->max_ws_send_frame_cnt;
+  fd_http_server_ws_frame_t const * frame = &conn->send_frames[ frame_idx ];
+  FD_TEST( !frame->compressed );
+  uchar const * got_json    = ctx->http->oring + (frame->off % ctx->http->oring_sz);
+  ulong         got_json_sz = frame->len;
+
+  cJSON * got = cJSON_ParseWithLength( (char const *)got_json, got_json_sz );
+  FD_TEST( got );
+
+  cJSON * expected = cJSON_Parse( rpc_res );
+  FD_TEST( expected );
+
+  char * got_reserialized = cJSON_Print( got      ); FD_TEST( got_reserialized );
+  char * exp_reserialized = cJSON_Print( expected ); FD_TEST( exp_reserialized );
+  if( 0!=strcmp( got_reserialized, exp_reserialized ) ) {
+    FD_LOG_WARNING(( "Expected websocket RPC response:\n---\n%s\n---", exp_reserialized ));
+    FD_LOG_WARNING(( "Got websocket RPC response:\n---\n%s\n---", got_reserialized ));
+    FD_LOG_ERR(( "websocket RPC response did not match expected" ));
+  }
+
+  cJSON_free( got_reserialized );
+  cJSON_free( exp_reserialized );
+  cJSON_Delete( expected );
+  cJSON_Delete( got );
+}
+
+static void
+test_websocket_disabled( fd_rpc_tile_t * ctx ) {
+  fd_http_server_request_t http_req = {
+    .method = FD_HTTP_SERVER_METHOD_GET,
+    .path   = "/websocket",
+    .ctx    = ctx,
+    .headers = {
+      .upgrade_websocket = 1,
+    },
+  };
+
+  fd_http_server_response_t http_res = rpc_http_request1( ctx, &http_req );
+  FD_TEST( http_res.status==200UL );
+  FD_TEST( http_res.upgrade_websocket );
+
+  ulong const max_ws_conns = ctx->http->max_ws_conns;
+  ctx->http->max_ws_conns = 0UL;
+  http_res = rpc_http_request1( ctx, &http_req );
+  FD_TEST( http_res.status==404UL );
+  FD_TEST( !http_res.upgrade_websocket );
+  ctx->http->max_ws_conns = max_ws_conns;
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
 
   fd_wksp_t * wksp = fd_wksp_new_lazy( 4UL<<30 );
   static fd_topo_t topo[1];
@@ -179,17 +247,21 @@ main( int     argc,
 
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
+  fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
   strcpy( tile->name, "rpc" );
-  tile->rpc.max_live_slots          = max_live_slots;
-  tile->rpc.send_buffer_size_mb     = 64UL;
-  tile->rpc.accdb_obj_id            = accdb_shmem_obj->id;
-  tile->rpc.accdb_epoch_fseq_obj_id = fseq_obj->id;
-  tile->id_keyswitch_obj_id         = keyswitch_obj->id;
+  tile->rpc.max_live_slots            = max_live_slots;
+  tile->rpc.max_http_request_length   = FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN;
+  tile->rpc.max_websocket_connections = 2UL;
+  tile->rpc.send_buffer_size_mb       = 64UL;
+  tile->rpc.accdb_obj_id              = accdb_shmem_obj->id;
+  tile->rpc.accdb_epoch_fseq_obj_id   = fseq_obj->id;
+  tile->id_keyswitch_obj_id           = keyswitch_obj->id;
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
 
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   fd_http_server_params_t http_params = derive_http_params( tile );
@@ -199,12 +271,87 @@ main( int     argc,
   tile_obj->offset = fd_wksp_gaddr_fast( wksp, ctx );
   memset( ctx, 0, sizeof(fd_rpc_tile_t) );
   static fd_http_server_callbacks_t const callbacks = {
-    .request = rpc_http_request,
+    .request    = rpc_http_request,
+    .ws_open    = rpc_ws_open,
+    .ws_close   = rpc_ws_close,
+    .ws_message = rpc_ws_message,
   };
   ctx->http = fd_http_server_join( fd_http_server_new( http_mem, http_params, callbacks, ctx ) );
   FD_TEST( ctx->http );
   FD_TEST( ctx->http->oring_sz );
   unprivileged_init( topo, tile );
+
+  test_websocket_disabled( ctx );
+
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"voteSubscribe\"}",
+      "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":1}"
+  );
+  FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
+  FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
+  expect_ws_rpc_response( ctx, 0UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"voteSubscribe\"}",
+      "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":2}"
+  );
+  FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
+  FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
+  FD_TEST( vote_tower_sync_txn_sz<=sizeof( ((fd_gossip_vote_t *)0)->transaction ) );
+  {
+    fd_gossip_update_message_t * update = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_gossip_out->dcache ) );
+    memset( update, 0, FD_GOSSIP_UPDATE_SZ_VOTE );
+    update->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
+    update->vote->value->transaction_len = vote_tower_sync_txn_sz;
+    memcpy( update->vote->value->transaction, vote_tower_sync_txn, vote_tower_sync_txn_sz );
+
+    ctx->http->pollfds[ ctx->http->max_conns ].fd = 0;
+    FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE, fd_laddr_to_chunk( wksp, update ), FD_GOSSIP_UPDATE_SZ_VOTE, 0UL, 0UL, 0UL, NULL ) );
+    struct fd_http_server_ws_connection * conn = &ctx->http->ws_conns[ 0 ];
+    FD_TEST( conn->send_frame_cnt>0UL );
+
+    ulong frame_idx = (conn->send_frame_idx+conn->send_frame_cnt-1UL) % ctx->http->max_ws_send_frame_cnt;
+    fd_http_server_ws_frame_t const * frame = &conn->send_frames[ frame_idx ];
+    FD_TEST( !frame->compressed );
+    char const expected[] =
+        "{\"jsonrpc\":\"2.0\",\"method\":\"voteNotification\",\"params\":{\"result\":{\"votePubkey\":\"9Diao4uo6NpeMud7t5wvGnJ3WxDM7iaYxkGtJM36T4dy\","
+        "\"slots\":[425637581,425637582,425637583,425637584,425637585,425637586,425637587,425637588,425637589,425637590,425637591,425637592,425637593,425637594,425637595,425637596,425637597,425637598,425637599,425637600,425637601,425637602,425637603,425637604,425637605,425637606,425637607,425637608,425637609,425637610,425637611],"
+        "\"hash\":\"GFiLqndBXPMfvM18KP1ow35cgL8vitqFeKCU3xFogCxx\",\"timestamp\":1781130981,"
+        "\"signature\":\"2bEoikscia2UbcJhwBY8112BZQuS1icVuNiruAXzZ53qxvbsSg9aiLzHU5JBnW6rXakPjTTjt14cqxdMmUd3qZaq\"},\"subscription\":0}}\n";
+    char const * got = (char const *)( ctx->http->oring + (frame->off % ctx->http->oring_sz) );
+    if( FD_UNLIKELY( frame->len!=strlen( expected ) || memcmp( got, expected, frame->len ) ) ) {
+      FD_LOG_WARNING(( "Expected vote notification:\n---\n%s---", expected ));
+      FD_LOG_WARNING(( "Got vote notification:\n---\n%.*s---", (int)frame->len, got ));
+      FD_LOG_ERR(( "vote notification did not match expected" ));
+    }
+
+    fd_rpc_ws_subscriber_vote_add( ctx, 1UL );
+    FD_TEST( ctx->ws_subscribers_vote_cnt==2UL );
+    FD_TEST( ctx->ws_subscribers_vote[ 0 ]==0UL );
+    FD_TEST( ctx->ws_subscribers_vote[ 1 ]==1UL );
+
+    int ws0_fd = open( "/dev/null", O_RDONLY );
+    int ws1_fd = open( "/dev/null", O_RDONLY );
+    FD_TEST( ws0_fd!=-1 );
+    FD_TEST( ws1_fd!=-1 );
+    ctx->http->pollfds[ ctx->http->max_conns     ].fd = ws0_fd;
+    ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd = ws1_fd;
+
+    conn->send_frame_cnt = ctx->http->max_ws_send_frame_cnt;
+    struct fd_http_server_ws_connection * conn1 = &ctx->http->ws_conns[ 1 ];
+    ulong conn1_send_frame_cnt = conn1->send_frame_cnt;
+    FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE, fd_laddr_to_chunk( wksp, update ), FD_GOSSIP_UPDATE_SZ_VOTE, 0UL, 0UL, 0UL, NULL ) );
+    FD_TEST( ctx->ws_subscribers_vote_cnt==1UL );
+    FD_TEST( ctx->ws_subscribers_vote[ 0 ]==1UL );
+    FD_TEST( conn1->send_frame_cnt==conn1_send_frame_cnt+1UL );
+    FD_TEST( ctx->http->pollfds[ ctx->http->max_conns ].fd==-1 );
+    FD_TEST( ctx->http->pollfds[ ctx->http->max_conns+1UL ].fd==ws1_fd );
+    FD_TEST( !close( ws1_fd ) );
+    ctx->http->pollfds[ ctx->http->max_conns ].fd = -1;
+  }
+  expect_ws_rpc_response( ctx, 1UL,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"voteUnsubscribe\",\"params\":[0]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":1}"
+  );
+  FD_TEST( ctx->ws_subscribers_vote_cnt==0UL );
 
   expect_rpc_response( ctx,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
