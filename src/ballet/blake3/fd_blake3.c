@@ -722,34 +722,20 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
   FD_BLAKE3_TRACE(( "fd_blake3_fini_2048: sz=%lu ctr0=%lu flags=%x",
                     sha->pos.input_sz, ctr0, last_block_flags ));
 
-  /* Expand LtHash
-     For now, this uses the generic AVX2/AVX512 compress backend.
-     Could write a more optimized version in the future saving some of
-     the matrix transpose work. */
-  for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
+  /* Expand LtHash */
 #if FD_HAS_AVX512
-    ulong  batch_data [ 16 ] __attribute__((aligned(64)));
-    /*                     */ for( ulong j=0; j<16; j++ ) batch_data [ j ] = (ulong)root_msg;
-    uint   batch_sz   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_sz   [ j ] = last_block_sz;
-    ulong  batch_ctr  [ 16 ]; for( ulong j=0; j<16; j++ ) batch_ctr  [ j ] = ctr0+i+j;
-    uint   batch_flags[ 16 ]; for( ulong j=0; j<16; j++ ) batch_flags[ j ] = last_block_flags;
-    void * batch_hash [ 16 ]; for( ulong j=0; j<16; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
-    void * batch_cv   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_cv   [ j ] = root_cv_pre;
-    fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
+  fd_blake3_avx512_xof2048( root_msg, last_block_sz, ctr0, last_block_flags, hash, root_cv_pre );
 #elif FD_HAS_AVX
-    ulong  batch_data [ 8 ]; for( ulong j=0; j<8; j++ ) batch_data [ j ] = (ulong)root_msg;
-    uint   batch_sz   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_sz   [ j ] = last_block_sz;
-    ulong  batch_ctr  [ 8 ]; for( ulong j=0; j<8; j++ ) batch_ctr  [ j ] = ctr0+i+j;
-    uint   batch_flags[ 8 ]; for( ulong j=0; j<8; j++ ) batch_flags[ j ] = last_block_flags;
-    void * batch_hash [ 8 ]; for( ulong j=0; j<8; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
-    void * batch_cv   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_cv   [ j ] = root_cv_pre;
-    fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
-#elif FD_HAS_SSE
-    fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+  fd_blake3_avx_xof2048( root_msg, last_block_sz, ctr0, last_block_flags, hash, root_cv_pre );
 #else
+  for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
+# if FD_HAS_SSE
+    fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+# else
     fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
-#endif
+# endif
   }
+#endif
 
   FD_BLAKE3_TRACE(( "fd_blake3_fini_2048: done" ));
   return hash;
