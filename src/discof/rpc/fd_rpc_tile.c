@@ -239,6 +239,8 @@ struct fd_rpc_tile {
 
   ulong * ws_subscribers_vote;
   ulong   ws_subscribers_vote_cnt;
+  ulong * ws_subscribers_slot;
+  ulong   ws_subscribers_slot_cnt;
 
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
   fd_rpc_cluster_node_t cluster_nodes[ FD_CONTACT_INFO_TABLE_SIZE ];
@@ -305,6 +307,30 @@ fd_rpc_ws_subscriber_vote_remove( fd_rpc_tile_t * ctx,
 
     ctx->ws_subscribers_vote_cnt--;
     ctx->ws_subscribers_vote[ idx ] = ctx->ws_subscribers_vote[ ctx->ws_subscribers_vote_cnt ];
+    return 1;
+  }
+
+  return 0;
+}
+
+static void
+fd_rpc_ws_subscriber_slot_add( fd_rpc_tile_t * ctx,
+                               ulong           ws_conn_id ) {
+  for( ulong i=0UL; i<ctx->ws_subscribers_slot_cnt; i++ )
+    if( FD_UNLIKELY( ctx->ws_subscribers_slot[ i ]==ws_conn_id ) ) return;
+
+  FD_TEST( ctx->ws_subscribers_slot_cnt<ctx->http->max_ws_conns );
+  ctx->ws_subscribers_slot[ ctx->ws_subscribers_slot_cnt++ ] = ws_conn_id;
+}
+
+static int
+fd_rpc_ws_subscriber_slot_remove( fd_rpc_tile_t * ctx,
+                                  ulong           ws_conn_id ) {
+  for( ulong idx=0UL; idx<ctx->ws_subscribers_slot_cnt; idx++ ) {
+    if( FD_LIKELY( ctx->ws_subscribers_slot[ idx ]!=ws_conn_id ) ) continue;
+
+    ctx->ws_subscribers_slot_cnt--;
+    ctx->ws_subscribers_slot[ idx ] = ctx->ws_subscribers_slot[ ctx->ws_subscribers_slot_cnt ];
     return 1;
   }
 
@@ -408,6 +434,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint()  );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )  );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -430,6 +457,7 @@ metrics_write( fd_rpc_tile_t * ctx ) {
   FD_MGAUGE_SET( RPC, CONN_ACTIVE,                        ctx->http->metrics.connection_cnt    );
   FD_MGAUGE_SET( RPC, WEBSOCKET_CONN_ACTIVE,              ctx->http->metrics.ws_connection_cnt );
   FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_VOTE, ctx->ws_subscribers_vote_cnt         );
+  FD_MGAUGE_SET( RPC, WEBSOCKET_SUBSCRIPTION_ACTIVE_SLOT, ctx->ws_subscribers_slot_cnt         );
   FD_ACCDB_METRICS_WRITE_RO( RPC, fd_accdb_metrics( ctx->accdb ) );
 }
 
@@ -568,6 +596,34 @@ fd_rpc_publish_vote_event( fd_rpc_tile_t *          ctx,
   FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_VOTE,          sent_cnt );
 }
 
+static void
+fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
+                           fd_replay_slot_completed_t const * slot_completed ) {
+  if( FD_UNLIKELY( !ctx->ws_subscribers_slot_cnt ) ) return;
+
+  ulong sent_cnt = 0UL;
+  for( ulong i=0UL; i<ctx->ws_subscribers_slot_cnt; ) {
+    ulong ws_conn_id = ctx->ws_subscribers_slot[ i ];
+    fd_http_server_printf( ctx->http,
+                           "{\"jsonrpc\":\"2.0\",\"method\":\"slotNotification\",\"params\":{\"subscription\":0,\"result\":{\"parent\":%lu,\"root\":%lu,\"slot\":%lu}}}\n",
+                           slot_completed->parent_slot,
+                           slot_completed->root_slot,
+                           slot_completed->slot );
+
+    if( FD_UNLIKELY( fd_http_server_ws_send( ctx->http, ws_conn_id ) ) ) {
+      fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
+      fd_http_server_ws_close( ctx->http, ws_conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW );
+      continue;
+    }
+    if( FD_UNLIKELY( i>=ctx->ws_subscribers_slot_cnt || ctx->ws_subscribers_slot[ i ]!=ws_conn_id ) ) continue;
+    sent_cnt++;
+    i++;
+  }
+
+  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_UNIQUE_SENT_SLOT, !!sent_cnt );
+  FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_SLOT,          sent_cnt );
+}
+
 static inline int
 returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               in_idx,
@@ -605,6 +661,8 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         bank->rent.lamports_per_uint8_year = slot_completed->rent.lamports_per_uint8_year;
         bank->rent.exemption_threshold     = slot_completed->rent.exemption_threshold;
         bank->rent.burn_percent            = slot_completed->rent.burn_percent;
+
+        fd_rpc_publish_slot_event( ctx, slot_completed );
 
         /* In Agave, "processed" confirmation is the bank we've just
            voted for (handle_votable_bank), which is also guaranteed to
@@ -1903,6 +1961,25 @@ voteSubscribe( fd_rpc_tile_t * ctx,
 }
 
 static fd_http_server_response_t
+slotSubscribe( fd_rpc_tile_t * ctx,
+               cJSON const *   id,
+               cJSON const *   params,
+               ulong           ws_conn_id ) {
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
+
+  CSTR_JSON( id, id_cstr );
+  if( FD_UNLIKELY( ws_conn_id==ULONG_MAX ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
+  }
+  FD_CHECK_CRIT( ws_conn_id < ctx->http->max_ws_conns, "OOB ws_conn_id" );
+
+  fd_rpc_ws_subscriber_slot_add( ctx, ws_conn_id );
+
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":0,\"id\":%s}\n", id_cstr );
+}
+
+static fd_http_server_response_t
 voteUnsubscribe( fd_rpc_tile_t * ctx,
                  cJSON const *   id,
                  cJSON const *   params,
@@ -1924,6 +2001,32 @@ voteUnsubscribe( fd_rpc_tile_t * ctx,
   int unsubscribed = 0;
   if( FD_LIKELY( subscription->valueint==0 ) )
     unsubscribed = fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
+
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
+}
+
+static fd_http_server_response_t
+slotUnsubscribe( fd_rpc_tile_t * ctx,
+                 cJSON const *   id,
+                 cJSON const *   params,
+                 ulong           ws_conn_id ) {
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 1, &response ) ) ) return response;
+
+  CSTR_JSON( id, id_cstr );
+  if( FD_UNLIKELY( ws_conn_id==ULONG_MAX ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
+  }
+  FD_CHECK_CRIT( ws_conn_id < ctx->http->max_ws_conns, "OOB ws_conn_id" );
+
+  cJSON const * subscription = cJSON_GetArrayItem( params, 0 );
+  if( FD_UNLIKELY( !fd_rpc_cjson_is_integer( subscription ) || subscription->valueint<0 ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( subscription ), id_cstr );
+  }
+
+  int unsubscribed = 0;
+  if( FD_LIKELY( subscription->valueint==0 ) )
+    unsubscribed = fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
 
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%s,\"id\":%s}\n", unsubscribed ? "true" : "false", id_cstr );
 }
@@ -2127,6 +2230,8 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   else if( FD_LIKELY( !strcmp( _method->valuestring, "getTransactionCount"               ) ) ) response = getTransactionCount( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "getVersion"                        ) ) ) response = getVersion( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "getVoteAccounts"                   ) ) ) response = getVoteAccounts( ctx, id, params );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "slotSubscribe"                     ) ) ) response = slotSubscribe( ctx, id, params, ws_conn_id );
+  else if( FD_LIKELY( !strcmp( _method->valuestring, "slotUnsubscribe"                   ) ) ) response = slotUnsubscribe( ctx, id, params, ws_conn_id );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "voteSubscribe"                     ) ) ) response = voteSubscribe( ctx, id, params, ws_conn_id );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "voteUnsubscribe"                   ) ) ) response = voteUnsubscribe( ctx, id, params, ws_conn_id );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "isBlockhashValid"                  ) ) ) response = isBlockhashValid( ctx, id, params );
@@ -2167,6 +2272,7 @@ rpc_ws_close( ulong  ws_conn_id,
   fd_rpc_tile_t * ctx = (fd_rpc_tile_t *)_ctx;
   if( FD_UNLIKELY( ws_conn_id>=ctx->http->max_ws_conns ) ) return;
   fd_rpc_ws_subscriber_vote_remove( ctx, ws_conn_id );
+  fd_rpc_ws_subscriber_slot_remove( ctx, ws_conn_id );
 }
 
 static void
@@ -2268,6 +2374,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
   void * _accdb_join  = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->rpc.max_live_slots )         );
   void * _ws_sub_vote = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
+  void * _ws_sub_slot = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           http_params.max_ws_connection_cnt*sizeof(ulong)        );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -2276,6 +2383,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->delay_startup = tile->rpc.delay_startup;
   ctx->ws_subscribers_vote = _ws_sub_vote;
   ctx->ws_subscribers_vote_cnt = 0UL;
+  ctx->ws_subscribers_slot = _ws_sub_slot;
+  ctx->ws_subscribers_slot_cnt = 0UL;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

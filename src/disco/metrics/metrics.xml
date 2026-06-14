@@ -1655,6 +1655,7 @@ EXAMPLES
 
 <enum name="RpcEventType">
     <int value="0" name="Vote" label="vote" />
+    <int value="1" name="Slot" label="slot" />
 </enum>
 
 <tile name="rpc">
