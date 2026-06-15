@@ -333,7 +333,6 @@ struct ctx {
   int              halt_signing;
 
   fd_ip4_port_t repair_intake_addr;
-  fd_ip4_port_t repair_serve_addr;
 
   fd_forest_t    * forest;
   fd_policy_t    * policy;
@@ -382,7 +381,6 @@ struct ctx {
   ulong snap_out_chunk; /* store second to last chunk for snap_out */
 
   fd_ip4_udp_hdrs_t intake_hdr[1];
-  fd_ip4_udp_hdrs_t serve_hdr [1];
 
   fd_rnonce_ss_t repair_nonce_ss[1];
 
@@ -1452,19 +1450,17 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_client_listen_port );
-  ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->rserve.repair_serve_listen_port  );
 
   /* TODO clean these up */
   ctx->net_id = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0, 0, tile->repair.repair_client_listen_port );
-  fd_ip4_udp_hdr_init( ctx->serve_hdr,  0, 0, tile->rserve.repair_serve_listen_port  );
 
   /* Repair set up */
 
   ctx->turbine_slot0 = ULONG_MAX;
-  FD_LOG_INFO(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
-    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
-    FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
+  FD_LOG_INFO(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u",
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port )
+  ));
 
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
