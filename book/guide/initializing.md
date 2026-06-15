@@ -13,11 +13,16 @@ device.
 * **ethtool-offloads** Modify offload feature flags on the network device.
 * **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
+* **irq-affinity** Prevents the kernel from routing IRQs to CPU cores
+  used by Firedancer (via `/proc/irq`).
+* **irq-balance** Prevents the irqbalance daemon from routing IRQs to
+  CPU cores used by Firedancer (via `/run/irqbalance`).
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
 `ethtool-channels` and `ethtool-offloads` to reconfigure the networking
-device.
+device, `irq-affinity` and `irq-balance` configure IRQ affinities for
+CPUs.
 
 The configure command is run like `fdctl configure <mode> <stage>...`
 where `mode` is one of:
@@ -31,8 +36,9 @@ where `mode` is one of:
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
 `bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
-and `snapshots` and these stages are described below. You can also use
-the stage `all` which will configure everything.
+`irq-affinity`, `irq-balance`, and `snapshots` and these stages are
+described below. You can also use the stage `all` which will configure
+everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never

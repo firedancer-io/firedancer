@@ -906,6 +906,25 @@ telemetry = true
     # tiles.
     sign_tile_count = 2
 
+    # Firedancer can reconfigure hardware interrupt affinity, preventing
+    # IRQs from being handled by CPUs running fixed Firedancer tiles.
+    # This guards against performance problems under heavy network load.
+    [layout.interrupts]
+        # Enable the irq-affinity configure stage, which updates IRQ
+        # affinities via  /proc/irq/*/smp_affinity.
+        configure_irq_affinity = true
+
+        # Enable the irq-balance configure stage, which reconfigures the
+        # irqbalance daemon.
+        #
+        # This option has no effect if irqbalance is not running.
+        #
+        # It is recommended to disable the irqbalance daemon
+        # (e.g. sudo systemctl disable --now irqbalance)
+        # This is because irqbalance forgets the config changes
+        # installed by Firedancer when it restarts.
+        configure_irqbalance = true
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a
