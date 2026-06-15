@@ -977,12 +977,43 @@ dynamic_port_range = "8900-9000"
         # "operation not supported".
         xdp_zero_copy = false
 
+        # The poll_mode option determines how Firedancer polls NAPI (Linux's
+        # high perf networking mechanisms). Its possible values are:
+        #
+        #  "softirq" (default)
+        #   Relies significantly more on Linux to manage NAPI through wakeups,
+        #   softirqs, and under higher network load, a separate ksoftirqd
+        #   thread which Linux schedules onto a separate core. If a ksoftirqd
+        #   is scheduled by Linux onto a core corresponding to a different
+        #   tile, the performance of that tile is significantly degraded.
+        #
+        #  "prefbusy"
+        #   Experimental option which gives Firedancer significantly more
+        #   control over how and when NAPI is polled, leading to much less
+        #   IRQs and ksoftirqds on well supported drivers (like mlx5 and i40e).
+        #
+        #   Its main benefit is signifciantly increased IRQ/ksoftirqd livelock
+        #   protection, which is important during DOS attacks and high net load.
+        #
+        #   Depending on exact driver, Copy Mode usually experiences significant
+        #   performance increases (like 2x throughput on mlx5). Zero copy
+        #   throughput generally stays around the same across the poll modes.
+        #
+        # Extra info
+        #
+        #  Older kernels: If your kernel is too old (< v5.11), Firedancer will
+        #  automatically fall back to "softirq" mode and emit a warning.
+        #
+        #  SSH minor lag: You may notice a small increase in SSH lag if
+        #  using the same interface(s) as Firedancer for SSH.
+        poll_mode = "softirq"
+
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
         # This setting defines the number of entries in these metadata
         # queues, which has to be a power of two.
         #
-        # Smaller values use less memory.  Larger values reduce packet
+        # Smaller values use less memory. Larger values reduce packet
         # loss caused by excessive scheduling or inter-CPU latency.
         xdp_rx_queue_size = 32768
         xdp_tx_queue_size = 32768

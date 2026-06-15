@@ -190,6 +190,13 @@ struct fd_topo_tile {
       int    zero_copy;
 
       ulong netdev_tbl_obj_id;
+
+      char poll_mode[ 16 ]; /* "prefbusy" or "softirq" */
+      int prefbusy_timebudget_micros;
+      int prefbusy_rx_budget;
+      long prefbusy_min_interval_nanos;
+      long prefbusy_stall_timeout_nanos;
+
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map */
