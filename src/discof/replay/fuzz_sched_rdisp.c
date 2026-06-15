@@ -30,8 +30,13 @@
    does not need production-sized capacity. */
 #define TEST_RDISP_DEPTH        32UL
 #define TEST_RDISP_BLOCK_DEPTH  4UL
+
+#define TEST_SCHED_DEPTH         512UL
+#define TEST_SCHED_BLOCK_CNT_MAX ( TEST_MAX_BLOCKS + 1UL )
+
 #define TEST_ROOT_SLOT          1000UL
 #define TEST_ROOT_TICK_HEIGHT   5000UL
+
 #define TEST_FAIL_NONE 0
 #define TEST_FAIL_EXEC 1
 #define TEST_FAIL_SIG  2
@@ -716,6 +721,10 @@ ingest_next_segment( case_t * tc,
   }
 }
 
+#define TEST_SCHED_MEM_SZ    ( 27UL*1024UL*1024UL )
+#define TEST_SCHED_MEM_ALIGN 128UL
+static uchar g_sched_mem[ TEST_SCHED_MEM_SZ ] __attribute__((aligned(TEST_SCHED_MEM_ALIGN)));
+
 /* build_case turns one fuzz input into a complete scheduler test case.
 
    It initializes a small fd_sched instance, seeds bank 0 as a
@@ -746,16 +755,13 @@ build_case( case_t * tc, uchar const * data, ulong data_sz ) {
 
   /* Production uses a much deeper scheduler.  The fuzzer keeps this
      small so each case is cheaper to build and run. */
-  ulong depth         = 512UL;
-  ulong block_cnt_max = TEST_MAX_BLOCKS + 1UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
-  tc->mem = aligned_alloc( fd_sched_align(), footprint );
-  FD_TEST( tc->mem );
+  ulong depth         = TEST_SCHED_DEPTH;
+  ulong block_cnt_max = TEST_SCHED_BLOCK_CNT_MAX;
+  tc->mem = g_sched_mem;
 
   fd_rng_t rng[1];
   fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
   tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
-  FD_TEST( tc->sched );
 
   /* Seed the scheduler with bank 0 as a completed snapshot root.  The
      notify/advance pair is a no-op for the current root, but using the
@@ -820,7 +826,6 @@ static void
 destroy_case( case_t * tc ) {
   if( FD_UNLIKELY( !tc->mem ) ) return;
   fd_sched_delete( fd_sched_leave( tc->sched ) );
-  free( tc->mem );
   tc->mem   = NULL;
   tc->sched = NULL;
 }
@@ -951,13 +956,13 @@ rdisp_mirror_verify( mirror_t * mirror,
   fd_rdisp_verify( mirror->disp[ slot ], mirror->verify_scratch[ slot ] );
 }
 
+static void * g_rdisp_mem[ TEST_MAX_BLOCKS ] = { 0 };
 
 static void
 rdisp_mirror_destroy( mirror_t * mirror ) {
   for( ulong slot=0UL; slot<TEST_MAX_BLOCKS; slot++ ) {
-    if( FD_UNLIKELY( !mirror->mem[ slot ] ) ) continue;
+    if( FD_UNLIKELY( !mirror->disp[ slot ] ) ) continue;
     fd_rdisp_delete( fd_rdisp_leave( mirror->disp[ slot ] ) );
-    free( mirror->mem[ slot ] );
     mirror->mem [ slot ] = NULL;
     mirror->disp[ slot ] = NULL;
   }
@@ -968,13 +973,13 @@ rdisp_mirror_ensure_block( mirror_t * mirror,
                            block_t const * block ) {
   ulong slot = block->bank_idx-1UL;
   if( FD_UNLIKELY( !mirror->mem[ slot ] ) ) {
-    ulong footprint = fd_rdisp_footprint( TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH );
-    mirror->mem[ slot ] = aligned_alloc( fd_rdisp_align(), footprint );
-    FD_TEST( mirror->mem[ slot ] );
-    mirror->disp[ slot ] = fd_rdisp_join( fd_rdisp_new( mirror->mem[ slot ],
-                                                        TEST_RDISP_DEPTH,
-                                                        TEST_RDISP_BLOCK_DEPTH,
-                                                        0x51a0f95dUL + block->bank_idx ) );
+    if( FD_UNLIKELY( !g_rdisp_mem[ slot ] ) ) {
+      ulong footprint = fd_rdisp_footprint( TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH );
+      g_rdisp_mem[ slot ] = aligned_alloc( fd_rdisp_align(), footprint );
+      FD_TEST( g_rdisp_mem[ slot ] );
+    }
+    mirror->mem[ slot ]  = g_rdisp_mem[ slot ];
+    mirror->disp[ slot ] = fd_rdisp_join( fd_rdisp_new( g_rdisp_mem[ slot ], TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH, 0x51a0f95dUL + block->bank_idx ) );
     FD_TEST( mirror->disp[ slot ] );
   }
 
@@ -1153,9 +1158,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
      the parent, the child under test, and one spare slot. */
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 4UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
-  void * mem          = aligned_alloc( fd_sched_align(), footprint );
-  FD_TEST( mem );
+  void * mem          = g_sched_mem;
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
   fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
@@ -1226,7 +1229,6 @@ run_bad_tick_case( fd_hash_t const * start_poh,
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
 
   fd_sched_delete( fd_sched_leave( sched ) );
-  free( mem );
 }
 
 static void
@@ -1280,9 +1282,7 @@ run_lane_policy_case( uchar const * data,
      and a handful of synthetic branches. */
   ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
   ulong block_cnt_max = 8UL;
-  ulong footprint     = fd_sched_footprint( depth, block_cnt_max );
-  void * mem          = aligned_alloc( fd_sched_align(), footprint );
-  FD_TEST( mem );
+  void * mem          = g_sched_mem;
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
   fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, TEST_EXEC_CNT ) );
@@ -1372,7 +1372,6 @@ run_lane_policy_case( uchar const * data,
   FD_TEST( strstr( state, expect_active ) );
 
   fd_sched_delete( fd_sched_leave( sched ) );
-  free( mem );
 }
 
 static void
@@ -1583,6 +1582,10 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_boot( argc, argv );
   fd_log_level_core_set( 3 );
   atexit( fd_halt );
+
+  FD_TEST( fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX )<=sizeof(g_sched_mem) );
+  FD_TEST( fd_sched_align()==TEST_SCHED_MEM_ALIGN );
+
   return 0;
 }
 
