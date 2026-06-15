@@ -23,6 +23,14 @@ ulong
 fd_proc_interrupts_colwise( int   fd,
                             ulong per_cpu[ FD_TILE_MAX ] );
 
+/* fd_proc_interrupts_tlb parses the TLB row in /proc/interrupts.
+   Returns the number of CPUs found.  On return, per_cpu[i] contains the
+   TLB counter for CPU i, or 0 if the row was not found. */
+
+ulong
+fd_proc_interrupts_tlb( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] );
+
 /* fd_proc_softirqs_sum parses the content of /proc/softirqs.  Sums up
    softirq counters by category.  Assumes that fd is a file descriptor
    of /proc/softirqs in procfs or a regular readable file.  Returns the

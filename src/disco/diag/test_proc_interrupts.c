@@ -26,6 +26,18 @@ static ulong example_interrupts_counters[ 64 ] = {
      309,      0,3192699,    305,      0,      0,1018238,      0
 };
 
+static ulong example_interrupts_tlb[ 64 ] = {
+/*  CPU0    CPU1    CPU2    CPU3    CPU4    CPU5    CPU6    CPU7 */
+  673344, 735418, 679380, 741984, 853850, 847385, 724643, 724106,
+  768882, 694487,      0, 740834, 904422, 735162, 655866, 447416,
+  471574, 478852, 623136, 444959, 556542, 475064, 547507, 497448,
+  506679, 487171, 515478, 537931, 617432, 604724, 559526, 490355,
+  752696, 673581, 721332, 754422, 679527, 682206, 779306, 732622,
+  464415, 834047, 652257, 493570, 679843, 692510, 463130, 590824,
+  501687, 624202, 492325, 544153, 426800, 537541, 394152, 416201,
+  509296, 515971, 513184, 460867, 458396, 452900, 541493, 507204
+};
+
 FD_IMPORT_BINARY( example_softirqs, "src/disco/diag/example_proc_softirqs.txt" );
 static ulong example_softirqs_counters[ 3 ][ 64 ] = {
 /*    CPU0     CPU1     CPU2     CPU3     CPU4     CPU5     CPU6     CPU7 */
@@ -89,6 +101,25 @@ test_interrupts_example( void ) {
 }
 
 static void
+test_tlb_example( void ) {
+  int memfd = memfd_create( "fake_proc_interrupts", 0 );
+  FD_TEST( memfd>=0 );
+
+  ulong write_sz;
+  FD_TEST( 0==fd_io_write( memfd, example_interrupts, example_interrupts_sz, example_interrupts_sz, &write_sz ) );
+  FD_TEST( write_sz==example_interrupts_sz );
+  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
+
+  ulong cpu_cnt = fd_proc_interrupts_tlb( memfd, per_cpu[0] );
+  FD_TEST( 0==close( memfd ) );
+
+  FD_TEST( cpu_cnt==64 );
+  for( ulong cpu=0; cpu<cpu_cnt; cpu++ ) {
+    FD_TEST( per_cpu[0][ cpu ]==example_interrupts_tlb[ cpu ] );
+  }
+}
+
+static void
 test_softirqs_real( void ) {
   int fd = open( "/proc/softirqs", O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -138,6 +169,8 @@ main( int     argc,
   test_interrupts_real();
   havoc( rng );
   test_interrupts_example();
+  havoc( rng );
+  test_tlb_example();
   havoc( rng );
   test_softirqs_real();
   havoc( rng );
