@@ -339,6 +339,13 @@ after_credit( fd_snapld_tile_t *  ctx,
             fd_sshttp_cancel( ctx->sshttp );
             break;
           }
+          if( FD_UNLIKELY( meta->total_sz<FD_SNAPSHOT_MIN_CONTENT_LENGTH ) ) {
+            FD_LOG_WARNING(( "HTTP Content-Length %lu for %s snapshot is below minimum %lu",
+                             meta->total_sz, ctx->load_full ? "full" : "incremental", FD_SNAPSHOT_MIN_CONTENT_LENGTH ));
+            transition_malformed( ctx, stem );
+            fd_sshttp_cancel( ctx->sshttp );
+            break;
+          }
           ctx->sent_meta = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;

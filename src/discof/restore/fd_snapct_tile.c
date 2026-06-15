@@ -529,6 +529,14 @@ init_load( fd_snapct_tile_t *  ctx,
   if( file ) {
     if( full ) ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
     else       ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
+    ulong bytes_total = full ? ctx->metrics.full.bytes_total : ctx->metrics.incremental.bytes_total;
+    if( FD_UNLIKELY( bytes_total<FD_SNAPSHOT_MIN_CONTENT_LENGTH ) ) {
+      FD_LOG_WARNING(( "%s snapshot file size %lu is below minimum %lu, marking malformed",
+                       full ? "full" : "incremental", bytes_total, FD_SNAPSHOT_MIN_CONTENT_LENGTH ));
+      ctx->malformed = 1;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+      return;
+    }
   }
 
   if( !file ) {
@@ -1473,9 +1481,10 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
 
-    if( FD_UNLIKELY( meta->total_sz==0UL ) ) {
+    if( FD_UNLIKELY( meta->total_sz<FD_SNAPSHOT_MIN_CONTENT_LENGTH ) ) {
       if( FD_UNLIKELY( !ctx->malformed ) ) {
-        FD_LOG_WARNING(( "received zero Content-Length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
+        FD_LOG_WARNING(( "Content-Length %lu for %s snapshot is below minimum %lu, marking malformed",
+                         meta->total_sz, full ? "full" : "incremental", FD_SNAPSHOT_MIN_CONTENT_LENGTH ));
         ctx->malformed = 1;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
       }

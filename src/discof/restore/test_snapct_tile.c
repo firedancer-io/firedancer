@@ -257,6 +257,53 @@ test_load_complete_signal( void ) {
 }
 
 static void
+test_meta_content_length( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+
+  fd_ssctrl_meta_t meta[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  ctx->snapld_in_mem = meta;
+
+  /* snapld_frag never dereferences stem in the paths tested below. */
+
+  /* Valid META at exact minimum for full HTTP sets bytes_total. */
+  ctx->state     = FD_SNAPCT_STATE_READING_FULL_HTTP;
+  meta->total_sz = FD_SNAPSHOT_MIN_CONTENT_LENGTH;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(fd_ssctrl_meta_t), 0UL, NULL );
+  FD_TEST( ctx->metrics.full.bytes_total==FD_SNAPSHOT_MIN_CONTENT_LENGTH );
+
+  /* Valid META for incremental HTTP sets bytes_total. */
+  ctx->state     = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+  meta->total_sz = FD_SNAPSHOT_MIN_CONTENT_LENGTH + 1UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(fd_ssctrl_meta_t), 0UL, NULL );
+  FD_TEST( ctx->metrics.incremental.bytes_total==FD_SNAPSHOT_MIN_CONTENT_LENGTH + 1UL );
+
+  /* Below-minimum META when already malformed: returns without
+     updating bytes_total or crashing (stem is NULL). */
+  ctx->state                    = FD_SNAPCT_STATE_READING_FULL_HTTP;
+  ctx->malformed                = 1;
+  ctx->metrics.full.bytes_total = 0UL;
+  meta->total_sz                = FD_SNAPSHOT_MIN_CONTENT_LENGTH - 1UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(fd_ssctrl_meta_t), 0UL, NULL );
+  FD_TEST( ctx->metrics.full.bytes_total==0UL );
+  FD_TEST( ctx->malformed==1 );
+  ctx->malformed = 0;
+
+  /* META ignored during flushing reset states. */
+  ctx->state                    = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
+  ctx->metrics.full.bytes_total = 0UL;
+  meta->total_sz                = FD_SNAPSHOT_MIN_CONTENT_LENGTH;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(fd_ssctrl_meta_t), 0UL, NULL );
+  FD_TEST( ctx->metrics.full.bytes_total==0UL );
+
+  ctx->state                           = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+  ctx->metrics.incremental.bytes_total = 0UL;
+  meta->total_sz                       = FD_SNAPSHOT_MIN_CONTENT_LENGTH;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(fd_ssctrl_meta_t), 0UL, NULL );
+  FD_TEST( ctx->metrics.incremental.bytes_total==0UL );
+}
+
+static void
 test_contact_info_slot_reuse_after_unallowed_peer_expires( void ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
 
@@ -514,6 +561,7 @@ main( int     argc,
   test_block_list_contact_info_insert();
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
+  test_meta_content_length();
 
   /* Shared ssping: can only be created once (opens real sockets). */
   ulong ssping_max = 16UL;

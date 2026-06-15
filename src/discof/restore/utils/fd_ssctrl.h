@@ -91,6 +91,8 @@
    that control message until all tiles forward it on, or an ERROR
    message is triggered by any of the tiles and forwarded. */
 
+#define FD_SNAPSHOT_MIN_CONTENT_LENGTH         (1UL<<12) /* 4 KiB - minimum accepted Content-Length for a valid snapshot */
+
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */
 #define FD_SNAPSHOT_STATE_FINISHING            (2UL) /* Tile has observed EoF, expects no additional data frags */
