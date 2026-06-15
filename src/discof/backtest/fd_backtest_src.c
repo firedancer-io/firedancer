@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include "../../util/net/fd_pcap.h"
 #include "../../util/net/fd_pcapng_private.h"
 #if FD_HAS_ZSTD
 #include <zstd.h>
@@ -152,8 +151,12 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
   }
 
   switch( fmt ) {
+    case FD_BACKT_SRC_FMT_ROCKSDB:
 #   if FD_HAS_ROCKSDB
-    case FD_BACKT_SRC_FMT_ROCKSDB: return fd_backt_src_rocksdb_create( opts );
+      return fd_backt_src_rocksdb_create( opts );
+#   else
+      FD_LOG_WARNING(( "this firedancer build does not support RocksDB (run ./deps.sh +dev; make clean; make -j firedancer-dev)" ));
+      return NULL;
 #   endif
     case FD_BACKT_SRC_FMT_PCAP:
     case FD_BACKT_SRC_FMT_PCAPNG:  return fd_backt_src_pcap_create( opts, fmt, flags );
