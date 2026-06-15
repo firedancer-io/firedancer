@@ -223,6 +223,61 @@ failed:
 }
 
 ulong
+fd_proc_interrupts_tlb( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  fd_io_buffered_istream_t is[1];
+  char buf[ 4096 ];
+  fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
+
+  ushort col_cpu[ FD_TILE_MAX ];
+  ulong  col_cnt;
+  ulong  cpu_cnt;
+  int err = read_cpu_map( is, &col_cnt, &cpu_cnt, col_cpu );
+  if( FD_UNLIKELY( err!=0 ) ) goto failed;
+  if( FD_UNLIKELY( !col_cnt || !cpu_cnt ) ) return 0UL;
+
+  for( ulong cpu=0UL; cpu<cpu_cnt; cpu++ ) {
+    per_cpu[ cpu ] = 0UL;
+  }
+
+  for(;;) {
+    err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err!=0 ) ) goto failed;
+    if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
+
+    char const * prefix     = fd_io_buffered_istream_peek   ( is );
+    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
+    if( FD_UNLIKELY( prefix_max>=4UL && fd_memeq( prefix, "TLB:", 4UL ) ) ) {
+      err = read_until( is, 0UL, skip_token );
+      if( FD_UNLIKELY( err!=0 ) ) goto failed;
+
+      for( ulong col_idx=0UL; col_idx<col_cnt; col_idx++ ) {
+        err = read_until( is, 21UL, skip_spaces );
+        if( FD_UNLIKELY( err!=0 ) ) goto failed;
+
+        ulong irq_cnt = read_ulong( is );
+        irq_cnt = fd_ulong_if( irq_cnt!=ULONG_MAX, irq_cnt, 0UL );
+        per_cpu[ col_cpu[ col_idx ] ] = irq_cnt;
+      }
+      return cpu_cnt;
+    }
+
+    err = read_until( is, 0UL, skip_line );
+    if( FD_UNLIKELY( err!=0 ) ) {
+      if( err==-1 ) break;
+      goto failed;
+    }
+  }
+  return cpu_cnt;
+
+failed:
+  if( err!=0 ) {
+    FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+  return 0UL;
+}
+
+ulong
 fd_proc_softirqs_sum( int   fd,
                       ulong per_cpu[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ] ) {
   fd_io_buffered_istream_t is[1];
