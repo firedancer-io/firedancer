@@ -48,6 +48,45 @@ fd_event_signed_vote_serialize( fd_circq_t *                   circq,
 }
 
 void
+fd_event_boot_serialize( fd_circq_t *            circq,
+                         fd_event_client_t *     client,
+                         long                    timestamp_nanos,
+                         ulong                   link_seq,
+                         fd_event_boot_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_BOOT_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_BOOT_BUF_MAX );
+
+  FD_TEST( circq->cursor_push_seq );
+  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  fd_pb_push_uint64( encoder, 2U, event_id );
+  fd_pb_push_uint64( encoder, 3U, link_seq );
+  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->kernel_sysname_len<=65UL );
+  FD_TEST( msg->kernel_release_len<=65UL );
+  FD_TEST( msg->kernel_version_len<=65UL );
+  FD_TEST( msg->kernel_machine_len<=65UL );
+  FD_TEST( msg->xdp_driver_len<=10UL );
+
+  fd_pb_submsg_open( encoder, 5U ); /* Event */
+  fd_pb_submsg_open( encoder, 4U ); /* Boot */
+  if( msg->kernel_sysname_len ) fd_pb_push_bytes ( encoder, 1U, msg->kernel_sysname, msg->kernel_sysname_len );
+  if( msg->kernel_release_len ) fd_pb_push_bytes ( encoder, 2U, msg->kernel_release, msg->kernel_release_len );
+  if( msg->kernel_version_len ) fd_pb_push_bytes ( encoder, 3U, msg->kernel_version, msg->kernel_version_len );
+  if( msg->kernel_machine_len ) fd_pb_push_bytes ( encoder, 4U, msg->kernel_machine, msg->kernel_machine_len );
+  if( msg->xdp_driver_len ) fd_pb_push_bytes ( encoder, 5U, msg->xdp_driver, msg->xdp_driver_len );
+  if( msg->xdp_pcie_id ) fd_pb_push_uint32( encoder, 6U, (uint)msg->xdp_pcie_id );
+  fd_pb_submsg_close( encoder );
+  fd_pb_submsg_close( encoder );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -59,6 +98,10 @@ fd_event_serialize_by_type( ulong               type,
   case 3UL:
     FD_TEST( ev_sz==sizeof(fd_event_signed_vote_t) );
     fd_event_signed_vote_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_signed_vote_t const *)ev );
+    break;
+  case 4UL:
+    FD_TEST( ev_sz==sizeof(fd_event_boot_t) );
+    fd_event_boot_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_boot_t const *)ev );
     break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }

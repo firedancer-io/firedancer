@@ -84,11 +84,28 @@ message SignedVote {
   repeated SignedVoteTower tower = 10;
 }
 
+// The validator boot-time configuration and environment
+message Boot {
+  // Kernel name (Linux)
+  bytes kernel_sysname = 1;
+  // Kernel release (e.g. 7.0.8-1202605170043.el9.x86_64)
+  bytes kernel_release = 2;
+  // Kernel version string (e.g. #1 SMP PREEMPT_DYNAMIC Sun May 17 00:49:58 UTC 2026)
+  bytes kernel_version = 3;
+  // Machine hardware name (e.g. x86_64)
+  bytes kernel_machine = 4;
+  // Kernel module of XDP network device
+  bytes xdp_driver = 5;
+  // PCIe ID of XDP network device
+  uint32 xdp_pcie_id = 6;
+}
+
 // Combined event type
 message Event {
   oneof event {
     Txn txn = 1;
     Shred shred = 2;
     SignedVote signed_vote = 3;
+    Boot boot = 4;
   }
 }

@@ -34,9 +34,29 @@ typedef struct fd_event_signed_vote fd_event_signed_vote_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SIGNED_VOTE_BUF_MAX (2765UL)
 
+/* The validator boot-time configuration and environment */
+struct fd_event_boot {
+  uchar kernel_sysname[ 65UL ]; /* Kernel name (Linux) */
+  ulong kernel_sysname_len;     /* Length of kernel_sysname (<= 65) */
+  uchar kernel_release[ 65UL ]; /* Kernel release (e.g. 7.0.8-1202605170043.el9.x86_64) */
+  ulong kernel_release_len;     /* Length of kernel_release (<= 65) */
+  uchar kernel_version[ 65UL ]; /* Kernel version string (e.g. #1 SMP PREEMPT_DYNAMIC Sun May 17 00:49:58 UTC 2026) */
+  ulong kernel_version_len;     /* Length of kernel_version (<= 65) */
+  uchar kernel_machine[ 65UL ]; /* Machine hardware name (e.g. x86_64) */
+  ulong kernel_machine_len;     /* Length of kernel_machine (<= 65) */
+  uchar xdp_driver[ 10UL ];     /* Kernel module of XDP network device */
+  ulong xdp_driver_len;         /* Length of xdp_driver (<= 10) */
+  uint  xdp_pcie_id;            /* PCIe ID of XDP network device */
+};
+typedef struct fd_event_boot fd_event_boot_t;
+
+/* Worst-case encoded size of a boot event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_BOOT_BUF_MAX (427UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (sizeof(fd_event_signed_vote_t))
+#define FD_EVENT_GEN_STRUCT_MAX (((sizeof(fd_event_boot_t))>(sizeof(fd_event_signed_vote_t)) ? (sizeof(fd_event_boot_t)) : (sizeof(fd_event_signed_vote_t))))
 
 FD_PROTOTYPES_BEGIN
 
@@ -49,6 +69,16 @@ fd_event_signed_vote_serialize( fd_circq_t *                   circq,
                                 long                           timestamp_nanos,
                                 ulong                          link_seq,
                                 fd_event_signed_vote_t const * msg );
+
+/* Serialize a boot event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_boot_serialize( fd_circq_t *            circq,
+                         fd_event_client_t *     client,
+                         long                    timestamp_nanos,
+                         ulong                   link_seq,
+                         fd_event_boot_t const * msg );
 
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
@@ -66,6 +96,13 @@ fd_event_serialize_by_type( ulong               type,
 static inline void
 fd_event_report_signed_vote( fd_event_signed_vote_t const * msg ) {
   fd_event_report_( 3UL, msg, sizeof(fd_event_signed_vote_t) );
+}
+
+/* Report a boot event (Boot, id 4) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_boot( fd_event_boot_t const * msg ) {
+  fd_event_report_( 4UL, msg, sizeof(fd_event_boot_t) );
 }
 
 FD_PROTOTYPES_END
