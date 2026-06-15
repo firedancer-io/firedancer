@@ -6,12 +6,10 @@ struct pubkey_to_idx {
 };
 typedef struct pubkey_to_idx pubkey_to_idx_t;
 
-static const fd_pubkey_t null_pubkey = {{ 0 }};
-
 #define MAP_NAME              pubkey_to_idx
 #define MAP_T                 pubkey_to_idx_t
 #define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          null_pubkey
+#define MAP_KEY_NULL          ((fd_pubkey_t){{0}})
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)

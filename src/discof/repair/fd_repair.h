@@ -168,8 +168,6 @@ typedef struct fd_repair_ping fd_repair_ping_t;
 
 #define FD_REPAIR_MAX_PREIMAGE_SZ (sizeof(fd_repair_msg_t) - sizeof(fd_ed25519_sig_t))
 
-static const fd_pubkey_t null_pubkey = {{ 0 }};
-
 /* fd_repair_sign_fn defines the function signature for a user-provided
    signing callback. */
 
