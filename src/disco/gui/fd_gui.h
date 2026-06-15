@@ -41,7 +41,7 @@
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
 #define FD_GUI_NETWORK_EMA_HALF_LIFE_NS (1000000000L) /* 1 second in nanoseconds */
-#define FD_GUI_NET_PROTO_CNT            (5UL)         /* turbine, gossip, tpu, repair, metric */
+#define FD_GUI_NET_PROTO_CNT            (6UL)         /* turbine, gossip, tpu, repair, rserve, metric */
 #define FD_GUI_NET_RATE_MAX_WINDOW_NS   (300L*1000L*1000L*1000L) /* 5 minutes in nanoseconds */
 
 /* Monotonic deque element for sliding-window max tracking of

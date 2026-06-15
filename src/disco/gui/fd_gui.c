@@ -676,14 +676,16 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_in[ 1 ] = fd_ulong_sat_sub( cur->in.gossip,  prev->in.gossip  );
   d_in[ 2 ] = fd_ulong_sat_sub( cur->in.tpu,     prev->in.tpu     );
   d_in[ 3 ] = fd_ulong_sat_sub( cur->in.repair,  prev->in.repair  );
-  d_in[ 4 ] = fd_ulong_sat_sub( cur->in.metric,  prev->in.metric  );
+  d_in[ 4 ] = fd_ulong_sat_sub( cur->in.rserve,  prev->in.rserve  );
+  d_in[ 5 ] = fd_ulong_sat_sub( cur->in.metric,  prev->in.metric  );
 
   ulong d_out[ FD_GUI_NET_PROTO_CNT ];
   d_out[ 0 ] = fd_ulong_sat_sub( cur->out.turbine, prev->out.turbine );
   d_out[ 1 ] = fd_ulong_sat_sub( cur->out.gossip,  prev->out.gossip  );
   d_out[ 2 ] = fd_ulong_sat_sub( cur->out.tpu,     prev->out.tpu     );
   d_out[ 3 ] = fd_ulong_sat_sub( cur->out.repair,  prev->out.repair  );
-  d_out[ 4 ] = fd_ulong_sat_sub( cur->out.metric,  prev->out.metric  );
+  d_out[ 4 ] = fd_ulong_sat_sub( cur->out.rserve,  prev->out.rserve  );
+  d_out[ 5 ] = fd_ulong_sat_sub( cur->out.metric,  prev->out.metric  );
 
   /* Compute per-protocol instantaneous bytes/sec rate and feed the EMA. */
   long dt_ns = now - gui->summary.net_rate_prev_ts;
