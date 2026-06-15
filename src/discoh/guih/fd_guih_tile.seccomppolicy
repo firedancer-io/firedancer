@@ -4,7 +4,7 @@
 # gui_socket_fd: The http tile serves a GUI over HTTP, which is over TCP
 #                and does not use our XDP program.  It uses regular
 #                kernel sockets, so this is the socket file descriptor.
-unsigned int logfile_fd, unsigned int gui_socket_fd
+uint logfile_fd, uint gui_socket_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
