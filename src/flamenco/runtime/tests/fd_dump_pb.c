@@ -1231,10 +1231,9 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   }
 
   if( !txn_out->err.is_fees_only ) {
-    /* Executed: capture fee payer and writable accounts. */
+    /* Executed: writable accounts. */
     for( ulong j=0UL; j<txn_out->accounts.cnt; j++ ) {
-      if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, (ushort)j ) ||
-             j==FD_FEE_PAYER_TXN_IDX ) ) {
+      if( !fd_runtime_account_is_writable_idx( txn_in, txn_out, (ushort)j ) ) {
         continue;
       }
 
