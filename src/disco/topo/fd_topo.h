@@ -189,7 +189,10 @@ struct fd_topo_tile {
       char   xdp_mode[8];
       int    zero_copy;
 
+      char poll_mode[ 16 ]; /* "softirq" or "prefbusy" */
+
       ulong netdev_tbl_obj_id;
+
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
       ulong neigh4_obj_id;         /* neigh4 hash map */
