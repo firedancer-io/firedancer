@@ -475,6 +475,8 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
+  CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 
