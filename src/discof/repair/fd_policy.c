@@ -305,10 +305,7 @@ fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
 
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key ) {
-  if( FD_UNLIKELY( memcmp( key->key, null_pubkey.key, 32UL ) == 0 ) ) {
-    FD_LOG_WARNING(( "Repair policy peer with null pubkey." ));
-    return NULL;
-  };
+  if( FD_UNLIKELY( memcmp( key->key, null_pubkey.key, 32UL ) == 0 ) ) return NULL;
   fd_policy_peer_t * pool = policy->peers.pool;
   return fd_policy_peer_map_ele_query( policy->peers.map, key, NULL, pool );
 }
