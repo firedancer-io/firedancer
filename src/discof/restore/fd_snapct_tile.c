@@ -295,6 +295,9 @@ on_resolve( void *                  _ctx,
             uchar                   incr_hash[ FD_HASH_FOOTPRINT ] ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
+  if( FD_UNLIKELY( full_slot!=FD_SSPEER_SLOT_UNKNOWN && full_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return;
+  if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN && incr_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return;
+
   /* Do not update peers that have been permanently blacklisted. */
   if( FD_UNLIKELY( key && blacklist_map_ele_query( ctx->blacklist_map, key, NULL, ctx->blacklist_pool ) ) ) return;
   /* Do not re-add peers whose addr is temporarily banned by ssping. */
@@ -354,6 +357,9 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
       incr_hash = msg->snapshot_hashes->incremental[ i ].hash;
     }
   }
+
+  if( FD_UNLIKELY( full_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return;
+  if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN && incr_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return;
 
   if( FD_UNLIKELY( !addr.l ) ) {
     /* A peer that does not advertise an rpc_addr cannot be added to

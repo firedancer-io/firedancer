@@ -82,6 +82,9 @@ typedef struct fd_sspeer_private fd_sspeer_private_t;
 #include "../../../util/tmpl/fd_treap.c"
 
 #define DEFAULT_SLOTS_BEHIND         (1000UL*1000UL) /* 1,000,000 slots behind */
+/* Intentionally less than DEFAULT_SLOTS_BEHIND so that peers with an
+   unknown slot are penalized more than the worst known peer. */
+#define MAX_SLOTS_BEHIND_CAP         (864000UL)      /* ~2 epochs worth of slots */
 /* Assumed latency (in nanos) for peers that have not been pinged yet.
    Pings are sent immediately on peer discovery, so this default is
    short-lived.  100ms is a neutral middle-ground: high enough that
@@ -277,6 +280,7 @@ fd_sspeer_selector_score( fd_sspeer_selector_t const * selector,
          against the cluster full slot. */
       slots_behind = selector->cluster_slot.full>full_slot ? selector->cluster_slot.full - full_slot : 0UL;
     }
+    slots_behind = fd_ulong_min( slots_behind, MAX_SLOTS_BEHIND_CAP );
   }
 
   /* Using saturating arithmetic to avoid overflow and cap at
@@ -421,6 +425,10 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
      For an existing peer changing from a valid address to 0, it is
      the caller's responsibility to remove them. */
   if( FD_UNLIKELY( !addr.l ) ) return FD_SSPEER_SCORE_INVALID;
+
+  /* Reject implausible slot values.  FD_SSPEER_SLOT_UNKNOWN is allowed. */
+  if( FD_UNLIKELY( full_slot!=FD_SSPEER_SLOT_UNKNOWN && full_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return FD_SSPEER_SCORE_INVALID;
+  if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN && incr_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return FD_SSPEER_SCORE_INVALID;
 
   fd_sspeer_private_t * peer = peer_map_by_key_ele_query( selector->map_by_key, key, NULL, selector->pool );
   if( FD_LIKELY( peer ) ) {

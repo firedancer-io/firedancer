@@ -27,6 +27,10 @@
 /* Sentinel value indicating that peer latency has not been measured. */
 #define FD_SSPEER_LATENCY_UNKNOWN (ULONG_MAX)
 
+/* Plausibility bound: slots at or above this are silently dropped.
+   ~10^10 is ~125 years of mainnet at 2.5 slots/s. */
+#define FD_SSPEER_PLAUSIBLE_MAX_SLOT (10UL*1000UL*1000UL*1000UL)
+
 /* Return code for fd_sspeer_selector_update (internal). */
 #define FD_SSPEER_UPDATE_SUCCESS ( 0)
 
