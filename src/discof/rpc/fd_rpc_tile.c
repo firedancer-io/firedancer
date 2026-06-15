@@ -343,7 +343,11 @@ bz2_malloc( void * opaque,
             int    size ) {
   fd_alloc_t * alloc = (fd_alloc_t *)opaque;
 
-  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)(items*size) );
+  if( FD_UNLIKELY( items<=0 || size<=0 ) ) {
+    FD_LOG_WARNING(( "bz2_malloc: invalid items=%d or size=%d", items, size ));
+    return NULL;
+  }
+  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)items*(ulong)size );
   if( FD_UNLIKELY( !result ) ) return NULL;
   return result;
 }
@@ -368,16 +372,21 @@ fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
                         ulong           out_sz ) {
   ulong padding_sz = 2*512UL;
   if( FD_LIKELY( data_sz % 512UL ) ) padding_sz += 512UL - (data_sz % 512UL);
-  FD_TEST( sizeof(fd_tar_meta_t)+data_sz+padding_sz <= scratch_sz );
+
+  if( FD_UNLIKELY( data_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
+    FD_LOG_ERR(( "Genesis data exceeds maximum size (data_sz=%lu max=%lu)", data_sz, (ulong)FD_GENESIS_MAX_MESSAGE_SIZE ));
+  }
+  ulong tar_sz = sizeof(fd_tar_meta_t) + data_sz + padding_sz;
+  if( FD_UNLIKELY( tar_sz>scratch_sz ) ) {
+    FD_LOG_WARNING(( "tar_sz exceeds scratch_sz (tar_sz=%lu scratch_sz=%lu)", tar_sz, scratch_sz ));
+    return ULONG_MAX;
+  }
 
   fd_tar_meta_init_file_default( (fd_tar_meta_t *)scratch, filename_cstr, data_sz, fd_log_wallclock() );
   fd_memcpy( scratch+sizeof(fd_tar_meta_t), data, data_sz );
   memset( scratch+sizeof(fd_tar_meta_t)+data_sz, 0, padding_sz );
 
   /* NOTE: Agave's genesis.tar also contains a `rocksdb` folder */
-
-  ulong tar_sz = sizeof(fd_tar_meta_t)+data_sz+padding_sz;
-  FD_TEST( tar_sz<=scratch_sz );
 
   bz_stream bzstrm = {0};
   bzstrm.bzalloc = bz2_malloc;
@@ -744,6 +753,9 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       blob, blob_sz,
       ctx->genesis_tar, sizeof(ctx->genesis_tar),
       ctx->genesis_tar_bz, sizeof(ctx->genesis_tar_bz) );
+    if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "failed to create genesis tarball (blob_sz=%lu)", blob_sz ));
+    }
   }
 
   return 0;
