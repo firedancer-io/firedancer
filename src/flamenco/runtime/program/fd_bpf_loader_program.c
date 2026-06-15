@@ -739,7 +739,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
 
   if( program_state->discriminant==FD_BPF_STATE_PROGRAM ) {
     if( FD_UNLIKELY( memcmp( &program_state->inner.program.programdata_address, programdata_key, sizeof(fd_pubkey_t) ) ) ) {
-      fd_log_collector_msg_literal( instr_ctx, "Program account does not match ProgramData account" );
+      fd_log_collector_msg_literal( instr_ctx, "ProgramData account does not match ProgramData account" );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
   } else {
@@ -2050,7 +2050,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
              is looked up. */
 
         } else {
-          fd_log_collector_msg_literal( instr_ctx, "Invalid program account" );
+          fd_log_collector_msg_literal( instr_ctx, "Invalid Program account" );
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
 
