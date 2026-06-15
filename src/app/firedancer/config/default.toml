@@ -398,6 +398,11 @@ telemetry = true
     # download and retry downloading the snapshot from a different peer.
     min_download_speed_mibs = 10
 
+    # Maximum time to wait for a snapshot peer to become available
+    # before aborting startup.  Applies when waiting for either full or
+    # incremental snapshot peers.
+    wait_for_peers_timeout_seconds = 30
+
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
     # gossip peers that advertise RPC server addresses, or from external
