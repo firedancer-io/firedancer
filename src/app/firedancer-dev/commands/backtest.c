@@ -113,6 +113,9 @@ backtest_topo( config_t * config ) {
     fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0, 0 );
   }
 
+  fd_topob_wksp( topo, "diag" );
+  fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
+
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
