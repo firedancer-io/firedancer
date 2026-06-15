@@ -410,7 +410,6 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
 
   enable_feature( env, offsetof( fd_features_t, delay_commission_updates ),        0UL );
   enable_feature( env, offsetof( fd_features_t, commission_rate_in_basis_points ), 0UL );
-  enable_feature( env, offsetof( fd_features_t, warp_timestamp_again ),            0UL );
   enable_feature( env, offsetof( fd_features_t, validator_admission_ticket ),      vat_activation_slot );
 
   /* The fork created by attach_child(SENTINEL) is already the root; it

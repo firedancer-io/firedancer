@@ -328,8 +328,6 @@ get_timestamp_estimate( fd_bank_t *             bank,
     }
   }
 
-  int const fix_estimate_into_u64 = FD_FEATURE_ACTIVE_BANK( bank, warp_timestamp_again );
-
   /* Bound estimate by `max_allowable_drift` since the start of the
      epoch.
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L69-L99 */
@@ -341,12 +339,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
   ulong poh_estimate_offset = fd_ulong_sat_mul( slot_duration, fd_ulong_sat_sub( current_slot, epoch_start_slot ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L73-L77 */
-  ulong estimate_offset;
-  if( fix_estimate_into_u64 ) {
-    estimate_offset = fd_ulong_sat_mul( NS_IN_S, fd_ulong_sat_sub( (ulong)estimate, (ulong)epoch_start_timestamp ) );
-  } else {
-    estimate_offset = fd_ulong_sat_mul( NS_IN_S, (ulong)fd_long_sat_sub( estimate, epoch_start_timestamp ) );
-  }
+  ulong estimate_offset = fd_ulong_sat_mul( NS_IN_S, fd_ulong_sat_sub( (ulong)estimate, (ulong)epoch_start_timestamp ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L78-L81 */
   ulong max_allowable_drift_fast = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST_PERCENT ) / 100UL;

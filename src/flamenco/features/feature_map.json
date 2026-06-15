@@ -10,7 +10,7 @@
   {"name":"filter_stake_delegation_accounts","pubkey":"GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"require_custodian_for_locked_stake_authorize","pubkey":"D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"spl_token_v2_self_transfer_fix","pubkey":"BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"warp_timestamp_again","pubkey":"GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb","hardcode_for_fuzzing":1},
+  {"name":"warp_timestamp_again","pubkey":"GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"check_init_vote_data","pubkey":"3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"secp256k1_recover_syscall_enabled","pubkey":"6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"system_transfer_zero_check","pubkey":"BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS","cleaned_up":1,"hardcode_for_fuzzing":1},
