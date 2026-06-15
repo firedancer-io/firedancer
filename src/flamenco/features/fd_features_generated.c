@@ -82,7 +82,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xec\x81\xa2\x94\x94\x89\xa4\xfa\xeb\xca\x4d\xb5\x9a\x5f\x29\x03\x7b\xbb\x84\x7e\x8a\x53\xfb\x72\xe2\x35\x5d\xce\xa5\xdc\x04\xb2"},
                                  /* GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb */
     .name                      = "warp_timestamp_again",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, check_init_vote_data)>>3,
