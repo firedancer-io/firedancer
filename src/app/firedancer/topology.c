@@ -469,6 +469,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "tower_out"     );
   fd_topob_wksp( topo, "txsend_out"    );
 
+  /* Votor tile (Alpenglow consensus + folded-in QUIC ingress). */
+  fd_topob_wksp( topo, "votor"         );
+  fd_topob_wksp( topo, "votor_out"     );
+  fd_topob_wksp( topo, "net_votor"     );
+
   if( leader_enabled ) {
     fd_topob_wksp( topo, "quic_verify"   );
     fd_topob_wksp( topo, "verify_dedup"  );
@@ -610,6 +615,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
+  /* votor_net carries QUIC TX frames (handshake/ack) back to the net tile.
+     votor_out has no consumer yet (bring-up: votor only logs the kind). */
+  /**/                 fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  1024UL /* >= sizeof(fd_votor_msg_t), asserted in fd_votor_tile.c */, 2UL )->permit_no_consumers = 1;
+
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -642,6 +652,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, config->net.ingress_buffer_size );
+  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_alpenglow", i, config->net.ingress_buffer_size );
   if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
@@ -670,6 +681,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "accdb",   "accdb",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
   FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp",  "execrp",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
   /**/                 fd_topob_tile( topo, "tower",   "tower",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 1 );
+  /**/                 fd_topob_tile( topo, "votor",   "votor",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   /**/                 fd_topob_tile( topo, "txsend",  "txsend",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
 
   if( leader_enabled ) {
@@ -806,6 +818,20 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "tower",   0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",     0UL                                                );
+
+  /* Votor (Alpenglow consensus + folded-in QUIC ingress).  It consumes raw
+     frames on the alpenglow port (running the QUIC server in its frag
+     callbacks) plus the same consensus inputs as tower (unreliable for this
+     bring-up so it cannot backpressure the existing pipeline).  votor_net
+     carries QUIC TX frames back to the net tile. */
+  FOR(net_tile_cnt)    fd_topob_tile_in(    topo, "votor",   0UL,          "metric_in", "net_alpenglow", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "votor",   0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_out(   topo, "votor",   0UL,                       "votor_out",     0UL                                                ); /* OUT_IDX     */
+  /**/                 fd_topob_tile_out(   topo, "votor",   0UL,                       "votor_net",     0UL                                                ); /* OUT_IDX_NET */
+  /**/                 fd_topos_tile_in_net( topo,                         "metric_in", "votor_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1256,6 +1282,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
+    /* TODO: make configurable + advertise in gossip contact-info.  Fixed
+       bring-up port for the Alpenglow consensus-message QUIC ingress. */
+    tile->net.alpenglow_listen_port            = 8004;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -1509,6 +1538,19 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     fd_cstr_ncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "votor" ) ) ) {
+    /* Votor reuses the tower tile's config struct for the fields it shares
+       (identity key + max_live_slots) and the quic tile's QUIC config
+       fields for its folded-in QUIC ingress server. */
+    tile->tower.max_live_slots = config->firedancer.runtime.max_live_slots;
+    fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
+
+    tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
+    tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
+    tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
+    tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;
+    tile->quic.retry                          = config->tiles.quic.retry;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

@@ -13,13 +13,20 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/fd_disco_base.h"
+#include "../../disco/net/fd_net_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
+#include "../../waltz/quic/fd_quic.h"
+#include "../../waltz/quic/fd_quic_private.h"
 
 #include <errno.h>
 #include <unistd.h>
+#include <sys/random.h>
 
 /* The Votor tile drives the Alpenglow consensus core.  It broadly processes
    four classes of frags:
@@ -54,12 +61,26 @@
 
 #define LOGGING 0
 
-#define IN_KIND_REPLAY (0)
-#define IN_KIND_GOSSIP (1)
-#define IN_KIND_EPOCH  (2)
-#define IN_KIND_IPECHO (3)
+#define IN_KIND_REPLAY        (0)
+#define IN_KIND_GOSSIP        (1)
+#define IN_KIND_EPOCH         (2)
+#define IN_KIND_IPECHO        (3)
+#define IN_KIND_NET_ALPENGLOW (4) /* raw QUIC frames on the alpenglow port (net tile) */
 
-#define OUT_IDX 0 /* only a single out link votor_out */
+#define OUT_IDX     0 /* votor_out: consensus output (votes/certs/slot_done/finalized) */
+#define OUT_IDX_NET 1 /* votor_net: QUIC TX frames back to the net tile               */
+
+/* QUIC TLS identity key sizes (ephemeral, like the TPU QUIC tile). */
+#define ED25519_PRIV_KEY_SZ (32)
+#define ED25519_PUB_KEY_SZ  (32)
+
+/* One net_alpenglow input link per net tile. */
+#define FD_VOTOR_NET_IN_MAX (32UL)
+
+/* The votor_out link mtu is declared as a literal in topology.c (the
+   topology cannot include this header due to an fd_vote type clash);
+   keep it in sync. */
+FD_STATIC_ASSERT( sizeof(fd_votor_msg_t)<=1024UL, votor_out_mtu );
 
 /* The Alpenglow VAT caps the voting set of validators to 2000.  Only the top
    2000 voters by stake are counted towards consensus rules.  Module
@@ -166,6 +187,29 @@ struct fd_votor_tile {
   ulong       out_wmark;
   ulong       out_chunk;
   ulong       out_seq;
+
+  /* QUIC ingress (folded-in alpin tile): an fd_quic server with an
+     ephemeral TLS identity that receives Alpenglow ConsensusMessages on
+     the dedicated alpenglow port.  The tile-level frag callbacks
+     (before/during/after_frag) drive the QUIC machinery; the
+     quic_stream_rx callback hands each whole ConsensusMessage to the
+     consensus helper votor_handle_consensus_msg.  NULL when the tile is
+     run without QUIC config (e.g. the unit test). */
+
+  fd_quic_t *        quic;
+  fd_aio_t           quic_tx_aio[1];
+  uchar              tls_priv_key[ ED25519_PRIV_KEY_SZ ];
+  uchar              tls_pub_key [ ED25519_PUB_KEY_SZ  ];
+  fd_sha512_t        quic_sha512[1];
+  long               now;
+  fd_stem_context_t * stem;
+  uchar              net_buf[ FD_NET_MTU ];
+  fd_net_rx_bounds_t net_in_bounds[ FD_VOTOR_NET_IN_MAX ];
+
+  fd_wksp_t * net_out_mem;
+  ulong       net_out_chunk0;
+  ulong       net_out_wmark;
+  ulong       net_out_chunk;
 
   /* metrics */
 
@@ -549,6 +593,30 @@ ingest_consensus_msg( fd_votor_tile_t *                ctx,
   }
 }
 
+/* votor_handle_consensus_msg is the consensus-core entrypoint for an
+   Alpenglow ConsensusMessage received over the network (QUIC).  This is
+   the clean seam between the tile's QUIC/networking callbacks and the
+   consensus logic: the quic_stream_rx callback calls it with the raw
+   on-wire bytes of one reassembled ConsensusMessage.
+
+   Bring-up: do NOT process the message yet, just log its discriminant.
+   Agave serializes the ConsensusMessage enum with bincode, so the first
+   4 bytes are the variant index (0 = Vote, 1 = Certificate).  See
+   votor-messages/src/consensus_message.rs.  When real ingest lands this
+   should deserialize into fd_vote_t / fd_cert_t and call ingest_vote /
+   ingest_cert (cf. ingest_consensus_msg above). */
+
+static void
+votor_handle_consensus_msg( fd_votor_tile_t * ctx,
+                            uchar const *     payload,
+                            ulong             sz ) {
+  (void)ctx;
+  if( FD_UNLIKELY( sz<sizeof(uint) ) ) return;
+  uint kind = FD_LOAD( uint, payload );
+  char const * kind_str = kind==0U ? "Vote" : ( kind==1U ? "Certificate" : "unknown" );
+  FD_LOG_NOTICE(( "alpenglow consensus message rx: kind=%u (%s) sz=%lu", kind, kind_str, sz ));
+}
+
 /* update_epoch_vtrs rebuilds the active epoch's validator set from an EPOCH
    msg (the staked validator set + stakes).  The pool and votor are rebuilt
    against the new set.
@@ -626,6 +694,28 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
   (void)out;
 }
 
+/* QUIC ingress is enabled when the tile carries QUIC config (set by the
+   topology).  The unit test constructs a tile without QUIC config, in
+   which case the tile runs consensus only (ctx->quic stays NULL). */
+
+FD_FN_PURE static inline int
+votor_quic_enabled( fd_topo_tile_t const * tile ) {
+  return tile->quic.max_concurrent_connections!=0UL;
+}
+
+static inline fd_quic_limits_t
+quic_limits( fd_topo_tile_t const * tile ) {
+  fd_quic_limits_t limits = {
+    .conn_cnt                    = tile->quic.max_concurrent_connections,
+    .handshake_cnt               = tile->quic.max_concurrent_handshakes,
+    .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
+    .inflight_frame_cnt          = 64UL * tile->quic.max_concurrent_connections,
+    .min_inflight_frame_cnt_conn = 32UL
+  };
+  if( FD_UNLIKELY( !fd_quic_footprint( &limits ) ) ) FD_LOG_ERR(( "Invalid QUIC limits in config" ));
+  return limits;
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -644,6 +734,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_pool_align(),           fd_pool_footprint( slot_max, validator_max, blockid_max ) );
   l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),     fd_epoch_info_footprint( VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, publishes_align(),         publishes_footprint( pub_max )                           );
+  if( votor_quic_enabled( tile ) ) {
+    fd_quic_limits_t limits = quic_limits( tile );
+    l = FD_LAYOUT_APPEND( l, fd_quic_align(),         fd_quic_footprint( &limits )                             );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -671,6 +765,11 @@ init_choreo( void                 * scratch,
   void  * pool          = FD_SCRATCH_ALLOC_APPEND( l, fd_pool_align(),          fd_pool_footprint( slot_max, validator_max, blockid_max ) );
   void  * epoch_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(),    fd_epoch_info_footprint( VTR_MAX )                       );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                           );
+  void  * quic_mem      = NULL;
+  if( votor_quic_enabled( tile ) ) {
+    fd_quic_limits_t limits = quic_limits( tile );
+    quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+  }
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -707,6 +806,16 @@ init_choreo( void                 * scratch,
 
   ctx->publishes = publishes_join( publishes_new( publishes, pub_max ) );
 
+  /* QUIC server memory is formatted here; the connection config, ephemeral
+     TLS identity, TX aio and net links are wired in unprivileged_init
+     (which has the topology).  NULL when QUIC is disabled (unit test). */
+  ctx->quic = NULL;
+  if( quic_mem ) {
+    fd_quic_limits_t limits = quic_limits( tile );
+    ctx->quic = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
+    FD_TEST( ctx->quic );
+  }
+
   FD_TEST( ctx->epoch_info );
   FD_TEST( ctx->pool );
   FD_TEST( ctx->votor );
@@ -723,6 +832,114 @@ init_choreo( void                 * scratch,
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   return ctx;
+}
+
+/* ---- QUIC ingress (tile-level networking callbacks) -------------------
+
+   These callbacks handle the QUIC/networking machinery only; the consensus
+   logic lives in helpers (votor_handle_consensus_msg and the ingest_*
+   functions above).  Modeled on the TPU QUIC tile (fd_quic_tile.c). */
+
+static int
+quic_tx_aio_send( void *                    _ctx,
+                  fd_aio_pkt_info_t const * batch,
+                  ulong                     batch_cnt,
+                  ulong *                   opt_batch_idx,
+                  int                       flush ) {
+  (void)flush;
+  fd_votor_tile_t * ctx = _ctx;
+  for( ulong i=0UL; i<batch_cnt; i++ ) {
+    if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
+    uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
+    uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+    uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
+    memset( packet_l2, 0, 12 );
+    FD_STORE( ushort, packet_l2+offsetof( fd_eth_hdr_t, net_type ), fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) );
+    fd_memcpy( packet_l3, batch[ i ].buf, batch[ i ].buf_sz );
+    ulong sz_l2 = sizeof(fd_eth_hdr_t) + batch[ i ].buf_sz;
+    ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+    ulong chunk = ctx->net_out_chunk;
+    ulong ctl   = fd_frag_meta_ctl( 0UL, 1, 1, 0 );
+    fd_stem_publish( ctx->stem, OUT_IDX_NET, sig, chunk, sz_l2, ctl, 0L, 0L );
+    ctx->net_out_chunk = fd_dcache_compact_next( chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  }
+  if( FD_LIKELY( opt_batch_idx ) ) *opt_batch_idx = batch_cnt;
+  return FD_AIO_SUCCESS;
+}
+
+static void
+quic_tls_cv_sign( void *      signer_ctx,
+                  uchar       signature[ static 64 ],
+                  uchar const payload[ static 130 ] ) {
+  fd_votor_tile_t * ctx = signer_ctx;
+  fd_sha512_t * sha512 = fd_sha512_join( ctx->quic_sha512 );
+  fd_ed25519_sign( signature, payload, 130UL, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
+  fd_sha512_leave( sha512 );
+}
+
+static void
+quic_conn_final( fd_quic_conn_t * conn,
+                 void *           quic_ctx ) {
+  (void)conn; (void)quic_ctx;
+}
+
+/* quic_stream_rx fires for each received QUIC stream payload (one whole
+   ConsensusMessage on the bring-up fast path) and hands it to the
+   consensus core.  Multi-fragment reassembly is a TODO. */
+
+static int
+quic_stream_rx( fd_quic_conn_t * conn,
+                ulong            stream_id,
+                ulong            offset,
+                uchar const *    data,
+                ulong            data_sz,
+                int              fin ) {
+  (void)stream_id;
+  fd_votor_tile_t * ctx = conn->quic->cb.quic_ctx;
+  if( FD_UNLIKELY( !(offset==0UL && fin) ) ) return FD_QUIC_SUCCESS; /* fragmented: drop (TODO reassemble) */
+  votor_handle_consensus_msg( ctx, data, data_sz );
+  return FD_QUIC_SUCCESS;
+}
+
+static inline void
+before_credit( fd_votor_tile_t *   ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  ctx->stem = stem;
+  if( FD_LIKELY( ctx->quic ) ) {
+    ctx->now = fd_log_wallclock();
+    *charge_busy = fd_quic_service( ctx->quic, ctx->now );
+  }
+}
+
+static int
+before_frag( fd_votor_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq,
+             ulong             sig ) {
+  (void)seq;
+  /* Only the net_alpenglow links carry netmux-tagged frames; filter them
+     to the alpenglow proto.  Consensus links are always processed. */
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_ALPENGLOW ) )
+    return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_ALPENGLOW;
+  return 0;
+}
+
+static void
+during_frag( fd_votor_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq FD_PARAM_UNUSED,
+             ulong             sig FD_PARAM_UNUSED,
+             ulong             chunk,
+             ulong             sz,
+             ulong             ctl ) {
+  /* Copy raw network frames out of the (unreliable) net dcache while they
+     are still valid; consensus links are read directly in returnable_frag. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_ALPENGLOW ) ) {
+    if( FD_UNLIKELY( sz>FD_NET_MTU ) ) return;
+    void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
+    fd_memcpy( ctx->net_buf, src, sz );
+  }
 }
 
 static void
@@ -753,7 +970,7 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MGAUGE_SET( TOWER, REPLAY_SLOT, ctx->metrics.replay_slot );
   FD_MGAUGE_SET( TOWER, ROOT_SLOT,   ctx->metrics.root_slot   );
   FD_MGAUGE_SET( TOWER, RESET_SLOT,  ctx->metrics.reset_slot  );
-  FD_MCNT_SET  ( TOWER, NOT_READY,   ctx->metrics.not_ready   );
+  FD_MCNT_SET  ( TOWER, FRAG_NOT_READY_DROPPED, ctx->metrics.not_ready );
 }
 
 static inline void
@@ -791,6 +1008,19 @@ returnable_frag( fd_votor_tile_t *   ctx,
                  ulong               tsorig,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
+
+  ctx->stem = stem;
+
+  /* Network frames (net_alpenglow) are addressed by UMEM frame index, not
+     by the normal dcache [chunk0,wmark] range, and were already copied into
+     ctx->net_buf in during_frag.  Feed the QUIC server; quic_stream_rx then
+     drives the consensus core.  Handled before the dcache bounds check
+     below, which does not apply to net frames. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_ALPENGLOW ) ) {
+    if( FD_LIKELY( ctx->quic && sz>=sizeof(fd_eth_hdr_t) ) )
+      fd_quic_process_packet( ctx->quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), ctx->now );
+    return 0;
+  }
 
   if( FD_UNLIKELY( !ctx->in[ in_idx ].mcache_only && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -854,6 +1084,11 @@ privileged_init( fd_topo_t const *      topo,
 
   memset( ctx->voting_key, 0, sizeof(ctx->voting_key) );
   memcpy( ctx->voting_key->v, ctx->identity_key->uc, fd_ulong_min( sizeof(ctx->voting_key->v), sizeof(fd_pubkey_t) ) );
+
+  /* fd_quic_service / fd_log_wallclock virtualizes clock_gettime via the
+     vDSO, whose first call mmaps shared memory; force that before the
+     sandbox is installed (see fd_quic_tile.c privileged_init). */
+  fd_log_wallclock();
 }
 
 static void
@@ -873,11 +1108,17 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link      = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
-    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
+    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
+    else if( FD_LIKELY( !strcmp( link->name, "net_alpenglow" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_ALPENGLOW;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
+
+    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_NET_ALPENGLOW ) ) {
+      FD_TEST( i<FD_VOTOR_NET_IN_MAX );
+      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
+    }
 
     ctx->in[ i ].mcache_only = !link->mtu;
     if( FD_LIKELY( !ctx->in[ i ].mcache_only ) ) {
@@ -893,6 +1134,46 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
   ctx->out_seq    = 0UL;
+
+  /* QUIC ingress setup: ephemeral TLS identity, server config, TX aio (→
+     net), and the votor_net out link.  init_choreo already formatted the
+     fd_quic when QUIC is enabled. */
+  if( FD_LIKELY( ctx->quic ) ) {
+    if( FD_UNLIKELY( tile->out_cnt<2UL || strcmp( topo->links[ tile->out_link_id[ OUT_IDX_NET ] ].name, "votor_net" ) ) )
+      FD_LOG_ERR(( "votor tile (with QUIC) requires a votor_net output link" ));
+
+    if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) )
+      FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( ctx->quic_sha512 ) );
+    fd_ed25519_public_from_private( ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
+    fd_sha512_leave( sha512 );
+
+    fd_aio_t * tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_tx_aio_send ) );
+    if( FD_UNLIKELY( !tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
+
+    if( FD_UNLIKELY( tile->quic.ack_delay_millis==0 ) ) FD_LOG_ERR(( "Invalid `ack_delay_millis`" ));
+    if( FD_UNLIKELY( tile->quic.ack_delay_millis>=tile->quic.idle_timeout_millis ) ) FD_LOG_ERR(( "Invalid `ack_delay_millis`" ));
+
+    ctx->quic->config.role                       = FD_QUIC_ROLE_SERVER;
+    ctx->quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;
+    ctx->quic->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
+    ctx->quic->config.initial_rx_max_stream_data = 2048UL;
+    ctx->quic->config.retry                      = tile->quic.retry;
+    fd_memcpy( ctx->quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
+    ctx->quic->config.sign     = quic_tls_cv_sign;
+    ctx->quic->config.sign_ctx = ctx;
+    ctx->quic->cb.conn_final   = quic_conn_final;
+    ctx->quic->cb.stream_rx    = quic_stream_rx;
+    ctx->quic->cb.quic_ctx     = ctx;
+    fd_quic_set_aio_net_tx( ctx->quic, tx_aio );
+    if( FD_UNLIKELY( !fd_quic_init( ctx->quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
+
+    fd_topo_link_t const * net_out = &topo->links[ tile->out_link_id[ OUT_IDX_NET ] ];
+    ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
+    ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
+    ctx->net_out_chunk  = ctx->net_out_chunk0;
+  }
 }
 
 static ulong
@@ -927,6 +1208,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_votor_tile_t)
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 

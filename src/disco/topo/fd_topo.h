@@ -111,6 +111,7 @@ struct fd_topo_net_tile {
   ushort repair_client_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
+  ushort alpenglow_listen_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
