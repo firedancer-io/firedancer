@@ -376,6 +376,7 @@ fd_ghost_invalid_ancestor( fd_ghost_t     * ghost,
 
 static fd_ghost_blk_t *
 insert( fd_ghost_t      * ghost,
+        ulong             bank_seq,
         ulong             slot,
         fd_hash_t const * block_id ) {
   fd_ghost_blk_t * pool = blk_pool( ghost );
@@ -395,15 +396,17 @@ insert( fd_ghost_t      * ghost,
   blk->stake       = 0;
   blk->total_stake = 0;
   blk->valid       = 1;
+  blk->bank_seq    = bank_seq;
   blk_map_ele_insert( blk_map( ghost ), blk, pool );
   return blk;
 }
 
 fd_ghost_blk_t *
 fd_ghost_init( fd_ghost_t      * ghost,
+               ulong             bank_seq,
                ulong             slot,
                fd_hash_t const * block_id ) {
-  fd_ghost_blk_t * blk = insert( ghost, slot, block_id );
+  fd_ghost_blk_t * blk = insert( ghost, bank_seq, slot, block_id );
   ghost->root          = blk_pool_idx( blk_pool( ghost ), blk );
   ghost->width         = 1;
   return blk;
@@ -411,10 +414,11 @@ fd_ghost_init( fd_ghost_t      * ghost,
 
 fd_ghost_blk_t *
 fd_ghost_insert( fd_ghost_t      * ghost,
+                 ulong             bank_seq,
                  ulong             slot,
                  fd_hash_t const * block_id,
                  fd_hash_t const * parent_block_id ) {
-  fd_ghost_blk_t * blk    = insert( ghost, slot, block_id );
+  fd_ghost_blk_t * blk    = insert( ghost, bank_seq, slot, block_id );
   fd_ghost_blk_t * pool   = blk_pool( ghost );
   ulong            null   = blk_pool_idx_null( pool );
   fd_ghost_blk_t * parent = blk_map_ele_query( blk_map( ghost ), parent_block_id, NULL, pool );

@@ -411,7 +411,7 @@ fd_banks_new( void * shmem,
   banks_data->max_stake_accounts = max_stake_accounts;
   banks_data->max_vote_accounts  = max_vote_accounts;
   banks_data->root_idx           = ULONG_MAX;
-  banks_data->bank_seq           = 0UL;
+  banks_data->bank_seq           = 1UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( banks_data->magic ) = FD_BANKS_MAGIC;
@@ -1207,5 +1207,5 @@ fd_banks_clear( fd_banks_t * banks ) {
   fd_stake_rewards_clear( fd_banks_get_stake_rewards( banks ) );
 
   banks->root_idx = ULONG_MAX;
-  banks->bank_seq = 0UL;
+  banks->bank_seq = 1UL; /* start at 1 so 0 is reserved as an invalid bank_seq sentinel */
 }

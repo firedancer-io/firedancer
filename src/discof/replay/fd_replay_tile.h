@@ -107,10 +107,9 @@ struct fd_replay_slot_completed {
     uchar burn_percent;
   } rent;
 
-  /* Reference to the bank for this completed slot.  TODO: We can
-     eliminate non-timestamp fields and have consumers just use
-     bank_idx. */
+  /* Reference to the bank for this completed slot. */
   ulong bank_idx;
+  ulong bank_seq;
   fd_accdb_fork_id_t accdb_fork_id;
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */

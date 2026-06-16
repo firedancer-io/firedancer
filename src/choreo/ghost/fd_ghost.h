@@ -106,6 +106,7 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   ulong     total_stake; /* total stake for this blk */
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
   ulong     vtr_dlist_gaddr; /* wksp gaddr of the dlist of vtrs whose prev_block_id is this blk's id */
+  ulong     bank_seq;    /* app-wide bank sequence number of this block (fd_bank.bank_seq), or ULONG_MAX until associated with a replayed bank */
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
 
@@ -261,20 +262,25 @@ fd_ghost_invalid_ancestor( fd_ghost_t     * ghost,
 /* Operations */
 
 /* fd_ghost_init initializes the ghost tree with a root block keyed by
-   block_id at the given slot.  Must be called exactly once before any
-   fd_ghost_insert calls.  Returns the new root block. */
+   block_id at the given slot.  bank_seq is the app-wide bank sequence
+   number of the block (or ULONG_MAX if unknown).  Must be called exactly
+   once before any fd_ghost_insert calls.  Returns the new root block. */
 
 fd_ghost_blk_t *
 fd_ghost_init( fd_ghost_t      * ghost,
+               ulong             bank_seq,
                ulong             slot,
                fd_hash_t const * block_id );
 
 /* fd_ghost_insert inserts a new tree node representing a block keyed by
-   block_id (and slot).  parent_block_id is used to link this new block
-   to its parent in the ghost tree.  Returns the new block. */
+   block_id (and slot).  bank_seq is the app-wide bank sequence number of
+   the block (or ULONG_MAX if unknown).  parent_block_id is used to link
+   this new block to its parent in the ghost tree.  Returns the new
+   block. */
 
 fd_ghost_blk_t *
 fd_ghost_insert( fd_ghost_t      * ghost,
+                 ulong             bank_seq,
                  ulong             slot,
                  fd_hash_t const * block_id,
                  fd_hash_t const * parent_block_id );

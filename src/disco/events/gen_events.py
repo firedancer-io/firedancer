@@ -432,7 +432,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
     if struct_max_names:
         expr = struct_max_names[0]
         for n in struct_max_names[1:]:
-            expr = f"fd_ulong_max( {n}, {expr} )"
+            expr = f"( {n} > {expr} ? {n} : {expr} )"
         lines += [
             "/* Largest generated event struct; a consumer can stage any incoming",
             "   event in a buffer of this size. */",
