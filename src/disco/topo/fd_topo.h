@@ -240,6 +240,7 @@ struct fd_topo_tile {
       long boot_timestamp_nanos;
 
       uint   ip_addr;
+      uint   bind_ip_addr;
       ushort shred_version;
 
       ulong  max_entries;
