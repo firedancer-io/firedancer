@@ -136,3 +136,18 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l disable_sbpf_v0_v1_v2_deplo
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l define_ltds_fee_only_semantics-v4.1.0-beta.1 1 -m 1000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader_v3_minimum_extend_program_size 1 -m 1000 -e 590
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_sha512_syscall 1 -m 1000 -e 611
+
+# Delay-commission epoch-boundary scenarios (local cluster, agave-cluster generated).
+# Group 1: delay_commission_updates ON, VAT OFF.
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l dc-stake-and-commission 1 -m 1000000 -e 1390
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l dc-unstake-recommission-restake 1 -m 1000000 -e 1540
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l dc-delete-recreate-commission 1 -m 1000000 -e 1025
+# Group 2: delay_commission_updates + validator_admission_ticket (VAT) + bls_pubkey_management ALL ON.
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-dc-stake-and-commission 1 -m 1000000 -e 1295
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-dc-unstake-recommission-restake 1 -m 1000000 -e 1540
+# vat-dc-deleted-vote-per: boots mid-PER @ slot 1025, 10k stake accounts (3-partition PER), vote acct
+# voted epochs 1-6 w/ commission 50->40->30->20 (present in top_votes t_1/t_2/t_3), deleted ep8 + recreated ep9 (#9840).
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-dc-deleted-vote-per 4 -m 2000000 -e 2555
+# vat-activate-10k: VAT PENDING at genesis -> activates @ slot 256 (transition epoch 1); boots epoch-0 (VAT inactive),
+# 10k stake accounts, 2nd vote acct voting across the transition w/ commission 100 (epoch0) -> 0 (epoch1+, max split delta).
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activate-10k 4 -m 2000000 -e 1020
