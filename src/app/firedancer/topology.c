@@ -1317,6 +1317,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else {
       tile->gossip.ip_addr = config->net.ip_addr;
     }
+    tile->gossip.bind_ip_addr        = config->net.ip_addr;
     fd_cstr_ncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
     tile->gossip.shred_version       = config->consensus.expected_shred_version;
     tile->gossip.max_entries         = config->tiles.gossip.max_entries;

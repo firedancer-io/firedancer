@@ -641,7 +641,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_MGAUGE_SET( GOSSIP, CRDS_PEER_CAPACITY,   FD_CONTACT_INFO_TABLE_SIZE   );
   FD_MGAUGE_SET( GOSSIP, CRDS_PURGED_CAPACITY, 4UL*tile->gossip.max_entries );
 
-  fd_ip4_udp_hdr_init( ctx->net_out_hdr, FD_GOSSIP_MTU, tile->gossip.ip_addr, tile->gossip.ports.gossip );
+  fd_ip4_udp_hdr_init( ctx->net_out_hdr, FD_GOSSIP_MTU, tile->gossip.bind_ip_addr, tile->gossip.ports.gossip );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
