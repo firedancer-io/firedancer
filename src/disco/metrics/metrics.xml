@@ -1934,7 +1934,8 @@ EXAMPLES
 
 <tile name="event">
     <gauge name="ConnState" summary="0=disconnected, 1=connecting, 2=connected" />
-    <gauge name="QueueDepth" summary="Events in the event queue waiting to be sent to the event service" />
+    <gauge name="QueueDepth" summary="Total events in the event queue (sent-but-unacknowledged plus unsent)" />
+    <gauge name="QueueUnsent" summary="Events in the event queue not yet sent to the event service" />
 
     <counter name="QueueDropped" summary="Events dropped because the event queue was full" />
     <gauge name="QueueBytesUsed" summary="Bytes used in the event queue" />
@@ -1942,6 +1943,7 @@ EXAMPLES
 
     <counter name="Sent" summary="Events sent to the event service" />
     <counter name="Acked" summary="Events acknowledged by the event service" />
+    <gauge name="LastAckedId" summary="Event id (nonce) of the most recently acknowledged event" />
 
     <counter name="BytesWritten" summary="Bytes written to the event service" />
     <counter name="BytesRead" summary="Bytes read from the event service" />

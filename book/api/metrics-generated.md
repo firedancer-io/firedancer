@@ -1556,12 +1556,14 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">event_&#8203;conn_&#8203;state</span> | gauge | 0=disconnected, 1=connecting, 2=connected |
-| <span class="metrics-name">event_&#8203;queue_&#8203;depth</span> | gauge | Events in the event queue waiting to be sent to the event service |
+| <span class="metrics-name">event_&#8203;queue_&#8203;depth</span> | gauge | Total events in the event queue (sent-but-unacknowledged plus unsent) |
+| <span class="metrics-name">event_&#8203;queue_&#8203;unsent</span> | gauge | Events in the event queue not yet sent to the event service |
 | <span class="metrics-name">event_&#8203;queue_&#8203;dropped</span> | counter | Events dropped because the event queue was full |
 | <span class="metrics-name">event_&#8203;queue_&#8203;bytes_&#8203;used</span> | gauge | Bytes used in the event queue |
 | <span class="metrics-name">event_&#8203;queue_&#8203;bytes_&#8203;capacity</span> | gauge | Total capacity of the event queue, in bytes |
 | <span class="metrics-name">event_&#8203;sent</span> | counter | Events sent to the event service |
 | <span class="metrics-name">event_&#8203;acked</span> | counter | Events acknowledged by the event service |
+| <span class="metrics-name">event_&#8203;last_&#8203;acked_&#8203;id</span> | gauge | Event id (nonce) of the most recently acknowledged event |
 | <span class="metrics-name">event_&#8203;bytes_&#8203;written</span> | counter | Bytes written to the event service |
 | <span class="metrics-name">event_&#8203;bytes_&#8203;read</span> | counter | Bytes read from the event service |
 | <span class="metrics-name">event_&#8203;auth_&#8203;failed</span> | counter | Authentication failures with the event service |

@@ -126,6 +126,14 @@ fd_circq_reset_cursor( fd_circq_t * circq );
 ulong
 fd_circq_bytes_used( fd_circq_t const * circq );
 
+/* fd_circq_unsent_cnt returns the number of messages in the queue that
+   the cursor has not yet advanced past, i.e. messages still waiting to
+   be sent.  The remaining messages (cnt - unsent) have been sent and are
+   awaiting acknowledgement before they are popped. */
+
+ulong
+fd_circq_unsent_cnt( fd_circq_t const * circq );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_events_fd_circq_h */

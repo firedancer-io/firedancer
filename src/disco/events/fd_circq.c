@@ -252,3 +252,9 @@ fd_circq_bytes_used( fd_circq_t const * circq ) {
   if( FD_LIKELY( circq->tail>=circq->head ) ) return tail_end - circq->head;
   else return (circq->size - circq->head) + tail_end;
 }
+
+ulong
+fd_circq_unsent_cnt( fd_circq_t const * circq ) {
+  if( FD_UNLIKELY( circq->cursor==ULONG_MAX ) ) return circq->cnt;
+  return fd_ulong_min( circq->cursor_push_seq - circq->cursor_seq, circq->cnt );
+}
