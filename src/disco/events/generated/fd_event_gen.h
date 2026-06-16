@@ -132,16 +132,12 @@ struct fd_event_runtime_txn {
   uint                                     cost_programs_execution;           /* Cost-tracker programs-execution cost */
   uint                                     cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
   ulong                                    cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
-  ulong                                    load_start;                        /* Wall-clock time when account loading started */
-  ulong                                    check_start;                       /* Wall-clock time when txn validation checks started */
-  ulong                                    exec_start;                        /* Wall-clock time when execution started */
-  ulong                                    commit_start;                      /* Wall-clock time when commit started */
   fd_event_runtime_txn_account_diffs_t     account_diffs[ 128UL ];            /* Per-account diffs for writable accounts that were modified */
   ulong                                    account_diffs_cnt;                 /* Number of account_diffs entries (<= 128) */
-  fd_event_runtime_txn_writable_accounts_t writable_accounts[ 128UL ];        /* Every account the transaction locked as writable */
-  ulong                                    writable_accounts_cnt;             /* Number of writable_accounts entries (<= 128) */
-  fd_event_runtime_txn_readonly_accounts_t readonly_accounts[ 128UL ];        /* Every account the transaction locked as readonly, in account-order */
-  ulong                                    readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 128) */
+  fd_event_runtime_txn_writable_accounts_t writable_accounts[ 64UL ];         /* Every account the transaction locked as writable */
+  ulong                                    writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
+  fd_event_runtime_txn_readonly_accounts_t readonly_accounts[ 64UL ];         /* Every account the transaction locked as readonly, in account-order */
+  ulong                                    readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 64) */
   fd_event_runtime_txn_program_ids_t       program_ids[ 64UL ];               /* Distinct program pubkeys invoked at the top level of this transaction */
   ulong                                    program_ids_cnt;                   /* Number of program_ids entries (<= 64) */
 };
@@ -149,7 +145,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (40934UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (34218UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */

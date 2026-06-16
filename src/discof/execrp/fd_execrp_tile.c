@@ -15,7 +15,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/fd_event_report.h"
 #include "../../disco/events/generated/fd_event_gen.h"
-#include "../../tango/tempo/fd_tempo.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 
 #include <time.h>
@@ -98,11 +97,6 @@ struct fd_execrp_tile {
 
   /* FEC merkle root at txn dispatch time */
   uchar dispatch_fec_mr[ 32 ];
-
-  /* TSC reference for converting per-stage tick values to wallclock ns */
-  double events_tick_per_ns;
-  long   events_ref_wallclock_ns;
-  long   events_ref_tickcount;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -173,12 +167,6 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
-}
-
-static inline ulong
-ticks_to_wallclock_ns( fd_execrp_tile_t const * ctx, long ticks ) {
-  if( ticks==LONG_MAX ) return 0UL;
-  return (ulong)( ctx->events_ref_wallclock_ns + (long)( (double)( ticks - ctx->events_ref_tickcount ) / ctx->events_tick_per_ns ) );
 }
 
 static inline uint
@@ -258,12 +246,6 @@ report_runtime_txn( fd_execrp_tile_t const * ctx ) {
     ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
   }
 
-  /* Per-stage timing: TSC ticks -> wallclock ns */
-  ev.load_start   = ticks_to_wallclock_ns( ctx, txn_out->details.load_start_ticks   );
-  ev.check_start  = ticks_to_wallclock_ns( ctx, txn_out->details.check_start_ticks  );
-  ev.exec_start   = ticks_to_wallclock_ns( ctx, txn_out->details.exec_start_ticks   );
-  ev.commit_start = ticks_to_wallclock_ns( ctx, txn_out->details.commit_start_ticks );
-
   /* account_diffs: walk writable accounts, compare prior vs current */
   ulong diff_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
@@ -301,9 +283,9 @@ report_runtime_txn( fd_execrp_tile_t const * ctx ) {
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
     if( acc->_writable ) {
-      if( w_cnt<128UL ) fd_memcpy( ev.writable_accounts[ w_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
+      if( w_cnt<64UL ) fd_memcpy( ev.writable_accounts[ w_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
     } else {
-      if( r_cnt<128UL ) fd_memcpy( ev.readonly_accounts[ r_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
+      if( r_cnt<64UL ) fd_memcpy( ev.readonly_accounts[ r_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
     }
   }
   ev.writable_accounts_cnt = w_cnt;
@@ -627,10 +609,6 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
   ctx->report_runtime_txn = tile->execrp.report_runtime_txn;
-
-  ctx->events_tick_per_ns      = fd_tempo_tick_per_ns( NULL );
-  ctx->events_ref_wallclock_ns = fd_log_wallclock();
-  ctx->events_ref_tickcount    = fd_tickcount();
 
   fd_wksp_oom_silent = 1;
 

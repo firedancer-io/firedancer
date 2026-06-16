@@ -103,8 +103,8 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
   FD_TEST( msg->account_diffs_cnt<=128UL );
-  FD_TEST( msg->writable_accounts_cnt<=128UL );
-  FD_TEST( msg->readonly_accounts_cnt<=128UL );
+  FD_TEST( msg->writable_accounts_cnt<=64UL );
+  FD_TEST( msg->readonly_accounts_cnt<=64UL );
   FD_TEST( msg->program_ids_cnt<=64UL );
 
   fd_pb_submsg_open( encoder, 5U ); /* Event */
@@ -145,12 +145,8 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   if( msg->cost_programs_execution ) fd_pb_push_uint32( encoder, 34U, (uint)msg->cost_programs_execution );
   if( msg->cost_loaded_accounts_data_size ) fd_pb_push_uint32( encoder, 35U, (uint)msg->cost_loaded_accounts_data_size );
   if( msg->cost_allocated_accounts_data_size ) fd_pb_push_uint64( encoder, 36U, (ulong)msg->cost_allocated_accounts_data_size );
-  if( msg->load_start ) fd_pb_push_uint64( encoder, 37U, (ulong)msg->load_start );
-  if( msg->check_start ) fd_pb_push_uint64( encoder, 38U, (ulong)msg->check_start );
-  if( msg->exec_start ) fd_pb_push_uint64( encoder, 39U, (ulong)msg->exec_start );
-  if( msg->commit_start ) fd_pb_push_uint64( encoder, 40U, (ulong)msg->commit_start );
   for( ulong k=0UL; k<msg->account_diffs_cnt; k++ ) {
-    fd_pb_submsg_open( encoder, 41U );
+    fd_pb_submsg_open( encoder, 37U );
     fd_pb_push_bytes ( encoder, 1U, msg->account_diffs[ k ].pubkey, 32UL );
     fd_pb_push_bytes ( encoder, 2U, msg->account_diffs[ k ].owner, 32UL );
     if( msg->account_diffs[ k ].lamports ) fd_pb_push_uint64( encoder, 3U, (ulong)msg->account_diffs[ k ].lamports );
@@ -165,17 +161,17 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
     fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->writable_accounts_cnt; k++ ) {
-    fd_pb_submsg_open( encoder, 42U );
+    fd_pb_submsg_open( encoder, 38U );
     fd_pb_push_bytes ( encoder, 1U, msg->writable_accounts[ k ].pubkey, 32UL );
     fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->readonly_accounts_cnt; k++ ) {
-    fd_pb_submsg_open( encoder, 43U );
+    fd_pb_submsg_open( encoder, 39U );
     fd_pb_push_bytes ( encoder, 1U, msg->readonly_accounts[ k ].pubkey, 32UL );
     fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->program_ids_cnt; k++ ) {
-    fd_pb_submsg_open( encoder, 44U );
+    fd_pb_submsg_open( encoder, 40U );
     fd_pb_push_bytes ( encoder, 1U, msg->program_ids[ k ].pubkey, 32UL );
     fd_pb_submsg_close( encoder );
   }

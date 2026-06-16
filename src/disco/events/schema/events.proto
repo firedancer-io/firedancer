@@ -234,22 +234,14 @@ message RuntimeTxn {
   uint32 cost_loaded_accounts_data_size = 35;
   // Allocated accounts data size from the cost tracker
   uint64 cost_allocated_accounts_data_size = 36;
-  // Wall-clock time when account loading started
-  uint64 load_start = 37;
-  // Wall-clock time when txn validation checks started
-  uint64 check_start = 38;
-  // Wall-clock time when execution started
-  uint64 exec_start = 39;
-  // Wall-clock time when commit started
-  uint64 commit_start = 40;
   // Per-account diffs for writable accounts that were modified
-  repeated RuntimeTxnAccountDiffs account_diffs = 41;
+  repeated RuntimeTxnAccountDiffs account_diffs = 37;
   // Every account the transaction locked as writable
-  repeated RuntimeTxnWritableAccounts writable_accounts = 42;
+  repeated RuntimeTxnWritableAccounts writable_accounts = 38;
   // Every account the transaction locked as readonly, in account-order
-  repeated RuntimeTxnReadonlyAccounts readonly_accounts = 43;
+  repeated RuntimeTxnReadonlyAccounts readonly_accounts = 39;
   // Distinct program pubkeys invoked at the top level of this transaction
-  repeated RuntimeTxnProgramIds program_ids = 44;
+  repeated RuntimeTxnProgramIds program_ids = 40;
 }
 
 // Combined event type

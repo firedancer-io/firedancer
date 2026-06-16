@@ -39,10 +39,6 @@
         "cost_programs_execution":           { "type": "UInt32",        "description": "Cost-tracker programs-execution cost" },
         "cost_loaded_accounts_data_size":    { "type": "UInt32",        "description": "Cost-tracker loaded-accounts-data-size cost" },
         "cost_allocated_accounts_data_size": { "type": "UInt64",        "description": "Allocated accounts data size from the cost tracker" },
-        "load_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when account loading started" },
-        "check_start":                       { "type": "DateTime64(9)", "description": "Wall-clock time when txn validation checks started" },
-        "exec_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when execution started" },
-        "commit_start":                      { "type": "DateTime64(9)", "description": "Wall-clock time when commit started" },
         "account_diffs": {
             "type": "Array",
             "max_len": 128,
@@ -67,7 +63,7 @@
         },
         "writable_accounts": {
             "type": "Array",
-            "max_len": 128,
+            "max_len": 64,
             "description": "Every account the transaction locked as writable",
             "element": {
                 "type": "Tuple",
@@ -79,7 +75,7 @@
         },
         "readonly_accounts": {
             "type": "Array",
-            "max_len": 128,
+            "max_len": 64,
             "description": "Every account the transaction locked as readonly, in account-order",
             "element": {
                 "type": "Tuple",
