@@ -102,7 +102,7 @@ struct fd_event_runtime_txn {
   uchar                                    signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
   uchar                                    blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
   uchar                                    fee_payer[ 32UL ];                 /* Fee-payer pubkey */
-  uchar                                    dispatch_fec_mr[ 32UL ];           /* block_id_arr[bank_idx].latest_mr at txn dispatch time */
+  uchar                                    dispatch_fec_mr[ 32UL ];           /* Merkle root of the most recently completed FEC set in the block at the time this txn was dispatched for execution */
   int                                      is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
   int                                      is_bundle;                         /* True if the transaction is part of a Jito bundle, false otherwise */
   int                                      is_committable;                    /* True if the transaction was committable (landed on-chain) */

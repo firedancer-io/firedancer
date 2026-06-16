@@ -9,7 +9,7 @@
         "signature":                         { "type": "Signature",     "description": "First signature of the transaction (64 bytes)" },
         "blockhash":                         { "type": "Pubkey",        "description": "Blockhash referenced by the transaction" },
         "fee_payer":                         { "type": "Pubkey",        "description": "Fee-payer pubkey" },
-        "dispatch_fec_mr":                   { "type": "Pubkey",        "description": "block_id_arr[bank_idx].latest_mr at txn dispatch time" },
+        "dispatch_fec_mr":                   { "type": "Pubkey",        "description": "Merkle root of the most recently completed FEC set in the block at the time this txn was dispatched for execution" },
         "is_simple_vote":                    { "type": "Bool",          "description": "True if the transaction was classified as a simple vote, false otherwise" },
         "is_bundle":                         { "type": "Bool",          "description": "True if the transaction is part of a Jito bundle, false otherwise" },
         "is_committable":                    { "type": "Bool",          "description": "True if the transaction was committable (landed on-chain)" },

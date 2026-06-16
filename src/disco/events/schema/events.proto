@@ -174,7 +174,7 @@ message RuntimeTxn {
   bytes blockhash = 5;
   // Fee-payer pubkey
   bytes fee_payer = 6;
-  // block_id_arr[bank_idx].latest_mr at txn dispatch time
+  // Merkle root of the most recently completed FEC set in the block at the time this txn was dispatched for execution
   bytes dispatch_fec_mr = 7;
   // True if the transaction was classified as a simple vote, false otherwise
   bool is_simple_vote = 8;
