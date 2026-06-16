@@ -40,6 +40,50 @@ message SignedVoteTower {
   uint32 confirmation_count = 2;
 }
 
+// Program id entry
+message RuntimeTxnProgramIds {
+  // Top-level program pubkey
+  bytes pubkey = 1;
+}
+
+// Readonly-locked account entry
+message RuntimeTxnReadonlyAccounts {
+  // Readonly-locked account pubkey
+  bytes pubkey = 1;
+}
+
+// Writable-locked account entry
+message RuntimeTxnWritableAccounts {
+  // Writable-locked account pubkey
+  bytes pubkey = 1;
+}
+
+// Per-account diff entry
+message RuntimeTxnAccountDiffs {
+  // Account pubkey
+  bytes pubkey = 1;
+  // Post-state owner pubkey
+  bytes owner = 2;
+  // Post-state lamports
+  uint64 lamports = 3;
+  // Pre-state lamports
+  uint64 prev_lamports = 4;
+  // Post-state data size in bytes
+  uint64 data_sz = 5;
+  // Pre-state data size in bytes
+  uint64 prev_data_sz = 6;
+  // True if the post-state account is executable
+  bool is_executable = 7;
+  // True if this write touched the stake cache
+  bool is_stake_update = 8;
+  // True if this write touched the vote cache
+  bool is_vote_update = 9;
+  // True if this write created a new vote account
+  bool is_new_vote = 10;
+  // True if this write removed a vote account
+  bool is_rm_vote = 11;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -116,6 +160,98 @@ message SlotConfirmed {
   bool forward = 8;
 }
 
+// One row per dispatched transaction (committable or not), with the execution results
+message RuntimeTxn {
+  // Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Bank slot in which this transaction was executed
+  uint64 slot = 2;
+  // Epoch the transaction was executed in
+  uint64 epoch = 3;
+  // First signature of the transaction (64 bytes)
+  bytes signature = 4;
+  // Blockhash referenced by the transaction
+  bytes blockhash = 5;
+  // Fee-payer pubkey
+  bytes fee_payer = 6;
+  // block_id_arr[bank_idx].latest_mr at txn dispatch time
+  bytes dispatch_fec_mr = 7;
+  // True if the transaction was classified as a simple vote, false otherwise
+  bool is_simple_vote = 8;
+  // True if the transaction is part of a Jito bundle, false otherwise
+  bool is_bundle = 9;
+  // True if the transaction was committable (landed on-chain)
+  bool is_committable = 10;
+  // True if the transaction landed but only fees were charged (e.g. account loading failure)
+  bool is_fees_only = 11;
+  // Absolute value of transaction execution error (0 = success)
+  uint32 txn_err = 12;
+  // Absolute value of the instruction execution error, only meaningful when txn_err = INSTRUCTION_ERROR
+  uint32 exec_err = 13;
+  // Absolute kind of the instruction execution error; only meaningful when txn_err = INSTRUCTION_ERROR
+  uint32 exec_err_kind = 14;
+  // Instruction index that failed (INT_MAX if not applicable)
+  uint32 exec_err_idx = 15;
+  // Custom error code returned by the program (only meaningful for CUSTOM_ERROR)
+  uint32 custom_err = 16;
+  // Compute unit limit requested by the transaction
+  uint64 compute_unit_limit = 17;
+  // Compute unit price (micro-lamports per CU) requested by the transaction
+  uint64 compute_unit_price = 18;
+  // compute_unit_limit minus the remaining compute meter at commit
+  uint64 compute_units_consumed = 19;
+  // Requested heap size for the VM
+  uint64 heap_size = 20;
+  // Number of builtin program instructions in the transaction
+  uint64 num_builtin_instrs = 21;
+  // Number of BPF (non-builtin) program instructions
+  uint64 num_non_builtin_instrs = 22;
+  // Total bytes of account data loaded for this transaction
+  uint64 loaded_accounts_data_size = 23;
+  // Configured loaded-accounts-data-size limit for this transaction
+  uint64 loaded_accounts_data_size_limit = 24;
+  // Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign
+  uint64 accounts_resize_delta = 25;
+  // True when the net delta is negative (writable account data net shrunk during execution)
+  bool accounts_resize_is_negative = 26;
+  // Execution fee paid by the fee payer
+  uint64 execution_fee = 27;
+  // Priority fee paid by the fee payer
+  uint64 priority_fee = 28;
+  // Jito tips paid during execution
+  uint64 tips = 29;
+  // Number of signatures in the transaction
+  uint64 signature_count = 30;
+  // Cost-tracker signature cost
+  uint32 cost_signature = 31;
+  // Cost-tracker write-lock cost
+  uint32 cost_write_lock = 32;
+  // Cost-tracker data-bytes cost
+  uint32 cost_data_bytes = 33;
+  // Cost-tracker programs-execution cost
+  uint32 cost_programs_execution = 34;
+  // Cost-tracker loaded-accounts-data-size cost
+  uint32 cost_loaded_accounts_data_size = 35;
+  // Allocated accounts data size from the cost tracker
+  uint64 cost_allocated_accounts_data_size = 36;
+  // Wall-clock time when account loading started
+  uint64 load_start = 37;
+  // Wall-clock time when txn validation checks started
+  uint64 check_start = 38;
+  // Wall-clock time when execution started
+  uint64 exec_start = 39;
+  // Wall-clock time when commit started
+  uint64 commit_start = 40;
+  // Per-account diffs for writable accounts that were modified
+  repeated RuntimeTxnAccountDiffs account_diffs = 41;
+  // Every account the transaction locked as writable
+  repeated RuntimeTxnWritableAccounts writable_accounts = 42;
+  // Every account the transaction locked as readonly, in account-order
+  repeated RuntimeTxnReadonlyAccounts readonly_accounts = 43;
+  // Distinct program pubkeys invoked at the top level of this transaction
+  repeated RuntimeTxnProgramIds program_ids = 44;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -123,5 +259,6 @@ message Event {
     Shred shred = 2;
     SignedVote signed_vote = 3;
     SlotConfirmed slot_confirmed = 4;
+    RuntimeTxn runtime_txn = 5;
   }
 }

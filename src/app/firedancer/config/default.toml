@@ -1929,6 +1929,12 @@ telemetry = true
         # development purposes.
         report_transactions = false
 
+        # Whether to emit one runtime_txn event per dispatched transaction
+        # (committable or not).  Each event carries the txn-level result,
+        # compute / cost / fee metadata, per-stage timing, and lists of
+        # per-account diffs / writable / readonly / program ids.
+        report_runtime_txn = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev

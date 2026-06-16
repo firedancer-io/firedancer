@@ -472,6 +472,7 @@ struct fd_topo_tile {
       int   dump_txn_to_pb;
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
+      int   report_runtime_txn;
     } execrp;
 
     struct {

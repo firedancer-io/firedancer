@@ -60,9 +60,100 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (221UL)
 
+/* Per-account diff entry */
+struct fd_event_runtime_txn_account_diffs {
+  uchar pubkey[ 32UL ];  /* Account pubkey */
+  uchar owner[ 32UL ];   /* Post-state owner pubkey */
+  ulong lamports;        /* Post-state lamports */
+  ulong prev_lamports;   /* Pre-state lamports */
+  ulong data_sz;         /* Post-state data size in bytes */
+  ulong prev_data_sz;    /* Pre-state data size in bytes */
+  int   is_executable;   /* True if the post-state account is executable */
+  int   is_stake_update; /* True if this write touched the stake cache */
+  int   is_vote_update;  /* True if this write touched the vote cache */
+  int   is_new_vote;     /* True if this write created a new vote account */
+  int   is_rm_vote;      /* True if this write removed a vote account */
+};
+typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
+
+/* Writable-locked account entry */
+struct fd_event_runtime_txn_writable_accounts {
+  uchar pubkey[ 32UL ]; /* Writable-locked account pubkey */
+};
+typedef struct fd_event_runtime_txn_writable_accounts fd_event_runtime_txn_writable_accounts_t;
+
+/* Readonly-locked account entry */
+struct fd_event_runtime_txn_readonly_accounts {
+  uchar pubkey[ 32UL ]; /* Readonly-locked account pubkey */
+};
+typedef struct fd_event_runtime_txn_readonly_accounts fd_event_runtime_txn_readonly_accounts_t;
+
+/* Program id entry */
+struct fd_event_runtime_txn_program_ids {
+  uchar pubkey[ 32UL ]; /* Top-level program pubkey */
+};
+typedef struct fd_event_runtime_txn_program_ids fd_event_runtime_txn_program_ids_t;
+
+/* One row per dispatched transaction (committable or not), with the execution results */
+struct fd_event_runtime_txn {
+  ulong                                    bank_seq;                          /* Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong                                    slot;                              /* Bank slot in which this transaction was executed */
+  ulong                                    epoch;                             /* Epoch the transaction was executed in */
+  uchar                                    signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
+  uchar                                    blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
+  uchar                                    fee_payer[ 32UL ];                 /* Fee-payer pubkey */
+  uchar                                    dispatch_fec_mr[ 32UL ];           /* block_id_arr[bank_idx].latest_mr at txn dispatch time */
+  int                                      is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
+  int                                      is_bundle;                         /* True if the transaction is part of a Jito bundle, false otherwise */
+  int                                      is_committable;                    /* True if the transaction was committable (landed on-chain) */
+  int                                      is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
+  uint                                     txn_err;                           /* Absolute value of transaction execution error (0 = success) */
+  uint                                     exec_err;                          /* Absolute value of the instruction execution error, only meaningful when txn_err = INSTRUCTION_ERROR */
+  uint                                     exec_err_kind;                     /* Absolute kind of the instruction execution error; only meaningful when txn_err = INSTRUCTION_ERROR */
+  uint                                     exec_err_idx;                      /* Instruction index that failed (INT_MAX if not applicable) */
+  uint                                     custom_err;                        /* Custom error code returned by the program (only meaningful for CUSTOM_ERROR) */
+  ulong                                    compute_unit_limit;                /* Compute unit limit requested by the transaction */
+  ulong                                    compute_unit_price;                /* Compute unit price (micro-lamports per CU) requested by the transaction */
+  ulong                                    compute_units_consumed;            /* compute_unit_limit minus the remaining compute meter at commit */
+  ulong                                    heap_size;                         /* Requested heap size for the VM */
+  ulong                                    num_builtin_instrs;                /* Number of builtin program instructions in the transaction */
+  ulong                                    num_non_builtin_instrs;            /* Number of BPF (non-builtin) program instructions */
+  ulong                                    loaded_accounts_data_size;         /* Total bytes of account data loaded for this transaction */
+  ulong                                    loaded_accounts_data_size_limit;   /* Configured loaded-accounts-data-size limit for this transaction */
+  ulong                                    accounts_resize_delta;             /* Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign */
+  int                                      accounts_resize_is_negative;       /* True when the net delta is negative (writable account data net shrunk during execution) */
+  ulong                                    execution_fee;                     /* Execution fee paid by the fee payer */
+  ulong                                    priority_fee;                      /* Priority fee paid by the fee payer */
+  ulong                                    tips;                              /* Jito tips paid during execution */
+  ulong                                    signature_count;                   /* Number of signatures in the transaction */
+  uint                                     cost_signature;                    /* Cost-tracker signature cost */
+  uint                                     cost_write_lock;                   /* Cost-tracker write-lock cost */
+  uint                                     cost_data_bytes;                   /* Cost-tracker data-bytes cost */
+  uint                                     cost_programs_execution;           /* Cost-tracker programs-execution cost */
+  uint                                     cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
+  ulong                                    cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
+  ulong                                    load_start;                        /* Wall-clock time when account loading started */
+  ulong                                    check_start;                       /* Wall-clock time when txn validation checks started */
+  ulong                                    exec_start;                        /* Wall-clock time when execution started */
+  ulong                                    commit_start;                      /* Wall-clock time when commit started */
+  fd_event_runtime_txn_account_diffs_t     account_diffs[ 128UL ];            /* Per-account diffs for writable accounts that were modified */
+  ulong                                    account_diffs_cnt;                 /* Number of account_diffs entries (<= 128) */
+  fd_event_runtime_txn_writable_accounts_t writable_accounts[ 128UL ];        /* Every account the transaction locked as writable */
+  ulong                                    writable_accounts_cnt;             /* Number of writable_accounts entries (<= 128) */
+  fd_event_runtime_txn_readonly_accounts_t readonly_accounts[ 128UL ];        /* Every account the transaction locked as readonly, in account-order */
+  ulong                                    readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 128) */
+  fd_event_runtime_txn_program_ids_t       program_ids[ 64UL ];               /* Distinct program pubkeys invoked at the top level of this transaction */
+  ulong                                    program_ids_cnt;                   /* Number of program_ids entries (<= 64) */
+};
+typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
+
+/* Worst-case encoded size of a runtime_txn event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (40934UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ))
+#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_runtime_txn_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_runtime_txn_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ))
 
 FD_PROTOTYPES_BEGIN
 
@@ -85,6 +176,16 @@ fd_event_slot_confirmed_serialize( fd_circq_t *                      circq,
                                    long                              timestamp_nanos,
                                    ulong                             link_seq,
                                    fd_event_slot_confirmed_t const * msg );
+
+/* Serialize a runtime_txn event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
+                                fd_event_client_t *            client,
+                                long                           timestamp_nanos,
+                                ulong                          link_seq,
+                                fd_event_runtime_txn_t const * msg );
 
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
@@ -109,6 +210,13 @@ fd_event_report_signed_vote( fd_event_signed_vote_t const * msg ) {
 static inline void
 fd_event_report_slot_confirmed( fd_event_slot_confirmed_t const * msg ) {
   fd_event_report_( 4UL, msg, sizeof(fd_event_slot_confirmed_t) );
+}
+
+/* Report a runtime_txn event (RuntimeTxn, id 5) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_txn( fd_event_runtime_txn_t const * msg ) {
+  fd_event_report_( 5UL, msg, sizeof(fd_event_runtime_txn_t) );
 }
 
 FD_PROTOTYPES_END

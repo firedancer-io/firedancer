@@ -22,6 +22,12 @@ struct fd_execrp_txn_exec_msg {
   /* Used currently by solcap to maintain ordering of messages
      this will change to using txn sigs eventually */
   ulong      capture_txn_idx;
+
+  /* Snapshot of block_id_arr[bank_idx].latest_mr at dispatch time.
+     Carried over to runtime_txn.dispatch_fec_mr so consumers can join
+     against runtime_block.fec_merkle_roots[].mr to recover the
+     canonical block_id under equivocation. */
+  uchar      capture_dispatch_fec_mr[ 32 ];
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 

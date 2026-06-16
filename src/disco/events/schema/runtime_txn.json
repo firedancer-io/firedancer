@@ -1,0 +1,105 @@
+{
+    "name": "runtime_txn",
+    "id": 5,
+    "description": "One row per dispatched transaction (committable or not), with the execution results",
+    "fields": {
+        "bank_seq":                          { "type": "UInt64",        "description": "Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                              { "type": "UInt64",        "description": "Bank slot in which this transaction was executed" },
+        "epoch":                             { "type": "UInt64",        "description": "Epoch the transaction was executed in" },
+        "signature":                         { "type": "Signature",     "description": "First signature of the transaction (64 bytes)" },
+        "blockhash":                         { "type": "Pubkey",        "description": "Blockhash referenced by the transaction" },
+        "fee_payer":                         { "type": "Pubkey",        "description": "Fee-payer pubkey" },
+        "dispatch_fec_mr":                   { "type": "Pubkey",        "description": "block_id_arr[bank_idx].latest_mr at txn dispatch time" },
+        "is_simple_vote":                    { "type": "Bool",          "description": "True if the transaction was classified as a simple vote, false otherwise" },
+        "is_bundle":                         { "type": "Bool",          "description": "True if the transaction is part of a Jito bundle, false otherwise" },
+        "is_committable":                    { "type": "Bool",          "description": "True if the transaction was committable (landed on-chain)" },
+        "is_fees_only":                      { "type": "Bool",          "description": "True if the transaction landed but only fees were charged (e.g. account loading failure)" },
+        "txn_err":                           { "type": "UInt32",        "description": "Absolute value of transaction execution error (0 = success)" },
+        "exec_err":                          { "type": "UInt32",        "description": "Absolute value of the instruction execution error, only meaningful when txn_err = INSTRUCTION_ERROR" },
+        "exec_err_kind":                     { "type": "UInt32",        "description": "Absolute kind of the instruction execution error; only meaningful when txn_err = INSTRUCTION_ERROR" },
+        "exec_err_idx":                      { "type": "UInt32",        "description": "Instruction index that failed (INT_MAX if not applicable)" },
+        "custom_err":                        { "type": "UInt32",        "description": "Custom error code returned by the program (only meaningful for CUSTOM_ERROR)" },
+        "compute_unit_limit":                { "type": "UInt64",        "description": "Compute unit limit requested by the transaction" },
+        "compute_unit_price":                { "type": "UInt64",        "description": "Compute unit price (micro-lamports per CU) requested by the transaction" },
+        "compute_units_consumed":            { "type": "UInt64",        "description": "compute_unit_limit minus the remaining compute meter at commit" },
+        "heap_size":                         { "type": "UInt64",        "description": "Requested heap size for the VM" },
+        "num_builtin_instrs":                { "type": "UInt64",        "description": "Number of builtin program instructions in the transaction" },
+        "num_non_builtin_instrs":            { "type": "UInt64",        "description": "Number of BPF (non-builtin) program instructions" },
+        "loaded_accounts_data_size":         { "type": "UInt64",        "description": "Total bytes of account data loaded for this transaction" },
+        "loaded_accounts_data_size_limit":   { "type": "UInt64",        "description": "Configured loaded-accounts-data-size limit for this transaction" },
+        "accounts_resize_delta":             { "type": "UInt64",        "description": "Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign" },
+        "accounts_resize_is_negative":       { "type": "Bool",          "description": "True when the net delta is negative (writable account data net shrunk during execution)" },
+        "execution_fee":                     { "type": "UInt64",        "description": "Execution fee paid by the fee payer" },
+        "priority_fee":                      { "type": "UInt64",        "description": "Priority fee paid by the fee payer" },
+        "tips":                              { "type": "UInt64",        "description": "Jito tips paid during execution" },
+        "signature_count":                   { "type": "UInt64",        "description": "Number of signatures in the transaction" },
+        "cost_signature":                    { "type": "UInt32",        "description": "Cost-tracker signature cost" },
+        "cost_write_lock":                   { "type": "UInt32",        "description": "Cost-tracker write-lock cost" },
+        "cost_data_bytes":                   { "type": "UInt32",        "description": "Cost-tracker data-bytes cost" },
+        "cost_programs_execution":           { "type": "UInt32",        "description": "Cost-tracker programs-execution cost" },
+        "cost_loaded_accounts_data_size":    { "type": "UInt32",        "description": "Cost-tracker loaded-accounts-data-size cost" },
+        "cost_allocated_accounts_data_size": { "type": "UInt64",        "description": "Allocated accounts data size from the cost tracker" },
+        "load_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when account loading started" },
+        "check_start":                       { "type": "DateTime64(9)", "description": "Wall-clock time when txn validation checks started" },
+        "exec_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when execution started" },
+        "commit_start":                      { "type": "DateTime64(9)", "description": "Wall-clock time when commit started" },
+        "account_diffs": {
+            "type": "Array",
+            "max_len": 128,
+            "description": "Per-account diffs for writable accounts that were modified",
+            "element": {
+                "type": "Tuple",
+                "description": "Per-account diff entry",
+                "fields": {
+                    "pubkey":        { "type": "Pubkey", "description": "Account pubkey" },
+                    "owner":         { "type": "Pubkey", "description": "Post-state owner pubkey" },
+                    "lamports":      { "type": "UInt64", "description": "Post-state lamports" },
+                    "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
+                    "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
+                    "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
+                    "is_executable":    { "type": "Bool", "description": "True if the post-state account is executable" },
+                    "is_stake_update":  { "type": "Bool", "description": "True if this write touched the stake cache" },
+                    "is_vote_update":   { "type": "Bool", "description": "True if this write touched the vote cache" },
+                    "is_new_vote":      { "type": "Bool", "description": "True if this write created a new vote account" },
+                    "is_rm_vote":       { "type": "Bool", "description": "True if this write removed a vote account" }
+                }
+            }
+        },
+        "writable_accounts": {
+            "type": "Array",
+            "max_len": 128,
+            "description": "Every account the transaction locked as writable",
+            "element": {
+                "type": "Tuple",
+                "description": "Writable-locked account entry",
+                "fields": {
+                    "pubkey": { "type": "Pubkey", "description": "Writable-locked account pubkey" }
+                }
+            }
+        },
+        "readonly_accounts": {
+            "type": "Array",
+            "max_len": 128,
+            "description": "Every account the transaction locked as readonly, in account-order",
+            "element": {
+                "type": "Tuple",
+                "description": "Readonly-locked account entry",
+                "fields": {
+                    "pubkey": { "type": "Pubkey", "description": "Readonly-locked account pubkey" }
+                }
+            }
+        },
+        "program_ids": {
+            "type": "Array",
+            "max_len": 64,
+            "description": "Distinct program pubkeys invoked at the top level of this transaction",
+            "element": {
+                "type": "Tuple",
+                "description": "Program id entry",
+                "fields": {
+                    "pubkey": { "type": "Pubkey", "description": "Top-level program pubkey" }
+                }
+            }
+        }
+    }
+}
