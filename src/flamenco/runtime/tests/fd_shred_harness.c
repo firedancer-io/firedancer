@@ -360,14 +360,16 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       out_fec->num_coding_shreds = popped_rec->num_coding_shreds;
       memcpy( out_fec->merkle_root, popped_rec->mr.hash, FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( out_fec->chained_merkle_root, popped_rec->cmr.hash, FD_SHRED_MERKLE_ROOT_SZ );
-      out_fec->payload = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( popped_rec->payload_sz ) );
-      if( FD_UNLIKELY( _l > output_end ) ) {
-        effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
-        effects->fec_set_results_count--;
-        break;
+      if( FD_LIKELY( popped_rec->payload_sz ) ) {
+        out_fec->payload = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( popped_rec->payload_sz ) );
+        if( FD_UNLIKELY( _l > output_end ) ) {
+          effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
+          effects->fec_set_results_count--;
+          break;
+        }
+        out_fec->payload->size = (pb_size_t)popped_rec->payload_sz;
+        memcpy( out_fec->payload->bytes, popped_rec->payload, popped_rec->payload_sz );
       }
-      out_fec->payload->size = (pb_size_t)popped_rec->payload_sz;
-      if( FD_LIKELY( popped_rec->payload_sz ) ) memcpy( out_fec->payload->bytes, popped_rec->payload, popped_rec->payload_sz );
 
       /* Bank lineage comes from the reasm tree, like the replay tile.
          Reasm pops parents before children, so the parent's bank_idx
