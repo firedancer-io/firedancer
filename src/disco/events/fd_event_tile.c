@@ -145,6 +145,7 @@ loose_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 metrics_write( fd_event_tile_t * ctx ) {
   FD_MGAUGE_SET( EVENT, QUEUE_DEPTH, ctx->circq->cnt );
+  FD_MGAUGE_SET( EVENT, QUEUE_UNSENT, fd_circq_unsent_cnt( ctx->circq ) );
   FD_MCNT_SET( EVENT, QUEUE_DROPPED, ctx->circq->metrics.drop_cnt );
   FD_MGAUGE_SET( EVENT, QUEUE_BYTES_USED, fd_circq_bytes_used( ctx->circq ) );
   FD_MGAUGE_SET( EVENT, QUEUE_BYTES_CAPACITY, ctx->circq->size );
@@ -152,6 +153,7 @@ metrics_write( fd_event_tile_t * ctx ) {
   fd_event_client_metrics_t const * metrics = fd_event_client_metrics( ctx->client );
   FD_MCNT_SET( EVENT, SENT,          metrics->events_sent );
   FD_MCNT_SET( EVENT, ACKED,         metrics->events_acked );
+  FD_MGAUGE_SET( EVENT, LAST_ACKED_ID, metrics->last_acked_id );
   FD_MCNT_SET( EVENT, BYTES_WRITTEN,       metrics->bytes_written );
   FD_MCNT_SET( EVENT, BYTES_READ,          metrics->bytes_read );
   FD_MCNT_SET( EVENT, AUTH_FAILED,         metrics->auth_fail_cnt );

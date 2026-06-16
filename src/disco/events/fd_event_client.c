@@ -293,6 +293,8 @@ disconnect( fd_event_client_t * client,
     client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
     fd_circq_reset_cursor( client->circq );
   }
+
+  client->event_stream = NULL;
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
 
@@ -446,6 +448,7 @@ reconnect( fd_event_client_t * client,
 static int
 fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return 0;
+  if( FD_UNLIKELY( fd_grpc_client_request_stream_busy( client->grpc_client ) ) ) return 0;
 
   fd_pb_encoder_t auth_req[1];
   uchar buffer[ 256UL ];
@@ -472,8 +475,8 @@ fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
   if( FD_UNLIKELY( !stream ) ) return 0;
 
   long now = fd_log_wallclock();
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)5e9 /* 5s */ );
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)5e9 /* 5s */ );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)2e9 );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)2e9 );
 
   client->auth_send_pending = 0;
   FD_LOG_INFO(( "Requesting auth challenge from event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
@@ -488,7 +491,7 @@ fd_event_client_grpc_conn_established( void * app_ctx ) {
 
   long now = fd_log_wallclock();
   client->state             = FD_EVENT_CLIENT_STATE_AUTHENTICATING;
-  client->auth_deadline     = now + (long)5e9; /* 5s */
+  client->auth_deadline     = now + (long)2e9;
   client->auth_send_pending = 1;
 
   fd_event_client_try_send_authenticate( client );
@@ -576,8 +579,8 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   }
 
   long now = fd_log_wallclock();
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)5e9 /* 5s */ );
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)5e9 /* 5s */ );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)2e9 );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)2e9 );
 
   client->state = FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH;
   FD_LOG_DEBUG(( "Sent signed auth challenge" ));
@@ -650,6 +653,8 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
 
   client->metrics.events_acked++;
   if( FD_UNLIKELY( nonce_ack==ULONG_MAX ) ) return;
+
+  client->metrics.last_acked_id = nonce_ack;
 
   int err = fd_circq_pop_until( client->circq, nonce_ack );
   if( FD_UNLIKELY( -1==err ) ) {

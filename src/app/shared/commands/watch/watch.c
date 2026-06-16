@@ -1103,6 +1103,9 @@ write_event( config_t const * config,
   }
 
   ulong event_queue_count = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_DEPTH ) ];
+  ulong event_queue_unsent = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_UNSENT ) ];
+  ulong event_queue_unacked = event_queue_count>event_queue_unsent ? event_queue_count-event_queue_unsent : 0UL;
+  ulong event_last_acked_id = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, LAST_ACKED_ID ) ];
   ulong event_queue_drops = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, EVENT, QUEUE_DROPPED ) ];
   ulong event_queue_bytes_used = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_BYTES_USED ) ];
   ulong event_queue_bytes_capacity = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_BYTES_CAPACITY ) ];
@@ -1131,20 +1134,26 @@ write_event( config_t const * config,
   long bytes_read_per_sec = (long)(100.0*(double)bytes_read_sum/(double)num_bytes_read_samples);
   char * bytes_read_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, bytes_read_per_sec );
 
-  char * event_queue_count_s = COUNT( event_queue_count );
+  char * event_queue_unacked_s = COUNT( event_queue_unacked );
+  char * event_queue_unsent_s  = COUNT( event_queue_unsent );
+  char * event_last_acked_id_s = COUNT( event_last_acked_id );
 
   PRINT( "📡 " BOLD YELLOW "EVENT......." RESET UNBOLD
-         " " BOLD "STATE" UNBOLD " %12s"
-         " " BOLD "QUEUE" UNBOLD " %s"
-         " " BOLD "SENT"  UNBOLD " %s /s"
-         " " BOLD "ACKED" UNBOLD " %s /s"
-         " " BOLD "BW"    UNBOLD " %s in %s out"
-         " " BOLD "DROPS" UNBOLD " %s"
-         " " BOLD "FULL"  UNBOLD " %3.0f%%" CLEARLN "\n",
+         " " BOLD "STATE"    UNBOLD " %12s"
+         " " BOLD "UNACKED"  UNBOLD " %s"
+         " " BOLD "QUEUE"    UNBOLD " %s"
+         " " BOLD "SENT"     UNBOLD " %s /s"
+         " " BOLD "ACKED"    UNBOLD " %s /s"
+         " " BOLD "LAST ACK" UNBOLD " %s"
+         " " BOLD "BW"       UNBOLD " %s in %s out"
+         " " BOLD "DROPS"    UNBOLD " %s"
+         " " BOLD "FULL"     UNBOLD " %3.0f%%" CLEARLN "\n",
     connection_state_str,
-    event_queue_count_s,
+    event_queue_unacked_s,
+    event_queue_unsent_s,
     events_sent_str,
     events_acked_str,
+    event_last_acked_id_s,
     bytes_read_str,
     bytes_written_str,
     COUNT( event_queue_drops ),

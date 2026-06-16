@@ -23,6 +23,7 @@ struct fd_event_client_metrics {
   ulong transport_success_cnt;
   ulong events_sent;
   ulong events_acked;
+  ulong last_acked_id;
   ulong bytes_written;
   ulong bytes_read;
   ulong auth_fail_cnt;
