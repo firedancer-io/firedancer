@@ -499,13 +499,14 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
 
   if( FD_UNLIKELY( vtr->vte_cnt==hfork->per_vtr_max ) ) {
     vte_t * evicted_vte = vte_dlist_ele_pop_head( vtr->vte_dlist, hfork->vte_pool );
+    bhm_key_t evicted_bhm_key = { .block_id = evicted_vte->key.block_id, .bank_hash = evicted_vte->bank_hash };
+    ulong     evicted_stake   = evicted_vte->stake;
     vte_map_ele_remove_fast( hfork->vte_map, evicted_vte, hfork->vte_pool );
     vte_pool_ele_release( hfork->vte_pool, evicted_vte );
     vtr->vte_cnt--;
 
-    bhm_key_t bhm_key = { .block_id = evicted_vte->key.block_id, .bank_hash = evicted_vte->bank_hash };
-    bhm_t *   bhm     = bhm_map_ele_query( hfork->bhm_map, &bhm_key, NULL, hfork->bhm_pool );
-    bhm->stake       -= evicted_vte->stake;
+    bhm_t * bhm = bhm_map_ele_query( hfork->bhm_map, &evicted_bhm_key, NULL, hfork->bhm_pool );
+    bhm->stake -= evicted_stake;
     if( FD_UNLIKELY( !bhm->stake ) ) bhm_remove( hfork, bhm );
   }
 
