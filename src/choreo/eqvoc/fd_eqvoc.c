@@ -510,6 +510,14 @@ fec_insert( fd_eqvoc_t * eqvoc,
   return fec;
 }
 
+static void
+fec_remove( fd_eqvoc_t * eqvoc,
+            fec_t *      fec ) {
+  fec_dlist_ele_remove   ( eqvoc->fec_dlist, fec, eqvoc->fec_pool );
+  fec_map_ele_remove_fast( eqvoc->fec_map,   fec, eqvoc->fec_pool );
+  fec_pool_ele_release   ( eqvoc->fec_pool,  fec );
+}
+
 static prf_t *
 prf_insert( fd_eqvoc_t *        eqvoc,
             ulong               slot,
@@ -722,9 +730,7 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
     if( FD_UNLIKELY( !fec ) ) return 0; /* it's possible we already evicted this FEC set */
     construct_proof( &fec->sample_shred, shred, chunks_out );
     dup_insert( eqvoc, slot );
-    fec_dlist_ele_remove( eqvoc->fec_dlist, fec, eqvoc->fec_pool );
-    fec_map_ele_remove_fast( eqvoc->fec_map, fec, eqvoc->fec_pool );
-    fec_pool_ele_release( eqvoc->fec_pool, fec );
+    fec_remove( eqvoc, fec );
     return 1; /* proof constructed */
 
   } else {
@@ -739,6 +745,14 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
                             ( is_last_shred( &last->sample_shred ) && shred->idx > last->sample_shred.idx ) ) ) {
       construct_proof( shred, &last->sample_shred, chunks_out );
       dup_insert( eqvoc, slot );
+      /* Equivocation confirmed: remove this slot's fec entries per the
+         fec_map contract, mirroring the shred-hint path above.  Drop the
+         (slot, fec_set_idx) entry (if present) and the (slot, UINT_MAX)
+         last-shred sentinel so they don't occupy fec_map/fec_pool capacity
+         after the slot is marked duplicate. */
+      fec_t * fec = fec_query( eqvoc, shred->slot, shred->fec_set_idx );
+      if( FD_LIKELY( fec ) ) fec_remove( eqvoc, fec );
+      fec_remove( eqvoc, last );
       return 1;
     } else if( FD_UNLIKELY( shred->idx > last->sample_shred.idx ) ) {
       fd_memcpy( &last->sample_shred, shred, fd_shred_sz( shred ) );
