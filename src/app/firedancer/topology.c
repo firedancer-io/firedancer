@@ -158,10 +158,13 @@ setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot ) {
-  fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
+  ulong seed;
+  FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,   "obj.%lu.max_live_slots",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,             "obj.%lu.seed",             obj->id ) );
 
   return obj;
 }
