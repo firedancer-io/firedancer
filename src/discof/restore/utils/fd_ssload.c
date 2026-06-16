@@ -139,8 +139,7 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  /* Epoch credits downcasting only happens on epoch_stakes entries,
-     not vote_accounts.  Validated here for consistency. */
+  /* Sanity-check the epoch and skip the Alpenglow migration marker. */
 
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[i].epoch_credits_history_len>FD_EPOCH_CREDITS_MAX ) ) {
@@ -148,23 +147,12 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                        i, manifest->vote_accounts[i].epoch_credits_history_len, FD_EPOCH_CREDITS_MAX ));
       return -1;
     }
-    ulong ec_base = manifest->vote_accounts[i].epoch_credits_history_len>0UL
-                  ? manifest->vote_accounts[i].epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<manifest->vote_accounts[i].epoch_credits_history_len; j++ ) {
       epoch_credits_t const * epc = &manifest->vote_accounts[i].epoch_credits[j];
+      if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) continue;
       if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
         FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
                          i, j, epc->epoch ));
-        return -1;
-      }
-      if( FD_UNLIKELY( epc->credits<ec_base || epc->credits-ec_base>(ulong)UINT_MAX ) ) {
-        FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].credits %lu out of range (base %lu)",
-                         i, j, epc->credits, ec_base ));
-        return -1;
-      }
-      if( FD_UNLIKELY( epc->prev_credits<ec_base || epc->prev_credits-ec_base>(ulong)UINT_MAX ) ) {
-        FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].prev_credits %lu out of range (base %lu)",
-                         i, j, epc->prev_credits, ec_base ));
         return -1;
       }
     }
@@ -190,22 +178,12 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                          i, j, vs->epoch_credits_history_len, FD_EPOCH_CREDITS_MAX ));
         return -1;
       }
-      ulong ec_base = vs->epoch_credits_history_len>0UL ? vs->epoch_credits[0].prev_credits : 0UL;
       for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
         epoch_credits_t const * epc = &vs->epoch_credits[k];
+        if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epc->epoch, epc->credits, epc->prev_credits ) ) continue;
         if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
                            i, j, k, epc->epoch ));
-          return -1;
-        }
-        if( FD_UNLIKELY( epc->credits<ec_base || epc->credits-ec_base>(ulong)UINT_MAX ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].credits %lu out of range (base %lu)",
-                           i, j, k, epc->credits, ec_base ));
-          return -1;
-        }
-        if( FD_UNLIKELY( epc->prev_credits<ec_base || epc->prev_credits-ec_base>(ulong)UINT_MAX ) ) {
-          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu out of range (base %lu)",
-                           i, j, k, epc->prev_credits, ec_base ));
           return -1;
         }
       }
@@ -372,10 +350,15 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   rent->exemption_threshold     = manifest->rent_params.exemption_threshold;
   rent->burn_percent            = manifest->rent_params.burn_percent;
 
-  /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
-     None gets treated as 0 for hash verification. */
+  /* If hashes_per_tick is None, it means "low power" (no fixed number
+     of hashes per tick). Firedancer represents low power as a
+     hashcnt_per_tick of 1 (see the low_power_mode checks in fd_poh.c
+     and fd_replay_tile.c).  The replay scheduler skips per-tick
+     hash-count verification for hashcnt_per_tick<=1, which matches
+     Agave treating None as unverified.
+     https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118 */
   if( FD_LIKELY( manifest->has_hashes_per_tick ) ) bank->f.hashes_per_tick = manifest->hashes_per_tick;
-  else                                             bank->f.hashes_per_tick = 0UL;
+  else                                             bank->f.hashes_per_tick = 1UL;
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
@@ -531,13 +514,23 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
-    ec->cnt          = elem->epoch_credits_history_len;
-    ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
+
+    /* Skip the Alpenglow migration marker */
+    ulong cnt = 0UL;
+    ulong base = 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      ec->epoch[ j ]              = (ushort)elem->epoch_credits[ j ].epoch;
-      ec->credits_delta[ j ]      = (uint)( elem->epoch_credits[ j ].credits      - ec->base_credits );
-      ec->prev_credits_delta[ j ] = (uint)( elem->epoch_credits[ j ].prev_credits - ec->base_credits );
+      ulong epoch        = elem->epoch_credits[ j ].epoch;
+      ulong credits      = elem->epoch_credits[ j ].credits;
+      ulong prev_credits = elem->epoch_credits[ j ].prev_credits;
+      if( FD_UNLIKELY( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epoch, credits, prev_credits ) ) ) continue;
+      if( FD_UNLIKELY( !cnt ) ) base = prev_credits;
+      ec->epoch[ cnt ]              = (ushort)epoch;
+      ec->credits_delta[ cnt ]      = credits      - base;
+      ec->prev_credits_delta[ cnt ] = prev_credits - base;
+      cnt++;
     }
+    ec->cnt          = cnt;
+    ec->base_credits = base;
     epoch_credits_len++;
   }
   *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;

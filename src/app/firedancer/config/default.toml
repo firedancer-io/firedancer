@@ -1533,6 +1533,11 @@ telemetry = true
         # evicted as new shreds are added.
         shred_storage_limit_gib = 50
 
+    [tiles.alpenglow]
+        # The port the validator listens for Alpenglow votes and
+        # certificates.
+        listen_port = 9011
+
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
     # used to send votes that our validator produces.

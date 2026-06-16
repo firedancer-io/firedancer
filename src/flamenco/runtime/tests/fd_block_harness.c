@@ -295,8 +295,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
       ec->epoch[j]              = (ushort)prev_vote_accs->epoch_credits[j].epoch;
-      ec->credits_delta[j]      = (uint)( prev_vote_accs->epoch_credits[j].credits      - ec->base_credits );
-      ec->prev_credits_delta[j] = (uint)( prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits );
+      ec->credits_delta[j]      = prev_vote_accs->epoch_credits[j].credits      - ec->base_credits;
+      ec->prev_credits_delta[j] = prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits;
     }
   }
   *fd_bank_epoch_credits_len( bank ) = block_bank->vote_accounts_t_1_count;

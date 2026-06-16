@@ -88,6 +88,7 @@
 #define IN_KIND_GOSSIP_OUT (10)
 
 #define DEBUG_LOGGING 0
+#define FD_ALPENGLOW_ENABLED 1
 
 /* The first bank that the replay tile produces either for genesis
    or the snapshot boot will always be at bank index 0. */
@@ -275,6 +276,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
+  if( FD_UNLIKELY( FD_ALPENGLOW_ENABLED ) ) bank->f.tick_height = bank->f.max_tick_height - 1UL;
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));

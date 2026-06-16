@@ -332,18 +332,25 @@ get_vote_credits( uchar const *        account_data,
                   ulong                account_data_len,
                   fd_epoch_credits_t * epoch_credits ) {
 
-  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &epoch_credits->cnt );
+  ulong raw_cnt = 0UL;
+  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &raw_cnt );
   FD_TEST( vote_epoch_credits );
-  FD_TEST( epoch_credits->cnt<=FD_EPOCH_CREDITS_MAX );
+  FD_TEST( raw_cnt<=FD_EPOCH_CREDITS_MAX );
 
-  ulong base = epoch_credits->cnt ? vote_epoch_credits[0].prev_credits : 0UL;
-  for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
-    fd_vote_epoch_credits_t const * ele        = &vote_epoch_credits[ i ];
-    epoch_credits->epoch[ i ]              = (ushort)ele->epoch;
-    epoch_credits->credits_delta[ i ]      = (uint)( ele->credits      - base );
-    epoch_credits->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
+  /* Skip the Alpenglow migration marker */
+  ulong cnt  = 0UL;
+  ulong base = 0UL;
+  for( ulong i=0UL; i<raw_cnt; i++ ) {
+    fd_vote_epoch_credits_t const * ele = &vote_epoch_credits[ i ];
+    if( FD_EPOCH_CREDIT_IS_ALPEN_MARKER( ele->epoch, ele->credits, ele->prev_credits ) ) continue;
+    if( !cnt ) base = ele->prev_credits;
+    epoch_credits->epoch[ cnt ]              = (ushort)ele->epoch;
+    epoch_credits->credits_delta[ cnt ]      = ele->credits      - base;
+    epoch_credits->prev_credits_delta[ cnt ] = ele->prev_credits - base;
+    cnt++;
   }
 
+  epoch_credits->cnt          = cnt;
   epoch_credits->base_credits = base;
 }
 
