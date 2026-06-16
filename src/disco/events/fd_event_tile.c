@@ -32,6 +32,10 @@
 #include <sys/syscall.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/utsname.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "generated/fd_event_tile_seccomp.h"
 
@@ -86,6 +90,7 @@ struct fd_event_tile {
   ulong event_type;
   ulong event_sz;
   uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ];
+  fd_event_boot_t boot;
 
   uchar identity_pubkey[ 32UL ];
 
@@ -351,6 +356,91 @@ after_frag( fd_event_tile_t *   ctx,
   }
 }
 
+static char const *
+path_basename( char const * path ) {
+  char const * slash = strrchr( path, '/' );
+  return slash ? slash+1 : path;
+}
+
+static void
+collect_xdp_driver( fd_event_boot_t * ev,
+                    char const *      iface ) {
+  char path[ PATH_MAX ];
+  char target[ PATH_MAX ];
+
+  if( FD_UNLIKELY( !fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/driver", iface ) ) ) return;
+  long n = readlink( path, target, sizeof(target)-1UL );
+  if( FD_UNLIKELY( n<=0L ) ) return;
+  target[ n ] = '\0';
+
+  char const * driver = path_basename( target );
+  fd_memcpy( ev->xdp_driver, driver, (ev->xdp_driver_len = strnlen( driver, sizeof(ev->xdp_driver) )) );
+}
+
+static int
+parse_pcie_id( char const * device_id,
+               uint *       pcie_id ) {
+  char * end = NULL;
+  errno = 0;
+  ulong id = strtoul( device_id, &end, 0 );
+  if( FD_UNLIKELY( errno || end==device_id || id>UINT_MAX ) ) return 0;
+  while( *end=='\n' || *end=='\r' || *end==' ' || *end=='\t' ) end++;
+  if( FD_UNLIKELY( *end ) ) return 0;
+
+  *pcie_id = (uint)id;
+  return 1;
+}
+
+static void
+collect_xdp_pcie_id( fd_event_boot_t * ev,
+                     char const *      iface ) {
+  char path[ PATH_MAX ];
+  char device_id[ 32UL ];
+
+  if( FD_UNLIKELY( !fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/device", iface ) ) ) return;
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) return;
+  long n = read( fd, device_id, sizeof(device_id)-1UL );
+  close( fd );
+  if( FD_UNLIKELY( n<=0L ) ) return;
+  device_id[ n ] = '\0';
+
+  uint pcie_id = 0U;
+  if( FD_LIKELY( parse_pcie_id( device_id, &pcie_id ) ) ) ev->xdp_pcie_id = pcie_id;
+}
+
+static char const *
+find_xdp_iface( fd_topo_t const * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_LIKELY( !strcmp( tile->name, "net" ) && tile->xdp.if_phys[ 0 ] ) ) return tile->xdp.if_phys;
+  }
+  return NULL;
+}
+
+static void
+collect_boot_event( fd_event_tile_t * ctx,
+                    fd_topo_t const * topo ) {
+  fd_event_boot_t * ev = &ctx->boot;
+  fd_memset( ev, 0, sizeof(fd_event_boot_t) );
+
+  struct utsname uts;
+  if( FD_LIKELY( 0==uname( &uts ) ) ) {
+    fd_memcpy( ev->kernel_sysname, uts.sysname, (ev->kernel_sysname_len = strnlen( uts.sysname, sizeof(ev->kernel_sysname) )) );
+    fd_memcpy( ev->kernel_release, uts.release, (ev->kernel_release_len = strnlen( uts.release, sizeof(ev->kernel_release) )) );
+    fd_memcpy( ev->kernel_version, uts.version, (ev->kernel_version_len = strnlen( uts.version, sizeof(ev->kernel_version) )) );
+    fd_memcpy( ev->kernel_machine, uts.machine, (ev->kernel_machine_len = strnlen( uts.machine, sizeof(ev->kernel_machine) )) );
+  } else {
+    FD_LOG_WARNING(( "uname failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  char const * xdp_iface = find_xdp_iface( topo );
+  if( FD_LIKELY( xdp_iface ) ) {
+    collect_xdp_driver( ev, xdp_iface );
+    collect_xdp_pcie_id( ev, xdp_iface );
+  }
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -394,6 +484,8 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->machine_id = fd_hash( FD_EVENT_ID_SEED, _machine_id, 32UL );
 
+  collect_boot_event( ctx, topo );
+
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
     FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
   }
@@ -402,7 +494,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_url_t url[ 1UL ];
   ushort   port;
   _Bool    is_ssl = 0;
-  if( FD_UNLIKELY( fd_url_parse_endpoint( url, tile->event.url, strlen( tile->event.url ), &port, &is_ssl, "[tiles.event.url]" ) ) ) {
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url, tile->event.url, strnlen( tile->event.url, sizeof(tile->event.url) ), &port, &is_ssl, "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
   ctx->use_tls = is_ssl;
@@ -547,6 +639,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->in_cnt = polled_in_idx;
 
   fd_clock_tile_init( ctx->clock );
+  fd_event_boot_serialize( ctx->circq, ctx->client, fd_log_wallclock(), 0UL, &ctx->boot );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

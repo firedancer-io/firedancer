@@ -23,6 +23,7 @@ class ClickHouseType(Enum):
     IPv6 = auto()
     UInt8 = auto()
     UInt16 = auto()
+    UInt32 = auto()
     UInt64 = auto()
     Pubkey = auto()
     Hash = auto()
@@ -40,6 +41,7 @@ class ClickHouseType(Enum):
         "IPv6": "IPv6",
         "UInt8": "UInt8",
         "UInt16": "UInt16",
+        "UInt32": "UInt32",
         "UInt64": "UInt64",
         "Pubkey": "Pubkey",
         "Hash": "Hash",
@@ -58,6 +60,7 @@ class ClickHouseType(Enum):
         "IPv6": "bytes",
         "UInt8": "uint32",
         "UInt16": "uint32",
+        "UInt32": "uint32",
         "UInt64": "uint64",
         "Pubkey": "bytes",
         "Hash": "bytes",
@@ -214,6 +217,7 @@ _FIXED_BYTE_SZ = {
 _SCALAR_C = {
     ClickHouseType.UInt8:      ("uchar",  "uint32"),
     ClickHouseType.UInt16:     ("ushort", "uint32"),
+    ClickHouseType.UInt32:     ("uint",   "uint32"),
     ClickHouseType.UInt64:     ("ulong",  "uint64"),
     ClickHouseType.DateTime64: ("ulong",  "uint64"),
     ClickHouseType.Bool:       ("int",    "bool"),
@@ -432,7 +436,7 @@ def generate_c_header(schemas: List[Schema]) -> str:
     if struct_max_names:
         expr = struct_max_names[0]
         for n in struct_max_names[1:]:
-            expr = f"fd_ulong_max( {n}, {expr} )"
+            expr = f"(({n})>({expr}) ? ({n}) : ({expr}))"
         lines += [
             "/* Largest generated event struct; a consumer can stage any incoming",
             "   event in a buffer of this size. */",

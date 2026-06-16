@@ -1,0 +1,13 @@
+{
+    "name": "boot",
+    "id": 4,
+    "description": "The validator boot-time configuration and environment",
+    "fields": {
+        "kernel_sysname": { "type": "String", "max_len": 65, "description": "Kernel name (Linux)" },
+        "kernel_release": { "type": "String", "max_len": 65, "description": "Kernel release (e.g. 7.0.8-1202605170043.el9.x86_64)" },
+        "kernel_version": { "type": "String", "max_len": 65, "description": "Kernel version string (e.g. #1 SMP PREEMPT_DYNAMIC Sun May 17 00:49:58 UTC 2026)" },
+        "kernel_machine": { "type": "String", "max_len": 65, "description": "Machine hardware name (e.g. x86_64)" },
+        "xdp_driver":     { "type": "String", "max_len": 10, "description": "Kernel module of XDP network device" },
+        "xdp_pcie_id":    { "type": "UInt32", "description": "PCIe ID of XDP network device" }
+    }
+}
