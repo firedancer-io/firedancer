@@ -146,8 +146,8 @@ struct fd_sched_block {
   uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
   uint                fec_eob:1;    /* FEC end-of-batch: set if the last FEC set in the batch is being
                                        ingested. */
-  uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be receiving a new
-                                       batch. */
+  uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be parsing out a
+                                       batch header. */
   uint                last_batch_empty:1; /* Another non-deterministic constraint that we detect but allow. */
 
   /* Block state. */
@@ -2213,6 +2213,27 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       continue;
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL && block->fec_sob ) {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.2/ledger/src/shredder.rs#L244
+
+         Agave's shred ingestion pipeline special cases when the shred
+         payloads for a batch are completely empty.  In that case, the
+         validator will pass along a shred's worth of all zeros.  The
+         upshot is that a batch consisting of zero bytes, which normally
+         would fail to deserialize into a batch and lead to a bad block,
+         will get a free pass and be treated as a well formed empty
+         batch.  Only when the batch has zero bytes, not one byte, or
+         seven bytes, or five bytes; those fail to deserialize and end
+         up as bad blocks, as they should.  Exactly zero, that's the
+         magical number to hand out free passes on.
+
+         FIXME: remove this logic after Agave bans empty batches. */
+      if( FD_UNLIKELY( block->fec_eob && block->fec_buf_sz==0U ) ) {
+        block->mblks_rem        = 0UL;
+        block->fec_sob          = 0;
+        block->last_batch_empty = 1;
+        continue;
+      }
+
       CHECK_LEFT( sizeof(ulong) );
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
