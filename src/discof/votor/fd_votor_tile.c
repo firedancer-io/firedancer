@@ -61,11 +61,11 @@
 
 #define LOGGING 0
 
-#define IN_KIND_REPLAY        (0)
-#define IN_KIND_GOSSIP        (1)
-#define IN_KIND_EPOCH         (2)
-#define IN_KIND_IPECHO        (3)
-#define IN_KIND_NET_ALPENGLOW (4) /* raw QUIC frames on the alpenglow port (net tile) */
+#define IN_KIND_REPLAY (0)
+#define IN_KIND_GOSSIP (1)
+#define IN_KIND_EPOCH  (2)
+#define IN_KIND_IPECHO (3)
+#define IN_KIND_VOTOR  (4)
 
 #define OUT_IDX     0 /* votor_out: consensus output (votes/certs/slot_done/finalized) */
 #define OUT_IDX_NET 1 /* votor_net: QUIC TX frames back to the net tile               */
@@ -920,7 +920,7 @@ before_frag( fd_votor_tile_t * ctx,
   (void)seq;
   /* Only the net_alpenglow links carry netmux-tagged frames; filter them
      to the alpenglow proto.  Consensus links are always processed. */
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_ALPENGLOW ) )
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) )
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_ALPENGLOW;
   return 0;
 }
@@ -935,7 +935,7 @@ during_frag( fd_votor_tile_t * ctx,
              ulong             ctl ) {
   /* Copy raw network frames out of the (unreliable) net dcache while they
      are still valid; consensus links are read directly in returnable_frag. */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_ALPENGLOW ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) ) {
     if( FD_UNLIKELY( sz>FD_NET_MTU ) ) return;
     void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
     fd_memcpy( ctx->net_buf, src, sz );
@@ -1016,7 +1016,7 @@ returnable_frag( fd_votor_tile_t *   ctx,
      ctx->net_buf in during_frag.  Feed the QUIC server; quic_stream_rx then
      drives the consensus core.  Handled before the dcache bounds check
      below, which does not apply to net frames. */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_ALPENGLOW ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) ) {
     if( FD_LIKELY( ctx->quic && sz>=sizeof(fd_eth_hdr_t) ) )
       fd_quic_process_packet( ctx->quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), ctx->now );
     return 0;
@@ -1112,10 +1112,10 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
-    else if( FD_LIKELY( !strcmp( link->name, "net_alpenglow" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_ALPENGLOW;
+    else if( FD_LIKELY( !strcmp( link->name, "net_alpenglow" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
-    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_NET_ALPENGLOW ) ) {
+    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_VOTOR ) ) {
       FD_TEST( i<FD_VOTOR_NET_IN_MAX );
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
