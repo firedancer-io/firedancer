@@ -629,6 +629,10 @@ struct fd_gui_boot_progress {
     ulong insert_bytes_decompressed;
     char  insert_path[ PATH_MAX ];
     ulong insert_accounts_current;
+
+    ulong snapwr_in_bytes_decompressed;
+    ulong snapwr_out_bytes_decompressed;
+    ulong snapwr_accounts_current;
   } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
 
   ulong wfs_total_stake;

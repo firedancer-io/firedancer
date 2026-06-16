@@ -10,6 +10,7 @@ enum {
   FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_OFF = FD_METRICS_TILE_OFF,
   FD_METRICS_GAUGE_SNAPWR_INCREMENTAL_BYTES_READ_OFF,
   FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_OFF,
+  FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_OFF,
 };
 
 #define FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_NAME "snapwr_full_bytes_read"
@@ -27,7 +28,12 @@ enum {
 #define FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_DESC "Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads."
 #define FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPWR_TOTAL (3UL)
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_NAME "snapwr_accounts_written"
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_DESC "Number of accounts written to the accounts database on disk. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_SNAPWR_TOTAL (4UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPWR[FD_METRICS_SNAPWR_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_snapwr_h */
