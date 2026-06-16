@@ -1452,8 +1452,11 @@ getClusterNodes( fd_rpc_tile_t * ctx,
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC:               name = "rpc"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        name = "pubsub"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      name = "serveRepair"; break;
-        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = NULL; break; /* Agave hardcodes tpu to null */
-        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = NULL; break; /* Agave hardcodes tpuForwards to null */
+        /* Even though Agave does not support "tpu" and "tpuForwards"
+           (hardcoded null), frankendacer/firedancer still support
+           UDP-TPU. */
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = "tpu"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = "tpuForwards"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: name = "tpuForwardsQuic"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC:          name = "tpuQuic"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE:          name = "tpuVote"; break;
@@ -1469,7 +1472,6 @@ getClusterNodes( fd_rpc_tile_t * ctx,
       if( FD_LIKELY( !!ip4 || !!ele->ci->sockets[ i ].port ) ) fd_http_server_printf( ctx->http, "\"%s\":\"" FD_IP4_ADDR_FMT ":%hu\",", name, FD_IP4_ADDR_FMT_ARGS( ip4 ), fd_ushort_bswap( ele->ci->sockets[ i ].port ) );
       else                                                     fd_http_server_printf( ctx->http, "\"%s\":null,", name );
     }
-    fd_http_server_printf( ctx->http, "\"tpu\":null,\"tpuForwards\":null," );
     fd_http_server_printf( ctx->http, "\"pubkey\":\"%s\",", identity_cstr );
     fd_http_server_printf( ctx->http, "\"shredVersion\":%u,", ele->ci->shred_version );
 
