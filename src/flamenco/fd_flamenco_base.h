@@ -132,13 +132,25 @@ typedef struct fd_top_votes fd_top_votes_t;
 /* Misc types */
 
 #define FD_EPOCH_CREDITS_MAX (64UL)
+
+/* The tower->Alpenglow migration inserts a sentinel epoch credits entry
+   (epoch, credits, prev_credits all ULONG_MAX) to mark the consensus
+   transition.  It is not a real credits entry and must be skipped.
+   Mirrors agave votor-messages AG_MIGRATION_EPOCH_CREDIT = (Epoch::MAX,
+   u64::MAX, u64::MAX). */
+#define FD_EPOCH_CREDIT_IS_ALPEN_MARKER( epoch, credits, prev_credits ) \
+  ( (epoch)==ULONG_MAX && (credits)==ULONG_MAX && (prev_credits)==ULONG_MAX )
+
+/* credits_delta/prev_credits_delta are stored as deltas from
+   base_credits.  These are u64 (no longer u32): Alpenglow vote credits
+   are much larger than legacy timely-vote credits. */
 struct fd_epoch_credits {
   uchar  pubkey[32];
   ulong  cnt;
   ulong  base_credits;
   ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
-  uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];
-  uint   prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
+  ulong  credits_delta     [ FD_EPOCH_CREDITS_MAX ];
+  ulong  prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
 };
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 

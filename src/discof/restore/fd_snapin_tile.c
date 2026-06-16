@@ -583,11 +583,17 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     blockhash_map_ele_insert( blockhash_map, &blockhash_pool[ i ], blockhash_pool );
   }
 
-  /* Now load the blockhash offsets for these blockhashes ... */
+  /* Now load the blockhash offsets for these blockhashes.  An empty set
+     is valid under Alpenglow: votes are no longer transactions, so
+     rooted slots can carry empty status maps and therefore contribute
+     no per-blockhash txnhash offsets. */
   if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
-    return 1;
+    fd_slot_delta_slot_set_t ss = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+    FD_LOG_WARNING(( "status cache has no blockhash offsets (rooted_slots=%lu txn_entries=%lu); "
+                     "proceeding with empty txncache offsets",
+                     ss.ele_cnt, ctx->txncache_entries_len ));
   }
+
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );

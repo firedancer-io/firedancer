@@ -256,6 +256,7 @@ struct fd_topo_tile {
         ushort tpu_quic;
         ushort repair;
         ushort rserve;
+        ushort alpen;
       } ports;
     } gossip;
 
