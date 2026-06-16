@@ -350,8 +350,14 @@ fd_txncache_cancel_fork( fd_txncache_t *       tc,
                          fd_txncache_fork_id_t fork_id ) {
   fd_rwlock_write( tc->shmem->lock );
   blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
-  FD_TEST( fork->shmem->child_id.val==USHORT_MAX );
   FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
+
+  /* The soon-to-be-pruned subtree must be unrooted. */
+  fd_txncache_blockcache_shmem_t const * latest_root = root_slist_ele_peek_tail_const( tc->shmem->root_ll, tc->blockcache_shmem_pool );
+  FD_TEST( latest_root );
+  FD_TEST( descends_set_test( fork->descends, blockcache_pool_idx( tc->blockcache_shmem_pool, latest_root ) ) );
+
+  remove_children( tc, fork, NULL );
   remove_blockcache( tc, fork );
   ushort * fork_id_p = &(tc->blockcache_pool[ fork->shmem->parent_id.val ].shmem->child_id.val);
   while( *fork_id_p!=fork_id.val ) {
