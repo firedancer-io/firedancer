@@ -9,6 +9,7 @@
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../choreo/tower/fd_tower_stakes.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -492,6 +493,39 @@ update_metrics_vote_slot( fd_tower_tile_t * ctx,
   ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_ALREADY_VOTED_IDX ] += (ulong)(err==FD_VOTES_ERR_ALREADY_VOTED);
 }
 
+static int
+event_level_from_tower( int tower_level ) {
+  switch( tower_level ) {
+  case FD_TOWER_SLOT_CONFIRMED_PROPAGATED: return FD_EVENT_SLOT_CONFIRMED_LEVEL_PROPAGATED;
+  case FD_TOWER_SLOT_CONFIRMED_DUPLICATE:  return FD_EVENT_SLOT_CONFIRMED_LEVEL_DUPLICATE;
+  case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: return FD_EVENT_SLOT_CONFIRMED_LEVEL_OPTIMISTIC;
+  case FD_TOWER_SLOT_CONFIRMED_SUPER:      return FD_EVENT_SLOT_CONFIRMED_LEVEL_SUPER;
+  default: FD_LOG_ERR(( "unexpected tower confirmation level %d", tower_level ));
+  }
+}
+
+static void
+report_slot_confirmed( ulong             bank_seq,
+                       ulong             slot,
+                       fd_hash_t const * block_id,
+                       ulong             stake,
+                       ulong             total_stake,
+                       int               valid,
+                       int               level,
+                       int               forward ) {
+  fd_event_slot_confirmed_t ev = {
+    .bank_seq    = bank_seq,
+    .slot        = slot,
+    .stake       = stake,
+    .total_stake = total_stake,
+    .valid       = valid,
+    .level       = level,
+    .forward     = forward,
+  };
+  fd_memcpy( ev.block_id, block_id->uc, sizeof(fd_hash_t) );
+  fd_event_report_slot_confirmed( &ev );
+}
+
 static void
 publish_slot_confirmed( fd_tower_tile_t * ctx,
                         ulong             slot,
@@ -517,6 +551,7 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
       if( fd_uchar_extract_bit( votes_blk->flags, i+4 ) ) continue; /* already forward confirmed */
       votes_blk->flags = fd_uchar_set_bit( votes_blk->flags, i+4 );
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = votes_blk->key.slot, .block_id = votes_blk->key.block_id } } } );
+      report_slot_confirmed( 0UL, votes_blk->key.slot, &votes_blk->key.block_id, votes_blk->stake, total_stake, 1 /* valid */, event_level_from_tower( levels[ i ] ), 1 /* forward */ );
 
       /* If we have a tower_blk for the slot when the ghost_blk is
          missing, this implies we replayed an equivocating block_id that
@@ -564,6 +599,7 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
 
       votes_anc->flags = fd_uchar_set_bit( votes_anc->flags, i );
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 0, .slot = ghost_anc->slot, .block_id = ghost_anc->id } } } );
+      report_slot_confirmed( ghost_anc->bank_seq, ghost_anc->slot, &ghost_anc->id, votes_anc->stake, total_stake, ghost_anc->valid, event_level_from_tower( levels[ i ] ), 0 /* not forward */ );
       if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_PROPAGATED ) ) {
         tower_anc->propagated = 1;
       }
@@ -1124,7 +1160,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     /* This is the first replay_slot_completed (ie. the snapshot or
        genesis slot), so initialize the ghost root. */
 
-    ghost_blk = fd_ghost_init( ctx->ghost, slot_completed->slot, &slot_completed->block_id );
+    ghost_blk = fd_ghost_init( ctx->ghost, slot_completed->bank_seq, slot_completed->slot, &slot_completed->block_id );
 
   } else if ( FD_UNLIKELY( !fd_ghost_query( ctx->ghost, &slot_completed->parent_block_id ) )) {
 
@@ -1135,13 +1171,14 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     ctx->metrics.ignored_cnt++;
     ctx->metrics.ignored_slot = slot_completed->slot;
     publish_slot_ignored( ctx, slot_completed, tsorig, stem );
+    report_slot_confirmed( slot_completed->bank_seq, slot_completed->slot, &slot_completed->block_id, 0UL /* stake */, 0UL /* total_stake */, 1 /* valid */, FD_EVENT_SLOT_CONFIRMED_LEVEL_IGNORED, 0 /* not forward */ );
     return; /* short-circuit processing this slot */
 
   } else {
 
     /* Common case. */
 
-    ghost_blk = fd_ghost_insert( ctx->ghost, slot_completed->slot, &slot_completed->block_id, &slot_completed->parent_block_id );
+    ghost_blk = fd_ghost_insert( ctx->ghost, slot_completed->bank_seq, slot_completed->slot, &slot_completed->block_id, &slot_completed->parent_block_id );
   }
   FD_TEST( ghost_blk );
 
@@ -1251,6 +1288,14 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   int   found             = 0;
   ghost_blk->total_stake  = QUERY_TOWERS( ctx, slot_completed, ghost_blk, &found, &our_vote_acct_bal );
 
+  /* Capture the values needed for the processed event now: advancing the
+     root below (fd_ghost_publish) can prune ghost_blk if this block was
+     replayed on a minority fork, freeing it before we report. */
+
+  ulong processed_stake       = ghost_blk->stake;
+  ulong processed_total_stake = ghost_blk->total_stake;
+  int   processed_valid       = ghost_blk->valid;
+
   /* The first replay_slot_completed msg is used to initialize the tower
      tile's various structures. */
 
@@ -1329,6 +1374,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     fd_ghost_blk_t * intr = newr;
     while( FD_LIKELY( intr!=oldr ) ) {
       publish_slot_rooted( ctx, intr->slot, &intr->id );
+      report_slot_confirmed( intr->bank_seq, intr->slot, &intr->id, intr->stake, intr->total_stake, intr->valid, FD_EVENT_SLOT_CONFIRMED_LEVEL_ROOTED, 0 /* not forward */ );
       intr = fd_ghost_parent( ctx->ghost, intr );
     }
 
@@ -1344,6 +1390,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Publish a slot_done frag to tower_out. */
 
   publish_slot_done( ctx, slot_completed, &out, found, our_vote_acct_bal, tsorig, stem );
+  report_slot_confirmed( slot_completed->bank_seq, slot_completed->slot, &slot_completed->block_id, processed_stake, processed_total_stake, processed_valid, FD_EVENT_SLOT_CONFIRMED_LEVEL_PROCESSED, 0 /* not forward */ );
 
   /* Write out metrics. */
 
@@ -1847,6 +1894,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_tower = {
   .name                     = "tower",
+  .max_event_sz             = sizeof(fd_event_slot_confirmed_t),
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

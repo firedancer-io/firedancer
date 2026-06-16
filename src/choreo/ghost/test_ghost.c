@@ -23,13 +23,13 @@ setup_ghost( fd_wksp_t * wksp, ulong blk_max, ulong vtr_max ) {
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, blk_max, vtr_max, 42UL ) );
   FD_TEST( ghost );
   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
-  fd_ghost_init(   ghost, 0, &block_ids[0] );
-  fd_ghost_insert( ghost, 1, &block_ids[1], &block_ids[0] );
-  fd_ghost_insert( ghost, 2, &block_ids[2], &block_ids[1] );
-  fd_ghost_insert( ghost, 3, &block_ids[3], &block_ids[1] );
-  fd_ghost_insert( ghost, 4, &block_ids[4], &block_ids[2] );
-  fd_ghost_insert( ghost, 5, &block_ids[5], &block_ids[3] );
-  fd_ghost_insert( ghost, 6, &block_ids[6], &block_ids[5] );
+  fd_ghost_init(   ghost, 0, 0, &block_ids[0] );
+  fd_ghost_insert( ghost, 1, 1, &block_ids[1], &block_ids[0] );
+  fd_ghost_insert( ghost, 2, 2, &block_ids[2], &block_ids[1] );
+  fd_ghost_insert( ghost, 3, 3, &block_ids[3], &block_ids[1] );
+  fd_ghost_insert( ghost, 4, 4, &block_ids[4], &block_ids[2] );
+  fd_ghost_insert( ghost, 5, 5, &block_ids[5], &block_ids[3] );
+  fd_ghost_insert( ghost, 6, 6, &block_ids[6], &block_ids[5] );
   return ghost;
 }
 
@@ -891,10 +891,10 @@ test_npow2_init( fd_wksp_t * wksp ) {
     /* Insert a small tree and verify. */
     fd_hash_t ids[4];
     for( ulong j = 0; j < 4; j++ ) ids[j] = (fd_hash_t){ .ul = { j + 1 } };
-    fd_ghost_init(   ghost, 0, &ids[0] );
-    fd_ghost_insert( ghost, 1, &ids[1], &ids[0] );
-    fd_ghost_insert( ghost, 2, &ids[2], &ids[1] );
-    fd_ghost_insert( ghost, 3, &ids[3], &ids[1] );
+    fd_ghost_init(   ghost, 0, 0, &ids[0] );
+    fd_ghost_insert( ghost, 1, 1, &ids[1], &ids[0] );
+    fd_ghost_insert( ghost, 2, 2, &ids[2], &ids[1] );
+    fd_ghost_insert( ghost, 3, 3, &ids[3], &ids[1] );
 
     FD_TEST( fd_ghost_query( ghost, &ids[0] ) );
     FD_TEST( fd_ghost_query( ghost, &ids[1] ) );

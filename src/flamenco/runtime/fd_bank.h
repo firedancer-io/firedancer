@@ -390,7 +390,7 @@ struct fd_banks {
   ulong max_stake_accounts; /* Maximum number of stake accounts */
   ulong max_vote_accounts;  /* Maximum number of vote accounts */
   ulong root_idx;           /* root idx */
-  ulong bank_seq;           /* app-wide bank sequence number */
+  ulong bank_seq;           /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
 
   ulong pool_offset;        /* offset of pool from banks */
 
@@ -670,7 +670,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to
-   any bank.  WARNING: collision risk, resets bank_seq to 0. */
+   any bank.  WARNING: collision risk, resets bank_seq to 1 (0 is the
+   reserved invalid sentinel). */
 
 void
 fd_banks_clear( fd_banks_t * banks );

@@ -332,10 +332,10 @@ test_count_vote_txn( void ) {
 
 ulong
 mock_query_towers( fd_tower_tile_t *            ctx,
-              fd_replay_slot_completed_t * slot_completed,
-              fd_ghost_blk_t *             ghost_blk,
-              int *                        found_our_vote_acct,
-              ulong *                      our_vote_acct_bal ) {
+                   fd_replay_slot_completed_t * slot_completed,
+                   fd_ghost_blk_t *             ghost_blk,
+                   int *                        found_our_vote_acct,
+                   ulong *                      our_vote_acct_bal ) {
 
   /* Open the fixture file for this slot. */
 

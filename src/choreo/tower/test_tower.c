@@ -8,16 +8,16 @@ static uchar scratch[ 65536 ] __attribute__((aligned(128)));
 void
 mock( fd_ghost_t *        ghost,
       fd_tower_blk_t *    blk,
-      ulong               bank_idx FD_PARAM_UNUSED,
+      ulong               bank_idx,
       fd_hash_t *         replayed_block_id,
       fd_hash_t *         parent_block_id ) {
   blk->epoch = 1;
   blk->replayed = 1;
   blk->replayed_block_id = *replayed_block_id;
   if( FD_UNLIKELY( !parent_block_id ) ) {
-    FD_TEST( fd_ghost_init( ghost, blk->slot, replayed_block_id ) );
+    FD_TEST( fd_ghost_init( ghost, bank_idx, blk->slot, replayed_block_id ) );
   } else {
-    FD_TEST( fd_ghost_insert( ghost, blk->slot, replayed_block_id, parent_block_id ) );
+    FD_TEST( fd_ghost_insert( ghost, bank_idx, blk->slot, replayed_block_id, parent_block_id ) );
   }
 }
 
@@ -608,7 +608,7 @@ test_switch_eqvoc( fd_wksp_t * wksp ) {
   blk6->confirmed_block_id = (fd_hash_t){.ul = {6, 1}};
   blk6->parent_slot = 1;
   blk6->replayed_block_id = (fd_hash_t){.ul = {6, 1}};
-  fd_ghost_insert( ghost, 6, &(fd_hash_t){.ul = {6, 1}}, &(fd_hash_t){.ul = {1}} );
+  fd_ghost_insert( ghost, 6, 6, &(fd_hash_t){.ul = {6, 1}}, &(fd_hash_t){.ul = {1}} );
 
   FD_TEST( switch_check( tower, ghost, total_stake, 7 ) == 0 ); /* would fail since 8 is not a candidate anymore */
 

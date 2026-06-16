@@ -374,6 +374,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
+  slot_info->bank_seq = bank->bank_seq;
   slot_info->accdb_fork_id = bank->accdb_fork_id;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->idx, slot, bank->refcnt ));
 
