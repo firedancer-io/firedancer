@@ -15,6 +15,7 @@
 import cpp
 import semmle.code.cpp.ir.dataflow.MustFlow
 import semmle.code.cpp.controlflow.Guards
+import filter
 
 /**
  * Models flows from address-of expressions to NULL/non-NULL checks that
@@ -48,7 +49,8 @@ from Flow::PathNode source, Flow::PathNode sink
 where
   Flow::flowPath(source, sink) and
   not source.getInstruction().getUnconvertedResultExpression().isInMacroExpansion() and
-  source.getInstruction().getEnclosingFunction() = sink.getInstruction().getEnclosingFunction()
+  source.getInstruction().getEnclosingFunction() = sink.getInstruction().getEnclosingFunction() and
+  included(source.getLocation()) and included(sink.getLocation())
 select sink, "Taking the address of $@ always produces a non-NULL pointer, but it is checked $@.",
   source.getInstruction().getUnconvertedResultExpression().(ValidAddressOfExpr).getOperand(),
   "this operand", sink, "here"
