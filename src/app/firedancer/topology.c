@@ -1517,7 +1517,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->accdb.rpc_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
 
-    tile->accdb.resolv_epoch_obj_cnt = config->firedancer.layout.resolv_tile_count;
+    tile->accdb.resolv_epoch_obj_cnt = config->firedancer.layout.enable_block_production ? config->firedancer.layout.resolv_tile_count : 0UL;
     FD_TEST( tile->accdb.resolv_epoch_obj_cnt<=sizeof(tile->accdb.resolv_epoch_obj_ids)/sizeof(tile->accdb.resolv_epoch_obj_ids[0]) );
     for( ulong i=0UL; i<tile->accdb.resolv_epoch_obj_cnt; i++ ) {
       tile->accdb.resolv_epoch_obj_ids[ i ] = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "accdb_epoch.resolv.%lu", i );
