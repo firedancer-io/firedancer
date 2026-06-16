@@ -62,6 +62,8 @@ struct fd_event_client {
   int defer_disconnect;
   ulong consecutive_failure_count;
 
+  int auth_send_pending;
+
   ulong state;
   union {
     struct {
@@ -192,6 +194,7 @@ fd_event_client_new( void *                 shmem,
   }
 #endif
   client->auth_deadline = LONG_MAX;
+  client->auth_send_pending = 0;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
   client->disconnected.reconnect_deadline = 0L;
 
@@ -291,6 +294,7 @@ disconnect( fd_event_client_t * client,
     fd_circq_reset_cursor( client->circq );
   }
   client->auth_deadline = LONG_MAX;
+  client->auth_send_pending = 0;
 
   switch( reason ) {
     case DISCONNECT_REASON_IDENTITY_CHANGED:
@@ -439,9 +443,9 @@ reconnect( fd_event_client_t * client,
   client->connecting.connect_deadline = now+(long)1L*(long)1e9; /* 1 second to connect */
 }
 
-static void
-fd_event_client_grpc_conn_established( void * app_ctx ) {
-  fd_event_client_t * client = app_ctx;
+static int
+fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return 0;
 
   fd_pb_encoder_t auth_req[1];
   uchar buffer[ 256UL ];
@@ -465,20 +469,29 @@ fd_event_client_grpc_conn_established( void * app_ctx ) {
       NULL, 0UL,
       0 /* not streaming */ );
 
-  if( FD_UNLIKELY( !stream ) ) {
-    FD_LOG_WARNING(( "Failed to start Authenticate request" ));
-    return;
-  }
+  if( FD_UNLIKELY( !stream ) ) return 0;
 
   long now = fd_log_wallclock();
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)5e9 /* 5s */ );
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)5e9 /* 5s */ );
 
-  client->state = FD_EVENT_CLIENT_STATE_AUTHENTICATING;
-  client->auth_deadline = now + (long)5e9; /* 5s */
+  client->auth_send_pending = 0;
   FD_LOG_INFO(( "Requesting auth challenge from event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
                 FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
                 (int)client->server_fqdn_len, client->server_fqdn ));
+  return 1;
+}
+
+static void
+fd_event_client_grpc_conn_established( void * app_ctx ) {
+  fd_event_client_t * client = app_ctx;
+
+  long now = fd_log_wallclock();
+  client->state             = FD_EVENT_CLIENT_STATE_AUTHENTICATING;
+  client->auth_deadline     = now + (long)5e9; /* 5s */
+  client->auth_send_pending = 1;
+
+  fd_event_client_try_send_authenticate( client );
 }
 
 static void
@@ -797,6 +810,10 @@ fd_event_client_poll( fd_event_client_t * client,
       disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
       return;
     }
+  }
+
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
+    fd_event_client_try_send_authenticate( client );
   }
 
   if( FD_UNLIKELY( client->defer_disconnect!=INT_MAX ) ) {
