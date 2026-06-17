@@ -294,10 +294,8 @@ setup_env( fuzz_env_t * env ) {
   ctx->src_addr              = ctx->gossip_addr;
   ctx->round_robin_cnt       = 1UL;
   ctx->round_robin_idx       = 0UL;
-  ctx->ticks_per_ns          = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock        = fd_log_wallclock();
-  ctx->last_tickcount        = fd_tickcount();
-  ctx->instance_creation_wallclock_nanos = ctx->last_wallclock;
+  fd_clock_tile_init( ctx->clock );
+  ctx->instance_creation_wallclock_nanos = fd_clock_tile_now( ctx->clock );
   *ctx->identity_pubkey      = *peers[ 0 ].pub;
 
   void * peer_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),  peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
@@ -636,7 +634,7 @@ inject_peer_update( fuzz_env_t * env,
   memset( update, 0, sizeof(update) );
   update->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
   memcpy( update->origin, peers[ peer_idx ].pub->uc, 32UL );
-  update->wallclock = (ulong)FD_NANOSEC_TO_MILLI( env->ctx->last_wallclock );
+  update->wallclock = (ulong)FD_NANOSEC_TO_MILLI( fd_clock_tile_now( env->ctx->clock ) );
   update->contact_info->idx = peer_idx;
   update->contact_info->value->shred_version = shred_version;
   update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ] =
@@ -710,7 +708,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         ushort shred_version = (ushort)( (fuzz_u8( &cur ) & 3U) ? FUZZ_SHRED_VERSION : FUZZ_SHRED_VERSION+1U );
         long skew_ms = (long)( (int)( fuzz_u8( &cur ) % 41U ) - 20 ) * 1000L;
         int corrupt_sig = !!( fuzz_u8( &cur ) & 1U );
-        make_contact_value( value, peer_idx, addr, port, shred_version, env->ctx->last_wallclock, skew_ms );
+        make_contact_value( value, peer_idx, addr, port, shred_version, fd_clock_tile_now( env->ctx->clock ), skew_ms );
 
         long value_sz = serialize_signed_value( value,
                                                 peer_idx,
@@ -765,10 +763,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
         ulong value_kind = fuzz_bounded( &cur, 3UL );
         if( value_kind==0UL ) {
-          make_duplicate_shred_value( value, peer_idx, env->ctx->last_wallclock, &cur, 256UL );
+          make_duplicate_shred_value( value, peer_idx, fd_clock_tile_now( env->ctx->clock ), &cur, 256UL );
         } else if( value_kind==1UL ) {
-          make_snapshot_hashes_value( value, peer_idx, env->ctx->last_wallclock, &cur, 8UL );
-        } else if( FD_UNLIKELY( !make_vote_value( value, peer_idx, env->ctx->last_wallclock, &cur ) ) ) {
+          make_snapshot_hashes_value( value, peer_idx, fd_clock_tile_now( env->ctx->clock ), &cur, 8UL );
+        } else if( FD_UNLIKELY( !make_vote_value( value, peer_idx, fd_clock_tile_now( env->ctx->clock ), &cur ) ) ) {
           break;
         }
 
@@ -818,20 +816,20 @@ LLVMFuzzerTestOneInput( uchar const * data,
                             addr,
                             port,
                             FUZZ_SHRED_VERSION,
-                            env->ctx->last_wallclock,
+                            fd_clock_tile_now( env->ctx->clock ),
                             0L );
         value_sz[0] = serialize_signed_value( value,
                                               peer1,
                                               env->value_buf[0],
                                               sizeof(env->value_buf[0]),
                                               0 );
-        make_duplicate_shred_value( value, peer2, env->ctx->last_wallclock, &cur, 96UL );
+        make_duplicate_shred_value( value, peer2, fd_clock_tile_now( env->ctx->clock ), &cur, 96UL );
         value_sz[1] = serialize_signed_value( value,
                                               peer2,
                                               env->value_buf[1],
                                               sizeof(env->value_buf[1]),
                                               !( fuzz_u8( &cur ) & 15U ) );
-        make_snapshot_hashes_value( value, peer3, env->ctx->last_wallclock, &cur, 2UL );
+        make_snapshot_hashes_value( value, peer3, fd_clock_tile_now( env->ctx->clock ), &cur, 2UL );
         value_sz[2] = serialize_signed_value( value,
                                               peer3,
                                               env->value_buf[2],
@@ -867,7 +865,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
       case 9U: {
         fd_gossip_value_t value[1];
         inject_stakes( env, peer_idx, 1UL, FD_GOSSIP_STAKED_THRESHOLD );
-        if( FD_UNLIKELY( !make_vote_value( value, peer_idx, env->ctx->last_wallclock, &cur ) ) ) break;
+        if( FD_UNLIKELY( !make_vote_value( value, peer_idx, fd_clock_tile_now( env->ctx->clock ), &cur ) ) ) break;
 
         long value_sz = serialize_signed_value( value,
                                                 peer_idx,

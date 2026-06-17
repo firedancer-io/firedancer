@@ -485,9 +485,7 @@ pair_setup_vf( pair_node_t * node,
   ctx->src_addr              = node->addr;
   ctx->round_robin_cnt       = 1UL;
   ctx->round_robin_idx       = 0UL;
-  ctx->ticks_per_ns          = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock        = node->env->now;
-  ctx->last_tickcount        = fd_tickcount();
+  fd_clock_tile_init( ctx->clock );
   ctx->instance_creation_wallclock_nanos = node->env->now;
   *ctx->identity_pubkey      = *identities[ node->idx ].pub;
 
@@ -703,8 +701,6 @@ pair_drain_gossip_updates( pair_node_t * node ) {
 static void
 pair_advance_node( pair_node_t * node,
                    long          now ) {
-  node->vf->last_wallclock = now;
-  node->vf->last_tickcount = fd_tickcount();
   fd_gossip_advance( node->gossip, now, node->gossip_stem, NULL );
   pair_drain_gossip_updates( node );
 }
@@ -728,8 +724,6 @@ pair_deliver_payload( pair_node_t *  dst,
   fd_memcpy( dst->vf->payload, hdrs, sizeof(fd_ip4_udp_hdrs_t) );
   fd_memcpy( dst->vf->payload + sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
 
-  dst->vf->last_wallclock = now;
-  dst->vf->last_tickcount = fd_tickcount();
   int result = handle_net( dst->vf, packet_sz, (ulong)now, dst->vf_stem );
   dst->vf->metrics.message_rx[ result ]++;
   dst->vf->metrics.message_rx_bytes[ result ] += packet_sz;

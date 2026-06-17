@@ -1,6 +1,7 @@
 #include "fd_gossip_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_disco_base.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -158,9 +159,7 @@ struct fd_gossvf_tile_ctx {
   fd_gossip_update_message_t _gossip_update[1];
   fd_gossip_message_t _message[1];
 
-  double ticks_per_ns;
-  long   last_wallclock;
-  long   last_tickcount;
+  fd_clock_tile_t clock[1];
 
   ulong seed;
 
@@ -225,8 +224,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 during_housekeeping( fd_gossvf_tile_ctx_t * ctx ) {
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->identity_pubkey->uc, ctx->keyswitch->bytes, 32UL );
@@ -782,7 +782,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   ctx->peer.addr = ip4_hdr->saddr;
   ctx->peer.port = udp_hdr->net_sport;
 
-  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  long now = fd_clock_tile_now( ctx->clock );
 
   fd_gossip_message_t * message = ctx->_message;
   int decoded = fd_gossip_message_deserialize( message, payload, payload_sz );
@@ -1033,9 +1033,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->shred_version = tile->gossvf.shred_version;
 
-  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  fd_clock_tile_init( ctx->clock );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
 

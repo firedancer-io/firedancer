@@ -100,6 +100,16 @@ fd_clock_tile_tickcount_decomp( fd_clock_tile_t const * clock,
   return fd_frag_meta_ts_decomp( ts_comp, ref );
 }
 
+/* fd_clock_tile_tickcomp_to_wallclock converts a compressed
+   fd_tickcount() sample to a fd_log_wallclock() estimate. */
+
+static inline long
+fd_clock_tile_tickcomp_to_wallclock( fd_clock_tile_t const * clock,
+                                     ulong                   ts_comp ) {
+  long ts = fd_clock_tile_tickcount_decomp( clock, ts_comp );
+  return fd_clock_tile_tickcount_to_wallclock( clock, ts );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_fd_clock_tile_h */

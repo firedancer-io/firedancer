@@ -3,6 +3,7 @@
 
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
@@ -36,9 +37,7 @@ struct fd_gossip_tile_ctx {
   uint  rng_seed;
   ulong rng_idx;
 
-  double ticks_per_ns;
-  long   last_wallclock;
-  long   last_tickcount;
+  fd_clock_tile_t clock[1];
 
   fd_gossip_in_ctx_t in[ 128UL ];
 
