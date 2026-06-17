@@ -67,13 +67,6 @@ struct fd_execrp_tile {
   fd_txn_in_t  txn_in;
   fd_txn_out_t txn_out;
 
-  /* tracing_mem is staging memory to dump instructions/transactions
-     into protobuf files.  tracing_mem is staging memory to output vm
-     execution traces.
-     TODO: This should not be compiled in prod. */
-  uchar dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
-  uchar tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
-
   fd_runtime_t runtime[1];
 
   struct {
@@ -107,14 +100,22 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
-  l = FD_LAYOUT_APPEND(   l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
-  l = FD_LAYOUT_APPEND(   l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
-  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
-    l = FD_LAYOUT_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
-  }
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
+
+  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
+  }
+
+  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
+    l = FD_LAYOUT_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
+    if( FD_UNLIKELY( tile->execrp.dump_instr_to_pb || tile->execrp.dump_syscall_to_pb || tile->execrp.dump_txn_to_pb ) ) {
+      l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( 1UL<<28UL )                       );
+    }
+  }
+
   return FD_LAYOUT_FINI(  l, scratch_align() );
 }
 
@@ -293,31 +294,56 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),  sizeof(fd_execrp_tile_t) );
-  void * capture_ctx_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
-  void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
-  void * txn_dump_ctx_mem   = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
-    txn_dump_ctx_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_dump_context_align(), fd_txn_dump_context_footprint() );
+  fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
+  void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
+  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
+  uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
+
+  void * _capture_ctx = NULL;
+  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
+    _capture_ctx            = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
   }
-  void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execrp.max_live_slots ) );
-  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execrp.max_live_slots ) );
-  uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  void * _dump_proto_ctx = NULL;
+  void * _txn_dump_ctx = NULL;
+  void * _dumping = NULL;
+  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+    _dump_proto_ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
+    _txn_dump_ctx           = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
+    if( FD_UNLIKELY( tile->execrp.dump_instr_to_pb || tile->execrp.dump_syscall_to_pb || tile->execrp.dump_txn_to_pb ) ) {
+      _dumping              = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,                FD_SPAD_FOOTPRINT( 1UL<<28UL )                       );
+    }
+  }
 
   for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
-    ctx->sha_lj[i] = sha;
+    ctx->sha_lj[ i ] = sha;
   }
 
-  /********************************************************************/
-  /* validate links                                                   */
-  /********************************************************************/
-
+  ctx->txn_in.bundle.is_bundle = 0;
   ctx->tile_idx = tile->kind_id;
+
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
+
+  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+  FD_TEST( txncache_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  FD_TEST( ctx->txncache );
+
+  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execrp.accdb_obj_id );
+  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  FD_TEST( ctx->accdb );
+
 
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
@@ -337,38 +363,16 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
   }
 
-  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
-  FD_TEST( banks_obj_id!=ULONG_MAX );
-
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
-  FD_TEST( ctx->banks );
-
-  FD_TEST( fd_progcache_join( ctx->progcache,
-      fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ),
-      pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-
-  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
-  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
-  FD_TEST( txncache_shmem );
-  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
-  FD_TEST( ctx->txncache );
-
-  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execrp.accdb_obj_id );
-  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
-  FD_TEST( accdb_shmem );
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
-  FD_TEST( ctx->accdb );
-
-  ctx->txn_in.bundle.is_bundle = 0;
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
-    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
+    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->execrp.capture_start_slot;
 
     ulong tile_idx = tile->kind_id;
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
     FD_TEST( idx!=ULONG_MAX );
+
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ idx ] ];
     fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
     cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
@@ -399,15 +403,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
-    ctx->dump_proto_ctx = dump_proto_ctx_mem;
+    ctx->dump_proto_ctx = _dump_proto_ctx;
 
     /* General dumping config */
     ctx->dump_proto_ctx->dump_proto_output_dir = tile->execrp.dump_proto_dir;
     ctx->dump_proto_ctx->dump_proto_start_slot = tile->execrp.capture_start_slot;
 
     /* Syscall dumping config */
-    ctx->dump_proto_ctx->dump_syscall_to_pb           = !!tile->execrp.dump_syscall_to_pb;
-    ctx->dump_proto_ctx->dump_syscall_name_filter     = tile->execrp.dump_syscall_name_filter;
+    ctx->dump_proto_ctx->dump_syscall_to_pb       = !!tile->execrp.dump_syscall_to_pb;
+    ctx->dump_proto_ctx->dump_syscall_name_filter = tile->execrp.dump_syscall_name_filter;
 
     /* Instruction dumping config */
     ctx->dump_proto_ctx->dump_instr_to_pb                 = !!tile->execrp.dump_instr_to_pb;
@@ -429,7 +433,7 @@ unprivileged_init( fd_topo_t const *      topo,
   /* Transaction dump context (for fixture dumping) */
   ctx->txn_dump_ctx = NULL;
   if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_txn_to_pb ) ) {
-    ctx->txn_dump_ctx = fd_txn_dump_context_join( fd_txn_dump_context_new( txn_dump_ctx_mem ) );
+    ctx->txn_dump_ctx = fd_txn_dump_context_join( fd_txn_dump_context_new( _txn_dump_ctx ) );
   }
 
   ctx->runtime->accdb                    = ctx->accdb;
@@ -437,8 +441,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->status_cache             = ctx->txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;
-  ctx->runtime->log.dumping_mem          = ctx->dumping_mem;
-  ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
+  ctx->runtime->log.dumping_mem          = _dumping;
+  ctx->runtime->log.tracing_mem          = NULL;
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
   ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;
   ctx->runtime->log.txn_dump_ctx         = ctx->txn_dump_ctx;
@@ -451,6 +455,10 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
   fd_wksp_oom_silent = 1;
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   fd_sleep_until_replay_started( topo );
 }
