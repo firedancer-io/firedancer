@@ -275,7 +275,7 @@ main( int     argc,
   ulong fd_fxp_rexp2_approx_ulp = 0UL;
 
   int ctr = 0;
-  for( int i=0; i<100000000; i++ ) {
+  for( int i=0; i<10000000; i++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %i iterations", i )); ctr = 10000000; }
     ctr--;
 

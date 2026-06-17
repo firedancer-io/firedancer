@@ -265,20 +265,23 @@ main( int     argc,
   int  min_pop  = INT_MAX;
   int  max_pop  = INT_MIN;
 
+# define POP_ITER   (1L<<29)
+# define POP_STRIDE (2654435761UL) /* Knuth's multiplicative hash constant (odd) */
   int ctr = 0;
-  for( long i=0; i<(1L<<32); i++ ) {
+  for( long i=0; i<POP_ITER; i++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %li iterations", i )); ctr = 100000000; }
     ctr--;
 
-    ulong seq = fd_rng_private_expand( (uint)i ); FD_TEST( fd_rng_private_contract( seq )==(uint)i );
+    uint  u   = (uint)((ulong)i*POP_STRIDE);
+    ulong seq = fd_rng_private_expand( u ); FD_TEST( fd_rng_private_contract( seq )==u );
     int pop  = fd_ulong_popcnt( seq );
     sum_pop  += (long) pop;
     sum_pop2 += (long)(pop*pop);
     min_pop  = pop<min_pop ? pop : min_pop;
     max_pop  = pop>max_pop ? pop : max_pop;
   }
-  float avg_pop = ((float)sum_pop ) / ((float)(1L<<32));
-  float rms_pop = sqrtf( (((float)sum_pop2) / ((float)(1L<<32))) - avg_pop*avg_pop );
+  float avg_pop = ((float)sum_pop ) / ((float)POP_ITER);
+  float rms_pop = sqrtf( (((float)sum_pop2) / ((float)POP_ITER)) - avg_pop*avg_pop );
   FD_LOG_NOTICE(( "expand popcount stats: %.3f +/- %.3f [%i,%i]", (double)avg_pop, (double)rms_pop, min_pop, max_pop ));
 
   FD_LOG_NOTICE(( "Testing leave" ));

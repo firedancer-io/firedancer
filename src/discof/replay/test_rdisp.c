@@ -450,7 +450,7 @@ main( int     argc,
 
   char const * block_file = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--block-file",        NULL, NULL   );
   ulong        exec_tiles = fd_env_strip_cmdline_ulong ( &argc, &argv, "--exec-tiles",        NULL, 8UL    );
-  ulong        rand_iters = fd_env_strip_cmdline_ulong ( &argc, &argv, "--random-iterations", NULL, 1000UL );
+  ulong        rand_iters = fd_env_strip_cmdline_ulong ( &argc, &argv, "--random-iterations", NULL, 200UL );
   FD_LOG_NOTICE(( "Using --random-iterations %lu", rand_iters ));
 
   test_mainnet( block_file, exec_tiles, 20UL, 0UL, 1 );

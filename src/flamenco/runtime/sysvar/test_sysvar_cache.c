@@ -16,12 +16,13 @@
 /* Tiny accdb config sized to fit one root fork plus one child fork with
    a small handful of accounts (sysvars). */
 
-#define TEST_SYSVAR_MAX_ACCOUNTS  (1024UL)
+#define TEST_SYSVAR_MAX_ACCOUNTS    (1024UL)
 #define TEST_SYSVAR_MAX_LIVE_SLOTS  (16UL)
 #define TEST_SYSVAR_WRITES_PER_SLOT (1024UL)
-#define TEST_SYSVAR_PARTITION_CNT   (256UL)
+#define TEST_SYSVAR_PARTITION_CNT   (8UL)
 #define TEST_SYSVAR_PARTITION_SZ    (1UL<<28UL)  /* 256 MiB */
-#define TEST_SYSVAR_CACHE_FOOTPRINT (16UL<<30UL) /* 16 GiB sparse */
+#define TEST_SYSVAR_CACHE_FOOTPRINT (256UL<<20UL) /* 256 MiB */
+#define TEST_SYSVAR_CACHE_MIN_RESERVED (16UL)
 
 test_sysvar_cache_env_t *
 test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
@@ -41,7 +42,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                                              TEST_SYSVAR_WRITES_PER_SLOT,
                                              TEST_SYSVAR_PARTITION_CNT,
                                              TEST_SYSVAR_CACHE_FOOTPRINT,
-                                             640UL, 1UL );
+                                             TEST_SYSVAR_CACHE_MIN_RESERVED, 1UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -52,7 +53,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                           TEST_SYSVAR_PARTITION_CNT,
                           TEST_SYSVAR_PARTITION_SZ,
                           TEST_SYSVAR_CACHE_FOOTPRINT,
-                          640UL, 0, 42UL, 1UL ) );
+                          TEST_SYSVAR_CACHE_MIN_RESERVED, 0, 42UL, 1UL ) );
   FD_TEST( shmem );
 
   ulong join_fp = fd_accdb_footprint( TEST_SYSVAR_MAX_LIVE_SLOTS );

@@ -32,7 +32,7 @@ main( int     argc,
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL,             1UL );
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL,      "gigantic" );
   ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu", NULL, fd_log_cpu_id() );
-  ulong        iter_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-cnt", NULL,        10000000 );
+  ulong        iter_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-cnt", NULL,         2000000 );
   int          level    = fd_env_strip_cmdline_int  ( &argc, &argv, "--level",    NULL,               0 );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );

@@ -499,10 +499,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max", NULL, 10000000UL );
+  int   bench    = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+  ulong iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max", NULL, 1000000UL );
   ulong warm_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--warm-max", NULL, 100UL      );
 
-  FD_LOG_NOTICE(( "Testing with --iter-max %lu --warm-max %lu", iter_max, warm_max ));
+  FD_LOG_NOTICE(( "Testing with --iter-max %lu --warm-max %lu --bench %d", iter_max, warm_max, bench ));
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -781,98 +782,100 @@ main( int     argc,
     fd_r43x6_t w; FD_R43X6_POW22523_2_INL( z,x, w,x ); FD_TEST( fd_r43x6_eq( z,y ) ); FD_TEST( fd_r43x6_eq( w,y ) );
   }
 
-  FD_LOG_NOTICE(( "Benchmarking" ));
+  if( bench ) {
+    FD_LOG_NOTICE(( "Benchmarking" ));
 
-  do {
-    wv_t u = uint256_rand( rng ); fd_r43x6_t x = fd_r43x6_unpack( u );
-    wv_t v = uint256_rand( rng ); fd_r43x6_t y = fd_r43x6_unpack( v );
+    do {
+      wv_t u = uint256_rand( rng ); fd_r43x6_t x = fd_r43x6_unpack( u );
+      wv_t v = uint256_rand( rng ); fd_r43x6_t y = fd_r43x6_unpack( v );
 
-#   define BENCH(op) do {                                                     \
-      for( ulong rem=warm_max; rem; rem-- ) op;                               \
-      long dt = -fd_log_wallclock();                                          \
-      for( ulong rem=iter_max; rem; rem-- ) op;                               \
-      dt += fd_log_wallclock();                                               \
-      FD_LOG_NOTICE(( "%-77s: %9.3f ns", #op, (double)dt/(double)iter_max )); \
-    } while(0)
+  #   define BENCH(op) do {                                                     \
+        for( ulong rem=warm_max; rem; rem-- ) op;                               \
+        long dt = -fd_log_wallclock();                                          \
+        for( ulong rem=iter_max; rem; rem-- ) op;                               \
+        dt += fd_log_wallclock();                                               \
+        FD_LOG_NOTICE(( "%-77s: %9.3f ns", #op, (double)dt/(double)iter_max )); \
+      } while(0)
 
-    BENCH( u = fd_r43x6_pack( fd_r43x6_unpack( u ) ) );
-    BENCH( x = fd_r43x6_unpack( fd_r43x6_pack( x ) ) );
+      BENCH( u = fd_r43x6_pack( fd_r43x6_unpack( u ) ) );
+      BENCH( x = fd_r43x6_unpack( fd_r43x6_pack( x ) ) );
 
-    BENCH( x = fd_r43x6_fold_unsigned( x ) );
-    BENCH( x = fd_r43x6_fold_signed( x ) );
+      BENCH( x = fd_r43x6_fold_unsigned( x ) );
+      BENCH( x = fd_r43x6_fold_signed( x ) );
 
-    BENCH( x = fd_r43x6_approx_mod( x ) );
-    BENCH( x = fd_r43x6_approx_mod_signed( x ) );
-    BENCH( x = fd_r43x6_approx_mod_unsigned( x ) );
-    BENCH( x = fd_r43x6_approx_mod_unreduced( x ) );
-    BENCH( x = fd_r43x6_approx_mod_unpacked( x ) );
+      BENCH( x = fd_r43x6_approx_mod( x ) );
+      BENCH( x = fd_r43x6_approx_mod_signed( x ) );
+      BENCH( x = fd_r43x6_approx_mod_unsigned( x ) );
+      BENCH( x = fd_r43x6_approx_mod_unreduced( x ) );
+      BENCH( x = fd_r43x6_approx_mod_unpacked( x ) );
 
-    BENCH( x = fd_r43x6_mod( x ) );
-    BENCH( x = fd_r43x6_mod_signed( x ) );
-    BENCH( x = fd_r43x6_mod_unsigned( x ) );
-    BENCH( x = fd_r43x6_mod_unreduced( x ) );
-    BENCH( x = fd_r43x6_mod_unpacked( x ) );
-    BENCH( x = fd_r43x6_mod_nearly_reduced( x ) );
+      BENCH( x = fd_r43x6_mod( x ) );
+      BENCH( x = fd_r43x6_mod_signed( x ) );
+      BENCH( x = fd_r43x6_mod_unsigned( x ) );
+      BENCH( x = fd_r43x6_mod_unreduced( x ) );
+      BENCH( x = fd_r43x6_mod_unpacked( x ) );
+      BENCH( x = fd_r43x6_mod_nearly_reduced( x ) );
 
-    BENCH( x = fd_r43x6_neg_fast( x ) );
-    BENCH( x = fd_r43x6_add_fast( x, y ) );
-    BENCH( x = fd_r43x6_sub_fast( x, y ) );
-    BENCH( x = fd_r43x6_mul_fast( x, y ) );
-    BENCH( x = fd_r43x6_sqr_fast( x ) );
-    BENCH( x = fd_r43x6_scale_fast( 121665L, x ) );
+      BENCH( x = fd_r43x6_neg_fast( x ) );
+      BENCH( x = fd_r43x6_add_fast( x, y ) );
+      BENCH( x = fd_r43x6_sub_fast( x, y ) );
+      BENCH( x = fd_r43x6_mul_fast( x, y ) );
+      BENCH( x = fd_r43x6_sqr_fast( x ) );
+      BENCH( x = fd_r43x6_scale_fast( 121665L, x ) );
 
-    BENCH( x = fd_r43x6_neg( x ) );
-    BENCH( x = fd_r43x6_add( x, y ) );
-    BENCH( x = fd_r43x6_sub( x, y ) );
-    BENCH( x = fd_r43x6_mul( x, y ) );
-    BENCH( x = fd_r43x6_sqr( x ) );
-    BENCH( x = fd_r43x6_scale( 121665L, x ) );
+      BENCH( x = fd_r43x6_neg( x ) );
+      BENCH( x = fd_r43x6_add( x, y ) );
+      BENCH( x = fd_r43x6_sub( x, y ) );
+      BENCH( x = fd_r43x6_mul( x, y ) );
+      BENCH( x = fd_r43x6_sqr( x ) );
+      BENCH( x = fd_r43x6_scale( 121665L, x ) );
 
-    /* TODO: BENCH IF / SWAP_IF / IS_NONZERO / DIAGNOSE */
+      /* TODO: BENCH IF / SWAP_IF / IS_NONZERO / DIAGNOSE */
 
-    fd_r43x6_t volatile dummy[1]; dummy[0] = x;
-    fd_r43x6_t x0 = dummy[0]; fd_r43x6_t y0 = dummy[0];
-    fd_r43x6_t x1 = dummy[0]; fd_r43x6_t y1 = dummy[0];
-    fd_r43x6_t x2 = dummy[0]; fd_r43x6_t y2 = dummy[0];
-    fd_r43x6_t x3 = dummy[0]; fd_r43x6_t y3 = dummy[0];
+      fd_r43x6_t volatile dummy[1]; dummy[0] = x;
+      fd_r43x6_t x0 = dummy[0]; fd_r43x6_t y0 = dummy[0];
+      fd_r43x6_t x1 = dummy[0]; fd_r43x6_t y1 = dummy[0];
+      fd_r43x6_t x2 = dummy[0]; fd_r43x6_t y2 = dummy[0];
+      fd_r43x6_t x3 = dummy[0]; fd_r43x6_t y3 = dummy[0];
 
-    FD_R43X6_QUAD_DECL( X ); FD_R43X6_QUAD_PACK( X, x0,x1,x2,x3 );
-    FD_R43X6_QUAD_DECL( Y ); FD_R43X6_QUAD_PACK( Y, y0,y1,y2,y3 );
+      FD_R43X6_QUAD_DECL( X ); FD_R43X6_QUAD_PACK( X, x0,x1,x2,x3 );
+      FD_R43X6_QUAD_DECL( Y ); FD_R43X6_QUAD_PACK( Y, y0,y1,y2,y3 );
 
-    BENCH( FD_R43X6_QUAD_PACK( X, x0,x1,x2,x3 ); FD_R43X6_QUAD_UNPACK( x0,x1,x2,x3, X ) );
-    BENCH( FD_R43X6_QUAD_PERMUTE( X, 1,2,3,0, X ) );
-    BENCH( FD_R43X6_QUAD_LANE_IF( X, 0,0,1,1, Y, X ) );
-    BENCH( FD_R43X6_QUAD_LANE_ADD_FAST( X, X, 0,1,0,1, X, Y ) );
-    BENCH( FD_R43X6_QUAD_LANE_SUB_FAST( X, X, 1,0,1,1, X, Y ) );
-    BENCH( FD_R43X6_QUAD_FOLD_UNSIGNED( X, X ) );
-    BENCH( FD_R43X6_QUAD_FOLD_SIGNED( X, X ) );
-    BENCH( FD_R43X6_QUAD_MUL_FAST( X, X, Y ) );
-    BENCH( FD_R43X6_QUAD_SQR_FAST( X, X ) );
+      BENCH( FD_R43X6_QUAD_PACK( X, x0,x1,x2,x3 ); FD_R43X6_QUAD_UNPACK( x0,x1,x2,x3, X ) );
+      BENCH( FD_R43X6_QUAD_PERMUTE( X, 1,2,3,0, X ) );
+      BENCH( FD_R43X6_QUAD_LANE_IF( X, 0,0,1,1, Y, X ) );
+      BENCH( FD_R43X6_QUAD_LANE_ADD_FAST( X, X, 0,1,0,1, X, Y ) );
+      BENCH( FD_R43X6_QUAD_LANE_SUB_FAST( X, X, 1,0,1,1, X, Y ) );
+      BENCH( FD_R43X6_QUAD_FOLD_UNSIGNED( X, X ) );
+      BENCH( FD_R43X6_QUAD_FOLD_SIGNED( X, X ) );
+      BENCH( FD_R43X6_QUAD_MUL_FAST( X, X, Y ) );
+      BENCH( FD_R43X6_QUAD_SQR_FAST( X, X ) );
 
-    FD_R43X6_QUAD_UNPACK( x0,x1,x2,x3, X );
+      FD_R43X6_QUAD_UNPACK( x0,x1,x2,x3, X );
 
-    BENCH( FD_R43X6_MUL1_INL( x0,x0,y0 ) );
-    BENCH( FD_R43X6_MUL2_INL( x0,x0,y0, x1,x1,y1 ) );
-    BENCH( FD_R43X6_MUL3_INL( x0,x0,y0, x1,x1,y1, x2,x2,y2 ) );
-    BENCH( FD_R43X6_MUL4_INL( x0,x0,y0, x1,x1,y1, x2,x2,y2, x3,x3,y3 ) );
+      BENCH( FD_R43X6_MUL1_INL( x0,x0,y0 ) );
+      BENCH( FD_R43X6_MUL2_INL( x0,x0,y0, x1,x1,y1 ) );
+      BENCH( FD_R43X6_MUL3_INL( x0,x0,y0, x1,x1,y1, x2,x2,y2 ) );
+      BENCH( FD_R43X6_MUL4_INL( x0,x0,y0, x1,x1,y1, x2,x2,y2, x3,x3,y3 ) );
 
-    BENCH( FD_R43X6_SQR1_INL( x0,x0 ) );
-    BENCH( FD_R43X6_SQR2_INL( x0,x0, x1,x1 ) );
-    BENCH( FD_R43X6_SQR3_INL( x0,x0, x1,x1, x2,x2 ) );
-    BENCH( FD_R43X6_SQR4_INL( x0,x0, x1,x1, x2,x2, x3,x3 ) );
+      BENCH( FD_R43X6_SQR1_INL( x0,x0 ) );
+      BENCH( FD_R43X6_SQR2_INL( x0,x0, x1,x1 ) );
+      BENCH( FD_R43X6_SQR3_INL( x0,x0, x1,x1, x2,x2 ) );
+      BENCH( FD_R43X6_SQR4_INL( x0,x0, x1,x1, x2,x2, x3,x3 ) );
 
-    iter_max = 131072;
+      iter_max = 131072;
 
-    BENCH( x = fd_r43x6_invert( x ) );
-    BENCH( x = fd_r43x6_pow22523( x ) );
-    BENCH( FD_R43X6_POW22523_1_INL( x0,x0 ) );
-    BENCH( FD_R43X6_POW22523_2_INL( x0,x0, x1,x1 ) );
+      BENCH( x = fd_r43x6_invert( x ) );
+      BENCH( x = fd_r43x6_pow22523( x ) );
+      BENCH( FD_R43X6_POW22523_1_INL( x0,x0 ) );
+      BENCH( FD_R43X6_POW22523_2_INL( x0,x0, x1,x1 ) );
 
-    /* Prevent compiler from optimizing away */
-    dummy[0] = x0; dummy[0] = x1; dummy[0] = x2; dummy[0] = x3;
-    dummy[0] = x;
-    wv_t volatile dummy0[1]; dummy0[0] = u; u = dummy0[0];
-  } while(0);
+      /* Prevent compiler from optimizing away */
+      dummy[0] = x0; dummy[0] = x1; dummy[0] = x2; dummy[0] = x3;
+      dummy[0] = x;
+      wv_t volatile dummy0[1]; dummy0[0] = u; u = dummy0[0];
+    } while(0);
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

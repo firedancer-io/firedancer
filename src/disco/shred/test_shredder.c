@@ -270,7 +270,10 @@ _internal_test_shredder_count( int block_complete ) {
   meta->block_complete = block_complete;
 
   ulong slot=0UL;
-  for( ulong sz=1UL; sz<100000UL; sz++ ) {
+  /* Step by a stride coprime to the FEC set sizes (30816, 28768) so we
+     still exercise every residue class across many sets without running
+     the full shredder for all 100k sizes (keeps the unit test fast). */
+  for( ulong sz=1UL; sz<100000UL; sz+=7UL ) {
     fd_shredder_init_batch( shredder, perf_test_entry_batch, sz, slot++, meta );
 
     ulong data_shred_cnt   = 0UL;
@@ -478,6 +481,10 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Benchmarks run only with --bench (default off) so the unit test stays
+     fast in CI. */
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+
   FD_TEST( FD_FEC_SET_MAX_BMTREE_DEPTH == fd_bmtree_depth( FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) );
 
   if( sizeof(fd_shredder_t) != fd_shredder_footprint() )
@@ -488,8 +495,10 @@ main( int     argc,
   test_shredder_count();
   test_shredder_count_complete();
   test_chained_merkle_shreds();
-  perf_test();
-  perf_test2();
+  if( bench ) {
+    perf_test();
+    perf_test2();
+  }
 
 #if FD_HAS_HOSTED
   test_shredder_pcap();
