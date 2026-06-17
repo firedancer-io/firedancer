@@ -13,6 +13,7 @@
 #include "../pack/fd_pack.h"
 #include "../pack/fd_pack_cost.h"
 #include "../pack/fd_pack_pacing.h"
+#include "../fd_clock_tile.h"
 
 #include <string.h>
 
@@ -177,20 +178,6 @@ typedef struct {
      different slots concurrently. */
   int drain_execle;
 
-  /* Updated during housekeeping and used only for checking if the
-     leader slot has ended.  Might be off by one housekeeping duration,
-     but that should be small relative to a slot duration. */
-  long  approx_wallclock_ns;
-
-  /* approx_tickcount is updated in during_housekeeping() with
-     fd_tickcount() and will match approx_wallclock_ns.  This is done
-     because we need to include an accurate nanosecond timestamp in
-     every fd_txn_p_t but don't want to have to call the expensive
-     fd_log_wallclock() in in the critical path. We can use
-     fd_tempo_tick_per_ns() to convert from ticks to nanoseconds over
-     small periods of time. */
-  long  approx_tickcount;
-
   fd_rng_t * rng;
 
   uint  rng_seed;
@@ -209,13 +196,13 @@ typedef struct {
      the updated bound to POH over the pack_poh link. */
   int pending_reduce_mb_bound;
 
-  /* pacer and ticks_per_ns are used for pacing CUs through the slot,
-     i.e. deciding when to schedule a microblock given the number of CUs
-     that have been consumed so far.  pacer is an opaque pacing object,
-     which is initialized when the pack tile is packing a slot.
-     ticks_per_ns is the cached value from tempo. */
+  /* pacer is used for pacing CUs through the slot, i.e. deciding when
+     to schedule a microblock given the number of CUs that have been
+     consumed so far.  It is an opaque pacing object, initialized when
+     the pack tile is packing a slot. */
   fd_pack_pacing_t pacer[1];
-  double           ticks_per_ns;
+
+  fd_clock_tile_t  clock[1];
 
   /* last_successful_insert stores the tickcount of the last
      successful transaction insert. */
@@ -424,7 +411,7 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
 
   done_packing->bundle_txn_count = ctx->slot_bundle_txn_cnt;
   done_packing->pack_start_ns    = ctx->slot_pack_start_ns;
-  done_packing->pack_end_ns      = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+  done_packing->pack_end_ns      = fd_clock_tile_now( ctx->clock );
 
 }
 
@@ -455,7 +442,7 @@ metrics_write( fd_pack_ctx_t * ctx ) {
 
 static inline ulong
 compute_dynamic_max_microblocks( fd_pack_ctx_t * ctx ) {
-  long  now = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+  long  now = fd_clock_tile_now( ctx->clock );
   long  end = ctx->slot_end_ns;
 
   /* If the slot has ended, don't reserve any more microblocks. */
@@ -477,8 +464,9 @@ compute_dynamic_max_microblocks( fd_pack_ctx_t * ctx ) {
 
 static inline void
 during_housekeeping( fd_pack_ctx_t * ctx ) {
-  ctx->approx_wallclock_ns = fd_log_wallclock();
-  ctx->approx_tickcount = fd_tickcount();
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
 
   if( FD_UNLIKELY( ctx->crank->enabled && fd_keyswitch_state_query( ctx->crank->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_memcpy( ctx->crank->identity_pubkey, ctx->crank->keyswitch->bytes, 32UL );
@@ -635,9 +623,9 @@ after_credit( fd_pack_ctx_t *     ctx,
   }
 
 
-  /* If we time out on our slot, then stop being leader.  This can only
-     happen in the first after_credit after a housekeeping. */
-  if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
+  /* If we time out on our slot, then stop being leader. */
+  if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX &&
+                   fd_clock_tile_tickcount_to_wallclock( ctx->clock, now )>=ctx->slot_end_ns ) ) {
     *charge_busy = 1;
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
@@ -737,7 +725,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         bundle[0]->txnp->payload_sz  = (ushort)txn_sz;
         bundle[0]->txnp->source_tpu  = FD_TXN_M_TPU_SOURCE_BUNDLE;
         bundle[0]->txnp->source_ipv4 = 0; /* not applicable */
-        bundle[0]->txnp->scheduler_arrival_time_nanos = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+        bundle[0]->txnp->scheduler_arrival_time_nanos = fd_clock_tile_now( ctx->clock );
         bundle[0]->txnp->first_seen_nanos = bundle[0]->txnp->scheduler_arrival_time_nanos;
         memcpy( bundle[0]->txnp->payload+TXN(bundle[0]->txnp)->recent_blockhash_off, ctx->crank->recent_blockhash, 32UL );
 
@@ -1052,7 +1040,7 @@ during_frag( fd_pack_ctx_t * ctx,
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
-    ctx->cur_spot->txnp->scheduler_arrival_time_nanos = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+    ctx->cur_spot->txnp->scheduler_arrival_time_nanos = fd_clock_tile_now( ctx->clock );
     ctx->cur_spot->txnp->first_seen_nanos = txnm->first_seen_nanos;
     ctx->cur_spot->txnp->payload_sz  = payload_sz;
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
@@ -1191,14 +1179,11 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
     ctx->limits.slot_max_data_shreds              = ctx->_became_leader->limits.slot_max_data_shreds;
 
-    /* ticks_per_ns is probably relatively stable over 400ms, but not
-       over several hours, so we need to compute the slot duration in
-       milliseconds first and then convert to ticks.  This doesn't need
-       to be super accurate, but we don't want it to vary wildly. */
-    long end_ticks = now_ticks + (long)((double)fd_long_max( ctx->_became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
+    double tick_per_ns = ctx->clock->epoch->w;
+    long end_ticks = now_ticks + (long)((double)fd_long_max( ctx->_became_leader->slot_end_ns - now_ns, 1L )*tick_per_ns);
     /* We may still get overrun, but then we'll never use this and just
        reinitialize it the next time when we actually become leader. */
-    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->limits.slot_max_cost );
+    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)tick_per_ns, ctx->limits.slot_max_cost );
 
     if( FD_UNLIKELY( ctx->crank->enabled ) ) {
       /* If we get overrun, we'll just never use these values, but the
@@ -1446,13 +1431,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->drain_execle                  = 0;
-  ctx->approx_wallclock_ns           = fd_log_wallclock();
-  ctx->approx_tickcount              = fd_tickcount();
   ctx->rng                           = rng;
-  ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
+  fd_clock_tile_init( ctx->clock );
+  double tick_per_ns                 = ctx->clock->epoch->w;
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_slot         = 0UL;
-  ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
+  ctx->microblock_duration_ticks     = (ulong)(tick_per_ns*(double)MICROBLOCK_DURATION_NS  + 0.5);
 #if FD_PACK_USE_EXTRA_STORAGE
   ctx->insert_to_extra               = 0;
 #endif

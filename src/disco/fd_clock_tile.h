@@ -67,6 +67,16 @@ fd_clock_tile_recal( fd_clock_tile_t * clock ) {
   return recal_next;
 }
 
+/* fd_clock_tile_set re-anchors the clock to a caller-supplied
+   wallclock.  For harnesses driving a virtual timeline. */
+
+static inline void
+fd_clock_tile_set( fd_clock_tile_t * clock,
+                   long              now ) {
+  fd_clock_step( clock->clock, fd_tickcount(), now, clock->epoch->w );
+  fd_clock_epoch_refresh( clock->epoch, clock->shmem );
+}
+
 /* fd_clock_tile_now returns an approximation of fd_log_wallclock. */
 
 static inline long
@@ -90,14 +100,14 @@ fd_clock_tile_tickcount_to_wallclock( fd_clock_tile_t const * clock,
   return fd_clock_epoch_y( clock->epoch, tickcount );
 }
 
-/* fd_clock_tile_tickcount_decomp decompresses a frag_meta compressed
-   tickcount sample. */
+/* fd_clock_tile_tickcomp_to_wallclock converts a compressed
+   fd_tickcount() sample to a fd_log_wallclock() estimate. */
 
 static inline long
-fd_clock_tile_tickcount_decomp( fd_clock_tile_t const * clock,
-                                ulong                   ts_comp ) {
-  long ref = clock->epoch->x0;
-  return fd_frag_meta_ts_decomp( ts_comp, ref );
+fd_clock_tile_tickcomp_to_wallclock( fd_clock_tile_t const * clock,
+                                     ulong                   ts_comp ) {
+  long ts = fd_frag_meta_ts_decomp( ts_comp, clock->epoch->x0 );
+  return fd_clock_tile_tickcount_to_wallclock( clock, ts );
 }
 
 FD_PROTOTYPES_END
