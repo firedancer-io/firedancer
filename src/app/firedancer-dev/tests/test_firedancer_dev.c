@@ -178,6 +178,7 @@ firedancer_dev_test_run( int     argc,
       config->firedancer.accounts.max_accounts  = 30000000UL;
       config->firedancer.runtime.max_live_slots = 512UL;
       config->firedancer.runtime.max_fork_width = 16UL;
+      config->development.hugetlbfs.min_size = 0;
 
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();

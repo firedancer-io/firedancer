@@ -164,7 +164,11 @@ init( config_t const * config ) {
     }
 
     char options[ 256 ];
-    FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", FD_PAGE_SIZE[ i ], min_size[ i ] ) );
+    if( FD_LIKELY( config->development.hugetlbfs.min_size ) ) {
+      FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", FD_PAGE_SIZE[ i ], min_size[ i ] ) );
+    } else {
+      FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu", FD_PAGE_SIZE[ i ] ) );
+    }
     FD_LOG_NOTICE(( "RUN: `mount -t hugetlbfs none %s -o %s`", mount_path[ i ], options ));
     if( FD_UNLIKELY( mount( "none", mount_path[ i ], "hugetlbfs", 0, options) ) )
       FD_LOG_ERR(( "mount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
@@ -412,24 +416,38 @@ check( config_t const * config,
         }
 
         char * _min_size = strtok_r( NULL, ",", &saveptr2 );
-        if( FD_UNLIKELY( !_min_size || strncmp( "min_size=", _min_size, 9UL ) ) ) {
-          if( FD_UNLIKELY( fclose( fp ) ) )
-            FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
-          PARTIALLY_CONFIGURED( "mount `%s` has unrecognized min_size, expected at least `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );
-        }
 
-        char * endptr;
-        ulong min_size = strtoul( _min_size+9, &endptr, 10 );
-        if( FD_UNLIKELY( *endptr ) ) {
-          if( FD_UNLIKELY( fclose( fp ) ) )
-            FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
-          PARTIALLY_CONFIGURED( "mount `%s` has malformed min_size, expected `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );
-        }
+        if( FD_LIKELY( config->development.hugetlbfs.min_size ) ) {
+          if( FD_UNLIKELY( !_min_size || strncmp( "min_size=", _min_size, 9UL ) ) ) {
+            if( FD_UNLIKELY( fclose( fp ) ) )
+              FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+            PARTIALLY_CONFIGURED( "mount `%s` has unrecognized min_size, expected at least `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );
+          }
 
-        if( FD_UNLIKELY( min_size<required_min_size[ i ] ) ) {
-          if( FD_UNLIKELY( fclose( fp ) ) )
-            FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
-          PARTIALLY_CONFIGURED( "mount `%s` has min_size `%lu`, expected at least `min_size=%lu`", mount_path[ i ], min_size, required_min_size[ i ] );
+          char * endptr;
+          ulong min_size = strtoul( _min_size+9, &endptr, 10 );
+          if( FD_UNLIKELY( *endptr ) ) {
+            if( FD_UNLIKELY( fclose( fp ) ) )
+              FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+            PARTIALLY_CONFIGURED( "mount `%s` has malformed min_size, expected `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );
+          }
+
+          if( FD_UNLIKELY( min_size<required_min_size[ i ] ) ) {
+            if( FD_UNLIKELY( fclose( fp ) ) )
+              FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+            PARTIALLY_CONFIGURED( "mount `%s` has min_size `%lu`, expected at least `min_size=%lu`", mount_path[ i ], min_size, required_min_size[ i ] );
+          }
+        } else {
+          /* When mounted with min_size disabled, the mount must NOT have a
+             min_size= option (so the kernel does not persistently reserve
+             pages and re-running configure is a no-op).  If a stale mount
+             still has min_size= (e.g. created with min_size enabled),
+             report it as misconfigured so it gets torn down and recreated. */
+          if( FD_UNLIKELY( _min_size && !strncmp( "min_size=", _min_size, 9UL ) ) ) {
+            if( FD_UNLIKELY( fclose( fp ) ) )
+              FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+            PARTIALLY_CONFIGURED( "mount `%s` has a `min_size` option but development.hugetlbfs.min_size is disabled", mount_path[ i ] );
+          }
         }
 
         break;

@@ -1801,3 +1801,18 @@ dynamic_port_range = "8900-9000"
         # This option has not been tested or security audited and should
         # not currently be used in production.
         websocket_compression = false
+
+    [development.hugetlbfs]
+        # If true (the default), the hugetlbfs mounts created by the
+        # `hugetlbfs` configure stage are mounted with a `min_size=`
+        # option, so the kernel persistently reserves the pages for the
+        # mount and they cannot be reclaimed out from under a running
+        # Firedancer.
+        #
+        # Set to false only in test environments that bring the mount up
+        # and down repeatedly: without min_size the pages are not
+        # reserved, so a later `configure` run is a no-op rather than
+        # contending over a reserved pool.  Do not disable in production,
+        # as the reserved pages could then be reclaimed by another
+        # process and Firedancer would fail to boot.
+        min_size = true
