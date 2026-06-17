@@ -824,8 +824,11 @@ main( int     argc,
     fd_rng_delete( fd_rng_leave( rng2 ) );
   } while(0);
 
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+
   fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
   for( struct test_fn const * t=tests; t->name; t++ ) {
+    if( !bench && !strncmp( t->name, "bench", 5UL ) ) continue;
     t->fn();
     FD_LOG_NOTICE(( "OK: %s", t->name ));
   }

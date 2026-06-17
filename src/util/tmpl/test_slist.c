@@ -222,7 +222,7 @@ main( int     argc,
   ulong slist_cnt = 0UL;
 
   ulong diag_rem = 0UL;
-  for( ulong iter_rem=1000000000UL; iter_rem; iter_rem-- ) {
+  for( ulong iter_rem=100000000UL; iter_rem; iter_rem-- ) {
     if( FD_UNLIKELY( !diag_rem ) ) {
       FD_LOG_NOTICE(( "remaining %10lu (slist_cnt %lu)", iter_rem, slist_cnt ));
       diag_rem = 50000000UL;
