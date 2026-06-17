@@ -625,7 +625,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
     fd_txn_in_t  * txn_in    = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
 
-    if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
+    /* Bundles are atomic: when any transaction fails, all of the bundle's
+       transactions are published to PoH without FD_TXN_P_FLAGS_EXECUTE_SUCCESS
+       and are skipped during mixin, so they never land in the block. */
+    if( FD_UNLIKELY( ctx->report_runtime_txn && execution_success ) ) {
       uchar zero_fec_mr[ 32 ] = {0};
       fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
     }

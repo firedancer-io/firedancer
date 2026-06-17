@@ -75,6 +75,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( diff_cnt>=128UL ) break;
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
+    if( FD_UNLIKELY( !acc ) ) continue;
     if( !acc->_writable ) continue;
 
     int changed = ( acc->prior_lamports   != acc->lamports   ) ||
@@ -106,6 +107,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ulong w_cnt = 0UL, r_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
+    if( FD_UNLIKELY( !acc ) ) continue;
     if( acc->_writable ) {
       if( w_cnt<64UL ) fd_memcpy( ev.writable_accounts[ w_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
     } else {
