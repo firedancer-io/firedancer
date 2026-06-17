@@ -1442,14 +1442,12 @@ fd_executor_consume_cus( fd_txn_out_t * txn_out,
 /* fd_executor_instr_strerror() returns the error message corresponding to err,
    intended to be logged by log_collector, or an empty string if the error code
    should be omitted in logs for whatever reason.  Omitted examples are success,
-   fatal (placeholder just in firedancer), custom error.
-   See also fd_log_collector_program_failure(). */
+   custom error. See also fd_log_collector_program_failure(). */
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err ) {
 
   switch( err ) {
   case FD_EXECUTOR_INSTR_SUCCESS                                : return ""; // not used
-  case FD_EXECUTOR_INSTR_ERR_FATAL                              : return ""; // not used
   case FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        : return "generic instruction error";
   case FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        : return "invalid program argument";
   case FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA                 : return "invalid instruction data";
