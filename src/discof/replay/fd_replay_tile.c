@@ -14,6 +14,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../discof/reasm/fd_reasm.h"
@@ -1025,6 +1026,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   block_id_ele->latest_mr = initial_block_id;
   block_id_ele->slot      = 0UL;
 
+  /* Seed the genesis bank's block id so it can serve as parent_block_id
+     for the first replayed block's double merkle tree. */
+  bank->f.block_id = initial_block_id;
+
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1144,6 +1149,12 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     block_id_ele->block_id_seen  = 1;
     block_id_ele->latest_fec_idx = 0U;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+
+    /* Seed the snapshot bank's block id (the snapshot slot's double
+       merkle root, carried in the manifest) so it can serve as
+       parent_block_id for the first replayed block's double merkle
+       tree. */
+    bank->f.block_id = manifest_block_id;
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
@@ -1418,6 +1429,37 @@ can_process_fec( fd_replay_tile_t * ctx,
   return 1;
 }
 
+/* finish_double_merkle finalizes the block's double merkle tree once
+   the slot-complete FEC has been ingested.  It appends the Agave
+   parent-info leaf SHA-256( parent_slot_le8 | parent_block_id |
+   fec_set_count_le4 ) as the final leaf, then finalizes the tree to
+   derive the block's double merkle root (the Alpenglow block id).  The
+   lifetime of the resulting block id is the same lifetime as the bmtree
+   commit. */
+static uchar *
+finish_double_merkle( fd_replay_tile_t * ctx,
+                      fd_reasm_fec_t *   reasm_fec ) {
+  fd_block_id_ele_t *  block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+  fd_bmtree_commit_t * tree         = fd_block_id_ele_tree( block_id_ele );
+
+  fd_bank_t * bank            = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
+  fd_bank_t * parent_bank     = fd_banks_bank_query( ctx->banks, bank->parent_idx );
+  ulong       parent_slot     = (ulong)reasm_fec->slot - (ulong)reasm_fec->parent_off;
+  fd_hash_t   parent_block_id = parent_bank->f.block_id;
+  uint        fec_set_count   = (uint)fd_bmtree_commit_leaf_cnt( tree );
+
+  fd_bmtree_node_t parent_info[1];
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, &parent_slot,       sizeof(ulong)     ); /* little-endian on x86 */
+  fd_sha256_append( sha, parent_block_id.uc, sizeof(fd_hash_t) );
+  fd_sha256_append( sha, &fec_set_count,     sizeof(uint)      ); /* little-endian on x86 */
+  fd_sha256_fini( sha, parent_info->hash );
+  fd_bmtree_commit_append( tree, parent_info, 1UL );
+
+  return fd_bmtree_commit_fini( tree );
+}
+
 /* Returns 0 on successful FEC ingestion, 1 if the block got marked
    dead.  insert_fec_set assumes that all FECs that are inserted are
    directly connected to a parent FEC.  Every block that is replayed
@@ -1478,6 +1520,9 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
+
+    /* The double merkle tree uses the same hashing as shred tree */
+    fd_bmtree_commit_init( block_id_ele->tree_mem, 20UL, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
   } else { /* FEC for the middle or end of a block */
     /* Assign bank idx + seqno to the FEC.  Update block id pool ele. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
@@ -1490,6 +1535,15 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_mr      = reasm_fec->key;
   }
 
+  /* Accumulate this FEC set's merkle root as the next leaf of the
+     block's double merkle tree. */
+  {
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    fd_bmtree_node_t leaf[1];
+    memcpy( leaf->hash, reasm_fec->key.uc, sizeof(fd_hash_t) );
+    fd_bmtree_commit_append( fd_block_id_ele_tree( block_id_ele ), leaf, 1UL );
+  }
+
   /* If the FEC set is a slot complete, this means we have finally seen
      the block id (block's last mr). */
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
@@ -1498,6 +1552,16 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_mr      = reasm_fec->key;
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+
+    /* The block is complete: finalize its double merkle tree to derive
+       the block id. */
+    fd_bank_t * bank  = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
+    uchar * double_mr = finish_double_merkle( ctx, reasm_fec );
+    memcpy( bank->f.block_id.uc, double_mr, sizeof(fd_hash_t) );
+
+    FD_BASE58_ENCODE_32_BYTES( double_mr, double_mr_b58 );
+    FD_LOG_NOTICE(( "slot %lu complete: double merkle root (block id) %s", reasm_fec->slot, double_mr_b58 ));
+
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */

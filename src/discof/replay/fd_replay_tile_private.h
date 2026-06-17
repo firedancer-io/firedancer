@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
 #include "fd_vote_tracker.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
@@ -50,8 +51,21 @@ struct fd_block_id_ele {
   int       block_id_seen;
   ulong     slot;
   ulong     next_;
+
+  /* tree_mem holds an inline bmtree commit that accumulates the merkle
+     roots of each FEC set in the block as they are replayed.  On slot
+     completion it is finalized (together with the Agave parent-info
+     leaf) to derive the block's double merkle root (Alpenglow block
+     id).  Sized for a commit with no inclusion proofs and accessed via
+     fd_block_id_ele_tree(). */
+  uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
+
+FD_FN_CONST static inline fd_bmtree_commit_t *
+fd_block_id_ele_tree( fd_block_id_ele_t * ele ) {
+  return (fd_bmtree_commit_t *)fd_type_pun( ele->tree_mem );
+}
 
 #define MAP_NAME               fd_block_id_map
 #define MAP_ELE_T              fd_block_id_ele_t

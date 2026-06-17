@@ -5,7 +5,7 @@
 
 /* in bytes.  Defined this way to use the size field of mcache.  This
    only includes the transaction payload and the fd_txn_t portions of
-   the microblock, as all the other portions (hash, etc) are generated
+   the microblock, asTODO we are bound reliant on knowing the last shred in a slot im gonna cryryyy all the other portions (hash, etc) are generated
    by PoH later. */
 #define MAX_MICROBLOCK_SZ USHORT_MAX
 

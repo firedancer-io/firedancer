@@ -2,6 +2,7 @@
 #include <stdarg.h> /* for va_list */
 
 #include "fd_sched.h"
+#include "fd_block_marker.h" /* for Alpenglow block header/footer markers */
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
@@ -2238,6 +2239,28 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
+
+      /* block markers logging */
+      if( FD_UNLIKELY( block->mblks_rem==0UL && block->fec_buf_sz>sizeof(ulong) ) ) {
+        fd_block_marker_t const * m = (fd_block_marker_t const *)fd_type_pun_const( block->fec_buf );
+        if( m->variant==HEADER &&
+            block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+sizeof(fd_block_header_t) ) {
+          FD_BASE58_ENCODE_32_BYTES( m->data.header.v1.parent_block_id.hash, pbid_str );
+          FD_LOG_INFO(( "alpenglow block header: slot %lu, parent_slot %lu, parent_block_id %s",
+                          block->slot, m->data.header.v1.parent_slot, pbid_str ));
+        } else if( m->variant==FOOTER &&
+                   block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+
+                                      offsetof( fd_block_footer_t, v1 )+sizeof(fd_hash_t) ) {
+          FD_BASE58_ENCODE_32_BYTES( m->data.footer.v1.bank_hash.hash, bh_str );
+          FD_LOG_INFO(( "alpenglow block footer: slot %lu, bank_hash %s",
+                          block->slot, bh_str ));
+        } else if( m->variant==UPDATE_PARENT &&
+                   block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+sizeof(fd_update_parent_t) ) {
+          FD_BASE58_ENCODE_32_BYTES( m->data.update_parent.new_parent_block_id.hash, pbid_str );
+          FD_LOG_CRIT(( "UNHANDLED alpenglow update parent: slot %lu, new_parent_slot %lu, new_parent_block_id %s",
+                         block->slot, m->data.update_parent.new_parent_slot, pbid_str ));
+        }
+      }
 
       if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
         FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));

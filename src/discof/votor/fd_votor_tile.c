@@ -589,7 +589,7 @@ ingest_consensus_msg( fd_votor_tile_t *                ctx,
     ingest_cert( ctx, &msg->inner.cert );
     maybe_publish_finalized( ctx );
   } else {
-    FD_LOG_WARNING(( "unexpected consensus message discriminant %u", msg->discriminant ));
+    //FD_LOG_WARNING(( "unexpected consensus message discriminant %u", msg->discriminant ));
   }
 }
 
