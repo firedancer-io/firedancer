@@ -2009,3 +2009,15 @@ telemetry = true
         # partitions allow finer-grained compaction at the cost of more
         # frequent partition rotations.
         partition_size_gib = 32
+
+    [development.hugetlbfs]
+        # If true the hugetlbfs mounts created by the `hugetlbfs`
+        # configure stage are mounted with a `min_size=` option, so the
+        # kernel persistently reserves the pages for the mount.
+        #
+        # This is useful to disable in test environments where reserving
+        # the pages can cause churn for other tests which expect them
+        # unreserved, but is not suggested in production as it adds a
+        # failure mode where Firedancer cannot boot because the
+        # hugepages are in use by another process.
+        min_size = true

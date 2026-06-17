@@ -16,12 +16,33 @@ runs:
     - shell: bash
       run: |
         set -x
+
+        gigantic_have=$(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages)
+        huge_have=$(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages)
+
+        gigantic_opts=$(findmnt -t hugetlbfs -n -o OPTIONS /mnt/.fd/.gigantic 2>/dev/null || true)
+        huge_opts=$(findmnt -t hugetlbfs -n -o OPTIONS /mnt/.fd/.huge 2>/dev/null || true)
+        has_min_size() { echo "$1" | grep -q 'min_size='; }
+
+        if findmnt -t hugetlbfs /mnt/.fd/.gigantic >/dev/null 2>&1 && \
+           findmnt -t hugetlbfs /mnt/.fd/.huge     >/dev/null 2>&1 && \
+           ! has_min_size "$gigantic_opts" && \
+           ! has_min_size "$huge_opts" && \
+           [ "$gigantic_have" -ge '${{ inputs.count_gigantic }}' ] && \
+           [ "$huge_have"     -ge '${{ inputs.count_huge }}'     ]; then
+          echo "hugepages: mounts present (no min_size) and >= ${{ inputs.count_gigantic }} gigantic / ${{ inputs.count_huge }} huge pages already reserved; nothing to do"
+          sudo chown -R $USER:$USER /mnt/.fd || true
+          exit 0
+        fi
+
+        # Otherwise (first run on this runner, or insufficient pages),
+        # bring the mounts up from scratch.
         sudo src/util/shmem/fd_shmem_cfg fini || true
         findmnt -t hugetlbfs -n -o TARGET | xargs -r sudo umount || true
         sudo src/util/shmem/fd_shmem_cfg reset || true
         sudo src/util/shmem/fd_shmem_cfg init 0775 $USER "" || true
-        [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages) -lt '${{ inputs.count_gigantic }}' ] && \
+        [ "$gigantic_have" -lt '${{ inputs.count_gigantic }}' ] && \
           sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_gigantic }}' gigantic 0
-        [ $(cat /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages) -lt '${{ inputs.count_huge }}' ] && \
+        [ "$huge_have" -lt '${{ inputs.count_huge }}' ] && \
           sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count_huge }}' huge 0
         sudo chown -R $USER:$USER /mnt/.fd

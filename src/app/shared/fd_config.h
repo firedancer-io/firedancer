@@ -379,6 +379,10 @@ struct fd_config {
     struct {
       ulong partition_size_gib;
     } accdb;
+
+    struct {
+      int min_size;
+    } hugetlbfs;
   } development;
 
   struct {

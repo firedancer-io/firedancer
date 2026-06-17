@@ -327,6 +327,8 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ulong,  development.accdb.partition_size_gib             );
 
+  CFG_POP      ( bool,   development.hugetlbfs.min_size                   );
+
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
     fd_config_check_configf( config, &config->firedancer );
