@@ -509,7 +509,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   ulong wksp_sz = 512UL<<20; /* 512 MiB virtual (demand-paged) */
-  FD_LOG_NOTICE(( "Creating workspace (lazy paged, %lu GiB)", wksp_sz>>30 ));
+  FD_LOG_NOTICE(( "Creating workspace (lazy paged, %lu MiB)", wksp_sz>>20 ));
   fd_wksp_t * wksp = fd_wksp_new_lazy( wksp_sz );
   FD_TEST( wksp );
 
