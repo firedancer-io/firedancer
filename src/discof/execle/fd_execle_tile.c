@@ -174,7 +174,7 @@ hash_transactions( void *       mem,
     fd_memcpy( mixin, root, 32UL );
   } else {
     fd_memset( mixin, 0, 32UL );
-    /* Poison so we can detect if this is ever accessed upstream, even though it should never be. */
+    /* If FD_HAS_MSAN, poison so we can detect if this is ever accessed upstream, even though it should never be.  In production, this is a no-op. */
     fd_msan_poison( mixin, 32UL );
   }
 }
