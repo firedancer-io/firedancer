@@ -876,7 +876,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
     ulong instr_data_sz;
     int err = fd_system_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz );
     if( FD_UNLIKELY( err ) ) {
-      return FD_EXECUTOR_INSTR_ERR_FATAL;
+      FD_LOG_CRIT(( "Failed to encode SystemInstruction with error %d", err ));
     }
 
     fd_vm_rust_account_meta_t acct_metas[ 2UL ];
@@ -1285,7 +1285,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong instr_data_sz;
       err = fd_system_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz );
       if( FD_UNLIKELY( err ) ) {
-        return FD_EXECUTOR_INSTR_ERR_FATAL;
+        FD_LOG_CRIT(( "Failed to encode SystemInstruction with error %d", err ));
       }
 
       fd_vm_rust_account_meta_t acct_metas[ 3UL ];

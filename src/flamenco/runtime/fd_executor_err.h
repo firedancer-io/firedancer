@@ -10,7 +10,6 @@
 
 /* Instruction error codes */
 
-#define FD_EXECUTOR_INSTR_ERR_FATAL                              ( INT_MIN ) /* Unrecoverable error */
 #define FD_EXECUTOR_INSTR_SUCCESS                                (   0 ) /* Instruction executed successfully */
 #define FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        (  -1 ) /* The program instruction returned an error */
 #define FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        (  -2 ) /* The arguments provided to a program were invalid */
