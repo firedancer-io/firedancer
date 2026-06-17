@@ -14,6 +14,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
+#include "../../disco/events/fd_event_runtime.h"
 #include <time.h>
 #include "generated/fd_execle_tile_seccomp.h"
 
@@ -86,6 +87,9 @@ struct fd_execle_tile {
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
   } metrics;
+
+  /* If non-zero, emit one runtime_txn event per dispatched txn */
+  int report_runtime_txn;
 };
 
 typedef struct fd_execle_tile fd_execle_tile_t;
@@ -261,6 +265,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+      if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
+        uchar zero_fec_mr[ 32 ] = {0};
+        fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+      }
       continue;
     }
 
@@ -282,6 +290,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
         ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
+        if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
+          uchar zero_fec_mr[ 32 ] = {0};
+          fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+        }
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
         continue;
@@ -311,6 +323,11 @@ handle_microblock( fd_execle_tile_t *  ctx,
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
     fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
+
+    if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
+      uchar zero_fec_mr[ 32 ] = {0};
+      fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+    }
 
     long const txn_end_ticks = fd_tickcount();
 
@@ -605,7 +622,14 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_in_t  * txn_in    = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
+
+    if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
+      uchar zero_fec_mr[ 32 ] = {0};
+      fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+    }
+
     uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
     fd_memcpy( dst, bundle_txn_temp+i, sizeof(fd_txn_p_t) );
 
@@ -777,6 +801,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
 
+  ctx->report_runtime_txn = tile->execle.report_runtime_txn;
+
   fd_sleep_until_replay_started( topo );
 }
 
@@ -837,4 +863,5 @@ fd_topo_run_tile_t fd_tile_execle = {
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .max_event_sz             = sizeof(fd_event_runtime_txn_t),
 };
