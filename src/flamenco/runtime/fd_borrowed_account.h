@@ -10,6 +10,10 @@
 #define MAX_PERMITTED_DATA_LENGTH                 (FD_RUNTIME_ACC_SZ_MAX) /* 10MiB */
 #define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10L<<21)  /* 20MiB */
 
+/* Kept equal to the canonical constant in fd_runtime_const.h, which the
+   bpf loader serialization buffer bound relies on. */
+FD_STATIC_ASSERT( MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN==FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN, account_data_growth_cap );
+
 /* TODO: Not all Agave Borrowed Account API functions are implemented here */
 
 /* TODO: check that borrow is active when calling these APIs */

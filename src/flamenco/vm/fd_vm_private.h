@@ -109,6 +109,10 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
 /* https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L32 */
 #define FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION ((long)(FD_RUNTIME_ACC_SZ_MAX * 2UL))
 
+/* Kept equal to the canonical constant in fd_runtime_const.h, which the
+   bpf loader serialization buffer bound relies on. */
+FD_STATIC_ASSERT( FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION==(long)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN, account_data_growth_cap );
+
 FD_PROTOTYPES_BEGIN
 
 /* Error logging handholding assertions */
