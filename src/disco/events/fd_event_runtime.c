@@ -4,8 +4,7 @@
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
-                           fd_bank_t    const * bank,
-                           uchar        const   dispatch_fec_mr[ 32 ] ) {
+                           fd_bank_t    const * bank ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
   if( FD_UNLIKELY( !txn_in->txn || !bank ) ) return;
 
@@ -19,7 +18,6 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   if( FD_LIKELY( txn_out->accounts.cnt>0UL ) ) {
     fd_memcpy( ev.fee_payer, txn_out->accounts.keys[ 0 ].uc, 32UL );
   }
-  fd_memcpy( ev.dispatch_fec_mr, dispatch_fec_mr, 32UL );
 
   ev.bank_seq = bank->bank_seq;
   ev.slot     = bank->f.slot;

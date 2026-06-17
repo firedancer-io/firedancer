@@ -266,8 +266,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
       if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-        uchar zero_fec_mr[ 32 ] = {0};
-        fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+        fd_event_runtime_txn_emit( txn_in, txn_out, bank );
       }
       continue;
     }
@@ -291,8 +290,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
         ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
         if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-          uchar zero_fec_mr[ 32 ] = {0};
-          fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+          fd_event_runtime_txn_emit( txn_in, txn_out, bank );
         }
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
@@ -325,8 +323,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
     fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
 
     if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-      uchar zero_fec_mr[ 32 ] = {0};
-      fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+      fd_event_runtime_txn_emit( txn_in, txn_out, bank );
     }
 
     long const txn_end_ticks = fd_tickcount();
@@ -629,8 +626,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
        transactions are published to PoH without FD_TXN_P_FLAGS_EXECUTE_SUCCESS
        and are skipped during mixin, so they never land in the block. */
     if( FD_UNLIKELY( ctx->report_runtime_txn && execution_success ) ) {
-      uchar zero_fec_mr[ 32 ] = {0};
-      fd_event_runtime_txn_emit( txn_in, txn_out, bank, zero_fec_mr );
+      fd_event_runtime_txn_emit( txn_in, txn_out, bank );
     }
 
     uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );

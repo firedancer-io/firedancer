@@ -292,74 +292,72 @@ message RuntimeTxn {
   bytes blockhash = 5;
   // Fee-payer pubkey
   bytes fee_payer = 6;
-  // Merkle root of the most recently completed FEC set in the block at the time this txn was dispatched for execution
-  bytes dispatch_fec_mr = 7;
   // True if the transaction was classified as a simple vote, false otherwise
-  bool is_simple_vote = 8;
+  bool is_simple_vote = 7;
   // True if the transaction is part of a Jito bundle, false otherwise
-  bool is_bundle = 9;
+  bool is_bundle = 8;
   // True if the transaction was committable (landed on-chain)
-  bool is_committable = 10;
+  bool is_committable = 9;
   // True if the transaction landed but only fees were charged (e.g. account loading failure)
-  bool is_fees_only = 11;
+  bool is_fees_only = 10;
   // Transaction execution error (success when transaction succeeded)
-  RuntimeTxnTxnErr txn_err = 12;
+  RuntimeTxnTxnErr txn_err = 11;
   // Instruction execution error; only meaningful when txn_err = instruction_error
-  RuntimeTxnExecErr exec_err = 13;
+  RuntimeTxnExecErr exec_err = 12;
   // Source kind of exec_err; only meaningful when txn_err = instruction_error
-  RuntimeTxnExecErrKind exec_err_kind = 14;
+  RuntimeTxnExecErrKind exec_err_kind = 13;
   // Instruction index that failed (INT_MAX if not applicable)
-  uint32 exec_err_idx = 15;
+  uint32 exec_err_idx = 14;
   // Custom error code returned by the program (only meaningful for CUSTOM_ERROR)
-  uint32 custom_err = 16;
+  uint32 custom_err = 15;
   // Compute unit limit requested by the transaction
-  uint64 compute_unit_limit = 17;
+  uint64 compute_unit_limit = 16;
   // Compute unit price (micro-lamports per CU) requested by the transaction
-  uint64 compute_unit_price = 18;
+  uint64 compute_unit_price = 17;
   // compute_unit_limit minus the remaining compute meter at commit
-  uint64 compute_units_consumed = 19;
+  uint64 compute_units_consumed = 18;
   // Requested heap size for the VM
-  uint64 heap_size = 20;
+  uint64 heap_size = 19;
   // Number of builtin program instructions in the transaction
-  uint64 num_builtin_instrs = 21;
+  uint64 num_builtin_instrs = 20;
   // Number of BPF (non-builtin) program instructions
-  uint64 num_non_builtin_instrs = 22;
+  uint64 num_non_builtin_instrs = 21;
   // Total bytes of account data loaded for this transaction
-  uint64 loaded_accounts_data_size = 23;
+  uint64 loaded_accounts_data_size = 22;
   // Configured loaded-accounts-data-size limit for this transaction
-  uint64 loaded_accounts_data_size_limit = 24;
+  uint64 loaded_accounts_data_size_limit = 23;
   // Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign
-  uint64 accounts_resize_delta = 25;
+  uint64 accounts_resize_delta = 24;
   // True when the net delta is negative (writable account data net shrunk during execution)
-  bool accounts_resize_is_negative = 26;
+  bool accounts_resize_is_negative = 25;
   // Execution fee paid by the fee payer
-  uint64 execution_fee = 27;
+  uint64 execution_fee = 26;
   // Priority fee paid by the fee payer
-  uint64 priority_fee = 28;
+  uint64 priority_fee = 27;
   // Jito tips paid during execution
-  uint64 tips = 29;
+  uint64 tips = 28;
   // Number of signatures in the transaction
-  uint64 signature_count = 30;
+  uint64 signature_count = 29;
   // Cost-tracker signature cost
-  uint32 cost_signature = 31;
+  uint32 cost_signature = 30;
   // Cost-tracker write-lock cost
-  uint32 cost_write_lock = 32;
+  uint32 cost_write_lock = 31;
   // Cost-tracker data-bytes cost
-  uint32 cost_data_bytes = 33;
+  uint32 cost_data_bytes = 32;
   // Cost-tracker programs-execution cost
-  uint32 cost_programs_execution = 34;
+  uint32 cost_programs_execution = 33;
   // Cost-tracker loaded-accounts-data-size cost
-  uint32 cost_loaded_accounts_data_size = 35;
+  uint32 cost_loaded_accounts_data_size = 34;
   // Allocated accounts data size from the cost tracker
-  uint64 cost_allocated_accounts_data_size = 36;
+  uint64 cost_allocated_accounts_data_size = 35;
   // Per-account diffs for writable accounts that were modified
-  repeated RuntimeTxnAccountDiffs account_diffs = 37;
+  repeated RuntimeTxnAccountDiffs account_diffs = 36;
   // Every account the transaction locked as writable
-  repeated RuntimeTxnWritableAccounts writable_accounts = 38;
+  repeated RuntimeTxnWritableAccounts writable_accounts = 37;
   // Every account the transaction locked as readonly, in account-order
-  repeated RuntimeTxnReadonlyAccounts readonly_accounts = 39;
+  repeated RuntimeTxnReadonlyAccounts readonly_accounts = 38;
   // Distinct program pubkeys invoked at the top level of this transaction
-  repeated RuntimeTxnProgramIds program_ids = 40;
+  repeated RuntimeTxnProgramIds program_ids = 39;
 }
 
 // Combined event type

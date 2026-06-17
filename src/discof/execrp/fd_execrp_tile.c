@@ -93,9 +93,6 @@ struct fd_execrp_tile {
 
   /* If non-zero, emit one runtime_txn event per dispatched txn */
   int report_runtime_txn;
-
-  /* FEC merkle root at txn dispatch time */
-  uchar dispatch_fec_mr[ 32 ];
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -231,8 +228,6 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         if( FD_UNLIKELY( ctx->capture_ctx ) ) {
           ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
         }
-        /* Stash dispatch-time FEC merkle root for runtime_txn emission. */
-        fd_memcpy( ctx->dispatch_fec_mr, msg->capture_dispatch_fec_mr, 32UL );
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
@@ -245,7 +240,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         }
 
         if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-          fd_event_runtime_txn_emit( &ctx->txn_in, &ctx->txn_out, ctx->bank, ctx->dispatch_fec_mr );
+          fd_event_runtime_txn_emit( &ctx->txn_in, &ctx->txn_out, ctx->bank );
         }
 
         long const txn_end_ticks = fd_tickcount();

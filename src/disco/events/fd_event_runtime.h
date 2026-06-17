@@ -146,8 +146,7 @@ fd_event_exec_err_kind_from_exec_err_kind( int kind ) {
 void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
-                           fd_bank_t    const * bank,
-                           uchar        const   dispatch_fec_mr[ 32 ] );
+                           fd_bank_t    const * bank );
 
 FD_PROTOTYPES_END
 
