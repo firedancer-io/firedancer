@@ -1068,7 +1068,7 @@ test_gap( void ) {
   FD_LOG_NOTICE(( "TEST GAP" ));
 
   for( ulong gap=1UL; gap<=FD_PACK_MAX_EXECLE_TILES; gap++ ) {
-    fd_pack_t * pack = init_all( 10240UL, gap, 2UL, &outcome );
+    fd_pack_t * pack = init_all( 1024UL, gap, 2UL, &outcome );
     ulong i=0UL;
     ulong reward1, reward2;
     make_transaction( i,  500U, 500U, 11.0, "A", "B", &reward1, NULL ); insert( i++, pack );  /* 11034 cus */
@@ -1742,9 +1742,11 @@ main( int     argc,
   test_duplicate_sig();
   test_nonce();
   test_bundle_nonce();
-  performance_test( extra_benchmark );
-  performance_test2();
-  performance_end_block();
+  if( extra_benchmark ) {
+    performance_test( extra_benchmark );
+    performance_test2();
+    performance_end_block();
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

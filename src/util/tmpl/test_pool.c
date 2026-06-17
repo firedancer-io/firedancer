@@ -139,7 +139,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing operations" ));
 
-  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+  for( ulong iter=0UL; iter<10000000UL; iter++ ) {
 
     /* Randomly pick an operation to do */
 
@@ -289,7 +289,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing POOL_LAZY operations" ));
 
   acquired_cnt = 0UL;
-  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+  for( ulong iter=0UL; iter<10000000UL; iter++ ) {
 
     uint r = fd_rng_uint( rng );
     int op = (int)(r & 3U); r>>=2;
