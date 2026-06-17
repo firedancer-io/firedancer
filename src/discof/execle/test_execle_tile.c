@@ -659,7 +659,16 @@ test_compute_expected_hash( fd_txn_p_t * txns,
                             ulong        txn_cnt,
                             uchar        expected_hash[32] ) {
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
-  hash_transactions( bmtree_mem, txns, txn_cnt, expected_hash );
+  FD_TEST( hash_transactions( bmtree_mem, txns, txn_cnt, expected_hash )==expected_hash );
+}
+
+FD_UNIT_TEST( execle_hash_transactions_no_executed_txn ) {
+  fd_txn_p_t txn[1];
+  txn->flags = 0U;
+
+  uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  uchar mixin[32];
+  FD_TEST( !hash_transactions( bmtree_mem, txn, 1UL, mixin ) );
 }
 
 static void

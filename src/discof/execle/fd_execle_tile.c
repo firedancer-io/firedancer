@@ -181,7 +181,7 @@ during_frag( fd_execle_tile_t * ctx,
   ctx->_is_bundle = trailer->is_bundle;
 }
 
-static void
+static uchar *
 hash_transactions( void *       mem,
                    fd_txn_p_t * txns,
                    ulong        txn_cnt,
@@ -198,8 +198,10 @@ hash_transactions( void *       mem,
       fd_bmtree_commit_append( bmtree, node, 1UL );
     }
   }
+  if( FD_UNLIKELY( !fd_bmtree_commit_leaf_cnt( bmtree ) ) ) return NULL; /* fd_bmtree_commit_fini requires a leaf. */
   uchar * root = fd_bmtree_commit_fini( bmtree );
   fd_memcpy( mixin, root, 32UL );
+  return mixin;
 }
 
 static inline void
