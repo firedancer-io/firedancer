@@ -267,6 +267,8 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     return;
   };
 
+  int forward_msg = 1;
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
@@ -290,9 +292,15 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
       /* This is a special case: handle_data_frag must have already
          processed FD_SSPARSE_ADVANCE_DONE and moved the state into
-         FD_SNAPSHOT_STATE_FINISHING. */
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
-      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+         FD_SNAPSHOT_STATE_FINISHING.  Otherwise, treat this as a
+         malformed snapshot so that the pipeline can retry. */
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+        FD_LOG_WARNING(( "received FINI while in state %s (%lu), expected FINISHING (possibly truncated tar stream)",
+                         fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       break;
     }
 
@@ -340,7 +348,9 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
     }
   }
 
-  fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int
