@@ -218,7 +218,6 @@ cat <<EOF > ${CONFIG_FILE}
 [layout]
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
-
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
@@ -249,6 +248,7 @@ fi
 cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     max_accounts = $INDEX_MAX
+    cache_size_gib = 3
 EOF
 
 if [[ -z "$GENESIS" ]]; then
