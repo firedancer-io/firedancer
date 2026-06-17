@@ -1490,8 +1490,8 @@ fd_tower_blk_t *
 fd_tower_blocks_insert( fd_tower_t * tower,
                         ulong        slot,
                         ulong        parent_slot ) {
+  FD_TEST( blk_pool_free( tower->blk_pool ) );
   fd_tower_blk_t * blk = blk_pool_ele_acquire( tower->blk_pool );
-  if( FD_UNLIKELY( !blk ) ) return NULL;
 
   memset( blk, 0, sizeof(fd_tower_blk_t) );
   blk->parent_slot      = parent_slot;
