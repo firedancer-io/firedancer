@@ -120,9 +120,9 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   if( msg->is_bundle ) fd_pb_push_bool  ( encoder, 9U, msg->is_bundle );
   if( msg->is_committable ) fd_pb_push_bool  ( encoder, 10U, msg->is_committable );
   if( msg->is_fees_only ) fd_pb_push_bool  ( encoder, 11U, msg->is_fees_only );
-  if( msg->txn_err ) fd_pb_push_uint32( encoder, 12U, (uint)msg->txn_err );
-  if( msg->exec_err ) fd_pb_push_uint32( encoder, 13U, (uint)msg->exec_err );
-  if( msg->exec_err_kind ) fd_pb_push_uint32( encoder, 14U, (uint)msg->exec_err_kind );
+  if( msg->txn_err ) fd_pb_push_int32 ( encoder, 12U, msg->txn_err );
+  if( msg->exec_err ) fd_pb_push_int32 ( encoder, 13U, msg->exec_err );
+  if( msg->exec_err_kind ) fd_pb_push_int32 ( encoder, 14U, msg->exec_err_kind );
   if( msg->exec_err_idx ) fd_pb_push_uint32( encoder, 15U, (uint)msg->exec_err_idx );
   if( msg->custom_err ) fd_pb_push_uint32( encoder, 16U, (uint)msg->custom_err );
   if( msg->compute_unit_limit ) fd_pb_push_uint64( encoder, 17U, (ulong)msg->compute_unit_limit );
