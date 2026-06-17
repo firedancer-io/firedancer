@@ -124,8 +124,7 @@ while true; do
                 fi
             done
             gcloud storage cp ${SOLANA_BUCKET_PATH}/rocksdb.tar.zst . --billing-project=$BILLING_PROJECT
-            zstd -d rocksdb.tar.zst && sleep 5 && rm -rf rocksdb.tar.zst
-            tar -xf rocksdb.tar && sleep 5 && rm -rf rocksdb.tar
+            tar --zstd -xf rocksdb.tar.zst && sleep 5 && rm -f rocksdb.tar.zst
             send_slack_message "Downloaded rocksdb to \`$LEDGER_DIR/rocksdb\`"
         fi
         gcloud storage cp ${SOLANA_BUCKET_PATH}/bounds.txt . --billing-project=$BILLING_PROJECT
