@@ -23,7 +23,8 @@ $(call make-unit-test,test_pack,test_pack,fd_disco fd_ballet fd_util)
 $(call run-unit-test,test_pack)
 endif
 ifdef FD_HAS_AVX
-$(call run-unit-test,test_deduplication)
+# Disabled in CI as it's just a benchmarking program and takes too long
+# $(call run-unit-test,test_deduplication)
 $(call make-unit-test,test_deduplication,test_deduplication,fd_ballet fd_util)
 endif
 endif

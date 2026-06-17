@@ -26,10 +26,13 @@ fd_rng_b512( fd_rng_t * rng,
   return r;
 }
 
+static int g_bench = 0;
+
 void
 log_bench( char const * descr,
            ulong        iter,
            long         dt ) {
+  if( !iter ) return;
   float khz = 1e6f *(float)iter/(float)dt;
   float tau = (float)dt /(float)iter;
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
@@ -79,7 +82,7 @@ test_fe_frombytes( fd_rng_t * rng ) {
   /* bench */
 
   fd_rng_b256( rng, s );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_f25519_frombytes( h, s ); }
   dt = fd_log_wallclock() - dt;
@@ -148,7 +151,7 @@ test_fe_tobytes( fd_rng_t * rng ) {
   /* bench */
 
   fd_f25519_rng_unsafe( h, rng );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( h ); FD_COMPILER_FORGET( h ); fd_f25519_tobytes( s, h ); }
   dt = fd_log_wallclock() - dt;
@@ -214,7 +217,7 @@ test_fe_copy( fd_rng_t * rng ) {
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
 
   fd_f25519_rng_unsafe( f, rng );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_set( h, f ); }
   dt = fd_log_wallclock() - dt;
@@ -229,7 +232,7 @@ test_fe_add( fd_rng_t * rng ) {
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( g ); FD_COMPILER_FORGET( h ); fd_f25519_add( h, f, g );
@@ -246,7 +249,7 @@ test_fe_sub( fd_rng_t * rng ) {
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( g ); FD_COMPILER_FORGET( h ); fd_f25519_sub( h, f, g );
@@ -276,7 +279,7 @@ test_fe_mul( fd_rng_t * rng ) {
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( g ); FD_COMPILER_FORGET( h ); fd_f25519_mul( h, f, g );
@@ -291,7 +294,7 @@ test_fe_sq( fd_rng_t * rng ) {
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
 
   fd_f25519_rng_unsafe( f, rng );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_sqr( h, f ); }
   dt = fd_log_wallclock() - dt;
@@ -304,7 +307,7 @@ test_fe_invert( fd_rng_t * rng ) {
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
 
   fd_f25519_rng_unsafe( f, rng );
-  ulong iter = 10000UL;
+  ulong iter = g_bench ? 10000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_inv( h, f ); }
   dt = fd_log_wallclock() - dt;
@@ -317,7 +320,7 @@ test_fe_neg( fd_rng_t * rng ) {
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
 
   fd_f25519_rng_unsafe( f, rng );
-  ulong iter = 100000UL;
+  ulong iter = g_bench ? 100000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_neg( h, f ); }
   dt = fd_log_wallclock() - dt;
@@ -338,7 +341,7 @@ test_fe_if( fd_rng_t * rng ) {
   FD_TEST( fd_memeq( fd_f25519_if( h, 1, f, g ), f, 32 ) );
   FD_TEST( fd_memeq( fd_f25519_if( h, 0, f, g ), g, 32 ) );
 
-  ulong iter = 100000UL;
+  ulong iter = g_bench ? 100000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     c = (uchar)(rem & 1UL);
@@ -355,7 +358,7 @@ test_fe_isnonzero( fd_rng_t * rng ) {
   int c;
 
   fd_f25519_rng_unsafe( f, rng );
-  ulong iter = 100000UL;
+  ulong iter = g_bench ? 100000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( f );
@@ -372,7 +375,7 @@ test_fe_pow22523( fd_rng_t * rng ) {
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
 
   fd_f25519_rng_unsafe( f, rng );
-  ulong iter = 100000UL;
+  ulong iter = g_bench ? 100000UL : 0UL;
 
   {
     long dt = fd_log_wallclock();
@@ -814,7 +817,7 @@ test_sc_validate( fd_rng_t * rng ) {
   fd_curve25519_scalar_reduce( out, in );
   FD_TEST( fd_curve25519_scalar_validate( out ) );
 
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( out ); fd_curve25519_scalar_validate( out ); }
   dt = fd_log_wallclock() - dt;
@@ -827,7 +830,7 @@ test_sc_reduce( fd_rng_t * rng ) {
   uchar _out[64]; uchar * out = _out;
 
   fd_rng_b512( rng, in );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( in ); FD_COMPILER_FORGET( out ); fd_curve25519_scalar_reduce( out, in ); }
   dt = fd_log_wallclock() - dt;
@@ -844,7 +847,7 @@ test_sc_muladd( fd_rng_t * rng ) {
   fd_rng_b256( rng, a );
   fd_rng_b256( rng, b );
   fd_rng_b256( rng, c );
-  ulong iter = 1000000UL;
+  ulong iter = g_bench ? 1000000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( a ); FD_COMPILER_FORGET( b ); FD_COMPILER_FORGET( c );
@@ -871,7 +874,7 @@ test_public_from_private( fd_rng_t *    rng,
   // FD_LOG_HEXDUMP_WARNING(( "prv", prv, 32 ));
   // FD_LOG_HEXDUMP_WARNING(( "pub", pub, 32 ));
 
-  ulong iter = 10000UL;
+  ulong iter = g_bench ? 10000UL : 0UL;
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( prv ); FD_COMPILER_FORGET( pub ); FD_COMPILER_FORGET( sha );
@@ -899,7 +902,7 @@ test_sign( fd_rng_t *    rng,
   for( ulong b=0; b<1024UL; b++ ) msg[b] = fd_rng_uchar( rng );
   fd_ed25519_public_from_private( pub, fd_rng_b256( rng, prv ), sha );
 
-  ulong iter = 10000UL;
+  ulong iter = g_bench ? 10000UL : 0UL;
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
@@ -968,7 +971,7 @@ test_verify( fd_rng_t *    rng,
 
   for( ulong b=0; b<1024UL; b++ ) msg[b] = fd_rng_uchar( rng );
   fd_ed25519_public_from_private( pub, fd_rng_b256( rng, prv ), sha );
-  ulong iter = 10000UL;
+  ulong iter = g_bench ? 10000UL : 0UL;
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
     char cstr[128];
@@ -1150,6 +1153,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  g_bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
 

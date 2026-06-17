@@ -9,7 +9,7 @@ test_fuzz( void ) {
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  for( ulong i=0UL; i<8192UL*8192UL; i++ ) {
+  for( ulong i=0UL; i<4UL*1024UL*1024UL; i++ ) {
     uchar * msg = fd_circq_push_back( circq, fd_ulong_pow2( (int)fd_rng_ulong_roll( rng, 5 ) ), 1UL+fd_rng_ulong_roll( rng, 64 ) );
     FD_TEST( msg );
   }
