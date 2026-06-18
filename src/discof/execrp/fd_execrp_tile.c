@@ -234,13 +234,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_runtime_txn );
         } else {
-          fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
-        }
-
-        if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-          fd_event_runtime_txn_emit( &ctx->txn_in, &ctx->txn_out, ctx->bank );
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_runtime_txn );
         }
 
         long const txn_end_ticks = fd_tickcount();

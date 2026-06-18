@@ -355,9 +355,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
    database. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_runtime_txn );
 
 /* fd_runtime_cancel_txn cancels the result of a transaction execution
    and frees any resources that may have been acquired.  A transaction
@@ -368,8 +370,11 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       canceled as they will not be included in the block. */
 
 void
-fd_runtime_cancel_txn( fd_runtime_t * runtime,
-                       fd_txn_out_t * txn_out );
+fd_runtime_cancel_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_runtime_txn );
 
 /* fd_runtime_prepare_bundle_accounts is called before executing a
    bundle.  It is responsible for acquiring the union of all accounts

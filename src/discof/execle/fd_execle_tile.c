@@ -259,15 +259,12 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
-      fd_runtime_cancel_txn( ctx->runtime, txn_out );
+      fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
-      if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-        fd_event_runtime_txn_emit( txn_in, txn_out, bank );
-      }
       continue;
     }
 
@@ -283,15 +280,12 @@ handle_microblock( fd_execle_tile_t *  ctx,
         FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
                          fee_only_actual_exec_cus, fee_only_actual_data_cus, requested_exec_plus_acct_data_cus ));
         txn_out->err.is_committable = 0;
-        fd_runtime_cancel_txn( ctx->runtime, txn_out );
+        fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
         ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
-        if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-          fd_event_runtime_txn_emit( txn_in, txn_out, bank );
-        }
         /* FD_TXN_P_FLAGS_EXECUTE_SUCCESS = 0 ensures txn won't be
            mixed-in by POH */
         continue;
@@ -320,11 +314,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
-
-    if( FD_UNLIKELY( ctx->report_runtime_txn ) ) {
-      fd_event_runtime_txn_emit( txn_in, txn_out, bank );
-    }
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
 
     long const txn_end_ticks = fd_tickcount();
 
@@ -522,7 +512,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
 
       txn_end_ticks[ i ] = fd_tickcount();
 
@@ -619,15 +609,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_in_t  * txn_in    = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
-
-    /* Bundles are atomic: when any transaction fails, all of the bundle's
-       transactions are published to PoH without FD_TXN_P_FLAGS_EXECUTE_SUCCESS
-       and are skipped during mixin, so they never land in the block. */
-    if( FD_UNLIKELY( ctx->report_runtime_txn && execution_success ) ) {
-      fd_event_runtime_txn_emit( txn_in, txn_out, bank );
-    }
 
     uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
     fd_memcpy( dst, bundle_txn_temp+i, sizeof(fd_txn_p_t) );
