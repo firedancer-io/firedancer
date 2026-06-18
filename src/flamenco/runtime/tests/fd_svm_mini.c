@@ -174,7 +174,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   fd_memset( mini, 0, sizeof(fd_svm_mini_t) );
   mini->wksp = wksp;
 
-  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot ) );
+  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot, 0UL ) );
   if( FD_UNLIKELY( !shtxncache ) ) FD_LOG_ERR(( "fd_txncache_shmem_new failed" ));
 
   /* Create accdb backed by memfd */

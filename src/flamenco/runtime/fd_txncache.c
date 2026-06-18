@@ -155,6 +155,12 @@ fd_txncache_reset( fd_txncache_t * tc ) {
   fd_rwlock_unwrite( tc->shmem->lock );
 }
 
+FD_FN_PURE static inline ulong
+fd_txncache_bucket( fd_txncache_t const * tc,
+                    uchar const *         txnhash ) {
+  return fd_ulong_hash( FD_LOAD( ulong, txnhash )^tc->shmem->seed )%tc->shmem->txn_per_slot_max;
+}
+
 static fd_txncache_txnpage_t *
 fd_txncache_ensure_txnpage( fd_txncache_t * tc,
                             blockcache_t *  blockcache ) {
@@ -219,7 +225,7 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
     txnpage->txns[ txn_idx ]->generation = tc->blockcache_pool[ fork_id.val ].shmem->generation;
     FD_COMPILER_MFENCE();
 
-    ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
+    ulong txn_bucket = fd_txncache_bucket( tc, txnhash+txnhash_offset );
     for(;;) {
       uint head = blockcache->heads[ txn_bucket ];
       txnpage->txns[ txn_idx ]->blockcache_next = head;
@@ -459,7 +465,7 @@ purge_stale_on_blockcache( fd_txncache_t * tc,
         }
         ulong txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-tc->scratch_txnpage->free;
         memcpy( tc->scratch_txnpage->txns[ txn_idx ], curr_txn, sizeof(*curr_txn) );
-        ulong txn_bucket = FD_LOAD( ulong, curr_txn->txnhash )%tc->shmem->txn_per_slot_max;
+        ulong txn_bucket = fd_txncache_bucket( tc, curr_txn->txnhash );
         uint head = tc->scratch_heads[ txn_bucket ];
         tc->scratch_txnpage->txns[ txn_idx ]->blockcache_next = head;
         ulong txn_gidx = FD_TXNCACHE_TXNS_PER_PAGE*scratch_txnpage_idx+txn_idx;
@@ -568,7 +574,7 @@ fd_txncache_query( fd_txncache_t *       tc,
   int found = 0;
 
   ulong txnhash_offset = blockcache->shmem->txnhash_offset;
-  ulong head_hash = FD_LOAD( ulong, txnhash+txnhash_offset ) % tc->shmem->txn_per_slot_max;
+  ulong head_hash = fd_txncache_bucket( tc, txnhash+txnhash_offset );
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
     fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
 

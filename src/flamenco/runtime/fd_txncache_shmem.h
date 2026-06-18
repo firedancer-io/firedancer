@@ -24,7 +24,8 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
 void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
-                       ulong  max_txn_per_slot );
+                       ulong  max_txn_per_slot,
+                       ulong  seed );
 
 fd_txncache_shmem_t *
 fd_txncache_shmem_join( void * shtc );

@@ -110,7 +110,8 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
 void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
-                       ulong  max_txn_per_slot ) {
+                       ulong  max_txn_per_slot,
+                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -175,6 +176,8 @@ fd_txncache_shmem_new( void * shmem,
   tc->txnpages_free_cnt = _max_txnpages;
   ushort * txnpages_free = (ushort *)_txnpages_free;
   for( ushort i=0; i<_max_txnpages; i++ ) txnpages_free[ i ] = i;
+
+  tc->seed = seed;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tc->magic ) = FD_TXNCACHE_SHMEM_MAGIC;
