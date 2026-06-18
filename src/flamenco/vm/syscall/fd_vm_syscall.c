@@ -29,6 +29,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_get_epoch_stake_syscall   = 0;
   int enable_bls12_381_syscall         = 0;
   int enable_sha512_syscall            = 0;
+  int enable_big_mod_exp_syscall       = 0;
 
   if( slot ) {
     enable_blake3_syscall            = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
@@ -37,6 +38,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
     enable_bls12_381_syscall         = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
     enable_sha512_syscall            = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
+    enable_big_mod_exp_syscall       = FD_FEATURE_ACTIVE( slot, features, enable_big_mod_exp_syscall );
 
   } else { /* enable ALL */
 
@@ -46,6 +48,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_get_epoch_stake_syscall   = 1;
     enable_bls12_381_syscall         = 1;
     enable_sha512_syscall            = 1;
+    enable_big_mod_exp_syscall       = 1;
 
   }
 
@@ -137,7 +140,12 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   REGISTER( "sol_alt_bn128_group_op",                  fd_vm_syscall_sol_alt_bn128_group_op );
   REGISTER( "sol_alt_bn128_compression",               fd_vm_syscall_sol_alt_bn128_compression );
 
-//REGISTER( "sol_big_mod_exp",                       fd_vm_syscall_sol_big_mod_exp );
+# if FD_HAS_S2NBIGNUM
+  if( enable_big_mod_exp_syscall )
+    REGISTER( "sol_big_mod_exp",                     fd_vm_syscall_sol_big_mod_exp );
+# else
+  (void)enable_big_mod_exp_syscall;
+# endif
 
   REGISTER( "sol_poseidon",                          fd_vm_syscall_sol_poseidon );
 

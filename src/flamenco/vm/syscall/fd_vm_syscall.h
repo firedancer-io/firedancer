@@ -900,6 +900,15 @@ FD_VM_SYSCALL_DECL( sol_poseidon ); /* Light protocol flavor */
 
 FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
+/* syscall "sol_big_mod_exp" (SIMD-0529)
+
+   result := (base ^ exponent) mod modulus, where all operands are
+   little-endian and the modulus is odd and > 1.  r1 is a vaddr to a
+   BigModExpParams record; r2 is a vaddr to the result buffer.  Gated
+   behind the enable_big_mod_exp_syscall feature. */
+
+FD_VM_SYSCALL_DECL( sol_big_mod_exp );
+
 /* fd_vm_syscall_curve ************************************************/
 
 /* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...} specifies the curve ID */
