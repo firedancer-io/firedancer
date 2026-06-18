@@ -89,7 +89,7 @@ test_add_cert( fd_wksp_t * wksp ) {
   void * sm; fd_slot_state_t * ss = make_state( wksp, slot, MAXV, &sm );
 
   fd_notar_vote_t nv[ 11 ];
-  for( ulong i=0UL; i<n; i++ ) fd_notar_vote_new( &nv[i], slot, &hash, &g_sk[i], i );
+  for( ulong i=0UL; i<n; i++ ) fd_notar_vote_new( &nv[i], slot, &hash, &g_sk[i], (ushort)i );
   fd_cert_t c; c.discriminant = FD_CERT_TYPE_NOTAR;
   FD_TEST( fd_notar_cert_try_new( &c.inner.notar, nv, n,
                                   fd_epoch_info_validators( ei ), ei->validator_cnt )==FD_CERT_SUCCESS );
@@ -115,7 +115,7 @@ test_add_vote( fd_wksp_t * wksp ) {
   out_t t;
 
   for( ulong i=0UL; i<n; i++ ) {
-    fd_vote_t vote; fd_vote_new_notar( &vote, slot, &hash, &g_sk[i], i );
+    fd_vote_t vote; fd_vote_new_notar( &vote, slot, &hash, &g_sk[i], (ushort)i );
     FD_TEST( !fd_slot_state_has_notar_vote( ss, i ) );
     add_vote_helper( ss, &vote, ei, &t );
     FD_TEST(  fd_slot_state_has_notar_vote( ss, i ) );
@@ -297,9 +297,9 @@ test_slashable_offence_none( fd_wksp_t * wksp ) {
   ulong v = 1UL;
 
   /* no prior votes -> nothing is slashable */
-  fd_vote_t notar_vote; fd_vote_new_notar( &notar_vote, slot, &hash, &g_sk[1], v );
-  fd_vote_t skip_vote;  fd_vote_new_skip ( &skip_vote,  slot,        &g_sk[1], v );
-  fd_vote_t final_vote; fd_vote_new_final( &final_vote, slot,        &g_sk[1], v );
+  fd_vote_t notar_vote; fd_vote_new_notar( &notar_vote, slot, &hash, &g_sk[1], (ushort)v );
+  fd_vote_t skip_vote;  fd_vote_new_skip ( &skip_vote,  slot,        &g_sk[1], (ushort)v );
+  fd_vote_t final_vote; fd_vote_new_final( &final_vote, slot,        &g_sk[1], (ushort)v );
   FD_TEST( fd_slot_state_check_slashable_offence( ss, &notar_vote ).kind==FD_SLASHABLE_NONE );
   FD_TEST( fd_slot_state_check_slashable_offence( ss, &skip_vote  ).kind==FD_SLASHABLE_NONE );
   FD_TEST( fd_slot_state_check_slashable_offence( ss, &final_vote ).kind==FD_SLASHABLE_NONE );
@@ -371,7 +371,7 @@ test_count_finalize_creates_cert_at_quorum( fd_wksp_t * wksp ) {
 
   /* 3/6 final votes, below 60% quorum, no cert yet (validators 1,2,3) */
   for( ulong i=1UL; i<=3UL; i++ ) {
-    fd_vote_t fv; fd_vote_new_final( &fv, slot, &g_sk[i], i );
+    fd_vote_t fv; fd_vote_new_final( &fv, slot, &g_sk[i], (ushort)i );
     add_vote_helper( ss, &fv, ei, &t );
     FD_TEST( t.o.certs_cnt==0UL );
     FD_TEST( t.o.events_cnt==0UL );
@@ -409,7 +409,7 @@ test_count_notar_fallback_creates_cert_at_quorum( fd_wksp_t * wksp ) {
 
   /* two notar votes for the block, not enough for any cert (validators 1,2) */
   for( ulong i=1UL; i<=2UL; i++ ) {
-    fd_vote_t nv; fd_vote_new_notar( &nv, slot, &hash, &g_sk[i], i );
+    fd_vote_t nv; fd_vote_new_notar( &nv, slot, &hash, &g_sk[i], (ushort)i );
     add_vote_helper( ss, &nv, ei, &t );
     FD_TEST( t.o.certs_cnt==0UL );
   }

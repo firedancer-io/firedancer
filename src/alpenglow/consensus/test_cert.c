@@ -32,19 +32,19 @@ make_epoch( ulong n, void ** out_mem ) {
 }
 
 static void mk_notar( fd_notar_vote_t * o, ulong slot, fd_hash_t const * h, ulong lo, ulong n ) {
-  for( ulong i=0UL; i<n; i++ ) fd_notar_vote_new( &o[i], slot, h, &g_sk[lo+i], lo+i );
+  for( ulong i=0UL; i<n; i++ ) fd_notar_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) );
 }
 static void mk_nf( fd_notar_fallback_vote_t * o, ulong slot, fd_hash_t const * h, ulong lo, ulong n ) {
-  for( ulong i=0UL; i<n; i++ ) fd_notar_fallback_vote_new( &o[i], slot, h, &g_sk[lo+i], lo+i );
+  for( ulong i=0UL; i<n; i++ ) fd_notar_fallback_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) );
 }
 static void mk_skip( fd_skip_vote_t * o, ulong slot, ulong lo, ulong n ) {
-  for( ulong i=0UL; i<n; i++ ) fd_skip_vote_new( &o[i], slot, &g_sk[lo+i], lo+i );
+  for( ulong i=0UL; i<n; i++ ) fd_skip_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) );
 }
 static void mk_sf( fd_skip_fallback_vote_t * o, ulong slot, ulong lo, ulong n ) {
-  for( ulong i=0UL; i<n; i++ ) fd_skip_fallback_vote_new( &o[i], slot, &g_sk[lo+i], lo+i );
+  for( ulong i=0UL; i<n; i++ ) fd_skip_fallback_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) );
 }
 static void mk_final( fd_final_vote_t * o, ulong slot, ulong lo, ulong n ) {
-  for( ulong i=0UL; i<n; i++ ) fd_final_vote_new( &o[i], slot, &g_sk[lo+i], lo+i );
+  for( ulong i=0UL; i<n; i++ ) fd_final_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) );
 }
 
 static void

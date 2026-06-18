@@ -129,7 +129,7 @@ struct fd_votor_tile {
   ulong          seed; /* map seed */
   fd_pubkey_t    identity_key[1];
   fd_aggsig_sk_t voting_key[1]; /* our single BLS voting secret key */
-  ulong          own_id;        /* our ValidatorIndex in the active epoch */
+  ushort         own_id;        /* our ValidatorIndex in the active epoch */
 
   /* owned joins */
 
@@ -615,6 +615,24 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
   uint kind = FD_LOAD( uint, payload );
   char const * kind_str = kind==FD_CONSENSUS_MESSAGE_VOTE ? "Vote" : ( kind==FD_CONSENSUS_MESSAGE_CERT ? "Certificate" : "unknown" );
   FD_LOG_NOTICE(( "alpenglow consensus message rx: kind=%u (%s) sz=%lu", kind, kind_str, sz ));
+
+  switch( kind ) {
+  case FD_CONSENSUS_MESSAGE_VOTE: {
+    /* advance payload past the discriminant */
+    payload += sizeof(uint); sz -= sizeof(uint);
+    fd_vote_t * vote = (fd_vote_t *)fd_type_pun_const( payload );
+    if( vote->discriminant==FD_VOTE_TYPE_NOTAR || vote->discriminant==FD_VOTE_TYPE_NOTAR_FALLBACK ) {
+      fd_hash_t const * dmr = fd_vote_block_hash( vote );
+      FD_BASE58_ENCODE_32_BYTES( dmr->uc, dmr_str );
+      FD_LOG_NOTICE(( "received vote for block %s, slot %lu from signer %u", dmr_str, fd_vote_slot( vote ), (uint)fd_vote_signer( vote ) ));
+    }
+    break;
+  }
+  default:
+    break;
+  }
+
+
 }
 
 /* update_epoch_vtrs rebuilds the active epoch's validator set from an EPOCH
@@ -639,7 +657,7 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
   ctx->validator_cnt = cnt;
   ctx->epoch         = msg->epoch;
 
-  for( ulong i=0UL; i<cnt; i++ ) {
+  for( ushort i=0UL; i<cnt; i++ ) {
     fd_validator_info_t * vi = &ctx->validators[ i ];
     memset( vi, 0, sizeof(fd_validator_info_t) );
     vi->id     = i;                /* ValidatorIndex must equal array position */

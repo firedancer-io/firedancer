@@ -207,7 +207,7 @@ test_finalization( fd_wksp_t * wksp ) {
     fd_votor_consensus_msg_t m;
     memset( &m, 0, sizeof(m) );
     m.discriminant = FD_VOTOR_CONSENSUS_MSG_VOTE;
-    fd_vote_new_notar( &m.inner.vote, slot, &h1, &test_sk[ v ], v );
+    fd_vote_new_notar( &m.inner.vote, slot, &h1, &test_sk[ v ], (ushort)v );
     ingest_consensus_msg( ctx, &m );
   }
 
@@ -217,7 +217,7 @@ test_finalization( fd_wksp_t * wksp ) {
     fd_votor_consensus_msg_t m;
     memset( &m, 0, sizeof(m) );
     m.discriminant = FD_VOTOR_CONSENSUS_MSG_VOTE;
-    fd_vote_new_final( &m.inner.vote, slot, &test_sk[ v ], v );
+    fd_vote_new_final( &m.inner.vote, slot, &test_sk[ v ], (ushort)v );
     ingest_consensus_msg( ctx, &m );
   }
 

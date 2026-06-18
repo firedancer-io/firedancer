@@ -240,7 +240,7 @@ fd_votor_footprint( ulong slot_max );
 void *
 fd_votor_new( void *                 shmem,
               ulong                  slot_max,
-              ulong                  validator_index,
+              ushort                 validator_index,
               fd_aggsig_sk_t const * voting_key,
               ulong                  seed,
               fd_votor_out_t *       out );

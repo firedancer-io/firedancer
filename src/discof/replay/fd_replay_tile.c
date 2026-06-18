@@ -1444,7 +1444,7 @@ finish_double_merkle( fd_replay_tile_t * ctx,
 
   fd_bank_t * bank            = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
   fd_bank_t * parent_bank     = fd_banks_bank_query( ctx->banks, bank->parent_idx );
-  ulong       parent_slot     = (ulong)reasm_fec->slot - (ulong)reasm_fec->parent_off;
+  ulong       parent_slot     = parent_bank->f.slot;
   fd_hash_t   parent_block_id = parent_bank->f.block_id;
   uint        fec_set_count   = (uint)fd_bmtree_commit_leaf_cnt( tree );
 

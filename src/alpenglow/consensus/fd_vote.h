@@ -19,55 +19,54 @@
 
 /* Vote / VotePayload discriminants (alpenglow/src/consensus/vote.rs). */
 
-#define FD_VOTE_TYPE_NOTAR          (0U)
-#define FD_VOTE_TYPE_NOTAR_FALLBACK (1U)
-#define FD_VOTE_TYPE_SKIP           (2U)
-#define FD_VOTE_TYPE_SKIP_FALLBACK  (3U)
-#define FD_VOTE_TYPE_FINAL          (4U)
+#define FD_VOTE_TYPE_NOTAR           (0U)
+#define FD_VOTE_TYPE_FINAL           (1U)
+#define FD_VOTE_TYPE_SKIP            (2U)
+#define FD_VOTE_TYPE_NOTAR_FALLBACK  (3U)
+#define FD_VOTE_TYPE_SKIP_FALLBACK   (4U)
 
 /* The concrete vote structs.  signer is a ValidatorIndex (Rust u64). */
 
-struct fd_notar_vote {
+struct __attribute__((packed)) fd_notar_vote {
   ulong           slot;
   fd_hash_t       block_hash;
   fd_aggsig_sig_t sig;
-  ulong           signer;
+  ushort          signer;
 };
 typedef struct fd_notar_vote fd_notar_vote_t;
 
-struct fd_notar_fallback_vote {
+struct __attribute__((packed)) fd_notar_fallback_vote {
   ulong           slot;
   fd_hash_t       block_hash;
   fd_aggsig_sig_t sig;
-  ulong           signer;
+  ushort          signer;
 };
 typedef struct fd_notar_fallback_vote fd_notar_fallback_vote_t;
 
-struct fd_skip_vote {
+struct __attribute__((packed)) fd_skip_vote {
   ulong           slot;
   fd_aggsig_sig_t sig;
-  ulong           signer;
+  ushort          signer;
 };
 typedef struct fd_skip_vote fd_skip_vote_t;
 
-struct fd_skip_fallback_vote {
+struct __attribute__((packed)) fd_skip_fallback_vote {
   ulong           slot;
   fd_aggsig_sig_t sig;
-  ulong           signer;
+  ushort          signer;
 };
 typedef struct fd_skip_fallback_vote fd_skip_fallback_vote_t;
 
-struct fd_final_vote {
+struct __attribute__((packed)) fd_final_vote {
   ulong           slot;
   fd_aggsig_sig_t sig;
-  ulong           signer;
+  ushort          signer;
 };
 typedef struct fd_final_vote fd_final_vote_t;
 
 /* fd_vote_t is the Vote sum type (network form). */
-
-struct fd_vote {
-  uint discriminant; /* FD_VOTE_TYPE_* */
+struct __attribute__((packed)) fd_vote {
+  uint discriminant;           /* FD_VOTE_TYPE_* */
   union {
     fd_notar_vote_t          notar;
     fd_notar_fallback_vote_t notar_fallback;
@@ -105,19 +104,19 @@ fd_vote_payload_bytes_to_sign( uchar *           out,
 /* Concrete-vote constructors: sign the appropriate VotePayload with sk and
    populate *out. */
 
-void fd_notar_vote_new         ( fd_notar_vote_t *          out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer );
-void fd_notar_fallback_vote_new( fd_notar_fallback_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer );
-void fd_skip_vote_new          ( fd_skip_vote_t *           out, ulong slot,                       fd_aggsig_sk_t const * sk, ulong signer );
-void fd_skip_fallback_vote_new ( fd_skip_fallback_vote_t *  out, ulong slot,                       fd_aggsig_sk_t const * sk, ulong signer );
-void fd_final_vote_new         ( fd_final_vote_t *          out, ulong slot,                       fd_aggsig_sk_t const * sk, ulong signer );
+void fd_notar_vote_new         ( fd_notar_vote_t *          out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
+void fd_notar_fallback_vote_new( fd_notar_fallback_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
+void fd_skip_vote_new          ( fd_skip_vote_t *           out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_skip_fallback_vote_new ( fd_skip_fallback_vote_t *  out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_final_vote_new         ( fd_final_vote_t *          out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
 
 /* Tagged Vote constructors (Vote::new_*). */
 
-void fd_vote_new_notar         ( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer );
-void fd_vote_new_notar_fallback( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer );
-void fd_vote_new_skip          ( fd_vote_t * out, ulong slot,                       fd_aggsig_sk_t const * sk, ulong signer );
-void fd_vote_new_skip_fallback ( fd_vote_t * out, ulong slot,                       fd_aggsig_sk_t const * sk, ulong signer );
-void fd_vote_new_final         ( fd_vote_t * out, ulong slot,                       fd_aggsig_sk_t const * sk, ulong signer );
+void fd_vote_new_notar         ( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_notar_fallback( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_skip          ( fd_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_skip_fallback ( fd_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_final         ( fd_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
 
 /* fd_vote_check_sig returns 1 iff the vote's signature is valid under pk
    (Vote::check_sig). */
@@ -137,7 +136,7 @@ fd_vote_slot( fd_vote_t const * v ) {
   }
 }
 
-FD_FN_PURE static inline ulong
+FD_FN_PURE static inline ushort
 fd_vote_signer( fd_vote_t const * v ) {
   switch( v->discriminant ) {
   case FD_VOTE_TYPE_NOTAR:          return v->inner.notar.signer;

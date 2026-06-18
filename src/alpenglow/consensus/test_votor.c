@@ -65,7 +65,7 @@ fresh_out( void ) {
 }
 
 static fd_votor_t *
-make_votor( fd_wksp_t * wksp, ulong validator_index, fd_votor_out_t * out, void ** out_mem ) {
+make_votor( fd_wksp_t * wksp, ushort validator_index, fd_votor_out_t * out, void ** out_mem ) {
   void * mem = fd_wksp_alloc_laddr( wksp, fd_votor_align(), fd_votor_footprint( 64UL ), 1UL );
   FD_TEST( mem );
   *out_mem = mem;

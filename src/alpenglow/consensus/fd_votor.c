@@ -38,7 +38,7 @@ struct __attribute__((aligned(128UL))) fd_votor {
   ulong          slot_pool_gaddr;        /* memory offset of the slot_pool             */
   ulong          slot_map_gaddr;         /* memory offset of the slot_map              */
 
-  ulong          validator_index;        /* our own ValidatorIndex                     */
+  ushort         validator_index;        /* our own ValidatorIndex                     */
   fd_aggsig_sk_t voting_key;             /* BLS secret key used to sign votes          */
   ulong          highest_final_cert_slot;/* Votor::highest_final_cert_slot             */
 };
@@ -571,7 +571,7 @@ fd_votor_handle_timeout_event( fd_votor_t *               votor,
 void *
 fd_votor_new( void *                 shmem,
               ulong                  slot_max,
-              ulong                  validator_index,
+              ushort                 validator_index,
               fd_aggsig_sk_t const * voting_key,
               ulong                  seed,
               fd_votor_out_t *       out ) {

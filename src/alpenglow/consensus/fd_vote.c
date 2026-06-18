@@ -29,56 +29,56 @@ sign_payload( fd_aggsig_sig_t *      sig,
 }
 
 void
-fd_notar_vote_new( fd_notar_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer ) {
+fd_notar_vote_new( fd_notar_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->slot = slot; out->block_hash = *h; out->signer = signer;
   sign_payload( &out->sig, FD_VOTE_TYPE_NOTAR, slot, h, sk );
 }
 
 void
-fd_notar_fallback_vote_new( fd_notar_fallback_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer ) {
+fd_notar_fallback_vote_new( fd_notar_fallback_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->slot = slot; out->block_hash = *h; out->signer = signer;
   sign_payload( &out->sig, FD_VOTE_TYPE_NOTAR_FALLBACK, slot, h, sk );
 }
 
 void
-fd_skip_vote_new( fd_skip_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ulong signer ) {
+fd_skip_vote_new( fd_skip_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->slot = slot; out->signer = signer;
   sign_payload( &out->sig, FD_VOTE_TYPE_SKIP, slot, NULL, sk );
 }
 
 void
-fd_skip_fallback_vote_new( fd_skip_fallback_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ulong signer ) {
+fd_skip_fallback_vote_new( fd_skip_fallback_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->slot = slot; out->signer = signer;
   sign_payload( &out->sig, FD_VOTE_TYPE_SKIP_FALLBACK, slot, NULL, sk );
 }
 
 void
-fd_final_vote_new( fd_final_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ulong signer ) {
+fd_final_vote_new( fd_final_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->slot = slot; out->signer = signer;
   sign_payload( &out->sig, FD_VOTE_TYPE_FINAL, slot, NULL, sk );
 }
 
-void fd_vote_new_notar( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer ) {
+void fd_vote_new_notar( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->discriminant = FD_VOTE_TYPE_NOTAR;
   fd_notar_vote_new( &out->inner.notar, slot, h, sk, signer );
 }
 
-void fd_vote_new_notar_fallback( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ulong signer ) {
+void fd_vote_new_notar_fallback( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->discriminant = FD_VOTE_TYPE_NOTAR_FALLBACK;
   fd_notar_fallback_vote_new( &out->inner.notar_fallback, slot, h, sk, signer );
 }
 
-void fd_vote_new_skip( fd_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ulong signer ) {
+void fd_vote_new_skip( fd_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->discriminant = FD_VOTE_TYPE_SKIP;
   fd_skip_vote_new( &out->inner.skip, slot, sk, signer );
 }
 
-void fd_vote_new_skip_fallback( fd_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ulong signer ) {
+void fd_vote_new_skip_fallback( fd_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->discriminant = FD_VOTE_TYPE_SKIP_FALLBACK;
   fd_skip_fallback_vote_new( &out->inner.skip_fallback, slot, sk, signer );
 }
 
-void fd_vote_new_final( fd_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ulong signer ) {
+void fd_vote_new_final( fd_vote_t * out, ulong slot, fd_aggsig_sk_t const * sk, ushort signer ) {
   out->discriminant = FD_VOTE_TYPE_FINAL;
   fd_final_vote_new( &out->inner.final_, slot, sk, signer );
 }
