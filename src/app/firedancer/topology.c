@@ -1282,9 +1282,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
-    /* TODO: make configurable + advertise in gossip contact-info.  Fixed
-       bring-up port for the Alpenglow consensus-message QUIC ingress. */
-    tile->net.alpenglow_listen_port            = 8004;
+    tile->net.alpenglow_listen_port            = config->tiles.alpenglow.listen_port;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 

@@ -287,7 +287,7 @@ queue_cert( fd_votor_tile_t * ctx, fd_cert_t const * cert ) {
 /* voter_stake looks up the stake of validator v in the active epoch info, or
    0 if v is out of range. */
 
-static inline ulong
+static inline ulong FD_FN_UNUSED
 voter_stake( fd_votor_tile_t * ctx, ulong v ) {
   if( FD_UNLIKELY( !ctx->epoch_info || v>=ctx->epoch_info->validator_cnt ) ) return 0UL;
   return fd_epoch_info_validator( ctx->epoch_info, v )->stake;
@@ -613,7 +613,7 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
   (void)ctx;
   if( FD_UNLIKELY( sz<sizeof(uint) ) ) return;
   uint kind = FD_LOAD( uint, payload );
-  char const * kind_str = kind==0U ? "Vote" : ( kind==1U ? "Certificate" : "unknown" );
+  char const * kind_str = kind==FD_CONSENSUS_MESSAGE_VOTE ? "Vote" : ( kind==FD_CONSENSUS_MESSAGE_CERT ? "Certificate" : "unknown" );
   FD_LOG_NOTICE(( "alpenglow consensus message rx: kind=%u (%s) sz=%lu", kind, kind_str, sz ));
 }
 
