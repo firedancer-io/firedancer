@@ -691,6 +691,10 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
   }
 
+  char const * one_offs[ 16UL ];
+  for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
+  fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
+
   fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
   fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
@@ -970,8 +974,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   FD_TEST( meta->bootstrap && meta->has_lthash );
   FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( bank );
+  bank->f.slot = 0UL;
+  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
   static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
@@ -1109,8 +1115,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        possible solution is to get the block id of the snapshot slot
        from repair. */
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
-
-    fd_features_restore( bank, ctx->accdb );
 
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
@@ -2477,11 +2481,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->frontier_cnt = 0UL;
 
-  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
-  FD_TEST( bank );
-  bank->f.slot = 0UL;
-  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
-
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
   ctx->published_root_slot = ULONG_MAX;
@@ -2506,13 +2505,11 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  fd_features_t * features = &bank->f.features;
-  fd_features_enable_cleaned_up( features );
-
-  char const * one_off_features[ 16UL ];
-  FD_TEST( tile->replay.enable_features_cnt<=sizeof(one_off_features)/sizeof(one_off_features[0]) );
-  for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) one_off_features[ i ] = tile->replay.enable_features[i];
-  fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
+  FD_TEST( tile->replay.enable_features_cnt<=sizeof(ctx->enable_features)/sizeof(ctx->enable_features[0]) );
+  ctx->enable_features_cnt = tile->replay.enable_features_cnt;
+  for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) {
+    fd_memcpy( ctx->enable_features[ i ], tile->replay.enable_features[ i ], FD_BASE58_ENCODED_32_SZ );
+  }
 
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );

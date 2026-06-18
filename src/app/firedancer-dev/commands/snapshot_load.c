@@ -53,6 +53,13 @@ snapshot_load_topo( config_t * config ) {
       2UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
+  fd_topob_wksp( topo, "banks" );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks",
+      config->firedancer.runtime.max_live_slots,
+      config->firedancer.runtime.max_fork_width,
+      config->development.bench.larger_max_cost_per_block );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
+
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   /* metrics tile *****************************************************/
@@ -124,9 +131,11 @@ snapshot_load_topo( config_t * config ) {
 
   fd_topob_tile_uses( topo, snapin_tile, txncache_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapin_tile, accdb_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, banks_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, accdb_tile,  accdb_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.accdb_obj_id    = accdb_obj->id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
+  snapin_tile->snapin.banks_obj_id    = banks_obj->id;
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

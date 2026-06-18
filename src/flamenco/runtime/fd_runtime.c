@@ -19,6 +19,7 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "../features/fd_feature_snoop.h"
 
 #include "program/fd_precompiles.h"
 #include "program/vote/fd_vote_state_versioned.h"
@@ -1382,6 +1383,9 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   ulong capitalization = 0UL;
 
+  fd_feature_snoop_t feature_snoop[1];
+  fd_memset( feature_snoop, 0, sizeof(feature_snoop) );
+
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
@@ -1410,40 +1414,12 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
 
     } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      /* Feature Account */
-
-      /* Scan list of feature IDs to resolve address=>feature offset */
-      fd_feature_id_t const *found = NULL;
-      for( fd_feature_id_t const * id = fd_feature_iter_init();
-           !fd_feature_iter_done( id );
-           id = fd_feature_iter_next( id ) ) {
-        if( fd_pubkey_eq( &account->pubkey, &id->id ) ) {
-          found = id;
-          break;
-        }
-      }
-
-      if( found ) {
-        /* Load feature activation */
-        fd_feature_t feature[1];
-        if( FD_UNLIKELY( !fd_feature_decode( feature, acc_data, account->data_len ) ) ) {
-          FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, addr_b58 );
-          FD_LOG_WARNING(( "genesis contains corrupt feature account %s", addr_b58 ));
-          FD_LOG_HEXDUMP_ERR(( "data", acc_data, account->data_len ));
-        }
-        fd_features_t * features = &bank->f.features;
-        if( feature->is_active ) {
-          FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, pubkey_b58 );
-          FD_LOG_DEBUG(( "feature %s activated at slot %lu (genesis)", pubkey_b58, feature->activation_slot ));
-          fd_features_set( features, found, feature->activation_slot );
-        } else {
-          FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, pubkey_b58 );
-          FD_LOG_DEBUG(( "feature %s not activated (genesis)", pubkey_b58 ));
-          fd_features_set( features, found, ULONG_MAX );
-        }
-      }
+      fd_feature_snoop_account( feature_snoop, &account->pubkey, account->lamports,
+                                 account->owner.uc, acc_data, account->data_len );
     }
   }
+
+  fd_feature_snoop_finalize( &bank->f.features, bank->f.slot, &bank->f.epoch_schedule, feature_snoop );
 
   /* fd_refresh_vote_accounts is responsible for updating the vote
      states with the total amount of active delegated stake.  It does
@@ -1549,8 +1525,6 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
     fd_genesis_builtin( genesis, genesis_blob, builtin, i );
     fd_write_builtin_account( bank, accdb, capture_ctx, builtin->pubkey, builtin->data, builtin->data_len );
   }
-
-  fd_features_restore( bank, accdb );
 
   /* At this point, state related to the bank and the accounts db
      have been initialized and we are free to finish executing the
