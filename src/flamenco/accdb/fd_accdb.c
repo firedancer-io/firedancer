@@ -496,10 +496,15 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
   /* Release partitions that have been previously allocated.  Must hold
      partition_lock because partition_pool_ele_release mutates the
      pool free list.  Before releasing, unlink any partition that sits
-     on a compaction dlist (queued flag). */
+     on a compaction dlist (queued flag).
+
+     Release in descending index order so that the LIFO free list
+     re-acquires them in ascending order (P, P+1, P+2, ...).  This
+     keeps allocate_next_write in sync with snapwr, which advances
+     its flat file offset sequentially. */
   spin_lock_acquire( &shmem->partition_lock );
-  for( ulong p=recover->partition_max; p<cur_partition_max; p++ ) {
-    fd_accdb_partition_t * part = partition_pool_ele( accdb->partition_pool, p );
+  for( ulong p=cur_partition_max; p>recover->partition_max; p-- ) {
+    fd_accdb_partition_t * part = partition_pool_ele( accdb->partition_pool, p-1UL );
     if( FD_UNLIKELY( part->queued ) ) {
       compaction_dlist_ele_remove( accdb->compaction_dlist[ part->layer ], part, accdb->partition_pool );
     }
