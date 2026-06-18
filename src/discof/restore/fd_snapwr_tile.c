@@ -275,6 +275,7 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->in.pos = 0UL;
       fd_ssparse_init( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
