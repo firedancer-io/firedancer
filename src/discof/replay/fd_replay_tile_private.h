@@ -125,6 +125,9 @@ struct fd_replay_tile {
   ushort expected_shred_version;
   ushort ipecho_shred_version;
 
+  ulong enable_features_cnt;
+  char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
+
   /* A note on publishing ...
 
      The watermarks are used to publish our fork-aware structures.  For
