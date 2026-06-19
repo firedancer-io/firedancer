@@ -85,7 +85,7 @@ def update_db(url: str, output_path: Path, processor: Callable[[Path, Path], Non
 
 def main():
     print("Updating dbip.bin (this will take ~2-5 minutes)")
-    dbip_url = "https://github.com/sapics/ip-location-db/raw/refs/heads/main/dbip-city/dbip-city-ipv4.csv.gz"
+    dbip_url = "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.csv.gz"
     update_db(dbip_url, Path('src/disco/gui/dbip.bin.zst'), convert_dbip)
 
     with open('src/app/fdctl/version.mk', 'r') as f:
