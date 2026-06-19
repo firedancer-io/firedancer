@@ -95,9 +95,9 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 void
 fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t   * mleaders,
                                        fd_stake_weight_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKED_LEADERS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKED_LEADERS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
 
   mleaders->scratch->epoch             = msg->epoch;
   mleaders->scratch->start_slot        = msg->start_slot;
