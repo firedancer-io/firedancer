@@ -241,7 +241,7 @@ ulong * consumed_arr( fd_wksp_t * wksp, fd_forest_t * forest ) {
   ulong                        cnt      = fd_forest_pool_used( pool );
 
   FD_TEST( !fd_forest_frontier_verify( fd_forest_frontier_const( forest ), fd_forest_pool_max( pool ), pool ) );
-  ulong * arr = fd_wksp_alloc_laddr( wksp, 8, cnt, 42UL );
+  ulong * arr = fd_wksp_alloc_laddr( wksp, 8, cnt*sizeof(ulong), 42UL );
 
   ulong i = 0;
   for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( consumed, conspool );
