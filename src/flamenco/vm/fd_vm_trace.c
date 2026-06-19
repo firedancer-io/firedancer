@@ -12,6 +12,12 @@ static int
 fd_vm_trace_printf_append( char **      p,
                            char *       end,
                            char const * fmt,
+                           ... ) __attribute__((format(printf,3,4)));
+
+static int
+fd_vm_trace_printf_append( char **      p,
+                           char *       end,
+                           char const * fmt,
                            ... ) {
   if( FD_UNLIKELY( *p>=end ) ) return FD_VM_ERR_FULL;
 
