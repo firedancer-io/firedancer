@@ -399,7 +399,7 @@ struct fd_gui_peers_ctx {
     ulong epoch;
 
     ulong                stakes_cnt;
-    fd_gui_peers_voter_t stakes[ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   } epochs[ 2 ];
 
   union {
