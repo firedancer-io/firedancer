@@ -257,6 +257,10 @@ static ulong rserve_rps_valid_samples_idx = 0UL;
 static ulong rserve_rps_valid_samples[ 100UL ];
 static ulong rserve_rps_invalid_samples_idx = 0UL;
 static ulong rserve_rps_invalid_samples[ 100UL ];
+static ulong rserve_rps_miss_samples[ 100UL ];
+static ulong rserve_rps_sigvfy_samples[ 100UL ];
+static ulong rserve_rps_stale_samples[ 100UL ];
+static ulong rserve_rps_other_rej_samples[ 100UL ];
 
 #define RESET   "\033[0m"
 #define BOLD    "\033[1m"
@@ -940,12 +944,15 @@ write_rserve( config_t const * config,
   ulong rserve_tile_idx = fd_topo_find_tile( &config->topo, "rserve", 0UL );
   if( rserve_tile_idx==ULONG_MAX ) return 0UL;
 
-  (void)cur_tile;
+  ulong const * t = cur_tile + rserve_tile_idx*FD_METRICS_TOTAL_SZ;
 
   ulong shreds_stored_sum = 0UL;
   ulong num_stored_shreds = fd_ulong_min( shreds_stored_samples_idx, sizeof(shreds_stored_sample)/sizeof(shreds_stored_sample[0]));
   for( ulong i=0UL; i<num_stored_shreds; i++ ) shreds_stored_sum += shreds_stored_sample[ i ];
   char * shreds_stored = COUNTF( 100.0*(double)shreds_stored_sum/(double)num_stored_shreds );
+
+  ulong shreds_cur = t[ MIDX( GAUGE, RSERVE, SHREDS_CURRENT ) ];
+  ulong shreds_max = t[ MIDX( GAUGE, RSERVE, SHREDS_MAX     ) ];
 
   ulong valid_sum = 0UL;
   ulong num_valid_samples = fd_ulong_min( rserve_rps_valid_samples_idx, sizeof(rserve_rps_valid_samples)/sizeof(rserve_rps_valid_samples[0]) );
@@ -960,16 +967,51 @@ write_rserve( config_t const * config,
   ulong num_total_samples = fd_ulong_max( num_valid_samples, 1UL );
   char * total_str = COUNTF( 100.0*(double)(valid_sum+invalid_sum)/(double)num_total_samples );
 
+  ulong n_inv = fd_ulong_max( num_invalid_samples, 1UL );
+
+  ulong miss_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) miss_sum += rserve_rps_miss_samples[ i ];
+  char * miss_str = COUNTF( 100.0*(double)miss_sum/(double)n_inv );
+
+  ulong sigvfy_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) sigvfy_sum += rserve_rps_sigvfy_samples[ i ];
+  char * sigvfy_str = COUNTF( 100.0*(double)sigvfy_sum/(double)n_inv );
+
+  ulong stale_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) stale_sum += rserve_rps_stale_samples[ i ];
+  char * stale_str = COUNTF( 100.0*(double)stale_sum/(double)n_inv );
+
+  ulong other_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) other_sum += rserve_rps_other_rej_samples[ i ];
+  char * other_str = COUNTF( 100.0*(double)other_sum/(double)n_inv );
+
+  ulong  disk_used  = t[ MIDX( GAUGE, RSERVE, DISK_CURRENT_BYTES   ) ];
+  ulong  disk_alloc = t[ MIDX( GAUGE, RSERVE, DISK_ALLOCATED_BYTES ) ];
+  double disk_gb    = (double)disk_alloc/1e9;
+  double disk_pct   = disk_alloc ? 100.0*(double)disk_used/(double)disk_alloc : 0.0;
+
+  char * shreds_cur_str = COUNT( shreds_cur );
+  char * shreds_max_str = COUNT( shreds_max );
+
   PRINT( "🔧 " BOLD GREEN "RSERVE......" RESET UNBOLD
          " " BOLD "RX" UNBOLD " %s"
          " " BOLD "TX" UNBOLD " %s"
-         " " BOLD "STORED SHREDS" UNBOLD " %s /s"
-         " " BOLD "RPS" UNBOLD " %s (%s valid, %s invalid) /s" CLEARLN "\n",
+         " " BOLD "STORED SHREDS" UNBOLD " %s /s (%s / %s)"
+         " " BOLD "DISK" UNBOLD " %.1f GB (%4.1f%%)",
       DIFF_LINK_BYTES( "net_rserve", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
       DIFF_LINK_BYTES( "rserve_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
-      shreds_stored,
+      shreds_stored, shreds_cur_str, shreds_max_str,
+      disk_gb, disk_pct );
+  PRINT( " " BOLD "RPS" UNBOLD " %s (%s valid, %s invalid) /s" CLEARLN "\n",
       total_str, valid_str, invalid_str );
-  return 1U;
+
+  PRINT( "               "
+         " " BOLD "MISS"    UNBOLD " %s /s"
+         " " BOLD "SIGVFY"  UNBOLD " %s /s"
+         " " BOLD "STALE"   UNBOLD " %s /s"
+         " " BOLD "OTHER"   UNBOLD " %s /s" CLEARLN "\n",
+      miss_str, sigvfy_str, stale_str, other_str );
+  return 2U;
 }
 
 static uint
@@ -1487,7 +1529,30 @@ run( config_t const * config,
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_INVALID_TOKEN ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_NOT_FOR_US ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_OUTDATED ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_PING_CACHE_LOOKUP ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_INVALID_SHRED_INDEX ) ) );
+      {
+        ulong slot = rserve_rps_invalid_samples_idx % (sizeof(rserve_rps_miss_samples)/sizeof(rserve_rps_miss_samples[0]));
+        ulong const * prev = tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ;
+        ulong const * cur  = tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ;
+
+        rserve_rps_miss_samples[ slot ] = (ulong)(
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_PING ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_WINDOW ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_HIGHEST_WINDOW ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_ORPHAN ) ) );
+
+        rserve_rps_sigvfy_samples[ slot ] = (ulong)diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_SIGVERIFY ) );
+
+        rserve_rps_stale_samples[ slot ] = (ulong)diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_OUTDATED ) );
+
+        rserve_rps_other_rej_samples[ slot ] = (ulong)(
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_OWN_KEY ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_INVALID_TOKEN ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_NOT_FOR_US ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_INVALID_SHRED_INDEX ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_PING_CACHE_LOOKUP ) ) );
+      }
       rserve_rps_invalid_samples_idx++;
 
       /* Move cursor to top of dashboard and overwrite in place.
