@@ -2,6 +2,43 @@
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+
+#define FD_VM_TRACE_PRINTF_DATA_MAX (2048UL)
+#define FD_VM_TRACE_PRINTF_BUF_SZ   (1024UL + 6UL*FD_VM_TRACE_PRINTF_DATA_MAX)
+
+static int
+fd_vm_trace_printf_append( char **      p,
+                           char *       end,
+                           char const * fmt,
+                           ... ) {
+  if( FD_UNLIKELY( *p>=end ) ) return FD_VM_ERR_FULL;
+
+  ulong rem = (ulong)( end - *p );
+  va_list ap;
+  va_start( ap, fmt );
+  int ret = vsnprintf( *p, rem, fmt, ap );
+  va_end( ap );
+
+  if( FD_UNLIKELY( ret<0 ) ) return FD_VM_ERR_IO;
+  if( FD_UNLIKELY( (ulong)ret>=rem ) ) return FD_VM_ERR_FULL;
+
+  *p += (ulong)ret;
+  return FD_VM_SUCCESS;
+}
+
+static int
+fd_vm_trace_printf_append_char( char ** p,
+                                char *  end,
+                                char    c ) {
+  if( FD_UNLIKELY( *p>=end ) ) return FD_VM_ERR_FULL;
+  if( FD_UNLIKELY( (ulong)( end - *p )<2UL ) ) return FD_VM_ERR_FULL;
+  *(*p)++ = c;
+  **p = '\0';
+  return FD_VM_SUCCESS;
+}
+
 ulong
 fd_vm_trace_align( void ) {
   return 8UL;
@@ -184,8 +221,6 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
   return FD_VM_SUCCESS;
 }
 
-#include <stdio.h>
-
 int
 fd_vm_trace_printf( fd_vm_trace_t const *      trace,
                     fd_sbpf_syscalls_t const * syscalls ) {
@@ -278,20 +313,37 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       printf( "        %s: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ",
               event_type==FD_VM_TRACE_EVENT_TYPE_READ ? "R" : "W", event->vaddr, event_sz, prev_ic );
 
-      char buf[ 1024UL + 6UL*2048UL ]; /* 1KiB for overhead + 6 bytes for every byte of event_data_max */
+      char buf[ FD_VM_TRACE_PRINTF_BUF_SZ ];
+      char * end = buf + sizeof(buf);
 
       char * p = fd_cstr_init( buf );
-      if( !valid ) p = fd_cstr_append_char( p, '-' );
-      else {
-        for( ulong data_off=0UL; data_off<data_sz; data_off++ ) {
-          if( FD_UNLIKELY( (data_off & 0xfUL)==0UL ) ) p = fd_cstr_append_printf( p, "\n                0x%04lX:", data_off );
-          if( FD_UNLIKELY( (data_off & 0xfUL)==8UL ) ) p = fd_cstr_append_char( p, ' ' );
-          p = fd_cstr_append_printf( p, " %02X", (uint)data[ data_off ] );
-        }
-        if( FD_UNLIKELY( data_sz < event_sz ) )
-          p = fd_cstr_append_printf( p, "\n                ... omitted %lu bytes ...", event_sz - data_sz );
+      int append_err;
+      ulong print_data_sz = fd_ulong_min( data_sz, FD_VM_TRACE_PRINTF_DATA_MAX );
+
+      if( !valid ) {
+        append_err = fd_vm_trace_printf_append_char( &p, end, '-' );
+        if( FD_UNLIKELY( append_err ) ) return append_err;
       }
-      p = fd_cstr_append_char( p, '\n' );
+      else {
+        for( ulong data_off=0UL; data_off<print_data_sz; data_off++ ) {
+          if( FD_UNLIKELY( (data_off & 0xfUL)==0UL ) ) {
+            append_err = fd_vm_trace_printf_append( &p, end, "\n                0x%04lX:", data_off );
+            if( FD_UNLIKELY( append_err ) ) return append_err;
+          }
+          if( FD_UNLIKELY( (data_off & 0xfUL)==8UL ) ) {
+            append_err = fd_vm_trace_printf_append_char( &p, end, ' ' );
+            if( FD_UNLIKELY( append_err ) ) return append_err;
+          }
+          append_err = fd_vm_trace_printf_append( &p, end, " %02X", (uint)data[ data_off ] );
+          if( FD_UNLIKELY( append_err ) ) return append_err;
+        }
+        if( FD_UNLIKELY( print_data_sz < event_sz ) ) {
+          append_err = fd_vm_trace_printf_append( &p, end, "\n                ... omitted %lu bytes ...", event_sz - print_data_sz );
+          if( FD_UNLIKELY( append_err ) ) return append_err;
+        }
+      }
+      append_err = fd_vm_trace_printf_append_char( &p, end, '\n' );
+      if( FD_UNLIKELY( append_err ) ) return append_err;
       fd_cstr_fini( p );
 
       printf( "%s", buf );
