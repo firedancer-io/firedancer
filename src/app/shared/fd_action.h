@@ -72,7 +72,7 @@ union fdctl_args {
 
   struct {
     ulong cmd;
-    char  file_path[ 256 ];
+    char  file_path[ PATH_MAX ];
   } keys;
 
   struct {
