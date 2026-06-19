@@ -15,6 +15,16 @@ typedef enum {
   CMD_PUBKEY,
 } cmd_type_t;
 
+static int
+cstr_ncpy_check( char *       dst,
+                 char const * src,
+                 ulong        dst_sz ) {
+  if( FD_UNLIKELY( fd_cstr_nlen( src, dst_sz )>=dst_sz ) ) return 0;
+
+  fd_cstr_ncpy( dst, src, dst_sz );
+  return 1;
+}
+
 void
 keys_cmd_args( int *    pargc,
                char *** pargv,
@@ -26,14 +36,18 @@ keys_cmd_args( int *    pargc,
     (*pargv)++;
     if( FD_UNLIKELY( *pargc < 1 ) ) goto err;
     args->keys.cmd = CMD_NEW_KEY;
-    fd_memcpy( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) );
+    if( FD_UNLIKELY( !cstr_ncpy_check( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) ) ) ) {
+      FD_LOG_ERR(( "key file path too long" ));
+    }
   }
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pubkey"  ) ) ) {
     (*pargc)--;
     (*pargv)++;
     if( FD_UNLIKELY( *pargc < 1 ) ) goto err;
     args->keys.cmd = CMD_PUBKEY;
-    fd_memcpy( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) );
+    if( FD_UNLIKELY( !cstr_ncpy_check( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) ) ) ) {
+      FD_LOG_ERR(( "key file path too long" ));
+    }
   }
   else goto err;
 
