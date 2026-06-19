@@ -1704,7 +1704,7 @@ void
 fd_guih_handle_leader_schedule( fd_guih_t *                    gui,
                                fd_stake_weight_msg_t const * leader_schedule,
                                long                          now ) {
-  FD_TEST( leader_schedule->staked_vote_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( leader_schedule->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
   FD_TEST( leader_schedule->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = leader_schedule->epoch % 2UL;
