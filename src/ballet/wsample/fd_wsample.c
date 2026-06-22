@@ -162,11 +162,10 @@ static inline int
 compute_height( ulong   leaf_cnt,
                 ulong * out_height,
                 ulong * out_internal_cnt ) {
-  /* This max is a bit conservative.  The actual max is height <= 25,
-     and leaf_cnt < 5^25 approx 2^58.  A tree that large would take an
-     astronomical amount of memory, so we just retain this max for the
-     moment. */
-  if( FD_UNLIKELY( leaf_cnt >= UINT_MAX-2UL ) ) return -1;
+  /* If we made the sentinel values larger, we could take larger
+     leaf_cnt, but at INT_MAX this would still use an astronomical
+     amount of memory, so we retain ths max for the moment. */
+  if( FD_UNLIKELY( leaf_cnt >= (ulong)INT_MAX ) ) return -1;
 
   ulong height   = 0;
   ulong internal = 0UL;
@@ -294,6 +293,7 @@ fd_wsample_new_init( void             * shmem,
 
   fd_wsample_t *  sampler = (fd_wsample_t *)shmem;
 
+  sampler->total_cnt         = 0UL;
   sampler->total_weight      = 0UL;
   sampler->unremoved_cnt     = 0UL;
   sampler->unremoved_weight  = 0UL;
