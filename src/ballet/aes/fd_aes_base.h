@@ -5,6 +5,7 @@
 #include "../../util/sanitize/fd_msan.h"
 
 #define FD_AES_128_KEY_SZ (16UL)
+#define FD_AES_BLOCK_SZ   (16UL)
 
 /* Reference backend internals ****************************************/
 
