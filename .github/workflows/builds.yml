@@ -128,7 +128,7 @@ jobs:
       group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/submodule-init
 
@@ -191,7 +191,7 @@ jobs:
       group: fd-public-repo
     if: ${{ inputs.clang != 'none' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/submodule-init
 
@@ -257,7 +257,7 @@ jobs:
       matrix:
         gcc_version: [12]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/submodule-init
 
