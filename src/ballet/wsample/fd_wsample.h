@@ -37,14 +37,13 @@ typedef struct fd_wsample_private fd_wsample_t;
                  ((ele_cnt)<=    531441UL)?    66430UL :                   \
                  ((ele_cnt)<=   4782969UL)?   597871UL :                   \
                  ((ele_cnt)<=  43046721UL)?  5380840UL :                   \
-                 ((ele_cnt)<= 387420489UL)? 48427561UL :                   \
-                 ((ele_cnt)<=3486784401UL)?435848050UL : 3922632451UL ))   \
+                 ((ele_cnt)<= 387420489UL)? 48427561UL : 435848050UL  ))
 
 /* fd_wsample_{align, footprint} give the alignment and footprint
    respectively required to create a weighted sampler with at most
    ele_cnt stake weights.  If restore_enabled is zero, calls to
    wsample_restore_all will be no-ops, but the footprint required will
-   be smaller. ele_cnt in [0, UINT_MAX-2) (note, not ULONG MAX).
+   be smaller. ele_cnt in [0, INT_MAX) (note, not ULONG MAX).
 
    fd_wsample_{join,leave} join and leave a memory region formatted as a
    weighted sampler, respectively.  They both are simple casts.
@@ -95,7 +94,7 @@ void *            fd_wsample_delete   ( void * shmem  );
    weighted sampler to own its own rng, but this is done to facilitate
    sharing of rngs between weighted samplers, which is useful for
    Turbine.  ele_cnt specifies the number of elements that can be
-   sampled from and must be less than UINT_MAX.  If restore_enabled is
+   sampled from and must be less than INT_MAX.  If restore_enabled is
    set to 0, fd_wsample_restore_all will not work but the required
    footprint is smaller.  opt_hint gives a hint of the shape of the
    weights and the style of queries that will be most common; this hint

@@ -389,7 +389,7 @@ test_footprint( void ) {
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i, 0 ) == fd_wsample_footprint( i, 0 ) );
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i, 1 ) == fd_wsample_footprint( i, 1 ) );
   }
-  for( ulong i=729UL; i<UINT_MAX; i*=3UL ) {
+  for( ulong i=729UL; i<(ulong)INT_MAX; i*=3UL ) {
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 0 ) == fd_wsample_footprint( i-1UL, 0 ) );
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 1 ) == fd_wsample_footprint( i-1UL, 1 ) );
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i,     0 ) == fd_wsample_footprint( i,     0 ) );
@@ -397,7 +397,7 @@ test_footprint( void ) {
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i+1UL, 0 ) == fd_wsample_footprint( i+1UL, 0 ) );
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i+1UL, 1 ) == fd_wsample_footprint( i+1UL, 1 ) );
   }
-  for( ulong i=512UL; i<UINT_MAX; i*=2UL ) {
+  for( ulong i=512UL; i<(ulong)INT_MAX; i*=2UL ) {
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 0 ) == fd_wsample_footprint( i-1UL, 0 ) );
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 1 ) == fd_wsample_footprint( i-1UL, 1 ) );
     FD_TEST( FD_WSAMPLE_FOOTPRINT( i,     0 ) == fd_wsample_footprint( i,     0 ) );
