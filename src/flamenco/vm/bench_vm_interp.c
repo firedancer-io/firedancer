@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* syscall() from <unistd.h> */
 #include "fd_vm.h"
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
@@ -19,8 +20,6 @@
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-
-extern long syscall( long, ... );
 
 struct fd_perf_ctr {
   int fd_insn;
