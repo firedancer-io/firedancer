@@ -3,7 +3,7 @@
 
 #include "../../../ballet/aes/fd_aes_base.h"
 #include "../../../ballet/aes/fd_aes_gcm.h"
-#include "../../../ballet/hmac/fd_hmac.h"
+#include "../../../ballet/hmac/fd_hkdf.h"
 #include "../templ/fd_quic_parse_util.h"
 
 /* FD_QUIC_CRYPTO_V1_INITIAL_SALT is the salt to the initial secret
@@ -15,19 +15,12 @@ static uchar const FD_QUIC_CRYPTO_V1_INITIAL_SALT[ 20UL ] = {
     0xcc, 0xbb, 0x7f, 0x0a };
 
 static inline void
-fd_quic_hkdf_extract( void *       output,
-                      void const * salt,    ulong salt_sz,
-                      void const * conn_id, ulong conn_id_sz ) {
-  fd_hmac_sha256( conn_id, conn_id_sz, salt, salt_sz, output );
-}
-
-static inline void
 fd_quic_hkdf_expand_label( uchar *       out,
                            ulong         out_sz,
                            uchar const   secret[ 32 ],
                            char const *  label,
                            ulong         label_sz ) {
-  fd_tls_hkdf_expand_label( out, out_sz, secret, label, label_sz, NULL, 0UL );
+  fd_hkdf_expand_label_tls( out, out_sz, secret, label, label_sz, NULL, 0UL );
 }
 
 void
@@ -41,9 +34,9 @@ fd_quic_gen_initial_secrets(
      initial_salt = 0x38762cf7f55934b34d179ae6a4c80cadccbb7f0a */
   uchar const * initial_salt    = FD_QUIC_CRYPTO_V1_INITIAL_SALT;
   ulong         initial_salt_sz = sizeof(FD_QUIC_CRYPTO_V1_INITIAL_SALT);
-  fd_quic_hkdf_extract( secrets->initial_secret,
-                        initial_salt,            initial_salt_sz,
-                        conn_id,                 conn_id_sz );
+  fd_hkdf_extract( secrets->initial_secret,
+                   initial_salt, initial_salt_sz,
+                   conn_id,      conn_id_sz );
 
   uchar * read_secret   = secrets->secret[0][0];
   uchar * write_secret  = secrets->secret[0][1];

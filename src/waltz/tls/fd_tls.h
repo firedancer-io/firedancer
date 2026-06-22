@@ -190,7 +190,15 @@ fd_tls_sign( fd_tls_sign_t const * sign,
   sign->sign_fn( sign->ctx, sig, payload );
 }
 
-extern char const fd_tls13_cli_sign_prefix[ 98 ];
+static char const fd_tls13_cli_sign_prefix[ 98 ] =
+  "                                "  /* 32 spaces */
+  "                                "  /* 32 spaces */
+  "TLS 1.3, client CertificateVerify";
+
+static char const fd_tls13_srv_sign_prefix[ 98 ] =
+  "                                "  /* 32 spaces */
+  "                                "  /* 32 spaces */
+  "TLS 1.3, server CertificateVerify";
 
 /* Public API *********************************************************/
 
@@ -413,32 +421,6 @@ fd_tls_handshake( fd_tls_t const *  tls,
   else
     return fd_tls_client_handshake( tls, &handshake->cli, record, record_sz, encryption_level );
 }
-
-/* fd_tls_hkdf_expand_label implements the TLS 1.3 HKDF-Expand function
-   with SHA-256.  Writes the resulting hash to out.  secret is a 32 byte
-   secret value.  label points to the label string.  label_sz is the
-   number of chars in label (not including terminating NUL).  context
-   points to the context byte array.  context_sz is the number of bytes
-   in context.
-
-   Constraints:
-
-     out   !=NULL
-     secret!=NULL
-     label_sz  ==0 || label  !=NULL
-     context_sz==0 || context!=NULL
-     1<=out_sz    <=32
-     0<=label_sz  <=64
-     0<=context_sz<=64 */
-
-void *
-fd_tls_hkdf_expand_label( uchar *       out,
-                          ulong         out_sz,
-                          uchar const   secret[ static 32 ],
-                          char const *  label,
-                          ulong         label_sz,
-                          uchar const * context,
-                          ulong         context_sz );
 
 FD_PROTOTYPES_END
 
