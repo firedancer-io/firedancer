@@ -276,6 +276,11 @@ struct fd_bank {
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
+  /* Double merkle root (Alpenglow block id); seeded from the snapshot
+     manifest at boot, otherwise derived from shred reassembly at slot
+     completion. */
+  fd_hash_t block_id;
+
   /* Timestamps written and read only by replay */
 
   long first_fec_set_received_nanos;
@@ -321,7 +326,6 @@ struct fd_bank {
     fd_hard_fork_t         hard_forks[ FD_HARD_FORKS_MAX ]; /* never changes at runtime, required for snapshot creation */
     fd_hash_t              bank_hash;
     fd_hash_t              prev_bank_hash;
-    fd_hash_t              block_id; /* (r) double merkle root (Alpenglow block id); seeded from the snapshot manifest at boot, otherwise derived at slot completion */
     fd_epoch_schedule_t    epoch_schedule;
     fd_rent_t              rent;
     fd_sysvar_cache_t      sysvar_cache;

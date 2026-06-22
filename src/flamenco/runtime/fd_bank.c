@@ -528,6 +528,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->sibling_idx = null_idx;
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
+  fd_memset( &bank->block_id, 0, sizeof(bank->block_id) );
   bank->stake_rewards_fork_id             = UCHAR_MAX;
   bank->stake_delegations_fork_id         = USHORT_MAX;
   bank->new_votes_fork_id                 = USHORT_MAX;
@@ -1163,6 +1164,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      ulong        max_vote_accounts ) {
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
+  fd_memset( &bank->block_id, 0, sizeof(bank->block_id) );
 
   fd_top_votes_init( fd_type_pun( bank->top_votes_t_1_mem ) );
   fd_top_votes_init( fd_type_pun( bank->top_votes_t_2_mem ) );

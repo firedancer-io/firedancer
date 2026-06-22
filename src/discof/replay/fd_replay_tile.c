@@ -1028,7 +1028,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   /* Seed the genesis bank's block id so it can serve as parent_block_id
      for the first replayed block's double merkle tree. */
-  bank->f.block_id = initial_block_id;
+  bank->block_id = initial_block_id;
 
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
@@ -1154,7 +1154,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        merkle root, carried in the manifest) so it can serve as
        parent_block_id for the first replayed block's double merkle
        tree. */
-    bank->f.block_id = manifest_block_id;
+    bank->block_id = manifest_block_id;
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
@@ -1445,7 +1445,7 @@ finish_double_merkle( fd_replay_tile_t * ctx,
   fd_bank_t * bank            = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
   fd_bank_t * parent_bank     = fd_banks_bank_query( ctx->banks, bank->parent_idx );
   ulong       parent_slot     = parent_bank->f.slot;
-  fd_hash_t   parent_block_id = parent_bank->f.block_id;
+  fd_hash_t   parent_block_id = parent_bank->block_id;
   uint        fec_set_count   = (uint)fd_bmtree_commit_leaf_cnt( tree );
 
   fd_bmtree_node_t parent_info[1];
@@ -1557,7 +1557,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
        the block id. */
     fd_bank_t * bank  = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
     uchar * double_mr = finish_double_merkle( ctx, reasm_fec );
-    memcpy( bank->f.block_id.uc, double_mr, sizeof(fd_hash_t) );
+    memcpy( bank->block_id.uc, double_mr, sizeof(fd_hash_t) );
 
     FD_BASE58_ENCODE_32_BYTES( double_mr, double_mr_b58 );
     FD_LOG_NOTICE(( "slot %lu complete: double merkle root (block id) %s", reasm_fec->slot, double_mr_b58 ));
