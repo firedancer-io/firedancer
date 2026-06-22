@@ -371,6 +371,25 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         memcpy( out_fec->payload->bytes, popped_rec->payload, popped_rec->payload_sz );
       }
 
+      /* Match Agave's model of only parsing deshreddable batches.
+         Otherwise, Firedancer's eager per-FEC parsing might reject a
+         block for a bad FEC set that Agave simply doesn't parse at all.
+         A FEC set is deshreddable iff some FEC set at or after it in
+         the same slot carries DATA_COMPLETE.  Complete batches are
+         still fed one FEC set at a time.  Only the final, potentially
+         incomplete batch is held back.  fec_set_results were already
+         captured above, independent of the scheduler, so withholding
+         does not change them.  Agave likewise emits a fec_set_result
+         for every complete FEC set, deshreddable or not. */
+      int deshreddable = 0;
+      for( ulong j=0UL; j<completed_cnt; j++ ) {
+        if( completed[ j ].slot==popped_rec->slot && completed[ j ].fec_set_idx>=popped_rec->fec_set_idx && completed[ j ].data_complete ) {
+          deshreddable = 1;
+          break;
+        }
+      }
+      if( !deshreddable ) continue;
+
       /* Bank lineage comes from the reasm tree, like the replay tile.
          Reasm pops parents before children, so the parent's bank_idx
          was already recorded by the time we read it here. */
@@ -413,7 +432,9 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
       } else if( FD_LIKELY( bank_idx!=0UL ) ) {
         /* Harness stops at FEC ingest, so verify this slot's tick
-           window here; skip bank_idx 0 (reasm/sched root). */
+           window here; skip bank_idx 0 (reasm/sched root).  Only
+           complete batches reach this point, so this matches Agave's
+           model of only verifying deshredded batches. */
         if( fd_sched_block_verify_ticks( sched, bank_idx, 0UL, SLOT_MAX_TICK_HEIGHT, SLOT_HASHES_PER_TICK ) ) {
           effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
         }
