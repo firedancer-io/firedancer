@@ -49,14 +49,23 @@ struct fd_snapshot_manifest_vote_account {
   uchar node_account_pubkey[ 32UL ];
 
   ulong stake;
-  ulong last_slot;
-  long  last_timestamp;
 
   /* The commission rate (in basis points) of inflation rewards earned
      by the validator and deposited into the validator's vote account,
      from 0 to 10000 (representing 0% to 100%). The remaining percentage
      of inflation rewards is distributed to all delegated stake accounts
      by stake weight. */
+  ushort commission;
+};
+
+typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
+
+struct fd_snapshot_manifest_vote_account_full {
+  uchar  vote_account_pubkey[ 32UL ];
+  uchar  node_account_pubkey[ 32UL ];
+  ulong  stake;
+  ulong  last_slot;
+  long   last_timestamp;
   ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the
@@ -70,7 +79,7 @@ struct fd_snapshot_manifest_vote_account {
   epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
 };
 
-typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
+typedef struct fd_snapshot_manifest_vote_account_full fd_snapshot_manifest_vote_account_full_t;
 
 struct fd_snapshot_manifest_stake_delegation {
   /* The stake pubkey */
@@ -145,14 +154,9 @@ typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes
 
 struct fd_snapshot_manifest_epoch_stakes {
    /* The epoch for which these vote accounts and stakes are valid for */
-  ulong                              epoch;
+  ulong epoch;
   /* The total amount of active stake at the end of the given epoch.*/
-  ulong                              total_stake;
-
-  /* The vote accounts and their stakes for a given epoch.
-     FIXME: Snapshot manifest has to support a much larger bound. */
-  ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_EPOCH_VOTE_STAKES_MAX ];
+  ulong total_stake;
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -458,9 +462,10 @@ struct fd_snapshot_manifest {
   ulong                               vote_accounts_len;
   fd_snapshot_manifest_vote_account_t vote_accounts[ FD_VOTE_ACCOUNTS_MAX ];
 
-  /* FIXME: Make this unbounded or support a much larger bound. */
+  /* The number of stake-delegation records.  The records themselves are
+     streamed into the bank's stake_delegations during parse (see
+     fd_snapshot_manifest_stake_delegation) and are not stored here. */
   ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ FD_STAKE_DELEGATIONS_MAX ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily
