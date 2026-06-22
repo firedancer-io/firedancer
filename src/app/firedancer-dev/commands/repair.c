@@ -69,6 +69,7 @@ void
 resolve_gossip_entrypoints( config_t * config );
 
 #define MANIFEST_LOAD_MAX_SZ (2UL * FD_SHMEM_GIGANTIC_PAGE_SZ)
+#define REPAIR_EPOCH_VOTE_STAKES_MAX (40200UL)
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
 static int
@@ -101,10 +102,11 @@ repair_verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
 }
 
 static inline ulong
-repair_generate_epoch_info_msg( ulong                                       epoch,
-                                fd_epoch_schedule_t const *                 epoch_schedule,
-                                fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
-                                ulong *                                     epoch_info_msg_out ) {
+repair_generate_epoch_info_msg( ulong                                      epoch,
+                                fd_epoch_schedule_t const *                epoch_schedule,
+                                fd_snapshot_manifest_vote_stakes_t const * vote_stakes,
+                                ulong                                      vote_stakes_len,
+                                ulong *                                    epoch_info_msg_out ) {
   fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
   fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
 
@@ -116,12 +118,12 @@ repair_generate_epoch_info_msg( ulong                                       epoc
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
   ulong idx = 0UL;
-  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    ulong stake = epoch_stakes->vote_stakes[ i ].stake;
+  for( ulong i=0UL; i<vote_stakes_len; i++ ) {
+    ulong stake = vote_stakes[ i ].stake;
     if( FD_UNLIKELY( !stake ) ) continue;
     stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].id_key.uc, vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
     idx++;
   }
   epoch_info_msg->staked_vote_cnt = idx;
@@ -158,12 +160,33 @@ repair_load_manifest( fd_topo_t *  topo,
   FD_TEST( !fd_io_read( fd, buf, 0UL, MANIFEST_LOAD_MAX_SZ-1UL, &buf_sz ) );
   close( fd );
 
+  fd_snapshot_manifest_vote_stakes_t * vote_stakes =
+      aligned_alloc( alignof(fd_snapshot_manifest_vote_stakes_t),
+                     sizeof(fd_snapshot_manifest_vote_stakes_t)*FD_EPOCH_STAKES_LEN*REPAIR_EPOCH_VOTE_STAKES_MAX );
+  FD_TEST( vote_stakes );
+  ulong vote_stakes_len[ FD_EPOCH_STAKES_LEN ] = {0};
+
   fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new(
       aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
   FD_TEST( parser );
   fd_ssmanifest_parser_init( parser, manifest );
-  int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz );
-  FD_TEST( parser_err!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
+  uchar const * mbuf = buf;
+  ulong         mrem = buf_sz;
+  for(;;) {
+    fd_ssmanifest_parser_advance_result_t mres[1];
+    int pres = fd_ssmanifest_parser_consume( parser, mbuf, mrem, mres );
+    FD_TEST( pres!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
+    if( pres==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN || pres==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) break;
+    if( pres==FD_SSMANIFEST_PARSER_ADVANCE_VOTE_STAKES ) {
+      ulong slot = mres->vote_stakes.epoch_idx;
+      FD_TEST( slot<FD_EPOCH_STAKES_LEN );
+      ulong j = vote_stakes_len[ slot ]++;
+      FD_TEST( j<REPAIR_EPOCH_VOTE_STAKES_MAX );
+      vote_stakes[ slot*REPAIR_EPOCH_VOTE_STAKES_MAX + j ] = *mres->vote_stakes.vs;
+    }
+    mbuf += mres->consumed;
+    mrem -= mres->consumed;
+  }
   FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
   free( parser );
   free( buf );
@@ -228,7 +251,9 @@ repair_load_manifest( fd_topo_t *  topo,
   FD_TEST( cur_idx < FD_EPOCH_STAKES_LEN );
 
   ulong * epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
-  ulong epoch_sz = repair_generate_epoch_info_msg( epoch, schedule, &manifest->epoch_stakes[cur_idx], epoch_dst );
+  ulong epoch_sz = repair_generate_epoch_info_msg( epoch, schedule,
+                                                   &vote_stakes[ cur_idx*REPAIR_EPOCH_VOTE_STAKES_MAX ], vote_stakes_len[ cur_idx ],
+                                                   epoch_dst );
   fd_mcache_publish( epoch_link->mcache, epoch_link->depth, epoch_seq,
                      4UL, epoch_chunk, epoch_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   epoch_chunk = fd_dcache_compact_next( epoch_chunk, epoch_sz, epoch_chunk0, epoch_wmark );
@@ -240,7 +265,9 @@ repair_load_manifest( fd_topo_t *  topo,
     FD_TEST( next_idx < FD_EPOCH_STAKES_LEN );
 
     epoch_dst = fd_chunk_to_laddr( epoch_mem, epoch_chunk );
-    epoch_sz = repair_generate_epoch_info_msg( epoch + 1UL, schedule, &manifest->epoch_stakes[next_idx], epoch_dst );
+    epoch_sz = repair_generate_epoch_info_msg( epoch + 1UL, schedule,
+                                               &vote_stakes[ next_idx*REPAIR_EPOCH_VOTE_STAKES_MAX ], vote_stakes_len[ next_idx ],
+                                               epoch_dst );
     fd_mcache_publish( epoch_link->mcache, epoch_link->depth, epoch_seq,
                        4UL, epoch_chunk, epoch_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     epoch_chunk = fd_dcache_compact_next( epoch_chunk, epoch_sz, epoch_chunk0, epoch_wmark );
@@ -249,6 +276,7 @@ repair_load_manifest( fd_topo_t *  topo,
   }
   (void)epoch_chunk;
 
+  free( vote_stakes );
   free( manifest );
 }
 
