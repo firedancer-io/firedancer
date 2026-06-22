@@ -124,12 +124,12 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
    Example use:
    for( fd_stake_rewards_iter_init( stake_rewards, fork_idx, partition_idx );
-        !fd_stake_rewards_iter_done( stake_rewards, fork_idx );
+        !fd_stake_rewards_iter_done( stake_rewards );
         fd_stake_rewards_iter_next( stake_rewards, fork_idx ) ) {
      fd_pubkey_t pubkey;
      ulong       lamports;
      ulong       credits_observed;
-     fd_stake_rewards_iter_ele( iter, &pubkey, &lamports, &credits_observed );
+     fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &pubkey, &lamports, &credits_observed );
    }
    */
 
