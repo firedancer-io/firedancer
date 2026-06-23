@@ -14,10 +14,8 @@
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/fd_event_runtime.h"
-#include "../../flamenco/accdb/fd_accdb.h"
 
 #include <time.h>
-#include <limits.h>
 #include "generated/fd_execrp_tile_seccomp.h"
 
 /* The exec tile is responsible for executing single transactions.  The

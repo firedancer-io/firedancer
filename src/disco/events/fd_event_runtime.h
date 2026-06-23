@@ -11,8 +11,6 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "generated/fd_event_gen.h"
 
-#include <limits.h>
-
 FD_PROTOTYPES_BEGIN
 
 static inline int
