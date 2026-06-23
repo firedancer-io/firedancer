@@ -91,15 +91,25 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
    responsible for post-processing the aggregated weights to make sure
    they aren't inserted into any downstream data structures. */
 
+/* The epoch info message also carries one compressed BLS voting pubkey
+   per staked voter, appended after the id weights and indexed 1:1 with
+   the vote stake weights (fd_epoch_info_msg_stake_weights).  The votor
+   tile consumes these for vote-signature aggregation; other consumers
+   ignore the trailing array.  The array is provisioned for the VAT
+   voter cap. */
+#define FD_EPOCH_INFO_MAX_VOTERS    (2000UL)
+#define FD_EPOCH_INFO_BLS_PUBKEY_SZ (48UL)
+
 #define FD_EPOCH_INFO_MSG_HEADER_SZ (sizeof(fd_epoch_info_msg_t))
-#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t) + MAX_SHRED_DESTS * sizeof(fd_stake_weight_t))
+#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t) + MAX_SHRED_DESTS * sizeof(fd_stake_weight_t) + FD_EPOCH_INFO_MAX_VOTERS * FD_EPOCH_INFO_BLS_PUBKEY_SZ)
 #define FD_EPOCH_OUT_MTU            FD_EPOCH_INFO_MAX_MSG_SZ
 
 static inline ulong fd_epoch_info_msg_sz( ulong vote_cnt,
                                           ulong id_weight_cnt ) {
   return FD_EPOCH_INFO_MSG_HEADER_SZ +
          (vote_cnt * sizeof(fd_vote_stake_weight_t)) +
-         (id_weight_cnt * sizeof(fd_stake_weight_t));
+         (id_weight_cnt * sizeof(fd_stake_weight_t)) +
+         (vote_cnt * FD_EPOCH_INFO_BLS_PUBKEY_SZ);
 }
 
 static inline fd_vote_stake_weight_t *
@@ -110,6 +120,18 @@ fd_epoch_info_msg_stake_weights( fd_epoch_info_msg_t const * epoch_info_msg ) {
 static inline fd_stake_weight_t *
 fd_epoch_info_msg_id_weights( fd_epoch_info_msg_t const * epoch_info_msg ) {
   return (fd_stake_weight_t *)fd_type_pun( (uchar *)epoch_info_msg + FD_EPOCH_INFO_MSG_HEADER_SZ + epoch_info_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) );
+}
+
+/* fd_epoch_info_msg_bls_pubkeys returns the array of per-voter
+   compressed BLS voting pubkeys (FD_EPOCH_INFO_BLS_PUBKEY_SZ bytes
+   each), appended after the id weights and indexed 1:1 with
+   fd_epoch_info_msg_stake_weights (so entry i is the BLS key of voter
+   i). */
+static inline uchar *
+fd_epoch_info_msg_bls_pubkeys( fd_epoch_info_msg_t const * epoch_info_msg ) {
+  return (uchar *)fd_type_pun( (uchar *)epoch_info_msg + FD_EPOCH_INFO_MSG_HEADER_SZ +
+                               epoch_info_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) +
+                               epoch_info_msg->staked_id_cnt   * sizeof(fd_stake_weight_t) );
 }
 
 /* compute_id_weights_from_vote_weights() translates vote-based

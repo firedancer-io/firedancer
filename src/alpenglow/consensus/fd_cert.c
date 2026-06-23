@@ -205,34 +205,31 @@ fd_cert_check_threshold( fd_cert_t const * c, fd_epoch_info_t const * ei ) {
 }
 
 int
-fd_cert_check_sig( fd_cert_t const * c, fd_validator_info_t const * validators, ulong validator_cnt ) {
-  /* STUB aggsig: fd_aggsig_verify_bytes ignores the public keys and only checks
-     that the bitmask length equals pk_cnt (== validator_cnt).  Real BLS will
-     need the per-index voting pubkeys (validators[i].voting_pubkey); the pks
-     argument is left NULL here pending that work. */
-  (void)validators;
+fd_cert_check_sig( fd_cert_t const * c, fd_epoch_info_t const * epoch_info ) {
+  fd_aggsig_pk_t const * pks           = fd_epoch_info_voting_pubkeys( epoch_info );
+  ulong                  validator_cnt = epoch_info->validator_cnt;
   uchar buf[ FD_VOTE_PAYLOAD_MAX ];
   ulong sz;
   switch( c->discriminant ) {
   case FD_CERT_TYPE_NOTAR:
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, c->inner.notar.slot, &c->inner.notar.block_hash );
-    return fd_aggsig_verify_bytes( &c->inner.notar.agg_sig, buf, sz, NULL, validator_cnt );
+    return fd_aggsig_verify_bytes( &c->inner.notar.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_FAST_FINAL:
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, c->inner.fast_final.slot, &c->inner.fast_final.block_hash );
-    return fd_aggsig_verify_bytes( &c->inner.fast_final.agg_sig, buf, sz, NULL, validator_cnt );
+    return fd_aggsig_verify_bytes( &c->inner.fast_final.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_FINAL:
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_FINAL, c->inner.final_.slot, NULL );
-    return fd_aggsig_verify_bytes( &c->inner.final_.agg_sig, buf, sz, NULL, validator_cnt );
+    return fd_aggsig_verify_bytes( &c->inner.final_.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_NOTAR_FALLBACK: {
     fd_notar_fallback_cert_t const * n = &c->inner.notar_fallback;
     int ok = 1;
     if( n->has_agg_sig_notar ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, n->slot, &n->block_hash );
-      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar, buf, sz, pks, validator_cnt );
     }
     if( n->has_agg_sig_notar_fallback ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash );
-      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar_fallback, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar_fallback, buf, sz, pks, validator_cnt );
     }
     return ok;
   }
@@ -241,13 +238,114 @@ fd_cert_check_sig( fd_cert_t const * c, fd_validator_info_t const * validators, 
     int ok = 1;
     if( s->has_agg_sig_skip ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_SKIP, s->slot, NULL );
-      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip, buf, sz, pks, validator_cnt );
     }
     if( s->has_agg_sig_skip_fallback ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL );
-      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip_fallback, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip_fallback, buf, sz, pks, validator_cnt );
     }
     return ok;
   }
   }
+}
+
+/* deserializers */
+
+/* decode_base2_bitmap fills agg's signer bitmask + nbits from a Base2
+   bitmap: [u8 version=0][u16 LE nbits][ceil(nbits/8) payload bytes,
+   Lsb0 bit order].  agg->sig is left zeroed (caller fills it). */
+
+static int
+de_base2_bitmap( fd_aggsig_t * agg,
+                     uchar const * b,
+                     ulong         b_sz ) {
+  if( FD_UNLIKELY( b_sz<3UL    ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  if( FD_UNLIKELY( b[0]!=0     ) ) return FD_CERT_DE_ERR_UNSUPPORTED; /* 1==Base3 (mixed) */
+  ulong nbits      = (ulong)( (uint)b[1] | ((uint)b[2]<<8) );
+  if( FD_UNLIKELY( nbits>FD_AGGSIG_MAX_SIGNERS ) ) return FD_CERT_DE_ERR_MALFORMED;
+  ulong payload_sz = (nbits+7UL)/8UL;
+  if( FD_UNLIKELY( b_sz<3UL+payload_sz ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uchar const * bits = b+3UL;
+
+  fd_aggsig_init( agg, nbits ); /* sets nbits, zeroes bitmask and sig */
+
+  for( ulong i=0UL; i<nbits; i++ ) {
+    if( (bits[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
+  }
+  return FD_CERT_DE_SUCCESS;
+}
+
+int
+fd_cert_de( fd_cert_t *   out,
+            uchar const * in,
+            ulong         in_sz ) {
+  ulong off = 0UL;
+
+  /* cert_type: u32 LE tag + payload (Slot or Block). */
+  if( FD_UNLIKELY( in_sz<off+4UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uint tag = FD_LOAD( uint, in+off ); off += 4UL;
+
+  ulong     slot = 0UL;
+  fd_hash_t block_hash;
+  fd_memset( &block_hash, 0, sizeof(fd_hash_t) );
+
+  switch( tag ) {
+  case FD_CERT_TYPE_FINAL:
+  case FD_CERT_TYPE_SKIP:               /* Slot payload */
+    if( FD_UNLIKELY( in_sz<off+8UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+    slot = FD_LOAD( ulong, in+off ); off += 8UL;
+    break;
+  case FD_CERT_TYPE_FAST_FINAL:
+  case FD_CERT_TYPE_NOTAR:
+  case FD_CERT_TYPE_NOTAR_FALLBACK:
+  case FD_CERT_TYPE_GENESIS:            /* Block { slot, block_id } payload */
+    if( FD_UNLIKELY( in_sz<off+40UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+    slot = FD_LOAD( ulong, in+off ); off += 8UL;
+    fd_memcpy( block_hash.uc, in+off, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+    break;
+  default:
+    return FD_CERT_DE_ERR_MALFORMED;
+  }
+
+  /* TODO: NotarizeFallback & Skip needs base3 bitmap deser; genesis unsupported */
+  if( tag==FD_CERT_TYPE_NOTAR_FALLBACK ||
+      tag==FD_CERT_TYPE_SKIP           ||
+      tag==FD_CERT_TYPE_GENESIS        ) return FD_CERT_DE_ERR_UNSUPPORTED;
+
+  if( FD_UNLIKELY( in_sz<off+FD_AGGSIG_SIG_SZ ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uchar const * sig = in+off; off += FD_AGGSIG_SIG_SZ;
+
+  /* bitmap: wincode Vec<u8> = u64 LE length prefix + bytes */
+  if( FD_UNLIKELY( in_sz<off+8UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  ulong bm_len = FD_LOAD( ulong, in+off ); off += 8UL;
+  if( FD_UNLIKELY( in_sz<off+bm_len ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uchar const * bm = in+off;
+
+  fd_memset( out, 0, sizeof(fd_cert_t) );
+  fd_aggsig_t * agg;
+  switch( tag ) {
+  case FD_CERT_TYPE_FINAL:
+    out->discriminant      = FD_CERT_TYPE_FINAL;
+    out->inner.final_.slot = slot;
+    agg = &out->inner.final_.agg_sig;
+    break;
+  case FD_CERT_TYPE_FAST_FINAL:
+    out->discriminant                = FD_CERT_TYPE_FAST_FINAL;
+    out->inner.fast_final.slot       = slot;
+    out->inner.fast_final.block_hash = block_hash;
+    agg = &out->inner.fast_final.agg_sig;
+    break;
+  default: /* FD_CERT_TYPE_NOTAR */
+    out->discriminant           = FD_CERT_TYPE_NOTAR;
+    out->inner.notar.slot       = slot;
+    out->inner.notar.block_hash = block_hash;
+    agg = &out->inner.notar.agg_sig;
+    break;
+  }
+
+  int err = de_base2_bitmap( agg, bm, bm_len );
+  if( FD_UNLIKELY( err ) ) return err;
+  fd_memcpy( agg->sig, sig, FD_AGGSIG_SIG_SZ ); /* after init zeroed it */
+
+  return FD_CERT_DE_SUCCESS;
 }

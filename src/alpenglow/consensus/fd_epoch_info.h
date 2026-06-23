@@ -30,7 +30,8 @@ typedef struct fd_validator_info fd_validator_info_t;
 struct fd_epoch_info {
   ulong validator_cnt;
   ulong total_stake;
-  /* fd_validator_info_t validators[ validator_cnt ] follows immediately */
+  /* fd_validator_info_t validators    [ validator_cnt ] follows immediately */
+  /* fd_aggsig_pk_t      voting_pubkeys[ validator_cnt ] follows immediately */
 };
 typedef struct fd_epoch_info fd_epoch_info_t;
 
@@ -77,6 +78,15 @@ FD_FN_PURE static inline fd_validator_info_t const *
 fd_epoch_info_validator( fd_epoch_info_t const * ei, ulong id ) {
   FD_TEST( id<ei->validator_cnt );
   return fd_epoch_info_validators( ei ) + id;
+}
+
+/* fd_epoch_info_voting_pubkeys returns the contiguous array of BLS
+   voting pubkeys (one per validator, indexed by validator index), laid
+   out immediately after the validator array. */
+
+FD_FN_PURE static inline fd_aggsig_pk_t const *
+fd_epoch_info_voting_pubkeys( fd_epoch_info_t const * ei ) {
+  return (fd_aggsig_pk_t const *)( fd_epoch_info_validators( ei ) + ei->validator_cnt );
 }
 
 /* fd_epoch_info_leader returns the leader for slot (EpochInfo::leader),

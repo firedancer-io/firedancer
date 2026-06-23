@@ -643,7 +643,7 @@ fd_pool_add_cert( fd_pool_t *       pool,
   if( !fd_cert_check_threshold( cert, epoch_info( pool ) ) ) {
     return FD_POOL_ERR_THRESHOLD_NOT_MET;
   }
-  if( !fd_cert_check_sig( cert, fd_epoch_info_validators( epoch_info( pool ) ), epoch_info( pool )->validator_cnt ) ) {
+  if( !fd_cert_check_sig( cert, epoch_info( pool ) ) ) {
     return FD_POOL_ERR_INVALID_SIGNATURE;
   }
 

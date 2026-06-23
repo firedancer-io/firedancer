@@ -7,7 +7,11 @@ fd_epoch_info_align( void ) {
 
 ulong
 fd_epoch_info_footprint( ulong validator_cnt ) {
-  return sizeof(fd_epoch_info_t) + validator_cnt*sizeof(fd_validator_info_t);
+  /* header + validators[] + a contiguous copy of the BLS voting pubkeys
+     (indexed by validator index) for aggregate-signature verification. */
+  return sizeof(fd_epoch_info_t)
+       + validator_cnt*sizeof(fd_validator_info_t)
+       + validator_cnt*sizeof(fd_aggsig_pk_t);
 }
 
 void *
@@ -20,13 +24,15 @@ fd_epoch_info_new( void *                      mem,
   }
   FD_TEST( validator_cnt>0UL );
 
-  fd_epoch_info_t *     ei = (fd_epoch_info_t *)mem;
-  fd_validator_info_t * v  = (fd_validator_info_t *)(ei+1);
+  fd_epoch_info_t *     ei  = (fd_epoch_info_t *)mem;
+  fd_validator_info_t * v   = (fd_validator_info_t *)(ei+1);
+  fd_aggsig_pk_t *      vpk = (fd_aggsig_pk_t *)(v+validator_cnt); /* contiguous voting pubkeys */
 
   ulong total = 0UL;
   for( ulong i=0UL; i<validator_cnt; i++ ) {
     FD_TEST( validators[i].id==i ); /* EpochInfo::new: id must match index */
     v[i]   = validators[i];
+    vpk[i] = validators[i].voting_pubkey; /* contiguous copy for aggregate verify */
     total += validators[i].stake;
   }
   ei->validator_cnt = validator_cnt;

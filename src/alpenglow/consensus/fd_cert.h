@@ -22,17 +22,26 @@
 #include "fd_vote.h"
 #include "fd_epoch_info.h"
 
-#define FD_CERT_TYPE_NOTAR          (0U)
-#define FD_CERT_TYPE_NOTAR_FALLBACK (1U)
-#define FD_CERT_TYPE_SKIP           (2U)
-#define FD_CERT_TYPE_FAST_FINAL     (3U)
-#define FD_CERT_TYPE_FINAL          (4U)
+/* Matches wire format enum CertificateType */
+#define FD_CERT_TYPE_FINAL          (0U)
+#define FD_CERT_TYPE_FAST_FINAL     (1U)
+#define FD_CERT_TYPE_NOTAR          (2U)
+#define FD_CERT_TYPE_NOTAR_FALLBACK (3U)
+#define FD_CERT_TYPE_SKIP           (4U)
+#define FD_CERT_TYPE_GENESIS        (5U)
 
 /* CertError (cert.rs). */
 
 #define FD_CERT_SUCCESS              ( 0)
 #define FD_CERT_ERR_SLOT_MISMATCH    (-1)
 #define FD_CERT_ERR_BLOCK_HASH_MISMATCH (-2)
+
+/* fd_cert_de (deserialization) err codes. */
+
+#define FD_CERT_DE_SUCCESS         ( 0)
+#define FD_CERT_DE_ERR_TRUNCATED   (-1) /* input shorter than the encoding requires */
+#define FD_CERT_DE_ERR_MALFORMED   (-2) /* bad tag / version / out-of-range count    */
+#define FD_CERT_DE_ERR_UNSUPPORTED (-3) /* mixed (base3) or genesis cert not yet done */
 
 struct fd_notar_cert {
   ulong       slot;
@@ -136,11 +145,22 @@ FD_FN_PURE int fd_cert_is_signer( fd_cert_t const * c, ulong v );
 
 int fd_cert_check_threshold( fd_cert_t const * c, fd_epoch_info_t const * epoch_info );
 
-/* fd_cert_check_sig returns 1 iff c's aggregate signatures are valid against
-   the per-index voting public keys in validators[0,validator_cnt).  Mirrors
-   Cert::check_sig.  (STUB aggsig: structural check then accept.) */
+/* fd_cert_check_sig returns 1 iff c's signature validates.  Requires
+   the ranked BLS pubkeys in the epoch. */
 
-int fd_cert_check_sig( fd_cert_t const * c, fd_validator_info_t const * validators, ulong validator_cnt );
+int fd_cert_check_sig( fd_cert_t const * c, fd_epoch_info_t const * epoch_info );
+
+/* fd_cert_decode deserializes the wire format of a Certificate into the
+   internal fd_cert_t. Note the wire format is defined in agave
+   votor-messages/src/certificate.rs.
+
+   Only the single-payload certs (Finalize, FinalizeFast, Notarize;
+   Base2 bitmap) are handled.  NotarizeFallback / Skip (Base3) and
+   Genesis return FD_CERT_WIRE_ERR_UNSUPPORTED.  Returns
+   FD_CERT_WIRE_SUCCESS or a negative FD_CERT_WIRE_ERR_*; out is valid
+   only on success. */
+
+int fd_cert_de( fd_cert_t * out, uchar const * in, ulong in_sz );
 
 FD_PROTOTYPES_END
 
