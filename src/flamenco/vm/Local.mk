@@ -24,4 +24,5 @@ endif
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pointer_chase,test_pointer_chase,fd_util)
 $(call run-unit-test,test_pointer_chase)
+$(call make-unit-test,test_vm_pkey,test_vm_pkey,fd_util)
 endif
