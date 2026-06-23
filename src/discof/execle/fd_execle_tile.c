@@ -14,7 +14,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
-#include "../../disco/events/fd_event_runtime.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 #include <time.h>
 #include "generated/fd_execle_tile_seccomp.h"
 

@@ -1,5 +1,5 @@
 #include "fd_runtime.h"
-#include "../../disco/events/fd_event_runtime.h"
+#include "../events/fd_event_runtime.h"
 
 #include "../types/fd_cast.h"
 #include "fd_alut.h"

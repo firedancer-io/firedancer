@@ -1,15 +1,15 @@
-#ifndef HEADER_fd_src_disco_events_fd_event_runtime_h
-#define HEADER_fd_src_disco_events_fd_event_runtime_h
+#ifndef HEADER_fd_src_flamenco_events_fd_event_runtime_h
+#define HEADER_fd_src_flamenco_events_fd_event_runtime_h
 
 /* fd_event_runtime.h provides the shared helpers used by the
    exec-replay (execrp) and exec-leader (execle) tiles to convert
    runtime events and emit them on the tile's event link. */
 
-#include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_err.h"
-#include "../../flamenco/runtime/fd_executor_err.h"
-#include "../../flamenco/runtime/fd_bank.h"
-#include "generated/fd_event_gen.h"
+#include "../runtime/fd_runtime.h"
+#include "../runtime/fd_runtime_err.h"
+#include "../runtime/fd_executor_err.h"
+#include "../runtime/fd_bank.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -128,4 +128,4 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_disco_events_fd_event_runtime_h */
+#endif /* HEADER_fd_src_flamenco_events_fd_event_runtime_h */
