@@ -61,50 +61,37 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
 #define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (221UL)
 
 /* Transaction execution error (success when transaction succeeded) */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS                                  (1) /* transaction succeeded */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_IN_USE                           (2) /* account in use */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_LOADED_TWICE                     (3) /* account loaded twice */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_NOT_FOUND                        (4) /* account not found */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND                (5) /* program account not found */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE               (6) /* insufficient funds for fee */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ACCOUNT_FOR_FEE                  (7) /* invalid account for fee */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ALREADY_PROCESSED                        (8) /* already processed */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NOT_FOUND                      (9) /* blockhash not found */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSTRUCTION_ERROR                        (10) /* instruction error */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_CALL_CHAIN_TOO_DEEP                      (11) /* call chain too deep */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_MISSING_SIGNATURE_FOR_FEE                (12) /* missing signature for fee */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ACCOUNT_INDEX                    (13) /* invalid account index */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SIGNATURE_FAILURE                        (14) /* signature failure */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION            (15) /* invalid program for execution */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SANITIZE_FAILURE                         (16) /* sanitize failure */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_CLUSTER_MAINTENANCE                      (17) /* cluster maintenance */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_BORROW_OUTSTANDING               (18) /* account borrow outstanding */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT        (19) /* would exceed max block cost limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_UNSUPPORTED_VERSION                      (20) /* unsupported version */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_WRITABLE_ACCOUNT                 (21) /* invalid writable account */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT      (22) /* would exceed max account cost limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT    (23) /* would exceed account data block limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS                   (24) /* too many account locks */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND           (25) /* address lookup table not found */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER       (26) /* invalid address lookup table owner */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA        (27) /* invalid address lookup table data */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX       (28) /* invalid address lookup table index */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_RENT_PAYING_ACCOUNT              (29) /* invalid rent paying account */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT         (30) /* would exceed max vote cost limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT    (31) /* would exceed account data total limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_DUPLICATE_INSTRUCTION                    (32) /* duplicate instruction */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT              (33) /* insufficient funds for rent */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED   (34) /* max loaded accounts data size exceeded */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT  (35) /* invalid loaded accounts data size limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_RESANITIZATION_NEEDED                    (36) /* resanitization needed */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED (37) /* program execution temporarily restricted */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_UNBALANCED_TRANSACTION                   (38) /* unbalanced transaction */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT              (39) /* program cache hit max limit */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_COMMIT_CANCELLED                         (40) /* commit cancelled */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BUNDLE_PEER                              (41) /* bundle peer */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED         (42) /* blockhash nonce already advanced */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR       (43) /* blockhash fail advance nonce instr */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE               (44) /* blockhash fail wrong nonce */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS                                 (1) /* Transaction succeeded */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_LOADED_TWICE                    (2) /* A Pubkey appears twice in the transaction's account_keys */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_NOT_FOUND                       (3) /* Attempt to debit an account but found no record of a prior credit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND               (4) /* Attempt to load a program that does not exist */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE              (5) /* Fee payer has insufficient lamports to cover the transaction fee */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ACCOUNT_FOR_FEE                 (6) /* This account may not be used to pay transaction fees */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ALREADY_PROCESSED                       (7) /* The bank has seen this transaction before */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NOT_FOUND                     (8) /* The bank has not seen the given recent_blockhash or the transaction is too old and the recent_blockhash has been discarded. */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSTRUCTION_ERROR                       (9) /* An error occurred while processing an instruction, look at exec_err for more details */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SIGNATURE_FAILURE                       (10) /* Transaction did not pass signature verification */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION           (11) /* This program may not be used for executing instructions */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SANITIZE_FAILURE                        (12) /* Transaction failed to sanitize accounts offsets correctly */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT       (13) /* Transaction would exceed max Block Cost Limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT     (14) /* Transaction would exceed max account limit within the block */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT   (15) /* Transaction would exceed account data limit within the block */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS                  (16) /* Transaction locked too many accounts */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND          (17) /* Transaction loads an address table account that doesn't exist */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER      (18) /* Transaction loads an address table account with an invalid owner */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA       (19) /* Transaction loads an address table account with invalid data */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX      (20) /* Transaction address table lookup uses an invalid index */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT        (21) /* Transaction would exceed max Vote Cost Limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT   (22) /* Transaction would exceed total account data limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_DUPLICATE_INSTRUCTION                   (23) /* Transaction contains a duplicate instruction that is not allowed */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT             (24) /* Transaction results in an account with insufficient funds for rent */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED  (25) /* Transaction exceeded max loaded accounts data size cap */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (26) /* Transaction requested a zero loaded-accounts-data-size limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_UNBALANCED_TRANSACTION                  (27) /* Sum of account balances before and after transaction do not match */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BUNDLE_PEER                             (28) /* Transaction was part of a Jito bundle in which another transaction failed */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED        (29) /* Durable-nonce txn was rejected because its nonce account has already been advanced */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR      (30) /* Durable-nonce txn failed to advance its nonce account */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE              (31) /* Durable-nonce txn's recent_blockhash did not match the stored nonce */
 
 /* Instruction execution error; only meaningful when txn_err = instruction_error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_SUCCESS                            (1) /* instruction succeeded */
@@ -124,44 +111,37 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXTERNAL_DATA_MODIFIED             (15) /* Program modified the data of an account that doesn't belong to it */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_READONLY_LAMPORT_CHANGE            (16) /* Read-only account's lamports modified */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_READONLY_DATA_MODIFIED             (17) /* Read-only account's data was modified */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_DUPLICATE_ACCOUNT_IDX              (18) /* An account was referenced more than once in a single instruction. Deprecated. */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_MODIFIED                (19) /* Executable bit on account changed, but shouldn't have */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_RENT_EPOCH_MODIFIED                (20) /* Rent_epoch account changed, but shouldn't have */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_NOT_ENOUGH_ACC_KEYS                (21) /* The instruction expected additional account keys */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_DATA_SIZE_CHANGED              (22) /* Program other than the account's owner changed the size of the account data */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_NOT_EXECUTABLE                 (23) /* The instruction expected an executable account */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_FAILED                  (24) /* Failed to borrow a reference to account data, already borrowed */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_OUTSTANDING             (25) /* Account data has an outstanding reference after a program's execution */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_DUPLICATE_ACCOUNT_OUT_OF_SYNC      (26) /* The same account was multiply passed to an on-chain program's entrypoint, but the program modified them differently. */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_CUSTOM_ERR                         (27) /* Allows on-chain programs to implement program-specific error types and see them returned by the runtime. */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ERR                        (28) /* The return value from the program was invalid. */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_DATA_MODIFIED           (29) /* Executable account's data was modified */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_LAMPORT_CHANGE          (30) /* Executable account's lamports modified */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT (31) /* Executable accounts must be rent exempt */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_PROGRAM_ID             (32) /* Unsupported program id */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_CALL_DEPTH                         (33) /* Cross-program invocation call depth too deep */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MISSING_ACC                        (34) /* An account required by the instruction is missing */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_REENTRANCY_NOT_ALLOWED             (35) /* Cross-program invocation reentrancy not allowed for this instruction */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_SEED_LENGTH_EXCEEDED           (36) /* Length of the seed is too long for address generation */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_SEEDS                      (37) /* Provided seeds do not result in a valid address */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_REALLOC                    (38) /* Failed to reallocate account data of this length */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_COMPUTE_BUDGET_EXCEEDED            (39) /* Computational budget exceeded */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PRIVILEGE_ESCALATION               (40) /* Cross-program invocation with unauthorized signer or writable account */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  (41) /* Failed to create program execution environment */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_FAILED_TO_COMPLETE         (42) /* Program failed to complete */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_FAILED_TO_COMPILE          (43) /* Program failed to compile */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_IMMUTABLE                      (44) /* Account is immutable */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INCORRECT_AUTHORITY                (45) /* Incorrect authority provided */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BORSH_IO_ERROR                     (46) /* Failed to serialize or deserialize account data */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_NOT_RENT_EXEMPT                (47) /* An account does not have enough lamports to be rent-exempt */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ACC_OWNER                  (48) /* Invalid account owner */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ARITHMETIC_OVERFLOW                (49) /* Program arithmetic overflowed */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_SYSVAR                 (50) /* Unsupported sysvar */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ILLEGAL_OWNER                      (51) /* Provided owner is not allowed */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED      (52) /* Account data allocation exceeded the maximum accounts data size limit */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_EXCEEDED                  (53) /* Max accounts exceeded */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       (54) /* Max instruction trace length exceeded */
-#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BUILTINS_MUST_CONSUME_CUS          (55) /* Builtin programs must consume compute units */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_MODIFIED                (18) /* Executable bit on account changed, but shouldn't have */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_NOT_ENOUGH_ACC_KEYS                (19) /* The instruction expected additional account keys */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_DATA_SIZE_CHANGED              (20) /* Program other than the account's owner changed the size of the account data */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_FAILED                  (21) /* Failed to borrow a reference to account data, already borrowed */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_OUTSTANDING             (22) /* Account data has an outstanding reference after a program's execution */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_CUSTOM_ERR                         (23) /* Allows on-chain programs to implement program-specific error types and see them returned by the runtime. */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ERR                        (24) /* The return value from the program was invalid. */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT (25) /* Executable accounts must be rent exempt */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_PROGRAM_ID             (26) /* Unsupported program id */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_CALL_DEPTH                         (27) /* Cross-program invocation call depth too deep */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MISSING_ACC                        (28) /* An account required by the instruction is missing */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_REENTRANCY_NOT_ALLOWED             (29) /* Cross-program invocation reentrancy not allowed for this instruction */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_SEED_LENGTH_EXCEEDED           (30) /* Length of the seed is too long for address generation */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_SEEDS                      (31) /* Provided seeds do not result in a valid address */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_REALLOC                    (32) /* Failed to reallocate account data of this length */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_COMPUTE_BUDGET_EXCEEDED            (33) /* Computational budget exceeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PRIVILEGE_ESCALATION               (34) /* Cross-program invocation with unauthorized signer or writable account */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  (35) /* Failed to create program execution environment */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_FAILED_TO_COMPLETE         (36) /* Program failed to complete */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_IMMUTABLE                      (37) /* Account is immutable */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INCORRECT_AUTHORITY                (38) /* Incorrect authority provided */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BORSH_IO_ERROR                     (39) /* Failed to serialize or deserialize account data */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_NOT_RENT_EXEMPT                (40) /* An account does not have enough lamports to be rent-exempt */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ACC_OWNER                  (41) /* Invalid account owner */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ARITHMETIC_OVERFLOW                (42) /* Program arithmetic overflowed */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_SYSVAR                 (43) /* Unsupported sysvar */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ILLEGAL_OWNER                      (44) /* Provided owner is not allowed */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED      (45) /* Account data allocation exceeded the maximum accounts data size limit */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_EXCEEDED                  (46) /* Max accounts exceeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       (47) /* Max instruction trace length exceeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BUILTINS_MUST_CONSUME_CUS          (48) /* Builtin programs must consume compute units */
 
 /* Source kind of exec_err; only meaningful when txn_err = instruction_error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_NONE    (1) /* no instruction error */
