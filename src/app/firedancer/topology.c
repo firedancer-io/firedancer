@@ -36,9 +36,11 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 extern fd_topo_run_tile_t *      TILES[];
 
 static ulong
-tile_max_event_sz( char const * name ) {
+tile_max_event_sz( fd_topo_tile_t const * tile ) {
   for( fd_topo_run_tile_t ** t=TILES; *t; t++ ) {
-    if( FD_UNLIKELY( !strcmp( (*t)->name, name ) ) ) return (*t)->max_event_sz;
+    if( FD_UNLIKELY( !strcmp( (*t)->name, tile->name ) ) ) {
+      return (*t)->max_event_sz ? (*t)->max_event_sz( tile ) : 0UL;
+    }
   }
   return 0UL;
 }
@@ -52,7 +54,7 @@ wire_event_links( fd_topo_t * topo ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) continue;
 
-    ulong max_sz = tile_max_event_sz( tile->name );
+    ulong max_sz = tile_max_event_sz( tile );
     if( FD_LIKELY( !max_sz ) ) continue;
 
     char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
@@ -884,8 +886,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_out( topo, "event",  0UL,              "event_sign", 0UL                                         );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     fd_topob_tile_out( topo, "sign",   0UL,              "sign_event", 0UL                                         );
-
-    wire_event_links( topo );
   }
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
@@ -1230,6 +1230,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
     if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, "gui" ) ) ) topo->tiles[ i ].gui.tile_cnt = topo->tile_cnt;
   }
+
+  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
   fd_topob_finish( topo, CALLBACKS );

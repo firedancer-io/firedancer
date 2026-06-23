@@ -735,8 +735,7 @@ typedef struct {
   ulong        rlimit_nproc;
   int          for_tpool;
 
-  ulong        max_event_sz;
-
+  ulong (*max_event_sz            )( fd_topo_tile_t const * tile );
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );

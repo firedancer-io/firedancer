@@ -836,13 +836,18 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile ) {
+  return tile->execle.report_transaction_diffs ? sizeof(fd_event_runtime_txn_t) : 0UL;
+}
+
 fd_topo_run_tile_t fd_tile_execle = {
   .name                     = "execle",
+  .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
-  .max_event_sz             = sizeof(fd_event_runtime_txn_t),
 };
