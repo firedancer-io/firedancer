@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_pidns_arm64_instr_cnt = 28;
+static const uint sock_filter_policy_pidns_arm64_instr_cnt = 30;
 
-static void populate_sock_filter_policy_pidns_arm64( ulong out_cnt, struct sock_filter out[ static 28 ], uint logfile_fd ) {
-  FD_TEST( out_cnt >= 28 );
-  struct sock_filter filter[28] = {
+static void populate_sock_filter_policy_pidns_arm64( ulong out_cnt, struct sock_filter out[ static 30 ], uint logfile_fd ) {
+  FD_TEST( out_cnt >= 30 );
+  struct sock_filter filter[30] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 6 ),
@@ -44,11 +44,11 @@ static void populate_sock_filter_policy_pidns_arm64( ulong out_cnt, struct sock_
     /* check write */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 6, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 11, 0 ),
     /* allow ppoll */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ppoll, /* RET_ALLOW */ 3, 0 ),
     /* check wait4 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_wait4, /* check_wait4 */ 12, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_wait4, /* check_wait4 */ 13, 0 ),
     /* allow exit_group */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit_group, /* RET_ALLOW */ 1, 0 ),
 //  RET_KILL_PROCESS:
@@ -60,8 +60,10 @@ static void populate_sock_filter_policy_pidns_arm64( ulong out_cnt, struct sock_
 //  check_write:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 2, /* or_eq_next_lo_1 */ 0 ),
-//  or_eq_next_lo_1:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 3, /* or_1 */ 0 ),
+//  or_1:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -78,8 +80,10 @@ static void populate_sock_filter_policy_pidns_arm64( ulong out_cnt, struct sock_
 //  check_wait4:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO((int)__WALL | (int)WNOHANG), /* and_2 */ 1, /* or_eq_next_lo_3 */ 0 ),
-//  or_eq_next_lo_3:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO((int)__WALL | (int)WNOHANG), /* and_2 */ 2, /* or_3 */ 0 ),
+//  or_3:
+    /* arg 2 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO((int)__WALL), /* and_2 */ 0, /* wait4_KILL */ 4 ),
 //  and_2:
     /* arg 3 high 32 bits */
