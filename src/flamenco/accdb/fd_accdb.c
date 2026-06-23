@@ -1097,43 +1097,34 @@ acc_unlink( fd_accdb_t * accdb,
       }
     }
     else if( FD_LIKELY( old_rc!=FD_ACCDB_EVICT_SENTINEL ) ) {
-      /* Pinned by an active reader.  We cannot reclaim the line, but
-         its accmeta slot is about to be deferred-released and recycled.
-         If we just skipped, a later writeback of this still dirty line
-         would pair the recycled accmeta's pubkey with the old account's
-         owner and data, a silent corruption.  Mark the line persisted so
-         the writeback gate never fires.
+      /* The CAS lost to a non-sentinel refcnt, but that does not prove
+         `stale` is still our line.  Between capturing cidx and here we
+         released the claim, so we could have evicted `stale` and
+         recycled it to an unrelated account. */
+      fd_accdb_cache_line_t * mine = cache_try_pin( stale, accmeta->key.pubkey, accmeta->key.generation );
+      if( FD_LIKELY( mine ) ) {
+        /* Genuinely our line, still pinned by a reader.  The accmeta
+           slot is about to be deferred-released and recycled; if a
+           later writeback of this dirty line fires, it would pair the
+           recycled accmeta's pubkey with the old owner/data.  Set
+           persisted so the writeback gate never fires. */
+        FD_VOLATILE( mine->persisted ) = 1;
 
-         This is the only case that needs neutralizing: a reader's pin
-         does not keep the slot alive, so the slot can recycle under it.
+        /* Only the tombstone self-unlink may be pinned here old-version
+           and purge unlinks are never pinned, because a reader on a
+           live fork resolves to the newest version, not the one these
+           unlink. */
+        FD_TEST( accmeta->lamports==0UL );
 
-         A plain store is sufficient: the line is pinned (refcnt>0) so
-         CLOCK/preevict cannot claim it (their refcnt 0->SENTINEL CAS
-         fails), and the pinning reader only ever reads key/owner/data
-         and, post-pin, writes the unrelated `referenced` byte — never
-         `persisted`.  So no other thread writes this byte while we do.
-
-         Leave key/owner/data/acc_idx intact: the reader still reads them.
-         Once the pin drops the line is reclaimed by CLOCK (or by the
-         reader's own release).  acc_idx still points at our now-recycled
-         slot, but CLOCK's evict_clear_acc_cache_ref on it is a no-op:
-         the recycled accmeta's cache_idx no longer matches this line's
-         packed cidx (same invariant the release path relies on, see the
-         refcnt-CAS-fail comment in fd_accdb_release).  That reclaim is
-         lazy so the slot is briefly dark capacity. */
-      FD_VOLATILE( stale->persisted ) = 1;
-
-      /* The tombstone self-unlink an legitimately be pinned here,
-         old version and purge unlinks are never pinned.  A live account
-         here means that invariant regressed.  Reading is safe as the
-         unlinked accmeta is on a frozen bank and can't mutate. */
-      FD_TEST( accmeta->lamports==0UL );
-    }
-    else {
+        FD_ATOMIC_FETCH_AND_SUB( &mine->refcnt, 1U );
+      }
+      /* Else was recycled to a foreign account.  Nothing to neutralize,
+         leave the line alone. */
+    } else {
       /* A foreground evictor already claimed this line.  It holds its
          epoch acquire and writeback, so drain_deferred_frees cannot
-         recycle the slot before it finishes. Its writeback names the old
-         account correctly, no poison. */
+         recycle the slot before it finishes. Its writeback names the
+         old account correctly, no poison. */
     }
   }
 }
