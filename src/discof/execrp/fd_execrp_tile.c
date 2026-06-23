@@ -90,7 +90,7 @@ struct fd_execrp_tile {
   } metrics;
 
   /* If non-zero, emit one runtime_txn event per dispatched txn */
-  int report_runtime_txn;
+  int report_transaction_diffs;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -232,9 +232,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_runtime_txn );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
         } else {
-          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_runtime_txn );
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
         }
 
         long const txn_end_ticks = fd_tickcount();
@@ -459,7 +459,7 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
-  ctx->report_runtime_txn = tile->execrp.report_runtime_txn;
+  ctx->report_transaction_diffs = tile->execrp.report_transaction_diffs;
 
   fd_wksp_oom_silent = 1;
 

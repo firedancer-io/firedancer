@@ -7,7 +7,7 @@
         "slot":                              { "type": "UInt64",        "description": "Bank slot in which this transaction was executed" },
         "epoch":                             { "type": "UInt64",        "description": "Epoch the transaction was executed in" },
         "signature":                         { "type": "Signature",     "description": "First signature of the transaction (64 bytes)" },
-        "blockhash":                         { "type": "Pubkey",        "description": "Blockhash referenced by the transaction" },
+        "blockhash":                         { "type": "Hash",          "description": "Blockhash referenced by the transaction" },
         "fee_payer":                         { "type": "Pubkey",        "description": "Fee-payer pubkey" },
         "is_simple_vote":                    { "type": "Bool",          "description": "True if the transaction was classified as a simple vote, false otherwise" },
         "is_bundle":                         { "type": "Bool",          "description": "True if the transaction is part of a Jito bundle, false otherwise" },

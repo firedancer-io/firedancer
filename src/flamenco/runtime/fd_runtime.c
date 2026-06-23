@@ -977,7 +977,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out,
-                       int                 report_runtime_txn ) {
+                       int                 report_transaction_diffs ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1115,7 +1115,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     }
   }
 
-  if( FD_UNLIKELY( report_runtime_txn ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
@@ -1130,11 +1130,11 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
                        fd_bank_t *         bank,
                        fd_txn_in_t const * txn_in,
                        fd_txn_out_t *      txn_out,
-                       int                 report_runtime_txn ) {
+                       int                 report_transaction_diffs ) {
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
-  if( FD_UNLIKELY( report_runtime_txn ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   fd_accdb_release_ab( runtime->accdb,
                        txn_out->accounts.cnt, runtime->accounts.account,

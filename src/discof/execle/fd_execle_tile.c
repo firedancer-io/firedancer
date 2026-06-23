@@ -89,7 +89,7 @@ struct fd_execle_tile {
   } metrics;
 
   /* If non-zero, emit one runtime_txn event per dispatched txn */
-  int report_runtime_txn;
+  int report_transaction_diffs;
 };
 
 typedef struct fd_execle_tile fd_execle_tile_t;
@@ -259,7 +259,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
-      fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
+      fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
@@ -280,7 +280,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
         FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
                          fee_only_actual_exec_cus, fee_only_actual_data_cus, requested_exec_plus_acct_data_cus ));
         txn_out->err.is_committable = 0;
-        fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
+        fd_runtime_cancel_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
@@ -314,7 +314,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
+    fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
 
     long const txn_end_ticks = fd_tickcount();
 
@@ -512,7 +512,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_runtime_txn );
+      fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
 
       txn_end_ticks[ i ] = fd_tickcount();
 
@@ -782,7 +782,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
 
-  ctx->report_runtime_txn = tile->execle.report_runtime_txn;
+  ctx->report_transaction_diffs = tile->execle.report_transaction_diffs;
 
   fd_sleep_until_replay_started( topo );
 }
