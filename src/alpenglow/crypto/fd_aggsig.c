@@ -1,13 +1,69 @@
 #include "fd_aggsig.h"
 
-/* See fd_aggsig.h.  This is the STUB implementation: the signer-bitmask and
-   wire-format logic is real and faithful to alpenglow/src/crypto/aggsig.rs;
-   the cryptographic sign/verify operations are placeholders pending real BLS
-   support in src/ballet/bls. */
+/* See fd_aggsig.h.  The signer-bitmask and wire-format logic is real and
+   faithful to alpenglow/src/crypto/aggsig.rs.  The cryptographic operations
+   are real BLS12-381 when the build links blst (FD_HAS_BLST); otherwise they
+   fall back to a deterministic non-cryptographic stub so the consensus logic
+   can still be exercised without blst.
 
-/* stub_fill produces a deterministic 96-byte "signature" from a 32-byte key
-   and a message.  Not cryptographically meaningful — only deterministic so
-   that serialize/round-trip tests are stable. */
+   Scheme (matches Agave): public keys are uncompressed affine G1 (96 bytes),
+   signatures uncompressed affine G2 (192 bytes), secret keys are
+   little-endian 32-byte scalars.  The hash-to-curve domain tag matches
+   fd_bls12_381's FD_BLS_SIG_DOMAIN_SIG so our sign() round-trips with the
+   library verify (and interops with Agave). */
+
+#if FD_HAS_BLST
+
+#include "../../ballet/bls/fd_bls12_381.h"
+#include <blst.h>
+
+/* MUST match FD_BLS_SIG_DOMAIN_SIG in src/ballet/bls/fd_bls12_381.c, the
+   ciphersuite fd_bls12_381_batch_verify hashes with. */
+#define FD_AGGSIG_DST     "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
+#define FD_AGGSIG_DST_SZ  (sizeof(FD_AGGSIG_DST)-1UL)
+
+void
+fd_aggsig_sk_to_pk( fd_aggsig_pk_t *       pk,
+                    fd_aggsig_sk_t const * sk ) {
+  blst_scalar    scalar[1];
+  blst_p1        p[1];
+  blst_p1_affine a[1];
+  blst_scalar_from_lendian( scalar, sk->v ); /* sk is a little-endian scalar */
+  blst_sk_to_pk_in_g1( p, scalar );
+  blst_p1_to_affine( a, p );
+  blst_p1_affine_serialize( pk->v, a );      /* 96B uncompressed affine G1 */
+}
+
+void
+fd_aggsig_sign_bytes( fd_aggsig_sig_t *      sig,
+                      fd_aggsig_sk_t const * sk,
+                      uchar const *          msg,
+                      ulong                  msg_sz ) {
+  blst_scalar    scalar[1];
+  blst_p2        hash[1];
+  blst_p2        s[1];
+  blst_p2_affine a[1];
+  blst_scalar_from_lendian( scalar, sk->v );
+  blst_hash_to_g2( hash, msg, msg_sz, (uchar const *)FD_AGGSIG_DST, FD_AGGSIG_DST_SZ, NULL, 0UL );
+  blst_sign_pk_in_g1( s, hash, scalar );
+  blst_p2_to_affine( a, s );
+  blst_p2_affine_serialize( sig->v, a );     /* 192B uncompressed affine G2 */
+}
+
+int
+fd_aggsig_individual_verify_bytes( fd_aggsig_sig_t const * sig,
+                                   fd_aggsig_pk_t const *  pk,
+                                   uchar const *           msg,
+                                   ulong                   msg_sz ) {
+  ulong msg_len = msg_sz;
+  return fd_bls12_381_batch_verify( msg, &msg_len, pk->v, sig->v, 1UL )==0;
+}
+
+#else /* !FD_HAS_BLST: deterministic non-cryptographic stub */
+
+/* stub_fill produces a deterministic point-sized blob from a key and a
+   message.  Not cryptographically meaningful — only deterministic so that
+   serialize/round-trip tests are stable. */
 
 static void
 stub_fill( uchar         out[ FD_AGGSIG_SIG_SZ ],
@@ -27,7 +83,6 @@ stub_fill( uchar         out[ FD_AGGSIG_SIG_SZ ],
 void
 fd_aggsig_sk_to_pk( fd_aggsig_pk_t *       pk,
                     fd_aggsig_sk_t const * sk ) {
-  /* STUB: deterministic, not a real sk->pk map.  PUBKEY_SZ==SIG_SZ==96. */
   fd_memset( pk->v, 0, FD_AGGSIG_PUBKEY_SZ );
   stub_fill( pk->v, sk->v, (uchar const *)"pk", 2UL );
 }
@@ -49,14 +104,7 @@ fd_aggsig_individual_verify_bytes( fd_aggsig_sig_t const * sig,
   return 1; /* STUB: accept */
 }
 
-/* agg_fold xors a signature into the aggregate point, giving a deterministic
-   (non-cryptographic) combine for the stub. */
-
-static inline void
-agg_fold( fd_aggsig_t *           agg,
-          fd_aggsig_sig_t const * sig ) {
-  for( ulong i=0UL; i<FD_AGGSIG_SIG_SZ; i++ ) agg->sig[i] = (uchar)( agg->sig[i] ^ sig->v[i] );
-}
+#endif
 
 void
 fd_aggsig_init( fd_aggsig_t * agg,
@@ -73,8 +121,23 @@ fd_aggsig_add( fd_aggsig_t *           agg,
                fd_aggsig_sig_t const * sig ) {
   FD_TEST( signer_idx<agg->nbits );
   FD_TEST( !signer_set_test( agg->bitmask, signer_idx ) ); /* no duplicate signer */
+
+  int first = ( signer_set_cnt( agg->bitmask )==0UL );
   signer_set_insert( agg->bitmask, signer_idx );
-  agg_fold( agg, sig );
+
+  if( FD_UNLIKELY( first ) ) {
+    /* aggregate identity + p == p */
+    fd_memcpy( agg->sig, sig->v, FD_AGGSIG_SIG_SZ );
+    return;
+  }
+
+#if FD_HAS_BLST
+  /* aggregate signature = sum of the individual G2 signature points
+     (big-endian: standard BLS12-381 serialization) */
+  fd_bls12_381_g2_add_syscall( agg->sig, agg->sig, sig->v, 1 );
+#else
+  for( ulong i=0UL; i<FD_AGGSIG_SIG_SZ; i++ ) agg->sig[i] = (uchar)( agg->sig[i] ^ sig->v[i] );
+#endif
 }
 
 void
@@ -95,11 +158,41 @@ fd_aggsig_verify_bytes( fd_aggsig_t const *    agg,
                         ulong                  msg_sz,
                         fd_aggsig_pk_t const * pks,
                         ulong                  pk_cnt ) {
-  (void)msg; (void)msg_sz; (void)pks;
   /* Mirrors AggregateSignature::verify_bytes: bitmask length must equal the
      number of provided public keys. */
-  if( FD_UNLIKELY( agg->nbits!=pk_cnt ) ) return 0;
+  //FD_LOG_NOTICE(( "aggsig_verify_bytes: nbits=%lu, pk_cnt=%lu, signer_set_cnt=%lu", agg->nbits, pk_cnt, signer_set_cnt( agg->bitmask ) ));
+  if( FD_UNLIKELY( agg->nbits > pk_cnt ) ) return 0;
+
+#if FD_HAS_BLST
+  if( FD_UNLIKELY( !pks ) ) return 0;
+
+  /* Gather the signers' G1 pubkeys (the sparse subset selected by the
+     bitmask) into a contiguous buffer for aggregation.  pks are assumed
+     PoP-verified at epoch-set construction (rogue-key defense, per
+     fd_bls12_381_aggregate_pubkey's contract). */
+  static FD_TL uchar gathered[ FD_AGGSIG_MAX_SIGNERS * FD_AGGSIG_PUBKEY_SZ ];
+  ulong k = 0UL;
+  for( ulong i=0UL; i<pk_cnt; i++ ) {
+    if( FD_LIKELY( signer_set_test( agg->bitmask, i ) ) ) {
+      fd_memcpy( gathered + k*FD_AGGSIG_PUBKEY_SZ, pks[i].v, FD_AGGSIG_PUBKEY_SZ );
+      k++;
+    }
+  }
+  if( FD_UNLIKELY( k==0UL ) ) return 0; /* empty signer set never verifies */
+
+  /* apk = sum of the signer pubkeys (single 96B affine G1). */
+  uchar apk[ FD_AGGSIG_PUBKEY_SZ ];
+  if( FD_UNLIKELY( fd_bls12_381_aggregate_pubkey( apk, gathered, k ) ) ) return 0;
+
+  /* fast-aggregate-verify: one triple (msg, apk, agg->sig).  batch_verify
+     hashes msg->G2 and runs the pairing; agg->sig is the 192B uncompressed
+     G2 aggregate signature. */
+  ulong msg_len = msg_sz;
+  return fd_bls12_381_batch_verify( msg, &msg_len, apk, agg->sig, 1UL )==0;
+#else
+  (void)msg; (void)msg_sz; (void)pks;
   return 1; /* STUB: accept */
+#endif
 }
 
 ulong

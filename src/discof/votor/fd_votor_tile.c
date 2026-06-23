@@ -9,6 +9,7 @@
 #include "../../alpenglow/consensus/pool/fd_slot_state.h"
 #include "../../alpenglow/crypto/fd_aggsig.h"
 #include "../../alpenglow/fd_alpenglow_base.h"
+#include "../../ballet/bls/fd_bls12_381.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -17,6 +18,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/net/fd_eth.h"
@@ -125,6 +127,27 @@ struct in_ctx {
 };
 typedef struct in_ctx in_ctx_t;
 
+/* VTR_EPOCH_WINDOW is how many epochs' validator sets / BLS rank maps votor
+   retains concurrently, mirroring Agave's epoch_stakes map
+   (MAX_LEADER_SCHEDULE_STAKES=5).  Certs only reference the current or an
+   immediately-adjacent epoch, so a small window suffices; 4 gives E-1, E, E+1
+   plus one slot of slack. */
+
+#define VTR_EPOCH_WINDOW (4UL)
+
+/* vtr_epoch_set_t is one retained epoch's validator set.  `mem` is a
+   pre-allocated fd_epoch_info_footprint(VTR_MAX) region; `info` joins it once
+   populated.  epoch==ULONG_MAX marks an empty entry in the epoch map */
+struct vtr_epoch_set {
+  ulong             epoch;
+  ulong             validator_cnt;
+  ushort            own_id;       /* our ValidatorIndex (rank) in THIS epoch */
+  int               have_own_id;  /* 0 if we are unstaked this epoch         */
+  void *            mem;
+  fd_epoch_info_t * info;
+};
+typedef struct vtr_epoch_set vtr_epoch_set_t;
+
 struct fd_votor_tile {
   ulong          seed; /* map seed */
   fd_pubkey_t    identity_key[1];
@@ -138,8 +161,13 @@ struct fd_votor_tile {
 
   fd_votor_t *      votor;      /* the voting state machine             */
   fd_pool_t *       pool;       /* the cert/vote integrator             */
-  void *            epoch_mem;  /* backing region for fd_epoch_info_t   */
-  fd_epoch_info_t * epoch_info; /* rebuilt on epoch change              */
+
+  /* per-epoch validator-set map */
+  vtr_epoch_set_t     window[ VTR_EPOCH_WINDOW ];
+  ulong               active_epoch;   /* epoch the pool / votor are built for */
+  fd_epoch_info_t *   epoch_info;      /* == active window entry's info        */
+  fd_epoch_schedule_t epoch_schedule;  /* from EPOCH msgs; slot -> epoch        */
+  int                 have_schedule;
 
   publish_t * publishes; /* deque of msgs queued for publishing */
 
@@ -225,6 +253,7 @@ struct fd_votor_tile {
     ulong certs_ingested;
     ulong slashable;
     ulong fixpoint_exceeded;
+    ulong certs_dropped_no_epoch; /* cert for an epoch outside the window */
   } metrics;
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
@@ -488,6 +517,49 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
   }
 }
 
+/* ---- per-epoch validator-set window ------------------------------------- */
+
+/* votor_window_lookup returns the validator set for `epoch`, or NULL if that
+   epoch is not retained in the window. */
+
+static fd_epoch_info_t const *
+votor_window_lookup( fd_votor_tile_t const * ctx, ulong epoch ) {
+  vtr_epoch_set_t const * s = &ctx->window[ epoch % VTR_EPOCH_WINDOW ];
+  return s->epoch==epoch ? s->info : NULL;
+}
+
+/* votor_set_active_epoch switches the pool / votor to `epoch`'s validator set,
+   rebuilding them (which drops in-flight per-slot state -- acceptable across an
+   epoch boundary, where the root advances at most one epoch).  Returns 0 if
+   `epoch` is not in the window (caller keeps the current active epoch). */
+
+static int
+votor_set_active_epoch( fd_votor_tile_t * ctx, ulong epoch ) {
+  vtr_epoch_set_t * s = &ctx->window[ epoch % VTR_EPOCH_WINDOW ];
+  if( FD_UNLIKELY( s->epoch!=epoch ) ) return 0;
+
+  ctx->active_epoch = epoch;
+  ctx->epoch        = epoch;
+  ctx->epoch_info   = s->info;
+  ctx->own_id       = s->own_id; /* 0 (observe-only) when !have_own_id */
+
+  fd_validator_info_t const * vset = fd_epoch_info_validators( s->info );
+  ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
+                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max,
+                                         ctx->own_id, vset, s->validator_cnt, ctx->seed ) );
+  FD_TEST( ctx->pool );
+
+  fd_votor_out_t out = fresh_votor_out( ctx );
+  ctx->votor = fd_votor_join( fd_votor_new( fd_votor_leave( ctx->votor ),
+                                            ctx->slot_max, ctx->own_id, ctx->voting_key, ctx->seed, &out ) );
+  FD_TEST( ctx->votor );
+  (void)out;
+
+  FD_LOG_NOTICE(( "votor active epoch -> %lu (%lu validators, own_id %u, staked=%d)",
+                  epoch, s->validator_cnt, (uint)s->own_id, s->have_own_id ));
+  return 1;
+}
+
 /* THE CORE DRIVE.  votor_slot_completed is the analog of Tower's
    replay_slot_completed: it registers a completed block with the consensus
    core and drives the resulting voting / certification cascade.
@@ -504,6 +576,22 @@ votor_slot_completed( fd_votor_tile_t *                  ctx,
 
   ctx->init                = 1;
   ctx->metrics.replay_slot = slot_completed->slot;
+
+  /* 0. Switch the active consensus epoch to the replayed tip's epoch if it
+        changed and we have that epoch's validator set.  This rebuilds the
+        pool / votor, so it must run before we register the block below.  At
+        snapshot boot replay publishes both epoch E and E+1 before any slot
+        completes, so the set is present. */
+
+  if( FD_LIKELY( ctx->have_schedule ) ) {
+    ulong tip_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, slot_completed->slot, NULL );
+    if( FD_UNLIKELY( tip_epoch!=ctx->active_epoch ) ) {
+      if( FD_UNLIKELY( !votor_set_active_epoch( ctx, tip_epoch ) ) ) {
+        FD_LOG_WARNING(( "no validator set for tip epoch %lu (slot %lu); keeping epoch %lu",
+                         tip_epoch, slot_completed->slot, ctx->active_epoch ));
+      }
+    }
+  }
 
   /* 1. Build block / parent identifiers from the replay frag. */
 
@@ -613,8 +701,6 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
   (void)ctx;
   if( FD_UNLIKELY( sz<sizeof(uint) ) ) return;
   uint kind = FD_LOAD( uint, payload );
-  char const * kind_str = kind==FD_CONSENSUS_MESSAGE_VOTE ? "Vote" : ( kind==FD_CONSENSUS_MESSAGE_CERT ? "Certificate" : "unknown" );
-  FD_LOG_NOTICE(( "alpenglow consensus message rx: kind=%u (%s) sz=%lu", kind, kind_str, sz ));
 
   switch( kind ) {
   case FD_CONSENSUS_MESSAGE_VOTE: {
@@ -624,15 +710,33 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
     if( vote->discriminant==FD_VOTE_TYPE_NOTAR || vote->discriminant==FD_VOTE_TYPE_NOTAR_FALLBACK ) {
       fd_hash_t const * dmr = fd_vote_block_hash( vote );
       FD_BASE58_ENCODE_32_BYTES( dmr->uc, dmr_str );
-      FD_LOG_NOTICE(( "received vote for block %s, slot %lu from signer %u", dmr_str, fd_vote_slot( vote ), (uint)fd_vote_signer( vote ) ));
+      //FD_LOG_NOTICE(( "received vote for block %s, slot %lu from signer %u", dmr_str, fd_vote_slot( vote ), (uint)fd_vote_signer( vote ) ));
     }
     break;
   }
-  default:
+  case FD_CONSENSUS_MESSAGE_CERT: {
+    if( FD_UNLIKELY( !ctx->have_schedule ) ) break;
+    /* advance payload past the discriminant */
+    payload += sizeof(uint); sz -= sizeof(uint);
+    fd_cert_t cert[1];
+    int err = fd_cert_decode( cert, payload, sz );
+    if( FD_UNLIKELY( err!=FD_CERT_WIRE_SUCCESS ) ) break;
+
+    /* Verify against the validator set / BLS rank map of the cert's OWN epoch
+       (mirrors Agave's get_rank_map(slot)) -- not whatever epoch happens to be
+       active.  Drop certs whose epoch we no longer (or do not yet) retain. */
+    ulong cert_slot  = fd_cert_slot( cert );
+    ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, cert_slot, NULL );
+    fd_epoch_info_t const * ei = votor_window_lookup( ctx, cert_epoch );
+    if( FD_UNLIKELY( !ei ) ) { ctx->metrics.certs_dropped_no_epoch++; break; }
+
+    if( FD_LIKELY( fd_cert_check_sig( cert, ei ) ) ){
+      FD_LOG_NOTICE(( "certificate slot %lu (epoch %lu) successfully verified", cert_slot, cert_epoch ) );
+    } else {
+      FD_LOG_WARNING(( "certificate slot %lu (epoch %lu) failed to verify", cert_slot, cert_epoch ) );
+    }
     break;
-  }
-
-
+  } default: break; }
 }
 
 /* update_epoch_vtrs rebuilds the active epoch's validator set from an EPOCH
@@ -647,69 +751,116 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
    any structurally valid signature) but MUST be replaced with the real BLS
    keys from the epoch message before production. */
 
+/* Rank-ordering key for the votor-local BLS rank set: stake descending,
+   tie-broken by the compressed BLS pubkey ascending (matching Agave's
+   BLSPubkeyToRankMap).  bls points into the epoch message's pubkey array,
+   which is stable for the duration of the sort. */
+
+struct vtr_rank { ulong stake; uchar const * bls; ushort src; };
+typedef struct vtr_rank vtr_rank_t;
+
+#define SORT_NAME        vtr_rank_sort
+#define SORT_KEY_T       vtr_rank_t
+#define SORT_BEFORE(a,b) ( (a).stake>(b).stake ||                          \
+                           ( (a).stake==(b).stake &&                       \
+                             memcmp( (a).bls, (b).bls, FD_EPOCH_INFO_BLS_PUBKEY_SZ )<0 ) )
+#include "../../util/tmpl/fd_sort.c"
+
 FD_FN_UNUSED void
 update_epoch_vtrs( fd_votor_tile_t *              ctx,
                    fd_epoch_info_msg_t const *    msg,
                    fd_vote_stake_weight_t const * stakes,
                    ulong                          stake_cnt ) {
 
-  ulong cnt = fd_ulong_min( stake_cnt, VTR_MAX );
-  ctx->validator_cnt = cnt;
-  ctx->epoch         = msg->epoch;
+  ulong         in_cnt      = fd_ulong_min( stake_cnt, VTR_MAX );
+  uchar const * bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( msg );
 
-  for( ushort i=0UL; i<cnt; i++ ) {
-    fd_validator_info_t * vi = &ctx->validators[ i ];
-    memset( vi, 0, sizeof(fd_validator_info_t) );
-    vi->id     = i;                /* ValidatorIndex must equal array position */
-    vi->stake  = stakes[ i ].stake;
-    vi->pubkey = stakes[ i ].id_key;
+  /* Build the BLS rank set the way Agave does (runtime/src/epoch_stakes.rs,
+     BLSPubkeyToRankMap::new): keep only vote accounts with non-zero stake and a
+     decodable BLS voting key, then order by stake descending, tie-broken by the
+     COMPRESSED BLS pubkey ascending; rank == position in that order.
 
-    /* TODO: real BLS voting key must come from the epoch message.  Derive a
-       deterministic placeholder from the identity key for now. */
-    fd_aggsig_sk_t sk[1];
-    memset( sk, 0, sizeof(fd_aggsig_sk_t) );
-    memcpy( sk->v, stakes[ i ].id_key.uc, fd_ulong_min( sizeof(sk->v), sizeof(fd_pubkey_t) ) );
-    fd_aggsig_sk_to_pk( &vi->voting_pubkey, sk );
+     This ordering is intentionally votor-local.  It must NOT reuse the
+     stake-weight sort (vote-key tie-break) that drives the leader schedule --
+     changing that sort would alter the cluster-wide leader schedule consumed by
+     the shred / tower / replay / etc. tiles.  TODO: Agave also drops duplicate
+     BLS / node pubkeys; not handled here. */
 
-    /* Determine our own ValidatorIndex: the validator whose identity matches
-       ours.  Set our voting key's placeholder accordingly. */
-    if( FD_UNLIKELY( !memcmp( stakes[ i ].id_key.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) ) ) ) {
-      ctx->own_id = i;
-      memcpy( ctx->voting_key->v, stakes[ i ].id_key.uc, fd_ulong_min( sizeof(ctx->voting_key->v), sizeof(fd_pubkey_t) ) );
-    }
+  vtr_rank_t rank[ VTR_MAX ]; /* surviving validators, pre-sort */
+  ulong      m = 0UL;
+  for( ulong i=0UL; i<in_cnt; i++ ) {
+    if( FD_UNLIKELY( stakes[i].stake==0UL ) ) continue;
+    fd_aggsig_pk_t probe;
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( probe.v,
+                                                         bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ,
+                                                         1 ) ) ) continue; /* no / invalid BLS key */
+    rank[m].stake = stakes[i].stake;
+    rank[m].bls   = bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ;
+    rank[m].src   = (ushort)i;
+    m++;
   }
 
+  /* Rank order: stake desc, then compressed BLS asc (Agave BLSPubkeyToRankMap). */
+  vtr_rank_sort_inplace( rank, m );
+
+  ulong cnt = m;
   if( FD_UNLIKELY( !cnt ) ) {
-    FD_LOG_WARNING(( "epoch %lu has no staked validators; skipping pool/votor rebuild", msg->epoch ));
+    FD_LOG_WARNING(( "epoch %lu has no ranked validators; skipping", msg->epoch ));
     return;
   }
 
-  /* Rebuild the epoch info, pool, and votor against the new validator set.
-     This is destructive: any in-flight per-slot state is dropped on epoch
-     change.  A Solana consensus invariant guarantees the root advances at
-     most one epoch per epoch boundary, so dropping the old epoch's pending
-     state on the boundary is acceptable.
+  /* Materialize the ranked set into the staging buffer: rank == array position
+     == ValidatorIndex.  Record whether (and at what rank) we are staked this
+     epoch -- the rank is epoch-specific because it depends on this epoch's
+     stakes / BLS order. */
+  ushort own_id      = 0;
+  int    have_own_id = 0;
+  for( ushort r=0UL; r<cnt; r++ ) {
+    ushort                src = rank[r].src;
+    fd_validator_info_t * vi  = &ctx->validators[ r ];
+    memset( vi, 0, sizeof(fd_validator_info_t) );
+    vi->id     = r;
+    vi->stake  = stakes[src].stake;
+    vi->pubkey = stakes[src].id_key;
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vi->voting_pubkey.v,
+                                                         bls_pubkeys + (ulong)src*FD_EPOCH_INFO_BLS_PUBKEY_SZ,
+                                                         1 /* big endian */ ) ) ) {
+      FD_LOG_CRIT(( "BLS voting pubkey for source %u failed to decompress after the filter", (uint)src ));
+    }
+    if( FD_UNLIKELY( !memcmp( stakes[src].id_key.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) ) ) ) {
+      own_id      = r;
+      have_own_id = 1;
+      memcpy( ctx->voting_key->v, stakes[src].id_key.uc, fd_ulong_min( sizeof(ctx->voting_key->v), sizeof(fd_pubkey_t) ) );
+    }
+  }
 
-     The pool / votor are re-formatted in place using the SAME dimensions the
-     scratch regions were originally allocated for (ctx->slot_max etc.) so the
-     re-formatted objects always fit. */
+  /* Insert (or refresh) this epoch's set into the window without disturbing
+     other epochs.  The pool / votor are NOT rebuilt here -- the active epoch is
+     switched lazily from the replayed tip in votor_slot_completed. */
+  ctx->epoch_schedule = msg->epoch_schedule;
+  ctx->have_schedule  = 1;
 
-  fd_epoch_info_join( fd_epoch_info_new( ctx->epoch_mem, ctx->validators, cnt ) );
-  ctx->epoch_info = fd_epoch_info_join( ctx->epoch_mem );
-  FD_TEST( ctx->epoch_info );
+  vtr_epoch_set_t * s = &ctx->window[ msg->epoch % VTR_EPOCH_WINDOW ];
+  /* Don't let a stale (older) re-publish evict a newer epoch sharing this ring
+     slot.  Refresh (==) and normal advance (older slot occupant) proceed. */
+  if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) {
+    FD_LOG_WARNING(( "ignoring stale epoch %lu (slot holds newer epoch %lu)", msg->epoch, s->epoch ));
+    return;
+  }
+  fd_epoch_info_join( fd_epoch_info_new( s->mem, ctx->validators, cnt ) );
+  s->epoch         = msg->epoch;
+  s->info          = fd_epoch_info_join( s->mem );
+  s->validator_cnt = cnt;
+  s->own_id        = own_id;
+  s->have_own_id   = have_own_id;
+  FD_TEST( s->info );
 
-  ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
-                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max,
-                                         ctx->own_id, ctx->validators, cnt, ctx->seed ) );
-  FD_TEST( ctx->pool );
+  /* If we refreshed the currently-active epoch, re-point the verification alias
+     at the new set (without rebuilding the pool / dropping state mid-epoch). */
+  if( FD_UNLIKELY( msg->epoch==ctx->active_epoch ) ) ctx->epoch_info = s->info;
 
-  fd_votor_out_t out = fresh_votor_out( ctx );
-  ctx->votor = fd_votor_join( fd_votor_new( fd_votor_leave( ctx->votor ),
-                                            ctx->slot_max, ctx->own_id, ctx->voting_key, ctx->seed, &out ) );
-  FD_TEST( ctx->votor );
-  /* fd_votor_new emits the genesis window's timeouts into out; we do not
-     persist them (deadline machinery is future work). */
-  (void)out;
+  FD_LOG_NOTICE(( "epoch %lu validator set: %lu validators (own_id %u, staked=%d)",
+                  msg->epoch, cnt, (uint)own_id, have_own_id ));
 }
 
 /* QUIC ingress is enabled when the tile carries QUIC config (set by the
@@ -750,7 +901,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),  sizeof(fd_votor_tile_t)                                  );
   l = FD_LAYOUT_APPEND( l, fd_votor_align(),          fd_votor_footprint( slot_max )                           );
   l = FD_LAYOUT_APPEND( l, fd_pool_align(),           fd_pool_footprint( slot_max, validator_max, blockid_max ) );
-  l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),     fd_epoch_info_footprint( VTR_MAX )                       );
+  for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ )
+    l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),   fd_epoch_info_footprint( VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, publishes_align(),         publishes_footprint( pub_max )                           );
   if( votor_quic_enabled( tile ) ) {
     fd_quic_limits_t limits = quic_limits( tile );
@@ -781,7 +933,9 @@ init_choreo( void                 * scratch,
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                                  );
   void  * votor         = FD_SCRATCH_ALLOC_APPEND( l, fd_votor_align(),         fd_votor_footprint( slot_max )                           );
   void  * pool          = FD_SCRATCH_ALLOC_APPEND( l, fd_pool_align(),          fd_pool_footprint( slot_max, validator_max, blockid_max ) );
-  void  * epoch_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(),    fd_epoch_info_footprint( VTR_MAX )                       );
+  void  * epoch_mem[ VTR_EPOCH_WINDOW ];
+  for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ )
+    epoch_mem[i]        = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(),    fd_epoch_info_footprint( VTR_MAX )                       );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                           );
   void  * quic_mem      = NULL;
   if( votor_quic_enabled( tile ) ) {
@@ -806,8 +960,17 @@ init_choreo( void                 * scratch,
   ctx->validator_max = validator_max;
   ctx->blockid_max   = blockid_max;
 
-  ctx->epoch_mem  = epoch_mem;
-  ctx->epoch_info = fd_epoch_info_join( fd_epoch_info_new( epoch_mem, ctx->validators, 1UL ) );
+  for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ ) {
+    ctx->window[i].epoch         = ULONG_MAX;
+    ctx->window[i].validator_cnt = 0UL;
+    ctx->window[i].own_id        = 0;
+    ctx->window[i].have_own_id   = 0;
+    ctx->window[i].mem           = epoch_mem[i];
+    ctx->window[i].info          = NULL;
+  }
+  ctx->active_epoch  = ULONG_MAX;
+  ctx->epoch_info    = NULL;
+  ctx->have_schedule = 0;
 
   ctx->pool = fd_pool_join( fd_pool_new( pool, slot_max, validator_max, blockid_max,
                                          ctx->own_id, ctx->validators, 1UL, ctx->seed ) );
@@ -834,7 +997,6 @@ init_choreo( void                 * scratch,
     FD_TEST( ctx->quic );
   }
 
-  FD_TEST( ctx->epoch_info );
   FD_TEST( ctx->pool );
   FD_TEST( ctx->votor );
   FD_TEST( ctx->publishes );

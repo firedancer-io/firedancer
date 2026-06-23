@@ -647,6 +647,15 @@ fd_vote_account_node_pubkey( uchar const *  data,
                              ulong          data_sz,
                              fd_pubkey_t *  out );
 
+/* Reads the compressed BLS voting pubkey (FD_BLS_PUBKEY_COMPRESSED_SZ
+   bytes) directly from raw bincode-encoded v4 vote account data.
+   Returns 0 on success, 1 on error (not v4, no bls pubkey set, or
+   truncated). */
+int
+fd_vote_account_bls_pubkey( uchar const * data,
+                            ulong         data_sz,
+                            uchar         out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ] );
+
 /* Returns the commission in basis points.  If commission_rate_in_bps is
    set, returns the v4 commission rate as a raw basis points value.
    Otherwise, returns the v4 commission rate in basis points, rounded

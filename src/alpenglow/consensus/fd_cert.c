@@ -205,34 +205,34 @@ fd_cert_check_threshold( fd_cert_t const * c, fd_epoch_info_t const * ei ) {
 }
 
 int
-fd_cert_check_sig( fd_cert_t const * c, fd_validator_info_t const * validators, ulong validator_cnt ) {
-  /* STUB aggsig: fd_aggsig_verify_bytes ignores the public keys and only checks
-     that the bitmask length equals pk_cnt (== validator_cnt).  Real BLS will
-     need the per-index voting pubkeys (validators[i].voting_pubkey); the pks
-     argument is left NULL here pending that work. */
-  (void)validators;
+fd_cert_check_sig( fd_cert_t const * c, fd_epoch_info_t const * epoch_info ) {
+  /* The aggregate signature is checked against the epoch's contiguous
+     per-index BLS voting pubkeys; fd_aggsig_verify_bytes selects the signers
+     via each agg_sig's bitmask. */
+  fd_aggsig_pk_t const * pks           = fd_epoch_info_voting_pubkeys( epoch_info );
+  ulong                  validator_cnt = epoch_info->validator_cnt;
   uchar buf[ FD_VOTE_PAYLOAD_MAX ];
   ulong sz;
   switch( c->discriminant ) {
   case FD_CERT_TYPE_NOTAR:
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, c->inner.notar.slot, &c->inner.notar.block_hash );
-    return fd_aggsig_verify_bytes( &c->inner.notar.agg_sig, buf, sz, NULL, validator_cnt );
+    return fd_aggsig_verify_bytes( &c->inner.notar.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_FAST_FINAL:
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, c->inner.fast_final.slot, &c->inner.fast_final.block_hash );
-    return fd_aggsig_verify_bytes( &c->inner.fast_final.agg_sig, buf, sz, NULL, validator_cnt );
+    return fd_aggsig_verify_bytes( &c->inner.fast_final.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_FINAL:
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_FINAL, c->inner.final_.slot, NULL );
-    return fd_aggsig_verify_bytes( &c->inner.final_.agg_sig, buf, sz, NULL, validator_cnt );
+    return fd_aggsig_verify_bytes( &c->inner.final_.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_NOTAR_FALLBACK: {
     fd_notar_fallback_cert_t const * n = &c->inner.notar_fallback;
     int ok = 1;
     if( n->has_agg_sig_notar ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, n->slot, &n->block_hash );
-      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar, buf, sz, pks, validator_cnt );
     }
     if( n->has_agg_sig_notar_fallback ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash );
-      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar_fallback, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar_fallback, buf, sz, pks, validator_cnt );
     }
     return ok;
   }
@@ -241,13 +241,132 @@ fd_cert_check_sig( fd_cert_t const * c, fd_validator_info_t const * validators, 
     int ok = 1;
     if( s->has_agg_sig_skip ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_SKIP, s->slot, NULL );
-      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip, buf, sz, pks, validator_cnt );
     }
     if( s->has_agg_sig_skip_fallback ) {
       sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL );
-      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip_fallback, buf, sz, NULL, validator_cnt );
+      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip_fallback, buf, sz, pks, validator_cnt );
     }
     return ok;
   }
   }
+}
+
+/* ---- wire deserialization (Agave wincode Certificate -> fd_cert_t) ---- */
+
+/* Agave CertificateType wire tags (u32 LE), votor-messages/src/certificate.rs. */
+#define CERT_WIRE_TAG_FINALIZE       (0U)
+#define CERT_WIRE_TAG_FINALIZE_FAST  (1U)
+#define CERT_WIRE_TAG_NOTARIZE       (2U)
+#define CERT_WIRE_TAG_NOTAR_FALLBACK (3U)
+#define CERT_WIRE_TAG_SKIP           (4U)
+#define CERT_WIRE_TAG_GENESIS        (5U)
+
+#define CERT_WIRE_SIG_SZ (192UL) /* BLSSignature: uncompressed affine G2 */
+FD_STATIC_ASSERT( CERT_WIRE_SIG_SZ==FD_AGGSIG_SIG_SZ, cert_wire_sig_sz );
+
+/* decode_base2_bitmap fills agg's signer bitmask + nbits from a
+   solana-signer-store Base2 bitmap: [u8 version=0][u16 LE nbits][ceil(nbits/8)
+   payload bytes, Lsb0 bit order].  agg->sig is left zeroed (caller fills it). */
+
+static int
+decode_base2_bitmap( fd_aggsig_t * agg,
+                     uchar const * b,
+                     ulong         b_sz ) {
+  if( FD_UNLIKELY( b_sz<3UL    ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+  if( FD_UNLIKELY( b[0]!=0     ) ) return FD_CERT_WIRE_ERR_UNSUPPORTED; /* 1==Base3 (mixed) */
+  ulong nbits      = (ulong)( (uint)b[1] | ((uint)b[2]<<8) );
+  if( FD_UNLIKELY( nbits>FD_AGGSIG_MAX_SIGNERS ) ) return FD_CERT_WIRE_ERR_MALFORMED;
+  ulong payload_sz = (nbits+7UL)/8UL;
+  if( FD_UNLIKELY( b_sz<3UL+payload_sz ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+  uchar const * bits = b+3UL;
+
+  fd_aggsig_init( agg, nbits ); /* sets nbits, zeroes bitmask and sig */
+
+  /* TODO: bit index i is the signer's RANK (its position in the epoch's
+     stake-sorted BLS pubkey list).  We map rank->validator index 1:1 here;
+     if the internal validator ordering differs from Agave's rank ordering
+     this must translate rank -> validator index before inserting. */
+  for( ulong i=0UL; i<nbits; i++ ) {
+    if( (bits[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
+  }
+  return FD_CERT_WIRE_SUCCESS;
+}
+
+int
+fd_cert_decode( fd_cert_t *   out,
+                uchar const * in,
+                ulong         in_sz ) {
+  ulong o = 0UL;
+
+  /* cert_type: u32 LE tag + payload (Slot or Block). */
+  if( FD_UNLIKELY( in_sz<o+4UL ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+  uint tag = FD_LOAD( uint, in+o ); o += 4UL;
+
+  ulong     slot = 0UL;
+  fd_hash_t block_hash;
+  fd_memset( &block_hash, 0, sizeof(fd_hash_t) );
+
+  switch( tag ) {
+  case CERT_WIRE_TAG_FINALIZE:
+  case CERT_WIRE_TAG_SKIP:               /* Slot payload */
+    if( FD_UNLIKELY( in_sz<o+8UL ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+    slot = FD_LOAD( ulong, in+o ); o += 8UL;
+    break;
+  case CERT_WIRE_TAG_FINALIZE_FAST:
+  case CERT_WIRE_TAG_NOTARIZE:
+  case CERT_WIRE_TAG_NOTAR_FALLBACK:
+  case CERT_WIRE_TAG_GENESIS:            /* Block { slot, block_id } payload */
+    if( FD_UNLIKELY( in_sz<o+40UL ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+    slot = FD_LOAD( ulong, in+o ); o += 8UL;
+    fd_memcpy( block_hash.uc, in+o, sizeof(fd_hash_t) ); o += sizeof(fd_hash_t);
+    break;
+  default:
+    return FD_CERT_WIRE_ERR_MALFORMED;
+  }
+
+  /* TODO: NotarizeFallback & Skip aggregate two signer sets over two distinct
+     vote payloads using a Base3 bitmap; Genesis is not yet modeled.  Wire up
+     once the mixed-cert verifier lands. */
+  if( tag==CERT_WIRE_TAG_NOTAR_FALLBACK ||
+      tag==CERT_WIRE_TAG_SKIP           ||
+      tag==CERT_WIRE_TAG_GENESIS        ) return FD_CERT_WIRE_ERR_UNSUPPORTED;
+
+  /* signature: 192-byte uncompressed affine G2 (PodBLSSignature). */
+  if( FD_UNLIKELY( in_sz<o+CERT_WIRE_SIG_SZ ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+  uchar const * sig = in+o; o += CERT_WIRE_SIG_SZ;
+
+  /* bitmap: wincode Vec<u8> = u64 LE length prefix + bytes (signer-store). */
+  if( FD_UNLIKELY( in_sz<o+8UL ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+  ulong bm_len = FD_LOAD( ulong, in+o ); o += 8UL;
+  if( FD_UNLIKELY( in_sz<o+bm_len ) ) return FD_CERT_WIRE_ERR_TRUNCATED;
+  uchar const * bm = in+o;
+
+  fd_memset( out, 0, sizeof(fd_cert_t) );
+  fd_aggsig_t * agg;
+  switch( tag ) {
+  case CERT_WIRE_TAG_FINALIZE:
+    out->discriminant      = FD_CERT_TYPE_FINAL;
+    out->inner.final_.slot = slot;
+    agg = &out->inner.final_.agg_sig;
+    break;
+  case CERT_WIRE_TAG_FINALIZE_FAST:
+    out->discriminant               = FD_CERT_TYPE_FAST_FINAL;
+    out->inner.fast_final.slot       = slot;
+    out->inner.fast_final.block_hash = block_hash;
+    agg = &out->inner.fast_final.agg_sig;
+    break;
+  default: /* CERT_WIRE_TAG_NOTARIZE */
+    out->discriminant          = FD_CERT_TYPE_NOTAR;
+    out->inner.notar.slot       = slot;
+    out->inner.notar.block_hash = block_hash;
+    agg = &out->inner.notar.agg_sig;
+    break;
+  }
+
+  int err = decode_base2_bitmap( agg, bm, bm_len );
+  if( FD_UNLIKELY( err ) ) return err;
+  fd_memcpy( agg->sig, sig, FD_AGGSIG_SIG_SZ ); /* after init zeroed it */
+
+  return FD_CERT_WIRE_SUCCESS;
 }

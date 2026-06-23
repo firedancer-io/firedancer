@@ -17,6 +17,7 @@ typedef struct fd_stake_weight fd_stake_weight_t;
 #include "../../util/tmpl/fd_sort.c"
 
 struct fd_vote_stake_weight {
+  
   fd_pubkey_t vote_key; /* vote account pubkey */
   fd_pubkey_t id_key;   /* validator identity pubkey */
   ulong       stake;    /* total stake by vote account */

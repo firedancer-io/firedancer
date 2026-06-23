@@ -32,6 +32,7 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
@@ -186,6 +187,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
+FD_STATIC_ASSERT( FD_EPOCH_INFO_BLS_PUBKEY_SZ==FD_BLS_PUBKEY_COMPRESSED_SZ, bls_pubkey_sz );
+
 static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -216,6 +219,24 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
   fd_stake_weight_t * src_id_weights = next_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
   fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
+
+  /* Append one compressed BLS voting pubkey per staked voter, indexed
+     1:1 with the vote stake weights, read from each voter's vote
+     account.  The votor tile consumes these; other consumers ignore
+     the trailing array.  Dummy/aggregated weights (all-zero vote_key,
+     from leader-schedule compression) and vote accounts without a BLS
+     key get a zeroed entry. */
+  FD_TEST( epoch_info_msg->staked_vote_cnt<=FD_EPOCH_INFO_MAX_VOTERS );
+  uchar * bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( epoch_info_msg );
+  for( ulong i=0UL; i<epoch_info_msg->staked_vote_cnt; i++ ) {
+    uchar *  out = bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ;
+    fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, stake_weights[i].vote_key.uc );
+    if( FD_UNLIKELY( !acc.lamports || fd_vote_account_bls_pubkey( acc.data, acc.data_len, out ) ) ) {
+      memset( out, 0, FD_EPOCH_INFO_BLS_PUBKEY_SZ );
+      FD_LOG_WARNING(("bls pubkey not found"));
+    }
+    fd_accdb_unread_one( ctx->accdb, &acc );
+  }
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
 

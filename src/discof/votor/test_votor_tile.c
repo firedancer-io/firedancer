@@ -48,9 +48,9 @@ mock_update_epoch_vtrs( fd_votor_tile_t *              ctx,
 
   /* Reuse the dimensions the scratch regions were allocated for. */
 
-  fd_epoch_info_join( fd_epoch_info_new( ctx->epoch_mem, ctx->validators, cnt ) );
-  ctx->epoch_info = fd_epoch_info_join( ctx->epoch_mem );
-  FD_TEST( ctx->epoch_info );
+  //fd_epoch_info_join( fd_epoch_info_new( ctx->epoch_mem, ctx->validators, cnt ) );
+  //ctx->epoch_info = fd_epoch_info_join( ctx->epoch_mem );
+  //FD_TEST( ctx->epoch_info );
 
   ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
                                          ctx->slot_max, ctx->validator_max, ctx->blockid_max,

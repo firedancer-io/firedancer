@@ -79,6 +79,16 @@ fd_epoch_info_validator( fd_epoch_info_t const * ei, ulong id ) {
   return fd_epoch_info_validators( ei ) + id;
 }
 
+/* fd_epoch_info_voting_pubkeys returns the contiguous array of BLS voting
+   pubkeys (one per validator, indexed by validator index), laid out
+   immediately after the validator array.  This is the contiguous `pks`
+   input expected by fd_aggsig_verify_bytes for aggregate-signature checks. */
+
+FD_FN_PURE static inline fd_aggsig_pk_t const *
+fd_epoch_info_voting_pubkeys( fd_epoch_info_t const * ei ) {
+  return (fd_aggsig_pk_t const *)( fd_epoch_info_validators( ei ) + ei->validator_cnt );
+}
+
 /* fd_epoch_info_leader returns the leader for slot (EpochInfo::leader),
    round-robin over windows by validator index. */
 

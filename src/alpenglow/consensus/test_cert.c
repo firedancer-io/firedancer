@@ -49,7 +49,10 @@ static void mk_final( fd_final_vote_t * o, ulong slot, ulong lo, ulong n ) {
 
 static void
 check_full_cert( fd_cert_t const * c, ulong n ) {
-  FD_TEST( fd_cert_check_sig( c, g_info, n ) );
+  void *            mem = NULL;
+  fd_epoch_info_t * ei  = make_epoch( n, &mem );
+  FD_TEST( fd_cert_check_sig( c, ei ) );
+  free( mem );
   FD_TEST( fd_cert_stake( c )==n ); /* unit stake */
   for( ulong i=0UL; i<n; i++ ) FD_TEST( fd_cert_is_signer( c, g_info[i].id ) );
 }
