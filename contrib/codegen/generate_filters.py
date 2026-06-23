@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import NoReturn, TextIO, Union, Tuple
+from typing import NoReturn, TextIO, TypeGuard, Union, Tuple
 
 # Arguments are passed to Linux syscalls through 64-bit registers. When
 # that syscall only uses the bottom 32-bits, like for an int, Linux ignores
@@ -134,7 +134,7 @@ def tokenize(expr: str) -> list[str | Symbol]:
     return out
 
 
-def parse_atom(tok: str | Symbol) -> int | str | Symbol:
+def parse_atom(tok: str | Symbol) -> Atom:
     if type(tok) is not Symbol:
         return tok
     try:
@@ -143,7 +143,9 @@ def parse_atom(tok: str | Symbol) -> int | str | Symbol:
         return tok
 
 
-Expr = Union[int, str, Symbol, Tuple["Expr", ...]]
+Atom = Union[int, str, Symbol]
+Imm = Union[int, str, Symbol]
+Expr = Union[Atom, Tuple["Expr", ...]]
 
 
 def parse_tokens(tokens: list[str | Symbol], i: int = 0) -> tuple[Expr, int]:
@@ -179,7 +181,7 @@ def strip_comments(lines: list[str]) -> list[str]:
 
 
 def join_continuations(lines: list[str]) -> list[str]:
-    out = []
+    out : list[str] = []
     for line in lines:
         if line.startswith((" ", "\t")) and out:
             out[-1] += line
@@ -230,8 +232,8 @@ def parse_signature(sigline: str) -> set[str]:
     return params
 
 
-def is_arg(expr: Expr) -> bool:
-    return type(expr) is tuple and len(expr) == 2 and str(expr[0]) == "arg"
+def is_arg(expr: Expr) -> TypeGuard[tuple]:
+    return isinstance(expr, tuple) and len(expr) == 2 and str(expr[0]) == "arg"
 
 
 def arg_no(expr: Expr) -> int:
@@ -249,7 +251,8 @@ class ImmWords:
         self.hi = hi
 
 
-def imm_words(expr: int | str | Symbol, params: set[str]) -> ImmWords:
+def imm_words(expr: Imm, params: set[str]) -> ImmWords:
+    assert isinstance(expr, (int, str, Symbol)), f"expected int, str, or Symbol, got {type(expr)}"
     if type(expr) is int:
         if expr < 0:
             die(f"negative immediate not supported: {expr}")
@@ -323,7 +326,7 @@ class Program:
         return sum(1 for item in self.items if not isinstance(item, Label))
 
     def render_target(self, target: str | int, pc: int, labels: dict[str, int], max_offset: int | None = None) -> str:
-        if type(target) is int:
+        if isinstance(target, int):
             return str(target)
         if target not in labels:
             raise ValueError(f"unknown label {target}")
@@ -347,23 +350,18 @@ class Program:
             else:
                 pc += 1
 
-        line_labels: dict[int, list[str]] = {}
+        line_labels: dict[int, str] = {}
         for name, idx in labels.items():
-            line_labels.setdefault(idx, []).append(name)
-
-        for idx, names in line_labels.items():
-            if len(names) > 1:
-                raise ValueError(
-                    f"multiple labels at instruction {idx}: {', '.join(names)}"
-                )
+            assert idx not in line_labels, f"multiple labels at instruction {idx}: {line_labels[idx]}, {name}"
+            line_labels[idx] = name
 
         lines = []
         pc = 0
         for item in self.items:
             if isinstance(item, Label):
                 continue
-            for name in line_labels.get(pc, []):
-                lines.append(f"//  {name}:")
+            if pc in line_labels:
+                lines.append(f"//  {line_labels[pc]}:")
             if item.comment:
                 lines.append(f"    /* {item.comment} */")
             if isinstance(item, Stmt):
@@ -376,7 +374,7 @@ class Program:
         return lines
 
 
-def emit_arg_eq(prog: Program, n: int, imm: Expr, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
+def emit_arg_eq(prog: Program, n: int, imm: Imm, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
     words = imm_words(imm, params)
     if arg_is_32bit(syscall, n):
         prog.load_arg_lo(n)
@@ -390,7 +388,7 @@ def emit_arg_eq(prog: Program, n: int, imm: Expr, label_t: str, label_f: str, pa
         prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.lo, label_t, label_f)
 
 
-def emit_arg_cmp(prog: Program, op: str, n: int, imm: Expr, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
+def emit_arg_cmp(prog: Program, op: str, n: int, imm: Imm, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
     if op == "eq":
         emit_arg_eq(prog, n, imm, label_t, label_f, params, syscall)
         return
@@ -507,7 +505,7 @@ def emit_expr(prog: Program, expr: tuple, label_t: str, label_f: str, params: se
 
 def compile_policy(entries: list[tuple[int, tuple[str, str | None]]], params: set[str]) -> Program:
     prog = Program()
-    checked = []
+    checked : list[tuple] = []
     seen = set()
 
     prog.load_abs("( offsetof( struct seccomp_data, arch ) )", "validate architecture")
