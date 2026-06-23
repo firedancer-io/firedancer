@@ -1416,7 +1416,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
     /* Execute the current instruction */
     int instr_exec_result = fd_execute_instr( runtime, bank, txn_in, txn_out, instr_info );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      if( FD_UNLIKELY( txn_out->err.exec_err_idx==INT_MAX ) ) txn_out->err.exec_err_idx = i;
+      if( FD_UNLIKELY( txn_out->err.exec_err_idx==UINT_MAX ) ) txn_out->err.exec_err_idx = i;
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
   }

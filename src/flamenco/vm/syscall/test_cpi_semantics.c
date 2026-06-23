@@ -700,7 +700,7 @@ run_matrix( fd_svm_mini_t *  mini,
         if( FD_UNLIKELY( got != want ) ) {
           fd_txn_out_t * txo = mini->vm->instr_ctx->txn_out;
           FD_LOG_ERR(( "%s: combo=%d dep=%d abi=%s expected=%d got=%d "
-                       "(txn.err.exec_err=%d idx=%d)",
+                       "(txn.err.exec_err=%d idx=%u)",
                        name, c, dep, abi==0 ? "rust" : "c", want, got,
                        txo->err.exec_err, txo->err.exec_err_idx ));
         }

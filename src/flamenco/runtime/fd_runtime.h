@@ -230,7 +230,7 @@ struct fd_txn_out {
        when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
     int  exec_err;
     int  exec_err_kind;
-    int  exec_err_idx;
+    uint exec_err_idx;
     uint custom_err;
   } err;
 

@@ -286,7 +286,7 @@ message RuntimeTxn {
   RuntimeTxnExecErr exec_err = 12;
   // Source kind of exec_err; only meaningful when txn_err = instruction_error
   RuntimeTxnExecErrKind exec_err_kind = 13;
-  // Instruction index that failed (INT_MAX if not applicable)
+  // Instruction index that failed (UINT_MAX if not applicable)
   uint32 exec_err_idx = 14;
   // Custom error code returned by the program (only meaningful for CUSTOM_ERROR)
   uint32 custom_err = 15;
