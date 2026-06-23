@@ -1926,13 +1926,21 @@ fd_sbpf_program_load_strict( fd_sbpf_program_t * prog,
     bytecode_phdr   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr)+sizeof(fd_elf64_phdr) );
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L493
-       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L497 */
-    fd_memcpy( prog->rodata, (uchar const *)bin + phdr_0.p_offset, phdr_0.p_filesz );
+       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L497
+       Note: memcpy merged below */
+    // fd_memcpy( prog->rodata, (uchar const *)bin + phdr_0.p_offset, phdr_0.p_filesz );
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L498-L499 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L498-L499
+     Note: memcpy merged below */
   prog->text = (ulong *)( (uchar *)prog->rodata + prog->rodata_sz );
-  fd_memcpy( (uchar *)prog->text, (uchar const *)bin + bytecode_phdr.p_offset, bytecode_phdr.p_filesz );
+  // fd_memcpy( (uchar *)prog->text, (uchar const *)bin + bytecode_phdr.p_offset, bytecode_phdr.p_filesz );
+
+  /* Copy the rodata and bytecode (text) segments into the destination buffer.
+     rodata and text are contiguous, so we can copy them in a single memcpy. */
+  memcpy( prog->rodata,
+          (uchar const *)bin + phdr_0.p_offset,
+          prog->rodata_sz + (ulong)prog->info.text_sz );
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L510-L514 */
   prog->entry_pc = fd_ulong_sat_sub( ehdr.e_entry, bytecode_phdr.p_vaddr ) / 8UL;

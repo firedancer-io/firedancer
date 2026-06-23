@@ -71,11 +71,19 @@ fd_progcache_val_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   int   has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
   ulong pc_max        = fd_ulong_max( 1UL, elf_info->text_cnt );
 
+  /* Lenient (v0-v2) loads relocate in-place over the full ELF image and may
+     read the unused account tail during relocation, so they need bin_sz
+     bytes of working space.  Strict (v3+) loads write exactly the rodata and
+     text segments, whose sizes are known at peek time (text_off == rodata
+     size, text_sz == bytecode size). */
+  ulong rodata_bufsz = has_calldests ? elf_info->bin_sz
+                                     : (ulong)elf_info->text_off + (ulong)elf_info->text_sz;
+
   ulong l = FD_LAYOUT_INIT;
   if( has_calldests ) {
     l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( pc_max ) );
   }
-  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->bin_sz );
+  l = FD_LAYOUT_APPEND( l, 8UL, rodata_bufsz );
   return FD_LAYOUT_FINI( l, fd_progcache_val_align() );
 }
 
@@ -97,15 +105,21 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   int has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
 
-  void * val = fd_wksp_laddr_fast( wksp, rec->data_gaddr );
-  FD_SCRATCH_ALLOC_INIT( l, val );
-  void *               calldests_mem = NULL;
+  void * val           = fd_wksp_laddr_fast( wksp, rec->data_gaddr );
+  void * calldests_mem = NULL;
+  void * rodata_mem;
   if( has_calldests ) {
-    /*               */calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
+    /* Lenient (v0-v2): [ calldests | rodata ] laid out inside val. */
+    FD_SCRATCH_ALLOC_INIT( l, val );
+    calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
+    rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
+    FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
+    FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
+  } else {
+    /* Strict (v3+): no calldests, so rodata is just the start of val
+       (val is fd_progcache_val_align()-aligned, which is >= 8). */
+    rodata_mem = val;
   }
-  void *               rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
-  FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
-  FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
 
   rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : UINT_MAX;
   rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)val );
@@ -137,9 +151,17 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   int syscalls_err = fd_vm_syscall_register_slot( syscalls, load_slot, features, /* is_deploy */ 0 );
   if( FD_UNLIKELY( syscalls_err!=FD_VM_SUCCESS ) ) FD_LOG_CRIT(( "fd_vm_syscall_register_slot failed" ));
 
-  /* Run ELF loader */
+  /* Run ELF loader.
 
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, progdata, progdata_sz, syscalls, config, scratch, scratch_sz ) ) ) {
+     Only the lenient (v0-v2) loader uses scratch space (to assemble the
+     rodata segment).  Strict (v3+) loads copy directly into the
+     destination buffer, so pass a NULL scratch to make that explicit and
+     to fault loudly if the strict path ever starts relying on it. */
+
+  void * load_scratch    = has_calldests ? scratch    : NULL;
+  ulong  load_scratch_sz = has_calldests ? scratch_sz : 0UL;
+
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, progdata, progdata_sz, syscalls, config, load_scratch, load_scratch_sz ) ) ) {
     return NULL;
   }
 
