@@ -1,8 +1,8 @@
 /* fd_rserve_tile serves incoming repair requests from other nodes */
 
+#define _GNU_SOURCE
 #include "fd_rserve.h"
 #include "fd_repair.h"
-#include "generated/fd_rserve_tile_seccomp.h"
 #include "../../disco/fd_disco_base.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyguard.h"
@@ -15,6 +15,9 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/net/fd_net_headers.h"
+
+#include <sys/mman.h>
+#include "generated/fd_rserve_tile_seccomp.h"
 
 #define IN_KIND_NET    (0)
 #define IN_KIND_SHRED  (1)
@@ -391,7 +394,7 @@ handle_shred( ctx_t             * ctx,
 
   if( FD_UNLIKELY( !(fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA) ) ) return;
 
-  fd_shredb_insert( ctx->shredb, shred, fd_shred_sz( shred ) );
+  fd_shredb_insert( ctx->shredb, shred );
   ctx->metrics->shreds_current = ctx->shredb->cnt;
 }
 

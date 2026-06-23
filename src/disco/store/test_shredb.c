@@ -67,7 +67,7 @@ insert_shred( fd_shredb_t * store,
               ulong         payload_sz ) {
   uchar buf[ FD_SHRED_MAX_SZ ];
   fd_shred_t * shred = make_shred( buf, slot, idx, payload, payload_sz );
-  fd_shredb_insert( store, shred, fd_shred_sz( shred ) );
+  fd_shredb_insert( store, shred );
 }
 
 /* For eviction tests we create a store and then shrink max_shreds. */
@@ -269,7 +269,7 @@ bench_insert( void ) {
     ulong slot = i / 32;
     uint  idx  = (uint)(i % 32);
     fd_shred_t * shred = make_shred( buf, slot, idx, payload, sizeof(payload) );
-    fd_shredb_insert( store, shred, fd_shred_sz( shred ) );
+    fd_shredb_insert( store, shred );
   }
   long t1 = fd_log_wallclock();
 
@@ -353,8 +353,6 @@ bench_mixed( void ) {
 
   teardown_store( store, mem );
 }
-
-/* ======================================================================== */
 
 int
 main( int argc, char ** argv ) {
