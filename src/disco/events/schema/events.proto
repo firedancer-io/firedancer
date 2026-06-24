@@ -32,7 +32,7 @@ enum SlotConfirmedLevel {
   SLOT_CONFIRMED_LEVEL_ROOTED = 7;  // The block or a descendant reached maximum lockout and can never be rolled back. The strongest level, equivalent to Solana's 'finalized' commitment.
 }
 
-// Transaction execution error (success when transaction succeeded)
+// Transaction execution error
 enum RuntimeTxnTxnErr {
   RUNTIME_TXN_TXN_ERR_UNSPECIFIED = 0;
   RUNTIME_TXN_TXN_ERR_SUCCESS = 1;  // Transaction succeeded
@@ -62,7 +62,7 @@ enum RuntimeTxnTxnErr {
   RUNTIME_TXN_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED = 25;  // Transaction exceeded max loaded accounts data size cap
   RUNTIME_TXN_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT = 26;  // Transaction requested a zero loaded-accounts-data-size limit
   RUNTIME_TXN_TXN_ERR_UNBALANCED_TRANSACTION = 27;  // Sum of account balances before and after transaction do not match
-  RUNTIME_TXN_TXN_ERR_BUNDLE_PEER = 28;  // Transaction was part of a Jito bundle in which another transaction failed
+  RUNTIME_TXN_TXN_ERR_BUNDLE_PEER = 28;  // Transaction was part of a bundle in which another transaction failed
   RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED = 29;  // Durable-nonce txn was rejected because its nonce account has already been advanced
   RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR = 30;  // Durable-nonce txn failed to advance its nonce account
   RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE = 31;  // Durable-nonce txn's recent_blockhash did not match the stored nonce
@@ -274,13 +274,13 @@ message RuntimeTxn {
   bytes fee_payer = 6;
   // True if the transaction was classified as a simple vote, false otherwise
   bool is_simple_vote = 7;
-  // True if the transaction is part of a Jito bundle, false otherwise
+  // True if the transaction is part of a bundle, false otherwise
   bool is_bundle = 8;
   // True if the transaction was committable (landed on-chain)
   bool is_committable = 9;
   // True if the transaction landed but only fees were charged (e.g. account loading failure)
   bool is_fees_only = 10;
-  // Transaction execution error (success when transaction succeeded)
+  // Transaction execution error
   RuntimeTxnTxnErr txn_err = 11;
   // Instruction execution error; only meaningful when txn_err = instruction_error
   RuntimeTxnExecErr exec_err = 12;
@@ -314,7 +314,7 @@ message RuntimeTxn {
   uint64 execution_fee = 26;
   // Priority fee paid by the fee payer
   uint64 priority_fee = 27;
-  // Jito tips paid during execution
+  // Tips paid during execution
   uint64 tips = 28;
   // Number of signatures in the transaction
   uint64 signature_count = 29;

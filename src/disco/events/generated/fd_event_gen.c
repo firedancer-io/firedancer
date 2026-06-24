@@ -102,7 +102,7 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   fd_pb_push_uint64( encoder, 3U, link_seq );
   fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->account_diffs_cnt<=128UL );
+  FD_TEST( msg->account_diffs_cnt<=64UL );
   FD_TEST( msg->writable_accounts_cnt<=64UL );
   FD_TEST( msg->readonly_accounts_cnt<=64UL );
   FD_TEST( msg->program_ids_cnt<=64UL );

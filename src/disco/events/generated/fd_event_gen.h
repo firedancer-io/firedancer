@@ -60,7 +60,7 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (221UL)
 
-/* Transaction execution error (success when transaction succeeded) */
+/* Transaction execution error */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS                                 (1) /* Transaction succeeded */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_LOADED_TWICE                    (2) /* A Pubkey appears twice in the transaction's account_keys */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_NOT_FOUND                       (3) /* Attempt to debit an account but found no record of a prior credit */
@@ -88,7 +88,7 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED  (25) /* Transaction exceeded max loaded accounts data size cap */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (26) /* Transaction requested a zero loaded-accounts-data-size limit */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_UNBALANCED_TRANSACTION                  (27) /* Sum of account balances before and after transaction do not match */
-#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BUNDLE_PEER                             (28) /* Transaction was part of a Jito bundle in which another transaction failed */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BUNDLE_PEER                             (28) /* Transaction was part of a bundle in which another transaction failed */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED        (29) /* Durable-nonce txn was rejected because its nonce account has already been advanced */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR      (30) /* Durable-nonce txn failed to advance its nonce account */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE              (31) /* Durable-nonce txn's recent_blockhash did not match the stored nonce */
@@ -192,10 +192,10 @@ struct fd_event_runtime_txn {
   uchar                                    blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
   uchar                                    fee_payer[ 32UL ];                 /* Fee-payer pubkey */
   int                                      is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
-  int                                      is_bundle;                         /* True if the transaction is part of a Jito bundle, false otherwise */
+  int                                      is_bundle;                         /* True if the transaction is part of a bundle, false otherwise */
   int                                      is_committable;                    /* True if the transaction was committable (landed on-chain) */
   int                                      is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
-  int                                      txn_err;                           /* Transaction execution error (success when transaction succeeded) */
+  int                                      txn_err;                           /* Transaction execution error */
   int                                      exec_err;                          /* Instruction execution error; only meaningful when txn_err = instruction_error */
   int                                      exec_err_kind;                     /* Source kind of exec_err; only meaningful when txn_err = instruction_error */
   uint                                     exec_err_idx;                      /* Instruction index that failed (UINT_MAX if not applicable) */
@@ -212,7 +212,7 @@ struct fd_event_runtime_txn {
   int                                      accounts_resize_is_negative;       /* True when the net delta is negative (writable account data net shrunk during execution) */
   ulong                                    execution_fee;                     /* Execution fee paid by the fee payer */
   ulong                                    priority_fee;                      /* Priority fee paid by the fee payer */
-  ulong                                    tips;                              /* Jito tips paid during execution */
+  ulong                                    tips;                              /* Tips paid during execution */
   ulong                                    signature_count;                   /* Number of signatures in the transaction */
   uint                                     cost_signature;                    /* Cost-tracker signature cost */
   uint                                     cost_write_lock;                   /* Cost-tracker write-lock cost */
@@ -220,8 +220,8 @@ struct fd_event_runtime_txn {
   uint                                     cost_programs_execution;           /* Cost-tracker programs-execution cost */
   uint                                     cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
   ulong                                    cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
-  fd_event_runtime_txn_account_diffs_t     account_diffs[ 128UL ];            /* Per-account diffs for writable accounts that were modified */
-  ulong                                    account_diffs_cnt;                 /* Number of account_diffs entries (<= 128) */
+  fd_event_runtime_txn_account_diffs_t     account_diffs[ 64UL ];             /* Per-account diffs for writable accounts that were modified */
+  ulong                                    account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
   fd_event_runtime_txn_writable_accounts_t writable_accounts[ 64UL ];         /* Every account the transaction locked as writable */
   ulong                                    writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
   fd_event_runtime_txn_readonly_accounts_t readonly_accounts[ 64UL ];         /* Every account the transaction locked as readonly, in account-order */
@@ -233,7 +233,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (34176UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (22400UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */

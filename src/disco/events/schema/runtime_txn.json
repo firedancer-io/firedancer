@@ -10,12 +10,12 @@
         "blockhash":                         { "type": "Hash",          "description": "Blockhash referenced by the transaction" },
         "fee_payer":                         { "type": "Pubkey",        "description": "Fee-payer pubkey" },
         "is_simple_vote":                    { "type": "Bool",          "description": "True if the transaction was classified as a simple vote, false otherwise" },
-        "is_bundle":                         { "type": "Bool",          "description": "True if the transaction is part of a Jito bundle, false otherwise" },
+        "is_bundle":                         { "type": "Bool",          "description": "True if the transaction is part of a bundle, false otherwise" },
         "is_committable":                    { "type": "Bool",          "description": "True if the transaction was committable (landed on-chain)" },
         "is_fees_only":                      { "type": "Bool",          "description": "True if the transaction landed but only fees were charged (e.g. account loading failure)" },
         "txn_err": {
             "type": "LowCardinality(String)",
-            "description": "Transaction execution error (success when transaction succeeded)",
+            "description": "Transaction execution error",
             "variants": {
                 "success":                                 { "description": "Transaction succeeded" },
                 "account_loaded_twice":                    { "description": "A Pubkey appears twice in the transaction's account_keys" },
@@ -44,7 +44,7 @@
                 "max_loaded_accounts_data_size_exceeded":  { "description": "Transaction exceeded max loaded accounts data size cap" },
                 "invalid_loaded_accounts_data_size_limit": { "description": "Transaction requested a zero loaded-accounts-data-size limit" },
                 "unbalanced_transaction":                  { "description": "Sum of account balances before and after transaction do not match" },
-                "bundle_peer":                             { "description": "Transaction was part of a Jito bundle in which another transaction failed" },
+                "bundle_peer":                             { "description": "Transaction was part of a bundle in which another transaction failed" },
                 "blockhash_nonce_already_advanced":        { "description": "Durable-nonce txn was rejected because its nonce account has already been advanced" },
                 "blockhash_fail_advance_nonce_instr":      { "description": "Durable-nonce txn failed to advance its nonce account" },
                 "blockhash_fail_wrong_nonce":              { "description": "Durable-nonce txn's recent_blockhash did not match the stored nonce" }
@@ -128,7 +128,7 @@
         "accounts_resize_is_negative":       { "type": "Bool",          "description": "True when the net delta is negative (writable account data net shrunk during execution)" },
         "execution_fee":                     { "type": "UInt64",        "description": "Execution fee paid by the fee payer" },
         "priority_fee":                      { "type": "UInt64",        "description": "Priority fee paid by the fee payer" },
-        "tips":                              { "type": "UInt64",        "description": "Jito tips paid during execution" },
+        "tips":                              { "type": "UInt64",        "description": "Tips paid during execution" },
         "signature_count":                   { "type": "UInt64",        "description": "Number of signatures in the transaction" },
         "cost_signature":                    { "type": "UInt32",        "description": "Cost-tracker signature cost" },
         "cost_write_lock":                   { "type": "UInt32",        "description": "Cost-tracker write-lock cost" },
@@ -138,7 +138,7 @@
         "cost_allocated_accounts_data_size": { "type": "UInt64",        "description": "Allocated accounts data size from the cost tracker" },
         "account_diffs": {
             "type": "Array",
-            "max_len": 128,
+            "max_len": 64,
             "description": "Per-account diffs for writable accounts that were modified",
             "element": {
                 "type": "Tuple",
