@@ -10,6 +10,25 @@ SKIP_INGEST=${SKIP_INGEST:-0}
 LEDGER="mainnet-424669000-solcap"
 REDOWNLOAD=1
 
+BACKTEST_LOG="/tmp/ledger_log_solcap"
+
+# Surface failures: with `set -e` a failing command aborts the script with
+# no context, and several steps below capture output to log files.  This
+# trap prints the failing command, line, and exit code, and dumps the
+# backtest log tail so the real error is visible in CI instead of a bare
+# non-zero exit.
+on_err() {
+  local ec=$?
+  echo "::error::run_solcap_tests.sh failed at line ${BASH_LINENO[0]} (exit ${ec}): ${BASH_COMMAND}" >&2
+  if [[ -f "$BACKTEST_LOG" ]]; then
+    echo "----- last 100 lines of ${BACKTEST_LOG} -----" >&2
+    tail -n 100 "$BACKTEST_LOG" >&2 || true
+    echo "---------------------------------------------" >&2
+  fi
+  exit "$ec"
+}
+trap on_err ERR
+
 while [[ $# -gt 0 ]]; do
 case $1 in
     -nr|--no-redownload)
@@ -46,16 +65,27 @@ if [[ ! -e $DUMP/$LEDGER ]]; then
   download_and_extract_ledger
 fi
 
-# Clone and build solcap-tools
+# Clone and build solcap-tools.  Capture output to a log and only print
+# it on failure, so a broken clone/fetch/checkout/build surfaces its
+# error in CI instead of failing silently.
+echo "Building solcap-tools ..."
 ORIG_DIR=$(pwd)
+SOLCAP_BUILD_LOG="$(mktemp)"
+run_quiet() {
+  if ! "$@" > "$SOLCAP_BUILD_LOG" 2>&1; then
+    echo "::error::solcap-tools step failed: $*" >&2
+    cat "$SOLCAP_BUILD_LOG" >&2
+    exit 1
+  fi
+}
 cd $DUMP
 if [ ! -d "solcap-tools" ]; then
-  git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
+  run_quiet git clone https://github.com/firedancer-io/solcap-tools.git
 fi
 cd solcap-tools
-git fetch > /dev/null 2>&1
-git checkout 44dc8e2a5c65435daf57b009c108234f316224f7 > /dev/null 2>&1
-cargo build --release > /dev/null 2>&1
+run_quiet git fetch
+run_quiet git checkout 44dc8e2a5c65435daf57b009c108234f316224f7
+run_quiet cargo build --release
 cd "$ORIG_DIR"
 
 export ledger_dir=$(realpath $DUMP/$LEDGER)
@@ -102,20 +132,32 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
     end_slot = 424669025
 EOF
 
+echo "Running firedancer-dev configure fini all ..."
 $OBJDIR/bin/firedancer-dev configure fini all
+
+echo "Running backtest (full log at ${BACKTEST_LOG}) ..."
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
 
 # Run solcap-tools diff and check the summary for zero differences
+echo "Running solcap-tools diff ..."
 DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/mainnet-424669000.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
 echo "$DIFF_OUTPUT"
 
-SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3) > /dev/null 2>&1
-DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -ioP 'Differing Slots: \K\d+' || echo "") > /dev/null 2>&1
-DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -ioP 'Differing Accounts: \K\d+' || echo "") > /dev/null 2>&1
+SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3)
+DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -ioP 'Differing Slots: \K\d+' || true)
+DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -ioP 'Differing Accounts: \K\d+' || true)
+
+# If the summary did not parse, treat that as a failure rather than
+# silently passing (empty != "0").
+if [[ -z "$DIFFERING_SLOTS" || -z "$DIFFERING_ACCOUNTS" ]]; then
+  echo -e "\033[0;31mFAIL\033[0m Could not parse solcap diff summary (Differing Slots='${DIFFERING_SLOTS}', Differing Accounts='${DIFFERING_ACCOUNTS}'). Full diff output above." >&2
+  exit 1
+fi
 
 if [[ "$DIFFERING_SLOTS" != "0" || "$DIFFERING_ACCOUNTS" != "0" ]]; then
   echo -e "\033[0;31mFAIL\033[0m Solcap diff found mismatches! Differing Slots: $DIFFERING_SLOTS, Differing Accounts: $DIFFERING_ACCOUNTS" >&2
   exit 1
 fi
 
+echo "Solcap diff clean: 0 differing slots, 0 differing accounts"
 exit 0
