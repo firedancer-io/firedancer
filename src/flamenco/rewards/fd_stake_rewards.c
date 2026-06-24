@@ -78,6 +78,13 @@ struct fd_stake_rewards {
   /* Temporary storage for the current stake reward being computed. */
   fd_siphash13_t primed_hasher[ 1 ];
   uint           iter_curr_fork_idx;
+
+  int is_first_fork;  /* Stake accounts in the stake delegations map are unique.  So on the
+                         first pass over a boundary, every dedup query is a guaranteed miss
+                         and is skipped. */
+  int map_backfilled; /* Additionally skip populating the dedup map on the first fork.  The
+                         map is left empty and lazily backfilled from the underlying pool
+                         only if a sibling fork over the same boundary actually shows up. */
 };
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
@@ -218,12 +225,21 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   /* If this is the first reference to the stake rewards, we need to
      reset the backing map and pool all the forks will share. */
-  if( FD_LIKELY( stake_rewards->epoch!=epoch ) ) {
+  int is_first_fork = ( stake_rewards->epoch!=epoch );
+  if( FD_LIKELY( is_first_fork ) ) {
     fork_pool_reset( fork_pool );
     index_map_reset( index_map );
     stake_rewards->epoch          = epoch;
     stake_rewards->total_ele_used = 0UL;
+    stake_rewards->map_backfilled = 0;
+  } else if( FD_UNLIKELY( !stake_rewards->map_backfilled ) ) {
+    index_ele_t * index_ele_pool = get_index_pool( stake_rewards );
+    for( ulong i=0UL; i<stake_rewards->total_ele_used; i++ ) {
+      index_map_ele_insert( index_map, &index_ele_pool[i], index_ele_pool );
+    }
+    stake_rewards->map_backfilled = 1;
   }
+  stake_rewards->is_first_fork = is_first_fork;
 
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
 
@@ -255,7 +271,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
     .credits_observed = credits_observed,
   };
 
-  uint index = (uint)index_map_idx_query( index_map, &index_key, UINT_MAX, index_ele );
+  uint index = stake_rewards->is_first_fork ? UINT_MAX : (uint)index_map_idx_query( index_map, &index_key, UINT_MAX, index_ele );
   if( FD_LIKELY( index==UINT_MAX ) ) {
     index = stake_rewards->total_ele_used;
     stake_rewards->total_ele_used++;
@@ -264,7 +280,9 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
     }
     index_ele_t * ele = (index_ele_t *)index_ele + index;
     ele->index_key = index_key;
-    index_map_ele_insert( index_map, ele, index_ele );
+    if( FD_LIKELY( !stake_rewards->is_first_fork ) ) {
+      index_map_ele_insert( index_map, ele, index_ele );
+    }
   }
 
   /* We have an invariant that there can never be more than 8192 entries
