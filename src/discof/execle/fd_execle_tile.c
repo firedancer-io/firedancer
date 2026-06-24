@@ -251,6 +251,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     txn_in->bundle.is_bundle = 0;
     txn_in->txn              = txn;
+    txn_in->index_in_slot    = ctx->_txn_idx + i;
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
@@ -454,6 +455,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     writable_alt[i]                   = ctx->_alt_accts[i];
     ctx->txn_in[ i ].txn              = &txns[ i ];
     ctx->txn_in[ i ].bundle.is_bundle = 1;
+    ctx->txn_in[ i ].index_in_slot    = ctx->_txn_idx + i;
   }
 
 

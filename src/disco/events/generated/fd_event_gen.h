@@ -151,89 +151,75 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
 
 /* Per-account diff entry */
 struct fd_event_runtime_txn_account_diffs {
-  uchar pubkey[ 32UL ];  /* Account pubkey */
-  uchar owner[ 32UL ];   /* Post-state owner pubkey */
-  ulong lamports;        /* Post-state lamports */
-  ulong prev_lamports;   /* Pre-state lamports */
-  ulong data_sz;         /* Post-state data size in bytes */
-  ulong prev_data_sz;    /* Pre-state data size in bytes */
-  int   is_executable;   /* True if the post-state account is executable */
-  int   is_stake_update; /* True if this write touched the stake cache */
-  int   is_vote_update;  /* True if this write touched the vote cache */
-  int   is_new_vote;     /* True if this write created a new vote account */
-  int   is_rm_vote;      /* True if this write removed a vote account */
+  uchar pubkey[ 32UL ];     /* Account pubkey */
+  uchar owner[ 32UL ];      /* Post-state owner pubkey */
+  uchar prev_owner[ 32UL ]; /* Pre-state owner pubkey */
+  ulong lamports;           /* Post-state lamports */
+  ulong prev_lamports;      /* Pre-state lamports */
+  ulong data_sz;            /* Post-state data size in bytes */
+  ulong prev_data_sz;       /* Pre-state data size in bytes */
+  int   is_executable;      /* True if the post-state account is executable */
+  int   is_stake_update;    /* True if this write touched the stake cache */
+  int   is_vote_update;     /* True if this write touched the vote cache */
+  int   is_new_vote;        /* True if this write created a new vote account */
+  int   is_rm_vote;         /* True if this write removed a vote account */
 };
 typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
 
-/* Writable-locked account entry */
-struct fd_event_runtime_txn_writable_accounts {
-  uchar pubkey[ 32UL ]; /* Writable-locked account pubkey */
-};
-typedef struct fd_event_runtime_txn_writable_accounts fd_event_runtime_txn_writable_accounts_t;
-
-/* Readonly-locked account entry */
-struct fd_event_runtime_txn_readonly_accounts {
-  uchar pubkey[ 32UL ]; /* Readonly-locked account pubkey */
-};
-typedef struct fd_event_runtime_txn_readonly_accounts fd_event_runtime_txn_readonly_accounts_t;
-
-/* Program id entry */
-struct fd_event_runtime_txn_program_ids {
-  uchar pubkey[ 32UL ]; /* Top-level program pubkey */
-};
-typedef struct fd_event_runtime_txn_program_ids fd_event_runtime_txn_program_ids_t;
-
 /* One row per dispatched transaction (committable or not), with the execution results */
 struct fd_event_runtime_txn {
-  ulong                                    bank_seq;                          /* Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
-  ulong                                    slot;                              /* Bank slot in which this transaction was executed */
-  ulong                                    epoch;                             /* Epoch the transaction was executed in */
-  uchar                                    signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
-  uchar                                    blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
-  uchar                                    fee_payer[ 32UL ];                 /* Fee-payer pubkey */
-  int                                      is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
-  int                                      is_bundle;                         /* True if the transaction is part of a bundle, false otherwise */
-  int                                      is_committable;                    /* True if the transaction was committable (landed on-chain) */
-  int                                      is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
-  int                                      txn_err;                           /* Transaction execution error */
-  int                                      exec_err;                          /* Instruction execution error; only meaningful when txn_err = instruction_error */
-  int                                      exec_err_kind;                     /* Source kind of exec_err; only meaningful when txn_err = instruction_error */
-  uint                                     exec_err_idx;                      /* Instruction index that failed (UINT_MAX if not applicable) */
-  uint                                     custom_err;                        /* Custom error code returned by the program (only meaningful for CUSTOM_ERROR) */
-  ulong                                    compute_unit_limit;                /* Compute unit limit requested by the transaction */
-  ulong                                    compute_unit_price;                /* Compute unit price (micro-lamports per CU) requested by the transaction */
-  ulong                                    compute_units_consumed;            /* compute_unit_limit minus the remaining compute meter at commit */
-  ulong                                    heap_size;                         /* Requested heap size for the VM */
-  ulong                                    num_builtin_instrs;                /* Number of builtin program instructions in the transaction */
-  ulong                                    num_non_builtin_instrs;            /* Number of BPF (non-builtin) program instructions */
-  ulong                                    loaded_accounts_data_size;         /* Total bytes of account data loaded for this transaction */
-  ulong                                    loaded_accounts_data_size_limit;   /* Configured loaded-accounts-data-size limit for this transaction */
-  ulong                                    accounts_resize_delta;             /* Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign */
-  int                                      accounts_resize_is_negative;       /* True when the net delta is negative (writable account data net shrunk during execution) */
-  ulong                                    execution_fee;                     /* Execution fee paid by the fee payer */
-  ulong                                    priority_fee;                      /* Priority fee paid by the fee payer */
-  ulong                                    tips;                              /* Tips paid during execution */
-  ulong                                    signature_count;                   /* Number of signatures in the transaction */
-  uint                                     cost_signature;                    /* Cost-tracker signature cost */
-  uint                                     cost_write_lock;                   /* Cost-tracker write-lock cost */
-  uint                                     cost_data_bytes;                   /* Cost-tracker data-bytes cost */
-  uint                                     cost_programs_execution;           /* Cost-tracker programs-execution cost */
-  uint                                     cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
-  ulong                                    cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
-  fd_event_runtime_txn_account_diffs_t     account_diffs[ 64UL ];             /* Per-account diffs for writable accounts that were modified */
-  ulong                                    account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
-  fd_event_runtime_txn_writable_accounts_t writable_accounts[ 64UL ];         /* Every account the transaction locked as writable */
-  ulong                                    writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
-  fd_event_runtime_txn_readonly_accounts_t readonly_accounts[ 64UL ];         /* Every account the transaction locked as readonly, in account-order */
-  ulong                                    readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 64) */
-  fd_event_runtime_txn_program_ids_t       program_ids[ 64UL ];               /* Distinct program pubkeys invoked at the top level of this transaction */
-  ulong                                    program_ids_cnt;                   /* Number of program_ids entries (<= 64) */
+  ulong                                bank_seq;                          /* Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong                                slot;                              /* Bank slot in which this transaction was executed */
+  ulong                                index_in_slot;                     /* 0-indexed position of this transaction within its block */
+  ulong                                commit_index_in_slot;              /* 0-indexed commit-completion order within this slot */
+  uchar                                fec_merkle_root[ 32UL ];           /* FEC merkle root that was the current block_id of the bank when this txn was dispatched; NULL on the leader path */
+  ulong                                epoch;                             /* Epoch the transaction was executed in */
+  uchar                                signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
+  uchar                                blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
+  uchar                                fee_payer[ 32UL ];                 /* Fee-payer pubkey */
+  int                                  is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
+  int                                  is_bundle;                         /* True if the transaction is part of a bundle, false otherwise */
+  int                                  is_committable;                    /* True if the transaction was committable (landed on-chain) */
+  int                                  is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
+  int                                  txn_err;                           /* Transaction execution error */
+  int                                  exec_err;                          /* Instruction execution error; only meaningful when txn_err = instruction_error */
+  int                                  exec_err_kind;                     /* Source kind of exec_err; only meaningful when txn_err = instruction_error */
+  uint                                 exec_err_idx;                      /* Instruction index that failed (UINT_MAX if not applicable) */
+  uint                                 custom_err;                        /* Custom error code returned by the program (only meaningful for CUSTOM_ERROR) */
+  ulong                                compute_unit_limit;                /* Compute unit limit requested by the transaction */
+  ulong                                compute_unit_price;                /* Compute unit price (micro-lamports per CU) requested by the transaction */
+  ulong                                compute_units_consumed;            /* compute_unit_limit minus the remaining compute meter at commit */
+  ulong                                heap_size;                         /* Requested heap size for the VM */
+  ulong                                num_builtin_instrs;                /* Number of builtin program instructions in the transaction */
+  ulong                                num_non_builtin_instrs;            /* Number of BPF (non-builtin) program instructions */
+  ulong                                loaded_accounts_data_size;         /* Total bytes of account data loaded for this transaction */
+  ulong                                loaded_accounts_data_size_limit;   /* Configured loaded-accounts-data-size limit for this transaction */
+  ulong                                accounts_resize_delta;             /* Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign */
+  int                                  accounts_resize_is_negative;       /* True when the net delta is negative (writable account data net shrunk during execution) */
+  ulong                                execution_fee;                     /* Execution fee paid by the fee payer */
+  ulong                                priority_fee;                      /* Priority fee paid by the fee payer */
+  ulong                                tips;                              /* Tips paid during execution */
+  ulong                                signature_count;                   /* Number of signatures in the transaction */
+  uint                                 cost_signature;                    /* Cost-tracker signature cost */
+  uint                                 cost_write_lock;                   /* Cost-tracker write-lock cost */
+  uint                                 cost_data_bytes;                   /* Cost-tracker data-bytes cost */
+  uint                                 cost_programs_execution;           /* Cost-tracker programs-execution cost */
+  uint                                 cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
+  ulong                                cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
+  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account diffs for writable accounts that were modified */
+  ulong                                account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
+  uchar                                writable_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as writable */
+  ulong                                writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
+  uchar                                readonly_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as readonly, in account-order */
+  ulong                                readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 64) */
+  uchar                                program_ids[ 64UL ][ 32UL ];       /* Distinct program pubkeys invoked at the top level of this transaction */
+  ulong                                program_ids_cnt;                   /* Number of program_ids entries (<= 64) */
 };
 typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (22400UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23240UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */

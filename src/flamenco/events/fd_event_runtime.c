@@ -14,14 +14,17 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   uchar const *    payload = (uchar const *)txn_in->txn->payload;
   fd_txn_t const * txn_d   = TXN( txn_in->txn );
   fd_memcpy( ev.signature, payload + txn_d->signature_off, 64UL );
-  fd_memcpy( ev.blockhash, txn_out->details.blockhash.uc,  32UL );
+  fd_memcpy( ev.blockhash,       txn_out->details.blockhash.uc, 32UL );
+  fd_memcpy( ev.fec_merkle_root, txn_in->fec_merkle_root,       32UL );
   if( FD_LIKELY( txn_out->accounts.cnt>0UL ) ) {
     fd_memcpy( ev.fee_payer, txn_out->accounts.keys[ 0 ].uc, 32UL );
   }
 
-  ev.bank_seq = bank->bank_seq;
-  ev.slot     = bank->f.slot;
-  ev.epoch    = bank->f.epoch;
+  ev.bank_seq             = bank->bank_seq;
+  ev.slot                 = bank->f.slot;
+  ev.epoch                = bank->f.epoch;
+  ev.index_in_slot        = txn_in->index_in_slot;
+  ev.commit_index_in_slot = txn_out->err.is_committable ? txn_out->details.commit_index_in_slot : 0UL;
 
   /* Flags */
   ev.is_simple_vote = !!txn_out->details.is_simple_vote;
@@ -71,7 +74,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   /* account_diffs: walk per-txn writable accounts, compare prior vs current */
   ulong diff_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( diff_cnt>=128UL ) break;
+    if( diff_cnt>=64UL ) break;
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( !acc ) ) continue;
     if( !txn_out->accounts.is_writable[ i ] ) continue;
@@ -87,8 +90,9 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     if( !changed ) continue;
 
     fd_event_runtime_txn_account_diffs_t * d = &ev.account_diffs[ diff_cnt++ ];
-    fd_memcpy( d->pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
-    fd_memcpy( d->owner,  acc->owner,                     32UL );
+    fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc, 32UL );
+    fd_memcpy( d->owner,      acc->owner,                     32UL );
+    fd_memcpy( d->prev_owner, acc->prior_owner,               32UL );
     d->lamports      = acc->lamports;
     d->prev_lamports = acc->prior_lamports;
     d->data_sz       = acc->data_len;
@@ -107,9 +111,9 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( !acc ) ) continue;
     if( txn_out->accounts.is_writable[ i ] ) {
-      if( w_cnt<64UL ) fd_memcpy( ev.writable_accounts[ w_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
+      if( w_cnt<64UL ) fd_memcpy( ev.writable_accounts[ w_cnt++ ], txn_out->accounts.keys[ i ].uc, 32UL );
     } else {
-      if( r_cnt<64UL ) fd_memcpy( ev.readonly_accounts[ r_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
+      if( r_cnt<64UL ) fd_memcpy( ev.readonly_accounts[ r_cnt++ ], txn_out->accounts.keys[ i ].uc, 32UL );
     }
   }
   ev.writable_accounts_cnt = w_cnt;
@@ -124,9 +128,9 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     uchar const * pid = txn_out->accounts.keys[ pid_idx ].uc;
     int seen = 0;
     for( ulong j=0UL; j<p_cnt; j++ ) {
-      if( memcmp( ev.program_ids[ j ].pubkey, pid, 32UL )==0 ) { seen = 1; break; }
+      if( memcmp( ev.program_ids[ j ], pid, 32UL )==0 ) { seen = 1; break; }
     }
-    if( !seen ) fd_memcpy( ev.program_ids[ p_cnt++ ].pubkey, pid, 32UL );
+    if( !seen ) fd_memcpy( ev.program_ids[ p_cnt++ ], pid, 32UL );
   }
   ev.program_ids_cnt = p_cnt;
 

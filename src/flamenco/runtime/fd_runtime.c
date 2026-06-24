@@ -1046,7 +1046,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( txn_out->details.tips ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.tips, txn_out->details.tips );
   }
 
-  FD_ATOMIC_FETCH_AND_ADD( &bank->f.txn_count,       1UL );
+  txn_out->details.commit_index_in_slot = FD_ATOMIC_FETCH_AND_ADD( &bank->f.txn_count, 1UL );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.execution_fees,  txn_out->details.execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.priority_fees,   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.signature_count, txn_out->details.signature_count );

@@ -1240,6 +1240,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
       memcpy( exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
+      memcpy( exec_msg->fec_merkle_root, ctx->block_id_arr[ task->txn_exec->bank_idx ].latest_mr.uc, 32UL );
+      exec_msg->index_in_slot = fd_sched_get_txn_info( ctx->sched, task->txn_exec->txn_idx )->index_in_slot;
       if( FD_UNLIKELY( ctx->capture_ctx ) ) {
         exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
       }

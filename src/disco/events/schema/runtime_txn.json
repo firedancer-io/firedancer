@@ -5,6 +5,9 @@
     "fields": {
         "bank_seq":                          { "type": "UInt64",        "description": "Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
         "slot":                              { "type": "UInt64",        "description": "Bank slot in which this transaction was executed" },
+        "index_in_slot":                     { "type": "UInt64",        "description": "0-indexed position of this transaction within its block" },
+        "commit_index_in_slot":              { "type": "UInt64",        "description": "0-indexed commit-completion order within this slot" },
+        "fec_merkle_root":                   { "type": "Hash",          "description": "FEC merkle root that was the current block_id of the bank when this txn was dispatched; NULL on the leader path" },
         "epoch":                             { "type": "UInt64",        "description": "Epoch the transaction was executed in" },
         "signature":                         { "type": "Signature",     "description": "First signature of the transaction (64 bytes)" },
         "blockhash":                         { "type": "Hash",          "description": "Blockhash referenced by the transaction" },
@@ -146,6 +149,7 @@
                 "fields": {
                     "pubkey":        { "type": "Pubkey", "description": "Account pubkey" },
                     "owner":         { "type": "Pubkey", "description": "Post-state owner pubkey" },
+                    "prev_owner":    { "type": "Pubkey", "description": "Pre-state owner pubkey" },
                     "lamports":      { "type": "UInt64", "description": "Post-state lamports" },
                     "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
                     "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
@@ -162,37 +166,19 @@
             "type": "Array",
             "max_len": 64,
             "description": "Every account the transaction locked as writable",
-            "element": {
-                "type": "Tuple",
-                "description": "Writable-locked account entry",
-                "fields": {
-                    "pubkey": { "type": "Pubkey", "description": "Writable-locked account pubkey" }
-                }
-            }
+            "element": { "type": "Pubkey", "description": "Writable-locked account pubkey" }
         },
         "readonly_accounts": {
             "type": "Array",
             "max_len": 64,
             "description": "Every account the transaction locked as readonly, in account-order",
-            "element": {
-                "type": "Tuple",
-                "description": "Readonly-locked account entry",
-                "fields": {
-                    "pubkey": { "type": "Pubkey", "description": "Readonly-locked account pubkey" }
-                }
-            }
+            "element": { "type": "Pubkey", "description": "Readonly-locked account pubkey" }
         },
         "program_ids": {
             "type": "Array",
             "max_len": 64,
             "description": "Distinct program pubkeys invoked at the top level of this transaction",
-            "element": {
-                "type": "Tuple",
-                "description": "Program id entry",
-                "fields": {
-                    "pubkey": { "type": "Pubkey", "description": "Top-level program pubkey" }
-                }
-            }
+            "element": { "type": "Pubkey", "description": "Top-level program pubkey" }
         }
     }
 }

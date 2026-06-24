@@ -220,6 +220,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
+        memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
+        ctx->txn_in.index_in_slot = msg->index_in_slot;
 
         /* Set the capture txn index from the message so account updates
            during commit are recorded with the correct transaction index. */
