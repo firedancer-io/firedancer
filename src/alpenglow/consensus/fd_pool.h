@@ -149,7 +149,9 @@ fd_pool_new( void *                      mem,
              ulong                       own_id,
              fd_validator_info_t const * validators,
              ulong                       validator_cnt,
-             ulong                       seed );
+             ulong                       seed,
+             ulong                       root_slot,        /* baseline finalized slot (snapshot slot, or 0) */
+             fd_hash_t const *           root_block_hash );/* its block id (NULL => all-zero genesis hash)    */
 
 /* fd_pool_join / leave / delete mirror the canonical triplet (fd_ghost.h). */
 
@@ -165,9 +167,10 @@ void *      fd_pool_delete( void *            mem );
    appended to *out.  Returns FD_POOL_SUCCESS or an FD_POOL_ERR_* code. */
 
 int
-fd_pool_add_cert( fd_pool_t *       pool,
-                  fd_cert_t const * cert,
-                  fd_pool_out_t *   out );
+fd_pool_add_cert( fd_pool_t *             pool,
+                  fd_cert_t const *       cert,
+                  fd_epoch_info_t const * epoch_info,
+                  fd_pool_out_t *         out );
 
 /* fd_pool_add_vote adds a new vote to the pool, checking validity (slot
    bounds, known signer, signature, slashable offence, non-duplicate) before

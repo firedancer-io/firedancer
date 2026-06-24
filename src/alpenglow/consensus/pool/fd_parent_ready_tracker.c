@@ -204,6 +204,19 @@ fd_parent_ready_tracker_default( fd_parent_ready_tracker_t * tracker ) {
   return tracker;
 }
 
+fd_parent_ready_tracker_t *
+fd_parent_ready_tracker_seed_root( fd_parent_ready_tracker_t * tracker,
+                                   ulong                       root_slot,
+                                   fd_hash_t const *           root_hash ) {
+  state_pool_t *            pool = state_pool( tracker );
+  fd_parent_ready_state_t * root = state_pool_ele_acquire( pool );
+  fd_parent_ready_state_init( root, root_slot );
+  fd_parent_ready_state_mark_notar_fallback( root, root_hash );
+  state_map_ele_insert( state_map( tracker ), root, pool );
+  tracker->root = root_slot;
+  return tracker;
+}
+
 FD_FN_PURE ulong
 fd_parent_ready_tracker_root( fd_parent_ready_tracker_t const * tracker ) {
   return tracker->root;

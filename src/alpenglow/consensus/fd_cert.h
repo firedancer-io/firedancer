@@ -54,16 +54,17 @@ typedef struct fd_notar_cert fd_notar_cert_t;
 struct fd_notar_fallback_cert {
   ulong       slot;
   fd_hash_t   block_hash;
-  int         has_agg_sig_notar;          fd_aggsig_t agg_sig_notar;
-  int         has_agg_sig_notar_fallback; fd_aggsig_t agg_sig_notar_fallback;
+  fd_aggsig_t agg_sig_notar;
+  fd_aggsig_t agg_sig_notar_fallback;
   ulong       stake;
+  // TODO consider a different aggsig type... right now the second sig is not populated
 };
 typedef struct fd_notar_fallback_cert fd_notar_fallback_cert_t;
 
 struct fd_skip_cert {
   ulong       slot;
-  int         has_agg_sig_skip;          fd_aggsig_t agg_sig_skip;
-  int         has_agg_sig_skip_fallback; fd_aggsig_t agg_sig_skip_fallback;
+  fd_aggsig_t agg_sig_skip;
+  fd_aggsig_t agg_sig_skip_fallback;
   ulong       stake;
 };
 typedef struct fd_skip_cert fd_skip_cert_t;
@@ -154,13 +155,25 @@ int fd_cert_check_sig( fd_cert_t const * c, fd_epoch_info_t const * epoch_info )
    internal fd_cert_t. Note the wire format is defined in agave
    votor-messages/src/certificate.rs.
 
-   Only the single-payload certs (Finalize, FinalizeFast, Notarize;
-   Base2 bitmap) are handled.  NotarizeFallback / Skip (Base3) and
-   Genesis return FD_CERT_WIRE_ERR_UNSUPPORTED.  Returns
-   FD_CERT_WIRE_SUCCESS or a negative FD_CERT_WIRE_ERR_*; out is valid
+   The single-payload certs (Finalize, FinalizeFast, Notarize; Base2
+   bitmap) and the mixed certs (NotarizeFallback, Skip; Base3 bitmap)
+   are handled.  Genesis returns FD_CERT_DE_ERR_UNSUPPORTED.  Returns
+   FD_CERT_DE_SUCCESS or a negative FD_CERT_DE_ERR_*; out is valid
    only on success. */
 
 int fd_cert_de( fd_cert_t * out, uchar const * in, ulong in_sz );
+
+static inline const char * fd_cert_type_to_string( uint type ) {
+  switch( type ) {
+    case FD_CERT_TYPE_FINAL:          return "Final";
+    case FD_CERT_TYPE_FAST_FINAL:     return "FastFinal";
+    case FD_CERT_TYPE_NOTAR:          return "Notar";
+    case FD_CERT_TYPE_NOTAR_FALLBACK: return "NotarFallback";
+    case FD_CERT_TYPE_SKIP:           return "Skip";
+    case FD_CERT_TYPE_GENESIS:        return "Genesis";
+    default: return "Unknown";
+  }
+}
 
 FD_PROTOTYPES_END
 

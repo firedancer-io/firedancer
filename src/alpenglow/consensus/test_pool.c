@@ -85,7 +85,7 @@ setup_pool( fd_wksp_t * wksp ) {
                                     42UL );
   FD_TEST( mem );
   fd_pool_t * pool = fd_pool_join( fd_pool_new( mem, slot_max, validator_max, blockid_max,
-                                                0UL /* own_id */, g_info, NV, 42UL ) );
+                                                0UL /* own_id */, g_info, NV, 42UL, 0UL, NULL ) );
   FD_TEST( pool );
   return pool;
 }

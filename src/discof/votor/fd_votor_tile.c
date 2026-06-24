@@ -175,8 +175,8 @@ struct fd_votor_tile {
 
   fd_pool_evt_t          events  [ EVENTS_MAX   ];
   fd_block_id_t          repairs [ REPAIRS_MAX  ];
-  fd_consensus_message_t msgs     [ MSGS_MAX     ];
-  fd_votor_timeout_t     timeouts [ TIMEOUTS_MAX ];
+  fd_consensus_message_t msgs    [ MSGS_MAX     ];
+  fd_votor_timeout_t     timeouts[ TIMEOUTS_MAX ];
 
   /* validator set staged from the most recent EPOCH msg.  The pool / votor
      are rebuilt against this set on epoch change. */
@@ -193,8 +193,9 @@ struct fd_votor_tile {
   ulong validator_max;
   ulong blockid_max;
 
-  ulong root_slot;  /* highest finalized slot (the consensus root)     */
-  ulong reset_slot; /* last reset target published                     */
+  ulong     root_slot;     /* highest finalized slot (the consensus root)   */
+  fd_hash_t root_block_id; /* block id of root_slot (pool's seeded root)    */
+  ulong     reset_slot;    /* last reset target published                   */
 
   /* metadata */
 
@@ -359,7 +360,7 @@ map_pool_evt_to_votor( fd_pool_evt_t const *   evt,
                        fd_votor_pool_event_t * out ) {
   switch( evt->kind ) {
   case FD_POOL_EVT_PARENT_READY:
-    out->discriminant            = FD_VOTOR_POOL_EVENT_PARENT_READY;
+    out->discriminant              = FD_VOTOR_POOL_EVENT_PARENT_READY;
     out->inner.parent_ready.slot   = evt->inner.parent_ready.slot;
     out->inner.parent_ready.parent = evt->inner.parent_ready.parent;
     return 1;
@@ -407,6 +408,14 @@ drive_pool_events( fd_votor_tile_t *     ctx,
   return processed;
 }
 
+/* epoch_info_vtrs returns the validator set for `epoch`, or NULL if that
+   epoch is not retained in the window. */
+static fd_epoch_info_t const *
+epoch_info_vtrs( fd_votor_tile_t const * ctx, ulong epoch ) {
+  vtr_epoch_set_t const * s = &ctx->vtr_epoch_stakes[ epoch % VTR_EPOCH_WINDOW ];
+  return s->epoch==epoch ? s->info : NULL;
+}
+
 /* ingest_vote (defined above forward) feeds a single vote into the pool.
    FD_POOL_ERR_DUPLICATE is benign (we re-ingest our own votes).  Any newly
    created certs / events are drained into the votor.  Returns the
@@ -451,9 +460,9 @@ ingest_vote( fd_votor_tile_t * ctx, fd_vote_t const * vote ) {
    are drained into the votor.  Returns the fd_pool_add_cert result. */
 
 static int
-ingest_cert( fd_votor_tile_t * ctx, fd_cert_t const * cert ) {
+ingest_cert( fd_votor_tile_t * ctx, fd_cert_t const * cert, fd_epoch_info_t const * ei ) {
   fd_pool_out_t out = fresh_pool_out( ctx );
-  int err = fd_pool_add_cert( ctx->pool, cert, &out );
+  int err = fd_pool_add_cert( ctx->pool, cert, ei, &out );
   if( FD_UNLIKELY( err!=FD_POOL_SUCCESS && err!=FD_POOL_ERR_DUPLICATE ) ) return err;
   if( out.events_cnt ) {
     fd_pool_evt_t snapshot[ EVENTS_MAX ];
@@ -511,16 +520,9 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
     fd_pool_get_notarized_block( ctx->pool, fin, notarized );
     pub->msg.finalized.block_id = *notarized;
     ctx->root_slot          = fin;
+    ctx->root_block_id      = *notarized; /* keep the root block id for the next pool rebuild */
     ctx->metrics.root_slot  = fin;
   }
-}
-
-/* epoch_info_vtrs returns the validator set for `epoch`, or NULL if that
-   epoch is not retained in the window. */
-static fd_epoch_info_t const *
-epoch_info_vtrs( fd_votor_tile_t const * ctx, ulong epoch ) {
-  vtr_epoch_set_t const * s = &ctx->vtr_epoch_stakes[ epoch % VTR_EPOCH_WINDOW ];
-  return s->epoch==epoch ? s->info : NULL;
 }
 
 /* votor_set_active_epoch switches the pool / votor to `epoch`'s validator set,
@@ -541,7 +543,8 @@ votor_set_active_epoch( fd_votor_tile_t * ctx, ulong epoch ) {
   fd_validator_info_t const * vset = fd_epoch_info_validators( s->info );
   ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
                                          ctx->slot_max, ctx->validator_max, ctx->blockid_max,
-                                         ctx->own_id, vset, s->validator_cnt, ctx->seed ) );
+                                         ctx->own_id, vset, s->validator_cnt, ctx->seed,
+                                         ctx->root_slot, &ctx->root_block_id ) );
   FD_TEST( ctx->pool );
 
   fd_votor_out_t out = fresh_votor_out( ctx );
@@ -579,6 +582,13 @@ votor_slot_completed( fd_votor_tile_t *                  ctx,
         completes, so the set is present. */
 
   if( FD_LIKELY( ctx->have_schedule ) ) {
+    if( FD_UNLIKELY( ctx->active_epoch==ULONG_MAX ) ) {
+      /* First completion after boot: adopt the snapshot block (this slot's
+         parent) as the consensus root so the pool is built rooted there
+         instead of genesis. */
+      ctx->root_slot     = slot_completed->parent_slot;
+      ctx->root_block_id = slot_completed->parent_block_id;
+    }
     ulong tip_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, slot_completed->slot, NULL );
     if( FD_UNLIKELY( tip_epoch!=ctx->active_epoch ) ) {
       // TODO verify that this is fine??
@@ -670,8 +680,8 @@ ingest_consensus_msg( fd_votor_tile_t *                ctx,
     maybe_publish_finalized( ctx );
   } else if( msg->discriminant==FD_VOTOR_CONSENSUS_MSG_CERT ) {
     ctx->metrics.certs_ingested++;
-    ingest_cert( ctx, &msg->inner.cert );
-    maybe_publish_finalized( ctx );
+    //ingest_cert( ctx, &msg->inner.cert );
+    //maybe_publish_finalized( ctx );
   } else {
     //FD_LOG_WARNING(( "unexpected consensus message discriminant %u", msg->discriminant ));
   }
@@ -716,21 +726,20 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
     payload += sizeof(uint); sz -= sizeof(uint);
     fd_cert_t cert[1];
     int err = fd_cert_de( cert, payload, sz );
-    if( FD_UNLIKELY( err!=FD_CERT_DE_SUCCESS ) ) break;
+    if( FD_UNLIKELY( err!=FD_CERT_DE_SUCCESS ) ) {
+      FD_LOG_WARNING(( "failed to deserialize certificate: type %s, error %d", fd_cert_type_to_string( cert->discriminant ), err ));
+      break;
+    }
 
     /* Verify against the validator set / BLS rank map of the cert's OWN epoch
-       (mirrors Agave's get_rank_map(slot)) -- not whatever epoch happens to be
-       active.  Drop certs whose epoch we no longer (or do not yet) retain. */
+      (mirrors Agave's get_rank_map(slot)) -- not whatever epoch happens to be
+      active.  Drop certs whose epoch we no longer (or do not yet) retain. */
     ulong cert_slot  = fd_cert_slot( cert );
     ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, cert_slot, NULL );
     fd_epoch_info_t const * ei = epoch_info_vtrs( ctx, cert_epoch );
     if( FD_UNLIKELY( !ei ) ) { ctx->metrics.certs_dropped_no_epoch++; break; }
 
-    if( FD_LIKELY( fd_cert_check_sig( cert, ei ) ) ){
-      FD_LOG_NOTICE(( "certificate slot %lu (epoch %lu) successfully verified", cert_slot, cert_epoch ) );
-    } else {
-      FD_LOG_WARNING(( "certificate slot %lu (epoch %lu) failed to verify", cert_slot, cert_epoch ) );
-    }
+    ingest_cert( ctx, cert, ei );
     break;
   } default: break; }
 }
@@ -952,7 +961,8 @@ init_choreo( void                 * scratch,
   ctx->have_schedule = 0;
 
   ctx->pool = fd_pool_join( fd_pool_new( pool, slot_max, validator_max, blockid_max,
-                                         ctx->own_id, ctx->validators, 1UL, ctx->seed ) );
+                                         ctx->own_id, ctx->validators, 1UL, ctx->seed,
+                                         0UL, NULL /* genesis baseline; rebuilt rooted at the snapshot on the first slot */ ) );
 
   fd_votor_out_t boot_out = {
     .msgs        = ctx->msgs,
@@ -986,6 +996,7 @@ init_choreo( void                 * scratch,
   ctx->fixpoint_depth = 0UL;
   ctx->epoch          = ULONG_MAX;
   ctx->root_slot      = 0UL;
+  fd_memset( &ctx->root_block_id, 0, sizeof(fd_hash_t) );
   ctx->reset_slot     = 0UL;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );

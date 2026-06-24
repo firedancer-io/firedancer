@@ -139,6 +139,26 @@ fd_aggsig_verify_bytes( fd_aggsig_t const *    agg,
                         fd_aggsig_pk_t const * pks,
                         ulong                  pk_cnt );
 
+/* fd_aggsig_verify_mixed_bytes returns 1 iff the SINGLE aggregate signature in
+   agg_base->sig verifies as the distinct-message aggregate of two disjoint
+   signer sets over two messages: agg_base->bitmask signed msg_base and
+   agg_fb->bitmask signed msg_fb (both indexed into pks[0,pk_cnt)).  Used for
+   wire NotarizeFallback / Skip certs, whose base3 bitmap encodes two signer
+   sets sharing one aggregate signature.  agg_fb->sig is never read -- the one
+   wire signature always lives in agg_base->sig.  Either signer set (but not
+   both) may be empty, in which case this degenerates to a plain aggregate
+   verify of the non-empty set's message. */
+
+int
+fd_aggsig_verify_mixed_bytes( fd_aggsig_t const *    agg_base,
+                              uchar const *          msg_base,
+                              ulong                  msg_base_sz,
+                              fd_aggsig_t const *    agg_fb,
+                              uchar const *          msg_fb,
+                              ulong                  msg_fb_sz,
+                              fd_aggsig_pk_t const * pks,
+                              ulong                  pk_cnt );
+
 /* fd_aggsig_is_signer returns 1 iff validator_idx is a signer of agg. */
 
 FD_FN_PURE static inline int

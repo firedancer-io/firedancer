@@ -116,6 +116,17 @@ fd_parent_ready_tracker_delete( void * shtracker );
 fd_parent_ready_tracker_t *
 fd_parent_ready_tracker_default( fd_parent_ready_tracker_t * tracker );
 
+/* fd_parent_ready_tracker_seed_root is the snapshot-boot analog of
+   fd_parent_ready_tracker_default: it seeds the tracker with the snapshot
+   block (root_slot, root_hash) as the only initially notarized-fallback block
+   (a ready parent for the first replayed slots) and root == root_slot.
+   Returns tracker. */
+
+fd_parent_ready_tracker_t *
+fd_parent_ready_tracker_seed_root( fd_parent_ready_tracker_t * tracker,
+                                   ulong                       root_slot,
+                                   fd_hash_t const *           root_hash );
+
 /* Accessors */
 
 /* fd_parent_ready_tracker_root returns the lowest slot still tracked;

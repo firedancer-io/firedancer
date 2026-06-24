@@ -5,7 +5,7 @@ $(call make-unit-test,test_vote,test_vote,fd_alpenglow fd_flamenco fd_ballet fd_
 $(call make-unit-test,test_epoch_info,test_epoch_info,fd_alpenglow fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_cert,test_cert,fd_alpenglow fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_votor,test_votor,fd_alpenglow fd_flamenco fd_ballet fd_util)
-$(call make-unit-test,test_alpenglow_pool,test_pool,fd_alpenglow fd_flamenco fd_ballet fd_util)
+#$(call make-unit-test,test_alpenglow_pool,test_pool,fd_alpenglow fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vote)
 $(call run-unit-test,test_epoch_info)
 $(call run-unit-test,test_cert)

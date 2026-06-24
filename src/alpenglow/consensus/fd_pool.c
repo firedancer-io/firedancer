@@ -212,7 +212,9 @@ fd_pool_new( void *                      mem,
              ulong                       own_id,
              fd_validator_info_t const * validators,
              ulong                       validator_cnt,
-             ulong                       seed ) {
+             ulong                       seed,
+             ulong                       root_slot,
+             fd_hash_t const *           root_block_hash ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -272,11 +274,11 @@ fd_pool_new( void *                      mem,
   pool->slotent_map_gaddr  = fd_wksp_gaddr_fast( wksp, slotent_map_join ( slotent_map_new ( se_map,  se_chain,  seed ) ) );
   pool->s2n_pool_gaddr     = fd_wksp_gaddr_fast( wksp, s2nent_pool_join ( s2nent_pool_new ( s2n_p,   s2n_max         ) ) );
   pool->s2n_map_gaddr      = fd_wksp_gaddr_fast( wksp, s2nent_map_join  ( s2nent_map_new  ( s2n_m,   s2n_chain, seed ) ) );
-
-  pool->finality_gaddr     = fd_wksp_gaddr_fast( wksp, fd_finality_tracker_join( fd_finality_tracker_new( fin_mem, slot_max, blockid_max, seed ) ) );
+  pool->finality_gaddr     = fd_wksp_gaddr_fast( wksp, fd_finality_tracker_join( fd_finality_tracker_new( fin_mem, slot_max, blockid_max, seed, root_slot, root_block_hash ) ) );
 
   fd_parent_ready_tracker_t * pr = fd_parent_ready_tracker_join( fd_parent_ready_tracker_new( pr_mem, slot_max, seed ) );
-  fd_parent_ready_tracker_default( pr ); /* seed genesis state (Rust Default impl) */
+  if( root_slot==0UL ) fd_parent_ready_tracker_default  ( pr );                            /* genesis  */
+  else                 fd_parent_ready_tracker_seed_root( pr, root_slot, root_block_hash ); /* snapshot */
   pool->parent_ready_gaddr = fd_wksp_gaddr_fast( wksp, pr );
 
   return mem;
@@ -628,24 +630,11 @@ add_valid_cert( fd_pool_t *       pool,
    add_cert (PoolImpl::add_cert). */
 
 int
-fd_pool_add_cert( fd_pool_t *       pool,
-                  fd_cert_t const * cert,
-                  fd_pool_out_t *   out ) {
+fd_pool_add_cert( fd_pool_t *             pool,
+                  fd_cert_t       const * cert,
+                  fd_epoch_info_t const * epoch_info,
+                  fd_pool_out_t *         out ) {
   ulong slot = fd_cert_slot( cert );
-
-  /* ignore old and far-in-the-future certificates */
-  ulong slot_far_in_future = fd_pool_finalized_slot( pool ) + 2UL*FD_ALPENGLOW_SLOTS_PER_EPOCH;
-  if( slot < fd_pool_first_unpruned_slot( pool ) || slot >= slot_far_in_future ) {
-    return FD_POOL_ERR_SLOT_OUT_OF_BOUNDS;
-  }
-
-  /* verify stake threshold & signature */
-  if( !fd_cert_check_threshold( cert, epoch_info( pool ) ) ) {
-    return FD_POOL_ERR_THRESHOLD_NOT_MET;
-  }
-  if( !fd_cert_check_sig( cert, epoch_info( pool ) ) ) {
-    return FD_POOL_ERR_INVALID_SIGNATURE;
-  }
 
   /* check if the certificate is a duplicate */
   fd_slot_state_t * ss = get_slot_state( pool, slot );
@@ -659,7 +648,17 @@ fd_pool_add_cert( fd_pool_t *       pool,
   case FD_CERT_TYPE_FINAL:          duplicate = fd_slot_state_has_finalize_cert     ( ss );                                          break;
   default:                          FD_LOG_ERR(( "invalid cert discriminant %u", cert->discriminant ));
   }
-  if( duplicate ) return FD_POOL_ERR_DUPLICATE;
+
+  if( FD_LIKELY( duplicate ) ) return FD_POOL_ERR_DUPLICATE;
+
+  /* ignore old and far-in-the-future certificates */
+  ulong slot_far_in_future = fd_pool_finalized_slot( pool ) + 2UL*FD_ALPENGLOW_SLOTS_PER_EPOCH;
+  if( FD_UNLIKELY( slot < fd_pool_first_unpruned_slot( pool ) || slot >= slot_far_in_future ) ) return FD_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+
+  /* verify stake threshold & signature */
+  if( FD_UNLIKELY( !fd_cert_check_threshold( cert, epoch_info ) ) ) return FD_POOL_ERR_THRESHOLD_NOT_MET;
+
+  if( FD_UNLIKELY( !fd_cert_check_sig( cert, epoch_info ) ) ) return FD_POOL_ERR_INVALID_SIGNATURE;
 
   return add_valid_cert( pool, cert, out );
 }

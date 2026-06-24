@@ -101,10 +101,10 @@ fd_notar_fallback_cert_try_new( fd_notar_fallback_cert_t * out,
   }
 
   out->slot = slot; out->block_hash = bh; out->stake = stake;
-  out->has_agg_sig_notar          = notar_cnt>0UL;
-  out->has_agg_sig_notar_fallback = nf_cnt   >0UL;
-  if( notar_cnt>0UL ) agg_notar( &out->agg_sig_notar,          notar_votes, notar_cnt, validator_cnt );
-  if( nf_cnt   >0UL ) agg_nf   ( &out->agg_sig_notar_fallback, nf_votes,    nf_cnt,    validator_cnt );
+  if( notar_cnt>0UL ) agg_notar     ( &out->agg_sig_notar, notar_votes, notar_cnt, validator_cnt );
+  else                fd_aggsig_init( &out->agg_sig_notar, validator_cnt );
+  if( nf_cnt   >0UL ) agg_nf        ( &out->agg_sig_notar_fallback, nf_votes, nf_cnt, validator_cnt );
+  else                fd_aggsig_init( &out->agg_sig_notar_fallback, validator_cnt );
   return FD_CERT_SUCCESS;
 }
 
@@ -127,10 +127,10 @@ fd_skip_cert_try_new( fd_skip_cert_t * out,
   }
 
   out->slot = slot; out->stake = stake;
-  out->has_agg_sig_skip          = skip_cnt>0UL;
-  out->has_agg_sig_skip_fallback = sf_cnt  >0UL;
-  if( skip_cnt>0UL ) agg_skip( &out->agg_sig_skip,          skip_votes, skip_cnt, validator_cnt );
-  if( sf_cnt  >0UL ) agg_sf  ( &out->agg_sig_skip_fallback, sf_votes,   sf_cnt,   validator_cnt );
+  if( skip_cnt>0UL ) agg_skip      ( &out->agg_sig_skip, skip_votes, skip_cnt, validator_cnt );
+  else               fd_aggsig_init( &out->agg_sig_skip, validator_cnt );
+  if( sf_cnt  >0UL ) agg_sf        ( &out->agg_sig_skip_fallback, sf_votes, sf_cnt, validator_cnt );
+  else               fd_aggsig_init( &out->agg_sig_skip_fallback, validator_cnt );
   return FD_CERT_SUCCESS;
 }
 
@@ -176,13 +176,11 @@ fd_cert_is_signer( fd_cert_t const * c, ulong v ) {
   case FD_CERT_TYPE_FINAL:      return fd_aggsig_is_signer( &c->inner.final_.agg_sig, v );
   case FD_CERT_TYPE_NOTAR_FALLBACK: {
     fd_notar_fallback_cert_t const * n = &c->inner.notar_fallback;
-    return ( n->has_agg_sig_notar          && fd_aggsig_is_signer( &n->agg_sig_notar,          v ) ) ||
-           ( n->has_agg_sig_notar_fallback && fd_aggsig_is_signer( &n->agg_sig_notar_fallback, v ) );
+    return fd_aggsig_is_signer( &n->agg_sig_notar, v ) || fd_aggsig_is_signer( &n->agg_sig_notar_fallback, v );
   }
   default: { /* SKIP */
     fd_skip_cert_t const * s = &c->inner.skip;
-    return ( s->has_agg_sig_skip          && fd_aggsig_is_signer( &s->agg_sig_skip,          v ) ) ||
-           ( s->has_agg_sig_skip_fallback && fd_aggsig_is_signer( &s->agg_sig_skip_fallback, v ) );
+    return fd_aggsig_is_signer( &s->agg_sig_skip, v ) || fd_aggsig_is_signer( &s->agg_sig_skip_fallback, v );
   }
   }
 }
@@ -221,30 +219,23 @@ fd_cert_check_sig( fd_cert_t const * c, fd_epoch_info_t const * epoch_info ) {
     sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_FINAL, c->inner.final_.slot, NULL );
     return fd_aggsig_verify_bytes( &c->inner.final_.agg_sig, buf, sz, pks, validator_cnt );
   case FD_CERT_TYPE_NOTAR_FALLBACK: {
+    /* The mixed verify handles the degenerate single-set case internally. */
     fd_notar_fallback_cert_t const * n = &c->inner.notar_fallback;
-    int ok = 1;
-    if( n->has_agg_sig_notar ) {
-      sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR, n->slot, &n->block_hash );
-      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar, buf, sz, pks, validator_cnt );
-    }
-    if( n->has_agg_sig_notar_fallback ) {
-      sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash );
-      ok &= fd_aggsig_verify_bytes( &n->agg_sig_notar_fallback, buf, sz, pks, validator_cnt );
-    }
-    return ok;
+    uchar buf_fb[ FD_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
+    sz    = fd_vote_payload_bytes_to_sign( buf,    FD_VOTE_TYPE_NOTAR,          n->slot, &n->block_hash );
+    sz_fb = fd_vote_payload_bytes_to_sign( buf_fb, FD_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash );
+    return fd_aggsig_verify_mixed_bytes( &n->agg_sig_notar,          buf,    sz,
+                                         &n->agg_sig_notar_fallback, buf_fb, sz_fb,
+                                         pks, validator_cnt );
   }
   default: { /* SKIP */
     fd_skip_cert_t const * s = &c->inner.skip;
-    int ok = 1;
-    if( s->has_agg_sig_skip ) {
-      sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_SKIP, s->slot, NULL );
-      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip, buf, sz, pks, validator_cnt );
-    }
-    if( s->has_agg_sig_skip_fallback ) {
-      sz = fd_vote_payload_bytes_to_sign( buf, FD_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL );
-      ok &= fd_aggsig_verify_bytes( &s->agg_sig_skip_fallback, buf, sz, pks, validator_cnt );
-    }
-    return ok;
+    uchar buf_fb[ FD_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
+    sz    = fd_vote_payload_bytes_to_sign( buf,    FD_VOTE_TYPE_SKIP,          s->slot, NULL );
+    sz_fb = fd_vote_payload_bytes_to_sign( buf_fb, FD_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL );
+    return fd_aggsig_verify_mixed_bytes( &s->agg_sig_skip,          buf,    sz,
+                                         &s->agg_sig_skip_fallback, buf_fb, sz_fb,
+                                         pks, validator_cnt );
   }
   }
 }
@@ -271,6 +262,41 @@ de_base2_bitmap( fd_aggsig_t * agg,
 
   for( ulong i=0UL; i<nbits; i++ ) {
     if( (bits[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
+  }
+  return FD_CERT_DE_SUCCESS;
+}
+
+/* de_base3_bitmap fills TWO signer bitmasks from a Base3
+   bitmap: [u8 version=1][u16 LE nbits][ceil(nbits/5) payload bytes].  Each
+   payload byte packs 5 ternary digits (low digit first); per rank i the digit
+   is 0 => neither set, 1 => base set, 2 => fallback set (the (1,1) combination
+   is invalid and cannot be encoded).  base / fb sigs are left zeroed. */
+
+static int
+de_base3_bitmap( fd_aggsig_t * base,
+                 fd_aggsig_t * fb,
+                 uchar const * b,
+                 ulong         b_sz ) {
+  if( FD_UNLIKELY( b_sz<3UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  if( FD_UNLIKELY( b[0]!=1   ) ) return FD_CERT_DE_ERR_MALFORMED; /* not Base3 */
+  ulong nbits   = (ulong)( (uint)b[1] | ((uint)b[2]<<8) );
+  if( FD_UNLIKELY( nbits>FD_AGGSIG_MAX_SIGNERS ) ) return FD_CERT_DE_ERR_MALFORMED;
+  ulong nchunks = (nbits+4UL)/5UL; /* ceil(nbits/5) */
+  if( FD_UNLIKELY( b_sz<3UL+nchunks ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uchar const * data = b+3UL;
+
+  fd_aggsig_init( base, nbits );
+  fd_aggsig_init( fb,   nbits );
+
+  for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
+    uint  block = (uint)data[ chunk ];
+    ulong start = chunk*5UL;
+    ulong end   = fd_ulong_min( start+5UL, nbits );
+    for( ulong i=start; i<end; i++ ) {
+      uint digit = block % 3U; block /= 3U;
+      if(      digit==1U ) signer_set_insert( base->bitmask, i );
+      else if( digit==2U ) signer_set_insert( fb->bitmask,   i );
+    }
   }
   return FD_CERT_DE_SUCCESS;
 }
@@ -307,10 +333,8 @@ fd_cert_de( fd_cert_t *   out,
     return FD_CERT_DE_ERR_MALFORMED;
   }
 
-  /* TODO: NotarizeFallback & Skip needs base3 bitmap deser; genesis unsupported */
-  if( tag==FD_CERT_TYPE_NOTAR_FALLBACK ||
-      tag==FD_CERT_TYPE_SKIP           ||
-      tag==FD_CERT_TYPE_GENESIS        ) return FD_CERT_DE_ERR_UNSUPPORTED;
+  /* genesis is not yet supported. */
+  if( tag==FD_CERT_TYPE_GENESIS ) return FD_CERT_DE_ERR_UNSUPPORTED;
 
   if( FD_UNLIKELY( in_sz<off+FD_AGGSIG_SIG_SZ ) ) return FD_CERT_DE_ERR_TRUNCATED;
   uchar const * sig = in+off; off += FD_AGGSIG_SIG_SZ;
@@ -322,30 +346,60 @@ fd_cert_de( fd_cert_t *   out,
   uchar const * bm = in+off;
 
   fd_memset( out, 0, sizeof(fd_cert_t) );
-  fd_aggsig_t * agg;
+  int err;
   switch( tag ) {
   case FD_CERT_TYPE_FINAL:
     out->discriminant      = FD_CERT_TYPE_FINAL;
     out->inner.final_.slot = slot;
-    agg = &out->inner.final_.agg_sig;
+    err = de_base2_bitmap(  &out->inner.final_.agg_sig, bm, bm_len );
+    if( FD_UNLIKELY( err ) ) return err;
+    fd_memcpy( out->inner.final_.agg_sig.sig, sig, FD_AGGSIG_SIG_SZ ); /* after init zeroed it */
     break;
   case FD_CERT_TYPE_FAST_FINAL:
     out->discriminant                = FD_CERT_TYPE_FAST_FINAL;
     out->inner.fast_final.slot       = slot;
     out->inner.fast_final.block_hash = block_hash;
-    agg = &out->inner.fast_final.agg_sig;
+    err = de_base2_bitmap(  &out->inner.fast_final.agg_sig, bm, bm_len );
+    if( FD_UNLIKELY( err ) ) return err;
+    fd_memcpy( out->inner.fast_final.agg_sig.sig, sig, FD_AGGSIG_SIG_SZ ); /* after init zeroed it */
     break;
-  default: /* FD_CERT_TYPE_NOTAR */
+  case FD_CERT_TYPE_NOTAR:
     out->discriminant           = FD_CERT_TYPE_NOTAR;
     out->inner.notar.slot       = slot;
     out->inner.notar.block_hash = block_hash;
-    agg = &out->inner.notar.agg_sig;
+    err = de_base2_bitmap(  &out->inner.notar.agg_sig, bm, bm_len );
+    if( FD_UNLIKELY( err ) ) return err;
+    fd_memcpy( out->inner.notar.agg_sig.sig, sig, FD_AGGSIG_SIG_SZ ); /* after init zeroed it */
+    break;
+  case FD_CERT_TYPE_NOTAR_FALLBACK: {
+    /* mixed cert with no fallback voters is encoded Base2; otherwise
+       Base3 (both sets).  Dispatch on the version byte.  On the Base2
+       path leave the fallback set empty */
+    fd_aggsig_t * b = &out->inner.notar_fallback.agg_sig_notar;
+    fd_aggsig_t * f = &out->inner.notar_fallback.agg_sig_notar_fallback;
+    out->discriminant                    = FD_CERT_TYPE_NOTAR_FALLBACK;
+    out->inner.notar_fallback.slot       = slot;
+    out->inner.notar_fallback.block_hash = block_hash;
+    if( FD_UNLIKELY( bm_len<1UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+    if( bm[0]==0 ) { err = de_base2_bitmap( b, bm, bm_len );    if( FD_UNLIKELY( err ) ) return err; fd_aggsig_init( f, b->nbits ); }
+    else           { err = de_base3_bitmap( b, f, bm, bm_len ); if( FD_UNLIKELY( err ) ) return err; }
+    fd_memcpy( b->sig, sig, FD_AGGSIG_SIG_SZ ); /* one wire sig, put in the base agg. TODO consider just a diff aggsig type for the fallback */
     break;
   }
-
-  int err = de_base2_bitmap( agg, bm, bm_len );
-  if( FD_UNLIKELY( err ) ) return err;
-  fd_memcpy( agg->sig, sig, FD_AGGSIG_SIG_SZ ); /* after init zeroed it */
+  case FD_CERT_TYPE_SKIP: {
+    fd_aggsig_t * b = &out->inner.skip.agg_sig_skip;
+    fd_aggsig_t * f = &out->inner.skip.agg_sig_skip_fallback;
+    out->discriminant    = FD_CERT_TYPE_SKIP;
+    out->inner.skip.slot = slot;
+    if( FD_UNLIKELY( bm_len<1UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+    if( bm[0]==0 ) { err = de_base2_bitmap( b, bm, bm_len );    if( FD_UNLIKELY( err ) ) return err; fd_aggsig_init( f, b->nbits ); }
+    else           { err = de_base3_bitmap( b, f, bm, bm_len ); if( FD_UNLIKELY( err ) ) return err; }
+    fd_memcpy( b->sig, sig, FD_AGGSIG_SIG_SZ );
+    break;
+  }
+  default:
+    return FD_CERT_DE_ERR_MALFORMED;
+  }
 
   return FD_CERT_DE_SUCCESS;
 }

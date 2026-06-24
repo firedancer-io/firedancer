@@ -117,18 +117,21 @@ fd_finality_tracker_footprint( ulong slot_max,
    local address space with the required footprint and alignment.  seed is
    used to seed the internal hash maps.
 
-   On return the tracker is in the Rust Default state: the genesis slot
-   (0) is present in status as Notarized(GENESIS_BLOCK_HASH) (the all-zero
-   hash), parents is empty, and both highest_finalized_slot and
-   first_unpruned_slot are the genesis slot (0).
+   On return the baseline is seeded at root_slot: status[root_slot] =
+   Notarized(root_hash), parents empty, and both highest_finalized_slot and
+   first_unpruned_slot == root_slot.  For genesis boot pass root_slot=0 and
+   root_hash=NULL (treated as the all-zero genesis hash); for snapshot boot
+   pass the snapshot slot + its block id.
 
    Returns shmem on success and NULL on failure (logs details). */
 
 void *
-fd_finality_tracker_new( void * shmem,
-                         ulong  slot_max,
-                         ulong  blockid_max,
-                         ulong  seed );
+fd_finality_tracker_new( void *            shmem,
+                         ulong             slot_max,
+                         ulong             blockid_max,
+                         ulong             seed,
+                         ulong             root_slot,
+                         fd_hash_t const * root_hash );
 
 /* fd_finality_tracker_join joins the caller to the finality tracker.
    Returns a pointer in the local address space to the tracker on

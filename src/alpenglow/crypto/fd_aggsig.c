@@ -184,6 +184,73 @@ fd_aggsig_verify_bytes( fd_aggsig_t const *    agg,
 #endif
 }
 
+int
+fd_aggsig_verify_mixed_bytes( fd_aggsig_t const *    agg_base,
+                              uchar const *          msg_base,
+                              ulong                  msg_base_sz,
+                              fd_aggsig_t const *    agg_fb,
+                              uchar const *          msg_fb,
+                              ulong                  msg_fb_sz,
+                              fd_aggsig_pk_t const * pks,
+                              ulong                  pk_cnt ) {
+  /* Mixed cert: ONE aggregate signature (canonically in agg_base->sig) over up
+     to TWO disjoint signer sets that signed two different messages --
+     agg_base->bitmask signed msg_base, agg_fb->bitmask signed msg_fb.  When
+     both sets are non-empty this is a distinct-message aggregate verify:
+       e(g1, sig) == e(apk_base, H(msg_base)) * e(apk_fb, H(msg_fb)).
+     A mixed cert may legitimately carry only one of the two sets (e.g. a
+     NotarizeFallback built purely from notar votes, or a Skip purely from skip
+     votes), in which case the single sig is just the aggregate over that one
+     set and we degenerate to a plain aggregate verify of its message.  agg_fb's
+     own sig bytes are never read -- the one wire sig always lives in agg_base. */
+  if( FD_UNLIKELY( agg_base->nbits>pk_cnt || agg_fb->nbits>pk_cnt ) ) return 0;
+
+#if FD_HAS_BLST
+  if( FD_UNLIKELY( !pks ) ) return 0;
+
+  static FD_TL uchar gathered[ FD_AGGSIG_MAX_SIGNERS * FD_AGGSIG_PUBKEY_SZ ];
+  uchar apk[ 2*FD_AGGSIG_PUBKEY_SZ ]; /* [apk_base | apk_fb] */
+
+  /* aggregate each signer set's pubkeys; remember how many keys each had */
+  signer_set_t const * masks[2] = { agg_base->bitmask, agg_fb->bitmask };
+  ulong cnt[2] = { 0UL, 0UL };
+  for( ulong g=0UL; g<2UL; g++ ) {
+    ulong k = 0UL;
+    for( ulong i=0UL; i<pk_cnt; i++ ) {
+      if( signer_set_test( masks[g], i ) ) { fd_memcpy( gathered + k*FD_AGGSIG_PUBKEY_SZ, pks[i].v, FD_AGGSIG_PUBKEY_SZ ); k++; }
+    }
+    cnt[g] = k;
+    if( k && FD_UNLIKELY( fd_bls12_381_aggregate_pubkey( apk + g*FD_AGGSIG_PUBKEY_SZ, gathered, k ) ) ) return 0;
+  }
+
+  /* Degenerate cases: an empty signer set contributes nothing.  Verify the one
+     non-empty set's aggregate sig against its message (single-pairing). */
+  if( FD_UNLIKELY( cnt[0]==0UL && cnt[1]==0UL ) ) return 0; /* nobody signed */
+  if( cnt[1]==0UL ) { ulong ml = msg_base_sz; return fd_bls12_381_batch_verify( msg_base, &ml, apk,                       agg_base->sig, 1UL )==0; }
+  if( cnt[0]==0UL ) { ulong ml = msg_fb_sz;   return fd_bls12_381_batch_verify( msg_fb,   &ml, apk+FD_AGGSIG_PUBKEY_SZ,  agg_base->sig, 1UL )==0; }
+
+  /* batch_verify sums the input sigs, so pass the single aggregate sig plus the
+     G2 identity (point at infinity) as the second "signature" -> sum == sig. */
+  blst_p2        z[1];    fd_memset( z, 0, sizeof(blst_p2) ); /* projective infinity (Z==0) */
+  blst_p2_affine zaff[1]; blst_p2_to_affine( zaff, z );
+  uchar sigs[ 2*FD_AGGSIG_SIG_SZ ];
+  fd_memcpy( sigs, agg_base->sig, FD_AGGSIG_SIG_SZ );
+  blst_p2_affine_serialize( sigs + FD_AGGSIG_SIG_SZ, zaff );
+
+  uchar mbuf[ 256 ];
+  FD_TEST( msg_base_sz + msg_fb_sz <= sizeof(mbuf) );
+  fd_memcpy( mbuf,             msg_base, msg_base_sz );
+  fd_memcpy( mbuf+msg_base_sz, msg_fb,   msg_fb_sz   );
+  ulong mlens[2] = { msg_base_sz, msg_fb_sz };
+
+  return fd_bls12_381_batch_verify( mbuf, mlens, apk, sigs, 2UL )==0;
+#else
+  (void)agg_base; (void)msg_base; (void)msg_base_sz;
+  (void)agg_fb;   (void)msg_fb;   (void)msg_fb_sz;   (void)pks;
+  return 1; /* STUB: accept */
+#endif
+}
+
 ulong
 fd_aggsig_serialize( fd_aggsig_t const * agg,
                      uchar *             out,

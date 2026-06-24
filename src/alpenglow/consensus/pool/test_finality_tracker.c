@@ -60,7 +60,7 @@ setup_tracker( fd_wksp_t * wksp ) {
                                     fd_finality_tracker_footprint( slot_max, blockid_max ),
                                     42UL );
   FD_TEST( mem );
-  fd_finality_tracker_t * t = fd_finality_tracker_join( fd_finality_tracker_new( mem, slot_max, blockid_max, 42UL ) );
+  fd_finality_tracker_t * t = fd_finality_tracker_join( fd_finality_tracker_new( mem, slot_max, blockid_max, 42UL, 0UL, NULL ) );
   FD_TEST( t );
   return t;
 }

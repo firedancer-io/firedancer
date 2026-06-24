@@ -54,7 +54,7 @@ mock_update_epoch_vtrs( fd_votor_tile_t *              ctx,
 
   ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
                                          ctx->slot_max, ctx->validator_max, ctx->blockid_max,
-                                         ctx->own_id, ctx->validators, cnt, ctx->seed ) );
+                                         ctx->own_id, ctx->validators, cnt, ctx->seed, 0UL, NULL ) );
   FD_TEST( ctx->pool );
 
   fd_votor_out_t out = fresh_votor_out( ctx );

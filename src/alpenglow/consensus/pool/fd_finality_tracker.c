@@ -439,10 +439,12 @@ fd_finality_tracker_footprint( ulong slot_max,
 }
 
 void *
-fd_finality_tracker_new( void * shmem,
-                         ulong  slot_max,
-                         ulong  blockid_max,
-                         ulong  seed ) {
+fd_finality_tracker_new( void *            shmem,
+                         ulong             slot_max,
+                         ulong             blockid_max,
+                         ulong             seed,
+                         ulong             root_slot,
+                         fd_hash_t const * root_hash ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -504,14 +506,11 @@ fd_finality_tracker_new( void * shmem,
   status_treap_seed( sp, slot_max,    seed );
   parent_treap_seed( pp, blockid_max, seed );
 
-  t->highest_finalized_slot = 0UL; /* Slot::genesis() */
-  t->first_unpruned_slot    = 0UL; /* Slot::genesis() */
+  t->highest_finalized_slot = root_slot;
+  t->first_unpruned_slot    = root_slot;
 
-  /* Default state: status[genesis] = Notarized(GENESIS_BLOCK_HASH).
-     GENESIS_BLOCK_HASH is the all-zero hash. */
-
-  fd_hash_t genesis_hash; fd_memset( &genesis_hash, 0, sizeof(fd_hash_t) );
-  status_insert( t, 0UL, FD_FIN_STATUS_NOTARIZED, &genesis_hash, NULL, NULL );
+  fd_hash_t zero; fd_memset( &zero, 0, sizeof(fd_hash_t) );
+  status_insert( t, root_slot, FD_FIN_STATUS_NOTARIZED, root_hash ? root_hash : &zero, NULL, NULL );
 
   return shmem;
 }
