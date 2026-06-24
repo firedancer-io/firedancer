@@ -71,19 +71,14 @@ fd_progcache_val_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   int   has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
   ulong pc_max        = fd_ulong_max( 1UL, elf_info->text_cnt );
 
-  /* Lenient (v0-v2) loads relocate in-place over the full ELF image and may
-     read the unused account tail during relocation, so they need bin_sz
-     bytes of working space.  Strict (v3+) loads write exactly the rodata and
-     text segments, whose sizes are known at peek time (text_off == rodata
-     size, text_sz == bytecode size). */
-  ulong rodata_bufsz = has_calldests ? elf_info->bin_sz
-                                     : (ulong)elf_info->text_off + (ulong)elf_info->text_sz;
-
+  /* load_buf_sz is the exact buffer the loader needs (peek-computed):
+     text_off+text_sz for strict, the rodata image for lenient-fast, or bin_sz
+     for legacy lenient. */
   ulong l = FD_LAYOUT_INIT;
   if( has_calldests ) {
     l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( pc_max ) );
   }
-  l = FD_LAYOUT_APPEND( l, 8UL, rodata_bufsz );
+  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->load_buf_sz );
   return FD_LAYOUT_FINI( l, fd_progcache_val_align() );
 }
 
@@ -109,10 +104,12 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   void * calldests_mem = NULL;
   void * rodata_mem;
   if( has_calldests ) {
-    /* Lenient (v0-v2): [ calldests | rodata ] laid out inside val. */
+    /* Lenient (v0-v2): [ calldests | rodata ] laid out inside val.  The rodata
+       buffer is load_buf_sz (rodata image on the fast path, bin_sz on the
+       legacy path); must match fd_progcache_val_footprint. */
     FD_SCRATCH_ALLOC_INIT( l, val );
     calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
-    rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
+    rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->load_buf_sz );
     FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
     FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
   } else {
@@ -153,13 +150,15 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   /* Run ELF loader.
 
-     Only the lenient (v0-v2) loader uses scratch space (to assemble the
-     rodata segment).  Strict (v3+) loads copy directly into the
-     destination buffer, so pass a NULL scratch to make that explicit and
-     to fault loudly if the strict path ever starts relying on it. */
+     Scratch is needed only by the lenient (v0-v2) fallback path, which
+     assembles the rodata segment via a scratch buffer.  The lenient fast
+     path and strict (v3+) loads write directly into the destination buffer;
+     passing NULL both selects the loader's fast/no-scratch path and faults
+     loudly if it ever starts relying on scratch. */
 
-  void * load_scratch    = has_calldests ? scratch    : NULL;
-  ulong  load_scratch_sz = has_calldests ? scratch_sz : 0UL;
+  int    use_scratch     = fd_sbpf_loader_is_legacy_lenient( elf_info );
+  void * load_scratch    = use_scratch ? scratch    : NULL;
+  ulong  load_scratch_sz = use_scratch ? scratch_sz : 0UL;
 
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, progdata, progdata_sz, syscalls, config, load_scratch, load_scratch_sz ) ) ) {
     return NULL;
