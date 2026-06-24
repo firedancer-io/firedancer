@@ -12,13 +12,12 @@
 static int
 fd_irqbalance_connect1( char const * path ) {
   int sock = socket( AF_UNIX, SOCK_STREAM, 0 );
-  if( sock<0 ) return -1;
+  if( FD_UNLIKELY( sock<0 ) ) FD_LOG_ERR(( "socket(AF_UNIX,SOCK_STREAM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int err;
 
   if( FD_UNLIKELY( setsockopt( sock, SOL_SOCKET, SO_PASSCRED, &(int){1}, sizeof(int) )<0 ) ) {
-    err = errno;
-    goto cleanup;
+    FD_LOG_ERR(( "setsockopt(SO_PASSCRED) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   struct sockaddr_un addr;
@@ -32,6 +31,9 @@ fd_irqbalance_connect1( char const * path ) {
 
   if( FD_UNLIKELY( connect( sock, fd_type_pun( &addr ), sizeof(addr) )<0 ) ) {
     err = errno;
+    if( FD_UNLIKELY( err!=ENOENT && err!=ECONNREFUSED && err!=EACCES ) ) {
+      FD_LOG_ERR(( "connect(`%s`) failed (%i-%s)", path, err, fd_io_strerror( err ) ));
+    }
     goto cleanup;
   }
 
@@ -51,6 +53,9 @@ fd_irqbalance_connect( void ) {
   char path[ PATH_MAX ];
   DIR * dir = opendir( "/run/irqbalance" );
   if( FD_UNLIKELY( !dir ) ) {
+    if( FD_UNLIKELY( errno!=ENOENT && errno!=EACCES ) ) {
+      FD_LOG_ERR(( "opendir(`%s`) failed (%i-%s)", IRQBALANCE_RUN_DIR, errno, fd_io_strerror( errno ) ));
+    }
     return -1;
   }
   struct dirent * entry;
@@ -64,9 +69,6 @@ fd_irqbalance_connect( void ) {
     if( FD_UNLIKELY( sock<0 ) ) {
       err = errno;
       if( FD_UNLIKELY( errno==EACCES ) ) break;
-      if( FD_UNLIKELY( (errno!=ENOENT) & (errno!=ECONNREFUSED) ) ) {
-        FD_LOG_WARNING(( "failed to connect to %s/%s (%i-%s)", IRQBALANCE_RUN_DIR, entry->d_name, errno, fd_io_strerror( errno ) ));
-      }
       continue;
     }
     break;
@@ -112,7 +114,7 @@ fd_irqbalance_send( int          fd,
   };
   fd_memcpy( CMSG_DATA( cmsg ), &cred, sizeof(cred) );
 
-  return sendmsg( fd, &msg, 0 )==(long)req_len;
+  return sendmsg( fd, &msg, MSG_NOSIGNAL )==(long)req_len;
 }
 
 static int
@@ -124,41 +126,41 @@ fd_irqbalance_request( void const * req,
   if( FD_LIKELY( resp && resp_sz ) ) resp[0] = '\0';
 
   int fd = fd_irqbalance_connect();
-  if( FD_UNLIKELY( fd<0 ) ) {
-    if( FD_UNLIKELY( (errno!=ENOENT) & (errno!=ECONNREFUSED) ) ) {
-      FD_LOG_WARNING(( "failed to connect to irqbalance (%i-%s)", errno, fd_io_strerror( errno ) ));
-    }
-    return 0;
-  }
+  if( FD_UNLIKELY( fd<0 ) ) return -1;
 
   if( FD_UNLIKELY( !fd_irqbalance_send( fd, req, req_len ) ) ) {
-    FD_LOG_WARNING(( "failed to send command to irqbalance (%i-%s)", errno, fd_io_strerror( errno ) ));
-    goto fail;
+    FD_LOG_ERR(( "failed to send command to irqbalance (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_UNLIKELY( 0!=shutdown( fd, SHUT_WR ) ) ) {
-    FD_LOG_WARNING(( "shutdown(irqbalance_sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    goto fail;
+    FD_LOG_ERR(( "shutdown(irqbalance_sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_LIKELY( resp ) ) {
-    long resp_len = recv( fd, resp, resp_sz, MSG_TRUNC );
-    if( FD_UNLIKELY( resp_len<0 ) ) {
-      FD_LOG_WARNING(( "failed to recv response from irqbalance (%i-%s)", errno, fd_io_strerror( errno ) ));
-      goto fail;
+    ulong off = 0UL;
+    for(;;) {
+      long n = recv( fd, resp+off, resp_sz-off-1UL, 0 );
+      if( FD_UNLIKELY( n<0 ) ) {
+        if( FD_UNLIKELY( errno==EINTR ) ) continue;
+        FD_LOG_ERR(( "failed to recv response from irqbalance (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+      if( !n ) break; /* EOF */
+      off += (ulong)n;
+      if( FD_UNLIKELY( off>=resp_sz-1UL ) ) {
+        FD_LOG_ERR(( "response from irqbalance is too large for the receive buffer (>=%lu)", resp_sz ));
+      }
     }
-    if( FD_UNLIKELY( (ulong)resp_len>=resp_sz ) ) {
-      FD_LOG_WARNING(( "truncated response from irqbalance" ));
-      resp[ resp_sz-1UL ] = '\0';
-      goto fail;
+    if( FD_UNLIKELY( !off ) ) {
+      /* The daemon accepted the connection but closed it without replying.
+         It does this when it rejects our SCM_CREDENTIALS (non-root), so
+         treat an empty response as the expected permission error. */
+      if( FD_UNLIKELY( 0!=close( fd ) ) ) {
+        FD_LOG_ERR(( "close(irqbalance_sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+      errno = EACCES;
+      return -1;
     }
-    resp[ resp_len ] = '\0';
+    resp[ off ] = '\0';
   }
 
-  if( FD_UNLIKELY( 0!=close( fd ) ) ) {
-    FD_LOG_ERR(( "close(irqbalance_sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  return 1;
-
-fail:
   if( FD_UNLIKELY( 0!=close( fd ) ) ) {
     FD_LOG_ERR(( "close(irqbalance_sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -167,12 +169,11 @@ fail:
 
 int
 fd_irqbalance_ban_cpus_set( fd_cpuset_t const * cpuset ) {
-
   /* 1024x (FD_TILE_MAX) comma-separated 4 char strings is approx 5kB */
   char req[ 16384 ];
   char * p = fd_cstr_init( req );
   p = fd_cstr_append_cstr( p, "settings cpus " );
-  _Bool first = 1;
+  int first = 1;
   for( ulong iter = fd_cpuset_const_iter_init( cpuset );
        !fd_cpuset_const_iter_done( iter );
        iter = fd_cpuset_const_iter_next( cpuset, iter ) ) {
@@ -201,12 +202,12 @@ fd_irqbalance_ban_cpus_get( fd_cpuset_t * cpuset ) {
   char resp[ 16384 ];
   fd_cpuset_new( cpuset );
 
-  if( FD_UNLIKELY( !fd_irqbalance_request( "setup", 5UL, resp, sizeof(resp) ) ) ) return 0;
+  int err = fd_irqbalance_request( "setup", 5UL, resp, sizeof(resp) );
+  if( FD_UNLIKELY( -1==err ) ) return -1;
 
   char * banned = strstr( resp, "BANNED " );
   if( FD_UNLIKELY( !banned ) ) {
-    FD_LOG_WARNING(( "failed to parse irqbalance setup response: missing BANNED token" ));
-    return 0;
+    FD_LOG_ERR(( "failed to parse irqbalance setup response: missing BANNED token" ));
   }
 
   banned += 7UL;
@@ -220,17 +221,17 @@ fd_irqbalance_ban_cpus_get( fd_cpuset_t * cpuset ) {
 
     int digit = fd_irqbalance_hex_digit( *p );
     if( FD_UNLIKELY( digit<0 ) ) {
-      FD_LOG_WARNING(( "failed to parse irqbalance banned CPU mask" ));
-      fd_cpuset_new( cpuset );
-      return 0;
+      FD_LOG_ERR(( "failed to parse irqbalance banned CPU mask" ));
     }
 
     for( ulong bit=0UL; bit<4UL; bit++ ) {
-      if( FD_UNLIKELY( cpu>=FD_TILE_MAX ) ) return 1;
+      if( FD_UNLIKELY( cpu>=FD_TILE_MAX ) ) {
+        FD_LOG_ERR(( "irqbalance banned CPU mask exceeds FD_TILE_MAX (%lu) CPUs", (ulong)FD_TILE_MAX ));
+      }
       if( FD_UNLIKELY( digit & (1<<bit) ) ) fd_cpuset_insert( cpuset, cpu );
       cpu++;
     }
   }
 
-  return 1;
+  return 0;
 }

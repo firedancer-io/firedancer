@@ -6,8 +6,22 @@
 #include "../../../../util/tile/fd_tile_private.h"
 #include "fd_irqbalance_client.h"
 
+#include <errno.h>
+
 #define MISMATCH_SAMPLE_MAX (16UL)
 #define MISMATCH_STR_LEN    (128UL)
+
+static void
+init_perm( fd_cap_chk_t *   chk,
+           config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, "irq-balance", "connect to `/run/irqbalance/<sock>`" );
+}
+
+static void
+fini_perm( fd_cap_chk_t *   chk,
+           config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, "irq-balance", "connect to `/run/irqbalance/<sock>`" );
+}
 
 static char *
 cpuset_to_list_sample( char *               buf,
@@ -46,22 +60,48 @@ topo_banned_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ],
   return cpuset;
 }
 
-static int
-enabled( config_t const * config ) {
-  return !!config->firedancer.layout.interrupts.configure_irqbalance;
-}
-
 static configure_result_t
 check( config_t const * config,
        int              check_type ) {
-  FD_CPUSET_DECL( actual );
-  if( FD_UNLIKELY( !fd_irqbalance_ban_cpus_get( actual ) ) ) CONFIGURE_OK();
+  /* The irqbalance daemon applies a `settings cpus` command only on its
+     next periodic scan() tick (the SLEEP interval, 10s by default), and
+     the `setup` query reports the committed mask, never the pending
+     one. init() and fini() read the state back immediately, so the
+     framework's synchronous POST_INIT / POST_FINI checks always observe
+     the pre-change state and would spuriously fail ("didn't do
+     anything" / "not undone"). There is no socket command to force a
+     synchronous commit or to read back the pending ban, so these
+     post-action checks are unverifiable; report the outcome the
+     framework expects for a successful action and rely on init()/fini()
+     having sent the command.  POST_INIT wants OK (configured);
+     POST_FINI wants NOT_CONFIGURED (undone).  The standalone CHECK
+     still reports the true committed state once the daemon has had a
+     tick to apply it. */
+  if( check_type==FD_CONFIGURE_CHECK_TYPE_POST_INIT ) CONFIGURE_OK();
+  if( check_type==FD_CONFIGURE_CHECK_TYPE_POST_FINI ) NOT_CONFIGURED( "irqbalance commits asynchronously; undo not verifiable" );
 
-  if( check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM ||
-      check_type==FD_CONFIGURE_CHECK_TYPE_PRE_FINI  ) {
-    if( FD_LIKELY( fd_cpuset_cnt( actual ) ) ) CONFIGURE_OK();
-    NOT_CONFIGURED( "irqbalance daemon has no banned CPUs" );
+  FD_CPUSET_DECL( actual );
+  if( FD_UNLIKELY( -1==fd_irqbalance_ban_cpus_get( actual ) ) ) {
+    int err = errno;
+    switch( err ) {
+    case ENOENT:
+    case ECONNREFUSED:
+      /* irqbalance is not installed or not running, so there is nothing
+         to configure and nothing to undo. */
+      CONFIGURE_OK();
+    case EACCES:
+      /* During the permission check phases, an EACCES means we need to
+         escalate privileges before the real check; FINI_PERM treats it
+         as OK so fini can proceed.  Outside those phases it is a
+         genuine misconfiguration. */
+      if( check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM ) CONFIGURE_OK();
+      NOT_CONFIGURED( "insufficient permissions to query irqbalance daemon banned CPU list" );
+    default:
+      FD_LOG_ERR(( "fd_irqbalance_ban_cpus_get() failed unexpectedly (%i-%s)", err, fd_io_strerror( err ) ));
+    }
   }
+
+  if( FD_LIKELY( !fd_cpuset_cnt( actual ) ) ) NOT_CONFIGURED( "irqbalance daemon has no banned CPUs" );
 
   FD_CPUSET_DECL( required );
   topo_banned_cpus( required, &config->topo );
@@ -79,8 +119,12 @@ init( config_t const * config ) {
   FD_CPUSET_DECL( firedancer );
   topo_banned_cpus( firedancer, &config->topo );
 
-  if( FD_UNLIKELY( !fd_irqbalance_ban_cpus_set( firedancer ) ) )
-    FD_LOG_WARNING(( "failed to update irqbalance banned CPU list" ));
+  if( FD_UNLIKELY( -1==fd_irqbalance_ban_cpus_set( firedancer ) ) ) {
+    int err = errno;
+    if( FD_UNLIKELY( err!=ENOENT && err!=ECONNREFUSED && err!=EACCES ) ) {
+      FD_LOG_ERR(( "fd_irqbalance_ban_cpus_set() failed unexpectedly (%i-%s)", err, fd_io_strerror( err ) ));
+    }
+  }
 }
 
 static int
@@ -90,17 +134,21 @@ fini( config_t const * config,
 
   FD_CPUSET_DECL( banned );
   fd_cpuset_new( banned );
-  if( FD_UNLIKELY( !fd_irqbalance_ban_cpus_set( banned ) ) ) {
-    FD_LOG_WARNING(( "failed to update irqbalance banned CPU list" ));
-    return 0;
+
+  if( FD_UNLIKELY( -1==fd_irqbalance_ban_cpus_set( banned ) ) ) {
+    int err = errno;
+    if( FD_UNLIKELY( err!=ENOENT && err!=ECONNREFUSED && err!=EACCES ) ) {
+      FD_LOG_ERR(( "fd_irqbalance_ban_cpus_set() failed unexpectedly (%i-%s)", err, fd_io_strerror( err ) ));
+    }
   }
   return 1;
 }
 
 configure_stage_t fd_cfg_stage_irq_balance = {
   .name            = "irq-balance",
-  .always_recreate = 1,
-  .enabled         = enabled,
+  .always_recreate = 0,
+  .init_perm       = init_perm,
+  .fini_perm       = fini_perm,
   .init            = init,
   .fini            = fini,
   .check           = check

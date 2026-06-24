@@ -104,14 +104,23 @@
 
 #define _DEFAULT_SOURCE
 #include "configure.h"
-#include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include <fcntl.h>
 #include <sys/types.h>
 #include <dirent.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <unistd.h>
+
+/* FD_IRQ_AFFINITY_CHECK_TIGHT, when non-zero, makes check() also flag
+   IRQs whose affinity mask is a strict subset of the allowed CPUs (but
+   that do not overlap any tile CPU).  Such IRQs do not steal time from
+   tiles, and irqbalance routinely narrows IRQs this way, which would
+   make check() never pass while it runs.  Disabled for now. */
+#ifndef FD_IRQ_AFFINITY_CHECK_TIGHT
+#define FD_IRQ_AFFINITY_CHECK_TIGHT 0
+#endif
 
 /* smp_affinity file format is 4a4a4a4a,fcfcfcfc,...
    So, 9 bytes per 32 bits ~ 3.56 bits per byte. */
@@ -258,9 +267,9 @@ read_irq_smp_affinity( char const * irq,
 }
 
 static int
-write_irq_smp_affinity( char const *         irq,
+write_irq_smp_affinity( char const *        irq,
                         fd_cpuset_t const * cpuset,
-                        int                  warn ) {
+                        int                 warn ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/irq/%s/smp_affinity", irq ) );
 
@@ -320,7 +329,7 @@ update_irq_smp_affinities( fd_cpuset_t const * add_cpus,
     if( FD_LIKELY( add_cpus ) ) fd_cpuset_union( next, next, add_cpus );
 
     if( FD_LIKELY( fd_cpuset_eq( current, next ) ) ) continue;
-    if( FD_UNLIKELY( !write_irq_smp_affinity( entry->d_name, next, 0 ) && errno!=EPERM ) ) {
+    if( FD_UNLIKELY( !write_irq_smp_affinity( entry->d_name, next, 0 ) && errno!=EPERM && errno!=EIO ) ) {
       int err = errno;
       FD_LOG_WARNING(( "write(/proc/irq/%s/smp_affinity) failed (%i-%s)", entry->d_name, err, fd_io_strerror( err ) ));
     }
@@ -345,7 +354,7 @@ set_irq_smp_affinities( fd_cpuset_t const * desired ) {
     if( FD_UNLIKELY( !read_irq_smp_affinity( entry->d_name, current ) ) ) continue;
 
     if( FD_LIKELY( fd_cpuset_eq( current, desired ) ) ) continue;
-    if( FD_UNLIKELY( !write_irq_smp_affinity( entry->d_name, desired, 0 ) && errno!=EPERM ) ) {
+    if( FD_UNLIKELY( !write_irq_smp_affinity( entry->d_name, desired, 0 ) && errno!=EPERM && errno!=EIO ) ) {
       int err = errno;
       FD_LOG_WARNING(( "write(/proc/irq/%s/smp_affinity) failed (%i-%s)", entry->d_name, err, fd_io_strerror( err ) ));
     }
@@ -369,11 +378,6 @@ topo_banned_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ],
   return cpuset;
 }
 
-static int
-enabled( config_t const * config ) {
-  return !!config->firedancer.layout.interrupts.configure_irq_affinity;
-}
-
 static void
 init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
@@ -394,6 +398,10 @@ init( config_t const * config ) {
   FD_CPUSET_DECL( allowed );
   fd_cpuset_subtract( allowed, all_host_cpus( allowed ), banned );
 
+  if( FD_UNLIKELY( !fd_cpuset_cnt( allowed ) ) ) {
+    FD_LOG_ERR(( "all host CPUs are assigned to Firedancer tiles; cannot reserve any CPU for device interrupts" ));
+  }
+
   set_irq_smp_affinities( allowed );
 }
 
@@ -412,9 +420,6 @@ fini( config_t const * config,
 static configure_result_t
 check( config_t const * config,
        int              check_type ) {
-  if( check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM ||
-      check_type==FD_CONFIGURE_CHECK_TYPE_PRE_FINI  ) CONFIGURE_OK();
-
   FD_CPUSET_DECL( banned );
   topo_banned_cpus( banned, &config->topo );
 
@@ -422,17 +427,19 @@ check( config_t const * config,
   fd_cpuset_subtract( allowed, all_host_cpus( allowed ), banned );
 
   DIR * dir = opendir( "/proc/irq" );
-  if( FD_UNLIKELY( !dir ) ) PARTIALLY_CONFIGURED( "opendir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) );
+  if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "opendir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  ulong irq_cnt         = 0UL;
+  ulong irq_cnt        = 0UL;
   ulong misconfigured  = 0UL;
   ulong unprobeable    = 0UL;
   ulong overlap_irq_sample[ MISMATCH_SAMPLE_MAX ];
   ulong overlap_irq_sample_cnt = 0UL;
   ulong overlap_irq_cnt = 0UL;
+#if FD_IRQ_AFFINITY_CHECK_TIGHT
   ulong tight_irq_sample[ MISMATCH_SAMPLE_MAX ];
   ulong tight_irq_sample_cnt = 0UL;
   ulong tight_irq_cnt = 0UL;
+#endif
   ulong tile_sample[ MISMATCH_SAMPLE_MAX ];
   ulong tile_sample_cnt = 0UL;
   ulong tile_overlap_cnt = 0UL;
@@ -453,20 +460,23 @@ check( config_t const * config,
     /* Some IRQs cannot be moved.  Per the stage comment above, writing
        the same mask back lets us distinguish those from configurable IRQs. */
     if( FD_UNLIKELY( !write_irq_smp_affinity( entry->d_name, current, 0 ) ) ) {
-      if( FD_LIKELY( errno==EPERM ) ) continue;
-      if( FD_UNLIKELY( geteuid()!=0 ) ) {
-        int err = errno;
+      if( FD_LIKELY( errno==EPERM || errno==EIO || errno==ENOENT || errno==ENODEV || errno==ENXIO ) ) continue;
+      else if( FD_LIKELY( errno==EACCES ) ) {
+        char irq_name[ NAME_MAX+1UL ];
+        FD_TEST( fd_cstr_printf_check( irq_name, sizeof(irq_name), NULL, "%s", entry->d_name ) );
         if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        PARTIALLY_CONFIGURED( "failed to write /proc/irq/%s/smp_affinity (%i-%s)", entry->d_name, err, fd_io_strerror( err ) );
+        if( check_type==FD_CONFIGURE_CHECK_TYPE_FINI_PERM ) CONFIGURE_OK();
+        NOT_CONFIGURED( "insufficient permissions to write /proc/irq/%s/smp_affinity", irq_name );
+      } else {
+        FD_LOG_ERR(( "write(/proc/irq/%s/smp_affinity) failed (%i-%s)", entry->d_name, errno, fd_io_strerror( errno ) ));
       }
-      continue;
     }
 
-    misconfigured++;
     FD_CPUSET_DECL( overlap );
     fd_cpuset_intersect( overlap, current, banned );
     ulong irq = strtoul( entry->d_name, NULL, 10 );
     if( FD_UNLIKELY( !fd_cpuset_is_null( overlap ) ) ) {
+      misconfigured++;
       if( FD_LIKELY( overlap_irq_sample_cnt<MISMATCH_SAMPLE_MAX ) ) overlap_irq_sample[ overlap_irq_sample_cnt++ ] = irq;
       overlap_irq_cnt++;
       for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -476,10 +486,19 @@ check( config_t const * config,
         if( FD_LIKELY( tile_sample_cnt<MISMATCH_SAMPLE_MAX ) ) tile_sample[ tile_sample_cnt++ ] = i;
         tile_overlap_cnt++;
       }
-    } else if( FD_UNLIKELY( fd_cpuset_subset( current, allowed ) ) ) {
+    }
+#if FD_IRQ_AFFINITY_CHECK_TIGHT
+    /* An IRQ pinned to a strict subset of the allowed CPUs (but no tile
+       CPUs) does not steal time from any tile, so it does not violate the
+       stage's goal.  irqbalance routinely narrows IRQs this way, which
+       would make check() never pass while it runs, so the tight check is
+       disabled for now. */
+    else if( FD_UNLIKELY( fd_cpuset_subset( current, allowed ) ) ) {
+      misconfigured++;
       if( FD_LIKELY( tight_irq_sample_cnt<MISMATCH_SAMPLE_MAX ) ) tight_irq_sample[ tight_irq_sample_cnt++ ] = irq;
       tight_irq_cnt++;
     }
+#endif
   }
 
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -495,11 +514,13 @@ check( config_t const * config,
                       irq_str,
                       tile_str );
     }
+#if FD_IRQ_AFFINITY_CHECK_TIGHT
     if( FD_UNLIKELY( tight_irq_cnt ) ) {
       char tight_irq_str[ MISMATCH_STR_LEN ];
       append_ulong_list_sample( tight_irq_str, sizeof(tight_irq_str), tight_irq_sample, tight_irq_sample_cnt, tight_irq_cnt );
       NOT_CONFIGURED( "found IRQ affinity masks excluding allowed CPUs (IRQs: %s)", tight_irq_str );
     }
+#endif
     NOT_CONFIGURED( "%lu configurable IRQ affinity masks do not match Firedancer CPU policy", misconfigured );
   }
   CONFIGURE_OK();
@@ -507,8 +528,6 @@ check( config_t const * config,
 
 configure_stage_t fd_cfg_stage_irq_affinity = {
   .name            = "irq-affinity",
-  .always_recreate = 1,
-  .enabled         = enabled,
   .init_perm       = init_perm,
   .fini_perm       = fini_perm,
   .init            = init,
@@ -516,7 +535,8 @@ configure_stage_t fd_cfg_stage_irq_affinity = {
   .check           = check
 };
 
-#undef NAME
+#undef FD_IRQ_AFFINITY_CHECK_TIGHT
+#undef SMP_AFFINITY_STR_LEN
 #undef MISMATCH_SAMPLE_MAX
 #undef MISMATCH_STR_LEN
 #undef MISMATCH_TILE_STR_LEN

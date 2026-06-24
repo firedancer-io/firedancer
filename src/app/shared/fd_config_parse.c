@@ -90,8 +90,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.resolv_tile_count                            );
   CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
-  CFG_POP      ( bool,   layout.interrupts.configure_irq_affinity            );
-  CFG_POP      ( bool,   layout.interrupts.configure_irqbalance              );
 
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
