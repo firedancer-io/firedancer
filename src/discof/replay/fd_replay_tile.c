@@ -332,13 +332,11 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   ulong slot = bank->f.slot;
 
-  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
-
   /* HACKY: hacky way of checking if we should send a null parent block
      id */
   fd_hash_t parent_block_id = {0};
   if( FD_LIKELY( !is_initial ) ) {
-    parent_block_id = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+    parent_block_id = fd_banks_bank_query( ctx->banks, bank->parent_idx )->block_id;
   }
 
   fd_hash_t const * bank_hash  = &bank->f.bank_hash;
@@ -363,11 +361,14 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
   slot_info->block_height          = bank->f.block_height;
   slot_info->parent_slot           = bank->f.parent_slot;
-  slot_info->block_id              = block_id_ele->latest_mr;
+  slot_info->block_id              = bank->block_id;
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
   slot_info->transaction_count     = bank->f.txn_count;
+  FD_BASE58_ENCODE_32_BYTES( bank->block_id.uc, block_id_ho_b58 );
+  FD_BASE58_ENCODE_32_BYTES( parent_block_id.uc, parent_block_id_ho_b58 );
+  FD_LOG_NOTICE(("publish_slot_completed: slot=%lu parent_slot=%lu block_id=%s parent_block_id=%s", slot, slot_info->parent_slot, block_id_ho_b58, parent_block_id_ho_b58 ));
 
   fd_inflation_t inflation = bank->f.inflation;
   slot_info->inflation.foundation      = inflation.foundation;
@@ -1577,10 +1578,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     fd_bank_t * bank  = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
     uchar * double_mr = finish_double_merkle( ctx, reasm_fec );
     memcpy( bank->block_id.uc, double_mr, sizeof(fd_hash_t) );
-
-    FD_BASE58_ENCODE_32_BYTES( double_mr, double_mr_b58 );
-    FD_LOG_NOTICE(( "slot %lu complete: double merkle root (block id) %s", reasm_fec->slot, double_mr_b58 ));
-
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
@@ -2394,6 +2391,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
+      break; // not processing tower messages now
+
       if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
         process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
       } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {

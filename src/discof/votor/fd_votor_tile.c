@@ -178,6 +178,10 @@ struct fd_votor_tile {
   fd_consensus_message_t msgs    [ MSGS_MAX     ];
   fd_votor_timeout_t     timeouts[ TIMEOUTS_MAX ];
 
+  /* heap of timeouts. Every after_credit the min timeout is polled and if it is due, the corresponding event is emitted. */
+  fd_timeout_t *      timeouts_pool;
+  fd_timeout_heap_t * timeouts_heap;
+
   /* validator set staged from the most recent EPOCH msg.  The pool / votor
      are rebuilt against this set on epoch change. */
 
@@ -328,6 +332,20 @@ voter_stake( fd_votor_tile_t * ctx, ulong v ) {
 static int
 ingest_vote( fd_votor_tile_t * ctx, fd_vote_t const * vote );
 
+static void
+schedule_timeout( fd_votor_tile_t * ctx, ulong slot ) {
+  long  now   = fd_log_wallclock();
+  ulong first = fd_alpenglow_first_slot_in_window( slot );
+  fd_timeout_t * timeout = fd_timeout_pool_ele_acquire( ctx->timeouts_pool );
+  timeout->slot = slot;
+
+  /* TODO, ignoring first shred timeout for now */
+  timeout->ts   = now + FD_ALPENGLOW_DELTA_TIMEOUT_NS
+                      + (long)( slot - first + 1UL ) * FD_ALPENGLOW_DELTA_BLOCK_NS;
+  timeout->kind = FD_VOTOR_TIMEOUT_TIMEOUT;
+  fd_timeout_heap_ele_insert( ctx->timeouts_heap, timeout, ctx->timeouts_pool );
+}
+
 /* drain_votor_out feeds everything the votor just emitted back into the
    system: votes are (a) fed into the pool via ingest_vote and (b) queued for
    broadcast; certs are queued for broadcast.  Timeouts are not persisted here
@@ -346,6 +364,14 @@ drain_votor_out( fd_votor_tile_t *      ctx,
       ingest_vote( ctx, &m->inner.vote ); /* count our own vote */
     } else { /* FD_CONSENSUS_MESSAGE_CERT */
       queue_cert( ctx, &m->inner.cert );
+    }
+  }
+  for( ulong i=0UL; i<out->timeout_cnt; i++ ) {
+    fd_votor_timeout_t const * t = &out->timeouts[ i ];
+    if( t->kind==FD_VOTOR_TIMEOUT_TIMEOUT ) {
+      schedule_timeout( ctx, t->slot );
+    } else if( t->kind==FD_VOTOR_TIMEOUT_CRASHED_LEADER ) {
+      // TODO: ignore first shred timeouts for now
     }
   }
 }
@@ -892,6 +918,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),  sizeof(fd_votor_tile_t)                                  );
   l = FD_LAYOUT_APPEND( l, fd_votor_align(),          fd_votor_footprint( slot_max )                           );
   l = FD_LAYOUT_APPEND( l, fd_pool_align(),           fd_pool_footprint( slot_max, validator_max, blockid_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_timeout_heap_align(),   fd_timeout_heap_footprint( slot_max )                     );
+  l = FD_LAYOUT_APPEND( l, fd_timeout_pool_align(),   fd_timeout_pool_footprint( slot_max )                     );
   for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ )
     l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),   fd_epoch_info_footprint( VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, publishes_align(),         publishes_footprint( pub_max )                           );
@@ -924,6 +952,8 @@ init_choreo( void                 * scratch,
   fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t)                                  );
   void  * votor         = FD_SCRATCH_ALLOC_APPEND( l, fd_votor_align(),         fd_votor_footprint( slot_max )                           );
   void  * pool          = FD_SCRATCH_ALLOC_APPEND( l, fd_pool_align(),          fd_pool_footprint( slot_max, validator_max, blockid_max ) );
+  void  * timeouts_heap = FD_SCRATCH_ALLOC_APPEND( l, fd_timeout_heap_align(),  fd_timeout_heap_footprint( slot_max )                     );
+  void  * timeouts_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_timeout_pool_align(),  fd_timeout_pool_footprint( slot_max )                     );
   void  * epoch_mem[ VTR_EPOCH_WINDOW ];
   for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ )
     epoch_mem[i]        = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(),    fd_epoch_info_footprint( VTR_MAX )                       );
@@ -973,6 +1003,9 @@ init_choreo( void                 * scratch,
     .timeout_max = TIMEOUTS_MAX
   };
   ctx->votor = fd_votor_join( fd_votor_new( votor, slot_max, ctx->own_id, ctx->voting_key, ctx->seed, &boot_out ) );
+
+  ctx->timeouts_heap = fd_timeout_heap_join( fd_timeout_heap_new( timeouts_heap, slot_max ) );
+  ctx->timeouts_pool = fd_timeout_pool_join( fd_timeout_pool_new( timeouts_pool, slot_max ) );
 
   ctx->publishes = publishes_join( publishes_new( publishes, pub_max ) );
 
@@ -1154,6 +1187,28 @@ after_credit( fd_votor_tile_t *   ctx,
      The timeouts emitted by the votor handlers carry DELTA_* offsets that
      must be turned into wall-clock deadlines against fd_log_wallclock().  For
      now timeouts are not persisted (see drain_votor_out). */
+
+  while( fd_timeout_heap_ele_cnt( ctx->timeouts_heap ) ) {
+    fd_timeout_t * timeout = fd_timeout_heap_ele_peek_min( ctx->timeouts_heap, ctx->timeouts_pool );
+    if( FD_LIKELY( timeout->ts > fd_log_wallclock() ) ) break;
+    fd_timeout_heap_ele_remove_min( ctx->timeouts_heap, ctx->timeouts_pool );
+
+    /* timeout for this slot is due */
+    switch( timeout->kind ) {
+    case FD_VOTOR_TIMEOUT_TIMEOUT: {
+      fd_votor_timeout_t event = { .kind = FD_VOTOR_TIMEOUT_TIMEOUT, .slot = timeout->slot };
+      fd_votor_out_t out = fresh_votor_out( ctx );
+      fd_votor_handle_timeout_event( ctx->votor, &event, &out );
+      drain_votor_out( ctx, &out );
+      break;
+    }
+    case FD_VOTOR_TIMEOUT_CRASHED_LEADER:
+      break;
+    default:
+      break;
+    }
+    fd_timeout_pool_ele_release( ctx->timeouts_pool, timeout );
+  }
 
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
     publish_t * pub = publishes_pop_head_nocopy( ctx->publishes );

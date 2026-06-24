@@ -93,6 +93,28 @@ struct fd_votor_consensus_msg {
 };
 typedef struct fd_votor_consensus_msg fd_votor_consensus_msg_t;
 
+/* define a minheap for the timeouts */
+struct fd_timeout {
+  ulong slot;
+  long  ts;
+  uint  kind;
+  uint  left;
+  uint  right;
+};
+typedef struct fd_timeout fd_timeout_t;
+
+#define HEAP_NAME fd_timeout_heap
+#define HEAP_T    fd_timeout_t
+#define HEAP_LT(e0,e1) ( ((e0)->ts <= (e1)->ts) )
+#define HEAP_IDX_T uint
+#include "../../util/tmpl/fd_heap.c"
+
+#define POOL_NAME  fd_timeout_pool
+#define POOL_T     fd_timeout_t
+#define POOL_IDX_T uint
+#define POOL_NEXT  left
+#include "../../util/tmpl/fd_pool.c"
+
 extern fd_topo_run_tile_t fd_tile_votor;
 
 #endif /* HEADER_fd_src_discof_votor_fd_votor_tile_h */
