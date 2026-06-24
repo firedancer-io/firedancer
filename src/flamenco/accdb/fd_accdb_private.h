@@ -186,7 +186,7 @@ struct fd_accdb_cache_key {
 
 typedef struct fd_accdb_cache_key fd_accdb_cache_key_t;
 
-struct fd_accdb_accmeta {
+struct __attribute__((aligned(64))) fd_accdb_accmeta {
   fd_accdb_cache_key_t key;
 
   struct {
@@ -211,6 +211,9 @@ struct fd_accdb_accmeta {
 };
 
 typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
+
+FD_STATIC_ASSERT( alignof(fd_accdb_accmeta_t)==64, layout );
+FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 
 #define FD_ACCDB_OFF_BITS  48UL
 #define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
@@ -559,6 +562,10 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
   ulong deferred_acc_epoch;
+
+  acc_pool_shmem_t  acc_pool [1];
+  fork_pool_shmem_t fork_pool[1];
+  txn_pool_shmem_t  txn_pool [1];
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };

@@ -853,13 +853,10 @@ test_mainnet_footprint( void ) {
   ulong descends_fp       = descends_set_footprint( max_live_slots );
 
   ulong sz_shmem_t        = sizeof(fd_accdb_shmem_t);
-  ulong sz_fork_pool      = fork_pool_footprint();
   ulong sz_fork_shmem     = max_live_slots*sizeof(fd_accdb_fork_shmem_t);
   ulong sz_descends       = max_live_slots*descends_fp;
   ulong sz_chain          = chain_cnt*sizeof(uint);
-  ulong sz_acc_pool_meta  = acc_pool_footprint();
   ulong sz_acc_pool       = max_accounts*sizeof(fd_accdb_accmeta_t);
-  ulong sz_txn_pool_meta  = txn_pool_footprint();
   ulong sz_txn_pool       = txn_max*sizeof(fd_accdb_txn_t);
   ulong sz_part_pool      = partition_pool_footprint( partition_cnt );
   ulong sz_compact_dlists = FD_ACCDB_COMPACTION_LAYER_CNT*compaction_dlist_footprint();
@@ -868,10 +865,10 @@ test_mainnet_footprint( void ) {
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
     sz_cache_regions += cache_class_max[c]*fd_accdb_cache_slot_sz[c];
 
-  ulong sum = sz_shmem_t + sz_fork_pool + sz_fork_shmem + sz_descends
+  ulong sum = sz_shmem_t + sz_fork_shmem + sz_descends
             + sz_chain
-            + sz_acc_pool_meta + sz_acc_pool
-            + sz_txn_pool_meta + sz_txn_pool
+            + sz_acc_pool
+            + sz_txn_pool
             + sz_part_pool + sz_compact_dlists + sz_deferred_dlist
             + sz_cache_regions;
 
@@ -884,9 +881,6 @@ test_mainnet_footprint( void ) {
     { "partition_pool",     sz_part_pool      },
     { "fork_shmem",         sz_fork_shmem     },
     { "fd_accdb_shmem_t",   sz_shmem_t       },
-    { "fork_pool meta",     sz_fork_pool      },
-    { "acc_pool meta",      sz_acc_pool_meta  },
-    { "txn_pool meta",      sz_txn_pool_meta  },
     { "compaction_dlists",  sz_compact_dlists },
     { "deferred_free_dlist",sz_deferred_dlist },
   };
