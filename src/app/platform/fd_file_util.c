@@ -230,9 +230,12 @@ fd_file_util_read_cstr( char const * path,
   if( FD_UNLIKELY( -1==fd ) ) return NULL;
   ulong off = 0UL;
   for(;;) {
-    if( FD_UNLIKELY( off>=dst_max ) ) {
-      errno = ENOMEM;
-      goto cleanup;
+    if( FD_UNLIKELY( off>=dst_max-1UL ) ) {
+      char extra;
+      long more = read( fd, &extra, 1UL );
+      if( FD_UNLIKELY( -1==more ) ) goto cleanup;
+      if( FD_UNLIKELY( more>0L ) ) { errno = ENOMEM; goto cleanup; }
+      break;
     }
 
     long bytes_read = read( fd, dst+off, dst_max-off-1UL );

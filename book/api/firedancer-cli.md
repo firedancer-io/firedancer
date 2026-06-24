@@ -21,10 +21,6 @@ Firedancer-only configure stages for the full client:
    tile CPUs. If irqbalance is not running, this stage is a no-op.
  - `snapshots` Prepares the snapshot download directory.
 
-The IRQ stages are controlled by `[layout.interrupts]` in the
-configuration TOML file. See [the initialization guide](/guide/initializing)
-for more information.
-
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style

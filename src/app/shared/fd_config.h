@@ -7,11 +7,11 @@
 
 #include <net/if.h>
 
-#define NAME_SZ                          (256UL)
-#define AFFINITY_SZ                      (256UL)
-#define CONFIGURE_STAGE_COUNT            ( 13UL)
-#define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
-#define IP4_PORT_STR_MAX                 ( 22UL)
+#define NAME_SZ                     (256UL)
+#define AFFINITY_SZ                 (256UL)
+#define CONFIGURE_STAGE_COUNT       ( 14UL)
+#define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
+#define IP4_PORT_STR_MAX            ( 22UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
@@ -111,11 +111,6 @@ struct fd_configf {
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
-
-    struct {
-      int configure_irq_affinity;
-      int configure_irqbalance;
-    } interrupts;
   } layout;
 
   struct {
