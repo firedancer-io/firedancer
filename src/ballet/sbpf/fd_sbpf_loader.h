@@ -170,6 +170,23 @@ struct fd_sbpf_elf_info {
   uint  text_cnt;       /* Instruction count */
   ulong text_sz;        /* size of text segment. Guaranteed to be <= bin_sz. */
 
+  /* Size of the buffer the loader assembles the program into, computed at
+     peek.  This is exactly the buffer the program cache must allocate:
+       - strict (v3+):       rodata + text segments (text_off + text_sz)
+       - lenient fast path:  the assembled rodata image (highest ro section
+                             end) -- exact size, no scratch buffer needed.
+                             Selected only when the read-only sections already
+                             sit at their file offsets (section address ==
+                             file offset), so the image needs no section
+                             repositioning, only zeroing of the gaps between
+                             and around the read-only slices.
+       - lenient legacy path: bin_sz -- the loader relocates in place over the
+                             full ELF image (and may read the unused account
+                             tail), so it needs the whole binary plus scratch
+     fd_sbpf_loader_is_legacy_lenient() (load_buf_sz==bin_sz) identifies the
+     last case -- the only one that requires a scratch buffer. */
+  ulong load_buf_sz;
+
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
   int shndx_text;
@@ -190,6 +207,16 @@ struct fd_sbpf_elf_info {
   ulong sbpf_version;
 };
 typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
+
+/* fd_sbpf_loader_is_legacy_lenient returns 1 iff the program must be loaded via
+   the legacy lenient path (relocate in place over the full ELF image using a
+   scratch buffer).  This is exactly the case load_buf_sz==bin_sz: strict (v3+)
+   and lenient-fast loads assemble a smaller, exact-size buffer with no scratch,
+   while the legacy path needs the whole binary (load_buf_sz==bin_sz) + scratch. */
+FD_FN_PURE static inline int
+fd_sbpf_loader_is_legacy_lenient( fd_sbpf_elf_info_t const * info ) {
+  return info->load_buf_sz==info->bin_sz;
+}
 
 /* fd_sbpf_program_t describes a loaded program in memory.
 
