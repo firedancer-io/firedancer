@@ -68,13 +68,13 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
   }
 
-  /* account_diffs: walk writable accounts, compare prior vs current */
+  /* account_diffs: walk per-txn writable accounts, compare prior vs current */
   ulong diff_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( diff_cnt>=128UL ) break;
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( !acc ) ) continue;
-    if( !acc->_writable ) continue;
+    if( !txn_out->accounts.is_writable[ i ] ) continue;
 
     int changed = ( acc->prior_lamports   != acc->lamports   ) ||
                   ( acc->prior_executable != acc->executable ) ||
@@ -106,7 +106,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( !acc ) ) continue;
-    if( acc->_writable ) {
+    if( txn_out->accounts.is_writable[ i ] ) {
       if( w_cnt<64UL ) fd_memcpy( ev.writable_accounts[ w_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
     } else {
       if( r_cnt<64UL ) fd_memcpy( ev.readonly_accounts[ r_cnt++ ].pubkey, txn_out->accounts.keys[ i ].uc, 32UL );
