@@ -67,7 +67,7 @@
    backlog or a logic error, so we FD_LOG_ERR (fatal) rather than silently
    truncate. */
 
-#define FD_FINALITY_EVENT_CAP (64UL)
+#define FD_FINALITY_EVENT_CAP (512UL)
 
 /* fd_finalization_event_t mirrors
    alpenglow/src/consensus/pool/finality_tracker.rs FinalizationEvent.

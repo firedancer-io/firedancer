@@ -1464,7 +1464,12 @@ finish_double_merkle( fd_replay_tile_t * ctx,
 
   fd_bank_t * bank            = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
   fd_bank_t * parent_bank     = fd_banks_bank_query( ctx->banks, bank->parent_idx );
-  ulong       parent_slot     = parent_bank->f.slot;
+  ulong       parent_slot     = reasm_fec->slot - reasm_fec->parent_off;
+  //weird but the parent bank could be in a weirdge state because maybe its just been cloned from its parent,
+  // or it hasnt been cloned yet. since its in the f field, is unreliable until time of execution
+  // the double merkle computation happens as we are accumulating fecs, not at execution time. saurrrrr
+  // yeah maybe we should move it to right after execution is done. BUT right now im just computing it
+  // from the reasm fecs.
   fd_hash_t   parent_block_id = parent_bank->block_id;
   uint        fec_set_count   = (uint)fd_bmtree_commit_leaf_cnt( tree );
 

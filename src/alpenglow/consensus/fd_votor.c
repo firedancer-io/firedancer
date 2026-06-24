@@ -276,6 +276,8 @@ try_notar( fd_votor_t *          votor,
 
   fd_vote_t vote;
   fd_vote_new_notar( &vote, slot, hash, &votor->voting_key, votor->validator_index );
+  FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_cstr );
+  FD_LOG_NOTICE(( "try_notar slot=%lu hash=%s", slot, hash_cstr ));
   out_push_vote( out, &vote );
 
   fd_votor_slot_state_t * state = slot_state_mut( votor, slot );
@@ -306,6 +308,7 @@ try_skip_window( fd_votor_t *     votor,
     state->bad_window = 1;
     fd_vote_t vote;
     fd_vote_new_skip( &vote, s, &votor->voting_key, votor->validator_index );
+    FD_LOG_NOTICE(( "try_skip_window slot=%lu", s ));
     out_push_vote( out, &vote );
   }
 }

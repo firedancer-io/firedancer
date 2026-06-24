@@ -87,10 +87,10 @@ fd_inflights_request_insert( fd_inflights_t *    table,
 
 long
 fd_inflights_request_match( fd_inflights_t * table,
-                             ulong            nonce,
-                             ulong            slot,
-                             ulong            shred_idx,
-                             fd_pubkey_t *    peer_out ) {
+                             ulong           nonce,
+                             ulong           slot,
+                             ulong           shred_idx,
+                             fd_pubkey_t *   peer_out ) {
   fd_inflight_key_t query[1] = {{ .slot = slot, .shred_idx = shred_idx, .nonce = nonce }};
   /* In the unlikely case that there are multiple requests (outstanding
      or popped) with the same (slot, shred_idx, nonce) tuple, we'll
