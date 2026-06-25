@@ -82,10 +82,20 @@ fd_prog_versions( fd_features_t const * features,
 fd_prog_load_env_t *
 fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
                             fd_bank_t const *    bank ) {
-  /* FIXME: Use true feature_slot instead */
-  ulong feature_slot = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch );
+  fd_features_t const * features     = &bank->f.features;
+  ulong                 bank_slot    = bank->f.slot;
+  ulong                 feature_slot = 0UL;
+
+  /* compute the max feature_slot that's active and <= bank_slot */
+  for( ulong i=0UL; i<FD_FEATURE_ID_CNT; i++ ) {
+    ulong s = features->f[ i ];
+    if( (s!=FD_FEATURE_DISABLED) && (s<=bank_slot) && (s>feature_slot) ) {
+      feature_slot = s;
+    }
+  }
+
   *env = (fd_prog_load_env_t) {
-    .features     = &bank->f.features,
+    .features     = features,
     .feature_slot = feature_slot
   };
   return env;

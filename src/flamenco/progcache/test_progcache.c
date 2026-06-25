@@ -6,6 +6,7 @@
 #include "fd_progcache_reclaim.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
+#include "../runtime/fd_bank.h"
 #include "../features/fd_features.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <stdlib.h>
@@ -283,6 +284,104 @@ FD_UNIT_TEST( epoch_boundary2 ) {
   fd_progcache_cancel_fork( env->progcache->join, fork_c );
   fd_progcache_cancel_fork( env->progcache->join, fork_b );
   fd_progcache_cancel_fork( env->progcache->join, fork_a );
+  test_env_destroy( env );
+}
+
+/* feature_slot_key verifies fd_prog_load_env_from_bank's feature_slot, the
+   program-cache validity key.  Two features activate at slots 200 and 500.
+   Walking the epoch-start slots, the key (= newest active feature slot)
+   changes -- so the cache rebuilds -- only on a boundary that actually
+   activates a feature:
+
+     epoch starts at | feature_slot | rebuild?
+                 100 |          0   | no  (no feature active yet)
+                 200 |        200   | yes (feature@200 activates)
+                 300 |        200   | no
+                 400 |        200   | no
+                 500 |        500   | yes (feature@500 activates)
+                 600 |        500   | no                                   */
+
+FD_UNIT_TEST( feature_slot_key ) {
+  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, FD_BANKS_ALIGN, sizeof(fd_bank_t), 1UL );
+  FD_TEST( bank );
+  for( ulong i=0UL; i<FD_FEATURE_ID_CNT; i++ ) bank->f.features.f[ i ] = FD_FEATURE_DISABLED;
+  bank->f.features.f[ 0 ] = 200UL;
+  bank->f.features.f[ 1 ] = 500UL;
+
+  static struct { ulong epoch_slot0; ulong feature_slot; int rebuild; } const cases[] = {
+    { 100UL,   0UL, 0 },
+    { 200UL, 200UL, 1 },
+    { 300UL, 200UL, 0 },
+    { 400UL, 200UL, 0 },
+    { 500UL, 500UL, 1 },
+    { 600UL, 500UL, 0 },
+  };
+
+  fd_prog_load_env_t env;
+  ulong prev_key = 0UL;  /* empty cache */
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    bank->f.slot = cases[ i ].epoch_slot0;
+    fd_prog_load_env_from_bank( &env, bank );
+    FD_TEST( env.feature_slot == cases[ i ].feature_slot );
+    FD_TEST( (int)( env.feature_slot != prev_key ) == cases[ i ].rebuild );  /* key change <=> rebuild */
+    prev_key = env.feature_slot;
+  }
+
+  fd_wksp_free_laddr( bank );
+}
+
+/* eb_reload_bench measures the per-program reload cost (ELF parse + verify)
+   that an epoch boundary incurs when the feature-set key changes, and shows
+   that an unchanged key reuses the cached entry (no reload).  This quantifies
+   the work saved per program when a no-feature-change epoch boundary no longer
+   bumps the key. */
+
+FD_UNIT_TEST( eb_reload_bench ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t fork = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_program_id,
+                     1, bigger_valid_program_data, bigger_valid_program_data_sz );
+
+  /* Warm the cache at feature_slot 0. */
+  fd_prog_load_env_t e0 = { .features = env->features, .feature_slot = 0UL };
+  fd_progcache_rec_t const * r0 = test_pull( env->progcache, acc.entry, fork, &key, &e0 );
+  FD_TEST( r0 );
+
+  /* FIX: feature set unchanged across the boundary -> same key -> a child fork
+     (next epoch) at the same feature_slot reuses the cached entry (no reload). */
+  ulong const N = 8UL;
+  fd_progcache_fork_id_t forks[ N+1 ];
+  forks[ 0 ] = fork;
+  ulong fills_before = env->progcache->metrics->fill_cnt;
+  fd_progcache_fork_id_t fork_same = fd_progcache_attach_child( env->progcache->join, fork );
+  fd_progcache_rec_t const * r_hit = test_pull( env->progcache, acc.entry, fork_same, &key, &e0 );
+  FD_TEST( r_hit==r0 );                                         /* survives the EB */
+  FD_TEST( env->progcache->metrics->fill_cnt==fills_before );   /* no reload */
+  fd_progcache_cancel_fork( env->progcache->join, fork_same );
+
+  /* BASELINE: the key bumps every boundary -> reload.  Each child fork pulled
+     at a new feature_slot forces a re-parse+verify.  Time N reloads. */
+  ulong load_ticks0 = env->progcache->metrics->cum_load_ticks;
+  ulong fills0      = env->progcache->metrics->fill_cnt;
+  long  t0          = fd_log_wallclock();
+  for( ulong i=1UL; i<=N; i++ ) {
+    forks[ i ] = fd_progcache_attach_child( env->progcache->join, forks[ i-1UL ] );
+    fd_prog_load_env_t ei = { .features = env->features, .feature_slot = 1000UL+i };
+    FD_TEST( test_pull( env->progcache, acc.entry, forks[ i ], &key, &ei ) );
+  }
+  long  t1     = fd_log_wallclock();
+  ulong fills  = env->progcache->metrics->fill_cnt - fills0;
+  ulong dticks = env->progcache->metrics->cum_load_ticks - load_ticks0;
+  FD_TEST( fills==N ); /* every key bump reloaded */
+  FD_LOG_NOTICE(( "EB reload bench: %lu reloads of a %lu-byte program, %.1f us/program (wall), load_ticks/program=%lu",
+                  fills, bigger_valid_program_data_sz, (double)(t1-t0)/1e3/(double)fills, dticks/fills ));
+  FD_LOG_NOTICE(( "  => a no-feature-change epoch boundary saves ~this per cached program reused after the boundary" ));
+
+  for( ulong i=N; i>=1UL; i-- ) fd_progcache_cancel_fork( env->progcache->join, forks[ i ] );
+  fd_progcache_cancel_fork( env->progcache->join, fork );
   test_env_destroy( env );
 }
 
