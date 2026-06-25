@@ -1,4 +1,4 @@
-#include "fd_stake_delegations.h"
+#include "fd_stake_delegations_private.h"
 #include "fd_stake_types.h"
 #include "../runtime/fd_runtime_const.h"
 

@@ -1,4 +1,5 @@
 #include "fd_stakes.h"
+#include "fd_stake_delegations_private.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"

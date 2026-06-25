@@ -5,6 +5,7 @@
 #include "generated/vm.pb.h"
 #include "../fd_system_ids.h"
 #include "../fd_bank.h"
+#include "../../stakes/fd_stake_delegations_private.h"
 #include "../fd_runtime.h"
 #include "../fd_alut.h"
 #include "../program/fd_precompiles.h"

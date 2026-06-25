@@ -6,6 +6,7 @@
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../runtime/fd_hashes.h"
 #include "../stakes/fd_stakes.h"
+#include "../stakes/fd_stake_delegations_private.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_system_ids.h"
 #include "../capture/fd_capture_ctx.h"

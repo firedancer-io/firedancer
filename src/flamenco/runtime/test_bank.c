@@ -1,4 +1,5 @@
 #include "fd_bank.h"
+#include "../stakes/fd_stake_delegations_private.h"
 #include "../rewards/fd_stake_rewards.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 

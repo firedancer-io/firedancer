@@ -3,7 +3,7 @@
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "fd_alut.h"
-#include "../stakes/fd_stake_delegations.h"
+#include "../stakes/fd_stake_delegations_private.h"
 #include "../stakes/fd_stake_types.h"
 #include "program/fd_system_program.h"
 #include "program/fd_bpf_loader_program.h"
