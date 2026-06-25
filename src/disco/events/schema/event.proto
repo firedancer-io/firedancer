@@ -40,21 +40,15 @@ message AuthenticateResponse {
   bytes challenge = 1;
 }
 
-message ConfirmAuthChallengeRequest {
-  bytes signed_challenge = 1;
-}
-
-message ConfirmAuthChallengeResponse {
-}
-
-// An event server for receiving application reported events
+// An event server for receiving application reported events.
+//
+// Auth is via bearer token. Client must ed25519 sign the challenge token returned by Authenticate
+// and present it in the `authorization` header as `Bearer <hex(token)>.<hex(sig)>`.
 service EventService {
-  // Generate an authentication challenge for the client to sign
+  // Generate an authentication challenge token for the client to sign.
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse) {}
 
-  // Confirm the signed authentication challenge from the client
-  rpc ConfirmAuthChallenge(ConfirmAuthChallengeRequest) returns (ConfirmAuthChallengeResponse) {}
-
-  // Stream of events from client to server, and acknowledgements from server to client
+  // Stream of events from client to server, and acknowledgements from server to client. The
+  // client authenticates by presenting the signed challenge token in the authorization header.
   rpc StreamEvents (stream StreamEventsRequest) returns (stream StreamEventsResponse);
 }

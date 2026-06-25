@@ -10,7 +10,6 @@ use events::event_service_server::{EventService, EventServiceServer};
 use events::{
     StreamEventsRequest, StreamEventsResponse,
     AuthenticateRequest, AuthenticateResponse,
-    ConfirmAuthChallengeRequest, ConfirmAuthChallengeResponse,
 };
 use events::event::Event;
 
@@ -18,6 +17,7 @@ fn event_kind_name(event: &Option<events::Event>) -> &'static str {
     match event.as_ref().and_then(|e| e.event.as_ref()) {
         Some(Event::Txn(_)) => "Txn",
         Some(Event::Shred(_)) => "Shred",
+        Some(_) => "<other>",
         None => "<none>",
     }
 }
@@ -35,17 +35,8 @@ impl EventService for MyEventService {
     ) -> Result<Response<AuthenticateResponse>, Status> {
         println!("Received authenticate request from identity: {:?}",
             hex::encode(&request.get_ref().identity_pubkey));
-        let challenge = vec![0u8; 32];
+        let challenge = vec![0u8; 217];
         Ok(Response::new(AuthenticateResponse { challenge }))
-    }
-
-    async fn confirm_auth_challenge(
-        &self,
-        request: Request<ConfirmAuthChallengeRequest>,
-    ) -> Result<Response<ConfirmAuthChallengeResponse>, Status> {
-        println!("Received confirm_auth_challenge with signed challenge: {:?}",
-            hex::encode(&request.get_ref().signed_challenge));
-        Ok(Response::new(ConfirmAuthChallengeResponse {}))
     }
 
     async fn stream_events(

@@ -7,6 +7,7 @@
 #include "../../waltz/grpc/fd_grpc_client_private.h"
 #include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../../ballet/hex/fd_hex.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
@@ -36,6 +37,8 @@
 #define FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE  (1UL)
 #define FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH  (2UL)
 #define FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS (3UL)
+
+#define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
 struct fd_event_client {
   fd_grpc_client_t * grpc_client;
@@ -100,6 +103,13 @@ struct fd_event_client {
   fd_rng_t * rng;
   fd_circq_t * circq;
   fd_keyguard_client_t * keyguard_client;
+
+  /* Stateless-auth bearer value: "hex(challenge_token).hex(signature)",
+     built from the challenge token returned by Authenticate and our
+     ed25519 signature over it.  Presented as the `authorization: Bearer
+     <...>` header on the StreamEvents request. */
+  char  auth_bearer[ 2UL*FD_EVENT_CLIENT_TOKEN_SZ + 1UL + 2UL*64UL + 1UL ];
+  ulong auth_bearer_len;
 
   fd_event_client_metrics_t metrics;
 };
@@ -297,6 +307,9 @@ disconnect( fd_event_client_t * client,
   client->event_stream = NULL;
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
+
+  client->auth_bearer[ 0 ] = '\0';
+  client->auth_bearer_len  = 0UL;
 
   switch( reason ) {
     case DISCONNECT_REASON_IDENTITY_CHANGED:
@@ -524,8 +537,8 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   }
 
   ulong challenge_len = challenge_tlv.len;
-  if( FD_UNLIKELY( challenge_len!=32UL ) ) {
-    FD_LOG_WARNING(( "Invalid challenge size: %lu bytes", challenge_len ));
+  if( FD_UNLIKELY( challenge_len!=FD_EVENT_CLIENT_TOKEN_SZ ) ) {
+    FD_LOG_WARNING(( "Invalid challenge token size: %lu bytes (expected %lu)", challenge_len, FD_EVENT_CLIENT_TOKEN_SZ ));
     client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
     return;
   }
@@ -536,7 +549,8 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
-  uchar const * challenge_data = inbuf->cur;
+  uchar challenge_token[ FD_EVENT_CLIENT_TOKEN_SZ ];
+  memcpy( challenge_token, inbuf->cur, challenge_len );
   inbuf->cur += challenge_len;
 
   if( FD_UNLIKELY( fd_pb_inbuf_sz( inbuf ) ) ) {
@@ -545,61 +559,34 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
     return;
   }
 
-  uchar sign_request[ 132 ];
+  uchar sign_request[ 100UL + FD_EVENT_CLIENT_TOKEN_SZ ];
   static char const sign_prefix[ 100 ] =
     "                                "  /* 32 spaces */
     "                                "  /* 32 spaces */
     "Firedancer event challenge-response";
-  memcpy( sign_request,     sign_prefix,    sizeof(sign_prefix) );
-  memcpy( sign_request+100, challenge_data, 32UL                );
+  memcpy( sign_request,     sign_prefix,     sizeof(sign_prefix) );
+  memcpy( sign_request+100, challenge_token, challenge_len       );
 
-  uchar signed_challenge[ 64UL ];
+  uchar signature[ 64UL ];
   fd_keyguard_client_sign( client->keyguard_client,
-                           signed_challenge,
-                           sign_request, 132UL,
+                           signature,
+                           sign_request, 100UL+challenge_len,
                            FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-  fd_pb_encoder_t confirm_req[1];
-  uchar buffer[ 128UL ];
-  fd_pb_encoder_init( confirm_req, buffer, sizeof(buffer) );
-  fd_pb_push_bytes( confirm_req, 1U, signed_challenge, 64UL );
-
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
-      client->grpc_client,
-      "/events.v1.EventService/ConfirmAuthChallenge", strlen("/events.v1.EventService/ConfirmAuthChallenge"),
-      FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH,
-      buffer, fd_pb_encoder_out_sz( confirm_req ),
-      NULL, 0UL,
-      0 /* not streaming */ );
-
-  if( FD_UNLIKELY( !stream ) ) {
-    FD_LOG_WARNING(( "Failed to start ConfirmAuthChallenge request" ));
-    client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
-    return;
-  }
-
-  long now = fd_log_wallclock();
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, now+(long)2e9 );
-  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, now+(long)2e9 );
-
-  client->state = FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH;
-  FD_LOG_DEBUG(( "Sent signed auth challenge" ));
-}
-
-static void
-fd_event_client_handle_confirm_auth_resp( fd_event_client_t * client,
-                                          void const *        protobuf,
-                                          ulong               protobuf_sz ) {
-  (void)protobuf;
-  (void)protobuf_sz;
+  /* Build "hex(challenge_token).hex(signature)" for the bearer token. */
+  fd_hex_encode( client->auth_bearer, challenge_token, FD_EVENT_CLIENT_TOKEN_SZ );
+  client->auth_bearer[ 2UL*FD_EVENT_CLIENT_TOKEN_SZ ] = '.';
+  fd_hex_encode( client->auth_bearer + 2UL*FD_EVENT_CLIENT_TOKEN_SZ+1UL, signature, 64UL );
+  client->auth_bearer_len = 2UL*FD_EVENT_CLIENT_TOKEN_SZ + 1UL + 2UL*64UL;
+  client->auth_bearer[ client->auth_bearer_len ] = '\0';
 
   client->event_stream = NULL;
   client->metrics.transport_success_cnt++;
   client->state = FD_EVENT_CLIENT_STATE_CONNECTED;
   client->connected.connected_timestamp = fd_log_wallclock();
   FD_LOG_NOTICE(( "connected to event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
-                    FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
-                    (int)client->server_fqdn_len, client->server_fqdn ));
+                  FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
+                  (int)client->server_fqdn_len, client->server_fqdn ));
 }
 
 static void
@@ -674,9 +661,6 @@ fd_event_client_grpc_rx_msg( void *       app_ctx,
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
       fd_event_client_handle_auth_challenge_resp( client, protobuf, protobuf_sz );
       break;
-    case FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH:
-      fd_event_client_handle_confirm_auth_resp( client, protobuf, protobuf_sz );
-      break;
     case FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS:
       fd_event_client_handle_stream_events_resp( client, protobuf, protobuf_sz );
       break;
@@ -708,7 +692,6 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
     switch( request_ctx ) {
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
-    case FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH:
       FD_LOG_WARNING(( "Event authentication failed (gRPC status %u-%s): %.*s",
                        resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
                        (int)resp->grpc_msg_len, resp->grpc_msg ));
@@ -759,24 +742,26 @@ tx( fd_event_client_t * client,
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client->grpc_client ) ) ) return;
   if( FD_UNLIKELY( client->event_stream && client->grpc_client->request_stream != NULL && client->grpc_client->request_stream!=client->event_stream ) ) return;
 
-  ulong msg_sz;
-  uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
-  if( FD_LIKELY( !msg ) ) return;
-
   if( FD_UNLIKELY( !client->event_stream ) ) {
     client->event_stream = fd_grpc_client_request_start1(
         client->grpc_client,
         "/events.v1.EventService/StreamEvents", strlen("/events.v1.EventService/StreamEvents"),
         FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS,
-        msg, msg_sz,
-        NULL, 0UL,
+        NULL, 0UL, /* headers only; first message sent later */
+        client->auth_bearer, client->auth_bearer_len,
         1 /* streaming */ );
-    if( FD_UNLIKELY( !client->event_stream ) ) return; /* Only reason for failure is too big message, so just skip it */
+    if( FD_UNLIKELY( !client->event_stream ) ) return; /* transient; retry next poll */
     fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
-  } else {
-    int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
-    if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
+    *charge_busy = 1;
+    return;
   }
+
+  ulong msg_sz;
+  uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
+  if( FD_LIKELY( !msg ) ) return;
+
+  int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
+  if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
 
   client->metrics.events_sent++;
   *charge_busy = 1;
@@ -797,7 +782,7 @@ fd_event_client_poll( fd_event_client_t * client,
     }
   }
   /* Check auth handshake timeout */
-  if( FD_UNLIKELY( (client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING || client->state==FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH) && now>client->auth_deadline ) ) {
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && now>client->auth_deadline ) ) {
     FD_LOG_WARNING(( "auth handshake timed out" ));
     client->metrics.handshake_timeout_cnt++;
     disconnect( client, DISCONNECT_REASON_TIMEOUT, 0, 1 );
