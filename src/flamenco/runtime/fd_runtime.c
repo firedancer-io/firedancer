@@ -484,6 +484,18 @@ deprecate_rent_exemption_threshold( fd_bank_t *        bank,
   bank->f.rent = rent;
 }
 
+static void
+set_lamports_per_byte( fd_bank_t *        bank,
+                       fd_accdb_t *       accdb,
+                       fd_capture_ctx_t * capture_ctx,
+                       ulong              lamports_per_byte ) {
+  fd_rent_t rent = bank->f.rent;
+  rent.lamports_per_uint8_year = lamports_per_byte;
+
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
+  bank->f.rent = rent;
+}
+
 // https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
 static void
 fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
@@ -499,6 +511,31 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
       https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, deprecate_rent_exemption_threshold ) ) ) {
     deprecate_rent_exemption_threshold( bank, accdb, capture_ctx );
+  }
+
+  /* SIMD-0437 rent reduction gates.
+     https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank.rs#L5612-L5639 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_6333 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 6333UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_5080 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 5080UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_2575 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 2575UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_1322 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 1322UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_696 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 696UL );
+  }
+
+  /* SIMD-0438 resets rent to the legacy value (in case something goes
+     wrong with the above).
+     https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank.rs#L5641-L5644 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_6960 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 6960UL );
   }
 
   /* Apply builtin program feature transitions
