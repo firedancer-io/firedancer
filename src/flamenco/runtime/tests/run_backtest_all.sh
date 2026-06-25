@@ -165,3 +165,12 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_350ms-o
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m-out-of-order --zst 2 -m 50000 -e 1357
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_250ms-out-of-order --zst 2 -m 50000 -e 1865
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_300ms-out-of-order --zst 2 -m 50000 -e 2364
+# SIMD-0437/0438 (rent lamports_per_byte) + SIMD-0194 (deprecate threshold) + SIMD-0392 (relax_post_exec_min_balance_check);
+# localnet, features activate @ slot 256; boot @ snapshot-200 to replay it OFF+ON across the boundary.
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_relax_only -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6333 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_5080 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_2575 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_1322 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960 -m 2000000 -e 325

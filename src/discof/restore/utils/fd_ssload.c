@@ -466,6 +466,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
         elem->activation_epoch,
         elem->deactivation_epoch,
         elem->credits_observed,
+        0UL, /* lamports unknown until fd_stake_delegations_refresh */
+        0U,  /* acc_dlen unknown until fd_stake_delegations_refresh */
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
     );
   }

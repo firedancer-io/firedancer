@@ -98,7 +98,9 @@ struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
   ulong       stake;
+  ulong       lamports;
   ulong       credits_observed;
+  uint        acc_dlen;
   uint        next_; /* Internal pool/map/dlist usage */
 
   union {
@@ -216,6 +218,8 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    activation_epoch,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
+                                  ulong                    lamports,
+                                  uint                     acc_dlen,
                                   uchar                    warmup_cooldown_rate );
 
 /* fd_stake_delegations_refresh is used to refresh the stake
@@ -273,6 +277,8 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    activation_epoch,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
+                                  ulong                    lamports,
+                                  uint                     acc_dlen,
                                   uchar                    warmup_cooldown_rate );
 
 /* fd_stake_delegations_fork_remove inserts a tombstone stake delegation

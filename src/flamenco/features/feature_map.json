@@ -279,5 +279,12 @@
   {"name":"reduce_slot_time_to_350ms","pubkey":"iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ"},
   {"name":"reduce_slot_time_to_300ms","pubkey":"iBRLL3k18HST852F1Mf3Lv83waTNQmmqvKDxvYGwQFL"},
   {"name":"reduce_slot_time_to_250ms","pubkey":"iBRLMc81UjRa8fn8A6eE8bJTnRbgQoPTynM51akENCV"},
-  {"name":"reduce_slot_time_to_200ms","pubkey":"iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW"}
+  {"name":"reduce_slot_time_to_200ms","pubkey":"iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW"},
+  {"name":"set_lamports_per_byte_to_6333","pubkey":"4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC"},
+  {"name":"set_lamports_per_byte_to_5080","pubkey":"61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81"},
+  {"name":"set_lamports_per_byte_to_2575","pubkey":"Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz"},
+  {"name":"set_lamports_per_byte_to_1322","pubkey":"GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM"},
+  {"name":"set_lamports_per_byte_to_696","pubkey":"mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY"},
+  {"name":"set_lamports_per_byte_to_6960","pubkey":"5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni"},
+  {"name":"relax_post_exec_min_balance_check","pubkey":"DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg"}
 ]

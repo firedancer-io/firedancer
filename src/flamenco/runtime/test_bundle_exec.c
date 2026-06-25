@@ -702,6 +702,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                                       0UL,
                                       ULONG_MAX,
                                       0UL,
+                                      2000000000UL,
+                                      (uint)FD_STAKE_STATE_SZ,
                                       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
     {
@@ -1240,6 +1242,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                          (uint)FD_STAKE_STATE_SZ, sdata, &fd_solana_stake_program_id );
     fd_stake_delegations_root_update( fd_banks_stake_delegations_root_query( env->mini->banks ),
                                       &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
                                       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
     fd_txn_p_t sp[2] = {0};
