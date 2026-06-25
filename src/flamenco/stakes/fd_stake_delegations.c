@@ -179,6 +179,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
+  stake_delegations->pool_idx_wmk_      = 0UL;
 
   fd_rwlock_new( &stake_delegations->delta_lock );
 
@@ -226,6 +227,7 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
+  stake_delegations->pool_idx_wmk_      = 0UL;
 }
 
 fd_stake_delegation_t const *
@@ -257,6 +259,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
     stake_delegation = root_pool_ele_acquire( pool );
     stake_delegation->stake_account = *stake_account;
     FD_CHECK_CRIT( root_map_ele_insert( map, stake_delegation, pool ), "unable to insert stake delegation into map" );
+    stake_delegations->pool_idx_wmk_ = fd_ulong_max( stake_delegations->pool_idx_wmk_, root_pool_idx( pool, stake_delegation )+1UL );
   }
 
   stake_delegation->vote_account         = *vote_account;
@@ -269,6 +272,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
   stake_delegation->dne_in_root          = 0;
   stake_delegation->delta_idx            = UINT_MAX;
+  stake_delegation->in_use               = 1;
 }
 
 static inline void
@@ -281,6 +285,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   if( FD_UNLIKELY( delegation_idx==UINT_MAX ) ) return;
 
   root_map_idx_remove( map, stake_account, delegation_idx, pool );
+  pool[ delegation_idx ].in_use = 0;
   root_pool_idx_release( pool, delegation_idx );
 }
 
@@ -333,6 +338,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 
       if( FD_UNLIKELY( !accs[ j ].lamports ) ) {
         root_map_idx_remove( map, stake_account, UINT_MAX, pool );
+        delegation->in_use = 0;
         root_pool_ele_release( pool, delegation );
         continue;
       }
@@ -340,6 +346,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
       fd_stake_state_t const * stake = fd_stakes_get_state( &accs[ j ] );
       if( FD_UNLIKELY( !stake || stake->stake_type!=FD_STAKE_STATE_STAKE ) ) {
         root_map_idx_remove( map, stake_account, UINT_MAX, pool );
+        delegation->in_use = 0;
         root_pool_ele_release( pool, delegation );
         continue;
       }
@@ -532,35 +539,6 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
   FD_LOG_DEBUG(( "effective_stake=%lu, activating_stake=%lu, deactivating_stake=%lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
 }
 
-/* Combined base+delta iterator */
-
-fd_stake_delegation_t const *
-fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
-  ulong idx = root_map_iter_idx( iter->iter, iter->root_map, iter->root_pool );
-  fd_stake_delegation_t * stake_delegation = root_pool_ele( iter->root_pool, idx );
-  if( FD_UNLIKELY( stake_delegation->delta_idx!=UINT_MAX ) ) {
-    return (fd_stake_delegation_t *)delta_pool_ele( iter->delta_pool, stake_delegation->delta_idx );
-  }
-  return stake_delegation;
-}
-
-ulong
-fd_stake_delegations_iter_idx( fd_stake_delegations_iter_t * iter ) {
-  return root_map_iter_idx( iter->iter, iter->root_map, iter->root_pool );
-}
-
-static void
-skip_tombstones( fd_stake_delegations_iter_t * iter ) {
-  while( !root_map_iter_done( iter->iter, iter->root_map, iter->root_pool ) ) {
-    fd_stake_delegation_t *       root_delegation = root_map_iter_ele( iter->iter, iter->root_map, iter->root_pool );
-    fd_stake_delegation_t const * ele             = (root_delegation->delta_idx != UINT_MAX)
-      ? (fd_stake_delegation_t const *)delta_pool_ele( iter->delta_pool, root_delegation->delta_idx )
-      : (fd_stake_delegation_t const *)root_delegation;
-    if( FD_LIKELY( !ele->is_tombstone ) ) return;
-    iter->iter = root_map_iter_next( iter->iter, iter->root_map, iter->root_pool );
-  }
-}
-
 fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
                                 fd_stake_delegations_t const * stake_delegations ) {
@@ -568,25 +546,14 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
     FD_LOG_CRIT(( "NULL stake_delegations" ));
   }
 
-  iter->root_map   = get_root_map( stake_delegations );
   iter->root_pool  = get_root_pool( stake_delegations );
-  iter->iter       = root_map_iter_init( iter->root_map, iter->root_pool );
   iter->delta_pool = get_delta_pool( stake_delegations );
+  iter->idx        = 0UL;
+  iter->wmk        = stake_delegations->pool_idx_wmk_;
 
-  skip_tombstones( iter );
+  fd_stake_delegations_iter_advance_private( iter );
 
   return iter;
-}
-
-void
-fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
-  iter->iter = root_map_iter_next( iter->iter, iter->root_map, iter->root_pool );
-  skip_tombstones( iter );
-}
-
-int
-fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
-  return root_map_iter_done( iter->iter, iter->root_map, iter->root_pool );
 }
 
 void
@@ -615,7 +582,9 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
       base_delegation->acc_dlen      = 0U;
       base_delegation->dne_in_root   = 1;
       base_delegation->delta_idx     = (uint)delta_pool_idx( delta_pool, delta_delegation );
+      base_delegation->in_use        = 1;
       root_map_ele_insert( root_map, base_delegation, root_pool );
+      stake_delegations->pool_idx_wmk_ = fd_ulong_max( stake_delegations->pool_idx_wmk_, root_pool_idx( root_pool, base_delegation )+1UL );
     } else {
       /* Only subtract the old version's stake if it's not a tombstone.*/
       fd_stake_delegation_t *  old_delegation = base_delegation->delta_idx==UINT_MAX ? base_delegation : delta_pool_ele( delta_pool, base_delegation->delta_idx );
@@ -676,6 +645,7 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
 
       base_delegation->dne_in_root = 0;
       base_delegation->delta_idx   = UINT_MAX;
+      base_delegation->in_use      = 0;
       root_map_ele_remove( root_map, &delta_delegation->stake_account, NULL, root_pool );
       root_pool_ele_release( root_pool, base_delegation );
 
