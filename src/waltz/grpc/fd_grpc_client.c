@@ -548,6 +548,12 @@ fd_grpc_client_request_start1(
 ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return NULL;
 
+  int const headers_only = (protobuf==NULL);
+  if( FD_UNLIKELY( headers_only && !is_streaming ) ) {
+    FD_LOG_WARNING(( "headers-only request requires is_streaming (path %.*s). This is a bug", (int)path_len, path ));
+    return NULL;
+  }
+
   /* Validate protobuf size */
   FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
   ulong const max_proto_sz = client->nanopb_tx_max - sizeof(fd_grpc_hdr_t);
@@ -556,16 +562,18 @@ fd_grpc_client_request_start1(
     return NULL;
   }
 
-  /* Copy protobuf to buffer after gRPC header */
-  uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  memcpy( proto_buf, protobuf, protobuf_sz );
+  if( FD_LIKELY( !headers_only ) ) {
+    /* Copy protobuf to buffer after gRPC header */
+    uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
+    memcpy( proto_buf, protobuf, protobuf_sz );
 
-  /* Create gRPC length prefix */
-  fd_grpc_hdr_t hdr = {
-    .compressed=0,
-    .msg_sz=fd_uint_bswap( (uint)protobuf_sz )
-  };
-  memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
+    /* Create gRPC length prefix */
+    fd_grpc_hdr_t hdr = {
+      .compressed=0,
+      .msg_sz=fd_uint_bswap( (uint)protobuf_sz )
+    };
+    memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
+  }
   ulong const payload_sz = protobuf_sz + sizeof(fd_grpc_hdr_t);
 
   /* Allocate stream descriptor */
@@ -597,6 +605,13 @@ fd_grpc_client_request_start1(
   }
   fd_h2_tx_commit( client->conn, client->frame_tx );
 
+  client->metrics->streams_active++;
+
+  if( FD_UNLIKELY( headers_only ) ) {
+    client->request_stream = NULL;
+    return stream;
+  }
+
   /* Queue request payload for send
      (Protobuf message might have to be fragmented into multiple HTTP/2
      DATA frames if the client gets blocked)
@@ -605,7 +620,6 @@ fd_grpc_client_request_start1(
   fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, flags );
   fd_grpc_client_request_continue1( client );
   client->metrics->requests_sent++;
-  client->metrics->streams_active++;
 
   FD_LOG_DEBUG(( "gRPC request path=%.*s sz=%lu streaming=%d", (int)path_len, path, protobuf_sz, is_streaming ));
 
