@@ -263,6 +263,7 @@ struct fd_config {
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
     char shredb[ PATH_MAX ];
+    char guidb[ PATH_MAX ];
   } paths;
 
   struct {
@@ -480,6 +481,7 @@ struct fd_config {
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
     } gui;
 
     struct {

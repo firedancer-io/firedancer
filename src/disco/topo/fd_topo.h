@@ -381,11 +381,13 @@ struct fd_topo_tile {
       char   identity_key_path[ PATH_MAX ];
       char   vote_key_path[ PATH_MAX ];
       char   accounts_database_path[ PATH_MAX ];
+      char   gui_database_path[ PATH_MAX ];
 
       ulong  max_http_connections;
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
       int    schedule_strategy;
 
       int websocket_compression;

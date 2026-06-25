@@ -155,6 +155,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
     CFG_POP    ( cstr,   paths.shredb                                 );
+    CFG_POP    ( cstr,   paths.guidb                                  );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
@@ -255,6 +256,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.gui.max_websocket_connections              );
   CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
+  CFG_POP      ( ulong,  tiles.gui.db_size_gib                            );
 
   CFG_POP      ( bool,   tiles.rpc.enabled                                );
   CFG_POP      ( cstr,   tiles.rpc.rpc_listen_address                     );

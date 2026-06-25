@@ -396,6 +396,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->idx, slot, bank->refcnt ));
 
   fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
+  slot_info->parent_bank_idx = parent_bank ? parent_bank->idx      : ULONG_MAX;
+  slot_info->parent_bank_seq = parent_bank ? parent_bank->bank_seq : ULONG_MAX;
   if( FD_LIKELY( parent_bank ) ) {
     ulong total_txn_cnt          = bank->f.txn_count;
     ulong nonvote_txn_cnt        = bank->f.nonvote_txn_count;
@@ -693,6 +695,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->bank_idx  = bank->idx;
+  msg->bank_seq  = bank->bank_seq;
   msg->slot      = bank->f.slot;
   msg->bank_hash = bank->f.bank_hash;
 
@@ -938,6 +941,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
+  msg->bank_seq            = bank->bank_seq;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
   msg->hashcnt_per_tick    = bank->f.slot_params.hashes_per_tick;
   msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
@@ -2455,6 +2459,7 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
 
   fd_replay_oc_advanced_t * replay_msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   replay_msg->bank_idx = bank_idx;
+  replay_msg->bank_seq = bank->bank_seq;
   replay_msg->slot = msg->slot;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );

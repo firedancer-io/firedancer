@@ -1690,10 +1690,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
     fd_cstr_ncpy( tile->gui.accounts_database_path, config->paths.accounts, sizeof(tile->gui.accounts_database_path) );
+    fd_cstr_ncpy( tile->gui.gui_database_path, config->paths.guidb, sizeof(tile->gui.gui_database_path) );
     tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
     tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
     tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
     tile->gui.send_buffer_size_mb       = config->tiles.gui.send_buffer_size_mb;
+    tile->gui.db_size_gib               = config->tiles.gui.db_size_gib;
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = 1;
     fd_cstr_ncpy( tile->gui.wfs_bank_hash, config->firedancer.consensus.wait_for_supermajority_with_bank_hash, sizeof(tile->gui.wfs_bank_hash) );

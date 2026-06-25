@@ -709,9 +709,11 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->vote_slot             = out->vote_slot;
   msg->reset_slot            = out->reset_slot;
   msg->reset_block_id        = out->reset_block_id;
+  msg->reset_bank_seq        = out->reset_bank_seq;
   msg->root_slot             = out->root_slot;
   msg->root_block_id         = out->root_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
+  msg->replay_bank_seq       = slot_completed->bank_seq;
   msg->vote_acct_bal         = our_vote_acct_bal;
 
   ulong       authority_idx = ULONG_MAX;
@@ -1433,7 +1435,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( ctx->tower,      ctx->ghost,          ctx->votes,
-                                       &out.reset_slot, &out.reset_block_id,
+                                       &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
                                        &out.vote_slot,  &out.vote_block_id,  &out.vote_bank_hash,
                                        &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) { /* if there is a vote slot we record it. */

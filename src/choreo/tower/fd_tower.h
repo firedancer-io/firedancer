@@ -550,6 +550,7 @@ struct fd_tower_out {
   uchar     flags;          /* one of FD_TOWER_{EMPTY,...} */
   ulong     reset_slot;     /* slot to reset PoH to */
   fd_hash_t reset_block_id; /* block ID to reset PoH to */
+  ulong     reset_bank_seq; /* app-wide bank sequence number of the reset block (fd_bank.bank_seq), or ULONG_MAX if not yet associated with a replayed bank */
   ulong     vote_slot;      /* slot to vote for (ULONG_MAX if no vote) */
   fd_hash_t vote_block_id;  /* block ID to vote for */
   fd_hash_t vote_bank_hash; /* bank hash to vote for */
@@ -575,8 +576,9 @@ fd_tower_count_vote( fd_tower_t *        tower,
    no vote should be cast and caller should ignore vote_block_id.  New
    roots result from votes, so the same applies for root_slot (there is
    not always a new root).  However there is always a reset block, so
-   reset_slot and reset_block_id will always be populated on return. The
-   implementation contains detailed documentation of the tower rules. */
+   reset_slot, reset_block_id and reset_bank_seq will always be populated
+   on return.  The implementation contains detailed documentation of the
+   tower rules. */
 
 uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
@@ -584,6 +586,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_votes_t * votes,
                          ulong *      reset_slot,
                          fd_hash_t *  reset_block_id,
+                         ulong *      reset_bank_seq,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
                          fd_hash_t *  vote_bank_hash,

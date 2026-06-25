@@ -683,6 +683,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_votes_t * votes FD_PARAM_UNUSED,
                          ulong *      reset_slot,
                          fd_hash_t *  reset_block_id,
+                         ulong *      reset_bank_seq,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
                          fd_hash_t *  vote_bank_hash,
@@ -708,6 +709,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     FD_LOG_DEBUG(( "[%s] case 0a: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
     *reset_slot     = best_blk->slot;
     *reset_block_id = best_blk->id;
+    *reset_bank_seq = best_blk->bank_seq;
     *vote_slot      = ULONG_MAX;
     *vote_block_id  = (fd_hash_t){0};
     *root_slot      = ULONG_MAX;
@@ -726,6 +728,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     tower_blk->voted_block_id  = best_blk->id;
     *reset_slot                = best_blk->slot;
     *reset_block_id            = best_blk->id;
+    *reset_bank_seq            = best_blk->bank_seq;
     *vote_slot                 = best_blk->slot;
     *vote_block_id             = best_blk->id;
     *vote_bank_hash            = tower_blk->bank_hash;
@@ -907,6 +910,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   FD_TEST( reset_blk ); /* always a reset_blk */
   *reset_slot     = reset_blk->slot;
   *reset_block_id = reset_blk->id;
+  *reset_bank_seq = reset_blk->bank_seq;
   *vote_slot      = ULONG_MAX;
   *vote_block_id  = (fd_hash_t){0};
   *vote_bank_hash  = (fd_hash_t){0};

@@ -103,7 +103,6 @@ typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
 #define DLIST_NEXT  fresh_next
 #include "../../util/tmpl/fd_dlist.c"
 
-#define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
 #define FD_GUI_PEERS_NODE_DELETE (3)

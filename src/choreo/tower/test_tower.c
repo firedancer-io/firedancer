@@ -778,7 +778,7 @@ test_case_1c_switch_pass( fd_wksp_t * wksp ) {
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( tower, ghost, NULL,
-      &out.reset_slot, &out.reset_block_id,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
       &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash,
       &out.root_slot,  &out.root_block_id );
 
@@ -856,7 +856,7 @@ test_case_1c_switch_fail( fd_wksp_t * wksp ) {
 
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( tower, ghost, NULL,
-      &out.reset_slot, &out.reset_block_id,
+      &out.reset_slot, &out.reset_block_id, &out.reset_bank_seq,
       &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash,
       &out.root_slot,  &out.root_block_id );
 

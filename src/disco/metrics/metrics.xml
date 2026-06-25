@@ -1954,6 +1954,25 @@ EXAMPLES
 
     <counter name="BytesWritten" summary="Bytes written to all connections to the GUI service" />
     <counter name="BytesRead" summary="Bytes read from all connections to the GUI service" />
+
+    <gauge name="DbUsedBytes"      enum="GuiDb" summary="Bytes occupied by records present in the store ring" />
+    <gauge name="DbCapacityBytes"  enum="GuiDb" summary="Total bytes of the non-free regions the store ring currently owns" />
+    <gauge name="DbFreeBytes"      enum="GuiDb" summary="Total bytes of the free regions the store ring currently doesn't own (same for every database)" />
+
+    <gauge name="DbRecordUsed"     enum="GuiDb" summary="Records present in the store ring" />
+    <gauge name="DbRecordCapacity" enum="GuiDb" summary="Record capacity of the non-free regions the store ring currently owns" />
+    <gauge name="DbRecordFree"     enum="GuiDb" summary="Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ)" />
+
+    <counter name="DbKvQueried"        enum="GuiDb" summary="Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin)" />
+    <counter name="DbTsRecordAppended" enum="GuiDb" summary="Time-series records appended into the database" />
+    <counter name="DbTsScanned"        enum="GuiDb" summary="Time-series scan calls" />
+    <counter name="DbTsRecordRead"     enum="GuiDb" summary="Time-series records returned by scans" />
+    <counter name="DbRecordEvicted"    enum="GuiDb" summary="Records physically evicted from the database" />
+    <counter name="DbEviction"         enum="GuiDb" summary="Database eviction calls that removed at least one record" />
+    <counter name="DbRegionClaimed"    enum="GuiDb" summary="Regions claimed from the free list by the database" />
+    <counter name="DbRegionReclaimed"  enum="GuiDb" summary="Regions returned to the free list by the database" />
+    <counter name="DbMapFull"          enum="GuiDb" summary="Database writes that hit MAP_FULL and were dropped" />
+    <counter name="DbForcedEviction"   enum="GuiDb" summary="Database writes that evicted records before succeeding" />
 </tile>
 
 <tile name="guih">
@@ -1966,6 +1985,20 @@ EXAMPLES
   <counter name="BytesWritten" summary="Bytes written to all connections to the GUI service" />
   <counter name="BytesRead" summary="Bytes read from all connections to the GUI service" />
 </tile>
+
+<enum name="GuiDb" normalize="false">
+    <int value="0"  name="scheduler_counts" label="scheduler_counts" />
+    <int value="1"  name="tile_timers"      label="tile_timers" />
+    <int value="2"  name="shred_events"     label="shred_events" />
+    <int value="3"  name="txn_start"        label="txn_start" />
+    <int value="4"  name="txn_end"          label="txn_end" />
+    <int value="5"  name="tower"            label="tower" />
+    <int value="6"  name="slot"             label="slot" />
+    <int value="7"  name="leader_slot"      label="leader_slot" />
+    <int value="8"  name="epoch"            label="epoch" />
+    <int value="9"  name="tile_stats"       label="tile_stats" />
+    <int value="10" name="txn_waterfall"    label="txn_waterfall" />
+</enum>
 
 <tile name="event">
     <gauge name="ConnState" summary="0=disconnected, 1=connecting, 2=connected" />

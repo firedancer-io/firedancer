@@ -249,6 +249,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt = (fd_txn_ns_dt_t){0};
+  trailer->bank_seq  = bank->bank_seq;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -639,6 +640,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips         = tips[ i ];
+    trailer->bank_seq     = bank->bank_seq;
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
