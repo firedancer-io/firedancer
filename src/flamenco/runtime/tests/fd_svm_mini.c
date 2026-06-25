@@ -121,7 +121,6 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   sz += WKSP_ALLOC( fd_accdb_shmem_align(),     accdb_shmem_sz                   );
   sz += WKSP_ALLOC( fd_accdb_align(),           accdb_join_sz                    );
   sz += WKSP_ALLOC( fd_progcache_shmem_align(), pcache_sz                        );
-  sz += WKSP_ALLOC( FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT   );
   sz += WKSP_ALLOC( fd_txncache_shmem_align(),  txncache_shmem_sz                );
   sz += WKSP_ALLOC( fd_txncache_align(),        txncache_sz                      );
   sz += WKSP_ALLOC( fd_banks_align(),           banks_sz                         );
@@ -161,7 +160,6 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   void *          accdb_shmem;   FD_TEST( (accdb_shmem    = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(),     accdb_shmem_sz,                 wksp_tag )) );
   void *          accdb_join;    FD_TEST( (accdb_join     = fd_wksp_alloc_laddr( wksp, fd_accdb_align(),           accdb_join_sz,                  wksp_tag )) );
   void *          pcache_mem;    FD_TEST( (pcache_mem     = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), pcache_sz,                      wksp_tag )) );
-  uchar *         scratch;       FD_TEST( (scratch        = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, wksp_tag )) );
   void *          txncache_shmem; FD_TEST( (txncache_shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(),  txncache_shmem_sz,             wksp_tag )) );
   void *          txncache_mem;   FD_TEST( (txncache_mem   = fd_wksp_alloc_laddr( wksp, fd_txncache_align(),        txncache_sz,                   wksp_tag )) );
   void *          banks_mem;     FD_TEST( (banks_mem      = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
@@ -200,7 +198,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, limits->max_progcache_recs );
   if( FD_UNLIKELY( !shpcache ) ) FD_LOG_ERR(( "fd_progcache_shmem_new failed" ));
 
-  FD_TEST( fd_progcache_join( mini->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+  FD_TEST( fd_progcache_join( mini->progcache, pcache_mem ) );
   mini->txncache_shmem = shtxncache;
   FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
 
@@ -256,10 +254,8 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
     if( mini->txncache_shmem ) fd_wksp_free_laddr( mini->txncache_shmem );
   }
 
-  uchar * scratch = mini->progcache->scratch;
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( mini->progcache, &shpcache );
-  if( scratch  ) fd_wksp_free_laddr( scratch );
   if( shpcache ) fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
 
   /* accdb shmem and join are workspace allocations, freed with mini */

@@ -193,7 +193,7 @@ main( int     argc,
 
   int vm_ok = !!fd_vm_init(
       vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
-      rodata, rodata_sz, NULL, 0UL, 0UL, 0UL, 0UL, NULL,
+      rodata, rodata_sz, NULL, 0UL, 0UL, 0UL, 0UL,
       TEST_VM_DEFAULT_SBPF_VERSION, NULL, NULL, sha,
       NULL, 0U, NULL, 0,
       FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),

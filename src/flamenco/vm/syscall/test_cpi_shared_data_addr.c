@@ -188,7 +188,7 @@ test_env_setup( fd_svm_mini_t * mini ) {
     vm, instr_ctx,
     FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
     rodata, sizeof(rodata),
-    NULL, 0UL, 0UL, 0UL, 0UL, NULL,
+    NULL, 0UL, 0UL, 0UL, 0UL,
     TEST_VM_DEFAULT_SBPF_VERSION,
     NULL, NULL, mini->sha256, NULL, 0U,
     arm, 0,

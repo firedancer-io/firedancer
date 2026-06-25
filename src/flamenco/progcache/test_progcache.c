@@ -17,7 +17,6 @@ struct test_env {
   fd_wksp_t *    wksp;
   fd_progcache_t progcache[1];
   fd_features_t  features[1];
-  uchar scratch[ FD_PROGCACHE_SCRATCH_FOOTPRINT ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
 };
 
 typedef struct test_env test_env_t;
@@ -37,10 +36,10 @@ test_env_create( fd_wksp_t * wksp ) {
 
   test_env_t * env = fd_wksp_alloc_laddr( wksp, alignof(test_env_t), sizeof(test_env_t), wksp_tag );
   FD_TEST( env );
-  memset( env, 0, offsetof(test_env_t, scratch) );
+  memset( env, 0, sizeof(test_env_t) );
 
   env->wksp = wksp;
-  FD_TEST( fd_progcache_join( env->progcache, progcache_mem, env->scratch, sizeof(env->scratch) ) );
+  FD_TEST( fd_progcache_join( env->progcache, progcache_mem ) );
 
   return env;
 }
@@ -487,23 +486,6 @@ FD_UNIT_TEST( reclaim_txn_unlink ) {
   test_env_destroy( env );
 }
 
-FD_UNIT_TEST( join_null_scratch ) {
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
-  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 32UL ) );
-  fd_progcache_t cache[1];
-  FD_TEST( !fd_progcache_join( cache, mem, NULL, 4096UL ) );
-  fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
-}
-
-FD_UNIT_TEST( join_misaligned_scratch ) {
-  fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
-  FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 32UL ) );
-  uchar scratch_buf[ FD_PROGCACHE_SCRATCH_ALIGN ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
-  fd_progcache_t cache[1];
-  FD_TEST( !fd_progcache_join( cache, mem, scratch_buf+1, sizeof(scratch_buf)-1 ) );
-  fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
-}
-
 FD_UNIT_TEST( shmem_new_zero_txn_max ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 0UL, 32UL ) );
@@ -536,9 +518,8 @@ FD_UNIT_TEST( shmem_delete_fast ) {
   fd_progcache_shmem_t * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
   FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
 
-  uchar scratch[ 65536 ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
   fd_progcache_t cache[1];
-  FD_TEST( fd_progcache_join( cache, progcache_mem, scratch, sizeof(scratch) ) );
+  FD_TEST( fd_progcache_join( cache, progcache_mem ) );
 
   fd_progcache_fork_id_t fork = fd_progcache_attach_child( cache->join, fd_progcache_fork_id_initial() );
 

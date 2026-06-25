@@ -164,6 +164,13 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
+  /* The loader assembles strict (v3+) and lenient fast-path programs directly
+     into the rodata buffer.  A legacy-lenient program would need a separate
+     scratch assembly buffer; reject it. */
+  if( FD_UNLIKELY( fd_sbpf_loader_is_legacy_lenient( elf_info ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
   /* Allocate rodata segment */
   void * rodata = instr_ctx->runtime->bpf_loader_program.rodata;
   if( FD_UNLIKELY( !rodata ) ) {
@@ -176,9 +183,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
-  /* Load program */
-  void * scratch = instr_ctx->runtime->bpf_loader_program.programdata;
-  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
+  /* Load program (strict/fast paths assemble directly into rodata, no scratch) */
+  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, NULL, 0UL );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -199,7 +205,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* text_off                               */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
     /* text_sz                                */ prog->info.text_sz,
     /* entry_pc                               */ prog->entry_pc,
-    /* calldests                              */ prog->calldests,
     /* sbpf_version                           */ elf_info->sbpf_version,
     /* syscalls                               */ syscalls,
     /* trace                                  */ NULL,
@@ -479,7 +484,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* text_off                               */ cache_entry->text_off,
     /* text_sz                                */ cache_entry->text_sz,
     /* entry_pc                               */ cache_entry->entry_pc,
-    /* calldests                              */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
     /* sbpf_version                           */ cache_entry->sbpf_version,
     /* syscalls                               */ syscalls,
     /* trace                                  */ NULL,
@@ -1324,7 +1328,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len,
-                               FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ) );
+                               1 /* restrict deploy to SBPF v3 (SIMD-0500) */ );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1604,7 +1608,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
       err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len,
-                               FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ) );
+                               1 /* restrict deploy to SBPF v3 (SIMD-0500) */ );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1778,7 +1782,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
            that are not at least SBPF v3. */
         if( !new_authority ) {
           int rc = fd_bpf_loader_finalize_v3_check(
-              FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ),
+              1 /* restrict deploy to SBPF v3 (SIMD-0500) */,
               fd_borrowed_account_get_data    ( &account ),
               fd_borrowed_account_get_data_len( &account ) );
           if( FD_UNLIKELY( rc!=FD_EXECUTOR_INSTR_SUCCESS ) ) return rc;

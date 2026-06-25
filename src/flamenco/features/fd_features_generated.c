@@ -1870,7 +1870,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x96\x73\x7f\x9a\xb4\x9c\x39\xb0\xb7\x87\x52\xdb\x07\xef\xee\xbf\xa6\xd1\x0c\x4f\xc4\xea\x72\xe2\x8d\x72\x22\xf0\xea\xf4\xf4\x97"},
                                  /* B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g */
     .name                      = "disable_sbpf_v0_v1_v2_deployment",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, commission_rate_in_basis_points)>>3,
     .id                        = {"\xcb\x2d\x5e\xc6\xdb\xd8\x88\xd3\xda\xf5\x45\x1b\x70\x19\x53\x07\xdd\x79\xf6\xd3\x71\x9c\x8b\xe1\x53\x8d\x09\xaf\x98\x5e\x6e\x14"},

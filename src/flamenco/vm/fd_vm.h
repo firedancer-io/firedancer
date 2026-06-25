@@ -104,9 +104,6 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong         entry_pc;  /* Initial program counter, in [0,text_cnt)
                               FIXME: MAKE SURE NOT INTO MW INSTRUCTION, MAKE SURE VALID CALLDEST? */
-  ulong const * calldests; /* Bit vector of local functions that can be called into, bit indexed in [0,text_cnt) */
-  /* FIXME: ADD BIT VECTOR OF FORBIDDEN BRANCH TARGETS (E.G.
-     INTO THE MIDDLE OF A MULTIWORD INSTRUCTION) */
 
   fd_sbpf_syscalls_t const * syscalls; /* The map of syscalls (sharable over multiple concurrently running vm) */
 
@@ -204,6 +201,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   ulong                     reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT.
                                                                 As such, malformed instructions, which can have src/dst reg index in
                                                                 [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
+  /* _pad keeps the shadow/stack/heap regions below 16-byte aligned (stack and
+     heap must be, see asserts in test_vm_base.c).  Drop or resize it if 8-byte
+     fields are added or removed above. */
+  ulong                     _pad;
   fd_vm_shadow_t            shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
                                                                 bottom/top.  Aligned 16. */
   uchar                     stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
@@ -305,7 +306,6 @@ fd_vm_init(
    ulong                     text_off,
    ulong                     text_sz,
    ulong                     entry_pc,
-   ulong const *             calldests,
    ulong                     sbpf_version,
    fd_sbpf_syscalls_t *      syscalls,
    fd_vm_trace_t *           trace,

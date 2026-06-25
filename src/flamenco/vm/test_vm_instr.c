@@ -432,14 +432,6 @@ run_input( test_input_t const * input,
     }
   }
 
-  /* SBPF V3+ rejects non-NULL calldests (stricter ELF headers). */
-  fd_sbpf_calldests_t * calldests = NULL;
-  void * calldests_mem = NULL;
-  if( !fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) {
-    calldests_mem = aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( text_cnt ) );
-    calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, text_cnt ) );
-  }
-
   fd_sbpf_syscalls_t * syscalls =
       fd_sbpf_syscalls_join(
       fd_sbpf_syscalls_new(
@@ -457,7 +449,6 @@ run_input( test_input_t const * input,
       /* text_off                               */ 0UL,
       /* text_sz                                */ text_cnt * sizeof(ulong),
       /* entry_pc                               */ 0UL,
-      /* calldests                              */ calldests,
       /* sbpf_version                           */ sbpf_version,
       /* syscalls                               */ syscalls,
       /* trace                                  */ NULL,
@@ -482,8 +473,6 @@ run_input( test_input_t const * input,
 
   /* Clean up */
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
-  if( calldests ) free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
-  else            free( calldests_mem );
   free( input_copy );
 }
 
