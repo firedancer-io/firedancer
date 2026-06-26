@@ -882,6 +882,7 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
   fd_rdisp_blockinfo_t * block = block_map_ele_query      ( disp->blockmap, &old_tag, NULL, block_pool );
   if( FD_UNLIKELY(        NULL== block ) )                                                                   return -1;
 
+  block_map_idx_remove( disp->blockmap, &old_tag, ULONG_MAX, block_pool );
   block->block = new_tag;
   block_map_ele_insert( disp->blockmap, block, block_pool );
   return 0;
