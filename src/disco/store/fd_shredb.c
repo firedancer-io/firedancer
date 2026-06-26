@@ -206,8 +206,6 @@ fd_shredb_insert( fd_shredb_t      * store,
   ulong slot      = shred->slot;
   uint  shred_idx = shred->idx;
 
-  FD_LOG_DEBUG(( "inserting shred into store (slot=%lu, shred_idx=%u)", slot, shred_idx ));
-
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   if( fd_shredb_shred_map_query( store->shred_map, key, NULL ) ) return;
 
