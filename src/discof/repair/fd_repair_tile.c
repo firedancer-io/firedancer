@@ -747,6 +747,22 @@ blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong 
   }
 }
 
+static inline int shred_src( ulong sig ) {
+  uint sig_src = fd_shred_sig_src( sig );
+  switch( sig_src ) {
+    case SHRED_SIG_SRC_TURBINE:
+      return SHRED_SRC_TURBINE;
+    case SHRED_SIG_SRC_RECONSTRUCTED:
+      return SHRED_SRC_RECOVERED;
+    case SHRED_SIG_SRC_REPAIR:
+    case SHRED_SIG_SRC_BAD_REPAIR:
+      return SHRED_SRC_REPAIR;
+    case SHRED_SIG_SRC_LEADER:
+      return SHRED_SRC_LEADER;
+    default: FD_LOG_CRIT((  "bad shred sig src %u", sig_src ));
+  }
+}
+
 static inline void
 after_shred( ctx_t      * ctx,
              ulong        sig,
@@ -770,7 +786,7 @@ after_shred( ctx_t      * ctx,
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
-  int src     = fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR /* bad or good repair */ ;
+  int src     = shred_src( sig );
 
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
