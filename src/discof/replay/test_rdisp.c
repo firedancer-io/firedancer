@@ -478,10 +478,30 @@ main( int     argc,
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 1UL ), FD_RDISP_UNSTAGED ) );
   FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
 
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 8UL ), FD_RDISP_UNSTAGED ) );
+  FD_TEST(  0==fd_rdisp_rekey_block( disp, tag( 9UL ), tag( 8UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+  FD_TEST( -1==fd_rdisp_remove_block( disp, tag( 8UL ) ) );
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 8UL ), FD_RDISP_UNSTAGED ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 8UL ) ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 9UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), 2 ) );
   FD_TEST( 0x5UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
   FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 10UL ), 3 ) );
+  FD_TEST( 0x9UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST(  0==fd_rdisp_rekey_block( disp, tag( 11UL ), tag( 10UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+  FD_TEST( 0x9UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+  FD_TEST( tag_eq( lane_info[ 3 ].schedule_ready_block, 11UL ) );
+  FD_TEST( -1==fd_rdisp_remove_block( disp, tag( 10UL ) ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 11UL ) ) );
+  FD_TEST( 0x1UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
+
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 6UL ), 2 ) );
   FD_TEST( 0x5UL==fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), 2 ) );

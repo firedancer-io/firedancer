@@ -289,9 +289,9 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
 
 
 /* fd_rdisp_rekey_block renames the block with tag old_tag so that it
-   has tag new_tag instead.  The block retains all transactions, it's
+   has tag new_tag instead.  The block retains all transactions, its
    STAGED/UNSTAGED state, etc.  On successful return, tag old_tag will
-   know longer be a known tag, and new_tag must be used in any future
+   no longer be a known tag, and new_tag must be used in any future
    calls to refer to the block previously known as old_tag.
 
    disp must be a valid local join.  new_tag must not be a known tag,
