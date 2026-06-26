@@ -543,6 +543,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapzp"        );
     fd_topob_wksp( topo, "snapmk_zp"     );
     fd_topob_wksp( topo, "snapmk_replay" );
+    fd_topob_wksp( topo, "snaprd"        );
+    fd_topob_wksp( topo, "snaprd_out"    );
   }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -681,6 +683,7 @@ fd_topo_initialize( config_t * config ) {
   if( snapmk_enabled ) {
     /**/                 fd_topob_tile( topo, "snapmk", "snapmk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     FOR(snapzp_tile_cnt) fd_topob_tile( topo, "snapzp", "snapzp", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+    /**/                 fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   }
 
   /**/                 fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 )->allow_shutdown = 1;
@@ -1012,10 +1015,13 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( snapmk_enabled ) {
-    /**/                 fd_topob_tile_in ( topo, "snapmk", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(snapzp_tile_cnt) fd_topob_tile_out( topo, "snapmk", 0UL,              "snapmk_zp",     i                                       );
-    FOR(snapzp_tile_cnt) fd_topob_tile_in ( topo, "snapzp", i,   "metric_in", "snapmk_zp",     i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_out( topo, "snapmk", 0UL,              "snapmk_replay", 0UL                                     );
+    /**/                 fd_topob_tile_in ( topo, "snapmk", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    FOR(snapzp_tile_cnt) fd_topob_tile_out( topo, "snapmk", 0UL,              "snapmk_zp",     i                                           );
+    FOR(snapzp_tile_cnt) fd_topob_tile_in ( topo, "snapzp", i,   "metric_in", "snapmk_zp",     i,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "snapmk", 0UL,              "snapmk_replay", 0UL                                         );
+    /**/                 fd_topob_tile_out( topo, "snaprd", 0UL,              "snaprd_out",    0UL                                         );
+    /**/                 fd_topob_tile_in ( topo, "snapmk", 0UL, "metric_in", "snaprd_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    FOR(snapzp_tile_cnt) fd_topob_tile_in ( topo, "snapzp", 0UL, "metric_in", "snaprd_out",    i,   FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   }
 
   if( FD_LIKELY( !is_auto_affinity ) ) {

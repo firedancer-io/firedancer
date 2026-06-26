@@ -1640,6 +1640,13 @@ EXAMPLES
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
 </tile>
 
+<tile name="snaprd">
+    <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
+    <counter name="BytesRead" summary="Number of bytes read from the account database file" />
+    <gauge name="ExportProgressBytes" summary="Account database read progress in bytes of the current snapshot creation job" />
+    <gauge name="ExportTotalBytes" summary="Total bytes to be read from account database for the current snapshot creation job" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started, in nanoseconds since epoch" />
 

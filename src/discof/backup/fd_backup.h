@@ -71,12 +71,12 @@ FD_FN_UNUSED static fd_tar_meta_t *
 fd_backup_tar_file_hdr( fd_tar_meta_t * tar_meta,
                         ulong           sz ) {
   *tar_meta = (fd_tar_meta_t){
-    .magic    = "ustar ",
+    .magic    = { 'u','s','t','a','r',' ' },
     .mode     = "644",
     .uid      = "0",
     .gid      = "0",
     .typeflag = FD_TAR_TYPE_REGULAR,
-    .chksum   = "        "
+    .chksum   = { ' ',' ',' ',' ',' ',' ',' ',' ' }
   };
   (void)fd_tar_meta_set_size( tar_meta, sz );
   return tar_meta;
@@ -85,12 +85,12 @@ fd_backup_tar_file_hdr( fd_tar_meta_t * tar_meta,
 FD_FN_UNUSED static fd_tar_meta_t *
 fd_backup_tar_dir_hdr( fd_tar_meta_t * tar_meta ) {
   *tar_meta = (fd_tar_meta_t){
-    .magic    = "ustar ",
+    .magic    = { 'u','s','t','a','r',' ' },
     .mode     = "755",
     .uid      = "0",
     .gid      = "0",
     .typeflag = FD_TAR_TYPE_DIR,
-    .chksum   = "        "
+    .chksum   = { ' ',' ',' ',' ',' ',' ',' ',' ' }
   };
   (void)fd_tar_meta_set_size( tar_meta, 0UL );
   return tar_meta;

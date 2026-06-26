@@ -180,6 +180,19 @@
 
 </div>
 
+## Snaprd Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaprd_&#8203;active</span> | gauge | State of the tile. 0=IDLE 1=ACTIVE |
+| <span class="metrics-name">snaprd_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database file |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database read progress in bytes of the current snapshot creation job |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;total_&#8203;bytes</span> | gauge | Total bytes to be read from account database for the current snapshot creation job |
+
+</div>
+
 ## Netlnk Tile
 
 <div class="metrics">
