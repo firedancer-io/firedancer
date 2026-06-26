@@ -49,7 +49,6 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
 
   uint rodata_sz;
 
-  uint calldests_off;  /* offset to sbpf_calldests map */
   uint rodata_off;     /* offset to rodata segment */
 
   uint reclaim_next;
@@ -69,13 +68,6 @@ static inline uchar const *
 fd_progcache_rec_rodata( fd_progcache_rec_t const * rec,
                          fd_wksp_t *                wksp ) {
   return fd_wksp_laddr_fast( wksp, rec->data_gaddr + rec->rodata_off );
-}
-
-static inline fd_sbpf_calldests_t const *
-fd_progcache_rec_calldests( fd_progcache_rec_t const * rec,
-                            fd_wksp_t *                wksp ) {
-  if( rec->calldests_off==UINT_MAX ) return NULL;
-  return fd_sbpf_calldests_join( fd_wksp_laddr_fast( wksp, rec->data_gaddr + rec->calldests_off ) );
 }
 
 /* Heap allocator for variable-size cache entry data */
@@ -123,9 +115,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
                        ulong                           load_slot,
                        fd_features_t const *           features,
                        void const *                    progdata,
-                       ulong                           progdata_sz,
-                       void *                          scratch,
-                       ulong                           scratch_sz );
+                       ulong                           progdata_sz );
 
 fd_progcache_rec_t *
 fd_progcache_rec_nx( fd_progcache_rec_t * rec );

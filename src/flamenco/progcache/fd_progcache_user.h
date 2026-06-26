@@ -83,9 +83,6 @@ struct fd_progcache {
 
   fd_progcache_metrics_t * metrics;
 
-  uchar * scratch;
-  ulong   scratch_sz;
-
   uint spill_active;
 };
 
@@ -95,19 +92,11 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
 /* Constructor */
 
-/* fd_progcache_join joins the caller to a program cache shmem instance.
-   scratch points to a FD_PROGCACHE_SCRATCH_ALIGN aligned scratch buffer
-   and scratch_sz is the size of the largest program/ELF binary that is
-   going to be loaded (typically max account data sz). */
+/* fd_progcache_join joins the caller to a program cache shmem instance. */
 
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t *       ljoin,
-                   fd_progcache_shmem_t * shmem,
-                   uchar *                scratch,
-                   ulong                  scratch_sz );
-
-#define FD_PROGCACHE_SCRATCH_ALIGN     (64UL)
-#define FD_PROGCACHE_SCRATCH_FOOTPRINT FD_RUNTIME_ACC_SZ_MAX
+                   fd_progcache_shmem_t * shmem );
 
 /* fd_progcache_leave detaches the caller from a program cache. */
 

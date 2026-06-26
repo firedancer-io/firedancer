@@ -569,7 +569,6 @@ fd_vm_init(
    ulong                     text_off,
    ulong                     text_sz,
    ulong                     entry_pc,
-   ulong const *             calldests,
    ulong                     sbpf_version,
    fd_sbpf_syscalls_t *      syscalls,
    fd_vm_trace_t *           trace,
@@ -599,14 +598,6 @@ fd_vm_init(
     return NULL;
   }
 
-  /* We do support calldests==NULL for tests that do not require
-     program execution, e.g. just testing some interpreter functionality
-     or syscalls.
-     SBPF v3+ no longer needs calldests, so we enforce it to be NULL. */
-  if( FD_UNLIKELY( calldests && FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ) ) {
-    return NULL;
-  }
-
   // Set the vm fields
   vm->instr_ctx                              = instr_ctx;
   vm->heap_max                               = heap_max;
@@ -621,7 +612,6 @@ fd_vm_init(
   vm->text_off                               = FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR( sbpf_version ) ? 0UL : text_off;
   vm->text_sz                                = text_sz;
   vm->entry_pc                               = entry_pc;
-  vm->calldests                              = calldests;
   vm->sbpf_version                           = sbpf_version;
   vm->syscalls                               = syscalls;
   vm->trace                                  = trace;

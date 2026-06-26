@@ -714,26 +714,9 @@ interp_exec:
     fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
     if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
 
-      /* Note we do the stack push before updating the pc(*). This implies
-       that the call stack frame gets allocated _before_ checking if the
-       call target is valid.  It would be fine to switch the order
-       though such would change the precise faulting semantics of
-       sigtextbr and sigstack.
-
-       (*)but after checking calldests, see point below. */
-
-      /* Agave's order of checks
-         (https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L565-L572):
-          1. Lookup imm hash in FunctionRegistry (calldests_test is our equivalent)
-          2. Push stack frame
-          3. Check PC
-          4. Update PC
-
-          Following this precisely is impossible as our PC check also
-          serves as a bounds check for the calldests_test call. So we
-          have to perform step 3 before step 1. The following
-          is a best-effort implementation that should match the VM state
-          in all ways except error code. */
+      /* The stack frame is pushed before the pc is updated, so the frame is
+         allocated before the target pc takes effect.  This ordering sets the
+         precise faulting semantics of sigtextbr and sigstack. */
 
       /* Special case to handle entrypoint.
          ebpf::hash_symbol_name(b"entrypoint") = 0xb00c380, and
@@ -745,9 +728,6 @@ interp_exec:
         ulong target_pc = (ulong)fd_pchash_inverse( imm );
         if( FD_UNLIKELY( target_pc>=text_cnt ) ) {
           goto sigillbr; /* different return between 0x85 and 0x8d */
-        }
-        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
-          goto sigillbr;
         }
         FD_VM_INTERP_STACK_PUSH;
         pc = target_pc - 1;

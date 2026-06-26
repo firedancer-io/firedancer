@@ -103,7 +103,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -708,7 +707,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots ) );
-  void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -723,8 +721,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->rebates_for_slot  = 0UL;
 
   FD_TEST( fd_progcache_join( ctx->progcache,
-      fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id ),
-      pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id ) ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
