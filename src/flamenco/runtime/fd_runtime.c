@@ -266,7 +266,7 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
     fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, leader, 1 );
-    if( FD_UNLIKELY( !fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
+    if( FD_UNLIKELY( fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
       FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     } else {
       acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
@@ -1834,6 +1834,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
         txn_out->accounts.account[ j ]           = acc;
         txn_out->accounts.starting_lamports[ j ] = acc->prior_lamports;
         txn_out->accounts.starting_data_len[ j ] = acc->prior_data_len;
+        memcpy( &txn_out->accounts.starting_owner[ j ], acc->prior_owner, sizeof(fd_pubkey_t) );
         break;
       }
     }
