@@ -12,7 +12,7 @@
 
 /* Maximum number of read-only accdb consumer fseqs the accdb tile can
    bind external_epoch_slots[] to.  Bumped as new RO consumers are
-   added.  Today: rpc tile (optional). */
+   added.  Today: rpc tile (optional), snapmk tile (optional). */
 #define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (8UL)
 
 struct fd_accdb_tile_ctx {
@@ -122,7 +122,12 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
-
+  if( FD_LIKELY( tile->accdb.snapmk_epoch_obj_id!=ULONG_MAX ) ) {
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapmk_epoch_obj_id ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
 

@@ -111,6 +111,7 @@ struct fd_configf {
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
+    uint snapzp_tile_count;
   } layout;
 
   struct {

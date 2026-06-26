@@ -320,6 +320,8 @@ struct fd_replay_tile {
      these conditions are met, then we are free to unbecome leader. */
   uint        is_leader : 1;
   uint        supports_leader : 1;
+  uint        supports_snap_create : 1;
+  uint        is_creating_snap : 1;
   int         recv_poh;
   ulong       next_leader_slot;
   long        next_leader_tickcount;
