@@ -13,6 +13,7 @@ class Tile(Enum):
     SNAPWR = 7
     SNAPMK = 8
     SNAPZP = 9
+    SNAPRD = 10
 
     NETLNK = 14
     NET = 15
