@@ -903,6 +903,31 @@ main( int     argc,
     }
     FD_LOG_NOTICE(( "==================================================================" ));
 
+    /* ---- KTP12 / TurboSHAKE128 XOF throughput ----------------------- *
+       The in-ballet keccak8 12r is a faithful port of XKCP's times8
+       AVX-512 permutation (same register-renamed round structure, XOR5
+       theta, vpternlogq chi).  KTP12 = KangarooTwelve construction on
+       Keccak-p[1600,12]; TurboSHAKE128 rate = 168 B over 8 lanes.  This
+       is the headline number to compare across machines: expect
+       ~41 Gbps/core on Zen 4 and ~118 Gbps/core on Zen 5. */
+#   if FD_HAS_AVX512
+    {
+      extern void fd_keccak256_avx512_keccak8_f1600_12r_raw( void * state_soa, ulong const * rc );
+      ulong soa12[ 200 ] __attribute__((aligned(64))); memset( soa12, 0, sizeof(soa12) );
+      void * _s12 = soa12; FD_COMPILER_FORGET( _s12 );
+      BENCH_TIME_BEST( ITER,
+        fd_keccak256_avx512_keccak8_f1600_12r_raw( soa12, fd_keccak256_rc ), &t );
+      double const gbps168 = (8.0*168.0*8.0)/t;   /* TurboSHAKE128 rate */
+      double const gbps136 = (8.0*136.0*8.0)/t;   /* TurboSHAKE256 rate */
+      FD_LOG_NOTICE(( "==================================================================" ));
+      FD_LOG_NOTICE(( "  KTP12 XOF throughput (Keccak-p[1600,12] times8, faithful XKCP port)" ));
+      FD_LOG_NOTICE(( "  keccak8 12r: %.1f ns/call (8 states), %.2f ns/state", t, t/8.0 ));
+      FD_LOG_NOTICE(( "  TurboSHAKE128 (rate 168): %6.2f Gbps/core  (expect ~41 Zen4, ~118 Zen5)", gbps168 ));
+      FD_LOG_NOTICE(( "  TurboSHAKE256 (rate 136): %6.2f Gbps/core", gbps136 ));
+      FD_LOG_NOTICE(( "==================================================================" ));
+    }
+#   endif
+
 #   undef BENCH_RECORD
 #   undef BENCH_TIME_BEST
   } while(0);

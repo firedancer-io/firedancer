@@ -20,8 +20,9 @@
  * map naturally onto AVX-512 keccak8 as 2 batches of 8.
  *
  * Two entry points:
- *   fd_lthash2_compute     : 1 lthash at a time (sequential)
- *   fd_lthash2_batch16     : 16 lthashes in parallel (best amortized cost)
+ *   fd_lthash2_compute     : 1 lthash, lane=counter (variant b)
+ *   fd_lthash2_batch8      : up to 8 lthashes in parallel, lane=account
+ *                            (variant a, best amortized cost)
  */
 
 #include "../fd_ballet_base.h"
@@ -46,17 +47,13 @@ fd_lthash2_compute( void const *         input,
 
 #if FD_HAS_AVX512
 
-/* Compute 8 lthash2 values in parallel (one keccak8 SoA buffer). */
+/* Compute `n` (1..8) lthash2 values in parallel, lane=account.  Lanes
+   >= n are masked off (no output written, no wasted absorb). */
 void
 fd_lthash2_batch8( void const *               inputs[8],
                    uint const                 sizes[8],
-                   fd_lthash2_value_t * const outputs[8] );
-
-/* Compute 16 lthash2 values in parallel (two keccak8 SoA buffers). */
-void
-fd_lthash2_batch16( void const *               inputs[16],
-                    uint const                 sizes[16],
-                    fd_lthash2_value_t * const outputs[16] );
+                   fd_lthash2_value_t * const outputs[8],
+                   ulong                      n );
 
 #endif
 

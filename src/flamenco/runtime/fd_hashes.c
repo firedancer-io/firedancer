@@ -4,7 +4,21 @@
 #include "../capture/fd_solcap_writer.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/lthash2/fd_lthash2.h"
 #include "../../ballet/sha256/fd_sha256.h"
+
+/* LTHASH A/B instrumentation (FD_LTHASH_AB=1 build): alongside the
+   authoritative blake3 account lthash, additionally compute the keccak
+   (KTP12) lthash2 of the same account data and accumulate per-account
+   tick costs.  blake3 stays authoritative — consensus is unaffected —
+   and we log the keccak/blake3 ratio (TSC-rate-independent, so it carries
+   directly to Zen 5).  Periodic log every 2^20 accounts. */
+#if FD_LTHASH_AB && FD_HAS_AVX512
+static FD_TL ulong               fd_ab_blake_ticks  = 0UL;
+static FD_TL ulong               fd_ab_keccak_ticks = 0UL;
+static FD_TL ulong               fd_ab_cnt          = 0UL;
+static FD_TL fd_lthash2_value_t  fd_ab_sink;
+#endif
 
 void
 fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
@@ -37,6 +51,10 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
 
   uchar executable_flag = !!executable;
 
+#if FD_LTHASH_AB && FD_HAS_AVX512
+  ulong const _ab_t0 = (ulong)fd_tickcount();
+#endif
+
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
   fd_blake3_append( b3, &lamports, sizeof( ulong ) );
@@ -45,6 +63,26 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
   fd_blake3_append( b3, owner, FD_HASH_FOOTPRINT );
   fd_blake3_append( b3, pubkey, FD_HASH_FOOTPRINT );
   fd_blake3_fini_2048( b3, lthash_out->bytes );
+
+#if FD_LTHASH_AB && FD_HAS_AVX512
+  /* A/B: keccak (KTP12) lthash2 of the same account data.  Proxy input is
+     the account `data` (the dominant term; the 73-byte lamports/exec/
+     owner/pubkey header adds <1 block and is timing-irrelevant).  The
+     result is sunk, never used for consensus. */
+  ulong const _ab_t1 = (ulong)fd_tickcount();
+  fd_lthash2_compute( data, data_len, &fd_ab_sink );
+  ulong const _ab_t2 = (ulong)fd_tickcount();
+  fd_ab_blake_ticks  += _ab_t1 - _ab_t0;
+  fd_ab_keccak_ticks += _ab_t2 - _ab_t1;
+  fd_ab_cnt++;
+  if( FD_UNLIKELY( (fd_ab_cnt & 0xFFUL)==0UL ) ) {
+    FD_LOG_NOTICE(( "LTHASH_AB n=%lu blake3=%.1f keccak=%.1f ticks/acct  keccak/blake3=%.3f",
+                    fd_ab_cnt,
+                    (double)fd_ab_blake_ticks /(double)fd_ab_cnt,
+                    (double)fd_ab_keccak_ticks/(double)fd_ab_cnt,
+                    (double)fd_ab_keccak_ticks/(double)fd_ab_blake_ticks ));
+  }
+#endif
 }
 
 void

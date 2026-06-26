@@ -81,6 +81,18 @@ void fd_keccak256_avx512_keccak8_extract_rate( void *       out[8],
                                                void const * state_soa,
                                                ulong        rate_bytes );
 
+/* Fused counter-mode squeeze (KTP12, capacity 256, counter lane 21).
+   base_soa is the read-only absorbed SoA state; ctrs are 8 per-state
+   counters XORed into lane 21; the 12-round permutation runs and the
+   first rate_bytes of each state are written to out[8].  base_soa is not
+   modified (no clone): the counter XOR is fused into the permute's
+   register load.  rc is the 24-entry round-constant table. */
+void fd_keccak256_avx512_keccak8_squeeze_ctr21( void const *  base_soa,
+                                                ulong const * ctrs,
+                                                void *        out[8],
+                                                ulong         rate_bytes,
+                                                ulong const * rc );
+
 /* ---- Single-state Keccak-p[1600,12] (5-pack AVX-512) ------------------- */
 
 /* In-place 12-round Keccak-p[1600,12] on a 25-u64 state.  Internally

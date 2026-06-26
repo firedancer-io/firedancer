@@ -16,6 +16,11 @@ endif
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
+# TEMP (measurement only, branch 0x0ece/keccak — revert before merge):
+# A/B-time the keccak (KTP12) lthash2 against blake3 per account during
+# replay.  blake3 stays authoritative; this only adds timing + a sunk
+# keccak hash and logs the keccak/blake3 tick ratio every 2^20 accounts.
+$(OBJDIR)/obj/flamenco/runtime/fd_hashes.o: CFLAGS+=-DFD_LTHASH_AB=1
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
