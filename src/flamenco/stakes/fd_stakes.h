@@ -16,6 +16,12 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    new_rate_activation_epoch );
 
+ulong
+fd_stake_calculate_activation_allowance( ulong                            current_epoch,
+                                         ulong                            account_activating_stake,
+                                         fd_stake_history_entry_t const * prev_epoch_cluster_state,
+                                         ulong *                          opt_rate_change_activation_epoch );
+
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stake_delegation.rs#L27-L41 */
 fd_stake_history_entry_t
 fd_delegation_activation_status( fd_delegation_t const *    self,

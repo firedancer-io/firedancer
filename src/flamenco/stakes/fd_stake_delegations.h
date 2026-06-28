@@ -94,6 +94,67 @@ fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_
     : (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
 }
 
+/* WARMED and COOLED are stable states and are the only tags that the
+   fast paths act on.  The unstable state tags (WARMING/COOLING) are
+   defined for clarity and do not enable any fast path.
+
+   Most stake delegations are stable.  So intuitively, there should be a
+   way to return their effective stake in O(1).  Essentially, at a given
+   target_epoch, if we know that the delegation is in a stable state for
+   the purposes of effective stake evaluation, then we can simply return
+   the fully activated stake for WARMED, or 0 for COOLED, without
+   running any warmup/cooldown simulation.  The vast majority of
+   delegations are in fact stable and can take the fast path for
+   effective stake evaluation.
+
+   We trust a tag's prescription of stable state (WARMED/COOLED) if
+
+   - The delegation record (stake,activation_epoch,deactivation_epoch)
+     hasn't changed since the delegation was most recently evaluated and
+     tagged at tag_epoch
+   - tag_epoch<=target_epoch
+
+   Condition #1 is maintained by how delegations are tagged.  Only root
+   pool elements can take on non-UNKNOWN tags.  Delta pool elements are
+   unconditionally UNKNOWN.  All delegation-updating operations funnel
+   the delegation through the delta pool, so the delegation effectively
+   gets invalidated for stable state query purposes.
+
+   Condition #2 ultimately has to be maintained by the user of the tag
+   who provides target_epoch.  A key invariant here is that stable state
+   tags are awarded when the delta list gets folded into the root pool,
+   aka when a block roots.  Currently, the only use cases of the tag are
+   at the boundary.
+
+   - For the refresh_vote_accounts() use case, the target_epoch is the
+     upcoming epoch, which is naturally the largest epoch in the
+     cluster.  Since tag_epoch was sometime in the past when a block
+     rooted, tag_epoch<=target_epoch holds trivially.
+   - For the points calculation use case, recall that rewarded_epoch is
+     the just-ended epoch.  Since we are at the boundary of
+     rewarded_epoch=>rewarded_epoch+1, we know that
+     tag_epoch<=rewarded_epoch, because no slot has rooted for
+     rewarded_epoch+1 yet.  So if we constrain the target_epoch to be
+     exactly rewarded_epoch, we get tag_epoch<=target_epoch.  It doesn't
+     hurt that most delegations are up to date on rewards payout, and
+     the only epoch for which they have eligible points is precisely the
+     rewarded_epoch.
+   - We disable the tag fast path for recalculation during boot, because
+     tags are computed fresh at the snapshot root, and so
+     rewarded_epoch<tag_epoch.
+
+   As a side note, WARMING tags get a chance to be promoted to WARMED if
+   the delegation gets any inflation rewards or is otherwise written.
+   At rewards distribution time, the delegation will re-enter the delta
+   pool and shortly afterwards get a chance to be re-classified when the
+   distribution block roots.  Fresh dust delegations that don't get any
+   rewards will be sticky WARMING until the next boot or a write. */
+#define FD_STAKE_DELEGATION_STATE_UNKNOWN ((uchar)0)
+#define FD_STAKE_DELEGATION_STATE_WARMING ((uchar)1) /* activating */
+#define FD_STAKE_DELEGATION_STATE_WARMED  ((uchar)2) /* effective=delegated */
+#define FD_STAKE_DELEGATION_STATE_COOLING ((uchar)3) /* deactivating */
+#define FD_STAKE_DELEGATION_STATE_COOLED  ((uchar)4) /* effective=0 */
+
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
@@ -117,6 +178,7 @@ struct fd_stake_delegation {
   uchar       in_use; /* For the root pool only.  Not meaningful in the delta pool.  Set to
                          1 if this element holds a live delegation present in the root map, 0
                          if the element has been reclaimed. */
+  uchar       state; /* Only non-UNKNOWN in the root pool. */
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -159,6 +221,24 @@ FD_PROTOTYPES_BEGIN
 static inline double
 fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
   return warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
+}
+
+/* Classify stake given the activation status evaluated at the provided
+   epoch.  The provided epoch is expected to be >= activation epoch. */
+static inline uchar
+fd_stake_delegation_classify( fd_stake_delegation_t const * delegation,
+                              fd_stake_history_entry_t      activation_status,
+                              ulong                         epoch ) {
+  /* Activation epoch in Agave's stake program is either clock.epoch, or
+     inherited from an existing activation epoch.
+
+     So activation epoch <= current epoch. */
+  FD_TEST( delegation->activation_epoch==(ushort)USHORT_MAX || epoch>=delegation->activation_epoch );
+  if( activation_status.activating>0UL   ) return FD_STAKE_DELEGATION_STATE_WARMING;
+  if( activation_status.deactivating>0UL ) return FD_STAKE_DELEGATION_STATE_COOLING;
+  if( activation_status.effective==delegation->stake && delegation->deactivation_epoch==(ushort)USHORT_MAX ) return FD_STAKE_DELEGATION_STATE_WARMED;
+  if( activation_status.effective==0UL   ) return FD_STAKE_DELEGATION_STATE_COOLED; /* When evaluated at >= activation epoch, (0,0,0) implies a fully cooled delegation. */
+  return FD_STAKE_DELEGATION_STATE_UNKNOWN;
 }
 
 

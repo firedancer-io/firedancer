@@ -12,9 +12,199 @@
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_accdb_svm.h"
+#include "../types/fd_cast.h"
 #include "fd_rewards_base.h"
 
 #include <math.h>
+
+/* A note on the calculation of points for inflation rewards at the
+   epoch boundary.
+
+   As of today there are more than 1.5 million stake delegations on
+   mainnet (1,583,562 at the 987->988 boundary).  Each and every one of
+   them could in theory earn some lamports of inflation rewards, so at
+   the boundary each and every delegation is looked at to compute its
+   share.  A delegation's share is directly proportional to its
+   "points", and the points are essentially the area under a curve where
+   the y axis is the delegation's effective stake and the x axis is the
+   monotonically increasing vote credits.
+
+     points = SUM over eligible epochs e of ( effective(e) * credits_owed(e) )
+
+   There are two dimensions to this summation formula.  (1) A vote
+   account monotonically ticks up its vote credit as it votes, and
+   records its per-epoch credit history as (epoch,final,initial) tuples,
+   where the [initial,final] ranges are contiguous and non-overlapping.
+   That is to say, initial[n]=final[n-1].  A stake delegation stores a
+   watermark, credits_observed, of how far it has already been paid
+   along the corresponding vote account's credit history.  What the
+   stake delegation is owed for an epoch is the part of that epoch's
+   [initial,final] that sits above the credits_observed.  The credit
+   history is capped at 64 epochs, so the sum is never more than 64
+   terms long.  The epochs that overlap [credits_observed,final[last]]
+   are the ones that contribute to the sum.  This is the x axis.  (2)
+   Delegated stake ramps up to the full delegated amount over one or
+   more epochs when it's activating, and ramps down gradually to 0 when
+   it's deactivating.  So the effective stake at an epoch, aka
+   effective(e), is not always simply the delegated amount.  Computing
+   effective(e) involves running a simulation of the ramp, encoded in
+   the activating_and_deactivating() function.  This is the y axis.
+
+     stake |        ______________P________________
+           |       /                               \
+           | L   U/  warmup               cooldown  \D     R
+         0 |_____/                                   \____________
+           +-----+---------------------------------+--------------->  vote credits
+            activation         activated          deactivation    cooled down
+            (ramps up)   (effective=delegated)    (ramps down)    (effective=0)
+
+   So under a reference implementation, the worst case is 64 effective()
+   computations per delegation.  The delegations that tend to hit this
+   case are dust delegations, either activated or deactivated, whose
+   tiny or zero points share keeps rounding their rewards down to zero.
+   As a result, reward doesn't pay out to a dust delegation, so it never
+   advances its credits_observed, and over time it gets pegged at the
+   worst case 64-term sum.  Roughly 14% of delegations are multi-term
+   evaluations like this, and they account for ~89% (11.3M of 12.6M) of
+   all the effective() invocations the points pass does.  A minority of
+   delegations demanding the overwhelming majority of work, and they
+   barely get any rewards, if at all.
+
+   The good news is that the shape of the warmup/cooldown curve isn't
+   arbitrary.  Observe that within a given boundary, a delegation's
+   (activation_epoch,deactivation_epoch,stake) are fixed, and on this
+   frozen tuple the effective stake curve is a single hump aka at most
+   one peak.  The plot above shows the fullest warmup/cooldown curve
+   within a boundary.  It rises during warmup (U) from 0 (L,
+   epoch<=activation), sits on a flat plateau (P) at exactly the height
+   of delegated stake, optionally ramps back down (D) after
+   deactivation, and rests on a flat zero floor (R).  It never goes down
+   and then back up within a given boundary.  In practice, the summation
+   usually runs over just a subsection of this full curve.  Depending on
+   which of the five zones {L,U,P,D,R} the first and the last
+   contributing terms (the "o"s below) sit on the warmup/cooldown curve,
+   there can be up to 15 unique possible subsection spans.  As of the
+   987->988 boundary, the following three cases cover almost the entire
+   points pass of a reference implementation.  The other spans are
+   either rare or already cheap to evaluate.  We exploit the shape of
+   each case to short circuit step-by-step summation.
+
+   Case 1: Every contributing term sits on the zero floor.  The
+   delegation deactivated at or before the epoch its watermark froze.
+   This is the common fate of deactivated and abandoned dust stake whose
+   reward payout stopped at deactivation.  This accounts for 79.8% of
+   the effective() invocations and 88.4% of the effective() iterations
+   in the points pass.  This is the R->R span.
+
+           stake |
+                 |
+               0 | o--o--o--o--o
+                 '--------------->  vote credits
+                   ^ every contributing term sits past full deactivation
+
+   Case 2: The contributing terms straddle the hump.  A few terms ride
+   the hump, and the rest sit on the zero floor.  This accounts for just
+   0.05% of the effective() invocations and 0.04% of the effective()
+   iterations in the points pass.  This is a tiny population (230
+   delegations) but catching the 0-tail of this case is a free side
+   effect of trying to short circuit Case 1.  This is the {L,U,P,D}->R
+   spans.
+
+           stake | o--o--.
+                 |        \
+               0 |         o--o--o
+                 '----------------->  vote credits
+                           ^ first full deactivation term
+
+   Case 3: Every contributing term sits on the plateau.  The delegation
+   is fully activated and, almost always, never deactivated.  This is
+   the fate of activated dust whose reward keeps rounding down to zero
+   while its vote account keeps voting.  This accounts for 19.8% of the
+   effective() invocations and 11.6% of the effective() iterations in
+   the points pass.  This is the P->P span.  As a side note, P->P also
+   includes a small sliver, ~14.8K delegations here, that deactivated no
+   earlier than the epoch of its last contributing term.  The stake is
+   still fully effective at the deactivation epoch itself.  The fast
+   path below doesn't cover these.
+
+           stake | o--o--o--o--o
+                 |
+               0 |________________
+                 '--------------->  vote credits
+
+   We try to short circuit multi-term Cases 1 and 3, as well as the
+   multi-term tail floor of Case 2.  The short circuit conditions do not
+   have to be fully precise, they just need to be conservative but not
+   overly conservative and ideally cheap so as to net a performance win
+   for most of the case population.
+
+   Further observe that the vast majority (84%, 1.33M of 1.58M) of stake
+   delegations have an up-to-date (>=initial[last]) credits watermark
+   and they are almost all either single-term Case 1 or single-term Case
+   3.  We fast path 1.27M of these with delegation state tags.  The
+   small delta is almost entirely fresh delegations in the just-ended
+   epoch.
+
+   Note that VAT doesn't make the problem of dust points go away.  If we
+   were to apply VAT on the 987->988 boundary, 96.3% of effective() and
+   98.5% of iterations in effective() would still survive.
+   Unfortunately, there's just a lot of abandoned dust stake pointing at
+   validators that are still live and voting.
+
+   ===
+
+   For the data minded, the full census of the possible spans at the
+   reference points pass of the 987->988 boundary:
+
+     span   delegations    invocations            iterations
+     R->R       182,920     10,067,849 (79.8%)    14,585,005 (88.4%)  Case 1
+     P->R           225          5,745 (0.05%)         6,902 (0.04%)  Case 2
+     L->R             5            164                     0          Case 2
+     P->P     1,327,803      2,500,408 (19.8%)     1,905,636 (11.6%)  Case 3
+     L->L        49,087         49,087 (0.4%)              0
+     L->P             3             42                    11
+     other            0              0                     0
+     none        23,519              0                     0
+     total    1,583,562     12,623,295            16,497,554
+
+   The L->L span is fresh delegations from the just-ended epoch.  Their
+   contributing term sits at or before the activation epoch, so every
+   effective() invocation early exits from the all-activating branch
+   without entering the simulation loop, hence zero iterations.  "other"
+   is the nine spans that include either the U or D ramp zones.  They
+   are all empty, because under today's mainnet warmup/cooldown budget
+   both ramps complete in a single epoch step, so no term ever observes
+   a partially warmed or partially cooled stake.  "none" is delegations
+   with no contributing terms, i.e. their watermark already caught up to
+   the vote credits.
+
+   And broken down by how much each fast/slow path covers:
+
+     span  fast/slow path                delegations  invocations   iterations
+     P->P  single-term state tag           1,268,371 /  1,268,371 /  1,094,607
+           single-term effective()            12,745 /     12,745 /     12,265
+           multi-term is_warmed_plateau()     44,683 /  1,179,761 /    777,412
+           slow path                           2,004 /     39,531 /     21,352
+     R->R  early exit at 0-tail              181,263 / 10,066,192 / 14,581,965
+           single-term state tag               1,301 /      1,301 /      2,563
+           single-term effective()               356 /        356 /        477
+     L->L  single-term effective()            49,006 /     49,006 /          0
+           single-term state tag                  81 /         81 /          0
+     P->R  early exit at 0-tail                  225 /      5,745 /      6,902
+     L->R  early exit at 0-tail                    5 /        164 /          0
+     L->P  slow path                               3 /         42 /         11
+
+   The single-term effective() branch gets taken on state tag misses,
+   including fresh L->L delegations whose tag is still WARMING/UNKNOWN,
+   P->P stakes that deactivated during the rewarded epoch (tag COOLING,
+   though every term is still fully effective) or whose delinquent
+   vote's last credit entry predates the rewarded epoch, and a few stale
+   R->R.  The 81 L->L state tag hits are accounts that delegated and
+   deactivated in the same epoch because activation==deactivation
+   classifies as COOLED with effective 0.  The P->P slow path is taken
+   by multi-term stakes that deactivated no earlier than their last
+   contributing term, so they get rejected by is_warmed_plateau() and
+   the 0-tail exit doesn't happen either. */
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -90,10 +280,87 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
                                                    inflation_start_slot, inflation_start_slot + num_slots );
 }
 
-/* For a given stake and vote_state, calculate how many points were earned (credits * stake) and new value
-   for credits_observed were the points paid
+/* Returns 1 if effective stake is clearly a warmed plateau.
 
-    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
+   This function seeks to conservatively prove that the given stake has
+   effective=delegated throughout its entire multi-term points
+   calculation.  Concretely, this boils down to the following.
+
+   - The stake is not slated for deactivation.  This removes the
+     downramp.
+   - The first contributing epoch is > the activation epoch.
+   - The stake easily activated at activation epoch+1.  This removes the
+     upramp.
+
+   These conditions constrain the warmup/cooldown curve to a flat
+   plateau at effective=delegated.  What makes this conservative is that
+   there could be false negatives only: this function says that a stake
+   is not a multi-term plateau when in fact it is.  We do a single-step
+   warmup simulation in this function, and the stake is rejected if it
+   failed to easily warm up in a single epoch one past the activation
+   epoch.  So a stake that took >=2 epochs to warm up may well be fully
+   warmed up by the time of its first contributing epoch.  We make this
+   tradeoff because this function is meant to be a fast detector and in
+   practice most stake activate quickly under today's mainnet warmup
+   budget.  Another case of false negative rejections is for multi-term
+   stakes that deactivated no earlier than the last contributing epoch.
+   We could easily eliminate this class of false negatives by passing in
+   the last contributing epoch and comparing against deactivation epoch.
+   We make this tradeoff because this class is empirically small and
+   this function becomes that much easier to reason about by virtue of
+   cleanly eliminating the deactivation simulation. */
+static inline int
+is_warmed_plateau( fd_stake_delegation_t const * stake,
+                   ulong                         first_contributing_epoch,
+                   fd_stake_history_t const *    stake_history,
+                   ulong *                       new_rate_activation_epoch,
+                   int                           use_fixed_point_stake_math ) {
+  /* Slated for deactivation. */
+  if( stake->deactivation_epoch!=USHORT_MAX ) return 0;
+
+  /* is_bootstrap(): https://github.com/solana-program/stake/blob/interface%40v4.3.1/interface/src/state.rs#L892
+     Stake activated as per protocol. */
+  if( stake->activation_epoch==USHORT_MAX ) {
+    return 1;
+  }
+
+  ulong ae = stake->activation_epoch;
+  if( ae>=first_contributing_epoch ) return 0;
+
+  /* Dropped out of history: https://github.com/solana-program/stake/blob/interface%40v4.3.1/interface/src/state.rs#L969
+     Stake activated as per protocol. */
+  fd_stake_history_entry_t const * e = fd_sysvar_stake_history_query( stake_history, ae );
+  if( FD_UNLIKELY( !e ) ) {
+    return 1;
+  }
+
+  /* Agave claims this is a "should have been fully effective" branch.
+     Practically this branch probably won't be taken and so we will
+     conservatively reject the fast path in this branch. */
+  if( FD_UNLIKELY( e->activating==0UL ) ) return 0;
+
+  /* Run a single-step simulation and see if stake easily activated. */
+  ulong newly_effective;
+  if( use_fixed_point_stake_math ) {
+    newly_effective = fd_ulong_max( fd_stake_calculate_activation_allowance( ae+1UL, stake->stake, e, new_rate_activation_epoch ), 1UL );
+  } else {
+    double weight = (double)stake->stake / (double)e->activating;
+    double rate   = fd_stake_delegations_warmup_cooldown_rate_to_double( fd_stake_warmup_cooldown_rate( ae+1UL, new_rate_activation_epoch ) );
+    double newly_effective_cluster = (double)e->effective*rate;
+    newly_effective = fd_ulong_max( fd_rust_cast_double_to_ulong( weight*newly_effective_cluster ), 1UL );
+  }
+  if( newly_effective>=stake->stake ) {
+    return 1;
+  }
+  return 0;
+}
+
+/* For a given stake and epoch credit history, calculate how many
+   points, aka (credits * stake) were earned and the new value for
+   credits_observed if the points were to materialize to non-zero
+   inflation rewards.
+
+   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L109 */
 static void
 calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits,
                                     fd_stake_history_t const *     stake_history,
@@ -138,11 +405,10 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
     ulong final_epoch_credits   = base + epoch_credits->credits_delta[ i ];
     ulong initial_epoch_credits = base + epoch_credits->prev_credits_delta[ i ];
 
-    /* Vote account credits can only increase or stay the same, so
-       initial_epoch_credits <= final_epoch_credits always holds. */
-    FD_TEST( initial_epoch_credits<=final_epoch_credits );
+    /* Invariant: initial_epoch_credits <= final_epoch_credits, enforced
+       at get_vote_credits().
 
-    /* If final_epoch_credits <= credits_in_stake, then:
+       If final_epoch_credits <= credits_in_stake, then:
         initial_epoch_credits <= final_epoch_credits <= credits_in_stake
 
        * earned_credits = 0 since both conditions are false.
@@ -162,12 +428,14 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
 
     new_credits_observed = fd_ulong_max( new_credits_observed, final_epoch_credits );
 
-    ulong stake_amount = fd_stakes_activating_and_deactivating(
-        stake,
-        epoch_credits->epoch[ i ],
-        stake_history,
-        new_rate_activation_epoch,
-        use_fixed_point_stake_math ).effective;
+    ulong stake_amount = fd_stakes_activating_and_deactivating( stake, epoch_credits->epoch[ i ], stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+    if( stake_amount==0UL && epoch_credits->epoch[ i ]>stake->deactivation_epoch ) {
+      /* Multi-term Cases 1 and 2.  Note that
+         deactivation_epoch!=USHORT_MAX is implied since epoch[ i ] is
+         also a ushort. */
+      new_credits_observed = credits_in_vote;
+      break;
+    }
 
     points += (uint128)stake_amount * earned_credits;
   }
@@ -348,18 +616,86 @@ fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch
   return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts, stake_account_stores_per_block );
 }
 
+/* calculate_stake_points_and_credits() with some fast paths. */
+static inline void
+calculate_stake_points_fast( fd_epoch_credits_t *           epoch_credits,
+                             fd_stake_history_t const *     stake_history,
+                             fd_stake_delegation_t const *  stake,
+                             ulong *                        new_rate_activation_epoch,
+                             int                            use_fixed_point_stake_math,
+                             ulong                          rewarded_epoch,
+                             fd_calculated_stake_points_t * result ) {
+  ulong cnt = epoch_credits->cnt;
+  if( FD_LIKELY( cnt ) ) {
+    ulong base             = epoch_credits->base_credits;
+    ulong credits_in_stake = stake->credits_observed;
+    ulong credits_in_vote  = base+epoch_credits->credits_delta[ cnt-1UL ];
+    if( FD_LIKELY( credits_in_vote>credits_in_stake ) ) {
+      ulong initial_last = base+epoch_credits->prev_credits_delta[ cnt-1UL ];
+      int fast = 0;
+
+      if( FD_LIKELY( credits_in_stake>=initial_last ) ) {
+        /* Single-term. */
+        ulong target_epoch = epoch_credits->epoch[ cnt-1UL ];
+        ulong effective_stake;
+        if( FD_LIKELY( target_epoch==rewarded_epoch && (stake->state==FD_STAKE_DELEGATION_STATE_WARMED||stake->state==FD_STAKE_DELEGATION_STATE_COOLED) ) ) { /* See the block comment for state tags for why we need target_epoch==rewarded_epoch. */
+          /* Single-term Case 3 or Case 1. */
+          effective_stake = stake->state==FD_STAKE_DELEGATION_STATE_WARMED ? stake->stake : 0UL;
+        } else {
+          /* We could let this branch fall through to the slow path,
+             whose loop will skip a whole bunch of epoch credits only to
+             get to the final and only contributing term.  Computing it
+             right here reduces about 800 instructions retired per such
+             delegation. */
+          effective_stake = fd_stakes_activating_and_deactivating( stake, target_epoch, stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ).effective;
+        }
+        result->points.ud            = (uint128)effective_stake * (uint128)( credits_in_vote - credits_in_stake );
+        result->new_credits_observed = credits_in_vote;
+        fast = 1;
+      } else {
+        /* Multi-term. */
+        ulong first_contributing_idx = 0UL;
+        while( first_contributing_idx<cnt && base+epoch_credits->credits_delta[ first_contributing_idx ]<=credits_in_stake ) first_contributing_idx++;
+        /* Multi-term Case 3.  effective=delegated at the earliest
+           contributing term, and no deactivation at all, so the plateau
+           simplifies the points calculation to a single closed form
+           multiplication. */
+        if( FD_LIKELY( first_contributing_idx<cnt && is_warmed_plateau( stake, epoch_credits->epoch[ first_contributing_idx ], stake_history, new_rate_activation_epoch, use_fixed_point_stake_math ) ) ) {
+          ulong start_credits          = fd_ulong_max( credits_in_stake, base+epoch_credits->prev_credits_delta[ 0UL ] );
+          result->points.ud            = (uint128)stake->stake*(uint128)(credits_in_vote-start_credits);
+          result->new_credits_observed = credits_in_vote;
+          fast = 1;
+        }
+      }
+
+      if( FD_LIKELY( fast ) ) {
+        result->force_credits_update_with_skipped_reward = 0;
+        return;
+      }
+    }
+  }
+  /* Potentially term-by-term slow path fallback for anything we can't
+     conservatively prove to take the fast paths so far.  In this
+     callee, early exit at the first fully deactivated term is the
+     0-tail short circuit fast path for multi-term Cases 1 and 2. */
+  calculate_stake_points_and_credits( epoch_credits, stake_history, stake, new_rate_activation_epoch, use_fixed_point_stake_math, result );
+}
+
 /* Calculates epoch reward points from stake/vote accounts.
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
 static uint128
 calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                      fd_stake_delegations_t const * stake_delegations,
                                      fd_stake_history_t const *     stake_history,
+                                     ulong                          rewarded_epoch,
                                      fd_runtime_stack_t *           runtime_stack ) {
   /* Calculate the points for each stake delegation */
   uint128 total_points = 0;
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+
+  fd_epoch_credits_t * epoch_credits_base = fd_bank_epoch_credits( bank );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -385,14 +721,15 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_base[ idx ];
 
-    calculate_stake_points_and_credits( epoch_credits,
-                                        stake_history,
-                                        stake_delegation,
-                                        &bank->f.warmup_cooldown_rate_epoch,
-                                        FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-                                        stake_points_result );
+    calculate_stake_points_fast( epoch_credits,
+                                 stake_history,
+                                 stake_delegation,
+                                 &bank->f.warmup_cooldown_rate_epoch,
+                                 FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                 rewarded_epoch,
+                                 stake_points_result );
 
     total_points += stake_points_result->points.ud;
   }
@@ -505,14 +842,15 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
-         stake rewards so we need to recalculate them. */
-      calculate_stake_points_and_credits(
-          epoch_credits,
-          stake_history,
-          stake_delegation,
-          &bank->f.warmup_cooldown_rate_epoch,
-          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-          stake_points_result_ );
+         stake rewards so we need to recalculate them.  ULONG_MAX
+         disables the tag fast path. */
+      calculate_stake_points_fast( epoch_credits,
+                                   stake_history,
+                                   stake_delegation,
+                                   &bank->f.warmup_cooldown_rate_epoch,
+                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                   ULONG_MAX,
+                                   stake_points_result_ );
       stake_points_result = stake_points_result_;
     } else {
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
@@ -628,13 +966,13 @@ setup_stake_partitions( fd_bank_t *                    bank,
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
-      calculate_stake_points_and_credits(
-          epoch_credits,
-          stake_history,
-          stake_delegation,
-          &bank->f.warmup_cooldown_rate_epoch,
-          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-          stake_points_result );
+      calculate_stake_points_fast( epoch_credits,
+                                   stake_history,
+                                   stake_delegation,
+                                   &bank->f.warmup_cooldown_rate_epoch,
+                                   FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                   ULONG_MAX,
+                                   stake_points_result );
 
       /* redeem_rewards is actually just responsible for calculating the
          vote and stake rewards for each stake account.  It does not do
@@ -710,6 +1048,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       bank,
       stake_delegations,
       stake_history,
+      rewarded_epoch,
       runtime_stack );
 
   /* If there are no points, then we set the rewards to 0. */
