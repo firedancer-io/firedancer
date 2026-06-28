@@ -685,9 +685,28 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
+  }
+
+  /* Wipe WARMED tags awarded under the old floating point math when the
+     fixed point math activates.  This will force all the effective
+     stakes to be re-computed using the post-activation math.
+     Unfortunately, one wipe at the activation boundary is not enough.
+     The consensus root lags the replay frontier.  So
+     post-activation/post-boundary, when the unrooted pre-activation
+     blocks root and their deltas are applied into the root, their
+     pre-activation tags will also leak into the root pool.  So the
+     award sites record whether any live WARMED tag might have been
+     computed with the pre-activation floating point math, and we wipe
+     whenever that is the case.  We expect the invalidation to fire
+     exactly twice: at the activation boundary and at the first boundary
+     after it, unless some extremely sparse epochs happen after
+     activation.  Tags are only used at boundaries for now, and this
+     runs before any use. */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) && stake_delegations->fp_warmed_awarded ) ) {
+    fd_stake_delegations_invalidate_warmed( stake_delegations );
   }
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,

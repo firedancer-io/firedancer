@@ -152,6 +152,21 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
                   ? manifest->vote_accounts[i].epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<manifest->vote_accounts[i].epoch_credits_history_len; j++ ) {
       epoch_credits_t const * epc = &manifest->vote_accounts[i].epoch_credits[j];
+      if( FD_UNLIKELY( epc->prev_credits>epc->credits ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].prev_credits %lu exceeds credits %lu",
+                         i, j, epc->prev_credits, epc->credits ));
+        return -1;
+      }
+      if( FD_UNLIKELY( j>0UL && epc->epoch<=manifest->vote_accounts[i].epoch_credits[j-1UL].epoch ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].epoch %lu is not greater than previous epoch %lu",
+                         i, j, epc->epoch, manifest->vote_accounts[i].epoch_credits[j-1UL].epoch ));
+        return -1;
+      }
+      if( FD_UNLIKELY( j>0UL && epc->prev_credits!=manifest->vote_accounts[i].epoch_credits[j-1UL].credits ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].prev_credits %lu does not equal previous credits %lu",
+                         i, j, epc->prev_credits, manifest->vote_accounts[i].epoch_credits[j-1UL].credits ));
+        return -1;
+      }
       if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
         FD_LOG_WARNING(( "corrupt snapshot: vote_accounts[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
                          i, j, epc->epoch ));
@@ -193,6 +208,21 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
       ulong ec_base = vs->epoch_credits_history_len>0UL ? vs->epoch_credits[0].prev_credits : 0UL;
       for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
         epoch_credits_t const * epc = &vs->epoch_credits[k];
+        if( FD_UNLIKELY( epc->prev_credits>epc->credits ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu exceeds credits %lu",
+                           i, j, k, epc->prev_credits, epc->credits ));
+          return -1;
+        }
+        if( FD_UNLIKELY( k>0UL && epc->epoch<=vs->epoch_credits[k-1UL].epoch ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu is not greater than previous epoch %lu",
+                           i, j, k, epc->epoch, vs->epoch_credits[k-1UL].epoch ));
+          return -1;
+        }
+        if( FD_UNLIKELY( k>0UL && epc->prev_credits!=vs->epoch_credits[k-1UL].credits ) ) {
+          FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu does not equal previous credits %lu",
+                           i, j, k, epc->prev_credits, vs->epoch_credits[k-1UL].credits ));
+          return -1;
+        }
         if( FD_UNLIKELY( epc->epoch>(ulong)USHORT_MAX ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
                            i, j, k, epc->epoch ));
@@ -554,13 +584,16 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
-    ec->cnt          = (ushort)elem->epoch_credits_history_len;
+    ec->cnt          = (uchar)elem->epoch_credits_history_len; /* Manifest validation guarantees no overflow. */
     ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
       ec->epoch[ j ]              = (ushort)elem->epoch_credits[ j ].epoch;
       ec->credits_delta[ j ]      = (uint)( elem->epoch_credits[ j ].credits      - ec->base_credits );
       ec->prev_credits_delta[ j ] = (uint)( elem->epoch_credits[ j ].prev_credits - ec->base_credits );
     }
+    /* Manifest validation already rejects non-increasing epochs. */
+    ec->fast_path_ok = fd_epoch_credits_fast_path_ok( ec );
+    FD_TEST( ec->fast_path_ok ); /* manifest validation enforces all three invariants */
     epoch_credits_len++;
   }
   *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
