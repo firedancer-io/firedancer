@@ -377,7 +377,7 @@ static void
 test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   FD_LOG_NOTICE(( "testing epoch credits downcasting" ));
 
-  /* Valid epoch credits (vote_accounts path). */
+  /* Valid epoch credits with an epoch gap (vote_accounts path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->vote_accounts_len = 1UL;
@@ -385,7 +385,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
   manifest->vote_accounts[0].epoch_credits[0].credits      = 100UL;
   manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->vote_accounts[0].epoch_credits[1].epoch        = 2UL;
+  manifest->vote_accounts[0].epoch_credits[1].epoch        = 3UL;
   manifest->vote_accounts[0].epoch_credits[1].credits      = 200UL;
   manifest->vote_accounts[0].epoch_credits[1].prev_credits = 100UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
@@ -456,7 +456,35 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->vote_accounts[0].epoch_credits[1].prev_credits = 500UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* Valid epoch credits (epoch_stakes path). */
+  /* Discontinuous credits (vote_accounts path). */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->vote_accounts_len = 1UL;
+  manifest->vote_accounts[0].epoch_credits_history_len = 2UL;
+  manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
+  manifest->vote_accounts[0].epoch_credits[0].credits      = 100UL;
+  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
+  manifest->vote_accounts[0].epoch_credits[1].epoch        = 2UL;
+  manifest->vote_accounts[0].epoch_credits[1].credits      = 200UL;
+  manifest->vote_accounts[0].epoch_credits[1].prev_credits = 101UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Duplicate epoch (vote_accounts path). */
+  manifest->vote_accounts[0].epoch_credits[1].epoch        = 1UL;
+  manifest->vote_accounts[0].epoch_credits[1].prev_credits = 100UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Descending epoch (vote_accounts path). */
+  manifest->vote_accounts[0].epoch_credits[1].epoch = 0UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Initial credits exceed final credits while continuity holds
+     (vote_accounts path). */
+  manifest->vote_accounts[0].epoch_credits[1].epoch   = 2UL;
+  manifest->vote_accounts[0].epoch_credits[1].credits = 99UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Valid epoch credits with an epoch gap (epoch_stakes path). */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->epoch_stakes[0].vote_stakes_len = 1UL;
@@ -464,7 +492,7 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 3UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
@@ -520,6 +548,34 @@ test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
   manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = (ulong)UINT_MAX + 1UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Discontinuous credits (epoch_stakes path). */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 101UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Duplicate epoch (epoch_stakes path). */
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Descending epoch (epoch_stakes path). */
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch = 0UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Initial credits exceed final credits while continuity holds
+     (epoch_stakes path). */
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch   = 2UL;
+  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits = 99UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   FD_LOG_NOTICE(( "... pass" ));

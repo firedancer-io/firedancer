@@ -1,5 +1,6 @@
 #include "fd_stake_delegations.h"
 #include "fd_stakes.h"
+#include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include <string.h>
 
 #define POOL_NAME  root_pool
@@ -180,6 +181,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
   stake_delegations->pool_idx_wmk_      = 0UL;
+  stake_delegations->fp_warmed_awarded  = 0;
 
   fd_rwlock_new( &stake_delegations->delta_lock );
 
@@ -228,6 +230,7 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
   stake_delegations->pool_idx_wmk_      = 0UL;
+  stake_delegations->fp_warmed_awarded  = 0;
 }
 
 fd_stake_delegation_t const *
@@ -250,6 +253,14 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    lamports,
                                   uint                     acc_dlen,
                                   uchar                    warmup_cooldown_rate ) {
+  /* On-chain delegation epochs are either the ULONG_MAX sentinel
+     meaning bootstrap activation or not deactivating, or near the
+     current epoch which is centuries below USHORT_MAX.  Don't allow
+     exactly USHORT_MAX as raw input epoch, because that gets
+     interpreted as the ULONG_MAX sentinel. */
+  FD_TEST( activation_epoch==ULONG_MAX   || activation_epoch<(ulong)USHORT_MAX   );
+  FD_TEST( deactivation_epoch==ULONG_MAX || deactivation_epoch<(ulong)USHORT_MAX );
+
   fd_stake_delegation_t * pool = get_root_pool( stake_delegations );
   root_map_t *            map = get_root_map( stake_delegations );
 
@@ -273,6 +284,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->dne_in_root          = 0;
   stake_delegation->delta_idx            = UINT_MAX;
   stake_delegation->in_use               = 1;
+  stake_delegation->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 }
 
 static inline void
@@ -299,6 +311,8 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               int                        use_fixed_point_stake_math,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id ) {
+
+  int history_contiguous = fd_sysvar_stake_history_is_contiguous( stake_history );
 
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
@@ -367,6 +381,12 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
       stake_delegations->effective_stake    += history.effective;
       stake_delegations->activating_stake   += history.activating;
       stake_delegations->deactivating_stake += history.deactivating;
+
+      uchar state = fd_stake_delegation_classify( delegation, history, epoch );
+      delegation->state = !history_contiguous ? FD_STAKE_DELEGATION_STATE_UNKNOWN : state;
+      if( FD_LIKELY( delegation->state==FD_STAKE_DELEGATION_STATE_WARMED && !use_fixed_point_stake_math ) ) {
+        stake_delegations->fp_warmed_awarded = 1;
+      }
     }
 
     fd_accdb_release( accdb, batch_n, accs );
@@ -406,6 +426,14 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   uchar                    warmup_cooldown_rate ) {
   fd_rwlock_write( &stake_delegations->delta_lock );
 
+  /* On-chain delegation epochs are either the ULONG_MAX sentinel
+     meaning bootstrap activation or not deactivating, or near the
+     current epoch which is centuries below USHORT_MAX.  Don't allow
+     exactly USHORT_MAX as raw input epoch, because that gets
+     interpreted as the ULONG_MAX sentinel. */
+  FD_TEST( activation_epoch==ULONG_MAX   || activation_epoch<(ulong)USHORT_MAX   );
+  FD_TEST( deactivation_epoch==ULONG_MAX || deactivation_epoch<(ulong)USHORT_MAX );
+
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
   FD_CHECK_CRIT( delta_pool_free( delta_pool ), "no free stake delegations in pool" );
 
@@ -425,6 +453,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->credits_observed     = credits_observed;
   stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
   stake_delegation->is_tombstone         = 0;
+  stake_delegation->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 
   FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
   FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
@@ -451,6 +480,7 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
   stake_delegation->lamports      = 0UL;
   stake_delegation->acc_dlen      = 0U;
   stake_delegation->is_tombstone  = 1;
+  stake_delegation->state         = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 
   FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
   FD_LOG_DEBUG(( "fork_remove: stake_account=%s", stake_account_out ));
@@ -486,6 +516,8 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
                                        fd_stake_delegations_t *   stake_delegations,
                                        ushort                     fork_idx ) {
 
+  int history_contiguous = fd_sysvar_stake_history_is_contiguous( stake_history );
+
   fork_dlist_t *          dlist      = get_fork_dlist( stake_delegations, fork_idx );
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
 
@@ -511,8 +543,8 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
           &stake_delegation->stake_account,
           &stake_delegation->vote_account,
           stake_delegation->stake,
-          stake_delegation->activation_epoch,
-          stake_delegation->deactivation_epoch,
+          stake_delegation->activation_epoch==(ushort)USHORT_MAX   ? ULONG_MAX : stake_delegation->activation_epoch,
+          stake_delegation->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : stake_delegation->deactivation_epoch,
           stake_delegation->credits_observed,
           stake_delegation->lamports,
           stake_delegation->acc_dlen,
@@ -522,6 +554,13 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
       stake_delegations->effective_stake    += new_acc.effective;
       stake_delegations->activating_stake   += new_acc.activating;
       stake_delegations->deactivating_stake += new_acc.deactivating;
+
+      fd_stake_delegation_t * root_ele = root_map_ele_query( get_root_map( stake_delegations ), &stake_delegation->stake_account, NULL, get_root_pool( stake_delegations ) );
+      uchar state = fd_stake_delegation_classify( root_ele, new_acc, epoch );
+      root_ele->state = !history_contiguous ? FD_STAKE_DELEGATION_STATE_UNKNOWN : state;
+      if( FD_LIKELY( root_ele->state==FD_STAKE_DELEGATION_STATE_WARMED && !use_fixed_point_stake_math ) ) {
+        stake_delegations->fp_warmed_awarded = 1;
+      }
     } else {
       /* If the stake delegation in the delta is a tombstone, just
          remove the stake delegation from the root map and subtract
@@ -583,6 +622,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
       base_delegation->dne_in_root   = 1;
       base_delegation->delta_idx     = (uint)delta_pool_idx( delta_pool, delta_delegation );
       base_delegation->in_use        = 1;
+      base_delegation->state         = FD_STAKE_DELEGATION_STATE_UNKNOWN;
       root_map_ele_insert( root_map, base_delegation, root_pool );
       stake_delegations->pool_idx_wmk_ = fd_ulong_max( stake_delegations->pool_idx_wmk_, root_pool_idx( root_pool, base_delegation )+1UL );
     } else {
@@ -665,4 +705,16 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
       stake_delegations->deactivating_stake += acc.deactivating;
     }
   }
+}
+
+void
+fd_stake_delegations_invalidate_warmed( fd_stake_delegations_t * stake_delegations ) {
+  fd_stake_delegation_t * root_pool = get_root_pool( stake_delegations );
+  for( ulong i=0UL; i<stake_delegations->pool_idx_wmk_; i++ ) {
+    fd_stake_delegation_t * delegation = &root_pool[ i ];
+    if( FD_LIKELY( delegation->in_use && delegation->state==FD_STAKE_DELEGATION_STATE_WARMED ) ) {
+      delegation->state = FD_STAKE_DELEGATION_STATE_UNKNOWN;
+    }
+  }
+  stake_delegations->fp_warmed_awarded = 0;
 }

@@ -60,10 +60,11 @@ struct fd_snapshot_manifest_vote_account {
   ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the
-     provided vote account earned in each of the past epochs.  The
-     entry at epoch_credits[0] is for the current epoch,
-     epoch_credits[1] is for the previous epoch, and so on.  In cases of
-     booting a new chain from genesis, or for new vote accounts the
+     provided vote account earned in each recorded epoch.  Entries are
+     ordered by strictly increasing epoch: epoch_credits[0] is the
+     oldest and epoch_credits[epoch_credits_history_len-1] is the
+     newest.  Epochs with no recorded credits can be absent.  When
+     booting a new chain from genesis, or for new vote accounts, the
      epoch credits history may be short.  The maximum number of entries
      in the epoch credits history is 64. */
   ulong epoch_credits_history_len;
@@ -131,10 +132,11 @@ struct fd_snapshot_manifest_vote_stakes {
   ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the
-     provided vote account earned in each of the past epochs.  The
-     entry at epoch_credits[0] is for the current epoch,
-     epoch_credits[1] is for the previous epoch, and so on.  In cases of
-     booting a new chain from genesis, or for new vote accounts the
+     provided vote account earned in each recorded epoch.  Entries are
+     ordered by strictly increasing epoch: epoch_credits[0] is the
+     oldest and epoch_credits[epoch_credits_history_len-1] is the
+     newest.  Epochs with no recorded credits can be absent.  When
+     booting a new chain from genesis, or for new vote accounts, the
      epoch credits history may be short.  The maximum number of entries
      in the epoch credits history is 64. */
   ulong           epoch_credits_history_len;

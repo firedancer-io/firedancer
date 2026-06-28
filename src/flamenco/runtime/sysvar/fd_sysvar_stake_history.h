@@ -34,6 +34,12 @@ fd_stake_history_entry_t const *
 fd_sysvar_stake_history_query( fd_stake_history_t const * view,
                                ulong                      epoch );
 
+/* Returns 1 if the history window is contiguous by epoch, i.e.
+   entries[ i ].epoch == entries[ 0 ].epoch - i for all i.  A NULL or
+   empty view is vacuously contiguous.  O(len), len<=512. */
+int
+fd_sysvar_stake_history_is_contiguous( fd_stake_history_t const * view );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h */

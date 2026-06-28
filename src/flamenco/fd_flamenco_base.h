@@ -140,13 +140,33 @@ typedef struct fd_top_votes fd_top_votes_t;
 #define FD_EPOCH_CREDITS_MAX (64UL)
 struct fd_epoch_credits {
   uchar  pubkey[32];
-  ulong  cnt;
   ulong  base_credits;
   ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
   uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];
   uint   prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
+  uchar  cnt;
+  uchar  fast_path_ok; /* True if the entries satisfy the boundary fast path prerequisites:
+                          (1) initial[n]<=final[n], (2) initial[n]==final[n-1], and (3)
+                          epoch[n]>=epoch[n-1].  Always true for production accounts written
+                          by vote programs.  Points calculation takes the fast paths only
+                          when true and the slow reference implementation otherwise.  So
+                          synthetic fuzzer inputs fall back gracefully. */
 };
 typedef struct fd_epoch_credits fd_epoch_credits_t;
+
+FD_STATIC_ASSERT( (ulong)UCHAR_MAX>=FD_EPOCH_CREDITS_MAX, cnt_width );
+FD_STATIC_ASSERT( sizeof(fd_epoch_credits_t)==688UL, fd_epoch_credits );
+
+static inline uchar
+fd_epoch_credits_fast_path_ok( fd_epoch_credits_t const * epoch_credits ) {
+  for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
+    if( FD_UNLIKELY( epoch_credits->base_credits>ULONG_MAX-(ulong)epoch_credits->credits_delta[ i ] ) ) return 0;     /* no overflow/wrapping on any credits */
+    if( FD_UNLIKELY( epoch_credits->prev_credits_delta[ i ]>epoch_credits->credits_delta[ i ] ) ) return 0;           /* (1) */
+    if( FD_UNLIKELY( i && epoch_credits->prev_credits_delta[ i ]!=epoch_credits->credits_delta[ i-1UL ] ) ) return 0; /* (2) */
+    if( FD_UNLIKELY( i && epoch_credits->epoch[ i ]<epoch_credits->epoch[ i-1UL ] ) ) return 0;                       /* (3) */
+  }
+  return 1;
+}
 
 struct fd_stashed_commission {
   uchar  pubkey[32];
