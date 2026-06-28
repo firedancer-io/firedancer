@@ -269,6 +269,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->dne_in_root          = 0;
   stake_delegation->delta_idx            = UINT_MAX;
   stake_delegation->in_use               = 1;
+  stake_delegation->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 }
 
 static inline void
@@ -360,6 +361,8 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
       stake_delegations->effective_stake    += history.effective;
       stake_delegations->activating_stake   += history.activating;
       stake_delegations->deactivating_stake += history.deactivating;
+
+      delegation->state = fd_stake_delegation_classify( history, delegation );
     }
 
     fd_accdb_release( accdb, batch_n, accs );
@@ -414,6 +417,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->credits_observed     = credits_observed;
   stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
   stake_delegation->is_tombstone         = 0;
+  stake_delegation->state                = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 
   FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
   FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
@@ -438,6 +442,7 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
 
   stake_delegation->stake_account = *stake_account;
   stake_delegation->is_tombstone  = 1;
+  stake_delegation->state         = FD_STAKE_DELEGATION_STATE_UNKNOWN;
 
   FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
   FD_LOG_DEBUG(( "fork_remove: stake_account=%s", stake_account_out ));
@@ -506,6 +511,9 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
       stake_delegations->effective_stake    += new_acc.effective;
       stake_delegations->activating_stake   += new_acc.activating;
       stake_delegations->deactivating_stake += new_acc.deactivating;
+
+      fd_stake_delegation_t * root_ele = root_map_ele_query( get_root_map( stake_delegations ), &stake_delegation->stake_account, NULL, get_root_pool( stake_delegations ) );
+      root_ele->state = fd_stake_delegation_classify( new_acc, root_ele );
     } else {
       /* If the stake delegation in the delta is a tombstone, just
          remove the stake delegation from the root map and subtract
@@ -608,6 +616,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
       base_delegation->dne_in_root   = 1;
       base_delegation->delta_idx     = (uint)delta_pool_idx( delta_pool, delta_delegation );
       base_delegation->in_use        = 1;
+      base_delegation->state         = FD_STAKE_DELEGATION_STATE_UNKNOWN;
       root_map_ele_insert( root_map, base_delegation, root_pool );
       stake_delegations->pool_idx_wmk_ = fd_ulong_max( stake_delegations->pool_idx_wmk_, root_pool_idx( root_pool, base_delegation )+1UL );
     } else {

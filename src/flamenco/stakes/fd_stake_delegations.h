@@ -94,6 +94,12 @@ fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_
     : (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
 }
 
+#define FD_STAKE_DELEGATION_STATE_UNKNOWN ((uchar)0)
+#define FD_STAKE_DELEGATION_STATE_WARMING ((uchar)1)
+#define FD_STAKE_DELEGATION_STATE_ACTIVE  ((uchar)2)
+#define FD_STAKE_DELEGATION_STATE_COOLING ((uchar)3)
+#define FD_STAKE_DELEGATION_STATE_COOLED  ((uchar)4)
+
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
@@ -115,6 +121,7 @@ struct fd_stake_delegation {
   uchar       in_use; /* For the root pool only.  Not meaningful in the delta pool.  Set to
                          1 if this slot holds a live delegation present in the root map, 0
                          if the slot has been reclaimed. */
+  uchar       state;
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -156,6 +163,16 @@ FD_PROTOTYPES_BEGIN
 static inline double
 fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
   return warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
+}
+
+static inline uchar
+fd_stake_delegation_classify( fd_stake_history_entry_t      e,
+                              fd_stake_delegation_t const * d ) {
+  if( e.activating>0UL   ) return FD_STAKE_DELEGATION_STATE_WARMING;
+  if( e.deactivating>0UL ) return FD_STAKE_DELEGATION_STATE_COOLING;
+  if( e.effective==d->stake && d->deactivation_epoch==USHORT_MAX ) return FD_STAKE_DELEGATION_STATE_ACTIVE;
+  if( e.effective==0UL   ) return FD_STAKE_DELEGATION_STATE_COOLED;
+  return FD_STAKE_DELEGATION_STATE_UNKNOWN;
 }
 
 

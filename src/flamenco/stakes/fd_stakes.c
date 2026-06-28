@@ -386,11 +386,15 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_stake_history_entry_t new_acc = fd_stakes_activating_and_deactivating(
-        stake_delegation,
-        epoch,
-        history,
-        new_rate_activation_epoch );
+    fd_stake_history_entry_t new_acc;
+    uchar st = stake_delegation->state;
+    if( FD_LIKELY( st==FD_STAKE_DELEGATION_STATE_ACTIVE ) ) {
+      new_acc = (fd_stake_history_entry_t){ .effective = stake_delegation->stake, .activating = 0UL, .deactivating = 0UL };
+    } else if( st==FD_STAKE_DELEGATION_STATE_COOLED ) {
+      new_acc = (fd_stake_history_entry_t){ .effective = 0UL, .activating = 0UL, .deactivating = 0UL };
+    } else {
+      new_acc = fd_stakes_activating_and_deactivating( stake_delegation, epoch, history, new_rate_activation_epoch );
+    }
     total_stake        += new_acc.effective;
     total_activating   += new_acc.activating;
     total_deactivating += new_acc.deactivating;
@@ -677,11 +681,15 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
 
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_stake_history_entry_t new_acc = fd_stakes_activating_and_deactivating(
-        stake_delegation,
-        epoch,
-        history,
-        new_rate_activation_epoch );
+    fd_stake_history_entry_t new_acc;
+    uchar st = stake_delegation->state;
+    if( FD_LIKELY( st==FD_STAKE_DELEGATION_STATE_ACTIVE ) ) {
+      new_acc = (fd_stake_history_entry_t){ .effective = stake_delegation->stake, .activating = 0UL, .deactivating = 0UL };
+    } else if( st==FD_STAKE_DELEGATION_STATE_COOLED ) {
+      new_acc = (fd_stake_history_entry_t){ .effective = 0UL, .activating = 0UL, .deactivating = 0UL };
+    } else {
+      new_acc = fd_stakes_activating_and_deactivating( stake_delegation, epoch, history, new_rate_activation_epoch );
+    }
     total_stake        += new_acc.effective;
     total_activating   += new_acc.activating;
     total_deactivating += new_acc.deactivating;
