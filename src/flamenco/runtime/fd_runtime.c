@@ -557,7 +557,9 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
                               fd_runtime_stack_t * runtime_stack ) {
   long start = fd_log_wallclock();
 
+  long t_feat0 = fd_log_wallclock();
   fd_compute_and_apply_new_feature_activations( bank, accdb, runtime_stack, capture_ctx );
+  long t_feat1 = fd_log_wallclock();
 
   /* Update the cached warmup/cooldown rate epoch now that features may
      have changed (reduce_stake_warmup_cooldown may have just activated). */
@@ -568,18 +570,49 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
+  long t_fq0 = fd_log_wallclock();
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  long t_fq1 = fd_log_wallclock();
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
   }
 
+#define FD_P1INSTR 1 /* measurement-only; must match fd_accdb.c. REMOVE with the meter. */
+#if FD_P1INSTR
+  extern ulong g_accdb_read_cnt; extern long g_accdb_read_ticks; extern long g_accdb_read_max_ticks;
+  g_accdb_read_cnt = 0UL; g_accdb_read_ticks = 0L; g_accdb_read_max_ticks = 0L;
+  fd_accdb_metrics_t const * _p1m = fd_accdb_metrics( accdb );
+  ulong _m_acq0=_p1m->acquire_calls, _m_rop0=_p1m->read_ops,   _m_rby0=_p1m->bytes_read,
+        _m_wop0=_p1m->write_ops,     _m_ev0 =_p1m->accounts_evicted, _m_wait0=_p1m->accounts_waited,
+        _m_af0 =_p1m->acquire_failed;
+  long t_sae_tk0 = (long)fd_tickcount();
+#endif
+  long t_sae0 = fd_log_wallclock();
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, capture_ctx, stake_delegations,
                             &bank->f.warmup_cooldown_rate_epoch );
+  long t_sae1 = fd_log_wallclock();
+#if FD_P1INSTR
+  long   t_sae_tk1 = (long)fd_tickcount();
+  double _p1_nspt  = (double)(t_sae1-t_sae0) / (double)fd_long_max( t_sae_tk1-t_sae_tk0, 1L ); /* ns per tick */
+  long   _p1_rd_us  = (long)( (double)g_accdb_read_ticks     * _p1_nspt / 1000.0 );
+  long   _p1_max_us = (long)( (double)g_accdb_read_max_ticks * _p1_nspt / 1000.0 );
+  FD_LOG_NOTICE(( "EPOCHBND-P1INSTR p1_us=%ld accdb_read_us=%ld nonread_us=%ld accdb_reads=%lu avg_read_ns=%ld max_read_us=%ld",
+                  (t_sae1-t_sae0)/1000L, _p1_rd_us, (t_sae1-t_sae0)/1000L - _p1_rd_us, g_accdb_read_cnt,
+                  g_accdb_read_cnt ? (long)((double)g_accdb_read_ticks*_p1_nspt/(double)g_accdb_read_cnt) : 0L,
+                  _p1_max_us ));
+  FD_LOG_NOTICE(( "EPOCHBND-P1ACCDB vote_accounts=%lu acquires=%lu disk_read_ops=%lu disk_read_mib=%.1f write_ops=%lu evicted=%lu waited=%lu acquire_failed=%lu",
+                  *fd_bank_epoch_credits_len( bank ),
+                  _p1m->acquire_calls-_m_acq0, _p1m->read_ops-_m_rop0,
+                  (double)(_p1m->bytes_read-_m_rby0)/1048576.0, _p1m->write_ops-_m_wop0,
+                  _p1m->accounts_evicted-_m_ev0, _p1m->accounts_waited-_m_wait0,
+                  _p1m->acquire_failed-_m_af0 ));
+#endif
 
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
 
   fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  long t_bpr0 = fd_log_wallclock();
   fd_begin_partitioned_rewards( bank,
                                 accdb,
                                 runtime_stack,
@@ -587,8 +620,11 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
                                 stake_delegations,
                                 parent_blockhash,
                                 parent_epoch );
+  long t_bpr1 = fd_log_wallclock();
 
+  long t_efq0 = fd_log_wallclock();
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
+  long t_efq1 = fd_log_wallclock();
 
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule
@@ -603,9 +639,21 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
      leader schedule for the upcoming epoch epoch using our new
      vote_states_prev_prev (stakes for T-2). */
 
+  long t_ls0 = fd_log_wallclock();
   fd_runtime_update_leaders( bank, runtime_stack );
+  long t_ls1 = fd_log_wallclock();
 
   long end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "EPOCHBND-FD-timing epoch=%lu slot=%lu total_us=%ld feature_activations_us=%ld frontier_query_mark_us=%ld stakes_activate_epoch_us=%ld begin_partitioned_rewards_us=%ld frontier_query_unmark_us=%ld update_leaders_us=%ld stake_rewards_cnt=%lu",
+                  bank->f.epoch, bank->f.slot,
+                  (end-start)/1000L,
+                  (t_feat1-t_feat0)/1000L,
+                  (t_fq1-t_fq0)/1000L,
+                  (t_sae1-t_sae0)/1000L,
+                  (t_bpr1-t_bpr0)/1000L,
+                  (t_efq1-t_efq0)/1000L,
+                  (t_ls1-t_ls0)/1000L,
+                  runtime_stack->stakes.stake_rewards_cnt ));
   FD_LOG_NOTICE(( "starting epoch %lu at slot %lu took %.6f seconds", bank->f.epoch, bank->f.slot, (double)(end - start) / 1e9 ));
 }
 
@@ -637,7 +685,10 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *         banks,
       *is_epoch_boundary = 0;
     }
 
+    long t_dist0 = fd_log_wallclock();
     fd_distribute_partitioned_epoch_rewards( bank, accdb, capture_ctx );
+    long t_dist1 = fd_log_wallclock();
+    FD_LOG_NOTICE(( "EPOCHBND-FD-distribute slot=%lu distribute_partition_us=%ld", bank->f.slot, (t_dist1-t_dist0)/1000L ));
   } else {
     *is_epoch_boundary = 0;
   }

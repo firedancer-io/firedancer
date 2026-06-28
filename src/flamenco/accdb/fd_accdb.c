@@ -3243,12 +3243,30 @@ fd_accdb_release_ab( fd_accdb_t * accdb,
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
 }
 
+/* ===== FD_P1INSTR: measurement-only read meter. REMOVE. ===== */
+#define FD_P1INSTR 1
+#if FD_P1INSTR
+ulong g_accdb_read_cnt       = 0UL;  /* # fd_accdb_read_one calls since last reset    */
+long  g_accdb_read_ticks     = 0L;   /* sum of fd_tickcount deltas across those calls */
+long  g_accdb_read_max_ticks = 0L;   /* slowest single read (exposes blocking)        */
+#endif
+/* ============================================================ */
+
 fd_acc_t
 fd_accdb_read_one( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey ) {
   fd_acc_t acc;
+#if FD_P1INSTR
+  long _p1_t0 = (long)fd_tickcount();
+#endif
   fd_accdb_acquire( accdb, fork_id, 1UL, &pubkey, (int[]){0}, &acc );
+#if FD_P1INSTR
+  long _p1_d = (long)fd_tickcount() - _p1_t0;
+  g_accdb_read_ticks += _p1_d;
+  if( _p1_d > g_accdb_read_max_ticks ) g_accdb_read_max_ticks = _p1_d;
+  g_accdb_read_cnt++;
+#endif
   return acc;
 }
 
