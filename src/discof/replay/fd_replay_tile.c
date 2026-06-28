@@ -38,6 +38,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
@@ -791,6 +792,12 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+  /* Despite claims like https://github.com/solana-program/stake/pull/81
+     that the stake history sysvar is contiguous, testnet has in fact
+     had a gap at epoch 386. */
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
+    FD_LOG_INFO(( "stake history sysvar (covering epoch %lu to %lu over %lu entries) is not contiguous; some fast paths will be disabled", stake_history->entries[ 0 ].epoch, stake_history->entries[ stake_history->len-1UL ].epoch, stake_history->len ));
+  }
   fd_stake_delegations_refresh(
       root_delegations,
       bank->f.epoch,
