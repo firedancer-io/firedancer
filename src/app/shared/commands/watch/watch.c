@@ -913,18 +913,23 @@ write_gossip( config_t const * config,
 static uint
 write_repair( config_t const * config,
               ulong const *    cur_tile,
+              ulong const *    prev_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
   if( repair_tile_idx==ULONG_MAX ) return 0U;
   ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
+  long repair_rx_bytes =
+      diff_link( config, "net_repair", prev_link, cur_link, MIDX( COUNTER, LINK, FRAG_CONSUMED_BYTES ) ) +
+      diff_tile( config, "shred", prev_tile, cur_tile, MIDX( COUNTER, SHRED, SHRED_REPAIR_RX_BYTES ) );
+  char * repair_rx_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, repair_rx_bytes );
   PRINT( "🧱 " BOLD RED "REPAIR......" RESET UNBOLD
          " " BOLD "RX"            UNBOLD " %s"
          " " BOLD "TX"            UNBOLD " %s"
          " " BOLD "REPAIR SLOT"   UNBOLD " %lu (%02ld)"
          " " BOLD "TURBINE SLOT"  UNBOLD " %lu" CLEARLN "\n",
-    DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
+    repair_rx_str,
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     repair_slot,
     (long)repair_slot-(long)turbine_slot,
@@ -1333,7 +1338,7 @@ write_summary( config_t const *           config,
   lines_printed += write_accdb( config, cur_tile, prev_tile );
   lines_printed += write_wfs( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
-  lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
+  lines_printed += write_repair( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_rserve( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
   lines_printed += write_gui( config, cur_tile, prev_tile );
