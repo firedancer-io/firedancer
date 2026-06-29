@@ -42,6 +42,16 @@ fd_aggsig_sign_bytes( fd_aggsig_sig_t *      sig,
   blst_p2_affine_serialize( sig->v, a );     /* 192B uncompressed affine G2 */
 }
 
+void
+fd_aggsig_sk_derive( fd_aggsig_sk_t * sk,
+                     uchar const *    ikm,
+                     ulong            ikm_sz ) {
+  FD_TEST( ikm_sz>=32UL ); /* blst_keygen requires IKM >= 32 bytes */
+  blst_scalar scalar[1];
+  blst_keygen( scalar, ikm, ikm_sz, NULL, 0UL );        /* BLS12-381 KeyGen (salted HKDF) */
+  fd_memcpy( sk->v, scalar->b, FD_AGGSIG_SECKEY_SZ );   /* 32B little-endian scalar */
+}
+
 int
 fd_aggsig_individual_verify_bytes( fd_aggsig_sig_t const * sig,
                                    fd_aggsig_pk_t const *  pk,
@@ -85,6 +95,20 @@ fd_aggsig_sign_bytes( fd_aggsig_sig_t *      sig,
                       uchar const *          msg,
                       ulong                  msg_sz ) {
   stub_fill( sig->v, sk->v, msg, msg_sz );
+}
+
+void
+fd_aggsig_sk_derive( fd_aggsig_sk_t * sk,
+                     uchar const *    ikm,
+                     ulong            ikm_sz ) {
+  /* STUB: deterministic, non-cryptographic fold of ikm into the 32-byte key. */
+  FD_TEST( ikm_sz>=32UL );
+  ulong acc = 0x9e3779b97f4a7c15UL;
+  for( ulong i=0UL; i<ikm_sz; i++ ) acc = acc*1099511628211UL ^ (ulong)ikm[i];
+  for( ulong i=0UL; i<FD_AGGSIG_SECKEY_SZ; i++ ) {
+    acc = acc*6364136223846793005UL + 1442695040888963407UL;
+    sk->v[i] = (uchar)( acc >> 56 );
+  }
 }
 
 int

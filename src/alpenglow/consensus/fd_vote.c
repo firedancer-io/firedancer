@@ -107,3 +107,31 @@ fd_vote_check_sig( fd_vote_t const * v, fd_aggsig_pk_t const * pk ) {
   }
   return fd_aggsig_individual_verify_bytes( sig, pk, buf, sz );
 }
+
+ulong
+fd_vote_serialize( fd_vote_t const * v,
+                   uchar *           out,
+                   ulong             out_max ) {
+  ulong                   slot = fd_vote_slot( v );
+  fd_hash_t const *       hash = fd_vote_block_hash( v ); /* NULL for skip/skip-fb/final */
+  fd_aggsig_sig_t const * sig;
+  switch( v->discriminant ) {
+  case FD_VOTE_TYPE_NOTAR:          sig = &v->inner.notar.sig;          break;
+  case FD_VOTE_TYPE_NOTAR_FALLBACK: sig = &v->inner.notar_fallback.sig; break;
+  case FD_VOTE_TYPE_SKIP:           sig = &v->inner.skip.sig;           break;
+  case FD_VOTE_TYPE_SKIP_FALLBACK:  sig = &v->inner.skip_fallback.sig;  break;
+  default:                          sig = &v->inner.final_.sig;         break;
+  }
+
+  ulong vote_sz = 4UL + 8UL + ( hash ? sizeof(fd_hash_t) : 0UL ); /* Vote tag + slot [+ block_id] */
+  ulong sz      = 4UL + vote_sz + FD_AGGSIG_SIG_SZ + 2UL;
+  if( FD_UNLIKELY( out_max<sz ) ) return 0UL;
+
+  ulong off = 0UL;
+  FD_STORE( uint, out+off, 0U /* see fd_votor.h FD_CONSENSUS_MESSAGE_VOTE */ ); off += 4UL;
+  off += fd_vote_payload_bytes_to_sign( out+off, v->discriminant, slot, hash ); /* VoteMessage.vote */
+  fd_memcpy( out+off, sig->v, FD_AGGSIG_SIG_SZ ); off += FD_AGGSIG_SIG_SZ;       /* VoteMessage.signature */
+  FD_STORE( ushort, out+off, fd_vote_signer( v ) ); off += 2UL;                  /* VoteMessage.rank      */
+  FD_TEST( off==sz );
+  return off;
+}

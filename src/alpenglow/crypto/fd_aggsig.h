@@ -79,6 +79,17 @@ void
 fd_aggsig_sk_to_pk( fd_aggsig_pk_t *       pk,
                     fd_aggsig_sk_t const * sk );
 
+/* fd_aggsig_sk_derive derives a BLS secret key from input key material (ikm)
+   via the BLS12-381 KeyGen (blst_keygen). ikm_sz must be >= 32.
+   the resulting 32-byte scalar is written into sk.
+
+   STUB (no blst): a deterministic, non-cryptographic fill of sk from ikm. */
+
+void
+fd_aggsig_sk_derive( fd_aggsig_sk_t * sk,
+                     uchar const *    ikm,
+                     ulong            ikm_sz );
+
 /* fd_aggsig_sign_bytes signs msg[0,msg_sz) with sk, writing the individual
    signature into sig.  Mirrors SecretKey::sign_bytes.
    STUB: deterministic, not a real BLS signature. */

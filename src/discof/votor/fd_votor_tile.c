@@ -847,7 +847,22 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
     if( FD_UNLIKELY( !memcmp( stakes[src].id_key.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) ) ) ) {
       own_id      = r;
       have_own_id = 1;
-      memcpy( ctx->voting_key->v, stakes[src].id_key.uc, fd_ulong_min( sizeof(ctx->voting_key->v), sizeof(fd_pubkey_t) ) );
+      /* voting_key is the real BLS secret derived once in privileged_init (do
+         NOT overwrite it here).  Sanity check: the pubkey it derives to must
+         equal the on-chain registered BLS pubkey for our vote account (just
+         decompressed into vi->voting_pubkey).  A mismatch means our votes will
+         silently fail signature verification, so shout about it. */
+      fd_aggsig_pk_t derived[1];
+      fd_aggsig_sk_to_pk( derived, ctx->voting_key );
+      if( FD_UNLIKELY( memcmp( derived->v, vi->voting_pubkey.v, FD_AGGSIG_PUBKEY_SZ ) ) ) {
+        FD_LOG_WARNING(( "BLS KEY MISMATCH: derived voting pubkey != on-chain registered key "
+                         "(epoch %lu, rank %u) -- our votes will NOT verify; check the "
+                         "authorized-voter keypair matches the vote account's BLS registration",
+                         msg->epoch, (uint)r ));
+      } else {
+        FD_LOG_NOTICE(( "BLS voting key OK: derived pubkey matches on-chain registration (epoch %lu, rank %u)",
+                        msg->epoch, (uint)r ));
+      }
     }
   }
 
@@ -1301,14 +1316,26 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 
   if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.identity_key, /* pubkey only: */ 1 ) );
 
-  /* Alpenglow uses a single BLS voting key.  TODO: load the real BLS voting
-     secret key from configuration.  For now derive a deterministic
-     placeholder from the identity key so init_choreo can format the votor. */
+  /* Alpenglow BLS voting key.  Derived:
+       ikm    = ed25519_sign( key, "bls-key-derive-" || "alpenglow" )  (64B)
+       bls_sk = blst_keygen( ikm )
+     The correct source is the vote account's authorized-voter
+     keypair. TODO: switch to the authorized-voter keypair (via the sign tile?). */
+
+  uchar const * id_kp = fd_keyload_load( tile->tower.identity_key, /* pubkey only: */ 0 );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( id_kp + 32UL );
+
+  static char const derive_msg[] = "bls-key-derive-alpenglow"; /* "bls-key-derive-" || BLS_KEYPAIR_DERIVE_SEED */
+  uchar         ikm[ 64 ];
+  fd_sha512_t   _sha[1];
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL,
+                   id_kp+32UL /* pubkey */, id_kp /* private */, sha );
+  fd_sha512_leave( sha );
 
   memset( ctx->voting_key, 0, sizeof(ctx->voting_key) );
-  memcpy( ctx->voting_key->v, ctx->identity_key->uc, fd_ulong_min( sizeof(ctx->voting_key->v), sizeof(fd_pubkey_t) ) );
+  fd_aggsig_sk_derive( ctx->voting_key, ikm, sizeof(ikm) );
 
   /* fd_quic_service / fd_log_wallclock virtualizes clock_gettime via the
      vDSO, whose first call mmaps shared memory; force that before the

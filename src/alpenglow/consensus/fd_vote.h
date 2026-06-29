@@ -82,6 +82,12 @@ typedef struct fd_vote fd_vote_t;
 
 #define FD_VOTE_PAYLOAD_MAX (44UL)
 
+/* Maximum size of a serialized Vote ConsensusMessage:
+   4 (ConsensusMessage tag) + VoteMessage = vote (<=FD_VOTE_PAYLOAD_MAX)
+   + 192 (BLSSignature) + 2 (rank). */
+
+#define FD_VOTE_SERIALIZED_MAX (4UL + FD_VOTE_PAYLOAD_MAX + FD_AGGSIG_SIG_SZ + 2UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_vote_payload_bytes_to_sign encodes the bytes a vote of the given kind
@@ -122,6 +128,23 @@ void fd_vote_new_final         ( fd_vote_t * out, ulong slot,                   
    (Vote::check_sig). */
 
 int fd_vote_check_sig( fd_vote_t const * v, fd_aggsig_pk_t const * pk );
+
+/* fd_vote_serialize serializes vote v into out[0,out_max) and
+   returns the number of bytes written, or 0 on failure (out too small).  The
+   layout mirrors votor-messages consensus_message.rs / vote.rs:
+
+     u32 LE  ConsensusMessage tag (0 = Vote)
+     <Vote>  u32 LE Vote tag + payload (u64 LE slot [, 32B block_id]) -- the
+             same bytes the vote signs (fd_vote_payload_bytes_to_sign)
+     192 B   BLSSignature (uncompressed affine G2, copied verbatim, already signed)
+     u16 LE  rank (the signer's epoch rank; taken from v's signer field)
+
+   out_max should be >= FD_VOTE_SERIALIZED_MAX. */
+
+ulong
+fd_vote_serialize( fd_vote_t const * v,
+                   uchar *           out,
+                   ulong             out_max );
 
 /* Accessors (Vote::slot / signer / block_hash). */
 

@@ -168,6 +168,32 @@ test_roundtrip( void ) {
   FD_LOG_NOTICE(( "blst aggsig round trip pass" ));
 }
 
+/* test_derive: fd_aggsig_sk_derive is deterministic, distinct ikm -> distinct
+   key, and a derived key signs + verifies end to end (Agave parity: ikm is the
+   64-byte Ed25519 signature over "bls-key-derive-alpenglow"). */
+
+static void
+test_derive( void ) {
+  uchar ikm_a[64]; for( ulong i=0UL; i<64UL; i++ ) ikm_a[i] = (uchar)(i*7u+1u);
+  uchar ikm_b[64]; for( ulong i=0UL; i<64UL; i++ ) ikm_b[i] = (uchar)(i*7u+2u);
+
+  fd_aggsig_sk_t sk_a[1], sk_a2[1], sk_b[1];
+  fd_aggsig_sk_derive( sk_a,  ikm_a, sizeof(ikm_a) );
+  fd_aggsig_sk_derive( sk_a2, ikm_a, sizeof(ikm_a) );
+  fd_aggsig_sk_derive( sk_b,  ikm_b, sizeof(ikm_b) );
+
+  FD_TEST(  !memcmp( sk_a->v, sk_a2->v, FD_AGGSIG_SECKEY_SZ ) ); /* deterministic */
+  FD_TEST(   memcmp( sk_a->v, sk_b->v,  FD_AGGSIG_SECKEY_SZ ) ); /* ikm-dependent */
+
+  fd_aggsig_pk_t  pk[1]; fd_aggsig_sk_to_pk( pk, sk_a );
+  uchar const *   msg = (uchar const *)"derived key vote";
+  ulong           msg_sz = 16UL;
+  fd_aggsig_sig_t sig[1]; fd_aggsig_sign_bytes( sig, sk_a, msg, msg_sz );
+  FD_TEST( fd_aggsig_individual_verify_bytes( sig, pk, msg, msg_sz ) );
+
+  FD_LOG_NOTICE(( "aggsig derive round trip pass" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -180,6 +206,7 @@ main( int     argc,
   //test_incremental();
   //test_serde();
   test_roundtrip();
+  test_derive();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
