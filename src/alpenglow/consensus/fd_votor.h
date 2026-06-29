@@ -129,7 +129,7 @@ struct fd_votor_pool_event {
   uint discriminant; /* FD_VOTOR_POOL_EVENT_* */
   union {
     struct { ulong slot; fd_block_id_t parent; }     parent_ready;  /* ParentReady */
-    fd_block_id_t                                     safe_to_notar; /* SafeToNotar */
+    fd_block_id_t                                    safe_to_notar; /* SafeToNotar */
     ulong                                            safe_to_skip;  /* SafeToSkip  */
     fd_cert_t                                        cert_created;  /* CertCreated */
     struct {
@@ -231,8 +231,7 @@ fd_votor_footprint( ulong slot_max );
 
 /* fd_votor_new formats an unused memory region for use as a votor.  shmem is a
    non-NULL pointer to this region in the local address space with the required
-   footprint and alignment.  validator_index is our own ValidatorIndex,
-   voting_key our BLS secret key used to sign votes, and seed the map hash
+   footprint and alignment. voting_key our BLS secret key used to sign votes, and seed the map hash
    seed.  Pre-populates the dummy genesis block's SlotState and emits the
    genesis window's timeouts into out (mirroring Votor::new, which calls
    set_timeouts(0)).  Returns shmem on success and NULL on failure (logs). */
@@ -240,7 +239,6 @@ fd_votor_footprint( ulong slot_max );
 void *
 fd_votor_new( void *                 shmem,
               ulong                  slot_max,
-              ushort                 validator_index,
               fd_aggsig_sk_t const * voting_key,
               ulong                  seed,
               fd_votor_out_t *       out );
@@ -264,11 +262,6 @@ void *
 fd_votor_delete( void * shvotor );
 
 /* Accessors */
-
-/* fd_votor_validator_index returns our own ValidatorIndex. */
-
-FD_FN_PURE ulong
-fd_votor_validator_index( fd_votor_t const * votor );
 
 /* fd_votor_highest_final_cert_slot returns the highest slot for which we have
    seen a (slow) final or fast-final cert (Votor::highest_final_cert_slot). */

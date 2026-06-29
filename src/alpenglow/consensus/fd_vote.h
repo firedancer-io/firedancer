@@ -170,6 +170,22 @@ fd_vote_signer( fd_vote_t const * v ) {
   }
 }
 
+/* fd_vote_set_signer stamps the signer (epoch rank) into the vote.  The signer
+   is not covered by the signature (which signs only kind/slot/block_hash), so
+   it may be set after the vote is constructed/signed -- the votor leaves it
+   unset and the tile fills it in per the vote's slot epoch before broadcast. */
+
+static inline void
+fd_vote_set_signer( fd_vote_t * v, ushort signer ) {
+  switch( v->discriminant ) {
+  case FD_VOTE_TYPE_NOTAR:          v->inner.notar.signer          = signer; break;
+  case FD_VOTE_TYPE_NOTAR_FALLBACK: v->inner.notar_fallback.signer = signer; break;
+  case FD_VOTE_TYPE_SKIP:           v->inner.skip.signer           = signer; break;
+  case FD_VOTE_TYPE_SKIP_FALLBACK:  v->inner.skip_fallback.signer  = signer; break;
+  default:                          v->inner.final_.signer         = signer; break;
+  }
+}
+
 /* fd_vote_block_hash returns a pointer to the vote's block hash, or NULL for
    skip / skip-fallback / final votes (Vote::block_hash). */
 

@@ -112,12 +112,10 @@ struct __attribute__((aligned(128UL))) fd_pool {
 
   ulong slot_max;       /* capacity of the slot_state arena / slotent pool */
   ulong validator_max;  /* per-slot validator capacity                     */
-  ulong own_id;         /* our ValidatorIndex (epoch_info.own_id)          */
   ulong seed;           /* seed used to (re)format slot_state regions      */
   ulong ss_footprint;   /* per-region fd_slot_state footprint              */
 
   /* gaddrs of bump-allocated regions */
-  ulong epoch_info_gaddr;   /* embedded fd_epoch_info_t                  */
   ulong ss_arena_gaddr;     /* slot_state arena: slot_max regions        */
   ulong slotent_pool_gaddr;
   ulong slotent_map_gaddr;
@@ -135,7 +133,6 @@ pool_wksp( fd_pool_t const * pool ) {
   return (fd_wksp_t *)( ((ulong)pool) - pool->wksp_gaddr );
 }
 
-static inline fd_epoch_info_t * epoch_info( fd_pool_t const * pool ) { return (fd_epoch_info_t *)fd_wksp_laddr_fast( pool_wksp( pool ), pool->epoch_info_gaddr ); }
 static inline slotent_pool_t *  slotent_pool( fd_pool_t const * pool ) { return (slotent_pool_t *)fd_wksp_laddr_fast( pool_wksp( pool ), pool->slotent_pool_gaddr ); }
 static inline slotent_map_t *   slotent_map ( fd_pool_t const * pool ) { return (slotent_map_t  *)fd_wksp_laddr_fast( pool_wksp( pool ), pool->slotent_map_gaddr  ); }
 static inline s2nent_pool_t *   s2n_pool    ( fd_pool_t const * pool ) { return (s2nent_pool_t  *)fd_wksp_laddr_fast( pool_wksp( pool ), pool->s2n_pool_gaddr     ); }
@@ -190,10 +187,8 @@ fd_pool_footprint( ulong slot_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_pool_t),                sizeof(fd_pool_t)                                      ),
-      fd_epoch_info_align(),             fd_epoch_info_footprint( validator_max )               ),
       fd_slot_state_align(),             ss_fp*slot_max                                         ),
       slotent_pool_align(),              slotent_pool_footprint( se_max )                       ),
       slotent_map_align(),               slotent_map_footprint ( se_chain )                     ),
@@ -209,9 +204,6 @@ fd_pool_new( void *                      mem,
              ulong                       slot_max,
              ulong                       validator_max,
              ulong                       blockid_max,
-             ulong                       own_id,
-             fd_validator_info_t const * validators,
-             ulong                       validator_cnt,
              ulong                       seed,
              ulong                       root_slot,
              fd_hash_t const *           root_block_hash ) {
@@ -227,10 +219,6 @@ fd_pool_new( void *                      mem,
   ulong footprint = fd_pool_footprint( slot_max, validator_max, blockid_max );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad slot_max/validator_max/blockid_max (%lu/%lu/%lu)", slot_max, validator_max, blockid_max ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( validator_cnt>validator_max ) ) {
-    FD_LOG_WARNING(( "validator_cnt (%lu) > validator_max (%lu)", validator_cnt, validator_max ));
     return NULL;
   }
   fd_wksp_t * wksp = fd_wksp_containing( mem );
@@ -249,7 +237,6 @@ fd_pool_new( void *                      mem,
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_pool_t * pool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pool_t),              sizeof(fd_pool_t)                                      );
-  void *      ei_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(),           fd_epoch_info_footprint( validator_max )               );
   void *      ss_arena     = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_state_align(),           ss_fp*slot_max                                         );
   void *      se_pool      = FD_SCRATCH_ALLOC_APPEND( l, slotent_pool_align(),            slotent_pool_footprint( se_max )                       );
   void *      se_map       = FD_SCRATCH_ALLOC_APPEND( l, slotent_map_align(),             slotent_map_footprint ( se_chain )                     );
@@ -262,12 +249,8 @@ fd_pool_new( void *                      mem,
   pool->wksp_gaddr    = fd_wksp_gaddr_fast( wksp, pool );
   pool->slot_max      = slot_max;
   pool->validator_max = validator_max;
-  pool->own_id        = own_id;
   pool->seed          = seed;
   pool->ss_footprint  = ss_fp;
-
-  /* embed the epoch info (copies the validator array) */
-  pool->epoch_info_gaddr = fd_wksp_gaddr_fast( wksp, fd_epoch_info_new( ei_mem, validators, validator_cnt ) );
 
   pool->ss_arena_gaddr     = fd_wksp_gaddr_fast( wksp, ss_arena );
   pool->slotent_pool_gaddr = fd_wksp_gaddr_fast( wksp, slotent_pool_join( slotent_pool_new( se_pool, se_max          ) ) );
@@ -340,7 +323,7 @@ slotent_query_const( fd_pool_t const * pool, ulong slot ) {
    PoolImpl::slot_state.  Returns NULL only if the slotent pool is exhausted. */
 
 static fd_slot_state_t *
-get_slot_state( fd_pool_t * pool, ulong slot ) {
+get_slot_state( fd_pool_t * pool, ulong slot, fd_validator_epoch_info_t const * ei ) {
   slotent_t * e = slotent_query( pool, slot );
   if( FD_LIKELY( e ) ) return slotent_ss( pool, e );
 
@@ -357,7 +340,7 @@ get_slot_state( fd_pool_t * pool, ulong slot ) {
 
   void * region = slot_state_region( pool, idx );
   e->ss_gaddr = fd_wksp_gaddr_fast( pool_wksp( pool ),
-                                    fd_slot_state_new( region, slot, pool->own_id, pool->validator_max, pool->seed ) );
+                                    fd_slot_state_new( region, slot, ei->own_id, pool->validator_max, pool->seed ) );
   slotent_map_ele_insert( slotent_map( pool ), e, slotent_pool( pool ) );
   return slotent_ss( pool, e );
 }
@@ -490,10 +473,10 @@ prune( fd_pool_t * pool ) {
   /* drop slot_states for slots < first_unpruned.  Repeated scan-and-remove
      since iteration must not run alongside removes. */
   for(;;) {
-    int      found    = 0;
-    ulong    drop_slot = 0UL;
-    slotent_map_t  *  map  = slotent_map ( pool );
-    slotent_pool_t *  spl  = slotent_pool( pool );
+    int   found     = 0;
+    ulong drop_slot = 0UL;
+    slotent_map_t  * map = slotent_map ( pool );
+    slotent_pool_t * spl = slotent_pool( pool );
     for( slotent_map_iter_t it = slotent_map_iter_init( map, spl );
          !slotent_map_iter_done( it, map, spl );
          it = slotent_map_iter_next( it, map, spl ) ) {
@@ -540,12 +523,13 @@ handle_finalization( fd_pool_t *                     pool,
    FD_POOL_SUCCESS, or FD_POOL_ERR_FULL if slot_state allocation fails. */
 
 static int
-add_valid_cert( fd_pool_t *       pool,
-                fd_cert_t const * cert,
-                fd_pool_out_t *   out ) {
+add_valid_cert( fd_pool_t *                       pool,
+                fd_cert_t const *                 cert,
+                fd_validator_epoch_info_t const * ei,
+                fd_pool_out_t *                   out ) {
   ulong slot = fd_cert_slot( cert );
 
-  fd_slot_state_t * ss = get_slot_state( pool, slot );
+  fd_slot_state_t * ss = get_slot_state( pool, slot, ei );
   if( FD_UNLIKELY( !ss ) ) return FD_POOL_ERR_FULL;
   fd_slot_state_add_cert( ss, cert );
 
@@ -572,9 +556,9 @@ add_valid_cert( fd_pool_t *       pool,
       s2nent_map_ele_remove( s2n_map( pool ), &block_id, NULL, s2n_pool( pool ) );
       s2nent_pool_ele_release( s2n_pool( pool ), waiting );
 
-      fd_slot_state_t * child_ss = get_slot_state( pool, child.slot );
+      fd_slot_state_t * child_ss = get_slot_state( pool, child.slot, ei );
       if( FD_UNLIKELY( !child_ss ) ) return FD_POOL_ERR_FULL;
-      fd_notify_parent_result_t r = fd_slot_state_notify_parent_certified( child_ss, &child.hash, epoch_info( pool ) );
+      fd_notify_parent_result_t r = fd_slot_state_notify_parent_certified( child_ss, &child.hash, ei->epoch );
       if( r.kind==FD_NOTIFY_PARENT_EVENT ) {
         out_push_safe_to_notar( out, &r.inner.event.block );
       } else if( r.kind==FD_NOTIFY_PARENT_REPAIR ) {
@@ -630,14 +614,14 @@ add_valid_cert( fd_pool_t *       pool,
    add_cert (PoolImpl::add_cert). */
 
 int
-fd_pool_add_cert( fd_pool_t *             pool,
-                  fd_cert_t       const * cert,
-                  fd_epoch_info_t const * epoch_info,
-                  fd_pool_out_t *         out ) {
+fd_pool_add_cert( fd_pool_t *                       pool,
+                  fd_cert_t       const *           cert,
+                  fd_validator_epoch_info_t const * ei,
+                  fd_pool_out_t *                   out ) {
   ulong slot = fd_cert_slot( cert );
 
   /* check if the certificate is a duplicate */
-  fd_slot_state_t * ss = get_slot_state( pool, slot );
+  fd_slot_state_t * ss = get_slot_state( pool, slot, ei );
   if( FD_UNLIKELY( !ss ) ) return FD_POOL_ERR_FULL;
   int duplicate = 0;
   switch( cert->discriminant ) {
@@ -656,21 +640,22 @@ fd_pool_add_cert( fd_pool_t *             pool,
   if( FD_UNLIKELY( slot < fd_pool_first_unpruned_slot( pool ) || slot >= slot_far_in_future ) ) return FD_POOL_ERR_SLOT_OUT_OF_BOUNDS;
 
   /* verify stake threshold & signature */
-  if( FD_UNLIKELY( !fd_cert_check_threshold( cert, epoch_info ) ) ) return FD_POOL_ERR_THRESHOLD_NOT_MET;
+  if( FD_UNLIKELY( !fd_cert_check_threshold( cert, ei->epoch ) ) ) return FD_POOL_ERR_THRESHOLD_NOT_MET;
 
-  if( FD_UNLIKELY( !fd_cert_check_sig( cert, epoch_info ) ) ) return FD_POOL_ERR_INVALID_SIGNATURE;
+  if( FD_UNLIKELY( !fd_cert_check_sig( cert, ei->epoch ) ) ) return FD_POOL_ERR_INVALID_SIGNATURE;
 
-  return add_valid_cert( pool, cert, out );
+  return add_valid_cert( pool, cert, ei, out );
 }
 
 /* ---------------------------------------------------------------------------
    add_vote (PoolImpl::add_vote). */
 
 int
-fd_pool_add_vote( fd_pool_t *              pool,
-                  fd_vote_t const *        vote,
-                  fd_pool_out_t *          out,
-                  fd_slashable_offence_t * out_offence ) {
+fd_pool_add_vote( fd_pool_t *                       pool,
+                  fd_vote_t const *                 vote,
+                  fd_validator_epoch_info_t const * ei,
+                  fd_pool_out_t *                   out,
+                  fd_slashable_offence_t *          out_offence ) {
   ulong slot = fd_vote_slot( vote );
 
   /* ignore old and far-in-the-future votes */
@@ -680,21 +665,20 @@ fd_pool_add_vote( fd_pool_t *              pool,
   }
 
   /* reject votes from validators outside the current epoch's set */
-  fd_epoch_info_t const * ei    = epoch_info( pool );
-  ulong                   signer = fd_vote_signer( vote );
-  if( signer >= ei->validator_cnt ) {
+  ulong signer = fd_vote_signer( vote );
+  if( signer >= ei->epoch->validator_cnt ) {
     return FD_POOL_ERR_UNKNOWN_SIGNER;
   }
 
   /* verify signature */
-  fd_validator_info_t const * v = fd_epoch_info_validator( ei, signer );
+  fd_validator_info_t const * v = fd_epoch_info_validator( ei->epoch, signer );
   if( !fd_vote_check_sig( vote, &v->voting_pubkey ) ) {
     return FD_POOL_ERR_INVALID_SIGNATURE;
   }
 
   ulong voter_stake = v->stake;
 
-  fd_slot_state_t * ss = get_slot_state( pool, slot );
+  fd_slot_state_t * ss = get_slot_state( pool, slot, ei );
   if( FD_UNLIKELY( !ss ) ) return FD_POOL_ERR_FULL;
 
   /* slashable / duplicate checks (slashable first, per Rust) */
@@ -716,10 +700,10 @@ fd_pool_add_vote( fd_pool_t *              pool,
   so.events  = events_buf;  so.events_cnt  = 0UL; so.events_max  = 16UL;
   so.repairs = repairs_buf; so.repairs_cnt = 0UL; so.repairs_max = 16UL;
 
-  fd_slot_state_add_vote( ss, vote, voter_stake, ei, &so );
+  fd_slot_state_add_vote( ss, vote, voter_stake, ei->epoch, &so );
 
   /* record own votes for standstill recovery */
-  if( signer==pool->own_id ) {
+  if( signer==ei->own_id ) {
     slotent_record_own_vote( slotent_query( pool, slot ), vote );
   }
 
@@ -733,7 +717,8 @@ fd_pool_add_vote( fd_pool_t *              pool,
     out_push_repair( out, &so.repairs[i] );
   }
   for( ulong i=0UL; i<so.certs_cnt; i++ ) {
-    int err = add_valid_cert( pool, &so.certs[i], out );
+    int err = add_valid_cert( pool, &so.certs[i], ei, out );
+    //FD_LOG_NOTICE(("add_vote CAUSED CERT GENERATION! slot %lu, signer %lu, voter_stake %lu, err %d", slot, signer, voter_stake, err));
     if( FD_UNLIKELY( err ) ) return err;
   }
 
@@ -744,10 +729,11 @@ fd_pool_add_vote( fd_pool_t *              pool,
    add_block (PoolImpl::add_block). */
 
 void
-fd_pool_add_block( fd_pool_t *           pool,
-                   fd_block_id_t const * block_id,
-                   fd_block_id_t const * parent_id,
-                   fd_pool_out_t *       out ) {
+fd_pool_add_block( fd_pool_t *                       pool,
+                   fd_block_id_t const *             block_id,
+                   fd_block_id_t const *             parent_id,
+                   fd_validator_epoch_info_t const * ei,
+                   fd_pool_out_t *                   out ) {
   FD_TEST( block_id->slot > parent_id->slot );
 
   /* finality tracker parent edge -> parent-ready handover */
@@ -755,7 +741,7 @@ fd_pool_add_block( fd_pool_t *           pool,
   fd_finality_tracker_add_parent( finality( pool ), block_id, parent_id, fe );
   handle_finalization( pool, fe, out );
 
-  fd_slot_state_t * ss = get_slot_state( pool, block_id->slot );
+  fd_slot_state_t * ss = get_slot_state( pool, block_id->slot, ei );
   if( FD_UNLIKELY( !ss ) ) return;
   fd_slot_state_notify_parent_known( ss, &block_id->hash );
 
@@ -765,9 +751,9 @@ fd_pool_add_block( fd_pool_t *           pool,
   if( parent_ent ) {
     fd_slot_state_t * parent_ss = slotent_ss( pool, parent_ent );
     if( fd_slot_state_is_notar_fallback( parent_ss, &parent_id->hash ) ) {
-      fd_slot_state_t * child_ss = get_slot_state( pool, block_id->slot );
+      fd_slot_state_t * child_ss = get_slot_state( pool, block_id->slot, ei );
       if( FD_UNLIKELY( !child_ss ) ) return;
-      fd_notify_parent_result_t r = fd_slot_state_notify_parent_certified( child_ss, &block_id->hash, epoch_info( pool ) );
+      fd_notify_parent_result_t r = fd_slot_state_notify_parent_certified( child_ss, &block_id->hash, ei->epoch );
       if( r.kind==FD_NOTIFY_PARENT_EVENT ) {
         out_push_safe_to_notar( out, &r.inner.event.block );
       } else if( r.kind==FD_NOTIFY_PARENT_REPAIR ) {

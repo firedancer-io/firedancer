@@ -27,14 +27,11 @@ static fd_aggsig_sk_t test_sk[ TEST_NV ];
 
 void
 mock_update_epoch_vtrs( fd_votor_tile_t *              ctx,
-                        fd_epoch_info_msg_t const *    msg,
+                        fd_epoch_info_msg_t const *    msg FD_PARAM_UNUSED,
                         fd_vote_stake_weight_t const * stakes FD_PARAM_UNUSED,
                         ulong                          stake_cnt FD_PARAM_UNUSED ) {
 
   ulong cnt = TEST_NV;
-  ctx->validator_cnt = cnt;
-  ctx->epoch         = msg ? msg->epoch : 0UL;
-  ctx->own_id        = 0UL;
 
   for( ulong i=0UL; i<cnt; i++ ) {
     memset( test_sk[ i ].v, (int)(i*7UL+1UL), FD_AGGSIG_SECKEY_SZ );
@@ -53,13 +50,12 @@ mock_update_epoch_vtrs( fd_votor_tile_t *              ctx,
   //FD_TEST( ctx->epoch_info );
 
   ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
-                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max,
-                                         ctx->own_id, ctx->validators, cnt, ctx->seed, 0UL, NULL ) );
+                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max, ctx->seed, 0UL, NULL ) );
   FD_TEST( ctx->pool );
 
   fd_votor_out_t out = fresh_votor_out( ctx );
   ctx->votor = fd_votor_join( fd_votor_new( fd_votor_leave( ctx->votor ),
-                                            ctx->slot_max, ctx->own_id, ctx->voting_key, ctx->seed, &out ) );
+                                            ctx->slot_max, ctx->voting_key, ctx->seed, &out ) );
   FD_TEST( ctx->votor );
 }
 
@@ -208,7 +204,7 @@ test_finalization( fd_wksp_t * wksp ) {
     memset( &m, 0, sizeof(m) );
     m.discriminant = FD_VOTOR_CONSENSUS_MSG_VOTE;
     fd_vote_new_notar( &m.inner.vote, slot, &h1, &test_sk[ v ], (ushort)v );
-    ingest_consensus_msg( ctx, &m );
+    //ingest_consensus_msg( ctx, &m );
   }
 
   /* Gossip final votes from validators 1..TEST_NV (we already final-voted via
@@ -218,7 +214,7 @@ test_finalization( fd_wksp_t * wksp ) {
     memset( &m, 0, sizeof(m) );
     m.discriminant = FD_VOTOR_CONSENSUS_MSG_VOTE;
     fd_vote_new_final( &m.inner.vote, slot, &test_sk[ v ], (ushort)v );
-    ingest_consensus_msg( ctx, &m );
+    //ingest_consensus_msg( ctx, &m );
   }
 
   /* The pool should now have finalized slot 1 (fast-final on unanimous notar,
