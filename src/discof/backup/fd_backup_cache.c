@@ -68,11 +68,11 @@ cache_line( fd_backup_cache_t * backup,
 
 static void
 filter_batch( fd_backup_cache_t * backup,
-              fd_backup_frag_t *  frag );
+              fd_backup_cache_msg_t * frag );
 
-fd_backup_frag_t *
+fd_backup_cache_msg_t *
 fd_backup_cache_scan( fd_backup_cache_t * backup,
-                      fd_backup_frag_t *  frag ) {
+                      fd_backup_cache_msg_t * frag ) {
   uint chain_mask = backup->chain_mask;
 
   ulong seed = backup->acc_map_seed;
@@ -93,21 +93,21 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
     /* fast path */
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++, idx++ ) {
       fd_accdb_cache_line_t const * line = cache_line( backup, cls, idx );
-      frag->acc_cache.acc_idx  [ i ] = line->acc_idx;
-      fd_memcpy( frag->acc_cache.pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
+      frag->acc_idx[ i ] = line->acc_idx;
+      fd_memcpy( frag->pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
       backup->chain_idx[ i ] = fd_accdb_hash( line->key.pubkey, seed ) & chain_mask;
     }
   } else {
     /* slow path */
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-      frag->acc_cache.acc_idx  [ i ] = UINT_MAX;
-      memset( frag->acc_cache.pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
+      frag->acc_idx[ i ] = UINT_MAX;
+      memset( frag->pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
       backup->chain_idx[ i ] = UINT_MAX; /* deliberately not ULONG_MAX */
     }
     for( ulong i=0UL; rem--; i++, idx++ ) {
       fd_accdb_cache_line_t const * line = cache_line( backup, cls, idx );
-      frag->acc_cache.acc_idx  [ i ] = line->acc_idx;
-      fd_memcpy( frag->acc_cache.pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
+      frag->acc_idx[ i ] = line->acc_idx;
+      fd_memcpy( frag->pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
       backup->chain_idx[ i ] = fd_accdb_hash( line->key.pubkey, seed ) & chain_mask;
     }
     if( FD_UNLIKELY( idx >= backup->cache_max[ cls ] ) ) {
@@ -120,10 +120,10 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
   /* Filter out account indices that cannot index acc_pool */
 
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    uint acc_idx = frag->acc_cache.acc_idx[ i ];
+    uint acc_idx = frag->acc_idx[ i ];
     if( (ulong)acc_idx>=backup->max_accounts ) {
-      frag->acc_cache.acc_idx  [ i ] = UINT_MAX;
-      memset( frag->acc_cache.pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
+      frag->acc_idx[ i ] = UINT_MAX;
+      memset( frag->pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
       backup->chain_idx[ i ] = UINT_MAX;
     }
   }
@@ -148,17 +148,17 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
 
 static void
 filter_batch( fd_backup_cache_t * backup,
-              fd_backup_frag_t *  frag ) {
+              fd_backup_cache_msg_t * frag ) {
   fd_accdb_accmeta_t const * acc_pool = backup->acc_pool;
   uint const                 root_gen = backup->root_generation;
 
   /* filter out non-rooted accounts */
   static uint const dead_gen = (ulong)UINT_MAX;
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    uint         acc_idx = frag->acc_cache.acc_idx[ i ];
+    uint         acc_idx = frag->acc_idx[ i ];
     uint const * gen = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ].key.generation : &dead_gen;
     _Bool rooted = FD_VOLATILE_CONST( *gen ) <= root_gen;
-    fd_uint_store_if( !rooted, &frag->acc_cache.acc_idx[ i ], UINT_MAX );
+    fd_uint_store_if( !rooted, &frag->acc_idx[ i ], UINT_MAX );
   }
 
   /* filter out invisible accounts */
@@ -167,7 +167,7 @@ filter_batch( fd_backup_cache_t * backup,
 
   uint head[ FD_BACKUP_CACHE_PARA ];
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    head[ i ] = frag->acc_cache.acc_idx[ i ]!=UINT_MAX ? backup->acc_map[ backup->chain_idx[ i ] ] : UINT_MAX;
+    head[ i ] = frag->acc_idx[ i ]!=UINT_MAX ? backup->acc_map[ backup->chain_idx[ i ] ] : UINT_MAX;
   }
 
   /* sentinel to assist with branchless code */
@@ -180,7 +180,7 @@ filter_batch( fd_backup_cache_t * backup,
 
     /* check for matches */
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-      found_set_insert_if( found, frag->acc_cache.acc_idx[ i ]==head[ i ], i );
+      found_set_insert_if( found, frag->acc_idx[ i ]==head[ i ], i );
     }
 
     /* convert acc_idx to pointers */
@@ -213,8 +213,8 @@ filter_batch( fd_backup_cache_t * backup,
   /* filter out dead elements */
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
     if( FD_UNLIKELY( !found_set_test( found, i ) ) ) {
-      frag->acc_cache.acc_idx[ i ] = UINT_MAX;
-      memset( frag->acc_cache.pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
+      frag->acc_idx[ i ] = UINT_MAX;
+      memset( frag->pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
     }
   }
 

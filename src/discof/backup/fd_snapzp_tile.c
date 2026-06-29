@@ -3,6 +3,7 @@
 #include <zstd.h>
 #include "fd_backup.h"
 #include "fd_backup_cache.h"
+#include "fd_backup_visited.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
@@ -14,6 +15,7 @@
 
 struct fd_snapzp {
   fd_backup_cache_t acc_cache[1];
+  visited_set_t *   visited_set;
 
   ZSTD_CCtx *    zst;
   uchar *        raw;
@@ -24,11 +26,24 @@ struct fd_snapzp {
 
   ulong kind_id;
   ulong frame_id;
-  fd_backup_frag_t * batch;
+  void *      snapmk_zp_mem;
+  ulong       snapmk_zp_chunk0;
+  ulong       snapmk_zp_wmark;
+  fd_wksp_t *        snaprd_mem;
 
   int fd;
   int snap_dir_fd;
   ulong volatile * file_off;
+
+  struct {
+    int         active;
+    fd_pubkey_t pubkey;
+    fd_pubkey_t owner;
+    uint        size;
+    uint        acc_idx;
+    ulong       data_rem;
+    ulong       data_pad;
+  } disk;
 
   struct {
     ulong accounts_compressed;
@@ -111,17 +126,31 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->raw_buf  = (ZSTD_inBuffer){ .src = raw_buf,  .size = 0UL };
   ctx->comp_buf = (ZSTD_outBuffer){ .dst = comp_buf+COMP_HEAD, .size = COMP_BUF_SZ-COMP_HEAD };
 
-  FD_TEST( tile->in_cnt==1UL );
-  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[0] ].name, "snapmk_zp" ) );
-  ctx->batch = topo->links[ tile->in_link_id[0] ].dcache;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( 0==strcmp( link->name, "snapmk_zp" ) ) {
+      ctx->snapmk_zp_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->snapmk_zp_chunk0 = fd_dcache_compact_chunk0( ctx->snapmk_zp_mem, link->dcache );
+      ctx->snapmk_zp_wmark  = fd_dcache_compact_wmark ( ctx->snapmk_zp_mem, link->dcache, link->mtu );
+    }
+  }
+  FD_TEST( ctx->snapmk_zp_mem );
+
+  ulong snaprd_wksp_id = fd_topo_find_wksp( topo, "snaprd_out" );
+  FD_TEST( snaprd_wksp_id!=ULONG_MAX );
+  ctx->snaprd_mem = topo->workspaces[ snaprd_wksp_id ].wksp;
+  FD_TEST( ctx->snaprd_mem );
 
   ctx->kind_id = tile->kind_id;
   ctx->frame_id = 0UL;
+  memset( &ctx->disk, 0, sizeof(ctx->disk) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapzp.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem_ro );
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro ) );
+  ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
+  FD_TEST( ctx->visited_set );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.zp_fseq_id ) ); FD_TEST( zp_fseq );
   ctx->file_off = fd_fseq_app_laddr( zp_fseq );
@@ -224,15 +253,14 @@ flush( fd_snapzp_t * ctx ) {
 
 static void
 process_start( fd_snapzp_t * ctx,
-               ulong         seq ) {
-  fd_backup_frag_t const * frag = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
-  ushort name_len = frag->start.name_len;
-  if( FD_UNLIKELY( !name_len || name_len>=FD_BACKUP_NAME_MAX || frag->start.name[ name_len ] ) ) {
+               fd_backup_start_msg_t const * frag ) {
+  ushort name_len = frag->name_len;
+  if( FD_UNLIKELY( !name_len || name_len>=FD_BACKUP_NAME_MAX || frag->name[ name_len ] ) ) {
     FD_LOG_ERR(( "invalid snapshot file name length %hu", name_len ));
   }
   for( ushort i=0; i<name_len; i++ ) {
-    if( FD_UNLIKELY( frag->start.name[ i ]=='/' ) ) {
-      FD_LOG_ERR(( "invalid snapshot file name `%s`", frag->start.name ));
+    if( FD_UNLIKELY( frag->name[ i ]=='/' ) ) {
+      FD_LOG_ERR(( "invalid snapshot file name `%s`", frag->name ));
     }
   }
 
@@ -242,9 +270,9 @@ process_start( fd_snapzp_t * ctx,
     }
     ctx->fd = -1;
   }
-  ctx->fd = openat( ctx->snap_dir_fd, frag->start.name, O_WRONLY|O_DIRECT );
+  ctx->fd = openat( ctx->snap_dir_fd, frag->name, O_WRONLY|O_DIRECT );
   if( FD_UNLIKELY( ctx->fd<0 ) ) {
-    FD_LOG_ERR(( "openat(%s) failed: %i-%s", frag->start.name, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "openat(%s) failed: %i-%s", frag->name, errno, fd_io_strerror( errno ) ));
   }
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
@@ -252,35 +280,195 @@ process_start( fd_snapzp_t * ctx,
     FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
   ctx->frame_id      = 0UL;
+  memset( &ctx->disk, 0, sizeof(ctx->disk) );
   ctx->raw_buf.pos   = 0UL;
   ctx->raw_buf.size  = 0UL;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ-COMP_HEAD;
+  ctx->metrics.accounts_compressed       = 0UL;
+  ctx->metrics.bytes_compressed          = 0UL;
+  ctx->metrics.bytes_written             = 0UL;
+  ctx->metrics.io_blocked_ticks          = 0UL;
+  ctx->metrics.compress_ticks            = 0UL;
+}
+
+static void
+wait_disk_visible_and_clear_visited( fd_snapzp_t *       ctx,
+                                     fd_pubkey_t const * pubkey,
+                                     uint                acc_idx ) {
+  (void)pubkey;
+  if( FD_UNLIKELY( acc_idx==UINT_MAX || (ulong)acc_idx>=ctx->acc_cache->max_accounts ) ) {
+    FD_LOG_ERR(( "invalid cache account index %u", acc_idx ));
+  }
+
+  fd_accdb_accmeta_t const * acc = &ctx->acc_cache->acc_pool[ acc_idx ];
+  ulong off_packed = FD_VOLATILE_CONST( acc->offset_fork );
+  while( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
+    FD_SPIN_PAUSE();
+    off_packed = FD_VOLATILE_CONST( acc->offset_fork );
+  }
+
+  FD_COMPILER_MFENCE();
+  fd_backup_visited_remove( ctx->visited_set, (ulong)acc_idx );
 }
 
 static void
 process_accounts_cached( fd_snapzp_t * ctx,
-                         ulong         seq ) {
+                         fd_backup_cache_msg_t const * batch ) {
   if( FD_UNLIKELY( ctx->fd<0 ) ) {
     FD_LOG_ERR(( "received account batch before snapshot start" ));
   }
-  fd_backup_frag_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
   ZSTD_inBuffer * buf = &ctx->raw_buf;
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    fd_pubkey_t const * pubkey  = &batch->acc_cache.pubkey [ i ];
-    uint                acc_idx =  batch->acc_cache.acc_idx[ i ];
+    fd_pubkey_t const * pubkey  = &batch->pubkey [ i ];
+    uint                acc_idx =  batch->acc_idx[ i ];
     if( acc_idx==UINT_MAX ) continue;
     /* copy cached account into snapshot stream */
     int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, buf, RAW_BUF_SZ );
-    if( err==FD_BACKUP_CACHE_ERR_MISS ) continue; /* evicted */
+    if( err==FD_BACKUP_CACHE_ERR_MISS ) {
+      wait_disk_visible_and_clear_visited( ctx, pubkey, acc_idx );
+      continue;
+    }
     if( FD_UNLIKELY( err==FD_BACKUP_CACHE_ERR_SPACE ) ) {
       /* not enough buffer space, flush and retry */
       flush( ctx );
       err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, buf, RAW_BUF_SZ );
-      if( err==FD_BACKUP_CACHE_ERR_MISS ) continue; /* evicted */
+      if( err==FD_BACKUP_CACHE_ERR_MISS ) {
+        wait_disk_visible_and_clear_visited( ctx, pubkey, acc_idx );
+        continue;
+      }
       FD_CHECK_ERR( err!=FD_BACKUP_CACHE_ERR_SPACE, "Zstandard buffer too small" );
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
+    ctx->metrics.accounts_compressed++;
+  }
+}
+
+static fd_accdb_accmeta_t const *
+find_disk_accmeta( fd_snapzp_t *       ctx,
+                   fd_pubkey_t const * pubkey,
+                   uint                size,
+                   uint                acc_idx ) {
+  fd_backup_cache_t * acc_cache = ctx->acc_cache;
+  if( FD_UNLIKELY( acc_idx==UINT_MAX || (ulong)acc_idx>=acc_cache->max_accounts ) ) return NULL;
+
+  fd_accdb_accmeta_t const * acc = &acc_cache->acc_pool[ acc_idx ];
+  uint es = FD_VOLATILE_CONST( acc->executable_size );
+  if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( es )!=FD_ACCDB_SIZE_DATA( size ) ) ) return NULL;
+  if( FD_UNLIKELY( memcmp( acc->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return NULL;
+  return acc;
+}
+
+static ulong
+begin_disk_account( fd_snapzp_t * ctx,
+                    fd_backup_disk_msg_t const * frag,
+                    ulong         sz ) {
+  if( FD_UNLIKELY( ctx->fd<0 ) ) {
+    FD_LOG_ERR(( "received disk account before snapshot start" ));
+  }
+  if( FD_UNLIKELY( ctx->disk.active ) ) {
+    FD_LOG_ERR(( "received account SOM while already processing a disk account" ));
+  }
+  if( FD_UNLIKELY( sz!=sizeof(fd_backup_disk_msg_t) ) ) {
+    FD_LOG_ERR(( "invalid disk account control payload size (%lu != %lu)", sz, sizeof(fd_backup_disk_msg_t) ));
+  }
+
+  ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( frag->size );
+  ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
+  if( FD_UNLIKELY( rec_sz>RAW_BUF_SZ ) ) {
+    FD_LOG_ERR(( "snapshot account record too large (%lu bytes)", rec_sz ));
+  }
+  if( FD_UNLIKELY( frag->snap_sz!=(uint)rec_sz ) ) {
+    FD_LOG_ERR(( "disk account snapshot size hint mismatch (%u != %lu)", frag->snap_sz, rec_sz ));
+  }
+  if( FD_UNLIKELY( ctx->raw_buf.size + rec_sz > RAW_BUF_SZ ) ) flush( ctx );
+
+  memset( &ctx->disk, 0, sizeof(ctx->disk) );
+  ctx->disk.active  = 1;
+  ctx->disk.pubkey  = frag->pubkey;
+  ctx->disk.owner   = frag->owner;
+  ctx->disk.size    = frag->size;
+  ctx->disk.acc_idx = frag->acc_idx;
+
+  fd_accdb_accmeta_t const * accmeta = find_disk_accmeta( ctx, &ctx->disk.pubkey, ctx->disk.size, ctx->disk.acc_idx );
+  if( FD_UNLIKELY( !accmeta ) ) {
+    FD_LOG_ERR(( "disk account not found in account index" ));
+  }
+
+  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( (ulong)ctx->raw_buf.src + ctx->raw_buf.size );
+  memset( hdr, 0, sizeof(snap_acc_hdr_t) );
+  hdr->pubkey    = ctx->disk.pubkey;
+  hdr->owner     = ctx->disk.owner;
+  hdr->lamports   = FD_VOLATILE_CONST( accmeta->lamports );
+  hdr->executable = !!FD_ACCDB_SIZE_EXEC( FD_VOLATILE_CONST( accmeta->executable_size ) );
+  hdr->data_len   = data_len;
+
+  ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
+  ctx->disk.data_rem = data_len;
+  ctx->disk.data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
+  return (ulong)frag->data_sz;
+}
+
+static void
+process_account_disk( fd_snapzp_t * ctx,
+                      ulong         seq,
+                      ulong         sig,
+                      ulong         chunk,
+                      ulong         sz,
+                      ulong         ctl,
+                      ulong         tsorig,
+                      ulong         tspub ) {
+  (void)seq; (void)tsorig;
+  int som = fd_frag_meta_ctl_som( ctl );
+  int eom = fd_frag_meta_ctl_eom( ctl );
+
+  ulong frag_sz = tspub;
+  if( FD_UNLIKELY( som ) ) {
+    if( FD_UNLIKELY( sz!=sizeof(fd_backup_disk_msg_t) || chunk<ctx->snapmk_zp_chunk0 || chunk>ctx->snapmk_zp_wmark ) ) {
+      FD_LOG_ERR(( "invalid ACC_DISK payload chunk=%lu sz=%lu", chunk, sz ));
+    }
+    fd_backup_disk_msg_t const * frag = fd_chunk_to_laddr_const( ctx->snapmk_zp_mem, chunk );
+    frag_sz = begin_disk_account( ctx, frag, sz );
+    if( FD_UNLIKELY( tspub!=frag_sz ) ) {
+      FD_LOG_ERR(( "disk account data size mismatch (%lu != %lu)", tspub, frag_sz ));
+    }
+  } else if( FD_UNLIKELY( sz ) ) {
+    FD_LOG_ERR(( "unexpected disk account payload on non-SOM fragment" ));
+  }
+  if( FD_UNLIKELY( !ctx->disk.active ) ) {
+    FD_LOG_ERR(( "received disk account fragment without SOM" ));
+  }
+
+  uchar const * frag = NULL;
+  if( FD_LIKELY( ctx->disk.data_rem ) ) {
+    frag    = fd_wksp_laddr_fast( ctx->snaprd_mem, sig );
+  }
+
+  ulong take = fd_ulong_min( ctx->disk.data_rem, frag_sz );
+  if( FD_LIKELY( take ) ) {
+    FD_TEST( ctx->raw_buf.size + take <= RAW_BUF_SZ );
+    fd_memcpy( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, frag, take );
+    ctx->raw_buf.size  += take;
+    ctx->disk.data_rem -= take;
+    frag_sz            -= take;
+  }
+  if( FD_UNLIKELY( frag_sz ) ) {
+    FD_LOG_ERR(( "disk account fragment has trailing bytes" ));
+  }
+  if( FD_UNLIKELY( !ctx->disk.data_rem && !eom ) ) {
+    FD_LOG_ERR(( "disk account data completed before EOM" ));
+  }
+
+  if( FD_UNLIKELY( eom ) ) {
+    if( FD_UNLIKELY( ctx->disk.data_rem ) ) {
+      FD_LOG_ERR(( "disk account ended before expected record size" ));
+    }
+    if( ctx->disk.data_pad ) {
+      FD_TEST( ctx->raw_buf.size + ctx->disk.data_pad <= RAW_BUF_SZ );
+      fd_memset( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, 0, ctx->disk.data_pad );
+      ctx->raw_buf.size += ctx->disk.data_pad;
+    }
+    memset( &ctx->disk, 0, sizeof(ctx->disk) );
     ctx->metrics.accounts_compressed++;
   }
 }
@@ -296,15 +484,28 @@ returnable_frag( fd_snapzp_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)in_idx; (void)sig; (void)chunk; (void)sz; (void)tsorig; (void)tspub; (void)stem;
+  (void)in_idx; (void)stem;
   ctx->idle_cnt = 0UL;
   ulong orig = fd_frag_meta_ctl_orig( ctl );
   switch( orig ) {
-  case FD_BACKUP_ORIG_START:
-    process_start( ctx, seq );
+  case FD_BACKUP_ORIG_START: {
+    if( FD_UNLIKELY( sz!=sizeof(fd_backup_start_msg_t) || chunk<ctx->snapmk_zp_chunk0 || chunk>ctx->snapmk_zp_wmark ) ) {
+      FD_LOG_ERR(( "invalid START payload chunk=%lu sz=%lu", chunk, sz ));
+    }
+    fd_backup_start_msg_t const * frag = fd_chunk_to_laddr_const( ctx->snapmk_zp_mem, chunk );
+    process_start( ctx, frag );
     break;
-  case FD_BACKUP_ORIG_ACC_CACHE:
-    process_accounts_cached( ctx, seq );
+  }
+  case FD_BACKUP_ORIG_ACC_CACHE: {
+    if( FD_UNLIKELY( sz!=sizeof(fd_backup_cache_msg_t) || chunk<ctx->snapmk_zp_chunk0 || chunk>ctx->snapmk_zp_wmark ) ) {
+      FD_LOG_ERR(( "invalid ACC_CACHE payload chunk=%lu sz=%lu", chunk, sz ));
+    }
+    fd_backup_cache_msg_t const * frag = fd_chunk_to_laddr_const( ctx->snapmk_zp_mem, chunk );
+    process_accounts_cached( ctx, frag );
+    break;
+  }
+  case FD_BACKUP_ORIG_ACC_DISK:
+    process_account_disk( ctx, seq, sig, chunk, sz, ctl, tsorig, tspub );
     break;
   case FD_BACKUP_ORIG_FLUSH:
     flush( ctx );
@@ -316,9 +517,6 @@ returnable_frag( fd_snapzp_t *       ctx,
       }
       ctx->fd = -1;
     }
-    break;
-  case FD_BACKUP_ORIG_RESET:
-    ctx->frame_id = 0UL;
     break;
   default:
     FD_LOG_CRIT(( "unknown backup instruction (orig=%lu, seq=%lu)", orig, seq ));

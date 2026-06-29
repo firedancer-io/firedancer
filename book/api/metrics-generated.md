@@ -157,7 +157,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapmk_&#8203;active</span> | gauge | State of the tile. 0=IDLE 1=ACTIVE |
+| <span class="metrics-name">snapmk_&#8203;state</span> | gauge | 0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail |
 | <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span> | counter | Number of snapshots created (includes in-progress) |
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
@@ -186,7 +186,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snaprd_&#8203;active</span> | gauge | State of the tile. 0=IDLE 1=ACTIVE |
+| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | 0=idle, 1=read, 2=done |
 | <span class="metrics-name">snaprd_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database file |
 | <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database read progress in bytes of the current snapshot creation job |
 | <span class="metrics-name">snaprd_&#8203;export_&#8203;total_&#8203;bytes</span> | gauge | Total bytes to be read from account database for the current snapshot creation job |

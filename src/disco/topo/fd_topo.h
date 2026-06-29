@@ -680,6 +680,7 @@ struct fd_topo_tile {
 
     struct {
       ulong accdb_obj_id;
+      ulong visited_set_obj_id;
       ulong accdb_epoch_fseq_obj_id;
       ulong banks_obj_id;
       ulong zp_fseq_id;
@@ -691,9 +692,14 @@ struct fd_topo_tile {
 
     struct {
       ulong accdb_obj_id;
+      ulong visited_set_obj_id;
       ulong zp_fseq_id;
       char  out_path[ PATH_MAX ];
     } snapzp;
+
+    struct {
+      ulong accdb_obj_id;
+    } snaprd;
   };
 };
 

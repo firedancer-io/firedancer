@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../discof/backup/fd_backup_visited.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -175,6 +176,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_accdb = {
   .footprint = accdb_footprint,
   .align     = accdb_align,
   .new       = accdb_new,
+};
+
+static ulong
+visited_set_footprint_cb( fd_topo_t const *     topo,
+                          fd_topo_obj_t const * obj ) {
+  return visited_set_footprint( VAL("max_accounts") );
+}
+
+static ulong
+visited_set_align_cb( fd_topo_t const *     topo FD_FN_UNUSED,
+                      fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return visited_set_align();
+}
+
+static void
+visited_set_new_cb( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  FD_TEST( visited_set_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_visited_set = {
+  .name      = "visited_set",
+  .footprint = visited_set_footprint_cb,
+  .align     = visited_set_align_cb,
+  .new       = visited_set_new_cb,
 };
 
 static ulong
