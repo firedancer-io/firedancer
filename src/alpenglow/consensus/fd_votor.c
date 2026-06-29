@@ -1,5 +1,12 @@
 #include "fd_votor.h"
 
+/* The votor is identity-agnostic: it signs votes (the signature covers only
+   kind/slot/block_hash, never the signer rank) but leaves the signer field
+   unset.  The tile stamps the real rank per the vote's slot epoch when it
+   drains the output (fd_vote_set_signer), so the votor needs no own_id. */
+
+#define VOTOR_SIGNER_UNSET ((ushort)0)
+
 /* Per-slot state pool + map keyed by slot.  Built directly on the lowest-level
    util generics (fd_pool + fd_map_chain), mirroring the canonical fd_ghost
    instantiation pattern. */
@@ -38,7 +45,6 @@ struct __attribute__((aligned(128UL))) fd_votor {
   ulong          slot_pool_gaddr;        /* memory offset of the slot_pool             */
   ulong          slot_map_gaddr;         /* memory offset of the slot_map              */
 
-  ushort         validator_index;        /* our own ValidatorIndex                     */
   fd_aggsig_sk_t voting_key;             /* BLS secret key used to sign votes          */
   ulong          highest_final_cert_slot;/* Votor::highest_final_cert_slot             */
 };
@@ -213,6 +219,7 @@ set_timeouts( fd_votor_t *     votor,
 /* Forward decls (mutual recursion try_notar <-> check_pending_blocks). */
 
 static int  try_notar          ( fd_votor_t * votor, ulong slot, fd_block_id_t const * block_id, fd_block_id_t const * parent_block_id, fd_votor_out_t * out );
+static void try_skip_window     ( fd_votor_t * votor, ulong slot, fd_votor_out_t * out );
 static void check_pending_blocks( fd_votor_t * votor, fd_votor_out_t * out );
 
 /* try_final sends a finalization vote for (slot,hash) if the conditions are
@@ -232,7 +239,7 @@ try_final( fd_votor_t *      votor,
   int not_bad     = !( s && s->bad_window );
   if( notarized && voted_notar && not_bad ) {
     fd_vote_t vote;
-    fd_vote_new_final( &vote, slot, &votor->voting_key, votor->validator_index );
+    fd_vote_new_final( &vote, slot, &votor->voting_key, VOTOR_SIGNER_UNSET );
     out_push_vote( out, &vote );
     slot_state_mut( votor, slot )->retired = 1;
   }
@@ -275,7 +282,7 @@ try_notar( fd_votor_t *          votor,
   }
 
   fd_vote_t vote;
-  fd_vote_new_notar( &vote, slot, hash, &votor->voting_key, votor->validator_index );
+  fd_vote_new_notar( &vote, slot, hash, &votor->voting_key, VOTOR_SIGNER_UNSET );
   FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_cstr );
   FD_LOG_NOTICE(( "try_notar slot=%lu hash=%s", slot, hash_cstr ));
   out_push_vote( out, &vote );
@@ -307,7 +314,7 @@ try_skip_window( fd_votor_t *     votor,
     state->voted      = 1;
     state->bad_window = 1;
     fd_vote_t vote;
-    fd_vote_new_skip( &vote, s, &votor->voting_key, votor->validator_index );
+    fd_vote_new_skip( &vote, s, &votor->voting_key, VOTOR_SIGNER_UNSET );
     FD_LOG_NOTICE(( "try_skip_window slot=%lu", s ));
     out_push_vote( out, &vote );
   }
@@ -471,7 +478,7 @@ fd_votor_handle_pool_event( fd_votor_t *                  votor,
   case FD_VOTOR_POOL_EVENT_SAFE_TO_NOTAR: {
     fd_block_id_t const blk = event->inner.safe_to_notar;
     fd_vote_t vote;
-    fd_vote_new_notar_fallback( &vote, blk.slot, &blk.hash, &votor->voting_key, votor->validator_index );
+    fd_vote_new_notar_fallback( &vote, blk.slot, &blk.hash, &votor->voting_key, VOTOR_SIGNER_UNSET );
     out_push_vote( out, &vote );
     try_skip_window( votor, blk.slot, out );
     slot_state_mut( votor, blk.slot )->bad_window = 1;
@@ -481,7 +488,7 @@ fd_votor_handle_pool_event( fd_votor_t *                  votor,
   case FD_VOTOR_POOL_EVENT_SAFE_TO_SKIP: {
     ulong slot = event->inner.safe_to_skip;
     fd_vote_t vote;
-    fd_vote_new_skip_fallback( &vote, slot, &votor->voting_key, votor->validator_index );
+    fd_vote_new_skip_fallback( &vote, slot, &votor->voting_key, VOTOR_SIGNER_UNSET );
     out_push_vote( out, &vote );
     try_skip_window( votor, slot, out );
     slot_state_mut( votor, slot )->bad_window = 1;
@@ -574,7 +581,6 @@ fd_votor_handle_timeout_event( fd_votor_t *               votor,
 void *
 fd_votor_new( void *                 shmem,
               ulong                  slot_max,
-              ushort                 validator_index,
               fd_aggsig_sk_t const * voting_key,
               ulong                  seed,
               fd_votor_out_t *       out ) {
@@ -615,7 +621,6 @@ fd_votor_new( void *                 shmem,
   votor->wksp_gaddr              = fd_wksp_gaddr_fast( ws, votor );
   votor->slot_pool_gaddr         = fd_wksp_gaddr_fast( ws, slot_pool_join( slot_pool_new( slot_pool, slot_max             ) ) );
   votor->slot_map_gaddr          = fd_wksp_gaddr_fast( ws, slot_map_join ( slot_map_new ( slot_map,  chain_cnt, seed      ) ) );
-  votor->validator_index         = validator_index;
   votor->voting_key              = *voting_key;
   votor->highest_final_cert_slot = 0UL; /* Slot::genesis() */
 
@@ -681,11 +686,6 @@ fd_votor_delete( void * shvotor ) {
     return NULL;
   }
   return shvotor;
-}
-
-ulong
-fd_votor_validator_index( fd_votor_t const * votor ) {
-  return votor->validator_index;
 }
 
 ulong

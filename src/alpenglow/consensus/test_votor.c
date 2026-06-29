@@ -69,7 +69,7 @@ make_votor( fd_wksp_t * wksp, ushort validator_index, fd_votor_out_t * out, void
   void * mem = fd_wksp_alloc_laddr( wksp, fd_votor_align(), fd_votor_footprint( 64UL ), 1UL );
   FD_TEST( mem );
   *out_mem = mem;
-  void * sh = fd_votor_new( mem, 64UL, validator_index, &g_sk[ validator_index ], 1234UL, out );
+  void * sh = fd_votor_new( mem, 64UL, &g_sk[ validator_index ], 1234UL, out );
   FD_TEST( sh );
   return fd_votor_join( sh );
 }

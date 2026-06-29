@@ -16,9 +16,6 @@
      - s2n_waiting_parent_cert: BTreeMap<BlockId, BlockId>
                               -> fd_pool + fd_map_chain (keyed by fd_block_id_t).
 
-   It additionally holds (a copy of) the read-mostly fd_epoch_info_t for the
-   active epoch's validator set / stake.
-
    EVENTS.  In Rust the pool emits PoolEvent over an mpsc channel to Votor
    and BlockId repair requests over a second channel.  Here, both the
    votor-bound events and the repair requests are *appended* to two
@@ -128,30 +125,21 @@ fd_pool_footprint( ulong slot_max,
                    ulong validator_max,
                    ulong blockid_max );
 
-/* fd_pool_new formats mem (>= footprint, aligned, in a wksp) as an empty
-   pool over the given epoch's validator set.  The validators[0,validator_cnt)
-   array is copied into the pool's own embedded fd_epoch_info_t (so the
-   caller need not keep it alive), with own_id as our ValidatorIndex.  seed
-   seeds the internal maps.
+/* fd_pool_new formats mem (>= footprint, aligned, in a wksp) as an
+   empty pool : empty slot_states, an empty s2n map, a Default finality
+   tracker (genesis slot notarized) and a Default parent-ready tracker
+   (genesis notar-fallback).
 
-   The pool starts in the Rust PoolImpl::new state: empty slot_states, an
-   empty s2n map, a Default finality tracker (genesis slot notarized) and a
-   Default parent-ready tracker (genesis notar-fallback).
-
-   validator_cnt must be <= validator_max.  Returns mem on success, NULL on
-   failure (logs details). */
+   Returns mem on success, NULL on failure (logs details). */
 
 void *
-fd_pool_new( void *                      mem,
-             ulong                       slot_max,
-             ulong                       validator_max,
-             ulong                       blockid_max,
-             ulong                       own_id,
-             fd_validator_info_t const * validators,
-             ulong                       validator_cnt,
-             ulong                       seed,
-             ulong                       root_slot,        /* baseline finalized slot (snapshot slot, or 0) */
-             fd_hash_t const *           root_block_hash );/* its block id (NULL => all-zero genesis hash)    */
+fd_pool_new( void *            mem,
+             ulong             slot_max,
+             ulong             validator_max,
+             ulong             blockid_max,
+             ulong             seed,
+             ulong             root_slot,        /* baseline finalized slot (snapshot slot, or 0) */
+             fd_hash_t const * root_block_hash );/* its block id (NULL => all-zero genesis hash)    */
 
 /* fd_pool_join / leave / delete mirror the canonical triplet (fd_ghost.h). */
 
@@ -167,10 +155,10 @@ void *      fd_pool_delete( void *            mem );
    appended to *out.  Returns FD_POOL_SUCCESS or an FD_POOL_ERR_* code. */
 
 int
-fd_pool_add_cert( fd_pool_t *             pool,
-                  fd_cert_t const *       cert,
-                  fd_epoch_info_t const * epoch_info,
-                  fd_pool_out_t *         out );
+fd_pool_add_cert( fd_pool_t *                       pool,
+                  fd_cert_t const *                 cert,
+                  fd_validator_epoch_info_t const * epoch_info,
+                  fd_pool_out_t *                   out );
 
 /* fd_pool_add_vote adds a new vote to the pool, checking validity (slot
    bounds, known signer, signature, slashable offence, non-duplicate) before
@@ -182,10 +170,11 @@ fd_pool_add_cert( fd_pool_t *             pool,
    written to *out_offence (it carries the offence kind, validator, slot). */
 
 int
-fd_pool_add_vote( fd_pool_t *              pool,
-                  fd_vote_t const *        vote,
-                  fd_pool_out_t *          out,
-                  fd_slashable_offence_t * out_offence );
+fd_pool_add_vote( fd_pool_t *                       pool,
+                  fd_vote_t const *                 vote,
+                  fd_validator_epoch_info_t const * epoch_info,
+                  fd_pool_out_t *                   out,
+                  fd_slashable_offence_t *          out_offence );
 
 /* fd_pool_add_block registers a new block with its parent in the pool.
    Should be called once for every valid block (e.g. by the blockstore).
@@ -194,10 +183,11 @@ fd_pool_add_vote( fd_pool_t *              pool,
    PoolImpl::add_block.  Requires block_id->slot > parent_id->slot. */
 
 void
-fd_pool_add_block( fd_pool_t *           pool,
-                   fd_block_id_t const * block_id,
-                   fd_block_id_t const * parent_id,
-                   fd_pool_out_t *       out );
+fd_pool_add_block( fd_pool_t *                       pool,
+                   fd_block_id_t const *             block_id,
+                   fd_block_id_t const *             parent_id,
+                   fd_validator_epoch_info_t const * epoch_info,
+                   fd_pool_out_t *                   out );
 
 /* fd_pool_recover_from_standstill triggers recovery from a standstill.  It
    determines which certificates and votes need re-broadcasting and emits a
