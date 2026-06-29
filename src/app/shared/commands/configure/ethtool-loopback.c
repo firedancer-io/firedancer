@@ -14,10 +14,6 @@
 static int
 enabled( fd_config_t const * config ) {
 
-  /* if we're running in a network namespace, we configure ethtool on
-     the virtual device as part of netns setup, not here */
-  if( config->development.netns.enabled ) return 0;
-
   /* only enable if network stack is XDP */
   if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
 
@@ -42,7 +38,8 @@ init( fd_config_t const * config FD_PARAM_UNUSED ) {
 }
 
 static configure_result_t
-check( fd_config_t const * config FD_PARAM_UNUSED ) {
+check( fd_config_t const * config     FD_PARAM_UNUSED,
+       int                 check_type FD_PARAM_UNUSED ) {
   fd_ethtool_ioctl_t ioc;
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, "lo" ) ) )
     FD_LOG_ERR(( "error configuring network device (lo), unable to init ethtool ioctl" ));

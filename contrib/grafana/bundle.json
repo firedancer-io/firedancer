@@ -92,7 +92,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "min_over_time(bundle_connected{instance=\"$instance\"}[$__rate_interval])",
+          "expr": "min_over_time((bundle_state{instance=\"$instance\"} == bool 2)[$__rate_interval:])",
           "instant": false,
           "legendFormat": ".",
           "range": true,
@@ -191,7 +191,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "rate(bundle_packet_received{instance=\"$instance\"}[$__rate_interval])",
+          "expr": "rate(bundle_pkt_rx_total{instance=\"$instance\"}[$__rate_interval])",
           "hide": false,
           "instant": false,
           "legendFormat": "Transactions",
@@ -204,7 +204,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "rate(bundle_bundle_received{instance=\"$instance\"}[$__rate_interval])",
+          "expr": "rate(bundle_bundle_rx_total{instance=\"$instance\"}[$__rate_interval])",
           "hide": false,
           "instant": false,
           "legendFormat": "Bundles",
@@ -319,7 +319,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "bundle_rtt_smoothed{instance=\"$instance\"}",
+          "expr": "bundle_rtt_smoothed_nanos{instance=\"$instance\"}",
           "instant": false,
           "legendFormat": "Smoothed",
           "range": true,
@@ -331,7 +331,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "bundle_rtt_sample{instance=\"$instance\"}",
+          "expr": "bundle_rtt_sample_nanos{instance=\"$instance\"}",
           "hide": false,
           "instant": false,
           "legendFormat": "Latest Sample",
@@ -358,7 +358,7 @@
           "type": "prometheus",
           "uid": ""
         },
-        "definition": "label_values(bundle_bundle_received,instance)",
+        "definition": "label_values(bundle_bundle_rx_total,instance)",
         "hide": 0,
         "includeAll": false,
         "multi": false,
@@ -366,7 +366,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(bundle_bundle_received,instance)",
+          "query": "label_values(bundle_bundle_rx_total,instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

@@ -54,7 +54,7 @@ configure_cmd_perm( args_t *         args,
     switch( args->configure.command ) {
       case CONFIGURE_CMD_INIT: {
         int enabled = !(*stage)->enabled || (*stage)->enabled( config );
-        if( FD_LIKELY( enabled && (*stage)->check( config ).result != CONFIGURE_OK ) )
+        if( FD_LIKELY( enabled && (*stage)->check( config, FD_CONFIGURE_CHECK_TYPE_INIT_PERM ).result != CONFIGURE_OK ) )
           if( FD_LIKELY( (*stage)->init_perm ) ) (*stage)->init_perm( chk, config );
         break;
       }
@@ -62,7 +62,7 @@ configure_cmd_perm( args_t *         args,
         break;
       case CONFIGURE_CMD_FINI: {
         int enabled = !(*stage)->enabled || (*stage)->enabled( config );
-        if( FD_LIKELY( enabled && (*stage)->check( config ).result != CONFIGURE_NOT_CONFIGURED ) )
+        if( FD_LIKELY( enabled && (*stage)->check( config, FD_CONFIGURE_CHECK_TYPE_FINI_PERM ).result != CONFIGURE_NOT_CONFIGURED ) )
           if( FD_LIKELY( (*stage)->fini_perm ) ) (*stage)->fini_perm( chk, config );
         break;
       }
@@ -81,7 +81,7 @@ configure_stage( configure_stage_t * stage,
 
   switch( command ) {
     case CONFIGURE_CMD_INIT: {
-      configure_result_t result = stage->check( config );
+      configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_PRE_INIT );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )
         FD_LOG_NOTICE(( "%s ... unconfigured ... %s", stage->name, result.message ));
       else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED ) ) {
@@ -92,7 +92,7 @@ configure_stage( configure_stage_t * stage,
           FD_LOG_ERR(( "%s ... does not support undo but was not valid ... %s", stage->name, result.message ));
         }
 
-        result = stage->check( config );
+        result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_UNDO_INIT );
         if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) )
           FD_LOG_ERR(( "%s ... clean was unable to get back to an unconfigured state ... %s", stage->name, result.message ));
       } else {
@@ -104,7 +104,7 @@ configure_stage( configure_stage_t * stage,
       if( FD_LIKELY( stage->init ) ) stage->init( config );
       FD_LOG_INFO(( "%s ... done", stage->name ));
 
-      result = stage->check( config );
+      result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_POST_INIT );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )
         FD_LOG_ERR(( "%s ... tried to initialize but didn't do anything ... %s", stage->name, result.message ));
       else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) )
@@ -112,7 +112,7 @@ configure_stage( configure_stage_t * stage,
       break;
     }
     case CONFIGURE_CMD_CHECK: {
-      configure_result_t result = stage->check( config );
+      configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_CHECK );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) ) {
         FD_LOG_WARNING(( "%s ... not configured ... %s", stage->name, result.message ));
         return 1;
@@ -127,7 +127,7 @@ configure_stage( configure_stage_t * stage,
       break;
     }
     case CONFIGURE_CMD_FINI: {
-      configure_result_t result = stage->check( config );
+      configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_PRE_FINI );
 
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) ) {
         FD_LOG_NOTICE(( "%s ... not configured ... %s", stage->name, result.message ));
@@ -140,7 +140,7 @@ configure_stage( configure_stage_t * stage,
       int fini_done = 0;
       if( FD_LIKELY( stage->fini ) ) fini_done = stage->fini( config, 0 );
 
-      result = stage->check( config );
+      result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_POST_FINI );
       if( FD_UNLIKELY( result.result == CONFIGURE_OK && stage->init && fini_done ) ) {
         /* if the fini step does nothing, it's fine if it's fully configured
             after being undone */
@@ -220,12 +220,73 @@ check_file( const char * path,
   return check_path( path, uid, gid, mode, 0 );
 }
 
+static char const *
+configure_stage_help( char const * name ) {
+  if( !strcmp( name, "hugetlbfs"        ) ) return "mount the huge page filesystems";
+  if( !strcmp( name, "sysctl"           ) ) return "apply required kernel sysctl tunables";
+  if( !strcmp( name, "hyperthreads"     ) ) return "check sibling hyperthreads are not in use";
+  if( !strcmp( name, "bonding"          ) ) return "tune settings on bonded network interfaces";
+  if( !strcmp( name, "ethtool-channels" ) ) return "set the NIC channel (queue) count";
+  if( !strcmp( name, "ethtool-offloads" ) ) return "set the required NIC offload settings";
+  if( !strcmp( name, "ethtool-loopback" ) ) return "disable an incompatible offload on the loopback interface";
+  if( !strcmp( name, "snapshots"        ) ) return "prepare the snapshot download directory";
+  if( !strcmp( name, "kill"             ) ) return "kill any running validator";
+  if( !strcmp( name, "keys"             ) ) return "generate dev identity/vote keypairs";
+  if( !strcmp( name, "genesis"          ) ) return "generate a local cluster genesis";
+  if( !strcmp( name, "blockstore"       ) ) return "create the genesis block in the ledger blockstore";
+  return NULL;
+}
+
+static void
+configure_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "init <stage>...",  NULL, "Apply the named configuration stages, performing whatever host setup they require" );
+  fd_action_help_arg( help, "check <stage>...", NULL, "Report whether the named configuration stages are already applied, without changing\n"
+                                                      "anything (exits non-zero if any stage is not configured)" );
+  fd_action_help_arg( help, "fini <stage>...",  NULL, "Undo the named configuration stages, reverting their host setup" );
+  fd_action_help_arg( help, "all",              NULL, "Use in place of <stage>... to apply the command to every known stage\n"
+                                                      "(e.g. `configure init all`)" );
+
+  /* List the stages this binary actually supports (these differ per
+     binary), padding stage names to a common width so the descriptions
+     align. */
+  static char stages[ 2048 ];
+  char * p   = fd_cstr_init( stages );
+  char * end = stages + sizeof(stages);
+
+  ulong name_width = 0UL;
+  for( configure_stage_t ** stage = STAGES; *stage; stage++ ) {
+    ulong len = strlen( (*stage)->name );
+    if( len>name_width ) name_width = len;
+  }
+
+  char line[ 256 ];
+  ulong line_len;
+  FD_TEST( fd_cstr_printf_check( line, sizeof(line), &line_len, "One of the configuration stages below:" ) && line_len < (ulong)(end-p) );
+  p = fd_cstr_append_cstr( p, line );
+
+  for( configure_stage_t ** stage = STAGES; *stage; stage++ ) {
+    char const * desc = configure_stage_help( (*stage)->name );
+    if( FD_UNLIKELY( !desc ) ) continue; /* no help text for this stage */
+    FD_TEST( fd_cstr_printf_check( line, sizeof(line), &line_len, "\n  %-*s  %s", (int)name_width, (*stage)->name, desc ) && line_len < (ulong)(end-p) );
+    p = fd_cstr_append_cstr( p, line );
+  }
+  fd_cstr_fini( p );
+
+  fd_action_help_arg( help, "<stage>", NULL, stages );
+}
+
 action_t fd_action_configure = {
   .name           = "configure",
   .args           = configure_cmd_args,
   .fn             = configure_cmd_fn,
   .perm           = configure_cmd_perm,
   .description    = "Configure the local host so it can run Firedancer correctly",
+  .detail         = "Performs the privileged, host-level setup Firedancer needs before it can run,\n"
+                    "organized into stages (such as mounting huge page filesystems and tuning\n"
+                    "sysctls).  Each stage can be applied (init), verified (check), or reverted\n"
+                    "(fini).  Typically run once as root before starting the validator.",
+  .usage          = "configure <init|check|fini> <stage>...",
+  .args_help      = configure_args_help,
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
                     "to configure Firedancer as the root user. Firedancer configuration requires "
                     "root because it does privileged operating system actions like mounting huge page filesystems. "

@@ -1,0 +1,20 @@
+[gossip]
+    entrypoints = [
+        "entrypoint.mainnet-beta.solana.com:8001",
+        "entrypoint2.mainnet-beta.solana.com:8001",
+        "entrypoint3.mainnet-beta.solana.com:8001",
+        "entrypoint4.mainnet-beta.solana.com:8001",
+        "entrypoint5.mainnet-beta.solana.com:8001",
+    ]
+[consensus]
+    expected_genesis_hash = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
+[snapshots]
+    [snapshots.sources]
+        servers = [ "http://solana-mainnet-rpc.jumpisolated.com:8899" ]
+[tiles.bundle]
+    enabled = true
+    url = "https://mainnet.block-engine.jito.wtf"
+    tip_distribution_program_addr = "4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7"
+    tip_payment_program_addr = "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt"
+    tip_distribution_authority = "8F4jGUmxF36vQ6yabnsxX6AQVXdKBhs8kGSUuRKSg8Xt"
+    commission_bps = 0

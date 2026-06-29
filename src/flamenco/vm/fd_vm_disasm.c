@@ -1,4 +1,7 @@
-#include "fd_vm_private.h"
+#include "fd_vm.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 
 /* fd_vm_disasm_printf appends to the *_len string in the max byte
    buffer buf the printf of the remaining args.  On input, assumes *_len

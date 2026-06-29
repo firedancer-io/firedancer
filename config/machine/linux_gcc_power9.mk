@@ -1,5 +1,6 @@
 BUILDDIR:=linux/gcc/power9
 
+include config/extra/with-gcc-pre.mk
 include config/base.mk
 include config/extra/with-gcc.mk
 

@@ -153,7 +153,8 @@ static inline ulong fd_shred_dest_cnt_all     ( fd_shred_dest_t * sdest ) { retu
    input_shreds[i] for i in [0, shred_cnt).  shred_cnt must be in [0,
    67].  The destination index for input_shreds[i] is stored at out[i].
    input_shreds==NULL is fine if shred_cnt==0, in which case this
-   function is a no-op.  Returns out on success and NULL on failure.
+   function is a no-op.
+   Returns out on success and NULL on failure.
    This function uses the sha256 batch API internally for performance,
    which is why it operates on several shreds at the same time as
    opposed to one at a time. */

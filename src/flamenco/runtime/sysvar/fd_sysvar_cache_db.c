@@ -1,17 +1,13 @@
 /* fd_sysvar_cache_db.c contains database interactions between the
    sysvar cache and the account database. */
 
-#include "fd_sysvar.h"
-#include "fd_sysvar_cache.h"
+#include "../fd_bank.h"
 #include "fd_sysvar_cache_private.h"
-#include "../fd_txn_account.h"
-#include "../fd_acc_mgr.h"
-#include <errno.h>
 
 static int
 sysvar_data_fill( fd_sysvar_cache_t *       cache,
-                  fd_funk_t *               funk,
-                  fd_funk_txn_xid_t const * xid,
+                  fd_accdb_t *              accdb,
+                  fd_accdb_fork_id_t        fork,
                   ulong                     idx,
                   int                       log_fails ) {
   fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
@@ -19,44 +15,34 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
   /* Read account from database */
-  fd_txn_account_t rec[1];
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, xid );
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork, key->uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) {
     if( log_fails ) FD_LOG_DEBUG(( "Sysvar %s not found", pos->name ));
-    return 0;
-  } else if( err!=FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly failed: %i", err ));
-    return EIO;
-  }
-
-  /* Work around instruction fuzzer quirk */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0 ) ) {
-    if( log_fails ) FD_LOG_WARNING(( "Skipping sysvar %s: zero balance", pos->name ));
+    fd_accdb_unread_one( accdb, &acc );
     return 0;
   }
 
-  /* Fill data cache entry */
-  ulong data_sz = fd_txn_account_get_data_len( rec );
-  data_sz = fd_ulong_min( data_sz, pos->data_max );
+  /* Fill data cache acc */
+  ulong data_sz = fd_ulong_min( acc.data_len, pos->data_max );
   uchar * data = (uchar *)cache+pos->data_off;
-  fd_memcpy( data, fd_txn_account_get_data( rec ), data_sz );
+  fd_memcpy( data, acc.data, data_sz );
   desc->data_sz = (uint)data_sz;
+  fd_accdb_unread_one( accdb, &acc );
 
-  /* Recover object cache entry from data cache entry */
+  /* Recover object cache acc from data cache acc */
   return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
 static int
-fd_sysvar_cache_restore1( fd_bank_t *               bank,
-                          fd_funk_t *               funk,
-                          fd_funk_txn_xid_t const * xid,
-                          int                       log_fails ) {
+fd_sysvar_cache_restore1( fd_bank_t *  bank,
+                          fd_accdb_t * accdb,
+                          int          log_fails ) {
   fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
-      fd_bank_sysvar_cache_modify( bank ) ) );
+      &bank->f.sysvar_cache ) );
 
   int saw_err = 0;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-    int err = sysvar_data_fill( cache, funk, xid, i, log_fails );
+    int err = sysvar_data_fill( cache, accdb, bank->accdb_fork_id, i, log_fails );
     if( err ) saw_err = 1;
   }
 
@@ -66,15 +52,35 @@ fd_sysvar_cache_restore1( fd_bank_t *               bank,
 }
 
 int
-fd_sysvar_cache_restore( fd_bank_t *               bank,
-                         fd_funk_t *               funk,
-                         fd_funk_txn_xid_t const * xid ) {
-  return fd_sysvar_cache_restore1( bank, funk, xid, 1 );
+fd_sysvar_cache_restore( fd_bank_t *  bank,
+                         fd_accdb_t * accdb ) {
+  return fd_sysvar_cache_restore1( bank, accdb, 1 );
 }
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
-                              fd_funk_txn_xid_t const * xid ) {
-  (void)fd_sysvar_cache_restore1( bank, funk, xid, 0 );
+fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
+                              fd_accdb_t * accdb ) {
+  (void)fd_sysvar_cache_restore1( bank, accdb, 0 );
+}
+
+void
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t * cache,
+                                  fd_acc_t const *    acc ) {
+  ulong idx;
+  for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
+    if( 0==memcmp( acc->pubkey, fd_sysvar_key_tbl[ idx ].uc, sizeof(fd_pubkey_t) ) ) break;
+  }
+  if( FD_UNLIKELY( idx==FD_SYSVAR_CACHE_ENTRY_CNT ) ) return;
+  if( FD_UNLIKELY( !acc->lamports ) ) return;
+
+  fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
+  fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
+
+  ulong data_sz = fd_ulong_min( acc->data_len, pos->data_max );
+  uchar * data    = (uchar *)cache+pos->data_off;
+  fd_memcpy( data, acc->data, data_sz );
+  desc->data_sz = (uint)data_sz;
+
+  /* Recover object cache acc from data cache acc */
+  fd_sysvar_obj_restore( cache, desc, pos );
 }

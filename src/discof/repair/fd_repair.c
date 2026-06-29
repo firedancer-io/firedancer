@@ -1,6 +1,5 @@
 #include "fd_repair.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../disco/keyguard/fd_keyguard_client.h"
 
 void *
 fd_repair_new( void * shmem, fd_pubkey_t * identity_key ) {
@@ -77,8 +76,8 @@ fd_repair_delete( void * repair ) {
 fd_repair_msg_t *
 fd_repair_pong( fd_repair_t * repair, fd_hash_t * ping_token ) {
   uchar pre_image[FD_REPAIR_PONG_PREIMAGE_SZ];
-  memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
-  memcpy( pre_image+16UL, ping_token->uc, 32UL);
+  memcpy( pre_image,      "SOLANA_PING_PONG", 16UL );
+  memcpy( pre_image+16UL, ping_token->uc,     32UL );
 
   /* Generate response hash token */
   fd_sha256_hash( pre_image, FD_REPAIR_PONG_PREIMAGE_SZ, &repair->msg.pong.hash );
@@ -138,4 +137,50 @@ fd_repair_orphan( fd_repair_t *     repair,
   repair->msg.orphan.nonce = nonce;
   repair->msg.orphan.slot  = slot;
   return &repair->msg;
+}
+
+int
+fd_repair_ping_de( fd_repair_ping_t * ping,
+                   uchar      const * buf,
+                   ulong              buf_sz ) {
+  if( FD_UNLIKELY( buf_sz!=sizeof(fd_repair_ping_t) )) return -1;
+
+  ping->kind = fd_uint_load_4_fast( buf );
+  buf    += sizeof(uint);
+
+  if( FD_UNLIKELY( ping->kind != FD_REPAIR_KIND_PING )) return -1;
+
+  /* pong section */
+
+  memcpy( &ping->ping.from, buf, sizeof(fd_pubkey_t) );
+  buf += sizeof(fd_pubkey_t);
+
+  memcpy( &ping->ping.hash, buf, sizeof(fd_hash_t) );
+  buf += sizeof(fd_hash_t);
+
+  memcpy( ping->ping.sig, buf, sizeof(fd_ed25519_sig_t) );
+  buf += sizeof(fd_ed25519_sig_t);
+  return 0;
+}
+
+int
+fd_repair_ping_ser( fd_repair_ping_t const * ping,
+                    uchar                    buf[static sizeof(fd_repair_ping_t)],
+                    ulong                    buf_sz ) {
+  ulong off = 0;
+  if( FD_UNLIKELY( buf_sz!=sizeof(fd_repair_ping_t) )) return -1;
+
+  FD_STORE( uint, buf+off, ping->kind );
+  off += sizeof(uint);
+
+  FD_STORE( fd_pubkey_t, buf+off, ping->ping.from );
+  off += sizeof(fd_pubkey_t);
+
+  FD_STORE( fd_hash_t, buf+off, ping->ping.hash );
+  off += sizeof(fd_hash_t);
+
+  memcpy( buf+off, ping->ping.sig, sizeof(fd_ed25519_sig_t) );
+  off += sizeof(fd_ed25519_sig_t);
+
+  return 0;
 }

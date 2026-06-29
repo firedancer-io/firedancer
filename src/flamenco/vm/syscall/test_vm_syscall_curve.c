@@ -1,5 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
+#include "../../runtime/fd_bank.h"
+#include "../../../ballet/hex/fd_hex.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -20,7 +22,7 @@ test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
     if( syscall_ret==FD_VM_SUCCESS ) {
       FD_TEST( ret_code == expected_ret_code );
     }
-    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -47,7 +49,7 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm, curve_id, op_id, in0_vaddr, in1_vaddr, result_point_vaddr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
-    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
     const void * result_point_host_addr = FD_VM_MEM_HADDR_LD( vm, result_point_vaddr, 1, 32 );
     if (ret_code == 0 && syscall_ret == 0) {
@@ -59,10 +61,57 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     return 1;
 }
 
+static int
+test_fd_vm_syscall_sol_curve_decompress( char const * test_case_name,
+                                         fd_vm_t *    vm,
+                                         ulong        curve_id,
+                                         ulong        point_vaddr,
+                                         ulong        result_vaddr,
+                                         ulong        result_sz,
+                                         ulong        expected_ret_code,
+                                         int          expected_syscall_ret,
+                                         void const * expected_result_host_ptr ) {
+    ulong ret_code = 0UL;
+    int   syscall_ret = fd_vm_syscall_sol_curve_decompress( (void *)vm, curve_id, point_vaddr, result_vaddr, 0UL, 0UL, &ret_code );
+    FD_TEST( syscall_ret == expected_syscall_ret );
+    if( syscall_ret==FD_VM_SUCCESS ) {
+      FD_TEST( ret_code == expected_ret_code );
+    }
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+    if( ret_code==0UL && syscall_ret==FD_VM_SUCCESS ) {
+      void const * result_host_addr = FD_VM_MEM_HADDR_LD( vm, result_vaddr, 1, result_sz );
+      FD_TEST( memcmp( result_host_addr, expected_result_host_ptr, result_sz ) == 0 );
+    }
+
+    FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+
+    return 1;
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  FD_TEST( runtime );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -77,35 +126,39 @@ main( int     argc,
   uchar       rodata[ rodata_sz ];
   set_memory_region( rodata, rodata_sz );
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
-  fd_features_enable_all( &((fd_exec_txn_ctx_t *)instr_ctx->txn_ctx)->features );
+  static fd_exec_instr_ctx_t instr_ctx[1];
+  static fd_bank_t           bank[1];
+  static fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  fd_features_enable_all( &bank->f.features );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,  /* required for FD_FEATURE_ACTIVE */
-      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                             */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata                               */ rodata,
-      /* rodata_sz                            */ rodata_sz,
-      /* text                                 */ NULL,
-      /* text_cnt                             */ 0UL,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ 0UL,
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ NULL,
-      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls                             */ NULL,
-      /* trace                                */ NULL,
-      /* sha                                  */ sha,
-      /* mem_regions                          */ NULL,
-      /* mem_regions_cnt                      */ 0UL,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,  /* required for FD_FEATURE_ACTIVE */
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata                                 */ rodata,
+      /* rodata_sz                              */ rodata_sz,
+      /* text                                   */ NULL,
+      /* text_cnt                               */ 0UL,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ 0UL,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                               */ NULL,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ NULL,
+      /* mem_regions_cnt                        */ 0UL,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
 
@@ -129,7 +182,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_SEGFAULT, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // invalid (max 512 points)
   FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
@@ -144,7 +197,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_INVALID_LENGTH, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // invalid (max 512 points)
   FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
@@ -159,7 +212,7 @@ main( int     argc,
     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE, // syscall_ret
     expected_result_host_ptr
   ) );
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // success
   // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107
@@ -389,6 +442,153 @@ main( int     argc,
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     ) );
+  }
+
+  {
+    uchar _points[ 96*2 ]; uchar * points = _points;
+    fd_hex_decode( points, "b0f82e3a5a3a9a589b4887a2c8b4f2757f688fa839d4afe1d702c5c6dc606b3985b764630d38b77f6511f5ecd4a95609af2327c3a3fbb03906dd1f7b24e8c3b9f7f17570ffe93539357bb17604a1d685e1dbfca45ea51e0a593901f07019ce0ab0f82e3a5a3a9a589b4887a2c8b4f2757f688fa839d4afe1d702c5c6dc606b3985b764630d38b77f6511f5ecd4a95609af2327c3a3fbb03906dd1f7b24e8c3b9f7f17570ffe93539357bb17604a1d685e1dbfca45ea51e0a593901f07019ce0a", 96*2 );
+
+    uchar _expected[ 96 ];
+    fd_hex_decode( _expected, "35c4b6c580fc3cc85b1d1af6fa7df01003f908d571b11da441c1d02c00ab90659e65a070448be749c571882b7a3e67146c3548e1cce95bc06f736678bc2843145837f5345c7384550d2687185ab68a7b171bf4dcb79476208a960056c7fe0017", 96 );
+
+    memcpy( &vm->heap[0], points, 96*2 );
+
+    in0_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 96UL;
+    result_point_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + 96UL*2;
+    expected_result_host_ptr = _expected;
+
+    FD_TEST( test_fd_vm_syscall_sol_curve_group_op(
+      "fd_vm_syscall_sol_curve_group_op: bls12-381, add",
+      vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE,
+      FD_VM_SYSCALL_SOL_CURVE_ADD,
+      in0_vaddr,
+      in1_vaddr,
+      result_point_vaddr,
+      0UL, // ret_code
+      FD_VM_SUCCESS, // syscall_ret
+      expected_result_host_ptr
+    ) );
+  }
+
+  {
+    uchar compressed[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ ];
+    fd_hex_decode( compressed, "dadeb9267a9864e5a4379ef08a3b6f4bf48e5a6e80d5896c6a07190c46e672876fbd02c13a468f719abc608e44f59faf", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ );
+
+    uchar expected[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
+    fd_hex_decode( expected, "dadeb9267a9864e5a4379ef08a3b6f4bf48e5a6e80d5896c6a07190c46e672876fbd02c13a468f719abc608e44f59f0f3a7b32648787e478caf1abf65f6b043ac82933a8eda04fb8351bc175f4b51f9efa0a682c55076d92eaa2233ef6014f12", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+
+    ulong point_off = vm->heap_max - FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ;
+    memcpy( &vm->heap[ point_off ], compressed, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ );
+
+    FD_TEST( test_fd_vm_syscall_sol_curve_decompress(
+      "fd_vm_syscall_sol_curve_decompress: bls12-381 g1, compressed input at heap end",
+      vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE,
+      FD_VM_MEM_MAP_HEAP_REGION_START + point_off,
+      FD_VM_MEM_MAP_HEAP_REGION_START,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ,
+      0UL, /* ret_code */
+      FD_VM_SUCCESS, /* syscall_ret */
+      expected
+    ) );
+  }
+
+  {
+    uchar compressed[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ ];
+    fd_hex_decode( compressed, "6ff24e70ff109bcf1fdeb647afd8251087bc605685240b6fa3c4be73023b8fd3120f49acb6e0bae733a76a6f3baa181768c33027df47696fb3b9ee79d10dde7dd130e8adfb40f93589872a4a6a0b8992accd4ab39268238be4049828dc126a8f", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ );
+
+    uchar expected[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
+    fd_hex_decode( expected, "6ff24e70ff109bcf1fdeb647afd8251087bc605685240b6fa3c4be73023b8fd3120f49acb6e0bae733a76a6f3baa181768c33027df47696fb3b9ee79d10dde7dd130e8adfb40f93589872a4a6a0b8992accd4ab39268238be4049828dc126a0f0537997d0bd6a8ea4076cd4bb2686bc0e0bb78807963ab0c1594c49057d94d38bf40b06a0f1fbb6cdb9f55aafb6f3b0d90ce38a4d6205c92ffae784a9df66fb2e40d394ab06093fd545c1b7a7e9f455f9d8255c776b7cdaba8b66fc953f4d90b", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+
+    ulong point_off = vm->heap_max - FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ;
+    memcpy( &vm->heap[ point_off ], compressed, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ );
+
+    FD_TEST( test_fd_vm_syscall_sol_curve_decompress(
+      "fd_vm_syscall_sol_curve_decompress: bls12-381 g2, compressed input at heap end",
+      vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE,
+      FD_VM_MEM_MAP_HEAP_REGION_START + point_off,
+      FD_VM_MEM_MAP_HEAP_REGION_START,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ,
+      0UL, /* ret_code */
+      FD_VM_SUCCESS, /* syscall_ret */
+      expected
+    ) );
+  }
+
+  /* Test: sol_curve_pairing_map with num_pairs=0, NULL g1/g2 pointers.
+     This must succeed and write the GT identity to the result buffer.
+     Regression test for zero-pair BLS12-381 pairing divergence. */
+  {
+    ulong gt_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ; /* 576 */
+    ulong result_off = 0UL;
+    memset( &vm->heap[ result_off ], 0xAA, gt_sz );
+
+    ulong result_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + result_off;
+
+    vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
+
+    ulong ret_code = 0UL;
+    int syscall_ret = fd_vm_syscall_sol_curve_pairing_map(
+      (void *)vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE,
+      0UL,            /* num_pairs = 0 */
+      0UL,            /* g1_points_addr = NULL */
+      0UL,            /* g2_points_addr = NULL */
+      result_vaddr,
+      &ret_code
+    );
+    FD_TEST( syscall_ret == FD_VM_SUCCESS );
+    FD_TEST( ret_code    == 0UL );
+
+    /* Verify the GT identity was written (little-endian encoding of 1 in Fp12:
+       first 48 bytes = 1 LE, remaining 528 bytes = 0). */
+    uchar const * result_host = (uchar const *)FD_VM_MEM_HADDR_LD( vm, result_vaddr, 1, gt_sz );
+    FD_TEST( result_host[0] == 1 );
+    for( ulong i=1UL; i<gt_sz; i++ ) {
+      FD_TEST( result_host[i] == 0 );
+    }
+
+    FD_LOG_NOTICE(( "Passed test program (sol_curve_pairing_map: bls12-381 zero pairs, LE)" ));
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+  }
+
+  /* Same test but big-endian. */
+  {
+    ulong gt_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ;
+    ulong result_off = 0UL;
+    memset( &vm->heap[ result_off ], 0xAA, gt_sz );
+
+    ulong result_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + result_off;
+
+    vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
+
+    ulong ret_code = 0UL;
+    int syscall_ret = fd_vm_syscall_sol_curve_pairing_map(
+      (void *)vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE,
+      0UL,            /* num_pairs = 0 */
+      0UL,            /* g1_points_addr = NULL */
+      0UL,            /* g2_points_addr = NULL */
+      result_vaddr,
+      &ret_code
+    );
+    FD_TEST( syscall_ret == FD_VM_SUCCESS );
+    FD_TEST( ret_code    == 0UL );
+
+    /* Big-endian GT identity: the "1" Fp element is serialized at the
+       end of the buffer (offset 48*11), as BE Fp: 47 zero bytes then 0x01.
+       So byte [575] == 1, everything else == 0. */
+    uchar const * result_host = (uchar const *)FD_VM_MEM_HADDR_LD( vm, result_vaddr, 1, gt_sz );
+    for( ulong i=0UL; i<gt_sz-1UL; i++ ) {
+      FD_TEST( result_host[i] == 0 );
+    }
+    FD_TEST( result_host[gt_sz-1UL] == 1 );
+
+    FD_LOG_NOTICE(( "Passed test program (sol_curve_pairing_map: bls12-381 zero pairs, BE)" ));
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   }
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );

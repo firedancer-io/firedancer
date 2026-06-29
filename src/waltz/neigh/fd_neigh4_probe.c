@@ -42,13 +42,15 @@ fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
     .probe_delay = (long)( tick_per_ns * probe_delay_seconds * 1e9f ),
     .rate_limit  = (fd_token_bucket_t) {
       .ts      = fd_tickcount(),
-      .rate    = tick_per_ns * (max_probes_per_second / 1e9f),
+      .rate    = max_probes_per_second / (tick_per_ns * 1e9f),
       .burst   = (float)max_probe_burst,
       .balance = 0.f
     },
     .local_rate_limited_cnt  = 0UL,
     .global_rate_limited_cnt = 0UL
   };
+
+  FD_TEST( prober->probe_delay >> FD_NEIGH4_PROBE_SUPPRESS_SHIFT );
 }
 
 void
@@ -75,7 +77,6 @@ fd_neigh4_probe( fd_neigh4_prober_t * prober,
     return errno;
   }
 
-  entry->probe_suppress_until = now + prober->probe_delay;
-
+  FD_NEIGH4_PROBE_SUPPRESS_UNTIL_SET( entry, now + prober->probe_delay );
   return 0;
 }

@@ -1,4 +1,4 @@
-uint logfile_fd, uint in_full_fd, uint in_incr_fd
+uint logfile_fd, uint in_full_fd, uint in_incr_fd, uint sockfd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -6,9 +6,7 @@ uint logfile_fd, uint in_full_fd, uint in_incr_fd
 # are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR.  The other files that can be
-# written to are the out descriptors for the full and incremental
-# snapshots.
+# that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
@@ -18,11 +16,13 @@ write: (or (eq (arg 0) 2)
 fsync: (eq (arg 0) logfile_fd)
 
 # snapshot: need to be able to read from an open file for snapshot
-# loading
+# loading and from the socket file descriptor.  OpenSSL calls read to
+# receive bytes from an https connection.
 #
 # arg 0 is the file descriptor that we want to read from
 read: (or (eq (arg 0) in_full_fd)
-          (eq (arg 0) in_incr_fd))
+          (eq (arg 0) in_incr_fd)
+          (eq (arg 0) sockfd))
 
 # snapshot: Uses lseek to reset position in input file
 lseek: (and (or (eq (arg 0) in_full_fd)
@@ -32,7 +32,7 @@ lseek: (and (or (eq (arg 0) in_full_fd)
 
 # snapshot: establish connections for snapshot download.
 socket: (and (eq (arg 0) "AF_INET")
-             (eq (arg 1) "SOCK_STREAM")
+             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
              (eq (arg 2) 0))
 
 # snapshot: need to be able to connect to a peer to download a snapshot
@@ -57,8 +57,9 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) in_full_fd)
                 (eq (arg 0) in_incr_fd)))
 
-# snapshot: we need to be send http requests to endpoints for snapshot
-# downloading
+# snapshot: send HTTP requests to endpoints for snapshot downloading.
+# OpenSSL also uses sendto to write to the socket during the lifetime
+# of an HTTPS connection.
 #
 # arg 0 is the file descriptor that we would like to send a request to.
 # We will restrict this being called on any of the snapshot file
@@ -79,19 +80,27 @@ recvfrom: (not (or (eq (arg 0) 2)
                    (eq (arg 0) in_full_fd)
                    (eq (arg 0) in_incr_fd)))
 
-# snapshot: we need to be able to configure out socket connection from
-# the peer that we download our snapshot from or resolve slot
-# information from.
+# snapshot: if we are bottlenecked by the network, spinning on
+# non-blocking recv() calls will waste power and may have lower
+# throughtput.
+ppoll: (eq (arg 1) 1)
+
+# snapshot: yield to scheduler during idle pipeline to save power
+clock_nanosleep
+
+# openssl: RAND_bytes requires getpid
 #
-# arg 0 is the file descriptor that corresponds to the socket that we
-# want to connect to.  We know that we don't want to connect to the
-# file descriptors used for logging, stderr, or any of the snapshot fds.
-setsockopt: (and (not (or (eq (arg 0) 2)
-                          (eq (arg 0) logfile_fd)
-                          (eq (arg 0) in_full_fd)
-                          (eq (arg 0) in_incr_fd)))
-                 (eq (arg 1) SOL_SOCKET)
-                 (eq (arg 2) SO_RCVTIMEO))
+# The OpenSSL implementation calls getpid() as an implementation detail,
+# they save the PID in a global and reseed the RNG if the PID ever
+# changes (the process was forked).  We don't need this logic since our
+# process can't fork.
+getpid
+
+# openssl: RAND_bytes requires getrandom
+#
+# The OpenSSL implementation calls getrandom internally for periodically
+# reseeding the RNG.
+getrandom
 
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)

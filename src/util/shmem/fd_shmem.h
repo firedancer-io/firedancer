@@ -121,7 +121,8 @@ FD_PROTOTYPES_BEGIN
    region (if there multiple regions with same name, this will try to
    join the one backed by the largest page size).  Then the region is
    mapped into the address appropriately for the given access mode
-   (FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}).  Lastly, any user
+   (FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}).  Then the region is
+   marked as MADVISE_DONTDUMP if the dump flag is 0.  Lastly, any user
    provided fd_shmem_join_func_t is called on the mapping.
 
    A fd_shmem_join_func_t is meant to do any additional local address
@@ -170,6 +171,7 @@ FD_PROTOTYPES_BEGIN
 void *
 fd_shmem_join( char const *               name,
                int                        mode,
+               int                        dump,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
                fd_shmem_join_info_t *     opt_info );
@@ -483,7 +485,7 @@ fd_shmem_is_page_sz( ulong page_sz ) {
    FD_SHMEM_UNKNOWN_LG_PAGE_SZ (-1 ... the only negative return
    possible) if it can't figure this out. */
 
-FD_FN_PURE int
+int
 fd_cstr_to_shmem_lg_page_sz( char const * cstr );
 
 /* fd_shmem_lg_page_sz_to_cstr:  Return a pointer to a cstr
@@ -504,7 +506,7 @@ fd_shmem_lg_page_sz_to_cstr( int lg_page_sz );
    (0UL, the only non-integral power of 2 return possible) if it can't
    figure this out. */
 
-FD_FN_PURE ulong
+ulong
 fd_cstr_to_shmem_page_sz( char const * cstr );
 
 /* fd_shmem_page_sz_to_cstr:  Return a pointer to a cstr corresponding
@@ -544,4 +546,3 @@ fd_shmem_private_halt( void );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_h */
-

@@ -73,7 +73,8 @@ fd_poseidon_init( fd_poseidon_t * pos,
 fd_poseidon_t *
 fd_poseidon_append( fd_poseidon_t * pos,
                     uchar const *   data,
-                    ulong           sz );
+                    ulong           sz,
+                    int             enforce_padding );
 
 /* fd_poseidon_fini finishes a Poseidon calculation.
    out is assumed to be valid (i.e. is a current local join to a Poseidon
@@ -89,20 +90,6 @@ fd_poseidon_append( fd_poseidon_t * pos,
 uchar *
 fd_poseidon_fini( fd_poseidon_t * pos,
                   uchar           hash[ FD_POSEIDON_HASH_SZ ] );
-
-/* Hash a series of bytes. */
-static inline int
-fd_poseidon_hash( fd_poseidon_hash_result_t * result,
-                  uchar const *               bytes,
-                  ulong                       bytes_len,
-                  int const                   big_endian ) {
-  fd_poseidon_t pos[1];
-  fd_poseidon_init( pos, big_endian );
-  for( ulong i=0; i<bytes_len/32; i++ ) {
-    fd_poseidon_append( pos, &bytes[i*32], 32 );
-  }
-  return !fd_poseidon_fini( pos, fd_type_pun(result) );
-}
 
 FD_PROTOTYPES_END
 

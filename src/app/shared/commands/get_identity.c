@@ -3,7 +3,6 @@
 #include "../fd_action.h"
 #include "../../../util/fd_util.h"
 #include "../../../ballet/base58/fd_base58.h"
-#include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../disco/shred/fd_shred_tile.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include <unistd.h>
@@ -27,16 +26,16 @@ get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   ulong shred_wksp_id = shred_obj->wksp_id;
 
   /* Join the workspace in read-only mode */
-  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ shred_wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ shred_wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* Cast to shred context structure */
-  fd_shred_ctx_t const * shred_ctx = fd_topo_obj_laddr( &config->topo, shred_tile->tile_obj_id );
+  fd_shred_shared_ctx_t const * shred_ctx = fd_topo_obj_laddr( &config->topo, shred_tile->tile_obj_id );
   if( FD_UNLIKELY( !shred_ctx ) ) {
     fd_topo_leave_workspaces( &config->topo );
     FD_LOG_ERR(( "Failed to access shred tile object" ));
   }
   /* Join the keyswitch to check for concurrent identity updates */
-  fd_keyswitch_t * keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( &config->topo, shred_tile->keyswitch_obj_id ) );
+  fd_keyswitch_t * keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( &config->topo, shred_tile->id_keyswitch_obj_id ) );
   if( FD_UNLIKELY( !keyswitch ) ) {
     fd_topo_leave_workspaces( &config->topo );
     FD_LOG_ERR(( "Failed to join keyswitch" ));

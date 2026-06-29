@@ -6,7 +6,7 @@
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../tango/fseq/fd_fseq.h"
-#include "../../waltz/mib/fd_dbl_buf.h"
+#include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -104,7 +104,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_fseq = {
 static ulong
 metrics_footprint( fd_topo_t const *     topo,
                    fd_topo_obj_t const * obj ) {
-  return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
+  return FD_METRICS_FOOTPRINT( VAL("in_cnt") );
 }
 
 static ulong
@@ -116,7 +116,7 @@ metrics_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 metrics_new( fd_topo_t const *     topo,
              fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_metrics_new( fd_topo_obj_laddr( topo, obj->id ), VAL("in_cnt"), VAL("cons_cnt") ) );
+  FD_TEST( fd_metrics_new( fd_topo_obj_laddr( topo, obj->id ), VAL("in_cnt") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_metrics = {
@@ -127,59 +127,36 @@ fd_topo_obj_callbacks_t fd_obj_cb_metrics = {
 };
 
 static ulong
-opaque_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+netdev_tbl_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return fd_netdev_tbl_footprint( VAL("dev_max"), VAL("bond_max") );
+}
+
+static inline ulong
+netdev_tbl_align( fd_topo_t const *     topo FD_FN_UNUSED,
                   fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return VAL("footprint");
-}
-
-static ulong
-opaque_align( fd_topo_t const *     topo FD_FN_UNUSED,
-              fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return VAL("align");
+  return fd_netdev_tbl_align();
 }
 
 static void
-opaque_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, VAL("footprint") );
+netdev_tbl_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_netdev_tbl_new( fd_topo_obj_laddr( topo, obj->id ), VAL("dev_max"), VAL("bond_max") ) );
 }
 
-fd_topo_obj_callbacks_t fd_obj_cb_opaque = {
-  .name      = "opaque",
-  .footprint = opaque_footprint,
-  .align     = opaque_align,
-  .new       = opaque_new,
+fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl = {
+  .name      = "netdev_tbl",
+  .footprint = netdev_tbl_footprint,
+  .align     = netdev_tbl_align,
+  .new       = netdev_tbl_new,
 };
 
 static ulong
-dbl_buf_footprint( fd_topo_t const *     topo,
+neigh4_hmap_footprint( fd_topo_t const * topo,
                    fd_topo_obj_t const * obj ) {
-  return fd_dbl_buf_footprint( VAL("mtu") );
-}
-
-static ulong
-dbl_buf_align( fd_topo_t const *     topo FD_FN_UNUSED,
-               fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_dbl_buf_align();
-}
-
-static void
-dbl_buf_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_dbl_buf_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mtu"), 1UL ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf = {
-  .name      = "dbl_buf",
-  .footprint = dbl_buf_footprint,
-  .align     = dbl_buf_align,
-  .new       = dbl_buf_new,
-};
-
-static ulong
-neigh4_hmap_footprint( fd_topo_t const *     topo,
-                   fd_topo_obj_t const * obj ) {
-  return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
+  ulong slot_cnt = fd_neigh4_hmap_est_slot_cnt( VAL("ele_max") );
+  FD_TEST( (slot_cnt!=ULONG_MAX) & (slot_cnt!=0) );
+  return fd_neigh4_hmap_footprint( slot_cnt );
 }
 
 static ulong
@@ -191,7 +168,8 @@ neigh4_hmap_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 neigh4_hmap_new( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_neigh4_hmap_new( fd_topo_obj_laddr( topo, obj->id ), VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max"), VAL("seed") ) );
+  ulong slot_cnt = fd_neigh4_hmap_est_slot_cnt( VAL("ele_max") );
+  FD_TEST( fd_neigh4_hmap_new( fd_topo_obj_laddr( topo, obj->id ), slot_cnt, 1 ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap = {
@@ -240,7 +218,7 @@ keyswitch_align( fd_topo_t const *     topo FD_FN_UNUSED,
 
 static void
 keyswitch_new( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj ) {
+               fd_topo_obj_t const * obj ) {
   FD_TEST( fd_keyswitch_new( fd_topo_obj_laddr( topo, obj->id ), FD_KEYSWITCH_STATE_UNLOCKED ) );
 }
 

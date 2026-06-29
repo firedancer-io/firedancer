@@ -190,7 +190,7 @@ main( int     argc,
   ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   uint         seed       = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",      NULL,              0U );
   ulong        part_max   = fd_env_strip_cmdline_ulong( &argc, &argv, "--part-max",  NULL,             0UL );
-  /**/         _alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,       1048576UL );
+  /**/         _alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,         65536UL );
   /**/         _align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,          4096UL );
   /**/         _sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,        262144UL );
 

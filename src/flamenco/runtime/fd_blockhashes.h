@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_blockhashes_h
 #define HEADER_fd_src_flamenco_runtime_fd_blockhashes_h
 
-#include "../types/fd_types.h"
-#include "../../funk/fd_funk_base.h" /* fd_funk_rec_key_hash1 */
+#include "../fd_flamenco_base.h"
+#include "../accdb/fd_accdb.h"
 
 /* fd_blockhashes.h provides a "blockhash queue" API.  The blockhash
    queue is a consensus-relevant data structure that is part of the slot
@@ -10,15 +10,15 @@
 
    See solana_accounts_db::blockhash_queue::BlockhashQueue. */
 
-#define FD_BLOCKHASHES_MAX 301
+#define FD_BLOCKHASHES_MAX (301UL)
 
 /* See solana_accounts_db::blockhash_queue::HashInfo. */
 
 struct fd_blockhash_info {
-  fd_hash_t           hash;
-  fd_fee_calculator_t fee_calculator;
-  ushort              next;
-  ushort              exists : 1;
+  fd_hash_t hash;
+  ulong     lamports_per_signature;
+  ushort    next;
+  ushort    exists : 1;
 };
 
 typedef struct fd_blockhash_info fd_blockhash_info_t;
@@ -42,7 +42,7 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 #define MAP_IDX_T         ushort
 #define MAP_NEXT          next
 #define MAP_KEY_EQ(k0,k1) fd_hash_eq( (k0), (k1) )
-#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k->uc), 0, (s) )
+#define MAP_KEY_HASH(k,s) fd_accdb_hash( (k->uc), (s) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_blockhashes_t is the class representing a blockhash queue.
@@ -106,9 +106,16 @@ fd_blockhashes_check_age( fd_blockhashes_t const * blockhashes,
                           ulong                    max_age );
 
 FD_FN_PURE static inline fd_hash_t const *
-fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
-  if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return 0;
+fd_blockhashes_peek_last_hash( fd_blockhashes_t const * blockhashes ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return NULL;
   return &fd_blockhash_deq_peek_tail_const( blockhashes->d.deque )->hash;
+}
+
+
+FD_FN_PURE static inline fd_blockhash_info_t const *
+fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return NULL;
+  return fd_blockhash_deq_peek_tail_const( blockhashes->d.deque );
 }
 
 FD_PROTOTYPES_END

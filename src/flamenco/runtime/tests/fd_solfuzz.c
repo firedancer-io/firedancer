@@ -3,8 +3,8 @@
 #define _GNU_SOURCE
 #include "fd_solfuzz.h"
 #include "../fd_bank.h"
-#include "../fd_exec_stack.h"
 #include "../fd_runtime_stack.h"
+#include "../fd_runtime.h"
 #include <errno.h>
 #include <sys/mman.h>
 #include "../../../util/shmem/fd_shmem_private.h"
@@ -80,68 +80,102 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Allocate objects */
   ulong const txn_max  = 16UL;
   ulong const rec_max  = 1024UL;
-  ulong const spad_max = 1000000000UL;
-  ulong const bank_max = 1UL;
-  ulong const fork_max = 1UL;
-  fd_solfuzz_runner_t * runner     = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),              wksp_tag );
-  void *                funk_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
-  void *                pcache_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
-  uchar *               scratch    = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,           wksp_tag );
-  void *                spad_mem   = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),            wksp_tag );
-  void *                banks_mem  = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max ), wksp_tag );
-  if( FD_UNLIKELY( !runner     ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed" )); goto bail1; }
-  if( FD_UNLIKELY( !funk_mem   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(funk) failed"           )); goto bail1; }
-  if( FD_UNLIKELY( !pcache_mem ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(funk) failed"           )); goto bail1; }
-  if( FD_UNLIKELY( !scratch    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(scratch) failed"        )); goto bail1; }
-  if( FD_UNLIKELY( !spad_mem   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(spad) failed (spad_max=%g)", (double)spad_max )); goto bail1; }
-  if( FD_UNLIKELY( !banks_mem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(banks) failed (bank_max=%lu fork_max=%lu)", bank_max, fork_max )); goto bail1; }
+  ulong const spad_max = 1750000000UL; /* 1.75GB: 128 accounts * ~10MB + 100MB execute_wrapper
+                                          out buf + 64MB cmp_binary_strict scratch + headroom */
+  ulong const bank_max = 2UL;
+  ulong const fork_max = 2UL;
+
+  ulong const max_accounts        = rec_max;
+  ulong const max_live_slots       = txn_max;
+  ulong const writes_per_slot      = 1024UL;
+  ulong const partition_cnt        = 8192UL;
+  ulong const partition_sz         = (1UL<<30UL);
+  ulong const cache_footprint      = (12UL<<30UL);
+  ulong const cache_min_reserved   = 5UL*191UL;
+
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
+                                                   writes_per_slot, partition_cnt,
+                                                   cache_footprint, cache_min_reserved, 1UL );
+  ulong accdb_join_sz  = fd_accdb_footprint( max_live_slots );
+
+  fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
+  void *                accdb_shmem  = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(),       accdb_shmem_sz,                                              wksp_tag );
+  void *                accdb_join   = fd_wksp_alloc_laddr( wksp, fd_accdb_align(),             accdb_join_sz,                                               wksp_tag );
+  void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, rec_max ),            wksp_tag );
+  uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
+  void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
+  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL ),    wksp_tag );
+  if( FD_UNLIKELY( !runner       ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed"                                            )); goto bail1; }
+  if( FD_UNLIKELY( !accdb_shmem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_shmem) failed"                                               )); goto bail1; }
+  if( FD_UNLIKELY( !accdb_join   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_join) failed"                                                )); goto bail1; }
+  if( FD_UNLIKELY( !pcache_mem   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(pcache) failed"                                                    )); goto bail1; }
+  if( FD_UNLIKELY( !scratch      ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(scratch) failed"                                                   )); goto bail1; }
+  if( FD_UNLIKELY( !spad_mem     ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(spad) failed (spad_max=%g)", (double)spad_max                      )); goto bail1; }
+  if( FD_UNLIKELY( !banks_mem    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(banks) failed (bank_max=%lu fork_max=%lu)", bank_max, fork_max     )); goto bail1; }
 
   /* Create objects */
   fd_memset( runner, 0, sizeof(fd_solfuzz_runner_t) );
-  runner->wksp = wksp;
+  runner->wksp     = wksp;
+  runner->wksp_tag = wksp_tag;
 
-  void * shfunk   = fd_funk_new( funk_mem,   wksp_tag, 1UL, txn_max, rec_max );
-  void * shpcache = fd_funk_new( pcache_mem, wksp_tag, 1UL, txn_max, rec_max );
-  if( FD_UNLIKELY( !shfunk   ) ) goto bail1;
-  if( FD_UNLIKELY( !shpcache ) ) goto bail1;
+  /* Create accdb backed by memfd */
+  int accdb_fd = memfd_create( "accdb_fuzz", 0 );
+  if( FD_UNLIKELY( accdb_fd<0 ) ) { FD_LOG_WARNING(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) )); goto bail1; }
 
-  if( FD_UNLIKELY( !fd_accdb_admin_join( runner->accdb_admin, funk_mem ) ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_accdb_user_join ( runner->accdb,       funk_mem ) ) ) goto bail2;
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( accdb_shmem, max_accounts, max_live_slots,
+                          writes_per_slot, partition_cnt,
+                          partition_sz, cache_footprint, cache_min_reserved, 1, 42UL, 1UL ) );
+  if( FD_UNLIKELY( !shmem ) ) goto bail1;
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
+  if( FD_UNLIKELY( !accdb ) ) goto bail1;
+  runner->accdb = accdb;
+
+  /* Create root fork (sentinel parent) */
+  runner->root_fork_id = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val=USHORT_MAX } );
+
+  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, rec_max );
+  if( FD_UNLIKELY( !shpcache ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
 
-  runner->exec_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_exec_stack_t), sizeof(fd_exec_stack_t), wksp_tag );
-  if( FD_UNLIKELY( !runner->exec_stack ) ) goto bail2;
-  runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
+  runner->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  if( FD_UNLIKELY( !runner->runtime ) ) goto bail2;
+  runner->runtime->accounts.executable_cnt = 0UL;
+  runner->runtime->accounts.account_cnt    = 0UL;
+  runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
-  runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max ) );
+  /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
+  runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
   runner->bank = fd_banks_init_bank( runner->banks );
-  if( FD_UNLIKELY( !runner->bank ) ) {
-    FD_LOG_WARNING(( "fd_banks_init_bank failed" ));
-    goto bail2;
-  }
-  fd_bank_slot_set( runner->bank, 0UL );
+  if( FD_UNLIKELY( !runner->bank ) ) goto bail2;
+  runner->bank->f.slot = 0UL;
 
   runner->enable_vm_tracing = options->enable_vm_tracing;
-  FD_TEST( runner->progcache->funk->shmem );
+  FD_TEST( runner->progcache->join->shmem );
+
+  ulong tags[1] = { wksp_tag };
+  fd_wksp_usage_t usage[1];
+  fd_wksp_usage( wksp, tags, 1UL, usage );
+  runner->wksp_baseline_used_sz = usage->used_sz;
+
   return runner;
 
 bail2:
-  if( runner->spad      ) fd_spad_delete( fd_spad_leave( runner->spad ) );
-  if( shfunk            ) fd_funk_delete( shfunk ); /* free underlying fd_alloc instance */
-  if( shpcache          ) fd_funk_delete( shpcache );
-  if( runner->banks     ) fd_banks_delete( fd_banks_leave( runner->banks ) );
+  if( runner->spad ) fd_spad_delete( fd_spad_leave( runner->spad ) );
+  if( shpcache     ) fd_progcache_shmem_delete( shpcache );
 bail1:
-  fd_wksp_free_laddr( scratch    );
-  fd_wksp_free_laddr( pcache_mem );
-  fd_wksp_free_laddr( funk_mem   );
-  fd_wksp_free_laddr( spad_mem   );
-  fd_wksp_free_laddr( banks_mem  );
-  fd_wksp_free_laddr( runner     );
+  fd_wksp_free_laddr( scratch      );
+  fd_wksp_free_laddr( pcache_mem   );
+  fd_wksp_free_laddr( accdb_join   );
+  fd_wksp_free_laddr( accdb_shmem  );
+  fd_wksp_free_laddr( spad_mem     );
+  fd_wksp_free_laddr( banks_mem    );
+  fd_wksp_free_laddr( runner       );
   FD_LOG_WARNING(( "fd_solfuzz_runner_new failed" ));
   return NULL;
 }
@@ -149,28 +183,35 @@ bail1:
 void
 fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 
-  fd_accdb_user_leave( runner->accdb, NULL );
-  void * shfunk = NULL;
-  fd_accdb_admin_leave( runner->accdb_admin, &shfunk );
-  if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+  /* accdb cleanup is handled by the memfd close */
+  /* TODO: proper accdb teardown if needed */
 
-  fd_progcache_leave( runner->progcache, NULL );
-  void * shpcache = NULL;
-  fd_progcache_admin_leave( runner->progcache_admin, &shpcache );
-  if( shpcache ) fd_wksp_free_laddr( fd_funk_delete( shpcache ) );
+  fd_progcache_shmem_t * shpcache = NULL;
+  fd_progcache_leave( runner->progcache, &shpcache );
 
-  if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
-  if( runner->banks ) fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
+  fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
+  fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
+  fd_wksp_free_laddr( runner->banks );
   fd_wksp_free_laddr( runner );
 }
 
 void
 fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
   if( FD_UNLIKELY( fd_spad_frame_used( runner->spad ) ) ) {
-    FD_LOG_CRIT(( "solfuzz leaked a spad frame (bump allocator)" ));
+    FD_LOG_CRIT(( "leaked spad frame" ));
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->accdb->funk->shmem->child_head_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "solfuzz leaked a funk txn" ));
+  if( FD_UNLIKELY( runner->progcache->join->shmem->txn.child_head_idx != UINT_MAX ) ) {
+    FD_LOG_CRIT(( "leaked a txn in progcache" ));
+  }
+
+  ulong tags[1] = { runner->wksp_tag };
+  fd_wksp_usage_t usage[1];
+  fd_wksp_usage( runner->wksp, tags, 1UL, usage );
+  if( FD_UNLIKELY( usage->used_sz != runner->wksp_baseline_used_sz ) ) {
+    FD_LOG_CRIT(( "leaked wksp allocations: %lu bytes with tag %lu (baseline %lu bytes, delta %+ld)",
+                  usage->used_sz, runner->wksp_tag,
+                  runner->wksp_baseline_used_sz,
+                  (long)usage->used_sz - (long)runner->wksp_baseline_used_sz ));
   }
 }

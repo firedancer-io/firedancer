@@ -66,10 +66,10 @@ following stages to each configure command:
     configuration TOML file.
  - `sysctl` Set required kernel parameters.
  - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
+ - `bonding` Prepares bonded network devices for XDP networking.
  - `ethtool-channels` Configures the number of channels on the network
     device.
- - `ethtool-offloads` Disables generic receive offload (GRO) and GRE
-    segmentation offload on the network device.
+ - `ethtool-offloads` Modify offload feature flags on the network device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
 
 | Arguments         | Description |
@@ -154,7 +154,7 @@ $ fdctl shred-version
 
 ## `metrics`
 Prints the current validator metrics to stdout.  Metrics can typically
-be accessed via. HTTP when the `metric` tile is enabled,  but the
+be accessed via HTTP when the `metric` tile is enabled, but the
 command can be used even if the metrics server is not enabled, or the
 validator has crashed.
 
@@ -261,6 +261,7 @@ use by Firedancer.
 | Arguments | Description |
 |----------|-------------|
 | `--config` | Path to a configuration TOML file to print memory usage information with |
+| `--sort` | List all memory allocations sorted by size in decreasing order, including a percentage of total and exact byte count |
 
 ```sh [bash]
 $ fdctl mem --config config.toml

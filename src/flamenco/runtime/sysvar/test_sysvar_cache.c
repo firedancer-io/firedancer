@@ -1,38 +1,86 @@
+#define _GNU_SOURCE
+
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
 #include "test_sysvar_cache_util.h"
 #include "../fd_system_ids.h"
 #include "../fd_bank.h"
-#include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb.h"
 #include <errno.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+#define TEST_SYSVAR_SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
+
+/* Tiny accdb config sized to fit one root fork plus one child fork with
+   a small handful of accounts (sysvars). */
+
+#define TEST_SYSVAR_MAX_ACCOUNTS    (1024UL)
+#define TEST_SYSVAR_MAX_LIVE_SLOTS  (16UL)
+#define TEST_SYSVAR_WRITES_PER_SLOT (1024UL)
+#define TEST_SYSVAR_PARTITION_CNT   (8UL)
+#define TEST_SYSVAR_PARTITION_SZ    (1UL<<28UL)  /* 256 MiB */
+#define TEST_SYSVAR_CACHE_FOOTPRINT (256UL<<20UL) /* 256 MiB */
+#define TEST_SYSVAR_CACHE_MIN_RESERVED (16UL)
 
 test_sysvar_cache_env_t *
 test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                               fd_wksp_t *               wksp ) {
   memset( env, 0, sizeof(test_sysvar_cache_env_t) );
-  ulong const funk_tag  = 99UL; /* unique */
-  ulong const wksp_tag  = 98UL; /* arbitrary */
-  ulong const funk_seed = 17UL; /* arbitrary */
-  ulong const txn_max   =  2UL;
-  ulong const rec_max   = 32UL;
+  ulong const wksp_tag = 98UL;
 
-  void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
-  FD_TEST( funk_mem );
-  FD_TEST( fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
-  fd_accdb_user_t * accdb = fd_accdb_user_join( fd_accdb_user_new( env->accdb ), funk_mem );
+  /* Create accdb backed by a memfd.  The shmem and join structures live
+     outside the test wksp because the cache footprint exceeds the
+     wksp's capacity (sparse mapping). */
+
+  int accdb_fd = memfd_create( "accdb_test", 0 );
+  if( FD_UNLIKELY( accdb_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( TEST_SYSVAR_MAX_ACCOUNTS,
+                                             TEST_SYSVAR_MAX_LIVE_SLOTS,
+                                             TEST_SYSVAR_WRITES_PER_SLOT,
+                                             TEST_SYSVAR_PARTITION_CNT,
+                                             TEST_SYSVAR_CACHE_FOOTPRINT,
+                                             TEST_SYSVAR_CACHE_MIN_RESERVED, 1UL );
+  FD_TEST( shmem_fp );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( shmem_mem, TEST_SYSVAR_MAX_ACCOUNTS,
+                          TEST_SYSVAR_MAX_LIVE_SLOTS,
+                          TEST_SYSVAR_WRITES_PER_SLOT,
+                          TEST_SYSVAR_PARTITION_CNT,
+                          TEST_SYSVAR_PARTITION_SZ,
+                          TEST_SYSVAR_CACHE_FOOTPRINT,
+                          TEST_SYSVAR_CACHE_MIN_RESERVED, 0, 42UL, 1UL ) );
+  FD_TEST( shmem );
+
+  ulong join_fp = fd_accdb_footprint( TEST_SYSVAR_MAX_LIVE_SLOTS );
+  FD_TEST( join_fp );
+  void * join_mem = aligned_alloc( fd_accdb_align(), join_fp );
+  FD_TEST( join_mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, accdb_fd, 0UL, NULL ) );
   FD_TEST( accdb );
 
+  /* Allocate a single bank in the test wksp. */
+
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
+  FD_TEST( bank );
+  memset( bank, 0, sizeof(fd_bank_t) );
+  fd_rwlock_new( &bank->lthash_lock );
 
-  env->shfunk       = funk_mem;
-  env->bank         = bank;
-  env->xid          = (fd_funk_txn_xid_t) { .ul={ 0UL, 0UL } };
-  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->non_cow.sysvar_cache ) );
+  /* Attach a single root fork.  All sysvar reads/writes will use this
+     fork. */
 
-  fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_join( admin, funk_mem ) );
-  fd_accdb_attach_child( admin, fd_funk_last_publish( accdb->funk ), &env->xid );
-  fd_accdb_admin_leave( admin, NULL );
+  bank->accdb_fork_id = fd_accdb_attach_child( accdb, TEST_SYSVAR_SENTINEL );
+
+  env->accdb_fd        = accdb_fd;
+  env->accdb_shmem_mem = shmem_mem;
+  env->accdb_join_mem  = join_mem;
+  env->accdb           = accdb;
+  env->bank            = bank;
+  env->sysvar_cache    = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->f.sysvar_cache ) );
 
   return env;
 }
@@ -42,8 +90,12 @@ test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   FD_TEST( env );
   FD_TEST( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
   fd_wksp_free_laddr( env->bank );
-  FD_TEST( fd_accdb_user_delete( fd_accdb_user_leave( env->accdb, NULL ) ) );
-  fd_funk_delete_fast( env->shfunk );
+  /* The accdb has no leave/delete API; rely on process exit to reclaim
+     the shmem and join allocations.  Match the cleanup pattern used by
+     test_accdb.c. */
+  free( env->accdb_join_mem );
+  free( env->accdb_shmem_mem );
+  close( env->accdb_fd );
   memset( env, 0, sizeof(test_sysvar_cache_env_t) );
 }
 
@@ -147,15 +199,9 @@ test_sysvar_cache_empty( void ) {
   FD_TEST( !fd_sysvar_cache_epoch_rewards_read( cache1, &epoch_rewards ) );
   fd_epoch_schedule_t epoch_schedule;
   FD_TEST( !fd_sysvar_cache_epoch_schedule_read( cache1, &epoch_schedule ) );
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  FD_TEST( !fd_sysvar_cache_last_restart_slot_read( cache1, &last_restart_slot ) );
+  FD_TEST( fd_sysvar_cache_last_restart_slot_read( cache1 )==NULL );
   fd_rent_t rent;
   FD_TEST( !fd_sysvar_cache_rent_read( cache1, &rent ) );
-
-  /* Test sysvar join accessors */
-  FD_TEST( !fd_sysvar_cache_slot_history_join_const ( cache1 ) );
-  FD_TEST( !fd_sysvar_cache_slot_hashes_join_const  ( cache1 ) );
-  FD_TEST( !fd_sysvar_cache_stake_history_join_const( cache1 ) );
 
   /* Test leave_const */
   FD_TEST( fd_sysvar_cache_leave_const( cache1 )==cache_mem );

@@ -24,7 +24,7 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_wksp( topo, "all" );
   fd_topo_link_t * link = fd_topob_link( topo, "ipecho_out", "all", 4UL, 0UL, 1UL );
   link->permit_no_consumers = 1;
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0, 0 );
   tile->ipecho.expected_shred_version = 32;
   tile->ipecho.entrypoints_cnt = 0UL;
   tile->ipecho.bind_address = FD_IP4_ADDR(127,0,0,1);
@@ -34,8 +34,6 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
 }
-
-extern int * fd_log_private_shared_lock;
 
 static void
 ipecho_server_cmd_topo( config_t * config ) {
@@ -74,8 +72,7 @@ ipecho_server_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 0 );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   ulong tile_idx1 = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
@@ -97,9 +94,9 @@ ipecho_server_cmd_fn( args_t *   args,
   ulong last_closed_error = ULONG_MAX;
 
   for(;;) {
-    ulong ipecho_conns = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( GAUGE, IPECHO, CONNECTION_COUNT ) ] );
-    ulong ipecho_closed_ok = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONNECTIONS_CLOSED_OK ) ] );
-    ulong ipecho_closed_error = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONNECTIONS_CLOSED_ERROR ) ] );
+    ulong ipecho_conns = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( GAUGE, IPECHO, CONN_ACTIVE ) ] );
+    ulong ipecho_closed_ok = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONN_CLOSED_OK ) ] );
+    ulong ipecho_closed_error = FD_VOLATILE_CONST( ipecho_metrics[ MIDX( COUNTER, IPECHO, CONN_CLOSED_ERROR ) ] );
 
     if( FD_UNLIKELY( ipecho_conns!=last_conns || ipecho_closed_ok!=last_closed_ok || ipecho_closed_error!=last_closed_error ) ) {
       FD_LOG_NOTICE(( "connections=%lu closed_ok=%lu closed_err=%lu", ipecho_conns, ipecho_closed_ok, ipecho_closed_error ));
@@ -113,9 +110,10 @@ ipecho_server_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_ipecho_server = {
-  .name = NAME,
-  .args = NULL,
-  .perm = ipecho_server_cmd_perm,
-  .fn   = ipecho_server_cmd_fn,
-  .topo = ipecho_server_cmd_topo,
+  .name        = NAME,
+  .args        = NULL,
+  .perm        = ipecho_server_cmd_perm,
+  .fn          = ipecho_server_cmd_fn,
+  .topo        = ipecho_server_cmd_topo,
+  .description = "Run a standalone IP echo protocol server for testing",
 };

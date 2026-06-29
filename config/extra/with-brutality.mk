@@ -13,6 +13,9 @@ CPPFLAGS+=-Wimplicit-fallthrough
 # See with-clang.mk
 CPPFLAGS+=-Wno-address-of-packed-member -Wno-unused-command-line-argument -Wno-bitwise-instead-of-logical
 CPPFLAGS+=-Wno-gnu-zero-variadic-macro-arguments
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 21 && echo yes),yes)
+CPPFLAGS+=-Wno-unterminated-string-initialization
+endif
 endif
 
 ifdef FD_USING_GCC

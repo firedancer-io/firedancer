@@ -1,0 +1,93 @@
+commit b283480c9bd10a6b18c13aa27e6a1bf2bd212c0b (HEAD)
+Author: Michael McGee <mmcgee@jumptrading.com>
+Date:   Mon Feb 16 19:35:00 2026 +0000
+
+    gossip: expose deserializer for fuzzer
+
+diff --git a/gossip/Cargo.toml b/gossip/Cargo.toml
+index 78c9b5959a..378f92ee2e 100644
+--- a/gossip/Cargo.toml
++++ b/gossip/Cargo.toml
+@@ -14,6 +14,7 @@ targets = ["x86_64-unknown-linux-gnu"]
+
+ [lib]
+ bench = false
++crate-type = ["lib", "staticlib"]
+
+ [[bin]]
+ name = "solana-gossip"
+diff --git a/gossip/src/fuzz_target.rs b/gossip/src/fuzz_target.rs
+new file mode 100644
+index 0000000000..26ccacf9e4
+--- /dev/null
++++ b/gossip/src/fuzz_target.rs
+@@ -0,0 +1,56 @@
++//! C FFI entry point for differential fuzzing against Firedancer's gossip
++//! message deserializer.
++
++use {
++    crate::protocol::Protocol,
++    bincode::Options,
++    solana_sanitize::Sanitize,
++    std::ffi::c_int,
++};
++
++/* Stubs for symbols referenced transitively by solana-gossip when linked
++   as a cdylib.  These are normally provided by fdctl. */
++
++#[no_mangle]
++pub static fdctl_major_version: u64 = 0;
++#[no_mangle]
++pub static fdctl_minor_version: u64 = 0;
++#[no_mangle]
++pub static fdctl_patch_version: u64 = 0;
++#[no_mangle]
++pub static fdctl_commit_ref: u32 = 0;
++
++#[no_mangle]
++pub extern "C" fn fd_ext_larger_max_cost_per_block() -> c_int { 0 }
++#[no_mangle]
++pub extern "C" fn fd_ext_larger_shred_limits_per_block() -> c_int { 0 }
++#[no_mangle]
++pub extern "C" fn fd_ext_disable_status_cache() -> c_int { 0 }
++
++#[no_mangle]
++pub extern "C" fn fd_ext_poh_publish_leader_schedule(_data: *mut u8, _len: u64) {}
++#[no_mangle]
++pub extern "C" fn fd_ext_poh_publish_cluster_info(_data: *const u8, _len: u64) {}
++#[no_mangle]
++pub extern "C" fn fd_ext_poh_publish_executed_txn(_data: *const u8) {}
++
++/// Attempt to deserialize and sanitize a gossip Protocol message using the
++/// same bincode configuration and sanitize logic as Agave's production gossip
++/// receive path.
++///
++/// Returns 0 on success, -1 on failure.
++#[no_mangle]
++pub extern "C" fn gossip_agave_deserialize(data: *const u8, len: u64) -> c_int {
++    let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
++    let msg = bincode::options()
++        .with_limit(1232)
++        .with_fixint_encoding()
++        .reject_trailing_bytes()
++        .deserialize::<Protocol>(bytes);
++    match msg {
++        Ok(msg) => {
++            if msg.sanitize().is_ok() { 0 } else { -1 }
++        }
++        Err(_) => -1,
++    }
++}
+diff --git a/gossip/src/lib.rs b/gossip/src/lib.rs
+index 00831e6b46..7a45e091e1 100644
+--- a/gossip/src/lib.rs
++++ b/gossip/src/lib.rs
+@@ -46,6 +46,8 @@ mod tlv;
+ #[macro_use]
+ mod legacy_contact_info;
+ pub mod ping_pong;
++#[allow(unsafe_attr_outside_unsafe)]
++mod fuzz_target;
+ mod protocol;
+ mod push_active_set;
+ mod received_cache;

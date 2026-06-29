@@ -5,7 +5,6 @@
 #include "../shared_dev/commands/dev.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <sched.h>
 #include <sys/wait.h>
@@ -22,14 +21,8 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
-extern int * fd_log_private_shared_lock;
-
 static void
 parent_signal( int sig ) {
-  /* Same hack as in run.c, see comments there. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
-
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
@@ -56,7 +49,7 @@ dev1_cmd_args( int *    pargc,
   char * usage = "usage: dev1 <tile>";
   if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
 
-  strncpy( args->dev1.tile_name, *pargv[ 0 ], sizeof( args->dev1.tile_name ) - 1 );
+  fd_cstr_ncpy( args->dev1.tile_name, *pargv[ 0 ], sizeof( args->dev1.tile_name ) );
 
   (*pargc)--;
   (*pargv)++;
@@ -90,7 +83,6 @@ dev1_cmd_fn( args_t *   args,
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int result = 0;
   if( !strcmp( args->dev1.tile_name, "agave" ) ) {
@@ -110,10 +102,17 @@ dev1_cmd_fn( args_t *   args,
     }
     FD_TEST( runner );
 
-    fd_topo_run_tile( &config->topo, tile, config->development.sandbox, 1, config->development.core_dump, config->uid, config->gid, -1, NULL, NULL, runner );
+    fd_topo_run_tile( &config->topo, tile, config->development.sandbox, 1, config->development.core_dump_level, config->uid, config->gid, -1, runner );
   }
 
   fd_sys_util_exit_group( result );
+}
+
+static void
+dev1_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<tile>",         NULL, "Name of the tile to run (e.g. `net`, `quic`, `replay`), or `agave` to run\n"
+                                                    "the Agave side" );
+  fd_action_help_arg( help, "--no-configure", NULL, "Skip the host configuration (`configure init`) step before starting" );
 }
 
 action_t fd_action_dev1 = {
@@ -122,5 +121,6 @@ action_t fd_action_dev1 = {
   .fn               = dev1_cmd_fn,
   .perm             = dev_cmd_perm,
   .is_local_cluster = 1,
-  .description      = "Start up a single tile"
+  .description      = "Start up a single tile",
+  .args_help        = dev1_args_help,
 };

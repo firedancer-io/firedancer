@@ -71,13 +71,15 @@ main( int     argc,
   FD_TEST( fd_ulong_is_pow2   ( align            ) );
   FD_TEST( fd_ulong_is_aligned( footprint, align ) );
 
-  void   * shmap = map_new ( mem, LG_SLOT_CNT ); FD_TEST( shmap );
-  pair_t * map   = map_join( shmap );            FD_TEST( map   );
+  ulong seed = fd_rng_ulong( rng );
+  void   * shmap = map_new ( mem, LG_SLOT_CNT, seed ); FD_TEST( shmap );
+  pair_t * map   = map_join( shmap );                  FD_TEST( map   );
 
   FD_TEST( map_key_cnt    ( map )==0UL                          );
   FD_TEST( map_key_max    ( map )==map_slot_cnt( map )-1UL      );
   FD_TEST( map_lg_slot_cnt( map )==LG_SLOT_CNT                  );
   FD_TEST( map_slot_cnt   ( map )==fd_ulong_pow2( LG_SLOT_CNT ) );
+  FD_TEST( map_seed       ( map )==seed                         );
 
   ulong slot_cnt = map_slot_cnt( map );
   for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) FD_TEST( map_slot_idx( map, &map[slot_idx] )==slot_idx );
@@ -204,11 +206,11 @@ main( int     argc,
     FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
   } while( 0 )
 
-  FD_EXPECT_LOG_CRIT( map_new( (void*)((char*)mem+1), 5 ) );
-  FD_EXPECT_LOG_CRIT( map_new( mem,                  -1 ) );
-  FD_EXPECT_LOG_CRIT( map_new( mem,                  64 ) );
+  FD_EXPECT_LOG_CRIT( map_new( (void*)((char*)mem+1), 5, seed ) );
+  FD_EXPECT_LOG_CRIT( map_new( mem,                  -1, seed ) );
+  FD_EXPECT_LOG_CRIT( map_new( mem,                  64, seed ) );
 
-  map = map_join( map_new( mem, LG_SLOT_CNT ) ); FD_TEST( map );
+  map = map_join( map_new( mem, LG_SLOT_CNT, seed ) ); FD_TEST( map );
   FD_EXPECT_LOG_CRIT( map_insert  ( map, map_key_null() ) );
   FD_EXPECT_LOG_CRIT( map_query   ( map, map_key_null(), 0UL ) );
 #if MEMOIZE

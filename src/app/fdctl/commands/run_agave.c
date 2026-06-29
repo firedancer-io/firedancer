@@ -16,8 +16,6 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 extern void fd_ext_validator_main( const char ** args );
 
-extern int * fd_log_private_shared_lock;
-
 static void
 clone_labs_memory_space_tiles( config_t * config ) {
   /* preload shared memory for all the agave tiles at once */
@@ -25,18 +23,18 @@ clone_labs_memory_space_tiles( config_t * config ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
     if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ||
                    !strcmp( wksp->name, "shred_store" ) ) ) {
-      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, 0 );
+    } else if( FD_LIKELY( !strcmp( wksp->name, "bank_pohh" ) ||
                           !strcmp( wksp->name, "bank_pack" ) ||
                           !strcmp( wksp->name, "bank_busy" ) ||
-                          !strcmp( wksp->name, "poh_shred" ) ||
+                          !strcmp( wksp->name, "pohh_shred" ) ||
                           !strcmp( wksp->name, "gossip_dedup" ) ||
                           !strcmp( wksp->name, "stake_out" ) ||
                           !strcmp( wksp->name, "metric_in" ) ||
                           !strcmp( wksp->name, "bank" ) ||
-                          !strcmp( wksp->name, "poh" ) ||
+                          !strcmp( wksp->name, "pohh" ) ||
                           !strcmp( wksp->name, "store" ) ) ) {
-      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
     }
   }
 
@@ -105,15 +103,17 @@ agave_boot( config_t const * config ) {
     ADD1( "--no-os-network-limits-test" );
 
   /* ledger */
-  ADD( "--ledger", config->paths.ledger );
+  ADD( "--ledger", config->frankendancer.paths.ledger );
   ADDU( "--limit-ledger-size", config->frankendancer.ledger.limit_size );
   if( strcmp( "", config->frankendancer.paths.accounts_path ) )
     ADD( "--accounts", config->frankendancer.paths.accounts_path );
-  if( strcmp( "", config->frankendancer.ledger.accounts_index_path ) )
+  if( strcmp( "", config->frankendancer.ledger.accounts_index_path ) ) {
     ADD( "--accounts-index-path", config->frankendancer.ledger.accounts_index_path );
+    ADD1( "--enable-accounts-disk-index" );
+  } else if( config->frankendancer.ledger.enable_accounts_disk_index )
+    ADD1( "--enable-accounts-disk-index" );
   if( strcmp( "", config->frankendancer.ledger.accounts_hash_cache_path ) )
     ADD( "--accounts-hash-cache-path", config->frankendancer.ledger.accounts_hash_cache_path );
-  if( !config->frankendancer.ledger.enable_accounts_disk_index ) ADD1( "--disable-accounts-disk-index" );
   for( ulong i=0UL; i<config->frankendancer.ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->frankendancer.ledger.account_indexes[ i ] );
   if( FD_LIKELY( !config->frankendancer.ledger.account_index_include_keys_cnt ) ) {
@@ -164,6 +164,7 @@ agave_boot( config_t const * config ) {
   ADDU( "--maximum-snapshot-download-abort", config->frankendancer.snapshots.maximum_snapshot_download_abort );
   ADDU( "--minimal-snapshot-download-speed", config->frankendancer.snapshots.minimum_snapshot_download_speed );
 
+  uint replay_threads;
   if( config->frankendancer.layout.agave_unified_scheduler_handler_threads ) {
     if( FD_UNLIKELY( config->frankendancer.layout.agave_unified_scheduler_handler_threads>config->topo.agave_affinity_cnt ) ) {
       FD_LOG_ERR(( "Trying to spawn %u handler threads but the agave subprocess has %lu cores. "
@@ -171,16 +172,17 @@ agave_boot( config_t const * config ) {
                    "the number of threads in [layout.agave_unified_scheduler_handler_threads].",
                    config->frankendancer.layout.agave_unified_scheduler_handler_threads, config->topo.agave_affinity_cnt ));
     }
-    ADDU( "--unified-scheduler-handler-threads", config->frankendancer.layout.agave_unified_scheduler_handler_threads );
+    replay_threads = config->frankendancer.layout.agave_unified_scheduler_handler_threads;
   } else {
     //          agave_affinity_cnt >= 8  =>  agave_affinity_cnt - 4
     //     4 <= agave_affinity_cnt <  8  =>  4
     //          agave_affinity_cnt <  4  =>  agave_affinity_cnt
-    ulong num_threads = fd_ulong_if( config->topo.agave_affinity_cnt>=4UL,
-                                     fd_ulong_if( config->topo.agave_affinity_cnt>=8, config->topo.agave_affinity_cnt-4UL, 4UL ),
-                                     config->topo.agave_affinity_cnt );
-    ADDU( "--unified-scheduler-handler-threads", (uint)num_threads );
+    replay_threads = (uint)fd_ulong_if( config->topo.agave_affinity_cnt>=4UL,
+                                        fd_ulong_if( config->topo.agave_affinity_cnt>=8UL, config->topo.agave_affinity_cnt-4UL, 4UL ),
+                                        config->topo.agave_affinity_cnt );
   }
+  ADDU( "--unified-scheduler-handler-threads", replay_threads );
+  ADDU( "--replay-transactions-threads", replay_threads );
 
   argv[ idx ] = NULL;
 
@@ -225,17 +227,6 @@ agave_boot( config_t const * config ) {
 int
 agave_main( void * args ) {
   config_t * config = args;
-
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile agave pid:%lu", fd_sandbox_getpid() ));
-      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
-        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      fd_log_private_shared_lock[1] = 0;
-    } else {
-      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
-    }
-  }
 
   clone_labs_memory_space_tiles( config );
 

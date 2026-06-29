@@ -502,13 +502,13 @@ DEQUE_(iter_done_rev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   return iter == hdr->start - 1;
 }
 
-static inline DEQUE_(iter_t)
+__attribute__((warn_unused_result)) static inline DEQUE_(iter_t)
 DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   (void)deque;
   return iter+1;
 }
 
-static inline DEQUE_(iter_t)
+__attribute__((warn_unused_result)) static inline DEQUE_(iter_t)
 DEQUE_(iter_prev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   (void)deque;
   return iter-1;

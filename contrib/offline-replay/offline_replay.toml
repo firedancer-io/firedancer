@@ -1,35 +1,28 @@
 [layout]
     shred_tile_count = 4
 [tiles]
-    [tiles.archiver]
-        enabled = true
-        end_slot = {end_slot}
-        ingest_mode = "rocksdb"
-        rocksdb_path = "{ledger}/rocksdb"
-    [tiles.replay]
-        cluster_version = "{cluster_version}"
     [tiles.gui]
         enabled = false
-[funk]
-    heap_size_gib = {funk_pages}
-    max_account_records = {index_max}
-    max_database_transactions = 64
+    [tiles.rpc]
+        enabled = false
+[accounts]
+    max_accounts = {index_max}
 [runtime]
-    max_live_slots = 4
+    max_live_slots = 128
     max_fork_width = 4
     [runtime.program_cache]
         heap_size_mib = 4096
-[consensus]
-    vote = false
 [development]
     sandbox = false
     no_agave = true
     no_clone = true
+    fixed_fec_sets = true
 [log]
     level_stderr = "INFO"
     path = "{log}"
 [paths]
     snapshots = "{ledger}"
+    accounts = "{ledger}/accounts.db"
 [snapshots]
     incremental_snapshots = false
     max_full_snapshots_to_keep = 5
@@ -40,3 +33,9 @@
             allow_list = []
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
+[development.ledger_input]
+    format = "rocksdb"
+    path = "{ledger}/rocksdb"
+    end_slot = {end_slot}
+[development.backtest]
+    root_distance = 32

@@ -13,5 +13,6 @@
 
 #include "fd_asan.h"
 #include "fd_msan.h"
+#include "fd_tsa.h"
 
 #endif /* HEADER_fd_src_util_sanitize_fd_sanitize_h */

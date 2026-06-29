@@ -1,4 +1,3 @@
-#include "../../../../util/fd_util.h"
 /* TODO: Layering violation */
 #include "../../../shared_dev/commands/bench/bench.h"
 
@@ -6,6 +5,7 @@
 #include "../../../platform/fd_cap_chk.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../util/log/fd_log.h"
 
 #include "helper.h"
 
@@ -21,6 +21,8 @@
 #include <termios.h>
 #include "generated/monitor_seccomp.h"
 
+extern action_t * ACTIONS[];
+
 void
 monitor_cmd_args( int *    pargc,
                   char *** pargv,
@@ -30,10 +32,15 @@ monitor_cmd_args( int *    pargc,
   args->monitor.dt_max          = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL,  133333333.          );
   args->monitor.duration        = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
   args->monitor.seed            = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
-  args->monitor.ns_per_tic      = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
 
   args->monitor.with_bench     = fd_env_strip_cmdline_contains( pargc, pargv, "--bench" );
   args->monitor.with_sankey    = fd_env_strip_cmdline_contains( pargc, pargv, "--sankey" );
+
+  char const * topo_name = fd_env_strip_cmdline_cstr( pargc, pargv, "--topo", NULL, "" );
+
+  ulong topo_name_len = strlen( topo_name );
+  if( FD_UNLIKELY( topo_name_len > sizeof(args->monitor.topo)-1 ) ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->monitor.topo ), topo_name, topo_name_len ) );
 
   if( FD_UNLIKELY( args->monitor.dt_min<0L                   ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( args->monitor.dt_max<args->monitor.dt_min ) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
@@ -57,8 +64,9 @@ monitor_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 typedef struct {
-  ulong pid;
+  ulong tid;
   ulong heartbeat;
+  ulong status;
 
   ulong in_backp;
   ulong backp_cnt;
@@ -97,53 +105,22 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
     fd_topo_tile_t const * tile = &topo->tiles[ tile_idx ];
-    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF ];
+    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_TIMESTAMP_NANOS_OFF ];
+    snap->status    = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF    ];
 
     fd_metrics_register( tile->metrics );
 
     FD_COMPILER_MFENCE();
-    snap->pid       = FD_MGAUGE_GET( TILE, PID );
-    snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT );
-    snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT );
+    snap->tid       = FD_MGAUGE_GET( TILE, TID );
+    snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY );
+    snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY );
     snap->in_backp  = FD_MGAUGE_GET( TILE, IN_BACKPRESSURE );
-    snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE_COUNT );
+    snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE );
     for( ulong i=0UL; i<9UL; i++ ) {
       snap->regime_ticks[ i ] = fd_metrics_tl[ MIDX(COUNTER, TILE, REGIME_DURATION_NANOS)+i ];
     }
     FD_COMPILER_MFENCE();
   }
-}
-
-static ulong
-find_producer_out_idx( fd_topo_t const *      topo,
-                       fd_topo_tile_t const * producer,
-                       fd_topo_tile_t const * consumer,
-                       ulong                  consumer_in_idx ) {
-  /* This finds all reliable consumers of the producers primary output,
-     and then returns the position of the consumer (specified by tile
-     and index of the in of that tile) in that list. The list ordering
-     is not important, except that it matches the ordering of fseqs
-     provided to fd_stem, so that metrics written for each link index
-     are retrieved at the same index here.
-
-     This is why we only count reliable links, because fd_stem only
-     looks at and writes producer side diagnostics (is the link slow)
-     for reliable links. */
-
-  ulong reliable_cons_cnt = 0UL;
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
-    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-      for( ulong k=0UL; k<producer->out_cnt; k++ ) {
-        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==producer->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
-          if( FD_UNLIKELY( consumer==consumer_tile && consumer_in_idx==j ) ) return reliable_cons_cnt;
-          reliable_cons_cnt++;
-        }
-      }
-    }
-  }
-
-  return ULONG_MAX;
 }
 
 static void
@@ -165,24 +142,15 @@ link_snap( link_snap_t *     snap_cur,
         in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
       }
 
-      fd_topo_link_t const * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-      ulong producer_id = fd_topo_find_link_producer( topo, link );
-      FD_TEST( producer_id!=ULONG_MAX );
-      volatile ulong const * out_metrics = NULL;
-      if( FD_LIKELY( topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
-        fd_topo_tile_t const * producer = &topo->tiles[ producer_id ];
-        ulong cons_idx = find_producer_out_idx( topo, producer, &topo->tiles[ tile_idx ], in_idx );
-
-        out_metrics = fd_metrics_link_out( producer->metrics, cons_idx );
-      }
       FD_COMPILER_MFENCE();
       if( FD_LIKELY( in_metrics ) ) {
-        snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ];
-        snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
-        snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
-        snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ];
-        snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
-        snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
+        snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ];
+        snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+        snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ];
+        snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ];
+        snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_LINK_POLLING_OVERRUN_OFF ];
+        snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ];
+        snap->fseq_diag_slow_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_SLOW_OFF ];
       } else {
         snap->fseq_diag_tot_cnt   = 0UL;
         snap->fseq_diag_tot_sz    = 0UL;
@@ -190,12 +158,8 @@ link_snap( link_snap_t *     snap_cur,
         snap->fseq_diag_filt_sz   = 0UL;
         snap->fseq_diag_ovrnp_cnt = 0UL;
         snap->fseq_diag_ovrnr_cnt = 0UL;
-      }
-
-      if( FD_LIKELY( out_metrics ) )
-        snap->fseq_diag_slow_cnt  = out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
-      else
         snap->fseq_diag_slow_cnt  = 0UL;
+      }
       FD_COMPILER_MFENCE();
       snap->fseq_diag_tot_cnt += snap->fseq_diag_filt_cnt;
       snap->fseq_diag_tot_sz  += snap->fseq_diag_filt_sz;
@@ -275,8 +239,7 @@ run_monitor( config_t const * config,
              long             dt_min,
              long             dt_max,
              long             duration,
-             uint             seed,
-             double           ns_per_tic ) {
+             uint             seed ) {
   fd_topo_t const * topo = &config->topo;
 
   /* Setup local objects used by this app */
@@ -296,7 +259,7 @@ run_monitor( config_t const * config,
   /* Get the initial reference diagnostic snapshot */
   tile_snap( tile_snap_prv, topo );
   link_snap( link_snap_prv, topo );
-  long then; long tic; fd_tempo_observe_pair( &then, &tic );
+  long then = fd_log_wallclock();
 
   /* Monitor for duration ns.  Note that for duration==0, this
      will still do exactly one pretty print. */
@@ -333,7 +296,7 @@ run_monitor( config_t const * config,
 
     tile_snap( tile_snap_cur, topo );
     link_snap( link_snap_cur, topo );
-    long now; long toc; fd_tempo_observe_pair( &now, &toc );
+    long now = fd_log_wallclock();
 
     /* Pretty print a comparison between this diagnostic snapshot and
        the previous one. */
@@ -362,14 +325,15 @@ run_monitor( config_t const * config,
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     if( !monitor_pane ) {
       PRINT( "snapshot for %s | Use TAB to switch panes" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-      PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
+      PRINT( "    tile |     tid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
       PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------" TEXT_NEWLINE );
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
         tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
         tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
+        if( cur->status==2UL ) continue; /* stopped tile */
         PRINT( " %7s", topo->tiles[ tile_idx ].name );
-        PRINT( " | %7lu", cur->pid );
-        PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - (long)cur->heartbeat)), 1e8 /* 100 millis */ );
+        PRINT( " | %7lu", cur->tid );
+        PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(now - (long)cur->heartbeat), 1e8 /* 100 millis */ );
         PRINT( " | " ); printf_heart   ( &buf, &buf_sz, (long)cur->heartbeat, (long)prv->heartbeat  );
         PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nivcsw,          prv->nivcsw );
         PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nvcsw,           prv->nvcsw  );
@@ -379,14 +343,14 @@ run_monitor( config_t const * config,
         ulong cur_hkeep_ticks      = cur->regime_ticks[0]+cur->regime_ticks[1]+cur->regime_ticks[2];
         ulong prv_hkeep_ticks      = prv->regime_ticks[0]+prv->regime_ticks[1]+prv->regime_ticks[2];
 
-        ulong cur_wait_ticks       = cur->regime_ticks[3]+cur->regime_ticks[6];
-        ulong prv_wait_ticks       = prv->regime_ticks[3]+prv->regime_ticks[6];
+        ulong cur_wait_ticks       = cur->regime_ticks[6];
+        ulong prv_wait_ticks       = prv->regime_ticks[6];
 
         ulong cur_backp_ticks      = cur->regime_ticks[5];
         ulong prv_backp_ticks      = prv->regime_ticks[5];
 
-        ulong cur_processing_ticks = cur->regime_ticks[4]+cur->regime_ticks[7];
-        ulong prv_processing_ticks = prv->regime_ticks[4]+prv->regime_ticks[7];
+        ulong cur_processing_ticks = cur->regime_ticks[3]+cur->regime_ticks[4]+cur->regime_ticks[7];
+        ulong prv_processing_ticks = prv->regime_ticks[3]+prv->regime_ticks[4]+prv->regime_ticks[7];
 
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_hkeep_ticks,      prv_hkeep_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_wait_ticks,       prv_wait_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
@@ -401,12 +365,18 @@ run_monitor( config_t const * config,
       ulong link_idx = 0UL;
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
         for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
+          fd_topo_link_t link = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
+          ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
+
+          if( producer_tile_id == ULONG_MAX  ||
+              ( tile_snap_cur[ producer_tile_id ].status==2UL && tile_snap_cur[ tile_idx ].status==2UL ) ) {
+            link_idx++;
+            continue;
+          }
+
           link_snap_t * prv = &link_snap_prv[ link_idx ];
           link_snap_t * cur = &link_snap_cur[ link_idx ];
 
-          fd_topo_link_t link = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-          ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
-          FD_TEST( producer_tile_id != ULONG_MAX );
           char const * producer = topo->tiles[ producer_tile_id ].name;
           PRINT( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
           ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
@@ -460,32 +430,33 @@ run_monitor( config_t const * config,
       ulong verify_overrun = 0UL;
       for( ulong i=0UL; i<config->layout.verify_tile_count; i++ ) {
         fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
-        verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / config->layout.verify_tile_count;
-        verify_failed += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+        verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] / config->layout.verify_tile_count;
+        verify_failed += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ];
         verify_sent += fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ verify->out_link_id[ 0 ] ].mcache ) );
       }
 
       fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
       ulong dedup_failed = 0UL;
       for( ulong i=0UL; i<config->layout.verify_tile_count; i++) {
-        dedup_failed += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+        dedup_failed += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ];
       }
       ulong dedup_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ dedup->out_link_id[ 0 ] ].mcache ) );
 
       fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
       volatile ulong * pack_metrics = fd_metrics_tile( pack->metrics );
-      ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_WRITE_SYSVAR_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ESTIMATION_FAIL_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_TOO_LARGE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_EXPIRED_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ADDR_LUT_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_UNAFFORDABLE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_DUPLICATE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_PRIORITY_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_NONVOTE_REPLACE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_VOTE_REPLACE_OFF ];
-      ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_DROPPED_FROM_EXTRA_OFF ];
-      ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT_OFF + FD_HISTF_BUCKET_CNT ];
+      ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_INSTR_ACCT_CNT_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_WRITE_SYSVAR_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_ESTIMATION_FAIL_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_TOO_LARGE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_EXPIRED_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_ADDR_LUT_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_UNAFFORDABLE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_DUPLICATE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_PRIORITY_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_NONVOTE_REPLACE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_VOTE_REPLACE_OFF ];
+      ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_EXTRA_DROPPED_OFF ];
+      ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TXN_PER_MICROBLOCK_OFF + FD_HISTF_BUCKET_CNT ];
 
       static ulong last_fseq_sum;
       static ulong last_net_sent;
@@ -529,7 +500,7 @@ run_monitor( config_t const * config,
       break;
     }
 
-    then = now; tic = toc;
+    then = now;
     tile_snap_t * tmp = tile_snap_prv; tile_snap_prv = tile_snap_cur; tile_snap_cur = tmp;
     link_snap_t * tmp2 = link_snap_prv; link_snap_prv = link_snap_cur; link_snap_cur = tmp2;
   }
@@ -542,8 +513,30 @@ signal1( int sig ) {
 }
 
 void
+reconstruct_topo( config_t *   config,
+                  char const * topo_name ) {
+  if( !topo_name[0] ) return; /* keep default action topo */
+
+  action_t const * selected = NULL;
+  for( action_t ** a=ACTIONS; *a; a++ ) {
+    action_t const * action = *a;
+    if( 0==strcmp( action->name, topo_name ) ) {
+      selected = action;
+      break;
+    }
+  }
+
+  if( !selected       ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
+  if( !selected->topo ) FD_LOG_ERR(( "Cannot recover topology for --topo %s", topo_name ));
+
+  selected->topo( config );
+}
+
+void
 monitor_cmd_fn( args_t *   args,
                 config_t * config ) {
+  reconstruct_topo( config, args->monitor.topo );
+
   if( FD_UNLIKELY( args->monitor.with_bench ) ) {
     add_bench_topo( &config->topo,
                     config->development.bench.affinity,
@@ -558,7 +551,6 @@ monitor_cmd_fn( args_t *   args,
                     0U,
                     0,
                     0U,
-                    1,
                     !config->is_firedancer );
   }
 
@@ -581,13 +573,11 @@ monitor_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
   populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), drain_output_fd );
-
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
@@ -597,6 +587,7 @@ monitor_cmd_fn( args_t *   args,
                       0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
                       0,
+                      0UL,
                       0UL,
                       0UL,
                       0UL,
@@ -616,10 +607,24 @@ monitor_cmd_fn( args_t *   args,
                args->monitor.dt_min,
                args->monitor.dt_max,
                args->monitor.duration,
-               args->monitor.seed,
-               args->monitor.ns_per_tic );
+               args->monitor.seed );
 
   exit( 0 ); /* gracefully exit */
+}
+
+static void
+monitor_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--dt-min",   "<ns>",      "Minimum nanoseconds between screen refreshes (default 6666667, ~150 Hz)" );
+  fd_action_help_arg( help, "--dt-max",   "<ns>",      "Maximum nanoseconds between screen refreshes (default 133333333, ~7.5 Hz);\n"
+                                                       "the refresh interval is jittered between dt-min and dt-max" );
+  fd_action_help_arg( help, "--duration", "<ns>",      "Run for this many nanoseconds then exit (default 0, run until interrupted)" );
+  fd_action_help_arg( help, "--seed",     "<seed>",    "Seed for the refresh-interval jitter RNG (default derived from the CPU\n"
+                                                       "tick counter)" );
+  fd_action_help_arg( help, "--bench",    NULL,        "Also show the benchmark transaction generator tiles in the view" );
+  fd_action_help_arg( help, "--sankey",   NULL,        "Show the Sankey diagram of the transaction processing pipeline" );
+  fd_action_help_arg( help, "--topo",     "<command>", "Build the topology from another subcommand (e.g. `gossip`) instead of\n"
+                                                       "the default validator topology.  <command> is the name of a subcommand\n"
+                                                       "that builds its own topology" );
 }
 
 action_t fd_action_monitor = {
@@ -629,4 +634,10 @@ action_t fd_action_monitor = {
   .require_config = 1,
   .perm           = monitor_cmd_perm,
   .description    = "Monitor a locally running Firedancer instance with a terminal GUI",
+  .detail         = "Connects to a running validator and continuously renders a terminal\n"
+                    "dashboard of tile activity and the message passing links between them.  A\n"
+                    "tile is a single thread pinned to a CPU core that performs one part of the\n"
+                    "validator's work.  The validator must be running.",
+  .usage          = "monitor [OPTIONS]",
+  .args_help      = monitor_args_help,
 };

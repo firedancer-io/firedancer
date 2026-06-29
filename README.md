@@ -41,23 +41,29 @@ Firedancer currently only supports Linux and requires a relatively new
 kernel, at least v4.18 to build.
 
 ```console
-$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
+$ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ ./deps.sh +dev
-$ make -j run
+$ ./deps.sh
+$ source activate  # enter build environment
+$ make -j
+
+# Run a new development cluster
+$ firedancer-dev
+
+# Join Solana testnet
+$ firedancer-dev --testnet
 ```
 
-The `make run` target runs the `fddev dev` command. This development
-command will ensure your system is configured correctly before creating
-a genesis block, some keys, a faucet, and then starting a validator on
-the local machine. `fddev` will use `sudo` to make privileged changes to
-system configuration where needed. If `sudo` is not available, you may
-need to run the command as root.
+`firedancer-dev` (without args) configures your system for validator
+operation and creates a new lcoal development cluster. First it creates
+a genesis block, some keys, a faucet, and then it starts a validator on
+the local machine. `firedancer-dev` will use `sudo` to make privileged
+changes to system configuration where needed. If `sudo` is not available,
+you may need to run the command as root.
 
-By default `fddev` will create a new development cluster, if you wish to
-join this cluster with other validators, you can define
-`[rpc.entrypoints]` in the configuration file to point at your first
-validator and run `fddev dev` again.
+If you wish to join this cluster with other validators, you can define
+`[gossip.entrypoints]` in the configuration file to point at your first
+validator and join with `firedancer-dev run`.
 
 ## License
 Firedancer is available under the [Apache 2

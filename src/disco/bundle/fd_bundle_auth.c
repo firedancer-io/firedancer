@@ -52,7 +52,8 @@ fd_bundle_auther_req_challenge( fd_bundle_auther_t *   auther,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge,
       &auth_GenerateAuthChallengeRequest_msg, &req,
-      NULL, 0
+      NULL, 0,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
 
@@ -127,7 +128,8 @@ fd_bundle_auther_req_tokens( fd_bundle_auther_t *   auther,
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens,
       &auth_GenerateAuthTokensRequest_msg, &req,
-      NULL, 0
+      NULL, 0,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
 

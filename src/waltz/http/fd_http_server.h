@@ -38,29 +38,30 @@
 #define FD_HTTP_SERVER_METHOD_OPTIONS (2)
 #define FD_HTTP_SERVER_METHOD_PUT     (3)
 
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_OK                           ( -1)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED                      ( -2)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW                     ( -3)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF                 ( -4)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET                   ( -5)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST                ( -6)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST                  ( -7)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER ( -8)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD               ( -9)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG                (-10)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY                   (-11)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION        (-12)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER        (-13)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER    (-14)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK                  (-15)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE            (-16)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME            (-17)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW           (-18)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE           (-19)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE      (-20)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-21)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-22)
-#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE            (-23)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_OK                            ( -1)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED                       ( -2)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW                      ( -3)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF                  ( -4)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET                    ( -5)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST                 ( -6)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST                   ( -7)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONTENT_LENGTH_HEADER ( -8)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD                ( -9)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG                 (-10)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY                    (-11)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION         (-12)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER         (-13)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER     (-14)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK                   (-15)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE             (-16)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME             (-17)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW            (-18)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE            (-19)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE       (-20)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE       (-21)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE    (-22)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE             (-23)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING (-24)
 
 /* Given a FD_HTTP_SERVER_CONNECTION_CLOSE_* reason code, a reason that
    a HTTP connection a client was closed, produce a human readable
@@ -368,9 +369,9 @@ fd_http_server_printf( fd_http_server_t * http,
    the HTTP server using fd_http_server_broadcast.  This will end the
    current staged message so future prints go into a new message.
 
-   Printing is not error-free, it is assumed that the format string is
+   Appending is not error-free, it is assumed that the data provided is
    valid but the entire outgoing buffer may not be large enough to hold
-   the printed string.  In that case, the staging buffer is marked as
+   data_len bytes.  In that case, the staging buffer is marked as
    being in an error state internally.  The next call to send or
    broadcast will fail, returning the error, and the error state will be
    cleared. */
@@ -379,6 +380,22 @@ void
 fd_http_server_memcpy( fd_http_server_t * http,
                        uchar const *      data,
                        ulong              data_len );
+
+/* fd_http_server_append_start starts an in-place append operation.
+   len is the amount of buffer space to reserve.  Returns a pointer to
+   len bytes to which the user should write the message to, on success.
+   On failure (insufficient buffer space), returns NULL. */
+
+uchar *
+fd_http_server_append_start( fd_http_server_t * http,
+                             ulong              len );
+
+/* fd_http_server_append_end finishes an earlier started in-place
+   append.  len is the number of bytes that were actually written. */
+
+void
+fd_http_server_append_end( fd_http_server_t * http,
+                           ulong              len );
 
 /* fd_http_server_unstage unstages any data written into the staging
    buffer, clearing its contents.  It does not advance the ring buffer

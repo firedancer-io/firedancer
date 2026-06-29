@@ -12,10 +12,10 @@
 
 struct __attribute__((aligned(FD_BLOOM_ALIGN))) fd_bloom_private {
   ulong * keys;
-  ulong   keys_len;
+  ulong   keys_len;  /* ulong count */
 
   ulong * bits;
-  ulong   bits_len;
+  ulong   bits_len;  /* bit count */
 
   ulong   hash_seed;
   fd_rng_t * rng;
@@ -83,6 +83,16 @@ fd_bloom_num_bits( double num_items,
                    double max_bits ) {
   double num_bits = ceil( ((double)num_items * log( false_positive_rate )) / log( 1.0 / pow( 2.0, log( 2.0 ) )));
   return (ulong)fmax( 1.0, fmin( max_bits, num_bits ) );
+}
+
+/* Compute optimal number of bloom hash functions for a given number of
+   bits and items.  Matches Agave's Bloom::num_keys. */
+
+static inline ulong
+fd_bloom_num_keys( double num_bits,
+                   double num_items ) {
+  if( num_items==0.0 ) return 0UL;
+  return (ulong)fmax( 1.0, round( (num_bits / num_items) * log( 2.0 ) ) );
 }
 
 FD_PROTOTYPES_END

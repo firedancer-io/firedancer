@@ -1,18 +1,58 @@
 #include "fd_solfuzz_private.h"
 #include "generated/context.pb.h"
-#include "../fd_acc_mgr.h"
+#include "../fd_runtime.h"
+#include "../fd_bank.h"
+#include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
-#include <assert.h>
+
+void
+fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
+                                         fd_exec_test_fee_rate_governor_t const * fee_rate_governor ) {
+  fd_fee_rate_governor_t * frg = &bank->f.fee_rate_governor;
+  *frg = (fd_fee_rate_governor_t){
+    .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
+    .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
+    .min_lamports_per_signature    = fee_rate_governor->min_lamports_per_signature,
+    .max_lamports_per_signature    = fee_rate_governor->max_lamports_per_signature,
+    .burn_percent                  = (uchar)fee_rate_governor->burn_percent,
+  };
+}
+
+void
+fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                                    bank,
+                                       fd_exec_test_blockhash_queue_entry_t const *   entries,
+                                       ulong                                          entries_cnt ) {
+  ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( &bank->f.block_hash_queue, blockhash_seed );
+  for( ulong i=0UL; i<entries_cnt; i++ ) {
+    fd_hash_t hash                   = FD_LOAD( fd_hash_t, entries[i].blockhash );
+    ulong     lamports_per_signature = entries[i].lamports_per_signature;
+
+    fd_blockhash_info_t * blockhash = fd_blockhashes_push_new( blockhashes, &hash );
+    blockhash->lamports_per_signature = lamports_per_signature;
+  }
+}
+
+ulong
+fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
+                        ulong                             acct_states_cnt ) {
+  for( ulong i=0UL; i<acct_states_cnt; i++ ) {
+    if( !memcmp( &acct_states[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
+      FD_TEST( acct_states[i].data->size==sizeof(fd_sol_sysvar_clock_t) );
+      return FD_LOAD( ulong, acct_states[i].data->bytes );
+    }
+  }
+  FD_LOG_ERR(( "invariant violation: clock sysvar account not found in acct states" ));
+}
 
 int
-fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
-                            fd_accdb_user_t *                 accdb,
-                            fd_funk_txn_xid_t const *         xid,
+fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
+                            fd_accdb_t *                      accdb,
+                            fd_accdb_fork_id_t                fork_id,
                             fd_exec_test_acct_state_t const * state,
-                            uchar                             reject_zero_lamports ) {
-  if( reject_zero_lamports && state->lamports==0UL ) {
-    return 0;
-  }
+                            ulong                             acc_idx ) {
+  (void)runtime; (void)acc_idx;
+  if( state->lamports==0UL ) return 0;
 
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
@@ -20,35 +60,20 @@ fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( accdb->funk, xid, pubkey, NULL, NULL, NULL) ) ) {
+  if( FD_UNLIKELY( fd_accdb_exists( accdb, fork_id, pubkey->key ) ) ) {
     return 0;
   }
 
-  fd_funk_rec_prepare_t prepare = {0};
-
-  int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
-                                                    /* pubkey      */ pubkey,
-                                                    /* funk        */ accdb,
-                                                    /* xid         */ xid,
-                                                    /* do_create   */ 1,
-                                                    /* min_data_sz */ size,
-                                                    /* prepare     */ &prepare );
-  assert( ok );
-
-  if( state->data ) {
-    fd_txn_account_set_data( acc, state->data->bytes, size );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( state->data && size ) {
+    fd_memcpy( acc.data, state->data->bytes, size );
   }
-
-  acc->starting_lamports = state->lamports;
-  acc->starting_dlen     = size;
-  fd_txn_account_set_lamports( acc, state->lamports );
-  fd_txn_account_set_executable( acc, state->executable );
-  fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
-
-  /* make the account read-only by default */
-  fd_txn_account_set_readonly( acc );
-
-  fd_txn_account_mutable_fini( acc, accdb, &prepare );
+  acc.data_len   = size;
+  acc.lamports   = state->lamports;
+  acc.executable = state->executable;
+  fd_memcpy( acc.owner, state->owner, 32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   return 1;
 }
@@ -68,4 +93,54 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
     fd_features_set( features, id, 0UL );
   }
   return 1;
+}
+
+void
+fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
+                                                ulong                       cu_avail,
+                                                int                         has_err,
+                                                fd_exec_test_acct_state_t * accounts,
+                                                pb_size_t                   accounts_cnt ) {
+  if( FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
+      && cu_avail == 0UL
+      && has_err ) {
+    for( pb_size_t i=0; i<accounts_cnt; i++ ) {
+      accounts[i].data = NULL;
+    }
+  }
+}
+
+void
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
+                                       fd_accdb_fork_id_t                 fork_id,
+                                       fd_exec_test_feature_set_t const * feature_set,
+                                       fd_exec_test_acct_state_t const *  acct_states,
+                                       pb_size_t                          acct_states_count ) {
+  for( ulong j=0UL; j<feature_set->features_count; j++ ) {
+    fd_feature_id_t const * id = fd_feature_id_query( feature_set->features[j] );
+    if( FD_UNLIKELY( !id ) ) continue;
+
+    /* Skip if an acct_state already owns this pubkey so the
+       caller-supplied state wins. */
+    int collision = 0;
+    for( pb_size_t i=0U; i<acct_states_count; i++ ) {
+      if( !memcmp( acct_states[i].address, id->id.key, sizeof(fd_pubkey_t) ) ) {
+        collision = 1;
+        break;
+      }
+    }
+    if( collision ) continue;
+
+    /* Genesis activation slot */
+    fd_feature_t feature = { .is_active = 1, .activation_slot = 0UL };
+
+    fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, id->id.key );
+    fd_memcpy( acc.data, &feature, sizeof(feature) );
+    acc.data_len   = sizeof(feature);
+    acc.lamports   = 100000000UL;
+    acc.executable = 0;
+    fd_memcpy( acc.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+    acc.commit = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
+  }
 }

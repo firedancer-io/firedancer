@@ -44,6 +44,7 @@
 #define FD_ETHTOOL_FEATURE_TXUDPSEG      "tx-udp-segmentation"
 #define FD_ETHTOOL_FEATURE_TXGRESEG      "tx-gre-segmentation"
 #define FD_ETHTOOL_FEATURE_TXGRECSUMSEG  "tx-gre-csum-segmentation"
+#define FD_ETHTOOL_FEATURE_RXUDPGROFWD   "rx-udp-gro-forwarding"
 
 struct fd_ethtool_ioctl {
   int          fd;
@@ -154,12 +155,13 @@ fd_ethtool_ioctl_feature_gro_set( fd_ethtool_ioctl_t * ioc,
                                   int                  enabled );
 
 /* fd_ethtool_ioctl_feature_gro_test sets enabled to 1 if the
-   generic-receive-offload feature is enabled.  Returns nonzero on
-   failure. */
+   generic-receive-offload feature is enabled.  Sets supported to 1
+   if this feature is supported.  Returns nonzero on failure. */
 
 int
 fd_ethtool_ioctl_feature_gro_test( fd_ethtool_ioctl_t * ioc,
-                                   int *                enabled );
+                                   int *                enabled,
+                                   int *                supported );
 
 /* fd_ethtool_ioctl_ntuple_clear deletes any active ntuple flow steering
    rules, which is the default state.  Returns nonzero on failure. */
@@ -170,29 +172,65 @@ fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc );
 /* fd_ethtool_ioctl_ntuple_set_udp_dport installs a flow steering rule
    at the given rule_idx to route all UDP/IPv4 packets with the given
    destination port to the given queue_idx.  Note that if a rule already
-   exists at rule_idx, it will be overwritten.  Returns nonzero on failure. */
+   exists at rule_idx, it may be overwritten.
+
+   In order to facilitate load balancing flows across multiple queues,
+   a nonzero rule_group_idx can be given.  rule_group_cnt must be a
+   nonzero power of 2.  This forms a mask of the lowest N bits of the
+   IPv4 source address and masked addresses matching rule_group_idx
+   are steered to the given queue_idx.  For example, we can create a
+   group of rules for queue 0 where the lowest bit of the address is 0
+   and a second set of rules for queue 1 where the lowest bit is 1.
+
+   Returns nonzero on failure. */
 
 int
 fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
+                                       uint                 rule_group_idx,
+                                       uint                 rule_group_cnt,
                                        uint                 queue_idx );
 
-/* fd_ethtool_ioctl_ntuple_validate_udp_dport queries all ntuple
-   rules and then sets valid to 1 if they match the expected set of
-   rules for the given UDP destination ports.  In other words,
-   this makes sure the existing rules are correct and that no other
-   rules are active.  If num_dports is zero, then this effectively
-   checks whether any rules exist.  dports is left in an
-   indeterminate state after this function returns.  Returns
-   nonzero on failure (uncertain if valid or not). */
+/* fd_ethtool_ioctl_ntuple_set_gre installs a flow steering rule at the
+   given rule_idx to route all GRE traffic (IP proto 47) to the given
+   queue_idx.  Note that if a rule already exists at rule_idx, it may
+   be overwritten.
+
+   Returns nonzero on failure. */
+int
+fd_ethtool_ioctl_ntuple_set_gre( fd_ethtool_ioctl_t * ioc,
+                                 uint                 rule_idx,
+                                 uint                 queue_idx );
+
+/* fd_ethtool_ioctl_ntuple_validate queries all ntuple rules and then
+   sets valid to 1 if they match the expected set of rules for GRE to go
+   to gre_queue (unless it is UINT_MAX), and the given UDP destination
+   ports and the given number of queues (each queue should have a group
+   of rules, one for each port in dports).  In other words, this makes
+   sure the existing rules are correct and that no other rules are
+   active.  If dports_cnt is zero and gre_queue is UINT_MAX, then this
+   effectively checks whether any rules exist.  Returns nonzero on
+   failure (uncertain if valid or not). */
 
 int
-fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
-                                            ushort *             dports,
-                                            uint                 num_dports,
-                                            uint                 queue_idx,
-                                            int *                valid );
+fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
+                                  ushort const *       dports,
+                                  uint                 dports_cnt,
+                                  uint                 queue_cnt,
+                                  uint                 gre_queue,
+                                  int *                valid );
+
+/* fd_ethtool_ioctl_rxfh_set_flow_hash_udp4 configures the NIC to
+   include source and destination ports in the RSS hash for UDP/IPv4
+   flows.  By default, many NICs only hash on IP addresses for UDP,
+   which causes poor load balancing when traffic has a fixed destination
+   IP and port (e.g. gossip).  Including ports in the hash provides
+   much better entropy and queue distribution.  Returns nonzero on
+   failure. */
+
+int
+fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( fd_ethtool_ioctl_t * ioc );
 
 
 FD_PROTOTYPES_END

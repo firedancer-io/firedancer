@@ -18,7 +18,7 @@ jobs:
       gcc_exceptions: |
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
-        ALL,linux_gcc_arm_n1,ALL;
+        ALL,linux_gcc_neoverse_n2,ALL;
         ALL,linux_gcc_icelake,ALL;
         ALL,linux_gcc_x86_64,ALL;
         ALL,linux_gcc_zen2,ALL;
@@ -39,6 +39,7 @@ jobs:
         ALL,linux_clang_zen4,ALL;
         ALL,linux_clang_zen5,ALL;
       build_arm: true
+      verbose: true
       cid: 3
   builds_2:
     uses: ./.github/workflows/builds.yml
@@ -46,14 +47,18 @@ jobs:
       machine: linux_gcc_icelake
       build_arm: false
       clang: none
+      verbose: true
       cid: 4
+      gcc_runner_labels: '["self-hosted", "X64", "750G"]'
   builds_3:
     uses: ./.github/workflows/builds.yml
     with:
       machine: linux_gcc_x86_64
       build_arm: false
       clang: none
+      verbose: true
       cid: 5
+      gcc_runner_labels: '["self-hosted", "X64", "750G"]'
   builds_4:
     uses: ./.github/workflows/builds.yml
     with:
@@ -63,4 +68,12 @@ jobs:
       machine: linux_gcc_zen2
       build_arm: false
       clang: none
+      verbose: true
       cid: 6
+      gcc_runner_labels: '["self-hosted", "X64", "750G"]'
+  backtest:
+    uses: ./.github/workflows/backtest.yml
+    with:
+      script: DUMP_DIR=../dump src/flamenco/runtime/tests/run_backtest_all.sh
+      timeout: 120
+    secrets: inherit

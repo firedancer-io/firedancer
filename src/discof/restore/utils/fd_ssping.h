@@ -5,10 +5,9 @@
    peers that are reachable for snapshot download, and returning the
    "best" such peer at any time.
 
-   The "best" peer is defined as the one with the lowest latency for
-   now, in response to an ICMP ping request, although this should likely
-   be changed to include snapshot age, or actual observed download speed
-   for a small sample, or other factors.
+   The "best" peer is defined as the one with the lowest combined score
+   of TCP connection latency and snapshot age (slots behind the
+   cluster), as computed by the peer selector.
 
    The snapshot pinger works on the assumption that there is a maximum
    size of peers that will ever be added, as we expect from the gossip
@@ -20,6 +19,11 @@
 
 struct fd_sspeer_selector_private;
 typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
+
+#define FD_SSPING_FD_MIN 20000
+#define FD_SSPING_FD_CNT   249 /* Limit to how many pings can be
+                                  inflight.  Chosen so that it doesn't
+                                  overflow the tile limit. */
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
@@ -48,6 +52,12 @@ fd_ssping_new( void *                 shmem,
 
 fd_ssping_t *
 fd_ssping_join( void * shping );
+
+void *
+fd_ssping_leave( fd_ssping_t * ssping );
+
+void *
+fd_ssping_delete( void * shping );
 
 /* Add a peer to be tracked by the snapshot pinger, which will from here
    until it is removed, constantly ping the node to maintain its
@@ -81,6 +91,14 @@ fd_ssping_invalidate( fd_ssping_t * ssping,
                       fd_ip4_port_t addr,
                       long          now );
 
+/* Returns 1 if the peer at addr is currently in the INVALID state
+   (i.e. temporarily banned), 0 otherwise.  Safe to call with a NULL
+   ssping (returns 0). */
+
+int
+fd_ssping_is_invalidated( fd_ssping_t * ssping,
+                          fd_ip4_port_t addr );
+
 /* Advance the ping tracker forward in time until "now".  This should be
    called periodically to refresh pings and service networking to
    maintain ping states.  Takes a handle to the peer selector to
@@ -90,11 +108,6 @@ void
 fd_ssping_advance( fd_ssping_t *          ssping,
                    long                   now,
                    fd_sspeer_selector_t * selector);
-
-/* Return the ping socket file descriptor */
-
-int
-fd_ssping_get_sockfd( fd_ssping_t const * ssping );
 
 FD_PROTOTYPES_END
 

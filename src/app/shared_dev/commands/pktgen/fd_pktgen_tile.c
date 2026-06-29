@@ -1,7 +1,7 @@
 /* fd_pktgen_tile floods a net tile with small outgoing packets.
 
-   Each packet is a minimum size Ethernet frame. An invalid
-   Ethertype is used to avoid leaking the flood out to the Internet.
+   Each packet is a minimum size Ethernet frame. An invalid ip4 hdr
+   is used to avoid leaking the flood out to the Internet.
 
    Each packet contains a 64 bit sequence number such that each
    payload is different.  Experiments revealed that some NICs stop
@@ -36,8 +36,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   fd_pktgen_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( tile->out_cnt==1UL );
   void * out_base   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
@@ -53,25 +53,31 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static void
-before_credit( fd_pktgen_tile_ctx_t * ctx,
-               fd_stem_context_t *    stem,
-               int *                  charge_busy ) {
+after_credit( fd_pktgen_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
   if( FD_VOLATILE_CONST( fd_pktgen_active )!=1U ) return;
 
   *charge_busy = 1;
+  *opt_poll_in = 0;
 
   /* Select an arbitrary public IP as the fake destination.  The outgoing
-     packet is not an Internet packet, so it will not reach that
-     destination.  The net tile, however, needs a valid dst IP to select
+     packet has an an invalid ip header, so it will not reach that
+     destination. The net tile, however, needs a valid dst IP to select
      the dst MAC address. */
   ulong sig = fd_disco_netmux_sig( 0U, 0U, ctx->fake_dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
   /* Send an Ethernet frame */
-  ulong   chunk = ctx->chunk;
-  uchar * frame = fd_chunk_to_laddr( ctx->out_base, chunk );
-  ulong   tag   = ctx->tag;
-  ulong   sz    = sizeof(fd_eth_hdr_t) + 46;
-  FD_STORE( ulong, frame+sizeof(fd_eth_hdr_t), tag );
+  ulong          chunk = ctx->chunk;
+  uchar *        frame = fd_chunk_to_laddr( ctx->out_base, chunk );
+  fd_eth_hdr_t * eth   = (fd_eth_hdr_t *)frame;
+  fd_ip4_hdr_t * ip4   = (fd_ip4_hdr_t *)(eth+1);
+  ulong          tag   = ctx->tag;
+  ulong          sz    = sizeof(fd_eth_hdr_t) + 46;
+  eth->net_type        = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+  ip4->verihl          = FD_IP4_VERIHL( 4, 5 );
+  FD_STORE( ulong, ip4+1, tag ); /* Unique seq number */
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 
   /* Wind up for next iteration */
@@ -86,7 +92,9 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE fd_pktgen_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pktgen_tile_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
+
+#define STEM_LAZY ((ulong)384e3) /* 384us, same as shred tile */
 
 #include "../../../../disco/stem/fd_stem.c"
 

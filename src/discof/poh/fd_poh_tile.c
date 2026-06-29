@@ -1,12 +1,15 @@
 #include "fd_poh.h"
-#include "generated/fd_poh_tile_seccomp.h"
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
+#include "../../disco/fd_clock_tile.h"
+#include "../../discof/fd_startup.h"
+#include <time.h>
+#include "generated/fd_poh_tile_seccomp.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_PACK   (1)
-#define IN_KIND_BANK   (2)
+#define IN_KIND_EXECLE (2)
 
 struct fd_poh_in {
   fd_wksp_t * mem;
@@ -20,10 +23,10 @@ typedef struct fd_poh_in fd_poh_in_t;
 struct fd_poh_tile {
   fd_poh_t poh[1];
 
-  /* There's a race condition ... let's say two banks A and B, bank A
-     processes some transactions, then releases the account locks, and
+  /* There's a race condition ... let's say two execles A and B, execle
+     A processes some transactions, then releases the account locks, and
      sends the microblock to PoH to be stamped.  Pack now re-packs the
-     same accounts with a new microblock, sends to bank B, bank B
+     same accounts with a new microblock, sends to execle B, execle B
      executes and sends the microblock to PoH, and this all happens fast
      enough that PoH picks the 2nd block to stamp before the 1st.  The
      accounts database changes now are misordered with respect to PoH so
@@ -62,12 +65,19 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+during_housekeeping( fd_poh_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->poh->clock ) ) ) {
+    fd_clock_tile_recal( ctx->poh->clock );
+  }
+}
+
+static inline void
 after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->idle_cnt++;
-  if( FD_UNLIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt ) ) {
+  if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
     /* We would like to fully drain input links to the best of our
        knowledge, before we spend cycles on hashing.  That is, we would
        like to assert that all input links have stayed empty since the
@@ -77,7 +87,14 @@ after_credit( fd_poh_tile_t *     ctx,
        in_cnt-1 in the subsequent input link shuffle.  So strictly
        speaking we will need to have observed 2*in_cnt-1 consecutive
        empty in links to be able to assert that link L has been empty
-       since the last time we polled it. */
+       since the last time we polled it.
+
+       Except that when we are leader and the hashcnt is right before a
+       tick boundary, poh must advance to the tick boundary and produce
+       the tick.  Otherwise, a tick will be skipped if a microblock
+       mixin happens.  Additionally, when there are pending skipped
+       ticks to be published, we should do that before processing any
+       incoming microblocks. */
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }
@@ -90,7 +107,7 @@ after_credit( fd_poh_tile_t *     ctx,
     3. pack free to start packing
     4. if poh slot in progress, refuse replay frag ... until see abandon_packing
     5. poh must process pack frags in order
-    6. when poh sees done_packing/abandon_packing, return poh -> replay saying bank unused now */
+    6. when poh sees done_packing/abandon_packing, return poh -> replay saying execle unused now */
 
 static inline int
 returnable_frag( fd_poh_tile_t *     ctx,
@@ -111,7 +128,24 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
      we just drop it.  We shouldn't send it at all in future. */
-  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
+
+  /* Pack periodically publishes a tighter microblock bound over the
+     pack_poh link. */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    if( FD_UNLIKELY( !fd_poh_have_leader_bank( ctx->poh ) ) ) return 0; /* must have become leader first */
+    FD_TEST( sz==sizeof(ulong) );
+    ulong const * new_max = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_poh_update_max_microblocks( ctx->poh, *new_max );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE && ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    fd_poh_wfs_done( ctx->poh );
     ctx->idle_cnt = 0UL;
     return 0;
   }
@@ -120,13 +154,13 @@ returnable_frag( fd_poh_tile_t *     ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   /* There's a race condition where we might receive microblocks from
-     banks before we have learned what the leader bank is from replay
-     (the become_leader message makes it from replay->pack->bank->poh)
+     execles before we have learned what the leader bank is from replay
+     (the become_leader message makes it from replay->pack->execle->poh)
      before it just makes it from replay->poh.  This is rare but
      violates invariants in poh, so we simply do not process any
      transactions for mixin until we have learned what the leader bank
      is. */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && !fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
   /* If prior leaders skipped, it might happen that replay tells us to
@@ -138,11 +172,12 @@ returnable_frag( fd_poh_tile_t *     ctx,
      It might actually be allowed by the protocol to mixin earlier, but
      that really doesn't seem like a good idea.
 
-     It's fine to block pack/banks on hashing here, because they we are
-     going to have the wait for the full block to timeout once it starts */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
-    uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
+     It's fine to block pack/execles on hashing here, because they we
+     are going to have the wait for the full block to timeout once it
+     starts. */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
     if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
     ctx->expect_pack_idx++;
@@ -157,15 +192,17 @@ returnable_frag( fd_poh_tile_t *     ctx,
     case IN_KIND_REPLAY: {
       if( FD_LIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot );
+        fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot, became_leader->slot_start_ns );
       } else if( sig==REPLAY_SIG_RESET ) {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
+        ctx->poh->wfs_paused = reset->wfs_paused;
       }
       break;
     }
-    case IN_KIND_BANK: {
-      ulong target_slot = fd_disco_bank_sig_slot( sig );
+    case IN_KIND_EXECLE: {
+      ulong target_slot = fd_disco_execle_sig_slot( sig );
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
@@ -206,8 +243,8 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -219,8 +256,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->idle_cnt = 0UL;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -229,7 +266,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
-    else if( !strcmp( link->name, "bank_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else if( !strcmp( link->name, "execle_poh" ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -238,9 +275,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  fd_clock_tile_init( ctx->poh->clock );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong
@@ -272,8 +313,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* One tick, one microblock, one slot ended */
-#define STEM_BURST (3UL)
+/* One tick, one microblock */
+#define STEM_BURST (2UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
@@ -281,6 +322,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 

@@ -1,8 +1,8 @@
-#include "fd_genesis_client.h"
+#include "fd_genesis_client_private.h"
 
 #include "../../waltz/http/picohttpparser.h"
-#include "../../disco/topo/fd_topo.h"
 #include "../../util/fd_util.h"
+#include "../../waltz/http/fd_http.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
 #include <errno.h>
@@ -11,30 +11,7 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <sys/poll.h>
 #include <stdlib.h>
-
-struct fd_genesis_client_peer {
-  fd_ip4_port_t addr;
-
-  int writing;
-  ulong request_bytes_sent;
-  ulong response_bytes_read;
-  uchar response[ 10UL*1024UL*1024UL ]; /* 10 MiB max response */
-};
-
-typedef struct fd_genesis_client_peer fd_genesis_client_peer_t;
-
-struct fd_genesis_client_private {
-  long start_time_nanos;
-  ulong peer_cnt;
-  ulong remaining_peer_cnt;
-
-  struct pollfd pollfds[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-  fd_genesis_client_peer_t peers[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
-
-  ulong magic;
-};
 
 FD_FN_CONST ulong
 fd_genesis_client_align( void ) {
@@ -130,7 +107,7 @@ fd_genesis_client_init( fd_genesis_client_t * client,
 
   client->peer_cnt = peer_cnt;
   client->remaining_peer_cnt = peer_cnt;
-  client->start_time_nanos = fd_log_wallclock();
+  client->start_time_nanos = LONG_MAX;
 }
 
 static void
@@ -157,17 +134,19 @@ write_conn( fd_genesis_client_t * client,
   if( FD_LIKELY( !peer->writing ) ) return;
 
   char request[ 1024UL ];
-  FD_TEST( fd_cstr_printf_check( request, sizeof(request), NULL, "GET /genesis.tar.bz2 HTTP/1.1\r\n"
-                                                                 "Cache-Control: no-cache\r\n"
-                                                                 "Connection: keep-alive\r\n"
-                                                                 "Pragma: no-cache\r\n"
-                                                                 "User-Agent: Firedancer\r\n"
-                                                                 "Host: " FD_IP4_ADDR_FMT ":%hu\r\n\r\n",
-                                                                 FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ) );
+  ulong request_sz = 0UL;
+  FD_TEST( fd_cstr_printf_check( request, sizeof(request), &request_sz, "GET /genesis.tar.bz2 HTTP/1.1\r\n"
+                                                                      "Cache-Control: no-cache\r\n"
+                                                                      "Connection: keep-alive\r\n"
+                                                                      "Pragma: no-cache\r\n"
+                                                                      "User-Agent: Firedancer\r\n"
+                                                                      "Host: " FD_IP4_ADDR_FMT ":%hu\r\n\r\n",
+                                                                      FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ) );
+  FD_TEST( request_sz > peer->request_bytes_sent );
 
   long written = sendto( client->pollfds[ conn_idx ].fd,
                          request+peer->request_bytes_sent,
-                         sizeof(request)-peer->request_bytes_sent,
+                         request_sz-peer->request_bytes_sent,
                          MSG_NOSIGNAL,
                          NULL,
                          0 );
@@ -178,7 +157,7 @@ write_conn( fd_genesis_client_t * client,
   }
 
   peer->request_bytes_sent += (ulong)written;
-  if( FD_UNLIKELY( peer->request_bytes_sent==sizeof(request) ) ) {
+  if( FD_UNLIKELY( peer->request_bytes_sent==request_sz ) ) {
     peer->writing = 0;
     peer->response_bytes_read = 0UL;
   }
@@ -190,9 +169,9 @@ rpc_phr_content_length( struct phr_header * headers,
   for( ulong i=0UL; i<num_headers; i++ ) {
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "Content-Length", 14UL ) ) ) continue;
-    char * end;
-    ulong content_length = strtoul( headers[i].value, &end, 10 );
-    if( FD_UNLIKELY( end==headers[i].value ) ) return ULONG_MAX;
+    ulong content_length = 0UL;
+    if( FD_UNLIKELY( fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &content_length ) ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( content_length>UINT_MAX ) ) return ULONG_MAX; /* prevent overflow */
     return content_length;
   }
   return ULONG_MAX;
@@ -270,7 +249,9 @@ fd_genesis_client_poll( fd_genesis_client_t * client,
                         ulong *               buffer_sz,
                         int *                 charge_busy ) {
   if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
-  if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) client->start_time_nanos = now;
+  if( FD_UNLIKELY( now-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;
   }
@@ -280,14 +261,16 @@ fd_genesis_client_poll( fd_genesis_client_t * client,
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 1;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, strerror( errno ) ));
 
-  *charge_busy = 1;
-
   for( ulong i=0UL; i<FD_TOPO_GOSSIP_ENTRYPOINTS_MAX; i++ ) {
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
 
-    if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) write_conn( client, i );
+    if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) {
+      if( FD_UNLIKELY( client->peers[ i ].writing ) ) *charge_busy = 1;
+      write_conn( client, i );
+    }
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
     if( FD_LIKELY( client->pollfds[ i ].revents & POLLIN ) ) {
+      if( FD_UNLIKELY( !client->peers[ i ].writing ) ) *charge_busy = 1;
       if( FD_LIKELY( !read_conn( client, i, buffer, buffer_sz ) ) ) {
         close_all( client );
         *peer = client->peers[ i ].addr;

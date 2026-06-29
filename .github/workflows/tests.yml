@@ -39,7 +39,7 @@ jobs:
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: clang
-            compiler-version: 15.0.6
+            compiler-version: 19.1.7
             run-unit-tests: true
           - test-case: native
             machine: native
@@ -65,9 +65,9 @@ jobs:
         run: |
           sudo killall firedancer-dev || true
 
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:
@@ -77,11 +77,11 @@ jobs:
         if: ${{ !contains(matrix.extras, 'no-deps') }}
 
       - uses: ./.github/actions/hugepages
-        if: ${{ matrix.targets != 'check' }}
+        if: ${{ matrix.run-unit-tests || matrix.run-integration-tests }}
 
       - uses: ./.github/actions/cpusonline
 
-      - uses: dtolnay/rust-toolchain@1.84.1
+      - uses: dtolnay/rust-toolchain@1.95.0
         if: ${{ contains(matrix.targets, 'fdctl') }}
 
       - name: clean targets
@@ -98,7 +98,7 @@ jobs:
       - name: build targets
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          FIREDANCER_CI_COMMIT=none ./contrib/make-j ${{ matrix.targets }}
+          ./contrib/make-j ${{ matrix.targets }}
 
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}
@@ -121,19 +121,6 @@ jobs:
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-fuzz-test
 
-      - name: check out test-vectors (persistent)
-        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
-        run: |
-          COMMIT_SHA=$(cat contrib/test/test-vectors-commit-sha.txt)
-          TEST_VECTORS_PATH="/data/svc_firedancer/test-vectors/${COMMIT_SHA}"
-          if [[ ! -d "${TEST_VECTORS_PATH}" ]]; then
-            mkdir -p /data/svc_firedancer/test-vectors
-            git clone https://github.com/firedancer-io/test-vectors.git "${TEST_VECTORS_PATH}"
-            git -C "${TEST_VECTORS_PATH}" checkout "${COMMIT_SHA}"
-          fi
-          mkdir -p dump
-          ln -sf "${TEST_VECTORS_PATH}" dump/test-vectors
-
       - name: run test-vector tests
         if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
         run: |
@@ -141,16 +128,16 @@ jobs:
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-test-vectors
 
-      - name: run solcap tests
-        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
-        run: |
-          sudo prlimit --pid $$ --memlock=-1:-1
-          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          DUMP=../dump make run-solcap-tests
-
       - name: run integration tests
         if: ${{ matrix.run-integration-tests }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           make run-integration-test
+
+      - name: run solcap tests
+        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
+          DUMP=../dump make run-solcap-tests

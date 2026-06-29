@@ -165,10 +165,7 @@
    This callback is not called when an overrun is detected in
    during_frag. */
 
-#if !FD_HAS_ALLOCA
-#error "fd_stem requires alloca"
-#endif
-
+#include "../../util/log/fd_log.h"
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
 #include "../../tango/fd_tango.h"
@@ -198,7 +195,7 @@
 
 static inline void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
-  fd_fseq_update( in->fseq, in->seq );
+  __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
 
   volatile ulong * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
 
@@ -227,6 +224,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(int),               out_cnt*sizeof(int)                  ); /* out_reliable */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
@@ -245,6 +243,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
+             volatile ulong **            _cons_slow,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -259,12 +258,13 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  int *          out_reliable; /* out_reliable[out_idx] is 1 if out_idx has at least one reliable consumer, else 0 */
 
   /* out flow control state */
   ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
   ulong          min_cr_avail; /* minimum number of flow control credits available to publish downstream */
   ulong const ** cons_fseq;    /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
-  ulong **       cons_slow;    /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
+  volatile ulong ** cons_slow; /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
   ulong *        cons_out;     /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
   ulong *        cons_seq;     /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
 
@@ -323,12 +323,13 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream init */
 
   cr_avail     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  min_cr_avail = 0UL;
+  min_cr_avail = fd_ulong_if( cons_cnt>0UL, 0UL, ULONG_MAX );
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   out_cnt*sizeof(int)   );
 
-  ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
+  ulong cr_max = fd_ulong_if( !out_cnt || !cons_cnt, 128UL, ULONG_MAX );
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
@@ -338,23 +339,29 @@ STEM_(run1)( ulong                        in_cnt,
     out_seq[ out_idx ] = 0UL;
 
     cr_avail[ out_idx ] = out_depth[ out_idx ];
+    out_reliable[ out_idx ] = 0;
   }
 
   cons_fseq = (ulong const **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong const *), cons_cnt*sizeof(ulong const *) );
-  cons_slow = (ulong **)      FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       cons_cnt*sizeof(ulong *)       );
+  cons_slow = (volatile ulong **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       cons_cnt*sizeof(ulong *)       );
   cons_out  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         cons_cnt*sizeof(ulong)         );
   cons_seq  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         cons_cnt*sizeof(ulong)         );
 
   if( FD_UNLIKELY( !!cons_cnt && !_cons_fseq ) ) FD_LOG_ERR(( "NULL cons_fseq" ));
+  if( FD_UNLIKELY( !!cons_cnt && !_cons_slow ) ) FD_LOG_ERR(( "NULL cons_slow" ));
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
     if( FD_UNLIKELY( !_cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
+    if( FD_UNLIKELY( !_cons_slow[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_slow[%lu]", cons_idx ));
     cons_fseq[ cons_idx ] = _cons_fseq[ cons_idx ];
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
-    cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
-    cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
+    cons_slow[ cons_idx ] = _cons_slow[ cons_idx ];
+    cons_seq [ cons_idx ] = __atomic_load_n( _cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
 
+    out_reliable[ cons_out[ cons_idx ] ] = 1;
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
+
+  if( FD_UNLIKELY( cons_cnt>0UL && burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
 
   /* housekeeping init */
 
@@ -403,7 +410,7 @@ STEM_(run1)( ulong                        in_cnt,
         ulong cons_idx = event_idx;
 
         /* Receive flow control credits from this out. */
-        cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
+        cons_seq[ cons_idx ] = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
         ulong in_idx = event_idx - cons_cnt - 1UL;
@@ -417,9 +424,9 @@ STEM_(run1)( ulong                        in_cnt,
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)now );
+        FD_MGAUGE_SET( TILE, HEARTBEAT_TIMESTAMP_NANOS,           (ulong)fd_log_wallclock() );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
-        FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
+        FD_MCNT_INC  ( TILE, BACKPRESSURE,              metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
 #ifdef STEM_CALLBACK_METRICS_WRITE
         STEM_CALLBACK_METRICS_WRITE( ctx );
@@ -455,6 +462,11 @@ STEM_(run1)( ulong                        in_cnt,
             (*cons_slow[ slowest_cons ]) += metric_in_backp;
             FD_COMPILER_MFENCE();
           }
+        }
+
+        /* Publish producer progress sync word */
+        for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+          fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
         }
 
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
@@ -510,6 +522,7 @@ STEM_(run1)( ulong                        in_cnt,
       .cr_avail            = cr_avail,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+      .out_reliable        = out_reliable,
     };
 #endif
 
@@ -588,14 +601,24 @@ STEM_(run1)( ulong                        in_cnt,
     ulong                  this_in_seq   = this_in->seq;
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
-#if FD_HAS_SSE
+#if FD_HAS_AVX
+    __m256i yline   = FD_VOLATILE_CONST( this_in_mline->avx );
+    ulong seq_found = fd_frag_meta_avx_seq( yline );
+    ulong sig       = fd_frag_meta_avx_sig( yline );
+#elif FD_HAS_SSE
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
+#elif FD_HAS_ARM
+    ulong seq_found, sig;
+    fd_arm_ldp16_acq_pc( this_in_mline->ul, seq_found, sig );
+    ulong ul2, ul3;
+    fd_arm_ldp16( this_in_mline->ul+2, ul2, ul3 );
 #else
-    /* Without SSE, seq and sig might be read from different frags (due
-       to overrun), which results in a before_frag and during_frag being
-       issued with incorrect arguments, but not after_frag. */
+    /* Without 128-bit atomic load, seq and sig might be read from
+       different frags (due to overrun), which results in a before_frag
+       and during_frag being issued with incorrect arguments, but not
+       after_frag. */
     ulong seq_found = FD_VOLATILE_CONST( this_in_mline->seq );
     ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
 #endif
@@ -611,8 +634,8 @@ STEM_(run1)( ulong                        in_cnt,
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
         finish_regime = &metric_regime_ticks[7];
-        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
-        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
+        this_in->accum[ FD_METRICS_COUNTER_LINK_LINK_POLLING_OVERRUN_OFF ]++;
+        this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] += (uint)(-diff);
 
 #ifdef STEM_CALLBACK_AFTER_POLL_OVERRUN
         STEM_CALLBACK_AFTER_POLL_OVERRUN( ctx );
@@ -638,8 +661,8 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     } else if( FD_UNLIKELY( filter>0 ) ) {
-      this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ]++;
-      this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
+      this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ]++;
+      this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
 
       this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
       this_in->seq   = this_in_seq;
@@ -658,29 +681,40 @@ STEM_(run1)( ulong                        in_cnt,
        should always be successful if in producers are honoring our flow
        control.  Since we can cheaply detect if there are
        misconfigurations (should be an L1 cache hit / predictable branch
-       in the properly configured case), we do so anyway.  Note that if
-       we are on a platform where AVX is atomic, this could be replaced
-       by a flat AVX load of the metadata and an extraction of the found
-       sequence number for higher performance. */
+       in the properly configured case), we do so anyway. */
     FD_COMPILER_MFENCE();
+#if FD_HAS_AVX
+    ulong chunk    = fd_frag_meta_avx_chunk ( yline ); (void)chunk;
+    ulong sz       = fd_frag_meta_avx_sz    ( yline ); (void)sz;
+    ulong ctl      = fd_frag_meta_avx_ctl   ( yline ); (void)ctl;
+    ulong tsorig   = fd_frag_meta_avx_tsorig( yline ); (void)tsorig;
+    ulong tspub    = fd_frag_meta_avx_tspub ( yline ); (void)tspub;
+#elif FD_HAS_ARM
+    ulong chunk    = fd_frag_meta_ul2_chunk ( ul2 ); (void)chunk;
+    ulong sz       = fd_frag_meta_ul2_sz    ( ul2 ); (void)sz;
+    ulong ctl      = fd_frag_meta_ul2_ctl   ( ul2 ); (void)ctl;
+    ulong tsorig   = fd_frag_meta_ul3_tsorig( ul3 ); (void)tsorig;
+    ulong tspub    = fd_frag_meta_ul3_tspub ( ul3 ); (void)tspub;
+#else
     ulong chunk    = (ulong)this_in_mline->chunk;  (void)chunk;
     ulong sz       = (ulong)this_in_mline->sz;     (void)sz;
     ulong ctl      = (ulong)this_in_mline->ctl;    (void)ctl;
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
+#endif
 
 #ifdef STEM_CALLBACK_DURING_FRAG
     STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
 #endif
 
-    FD_COMPILER_MFENCE();
-    ulong seq_test =        this_in_mline->seq;
+    FD_HW_MFENCE_LD();
+    ulong seq_test = FD_VOLATILE_CONST( this_in_mline->seq );
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
-      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
-      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
+      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
+      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */
       metric_regime_ticks[1] += housekeeping_ticks;
       metric_regime_ticks[4] += prefrag_ticks;
@@ -711,8 +745,8 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
-    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
+    this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ]++;
+    this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ] += (uint)sz;
 
     metric_regime_ticks[1] += housekeeping_ticks;
     metric_regime_ticks[4] += prefrag_ticks;
@@ -748,14 +782,18 @@ STEM_(run)( fd_topo_t *      topo,
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
+  volatile ulong * cons_slow[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+    ulong polled_in_idx = 0UL;
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      int is_polled = consumer_tile->in_link_poll[ j ];
       for( ulong k=0UL; k<tile->out_cnt; k++ ) {
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_OFF;
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this
@@ -763,13 +801,25 @@ STEM_(run)( fd_topo_t *      topo,
           FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
         }
       }
+      if( FD_LIKELY( is_polled ) ) polled_in_idx++;
     }
   }
 
+  /* The stem rng is only used internally for shuffling event/input
+     polling ordering and for setting the housekeeping timer.  It is
+     never exposed to tile callbacks.  As a result, no cryptographic
+     quality is needed.  fd_tickcount() provides per-run entropy,
+     tile->id guarantees per-tile uniqueness, and fd_ulong_hash (a
+     Murmur3 finalizer) gives near-perfect avalanche so even a 1-bit
+     input difference flips ~50% of output bits.  fd_rng_secure is not
+     used here because STEM_(run) executes after the seccomp sandbox
+     is applied. */
   fd_rng_t rng[1];
-  FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
+  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_ulong_hash( (ulong)fd_tickcount() + tile->id ), 0UL ) ) );
 
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
+
+  uchar __attribute__((aligned(FD_STEM_SCRATCH_ALIGN))) stem_scratch[ STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ];
 
   STEM_(run1)( polled_in_cnt,
                in_mcache,
@@ -779,11 +829,19 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
+               cons_slow,
                STEM_BURST,
                STEM_LAZY,
                rng,
-               fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),
+               stem_scratch,
                ctx );
+
+#ifdef STEM_CALLBACK_METRICS_WRITE
+  /* Write final metrics state before shutting down */
+  FD_COMPILER_MFENCE();
+  STEM_CALLBACK_METRICS_WRITE( ctx );
+  FD_COMPILER_MFENCE();
+#endif
 
   if( FD_LIKELY( tile->allow_shutdown ) ) {
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -794,7 +852,7 @@ STEM_(run)( fd_topo_t *      topo,
       ulong fseq_id = tile->in_link_fseq_obj_id[ i ];
       ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, fseq_id ) );
       FD_TEST( fseq );
-      fd_fseq_update( fseq, STEM_SHUTDOWN_SEQ );
+      __atomic_store_n( fseq, STEM_SHUTDOWN_SEQ, __ATOMIC_RELEASE );
     }
   }
 }

@@ -1,4 +1,5 @@
 #include "fd_shred_dest.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 
 struct pubkey_to_idx {
   fd_pubkey_t key;
@@ -16,12 +17,12 @@ static const fd_pubkey_t null_pubkey = {{ 0 }};
 #define MAP_MEMOIZE           0
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_KEY_HASH(k,s)     ((MAP_HASH_T)fd_accdb_hash( (k).key, (s) ))
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
-/* This 45 byte struct gets hashed to compute the seed for Chacha20 to
+/* This 45 byte struct gets hashed to compute the seed for ChaCha to
    compute the shred destinations. */
 struct __attribute__((packed)) shred_dest_input {
   ulong slot;
@@ -95,8 +96,8 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
 
-  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
-  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
+  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(), fd_wsample_footprint( staked_cnt, 1 ));
+  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),     sizeof(ulong)*unstaked_cnt           );
 
 
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( sdest->rng, FD_CHACHA_RNG_MODE_SHIFT ) );
@@ -106,7 +107,7 @@ fd_shred_dest_new( void                           * mem,
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
   _staked   = fd_wsample_new_fini( _staked, excluded_stake );
 
-  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt ) );
+  pubkey_to_idx_t * pubkey_to_idx_map = pubkey_to_idx_join( pubkey_to_idx_new( _map, lg_cnt, 0UL ) );
   for( ulong i=0UL; i<cnt; i++ ) {
     /* we should never have duplicates in info[i].pubkey, but in case
        of duplicates it's better to skip than to segfault. */
@@ -157,7 +158,7 @@ void * fd_shred_dest_delete( void * mem ) {
     1. construct a list of all the unstaked validators,
     2. delete the leader (if present)
     then repeatedly:
-    3. choose the chacha20rng_roll( |unstaked| )th element.
+    3. choose the chacha_rng_roll( |unstaked| )th element.
     4. swap the last element in unstaked with the chosen element
     5. return and remove the chosen element (which is now in the last
     position, so remove is O(1)).
@@ -191,7 +192,7 @@ sample_unstaked_noprepare( fd_shred_dest_t  * sdest,
   ulong unstaked_cnt = sdest->unstaked_cnt - (ulong)remove_in_interval;
   if( FD_UNLIKELY( unstaked_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = sdest->staked_cnt + fd_chacha20_rng_ulong_roll( sdest->rng, unstaked_cnt );
+  ulong sample = sdest->staked_cnt + fd_chacha_rng_ulong_roll( sdest->rng, unstaked_cnt );
   return fd_ulong_if( (!remove_in_interval) | (sample<remove_idx), sample, sample+1UL );
 }
 
@@ -219,7 +220,7 @@ static inline ulong
 sample_unstaked( fd_shred_dest_t * sdest ) {
   if( FD_UNLIKELY( sdest->unstaked_unremoved_cnt==0UL ) ) return FD_WSAMPLE_EMPTY;
 
-  ulong sample = fd_chacha20_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
+  ulong sample = fd_chacha_rng_ulong_roll( sdest->rng, sdest->unstaked_unremoved_cnt );
   ulong to_return = sdest->unstaked[sample];
   sdest->unstaked[sample] = sdest->unstaked[--sdest->unstaked_unremoved_cnt];
   return to_return;
@@ -290,7 +291,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
 
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
-    fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] );
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] );
     /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
     if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
     else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
@@ -326,10 +327,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
   ulong               slot   = input_shreds[0]->slot;
   fd_pubkey_t const * leader = fd_epoch_leaders_get   ( sdest->lsched, slot );
+  if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
+
   pubkey_to_idx_t *   query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, NULL );
   int                 leader_is_staked = query ? (query->idx<sdest->staked_cnt): 0;
   ulong               leader_idx       = query ?  query->idx                   : ULONG_MAX;
-  if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
   if( FD_UNLIKELY( leader_idx==my_orig_idx ) ) return NULL; /* I am the leader. Use compute_first */
 
   if( FD_UNLIKELY( (sdest->cnt<=1UL) |                    /* We don't know about a single destination, so we can't send
@@ -358,7 +360,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     if( FD_LIKELY( query && leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
 
     ulong my_idx         = 0UL;
-    fd_wsample_seed_rng( fd_wsample_get_rng( sdest->staked ), dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
 
     if( FD_UNLIKELY( !i_am_staked ) ) {
       /* If there's excluded stake, we don't know about any unstaked

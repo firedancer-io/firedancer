@@ -151,7 +151,7 @@
 
    would log something like:
 
-     NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+     NOTICE  01-23 04:56:07.890123 45678 f0 0 file.c(901): 1 is the loneliest number
 
    to the ephemeral log (stderr) and log something like:
 
@@ -195,7 +195,7 @@
 
    would log something like:
 
-     WARNING 01-23 04:56:07.890123 75779 f0 0 src/file.c(901): HEXDUMP "bad_pkt" (96 bytes at 0x555555561a4e)
+     WARNING 01-23 04:56:07.890123 75779 f0 0 file.c(901): HEXDUMP "bad_pkt" (96 bytes at 0x555555561a4e)
              0000:  30 31 32 33 34 35 36 37 38 39 41 42 43 44 45 46  0123456789ABCDEF
              0010:  47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56  GHIJKLMNOPQRSTUV
              0020:  57 58 59 5a 61 62 63 64 65 66 67 68 69 6a 6b 6c  WXYZabcdefghijkl
@@ -237,65 +237,92 @@
 /* FD_LOG_STDOUT(()) is used for writing formatted messages to STDOUT, it does not
    take a lock and might interleave with other messages to the same pipe.  It
    should only be used for command output. */
-#define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_nolock_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
+#define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
 
-/* FD_TEST is a single statement that evaluates condition c and, if c
-   evaluates to false, will FD_LOG_ERR that the condition failed.  It is
-   optimized for the case where c will is non-zero.  This is mostly
-   meant for use in things like unit tests.  Due to linguistic
-   limitations, c cannot contain things like double quotes, etc.  E.g.
+/* FD_CHECK_ERR is a single statement that evaluates c and, if c
+   evaluates to false, will FD_LOG_ERR (typically exits the thread group
+   with status 1) with a descriptive error message.  It is optimized for
+   the case where c is non-zero.  If c is false, m should evaluate to a
+   cstr.  E.g.:
 
-     FD_TEST( broken_func_that_should_return_zero( arg1, arg2 )!=0 );
+     FD_CHECK_ERR( func_that_should_return_zero( arg1, arg2 )!=0, "it's bad you know" );
 
    would typically cause the program to exit with error code 1, logging
    something like:
 
-     ERR     01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+     ERR     01-23 04:56:07.890123 45678 f0 0 foo.c(901): FAIL: func_that_should_return_zero( arg1, arg2 )!=0 (it's bad you know)
 
    to the ephemeral log (stderr) and something like:
 
-     ERR     2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/foo.c(901)[func]: FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+     ERR     2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/foo.c(901)[func]: FAIL: func_that_should_return_zero( arg1, arg2 )!=0 (it's bad you know)
 
-   to the permanent log.  And similarly for other log levels.
+   to the permanent log.  Due to linguistic limitations, c cannot
+   contain things like double quotes, etc.  This macro is robust.
 
-   This macro is robust. */
+   FD_CHECK_CRIT is the same but will FD_LOG_CRIT (typically aborting
+   the thread group) instead.
 
-#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
+   FD_TEST_ERR / FD_TEST_CRIT are the same as FD_CHECK_ERR /
+   FD_CHECK_CRIT but do not include a user message.  These are meant
+   for use in unit tests.  FD_TEST is a short for FD_TEST_ERR. */
 
-/* FD_TEST_CUSTOM is like FD_TEST but with a custom error msg err. */
+#define FD_CHECK_ERR( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR((  "FAIL: %s (%s)", #c, (m) )); } while(0)
+#define FD_CHECK_CRIT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
 
-#define FD_TEST_CUSTOM(c,err) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", (err) )); } while(0)
+#define FD_TEST_ERR( c)    do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR((  "FAIL: %s", #c )); } while(0)
+#define FD_TEST_CRIT(c)    do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT(( "FAIL: %s", #c )); } while(0)
 
-/* FD_PARANOID / FD_CRIT / FD_ALERT:
+#define FD_TEST FD_TEST_ERR
 
-   FD_PARANOID configures the FD_CRIT / FD_ALERT runtime checks.
+/* FD_DCHECK_STYLE / FD_DCHECK_{CRIT,ALERT}
 
-   If FD_PARANOID is set: FD_CRIT / FD_ALERT will FD_LOG_CRIT /
-   FD_LOG_ALERT the application if c evaluates to false with a
-   descriptive error that includes the user message m (m should evaluate
-   to a cstr when c is false).
+   The main purpose of these is to document assumptions made by a code
+   block in a human and machine readable way.  These contracts can be
+   configured to be run-time assertions in a debugging build
+   (FD_DCHECK_STYLE==1), omitted in production build
+   (FD_DCHECK_STYLE==0) or treated as compiler assumptions in
+   experimental builds (FD_DCHECK_STYLE==-1).
 
-   If not set: FD_CRIT will evaluate c (such that any side effects of c
-   will still happen), the false code path will be marked as unreachable
-   (such that the optimizer will treat the code following the FD_CRIT
-   the same as when paranoid was set) and m will not be evaluated.
-   FD_ALERT will not evaluate c or m.
+   FD_DCHECK_ALERT is meant for code that is expensive to evaluate but
+   has no side effects.  FD_DCHECK_CRIT is meant for all other cases.
 
-   In short, use FD_ALERT when c is expensive to evalute but has no side
-   effects.  Use FD_CRIT for all other cases.
+   Specifically:
 
-   FIXME: probably should rename FD_TEST_CUSTOM to FD_ERR. */
+   If FD_DCHECK_STYLE is 1: FD_DCHECK_{CRIT,ALERT} will
+   FD_LOG_{CRIT,ALERT} if c evaluates to false with a descriptive error
+   that includes the user message m (m should evaluate to a cstr when c
+   is false).  m will not be evaluated when c is true.
 
-#ifndef FD_PARANOID
-#define FD_PARANOID 1
+   If FD_DCHECK_STYLE is 0: FD_DCHECK_CRIT will evaluate c, ignore the
+   result and continue (such that any side effects of c still happen).
+   FD_DCHECK_ALERT will evaluate neither c nor m.
+
+   If FD_DCHECK_STYLE is -1: FD_DCHECK_{CRIT,ALERT} will evaluate c and
+   the false code path will be marked as unreachable (such that U.B. is
+   introduced when c evaluates to false).  These will not evalate m.
+   (For clang, a __builtin_assume implementation of FD_DCHECK_ALERT
+   might be preferable or maybe style for this.)
+
+   IMPORTANT SAFETY TIP!  Don't use FD_DCHECK_STYLE==-1 at build level!
+   It is meant for use in very limited use within individual translation
+   units during development.  If you don't understand when it makes
+   sense to use it, to use it, don't! */
+
+#ifndef FD_DCHECK_STYLE
+#define FD_DCHECK_STYLE 0
 #endif
 
-#if FD_PARANOID
-#define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT (( "FAIL: %s (%s)", #c, (m) )); } while(0)
-#define FD_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ALERT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
+#if FD_DCHECK_STYLE==1
+#define FD_DCHECK_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT((  "FAIL: %s (%s)", #c, (m) )); } while(0)
+#define FD_DCHECK_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ALERT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
+#elif FD_DCHECK_STYLE==0
+#define FD_DCHECK_CRIT( c,m) ((void)(c))
+#define FD_DCHECK_ALERT(c,m) ((void)0)
+#elif FD_DCHECK_STYLE==-1
+#define FD_DCHECK_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
+#define FD_DCHECK_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
 #else
-#define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
-#define FD_ALERT(c,m) do {                                                    } while(0)
+#error "unknown FD_DCHECK_STYLE"
 #endif
 
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
@@ -314,7 +341,7 @@
 
    would log something like:
 
-     NOTICE  01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): cache line 0123456789abcd00
+     NOTICE  01-23 04:56:07.890123 45678 f0 0 foo.c(901): cache line 0123456789abcd00
              00: 00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f
              10: 10 11 12 13 14 15 16 17  18 19 1a 1b 1c 1d 1e 1f
              20: 20 21 22 23 24 25 26 27  28 29 2a 2b 2c 2d 2e 2f
@@ -481,7 +508,7 @@ ulong fd_log_tid( void );
    typically something provided to the caller when the caller started.
    This is cheap after the first call. */
 
-FD_FN_PURE ulong fd_log_user_id( void );
+ulong fd_log_user_id( void );
 
 /* fd_log_user() returns a non-NULL pointer to a cstr describing the
    user that created the thread group to which the caller belongs.  In
@@ -638,9 +665,6 @@ void fd_log_enable_unclean_exit( void );
 void
 fd_log_private_fprintf_0( int fd, char const * fmt, ... ) __attribute__((format(printf,2,3))); /* Type check the fmt string at compile time */
 
-void
-fd_log_private_fprintf_nolock_0( int fd, char const * fmt, ... ) __attribute__((format(printf,2,3))); /* Type check the fmt string at compile time */
-
 char const *
 fd_log_private_0( char const * fmt, ... ) __attribute__((format(printf,1,2))); /* Type check the fmt string at compile time */
 
@@ -660,12 +684,6 @@ fd_log_private_2( int          level,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
 
-void
-fd_log_private_raw_2( char const * file,
-                      int          line,
-                      char const * func,
-                      char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
-
 char const *
 fd_log_private_hexdump_msg( char const * tag,
                             void const * mem,
@@ -676,8 +694,7 @@ fd_log_private_boot( int *    pargc,
                      char *** pargv );
 
 void
-fd_log_private_boot_custom( int *        lock,
-                            ulong        app_id,
+fd_log_private_boot_custom( ulong        app_id,
                             char const * app,
                             ulong        thread_id,
                             char const * thread,
@@ -736,6 +753,24 @@ void fd_log_private_user_set ( char const * user  ); /* Not thread safe */
    for filtering and security, it should never be used to actually write
    logs and that should be done by the functions in fd_log.h */
 int fd_log_private_logfile_fd( void );
+
+
+/* fd_log_should_colorize() returns 1 if ANSI color escape sequences
+   should be emitted for log output, 0 otherwise.
+
+   Check (in order):
+    - NO_COLOR env var set and non-empty, no
+    - Output is not a TTY (piped/file), no
+    - TERM is unset or "dumb", no
+    - Queries compiled terminfo db for the terminal's max_colors
+      capability. If it is more than 0, returns yes.
+
+    Does not detect 24-bit/truecolor (terminfo commonly underreports
+    the number of colors supported). Simple ASCII-based color codes
+    won't need this. */
+
+int
+fd_log_should_colorize( void );
 
 FD_PROTOTYPES_END
 

@@ -1,10 +1,13 @@
+#define _GNU_SOURCE
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_sshttp.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../waltz/openssl/fd_openssl_tile.h"
 
+#include <sys/mman.h> /* memfd_create */
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -14,6 +17,12 @@
 
 #define NAME "snapld"
 
+/* download progress in each 10 second window must be at
+   min_download_speed_mibs * 10 seconds or higher.  Catches extremely
+   slow download speeds where we may not get to 100 MiB downloaded for a
+   while. */
+#define FD_SNAPLD_DOWNLOAD_WINDOW_NS (10L*1000L*1000L*1000L) /* 10 seconds */
+
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
@@ -22,15 +31,26 @@ typedef struct fd_snapld_tile {
 
   struct {
     char path[ PATH_MAX ];
+    uint min_download_speed_mibs;
   } config;
 
-  int state;
-  int load_full;
-  int load_file;
-  int sent_meta;
+  int   state;
+  int   load_full;
+  int   load_file;
+  int   sent_meta;
+
+  ulong  bytes_in_batch;
+  double download_speed_mibs;
+  long   start_batch;
+  long   end_batch;
+
+  ulong  bytes_in_window;
+  ulong  min_bytes_in_window;
+  long   window_deadline;
 
   int local_full_fd;
   int local_incr_fd;
+  int sockfd;
 
   fd_sshttp_t * sshttp;
 
@@ -50,7 +70,10 @@ typedef struct fd_snapld_tile {
 
 static ulong
 scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_snapld_tile_t), fd_sshttp_align() );
+  ulong a = alignof(fd_snapld_tile_t);
+  a = fd_ulong_max( a, fd_sshttp_align() );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  return a;
 }
 
 static ulong
@@ -58,25 +81,53 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND(  l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
   l = FD_LAYOUT_APPEND(  l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+  l = FD_LAYOUT_APPEND(  l, fd_alloc_align(),           fd_alloc_footprint()     );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  /* Leftover space for OpenSSL allocations */
+  return 1UL<<26UL; /* 64 MiB */
+}
+
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
+  void * _sshttp         = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+
+#if FD_HAS_OPENSSL
+  void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), tile->kind_id );
+  fd_ossl_tile_init( alloc );
+#endif
+
+  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
+  FD_TEST( ctx->sshttp );
 
   ulong full_slot = ULONG_MAX;
   ulong incr_slot = ULONG_MAX;
+  int full_is_zstd = 0;
+  int incr_is_zstd = 0;
   char full_path[ PATH_MAX ] = { 0 };
   char incr_path[ PATH_MAX ] = { 0 };
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
+  uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
-  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path, 1,
-                                               &full_slot, &incr_slot,
-                                               full_path, incr_path ) ) ) {
+  /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
+     of whether snapct may do the same, because this information is
+     needed here during privileged_init. */
+  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
+                                               tile->snapld.incremental_snapshots,
+                                               &full_slot,         &incr_slot,
+                                               full_path,          incr_path,
+                                               &full_is_zstd,      &incr_is_zstd,
+                                               full_snapshot_hash, incr_snapshot_hash ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
@@ -87,6 +138,12 @@ privileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( -1==ctx->local_incr_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", incr_path, errno, fd_io_strerror( errno ) ));
     }
   }
+
+  /* Create a temporary file descriptor for our socket file descriptor.
+     It is closed later in unprivileged init so that the sandbox sees
+     an existent file descriptor. */
+  ctx->sockfd = memfd_create( "snapld.sockfd", 0 );
+  if( FD_UNLIKELY( -1==ctx->sockfd ) ) FD_LOG_ERR(( "memfd_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static ulong
@@ -107,6 +164,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
   if( FD_LIKELY( -1!=ctx->local_full_fd ) ) out_fds[ out_cnt++ ] = ctx->local_full_fd;
   if( FD_LIKELY( -1!=ctx->local_incr_fd ) ) out_fds[ out_cnt++ ] = ctx->local_incr_fd;
+  out_fds[ out_cnt++ ] = ctx->sockfd;
 
   return out_cnt;
 }
@@ -120,24 +178,31 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
 
-  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd );
+  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd, (uint)ctx->sockfd );
   return sock_filter_policy_fd_snapld_tile_instr_cnt;
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
-  void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()     );
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
+  ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
-  ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->state            = FD_SNAPSHOT_STATE_IDLE;
 
-  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
-  FD_TEST( ctx->sshttp );
+  ctx->download_speed_mibs = 0.0;
+  ctx->bytes_in_batch      = 0UL;
+  ctx->start_batch         = 0L;
+  ctx->end_batch           = 0L;
+  ctx->bytes_in_window     = 0UL;
+  ctx->window_deadline     = LONG_MAX;
+  ctx->min_bytes_in_window = ((ulong)ctx->config.min_download_speed_mibs * (FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9))<<20UL;
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -152,6 +217,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_dc.wmark  = fd_dcache_compact_wmark ( ctx->out_dc.mem, out_link->dcache, out_link->mtu );
   ctx->out_dc.chunk  = ctx->out_dc.chunk0;
   ctx->out_dc.mtu    = out_link->mtu;
+
+  /* We can only close the temporary socket file descriptor after
+     entering the sandbox because the sandbox checks all file
+     descriptors are existent. */
+  if( -1==close( ctx->sockfd ) ) FD_LOG_ERR((" close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 static int
@@ -161,7 +235,47 @@ should_shutdown( fd_snapld_tile_t * ctx ) {
 
 static void
 metrics_write( fd_snapld_tile_t * ctx ) {
-  FD_MGAUGE_SET( SNAPLD, STATE, (ulong)(ctx->state) );
+#if FD_HAS_OPENSSL
+  FD_MCNT_SET(   SNAPLD, SSL_ALLOC_FAILED, fd_ossl_alloc_errors );
+#endif
+  FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
+}
+
+static void
+transition_malformed( fd_snapld_tile_t *  ctx,
+                      fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
+static int
+check_download_progress( fd_snapld_tile_t *  ctx,
+                         fd_stem_context_t * stem,
+                         int                 downloading,
+                         long                now ) {
+  if( FD_UNLIKELY( ctx->window_deadline==LONG_MAX && downloading ) ) {
+    ctx->window_deadline = now + FD_SNAPLD_DOWNLOAD_WINDOW_NS;
+    ctx->bytes_in_window = 0UL;
+  }
+
+  if( FD_UNLIKELY( now>ctx->window_deadline ) ) {
+    if( FD_UNLIKELY( ctx->bytes_in_window<ctx->min_bytes_in_window ) ) {
+      /* cancel the download if the download progress speed in the last
+         window is less than the minimum download speed. */
+      double download_speed_mibs = (double)ctx->bytes_in_window / (double)(FD_SNAPLD_DOWNLOAD_WINDOW_NS / 1e9) / (double)(1<<20UL);
+      FD_LOG_WARNING(( "download progress of %.2f MiB/s in the last %lu seconds for %s snapshot "
+                       "is below the minimum download speed %u MiB/s, cancelling download",
+                       download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9,
+                       ctx->load_full ? "full" : "incremental", ctx->config.min_download_speed_mibs ));
+      transition_malformed( ctx, stem );
+      fd_sshttp_cancel( ctx->sshttp );
+      return -1;
+    }
+    ctx->window_deadline = now + FD_SNAPLD_DOWNLOAD_WINDOW_NS;
+    ctx->bytes_in_window = 0UL;
+  }
+  return 0;
 }
 
 static void
@@ -169,65 +283,116 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) return;
+  if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
+    fd_log_sleep( (long)1e6 );
+    return;
+  }
 
   uchar * out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
 
   if( ctx->load_file ) {
     long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
     if( FD_UNLIKELY( result<=0L ) ) {
-      if( result==0L ) ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-      else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
-        FD_LOG_WARNING(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+      if( result==0L ) {
+        FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
+        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
+        FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
+        transition_malformed( ctx, stem );
+        return; /* verbose return */
       }
     } else {
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       *charge_busy = 1;
+      return; /* verbose return */
     }
   } else {
-    ulong data_len = ctx->out_dc.mtu;
-    int   result   = fd_sshttp_advance( ctx->sshttp, &data_len, out, fd_log_wallclock() );
+    int   downloading = 0;
+    ulong data_len    = ctx->out_dc.mtu;
+    long  now         = fd_log_wallclock();
+    int   result      = fd_sshttp_advance( ctx->sshttp, &data_len, out, &downloading, now );
     switch( result ) {
       case FD_SSHTTP_ADVANCE_AGAIN:
+        /* Return value ignored: on failure, check_download_progress
+           already calls transition_malformed and fd_sshttp_cancel. */
+        check_download_progress( ctx, stem, downloading, now );
         break;
       case FD_SSHTTP_ADVANCE_DATA: {
+        ctx->bytes_in_window += data_len;
+        if( FD_UNLIKELY( -1==check_download_progress( ctx, stem, downloading, now ) ) ) break;
         if( FD_UNLIKELY( !ctx->sent_meta ) ) {
           /* On the first DATA return, the HTTP headers are available
              for use.  We need to send this metadata downstream, but
              need to do so before any data frags.  So, we copy any data
              we received with the headers (if any) to the next dcache
              chunk and then publish both in order. */
-          ctx->sent_meta = 1;
+          ctx->start_batch = fd_log_wallclock();
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
           memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
-          char const * full_name;
-          char const * incr_name;
-          fd_sshttp_snapshot_names( ctx->sshttp, &full_name, &incr_name );
           meta->total_sz = fd_sshttp_content_len( ctx->sshttp );
-          FD_TEST( meta->total_sz!=ULONG_MAX );
-          fd_memcpy( meta->name, ctx->load_full ? full_name : incr_name, PATH_MAX );
+          if( FD_UNLIKELY( meta->total_sz==ULONG_MAX ) ) {
+            FD_LOG_WARNING(( "HTTP response for %s snapshot is missing Content-Length header", ctx->load_full ? "full" : "incremental" ));
+            transition_malformed( ctx, stem );
+            fd_sshttp_cancel( ctx->sshttp );
+            break;
+          }
+          ctx->sent_meta = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
         }
         if( FD_LIKELY( data_len!=0UL ) ) {
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+          ctx->bytes_in_batch += data_len;
+
+          /* measure download speed every 100 MiB */
+          if(ctx->bytes_in_batch>=100<<20UL) {
+            ctx->end_batch = fd_log_wallclock();
+            /* as a precaution, make sure elapsed_batch is positive
+               and larger than zero (to avoid division by zero). */
+            long elapsed_batch = fd_long_if( ctx->end_batch > ctx->start_batch, ctx->end_batch - ctx->start_batch, 1L );
+            /* download speed in MiB/s = bytes/nanoseconds * 1e9/(1 second) * 1/(1MiB = 1<<20UL) = 1e9/(1024*1024) ~= 954 */
+            ctx->download_speed_mibs = (double)(ctx->bytes_in_batch*954) / (double)elapsed_batch;
+            if( FD_UNLIKELY( ctx->download_speed_mibs<ctx->config.min_download_speed_mibs ) ) {
+              /* cancel the snapshot load if the download speed is less
+                 than the minimum download speed. */
+              FD_LOG_WARNING(( "download speed %.2f MiB/s on a batch of %lu MiB for %s snapshot is below the minimum threshold %.2f MiB/s. "
+                               "cancelling snapshot download",
+                               ctx->download_speed_mibs, ctx->bytes_in_batch>>20UL, ctx->load_full ? "full" : "incremental",
+                               (double)(ctx->config.min_download_speed_mibs) ));
+              transition_malformed( ctx, stem );
+              fd_sshttp_cancel( ctx->sshttp );
+              break;
+            }
+            ctx->start_batch    = ctx->end_batch;
+            ctx->bytes_in_batch = 0UL;
+          }
         }
         *charge_busy = 1;
         break;
       }
       case FD_SSHTTP_ADVANCE_DONE:
+        if( FD_UNLIKELY( !ctx->sent_meta ) ) {
+          FD_LOG_WARNING(( "zero-length HTTP response for %s snapshot", ctx->load_full ? "full" : "incremental" ));
+          transition_malformed( ctx, stem );
+          fd_sshttp_cancel( ctx->sshttp );
+          break;
+        }
+        FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        FD_LOG_WARNING(( "HTTP advance error during %s snapshot download, entering error state",
+                         ctx->load_full ? "full" : "incremental" ));
+        transition_malformed( ctx, stem );
+        fd_sshttp_cancel( ctx->sshttp );
         break;
-      default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d", result ));
+      default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d for %s snapshot",
+                            result, ctx->load_full ? "full" : "incremental" ));
     }
   }
 }
@@ -243,68 +408,102 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    return 0;
+  };
+
+  int forward_msg = 1;
+
   switch( sig ) {
 
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
-      ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->load_file = msg->file;
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
+      fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
+      ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->load_file = msg_in->file;
       ctx->sent_meta = 0;
+
+      ctx->window_deadline = LONG_MAX;
+      ctx->bytes_in_window = 0UL;
+      long now = fd_log_wallclock();
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
-          FD_LOG_ERR(( "lseek(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
+                       ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
       } else {
-        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg->addr, "/snapshot.tar.bz2", 17UL, fd_log_wallclock() );
-        else                 fd_sshttp_init( ctx->sshttp, msg->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, 4UL, now ) ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
       }
+      fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
+      fd_memcpy( msg_out, msg_in, sz );
+      fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
+      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, ctx->out_dc.mtu, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      forward_msg = 0; // we are forwarding the control message in the `fd_sstrl_init_t` message
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      fd_sshttp_cancel( ctx->sshttp );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
 
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-        return 0;
-      }
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      break;
-
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
+    }
 
-    /* FD_SNAPSHOT_MSG_CTRL_ERROR and FD_SNAPSHOT_MSG_DATA are not possible */
-    default: FD_LOG_ERR(( "invalid sig %lu", sig ));
+    /* FD_SNAPSHOT_MSG_DATA is not possible */
+    default: {
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+      break;
+    }
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 
   return 0;
 }
 
-/* Up to one frag from after_credit plus one from returnable_frag */
-#define STEM_BURST 2UL
+/* Up to two frags from after_credit plus one from returnable_frag */
+#define STEM_BURST 3UL
 
-#define STEM_LAZY 1000L
+#define STEM_LAZY (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapld_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapld_tile_t)
@@ -322,6 +521,7 @@ fd_topo_run_tile_t fd_tile_snapld = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

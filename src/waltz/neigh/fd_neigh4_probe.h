@@ -115,11 +115,11 @@ fd_neigh4_probe_rate_limited(
     long                 now
 ) {
   /* Local rate limit */
-  if( now < entry->probe_suppress_until ) {
+  if( now < FD_NEIGH4_PROBE_SUPPRESS_UNTIL_GET( entry ) ) {
     prober->local_rate_limited_cnt++;
     return -1;
   }
-  entry->probe_suppress_until = now + prober->probe_delay;
+  FD_NEIGH4_PROBE_SUPPRESS_UNTIL_SET( entry, now + prober->probe_delay );
 
   /* Global rate limit */
   if( !fd_token_bucket_consume( &prober->rate_limit, 1.0f, now ) ) {

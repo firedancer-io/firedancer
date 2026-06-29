@@ -14,10 +14,6 @@ if [[ -z "$MACHINES" ]]; then
   exit 1
 fi
 
-if [[ -z "$TARGETS" ]]; then
-  TARGETS="all integration-test fdctl"
-fi
-
 for extra in $EXTRAS; do
   if [[ $extra == "llvm-cov" ]]; then
     HAS_LLVM_COV=1

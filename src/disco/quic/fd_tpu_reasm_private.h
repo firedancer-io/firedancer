@@ -3,8 +3,6 @@
 
 #include "fd_tpu.h"
 
-#include <assert.h>
-
 /* fd_tpu_reasm_private.h contains reusable logic of fd_tpu_reasm such
    that it can be included in test cases. */
 
@@ -43,40 +41,6 @@ slot_get_idx( fd_tpu_reasm_t const *      reasm,
                   slot_idx, reasm->depth + reasm->burst ));
   }
   return (uint)slot_idx;
-}
-
-FD_FN_CONST static inline ulong
-slot_get_offset( ulong slot_idx ) {
-  return slot_idx * FD_TPU_REASM_MTU;
-}
-
-/* slot data consists of fd_txn_m_t and a variable size raw transaction
-   payload from the network.
-
-   ###############
-   fd_txn_m_t hdr;
-   uchar pkt_payload[];
-   ###############
-
-   slot_get_data returns a pointer to the fd_txn_m_t header.
-   slot_get_data_pkt_payload returns a pointer to the packet payload.
-   */
-FD_FN_PURE static inline uchar *
-slot_get_data( fd_tpu_reasm_t * reasm,
-               ulong            slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx );
-}
-
-FD_FN_PURE static inline uchar const *
-slot_get_data_const( fd_tpu_reasm_t const * reasm,
-                     ulong                  slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx );
-}
-
-FD_FN_PURE static inline uchar *
-slot_get_data_pkt_payload( fd_tpu_reasm_t * reasm,
-               ulong            slot_idx ) {
-  return reasm->dcache + slot_get_offset( slot_idx ) + sizeof(fd_txn_m_t);
 }
 
 static FD_FN_UNUSED void
@@ -180,14 +144,8 @@ slotq_remove( fd_tpu_reasm_t *      reasm,
     return;
   }
 
-  assert( lru_prev < reasm->slot_cnt );
-  assert( lru_next < reasm->slot_cnt );
-  if( FD_UNLIKELY( lru_prev >= reasm->slot_cnt ) ) {
-    FD_LOG_ERR(( "OOB lru_prev (lru_prev=%u, slot_cnt=%u)", lru_prev, reasm->slot_cnt ));
-  }
-  if( FD_UNLIKELY( lru_next >= reasm->slot_cnt ) ) {
-    FD_LOG_ERR(( "OOB lru_next (lru_next=%u, slot_cnt=%u)", lru_next, reasm->slot_cnt ));
-  }
+  FD_DCHECK_CRIT( lru_prev < reasm->slot_cnt, "memory corruption detected" );
+  FD_DCHECK_CRIT( lru_next < reasm->slot_cnt, "memory corruption detected" );
   prev->lru_next = lru_next;
   next->lru_prev = lru_prev;
 }

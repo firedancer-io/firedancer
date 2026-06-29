@@ -1,4 +1,6 @@
-#include "fd_vm_private.h"
+#include "fd_vm.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 
 ulong
 fd_vm_trace_align( void ) {

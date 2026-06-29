@@ -197,6 +197,13 @@ fd_cnc_leave( fd_cnc_t const * cnc );
 void *
 fd_cnc_delete( void * shcnc );
 
+/* fd_cnc_shmem returns a pointer in the caller's address space to the
+   underlying shared memory region used by a cnc.  Assumes cnc is a
+   current local join.  fd_cnc_shmem_const is a const-correct version.  */
+
+FD_FN_CONST static inline void       * fd_cnc_shmem      ( fd_cnc_t       * cnc ) { return (void       *)cnc; }
+FD_FN_CONST static inline void const * fd_cnc_shmem_const( fd_cnc_t const * cnc ) { return (void const *)cnc; }
+
 /* fd_cnc_app_sz returns the size of a the cnc's application region.
    Assumes cnc is a current local join. */
 
@@ -403,4 +410,3 @@ fd_cnc_signal_cstr( ulong  signal,
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_cnc_fd_cnc_h */
-

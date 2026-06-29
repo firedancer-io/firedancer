@@ -2,9 +2,10 @@
    fd_aes_gcm_{aesni,avx10}.S */
 
 #include "fd_aes_gcm.h"
-#include "../../util/simd/fd_sse.h"
 
 #if FD_HAS_AESNI
+
+#include "../../util/simd/fd_sse.h"
 
 FD_FN_SENSITIVE static void
 expand_aes_key( fd_aes_gcm_aesni_key_t * out,

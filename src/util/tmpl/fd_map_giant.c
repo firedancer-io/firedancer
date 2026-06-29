@@ -475,6 +475,7 @@ MAP_(iter_done)( MAP_T const * join,
   return !ele_rem;
 }
 
+__attribute__((warn_unused_result))
 FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_T const * join,
                  MAP_(iter_t)  ele_rem ) {
@@ -733,7 +734,7 @@ MAP_(verify_key)( MAP_T *           join,
   return (long)cnt;;
 }
 
-FD_FN_PURE MAP_IMPL_STATIC MAP_T *
+MAP_IMPL_STATIC MAP_T *
 MAP_(query)( MAP_T *           join,
              MAP_KEY_T const * key,
              MAP_T *           sentinel ) {
@@ -954,10 +955,11 @@ MAP_(insert)( MAP_T *           join,
   map->key_cnt++; /* Consider eliminating this to help make completely concurrent lockfree? */
 
   /* ... and map the newly allocated element to key (this is also
-     guaranteed to not have collisions as per contract). Note that
-     elements appear in the chain in order of newest to oldest. This
-     property is NECESSARY for an important optimization in
-     fd_funk_rec_query_global. */
+     guaranteed to not have collisions as per contract).  Note that
+     elements appear in the chain in order of newest to oldest.  This
+     property is useful for dependent structures which expect stable
+     insertion iteration order and for making recently used elements
+     faster to find. */
 
   ulong hash = MAP_KEY_HASH( (key), (map->seed) );
   ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );

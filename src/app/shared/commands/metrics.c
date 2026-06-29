@@ -27,7 +27,7 @@ reconstruct_topo( config_t *   config,
   if( !topo_name[0] ) return; /* keep default action topo */
 
   action_t const * selected = NULL;
-  for( action_t ** a=ACTIONS; a; a++ ) {
+  for( action_t ** a=ACTIONS; *a; a++ ) {
     action_t const * action = *a;
     if( 0==strcmp( action->name, topo_name ) ) {
       selected = action;
@@ -55,7 +55,7 @@ metrics_cmd_fn( args_t *   args,
     .outgoing_buffer_sz    = (1UL<<28UL), /* 256MiB */
   };
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   void * mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
@@ -70,12 +70,23 @@ metrics_cmd_fn( args_t *   args,
   }
 }
 
+static void
+metrics_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--topo", "<command>", "Build the topology from another subcommand (e.g. `gossip`) instead of\n"
+                                                   "the default validator topology.  <command> is the name of a subcommand\n"
+                                                   "that builds its own topology" );
+}
+
 action_t fd_action_metrics = {
   .name          = "metrics",
   .args          = metrics_cmd_args,
   .fn            = metrics_cmd_fn,
   .perm          = NULL,
   .description   = "Print the current validator Prometheus metrics to STDOUT",
+  .detail        = "Connects to a running validator and writes a one-time snapshot of its\n"
+                   "metrics to stdout in Prometheus text exposition format.",
+  .usage         = "metrics [OPTIONS]",
+  .args_help     = metrics_args_help,
   .is_immediate  = 0,
   .is_diagnostic = 1,
 };

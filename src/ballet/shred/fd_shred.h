@@ -130,7 +130,7 @@
 /* FD_SHRED_MERKLE_NODE_SZ: the size of a merkle inclusion proof node in bytes. */
 #define FD_SHRED_MERKLE_NODE_SZ (20UL)
 /* FD_SHRED_MERKLE_LAYER_CNT: the count of inclusion proof layers in the binary merkle tree. */
-#define FD_SHRED_MERKLE_LAYER_CNT (10UL)
+#define FD_SHRED_MERKLE_LAYER_CNT (7UL)
 /* FD_SHRED_SIGNATURE_SZ: the size of a signature in a shred. */
 #define FD_SHRED_SIGNATURE_SZ (64UL)
 /* A merkle inclusion proof node. */
@@ -150,14 +150,6 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_BLK_MAX (1 << 15UL) /* 32,768 shreds */
-#define FD_SHRED_IDX_MAX (FD_SHRED_BLK_MAX - 1)
-
-/* Many static bounds are specified around the assumption that this is a
-   protocol limit on the max number of shreds in a slot. If this limit
-   changes, all the relevant usages in other areas of the Firedancer
-   codebase should be updated before modifying this assertion. */
-
-FD_STATIC_ASSERT( FD_SHRED_BLK_MAX == 32768, check all usages before changing this limit! );
 
 /* Many static bounds are specified around the assumption that this is a
    protocol limit on the max number of shreds in a slot. If this limit
@@ -267,15 +259,18 @@ typedef struct fd_shred fd_shred_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_shred_parse: Parses and validates an untrusted shred stored in
-   bytes buf[i] for i in [0, sz).  sz must be at least FD_SHRED_MIN_SZ
-   bytes.  Allows trailing data.
+   bytes buf[i] for i in [0, sz).  sz must be at least FD_SHRED_MIN_SZ bytes.
+   Allows trailing data.  max_shred_idx is the exclusive upper bound for
+   data/parity shred indices within a slot, similar to max_shred_idx in
+   fd_fec_resolver.
 
    The returned pointer either equals the input pointer or is NULL if
    the given shred is malformed or violates any invariants described
    above. */
 FD_FN_PURE fd_shred_t const *
 fd_shred_parse( uchar const * buf,
-                ulong         sz );
+                ulong         sz,
+                ulong         max_shred_idx );
 
 /* fd_shred_type: Returns the value of the shred's type field. (FD_SHRED_TYPE_*) */
 FD_FN_CONST static inline uchar
@@ -365,7 +360,7 @@ FD_FN_CONST static inline uchar fd_shred_is_data( ulong type ) { return (type & 
 FD_FN_CONST static inline uchar fd_shred_is_code( ulong type ) { return (type & 0xC0UL)==0x40UL; }
 
 /* fd_shred_swap_type: changes data into code or vice versa without
-   affecting leagacy, merkle, chained, or resigned status.  For example,
+   affecting legacy, merkle, chained, or resigned status.  For example,
    fd_shred_swap_type( chained resigned data ) == chained resigned code.
    fd_shred_swap_type( merkle code ) == merkle data. */
 FD_FN_CONST static inline uchar
@@ -415,7 +410,7 @@ fd_shred_merkle_nodes( fd_shred_t const * shred ) {
    root_out.  Returns 1 on success, 0 on failure.  The output value must
    be ignored if a failure is returned.  U.B. if the shred is not a
    merkle variant. */
-FD_FN_PURE int
+int
 fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out );
 
 /* fd_shred_data_payload: Returns a pointer to a data shred payload.

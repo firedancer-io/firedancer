@@ -133,6 +133,22 @@ fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl ) {
   fd_memset( tbl->bond_tbl, 0, sizeof(fd_netdev_bond_t) * tbl->hdr->bond_max );
 }
 
+void
+fd_netdev_tbl_copy( fd_netdev_tbl_join_t *       dst,
+                    fd_netdev_tbl_join_t const * src ) {
+  ushort dev_max  = dst->hdr->dev_max;
+  ushort bond_max = dst->hdr->bond_max;
+  for(;;) {
+    ulong seq = fd_seqlock_read_try( &src->hdr->seqlock );
+    dst->hdr->dev_cnt  = src->hdr->dev_cnt;
+    dst->hdr->bond_cnt = src->hdr->bond_cnt;
+    fd_memcpy( dst->dev_tbl,  src->dev_tbl,  sizeof(fd_netdev_t)      * dev_max  );
+    fd_memcpy( dst->bond_tbl, src->bond_tbl, sizeof(fd_netdev_bond_t) * bond_max );
+    if( FD_LIKELY( fd_seqlock_read_test( &src->hdr->seqlock, seq ) ) ) return;
+    FD_SPIN_PAUSE();
+  }
+}
+
 #if FD_HAS_HOSTED
 
 #include <errno.h>

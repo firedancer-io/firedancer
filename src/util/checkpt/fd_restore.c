@@ -50,7 +50,7 @@ fd_restore_private_lz4( LZ4_streamDecode_t * lz4,
                  | (((ulong)(uchar)cbuf[2]) << 16); /* In [1,2^24) */
 
   ulong cbuf_sz  = ubuf_csz + 3UL;
-  if( FD_UNLIKELY( !((4UL<=cbuf_sz) | (cbuf_sz<=FD_CHECKPT_PRIVATE_CSZ_MAX( ubuf_usz ))) ) ) {
+  if( FD_UNLIKELY( !((4UL<=cbuf_sz) & (cbuf_sz<=FD_CHECKPT_PRIVATE_CSZ_MAX( ubuf_usz ))) ) ) {
     FD_LOG_WARNING(( "corrupt header" ));
     return 0UL;
   }

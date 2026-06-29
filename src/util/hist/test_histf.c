@@ -35,6 +35,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+
   FD_LOG_NOTICE(( "Testing align / footprint" ));
 
   FD_TEST( fd_histf_align    ()==FD_HISTF_ALIGN     );
@@ -127,24 +129,26 @@ main( int     argc,
 
   FD_TEST( fd_histf_percentile( hist, 50, 42UL )==42UL );      /* Empty histogram returns sentinel */
 
-  FD_LOG_NOTICE(( "Testing performance" ));
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  long overhead = -fd_log_wallclock();
-  for( ulong i=0UL; i<1000000000UL; i++ ) {
-    uint v = fd_rng_uint_roll( rng, 100U );
-    FD_COMPILER_FORGET( v );
-  }
-  overhead += fd_log_wallclock();
+  if( bench ) {
+    FD_LOG_NOTICE(( "Testing performance" ));
+    fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+    long overhead = -fd_log_wallclock();
+    for( ulong i=0UL; i<1000000000UL; i++ ) {
+      uint v = fd_rng_uint_roll( rng, 100U );
+      FD_COMPILER_FORGET( v );
+    }
+    overhead += fd_log_wallclock();
 
-  long time = -fd_log_wallclock();
-  for( ulong i=0UL; i<1000000000UL; i++ ) {
-    uint v = fd_rng_uint_roll( rng, 100U );
-    fd_histf_sample( hist, v );
-  }
-  time += fd_log_wallclock();
+    long time = -fd_log_wallclock();
+    for( ulong i=0UL; i<1000000000UL; i++ ) {
+      uint v = fd_rng_uint_roll( rng, 100U );
+      fd_histf_sample( hist, v );
+    }
+    time += fd_log_wallclock();
 
-  FD_LOG_NOTICE(( "average time per sample %f ns (excluding rng overhead)",
-                  (double)(time        - overhead)/1000000000.0 ));
+    FD_LOG_NOTICE(( "average time per sample %f ns (excluding rng overhead)",
+                    (double)(time        - overhead)/1000000000.0 ));
+  }
 
   FD_LOG_NOTICE(( "Testing leave" ));
 

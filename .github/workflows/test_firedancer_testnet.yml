@@ -13,9 +13,9 @@ jobs:
     env:
       CC: gcc
     steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:

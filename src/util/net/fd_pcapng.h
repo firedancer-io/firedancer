@@ -25,21 +25,6 @@ typedef struct fd_pcapng_iter fd_pcapng_iter_t;
 
 #define FD_PCAPNG_ITER_ALIGN (32UL)
 
-/* Generalized frame read from a pcapng.
-   Usually a packet but can also be metadata */
-
-struct fd_pcapng_frame {
-  long ts;      /* Time in ns (matches fd_log_wallclock) */
-  uint type;    /* Packet type */
-  uint data_sz; /* Size of data array */
-  uint orig_sz; /* Original packet size (>=data_sz) */
-  uint if_idx;  /* Index of interface */
-
-# define FD_PCAPNG_FRAME_SZ 16384UL
-  uchar data[ FD_PCAPNG_FRAME_SZ ]; /* Frame data */
-};
-typedef struct fd_pcapng_frame fd_pcapng_frame_t;
-
 /* Section Header Block options */
 
 struct fd_pcapng_shb_opts {
@@ -60,6 +45,26 @@ struct fd_pcapng_idb_opts {
   char  hardware[64]; /* Name of network interface hardware */
 };
 typedef struct fd_pcapng_idb_opts fd_pcapng_idb_opts_t;
+
+/* Generalized frame read from a pcapng.
+   Usually a packet but can also be metadata */
+
+struct fd_pcapng_idb_desc {
+  uint                 link_type;
+  fd_pcapng_idb_opts_t opts;
+};
+typedef struct fd_pcapng_idb_desc fd_pcapng_idb_desc_t;
+
+struct fd_pcapng_frame {
+  long ts;      /* Time in ns (matches fd_log_wallclock) */
+  uint type;    /* Packet type */
+  uint data_sz; /* Size of data array */
+  uint orig_sz; /* Original packet size (>=data_sz) */
+  uint if_idx;  /* Index of interface */
+  fd_pcapng_idb_desc_t const * idb;  /* Associated interface (nullable) */
+  uchar * data;
+};
+typedef struct fd_pcapng_frame fd_pcapng_frame_t;
 
 /* FD_PCAPNG_TSRESOL_* sets the resolution of a timestamp. */
 
@@ -117,6 +122,11 @@ fd_pcapng_iter_delete( fd_pcapng_iter_t * iter );
 
 fd_pcapng_frame_t *
 fd_pcapng_iter_next( fd_pcapng_iter_t * iter );
+
+/* fd_pcapng_iter_ele returns the current iterator element. */
+
+fd_pcapng_frame_t *
+fd_pcapng_iter_ele( fd_pcapng_iter_t * iter );
 
 /* fd_pcapng_is_pkt returns 1 if given frame (non-NULL) is a regular
    captured packet and 0 if it is metadata (such as decryption secrets). */
@@ -188,6 +198,8 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
 #define FD_PCAPNG_LINKTYPE_ETHERNET   (1U) /* IEEE 802.3 Ethernet */
 #define FD_PCAPNG_LINKTYPE_RAW      (101U) /* IPv4 or IPv6 */
 #define FD_PCAPNG_LINKTYPE_COOKED   (113U) /* Linux "cooked" capture */
+#define FD_PCAPNG_LINKTYPE_USER0    (147U) /* DLT_USER0 */
+#define FD_PCAPNG_LINKTYPE_IPV4     (228U) /* IPv4 */
 
 ulong
 fd_pcapng_fwrite_idb( uint                         link_type,
@@ -197,20 +209,24 @@ fd_pcapng_fwrite_idb( uint                         link_type,
 /* fd_pcapng_fwrite_pkt writes an EPB (Enhanced Packet Block) containing
    an ethernet frame at time ts (in nanos). Same semantics as fwrite
    (returns the number of packets written, which should be 1 on success
-   and 0 on failure).  queue is the RX queue index on which this packet
-   was received on (-1 if unknown). */
+   and 0 on failure). */
 
 ulong
+fd_pcapng_fwrite_pkt1( void *       file,
+                       void const * payload,
+                       ulong        payload_sz,
+                       void const * options,
+                       ulong        options_sz,
+                       uint         if_idx,
+                       long         ts );
+
+static inline ulong
 fd_pcapng_fwrite_pkt( long         ts,
                       void const * payload,
                       ulong        payload_sz,
-                      void *       file );
-
-ulong
-fd_pcapng_fwrite_cooked( long         ts,
-                         void const * payload,
-                         ulong        payload_sz,
-                         void *       file );
+                      void *       file ) {
+  return fd_pcapng_fwrite_pkt1( file, payload, payload_sz, NULL, 0UL, 0U, ts );
+}
 
 /* fd_pcapng_fwrite_tls_key_log writes TLS key log info to a PCAPNG via
    a DSB (Decryption Secrets Block).  Similar semantics to fwrite

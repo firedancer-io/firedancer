@@ -53,6 +53,15 @@ parse_log_level( char const * level ) {
   return -1;
 }
 
+FD_FN_CONST static inline int
+parse_core_dump_level( char const * level ) {
+  if( FD_UNLIKELY( !strcmp( level, "disabled" ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_DISABLED;
+  if( FD_UNLIKELY( !strcmp( level, "minimal"  ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_MINIMAL;
+  if( FD_UNLIKELY( !strcmp( level, "regular"  ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_REGULAR;
+  if( FD_UNLIKELY( !strcmp( level, "full"     ) ) )       return FD_TOPO_CORE_DUMP_LEVEL_FULL;
+  return -1;
+}
+
 void
 fd_config_load_buf( fd_config_t * out,
                     char const *  buf,
@@ -90,14 +99,31 @@ fd_config_load_buf( fd_config_t * out,
     }
   }
 
-  fd_config_extract_pod( pod, out );
+  if( FD_UNLIKELY( !fd_config_extract_pod( pod, out ) ) ) FD_LOG_ERR(( "Failed to parse config file (%s): there are unrecognized keys logged above", path ));
 
   fd_pod_delete( fd_pod_leave( pod ) );
 }
 
 static void
 fd_config_fillf( fd_config_t * config ) {
-  (void)config;
+  if( FD_UNLIKELY( strcmp( config->paths.accounts, "" ) ) ) {
+    replace( config->paths.accounts, "{user}", config->user );
+    replace( config->paths.accounts, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
+  }
+
+  if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
+    replace( config->paths.shredb, "{user}", config->user );
+    replace( config->paths.shredb, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.shredb, sizeof(config->paths.shredb), NULL, "%s/shreds.db", config->paths.base ) );
+  }
+
+  for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
+    replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
+    replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
+  }
 }
 
 static void
@@ -107,11 +133,18 @@ fd_config_fillh( fd_config_t * config ) {
     replace( config->frankendancer.paths.accounts_path, "{name}", config->name );
   }
 
+  if( FD_UNLIKELY( strcmp( config->frankendancer.paths.ledger, "" ) ) ) {
+    replace( config->frankendancer.paths.ledger, "{user}", config->user );
+    replace( config->frankendancer.paths.ledger, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->frankendancer.paths.ledger, sizeof(config->frankendancer.paths.ledger), NULL, "%s/ledger", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->frankendancer.snapshots.path, "" ) ) ) {
     replace( config->frankendancer.snapshots.path, "{user}", config->user );
     replace( config->frankendancer.snapshots.path, "{name}", config->name );
   } else {
-    strncpy( config->frankendancer.snapshots.path, config->paths.ledger, sizeof(config->frankendancer.snapshots.path) );
+    strncpy( config->frankendancer.snapshots.path, config->frankendancer.paths.ledger, sizeof(config->frankendancer.snapshots.path) );
   }
 
   for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
@@ -175,7 +208,7 @@ fd_config_fillh( fd_config_t * config ) {
 
 static void
 fd_config_fill_net( fd_config_t * config ) {
-  if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) && !config->development.netns.enabled ) ) {
+  if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) ) ) {
     uint ifindex;
     int result = fd_net_util_internet_ifindex( &ifindex );
     if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -191,69 +224,41 @@ fd_config_fill_net( fd_config_t * config ) {
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( !strcmp( config->net.interface, "" ) ) {
-      memcpy( config->net.interface, config->development.netns.interface0, sizeof(config->net.interface) );
-    }
+  if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
+    FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
+  uint iface_ip;
+  if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
+    FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
 
-    if( !strcmp( config->development.pktgen.fake_dst_ip, "" ) ) {
-      memcpy( config->development.pktgen.fake_dst_ip, config->development.netns.interface1_addr, sizeof(config->development.netns.interface1_addr) );
-    }
-
-    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->net.interface ) ) ) {
-      FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
-                   "[development.netns] functionality to run Firedancer in a network namespace "
-                   "for development, the configuration file must specify that "
-                   "[development.netns.interface0] is the same as [net.interface]" ));
-    }
-
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->net.ip_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
-  } else { /* !config->development.netns.enabled */
-    if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
-    uint iface_ip;
-    if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
-      FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
-
-    if( FD_UNLIKELY( config->is_firedancer ) ) {
-      if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
-        uint gossip_ip_addr = iface_ip;
-        int  has_gossip_ip4 = 0;
-        if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
-          /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
-          has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
-        }
-        if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
-          FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
-                      "transactions, but it is part of a private network and will not be routable "
-                      "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( gossip_ip_addr ) ));
-      } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
-        FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                    "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
-                    "and will not be routable for other Solana network nodes. If you are running "
-                    "behind a NAT and this interface is publicly reachable, you can continue by "
-                    "manually specifying the IP address to advertise in your configuration under "
-                    "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+      uint gossip_ip_addr = iface_ip;
+      int  has_gossip_ip4 = 0;
+      if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
+        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
       }
+      if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                     "transactions, but it is part of a private network and will not be routable "
+                     "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( gossip_ip_addr ) ));
+    } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
+      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                   "and will not be routable for other Solana network nodes. If you are running "
+                   "behind a NAT and this interface is publicly reachable, you can continue by "
+                   "manually specifying the IP address to advertise in your configuration under "
+                   "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
-
-    config->net.ip_addr = iface_ip;
   }
+
+  config->net.ip_addr = iface_ip;
 }
 
 void
 fd_config_fill( fd_config_t * config,
-                int           netns,
-                int           is_local_cluster ) {
-  if( FD_UNLIKELY( netns ) ) {
-    config->development.netns.enabled = 1;
-    strncpy( config->net.interface,
-             config->development.netns.interface0,
-             sizeof(config->net.interface) );
-    config->net.interface[ sizeof(config->net.interface) - 1 ] = '\0';
-  }
-
+                int           is_local_cluster,
+                int           dev ) {
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -302,13 +307,7 @@ fd_config_fill( fd_config_t * config,
   else  FD_LOG_ERR(( "[log.colorize] must be one of \"auto\", \"true\", or \"false\"" ));
 
   if( FD_LIKELY( 2==config->log.colorize1 ) ) {
-    char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-    int truecolor = cstr && !strcmp( cstr, "truecolor" );
-
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    int color256 = cstr && strstr( cstr, "256color" );
-
-    config->log.colorize1 = truecolor || color256;
+    config->log.colorize1 = fd_log_should_colorize();
   }
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
@@ -318,15 +317,11 @@ fd_config_fill( fd_config_t * config,
   if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
   if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
 
+  config->development.core_dump_level = parse_core_dump_level( config->development.core_dump );
+  if( FD_UNLIKELY( -1==config->development.core_dump_level ) ) FD_LOG_ERR(( "unrecognized [development.core_dump] `%s`", config->development.core_dump ));
+
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
-
-  if( FD_UNLIKELY( strcmp( config->paths.ledger, "" ) ) ) {
-    replace( config->paths.ledger, "{user}", config->user );
-    replace( config->paths.ledger, "{name}", config->name );
-  } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.ledger, sizeof(config->paths.ledger), NULL, "%s/ledger", config->paths.base ) );
-  }
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     if( FD_UNLIKELY( config->is_live_cluster ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
@@ -359,7 +354,8 @@ fd_config_fill( fd_config_t * config,
   }
 
   long ts = -fd_log_wallclock();
-  config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+  config->tick_per_ns_mu = dev ? fd_tempo_tick_per_ns_dev( &config->tick_per_ns_sigma )
+                               : fd_tempo_tick_per_ns    ( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
 
   if( 0!=strcmp( config->net.bind_address, "" ) ) {
@@ -370,7 +366,9 @@ fd_config_fill( fd_config_t * config,
 
   if(      FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "perf"     ) ) ) config->tiles.pack.schedule_strategy_enum = 0;
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "balanced" ) ) ) config->tiles.pack.schedule_strategy_enum = 1;
-  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) config->tiles.pack.schedule_strategy_enum = 2;
+  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
+    FD_LOG_ERR(( "the revenue scheduler has been removed.  Please update [tiles.pack.schedule_strategy]" ));
+  }
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
 
   fd_config_fill_net( config );
@@ -381,16 +379,9 @@ fd_config_fill( fd_config_t * config,
     fd_config_fillh( config );
   }
 
-
-  if(      FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "stable" ) ) ) config->development.gui.frontend_release_channel_enum = 0;
-  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "alpha"  ) ) ) config->development.gui.frontend_release_channel_enum = 1;
-  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "dev"    ) ) ) config->development.gui.frontend_release_channel_enum = 2;
-  else FD_LOG_ERR(( "[development.gui.release_channel] %s not recognized", config->development.gui.frontend_release_channel ));
-
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.netns.enabled ) )                       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )     FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) ) FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )  FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
@@ -428,6 +419,10 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
+  if( FD_UNLIKELY( config->is_firedancer && strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
+    FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
+  }
+
   if( FD_UNLIKELY( config->is_firedancer && config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -458,6 +453,8 @@ fd_config_fill( fd_config_t * config,
 static void
 fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
+  CFG_HAS_NON_ZERO( layout.resolv_tile_count );
+  CFG_HAS_NON_ZERO( layout.execle_tile_count );
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
@@ -478,8 +475,13 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
-  CFG_HAS_NON_ZERO( vinyl.max_account_records );
-  CFG_HAS_NON_ZERO( vinyl.file_size_gib       );
+  CFG_HAS_NON_ZERO( accounts.max_accounts   );
+  CFG_HAS_NON_ZERO( accounts.cache_size_gib );
+
+  CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
+  CFG_HAS_NON_ZERO( runtime.program_cache.heap_size_mib );
+  if( config->runtime.program_cache.mean_cache_entry_size < 4096 ) { FD_LOG_ERR(( "`%s` must be >= 4096", "runtime.program_cache.mean_cache_entry_size" )); }
+  if( config->runtime.program_cache.heap_size_mib < 32 ) { FD_LOG_ERR(( "`%s` must be >= 32", "runtime.program_cache.heap_size_mib" )); }
 }
 
 static void
@@ -494,6 +496,8 @@ fd_config_validateh( fd_configh_t const * config ) {
   CFG_HAS_NON_ZERO( snapshots.maximum_snapshot_download_abort );
 
   CFG_HAS_NON_EMPTY( layout.agave_affinity );
+  CFG_HAS_NON_ZERO ( layout.resolh_tile_count );
+  CFG_HAS_NON_ZERO ( layout.bank_tile_count );
 }
 
 void
@@ -513,11 +517,10 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( log.level_flush );
 
   CFG_HAS_NON_EMPTY( layout.affinity );
+  CFG_HAS_NON_EMPTY( layout.blocklist_cores );
   CFG_HAS_NON_ZERO ( layout.net_tile_count );
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
-  CFG_HAS_NON_ZERO ( layout.resolv_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
-  CFG_HAS_NON_ZERO ( layout.bank_tile_count  );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
@@ -528,11 +531,9 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
-    if( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) {
-      if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
-        FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
-    } else if( 0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) &&
-               0!=strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) {
+    if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&
+        0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) &&
+        0!=strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) {
       FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
                    config->net.xdp.rss_queue_mode  ));
     }
@@ -570,12 +571,7 @@ fd_config_validate( fd_config_t const * config ) {
     FD_LOG_ERR(( "`tiles.bundle.keepalive_interval_millis` must be in range [3000, 3,600,000]" ));
   }
 
-  CFG_HAS_NON_EMPTY( development.netns.interface0 );
-  CFG_HAS_NON_EMPTY( development.netns.interface0_mac );
-  CFG_HAS_NON_EMPTY( development.netns.interface0_addr );
-  CFG_HAS_NON_EMPTY( development.netns.interface1 );
-  CFG_HAS_NON_EMPTY( development.netns.interface1_mac );
-  CFG_HAS_NON_EMPTY( development.netns.interface1_addr );
+  CFG_HAS_NON_EMPTY( development.core_dump );
 
   CFG_HAS_NON_ZERO( development.genesis.target_tick_duration_micros );
   CFG_HAS_NON_ZERO( development.genesis.ticks_per_slot );
@@ -595,7 +591,6 @@ fd_config_validate( fd_config_t const * config ) {
 
 void
 fd_config_load( int           is_firedancer,
-                int           netns,
                 int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
@@ -605,16 +600,11 @@ fd_config_load( int           is_firedancer,
                 char const *  user_config,
                 ulong         user_config_sz,
                 char const *  user_config_path,
-                fd_config_t * config ) {
+                fd_config_t * config,
+                int           dev ) {
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = is_firedancer;
   config->boot_timestamp_nanos = fd_log_wallclock();
-
-  if( FD_UNLIKELY( is_firedancer ) ) {
-    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "dev" );
-  } else {
-    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "stable" );
-  }
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );
@@ -627,7 +617,7 @@ fd_config_load( int           is_firedancer,
     fd_config_validate( config );
   }
 
-  fd_config_fill( config, netns, is_local_cluster);
+  fd_config_fill( config, is_local_cluster, dev );
 }
 
 int

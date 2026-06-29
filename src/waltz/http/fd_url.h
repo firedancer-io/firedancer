@@ -47,11 +47,36 @@ fd_url_parse_cstr( fd_url_t *   url,
                    ulong        url_str_len,
                    int *        opt_err );
 
-/* fd_url_unescape undoes % escapes in-place. */
+/* Shared validator/runtime URL gate.
+   Accepts a http(s):// URL, fills fd_url_t `url` parameter.
+     - Only `http://` and `https://` schemes are permitted.  Anything
+       else (including missing schemes or stray slashes) is rejected.
+       The `context` string is echoed in the log so operators know which
+       knob supplied the bad value.
+     - If the URL omits an explicit port we default to 443/80 and then flip
+       `is_ssl` based on the scheme so downstream sockets know whether
+       to open TLS.
+     - Host names larger than 255 bytes are rejected
+   The function does not enforce the host being non-empty; that is left to
+   the caller because some control paths treat an empty host differently
+   (e.g. surfacing a custom error message).
+   Returns 0 on success, -1 on failure (and logs a warning). */
+
+int
+fd_url_parse_endpoint( fd_url_t *   url,
+                       char const * url_str,
+                       ulong        url_str_len,
+                       ushort *     tcp_port,
+                       _Bool *      is_ssl,
+                       char const * context );
+
+/* fd_url_unescape undoes % escapes in-place.  Returns the unescaped
+   length on success, or 0 on failure (invalid hex digit or truncated
+   percent encoding). */
 
 ulong
-fd_url_unescape( char * const msg,
-                 ulong  const len );
+fd_url_unescape( char * msg,
+                 ulong  len );
 
 FD_PROTOTYPES_END
 

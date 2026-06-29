@@ -174,7 +174,7 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
   uchar signature[64];
   uchar _sig_cnt; /* = 1 */
   uchar ro_signed_cnt; /* = 0 */
-  uchar ro_unsigned_cnt; /* = 6 */
+  uchar ro_unsigned_cnt; /* = 5 */
   uchar acct_addr_cnt; /* = 21 */
 
   /* Writable signers */
@@ -188,21 +188,21 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
   /* 12  */ uchar old_block_builder[32];
   /* 13  */ uchar new_tip_receiver[32];
   /* 14  */ uchar new_block_builder[32];
+  /* 15  */ uchar validator_vote_account[32];
 
   /* Readonly non-signers */
-  /* 15  */ uchar compute_budget_program[32];
-  /* 16  */ uchar tip_payment_program[32];
-  /* 17  */ uchar validator_vote_account[32];
-  /* 18  */ uchar system_program[32];
-  /* 19  */ uchar tip_distribution_program[32];
-  /* 20  */ uchar memo_program[32];
+  /* 16  */ uchar compute_budget_program[32];
+  /* 17  */ uchar tip_payment_program[32];
+  /* 18  */ uchar memo_program[32];
+  /* 19  */ uchar system_program[32];
+  /* 20  */ uchar tip_distribution_program[32];
 
   uchar recent_blockhash[32];
   uchar instr_cnt; /* = 5 */
 
   /* Compute budget instruction */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 15 */
+  uchar prog_id; /* = 16 */
   uchar acct_cnt; /* = 0 */
   uchar data_sz; /* = 5 */
   uchar set_cu_limit; /* = 2 */
@@ -211,9 +211,9 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
 
   /* Initialize Tip Distribution Account */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 19 */
+  uchar prog_id; /* = 20 */
   uchar acct_cnt; /* = 5 */
-  uchar acct_idx[5]; /* = { 9, 13, 17, 0, 18} */
+  uchar acct_idx[5]; /* = { 9, 13, 15, 0, 19} */
   uchar data_sz; /* = 43 */
   uchar ix_discriminator[8]; /* = {78 bf 19 b6 6f 31 b3 37} */
   uchar merkle_root_upload_authority[32];
@@ -223,7 +223,7 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
 
   /* Change Tip Receiver */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 16 */
+  uchar prog_id; /* = 17 */
   uchar acct_cnt; /* = 13 */
   uchar acct_idx[13]; /* = { 10, 11, 13, 12, 1, 2, 3, 4, 5, 6, 7, 8, 0} */
   uchar data_sz; /* = 8 */
@@ -232,7 +232,7 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
 
   /* Change Block Builder */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 16 */
+  uchar prog_id; /* = 17 */
   uchar acct_cnt; /* = 13 */
   uchar acct_idx[13]; /* = { 10, 13, 12, 14, 1, 2, 3, 4, 5, 6, 7, 8, 0} */
   uchar data_sz; /* = 16 */
@@ -242,7 +242,7 @@ struct __attribute__((packed)) fd_bundle_crank_3 {
 
   /* Memo */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 20 */
+  uchar prog_id; /* = 18 */
   uchar acct_cnt; /* = 0 */
   uchar data_sz; /* = 3 */
   char  memo[3];
@@ -255,7 +255,7 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
   uchar _sig_cnt; /* = 1 */
   uchar ro_signed_cnt; /* = 0 */
   uchar ro_unsigned_cnt; /* = 3 */
-  uchar acct_addr_cnt; /* = 18 */
+  uchar acct_addr_cnt; /* = 19 */
 
   /* Writable signers */
   /* 0 */   uchar authorized_voter[32];
@@ -268,18 +268,21 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
   /* 12  */ uchar old_block_builder[32];
   /* 13  */ uchar new_tip_receiver[32];
   /* 14  */ uchar new_block_builder[32];
+  /* We don't actually need the vote account, but it's simpler to keep
+     this the same as crank_3 */
+  /* 15  */ uchar validator_vote_account[32];
 
   /* Readonly non-signers */
-  /* 15  */ uchar compute_budget_program[32];
-  /* 16  */ uchar tip_payment_program[32];
-  /* 17  */ uchar memo_program[32];
+  /* 16  */ uchar compute_budget_program[32];
+  /* 17  */ uchar tip_payment_program[32];
+  /* 18  */ uchar memo_program[32];
 
   uchar recent_blockhash[32];
   uchar instr_cnt; /* = 4 */
 
   /* Compute budget instruction */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 15 */
+  uchar prog_id; /* = 16 */
   uchar acct_cnt; /* = 0 */
   uchar data_sz; /* = 5 */
   uchar set_cu_limit; /* = 2 */
@@ -288,7 +291,7 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
 
   /* Change Tip Receiver */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 16 */
+  uchar prog_id; /* = 17 */
   uchar acct_cnt; /* = 13 */
   uchar acct_idx[13]; /* = { 10, 11, 13, 12, 1, 2, 3, 4, 5, 6, 7, 8, 0} */
   uchar data_sz; /* = 8 */
@@ -297,7 +300,7 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
 
   /* Change Block Builder */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 16 */
+  uchar prog_id; /* = 17 */
   uchar acct_cnt; /* = 13 */
   uchar acct_idx[13]; /* = { 10, 13, 12, 14, 1, 2, 3, 4, 5, 6, 7, 8, 0} */
   uchar data_sz; /* = 16 */
@@ -307,7 +310,7 @@ struct __attribute__((packed)) fd_bundle_crank_2 {
 
   /* Memo */
   struct __attribute__((packed)) {
-  uchar prog_id; /* = 17 */
+  uchar prog_id; /* = 18 */
   uchar acct_cnt; /* = 0 */
   uchar data_sz; /* = 3 */
   char  memo[3];

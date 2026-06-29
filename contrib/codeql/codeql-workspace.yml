@@ -1,10 +1,10 @@
-# This is needed so that we can reference the nightly queries in test/qlpack.yml
-# otherwise, the CodeQL CLI would look for the queries in the default registry
-# instead of the local file system.
+# This workspace advertises the nested local packs so the CLI resolves them
+# from the repository instead of trying to fetch them from a registry.
 provide:
+  - "lib/qlpack.yml"
+  - "src/dev/qlpack.yml"
+  - "src/nightly/qlpack.yml"
   - "test/qlpack.yml"
-  - "dev/qlpack.yml"
-  - "nightly/qlpack.yml"
 
 registries:
  - packages: 'codeql/*'

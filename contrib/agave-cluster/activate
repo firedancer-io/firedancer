@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Agave Cluster Environment Activation Script
+# Usage: source activate <AGAVE_RELEASE_PATH>
+
+# Check if an argument is provided
+if [ $# -ne 3 ]; then
+    echo "Error: Please provide FIREDANCER_REPO_PATH, AGAVE_RELEASE_PATH, and LEDGER_DIR as arguments"
+    echo "Usage: source activate <FIREDANCER_REPO_PATH> <AGAVE_RELEASE_PATH> <LEDGER_DIR>"
+    return 1 2>/dev/null || exit 1
+fi
+
+FIREDANCER_REPO_PATH=$(readlink -f "$1")
+if [ ! -d "$FIREDANCER_REPO_PATH" ]; then
+    echo "Error: Directory '$FIREDANCER_REPO_PATH' does not exist"
+    return 1 2>/dev/null || exit 1
+fi
+
+AGAVE_RELEASE_PATH=$(readlink -f "$2")
+if [ ! -d "$AGAVE_RELEASE_PATH" ]; then
+    echo "Error: Directory '$AGAVE_RELEASE_PATH' does not exist"
+    return 1 2>/dev/null || exit 1
+fi
+
+LEDGER_DIR=$(readlink -f "$3")
+
+if [ ! -d "$LEDGER_DIR" ]; then
+    echo "Creating ledger directory: $LEDGER_DIR"
+    mkdir -p "$LEDGER_DIR"
+fi
+
+# Get the directory where this script is located
+AGAVE_CLUSTER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Set up virtual environment path
+VENV_PATH="$AGAVE_CLUSTER_DIR/.venv"
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv "$VENV_PATH"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to create virtual environment"
+        return 1 2>/dev/null || exit 1
+    fi
+fi
+
+# Check if already activated
+if [ -n "$AGAVE_CLUSTER_ACTIVE" ]; then
+    echo "Agave cluster environment is already active"
+fi
+
+# Activate Python virtual environment
+source "$VENV_PATH/bin/activate"
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to activate virtual environment"
+    return 1 2>/dev/null || exit 1
+fi
+
+# Install/upgrade the package in development mode
+echo "Installing agave-cluster package in development mode..."
+pip install -e "$AGAVE_CLUSTER_DIR" > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "Warning: Failed to install agave-cluster package"
+fi
+
+# Save original PATH and PS1
+export _OLD_AGAVE_CLUSTER_PATH="$PATH"
+if [ -n "$PS1" ]; then
+    export _OLD_AGAVE_CLUSTER_PS1="$PS1"
+fi
+
+# Set environment variables
+export FIREDANCER_REPO_PATH="$FIREDANCER_REPO_PATH"
+export AGAVE_RELEASE_PATH="$AGAVE_RELEASE_PATH"
+export AGAVE_LEDGER_PATH="$LEDGER_DIR"
+export AGAVE_CLUSTER_ACTIVE=1
+
+# Update PS1 to show the active environment
+if [ -n "$PS1" ]; then
+    export PS1="(agave-cluster) $PS1"
+fi

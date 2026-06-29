@@ -113,24 +113,14 @@ fd_txn_parse_core( uchar const             * payload,
   CHECK( (signature_cnt<=acct_addr_cnt) & (acct_addr_cnt<=FD_TXN_ACCT_ADDR_MAX) );
   CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt );
 
-
-
   CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt );   ulong acct_addr_off  =          i  ;     i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
   CHECK_LEFT( FD_TXN_BLOCKHASH_SZ               );   ulong recent_blockhash_off =    i  ;     i+=FD_TXN_BLOCKHASH_SZ;
 
   ushort instr_cnt = (ushort)0;
   READ_CHECKED_COMPACT_U16( bytes_consumed,                instr_cnt,                i );     i+=bytes_consumed;
 
-#ifdef FD_OFFLINE_REPLAY
-  /* For offline replay, we allow up to 128 instructions per
-     transaction. Note that this is simply a bump in the limit that is
-     completely local to this check. We are not concomitantly bumping
-     the size of fd_txn_t. So we risk potential buffer overflow in
-     fd_txn_t, but again only in offline replay. */
-  CHECK( (ulong)instr_cnt<=128UL                );
-#else
   CHECK( (ulong)instr_cnt<=FD_TXN_INSTR_MAX     );
-#endif
+
   CHECK_LEFT( MIN_INSTR_SZ*instr_cnt            );
   /* If it has >0 instructions, it must have at least one other account
      address (the program id) that can't be the fee payer */
@@ -244,6 +234,7 @@ fd_txn_parse_core( uchar const             * payload,
 
   if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
   if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
+
   return fd_txn_footprint( instr_cnt, addr_table_cnt );
 
   #undef CHECK

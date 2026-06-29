@@ -143,12 +143,30 @@ fd_uint256_add(fd_uint256_t *       r,
       function, otherwise performance degrades significantly.
       For this we added the macro FD_UINT256_FP_MUL_IMPL. */
 
+#if FD_HAS_X86 && defined(__BMI2__) && defined(__ADX__)
+__asm__( ".include \"src/ballet/bigint/fd_uint256_mul.inc\"" );
+#endif
+
 INLINE fd_uint256_t *
 fd_uint256_mul_mod_p( fd_uint256_t *       r,
                       fd_uint256_t const * a,
                       fd_uint256_t const * b,
                       fd_uint256_t const * p,
                       ulong const          p_inv ) {
+#if FD_HAS_X86 && defined(__BMI2__) && defined(__ADX__)
+  register fd_uint256_t *       _r    __asm__("rdi") = r;
+  register fd_uint256_t const * _a    __asm__("rsi") = a;
+  register fd_uint256_t const * _b    __asm__("rdx") = b;
+  register fd_uint256_t const * _p    __asm__("rcx") = p;
+  register ulong                _pinv __asm__("r8")  = p_inv;
+  __asm__ __volatile__ (
+    "_fd_uint256_mul_mod_p %[r], %[a], %[b], %[p], %[pinv]"
+    : [r]"+r"(_r), [a]"+r"(_a), [b]"+r"(_b), [pinv]"+r"(_pinv)
+    : [p]"r"(_p)
+    : "rax", "r9", "r10", "r11", "cc", "memory"
+  );
+  r = _r;
+#else
   ulong FD_ALIGNED t[4] = { 0 };
   ulong FD_ALIGNED u[4];
   ulong FD_ALIGNED h[4];
@@ -186,6 +204,7 @@ fd_uint256_mul_mod_p( fd_uint256_t *       r,
     fd_ulong_sub_borrow( &r->limbs[2], &b, r->limbs[2], p->limbs[2], b );
     fd_ulong_sub_borrow( &r->limbs[3], &b, r->limbs[3], p->limbs[3], b );
   }
+#endif
   return r;
 }
 

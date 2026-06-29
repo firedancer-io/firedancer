@@ -3,55 +3,78 @@
 # FIXME This whole file should just really be a firedancer-dev
 #       invocation with parallelism natively implemented in C.
 
-set -ex
+set -euo pipefail
 
-DIR="$( dirname -- "${BASH_SOURCE[0]}"; )";   # Get the directory name
-DIR="$( realpath -e -- "$DIR"; )";    # Resolve its full path if need be
-cd $DIR/../..
+DIR="$( dirname -- "${BASH_SOURCE[0]}"; )"
+DIR="$( realpath -e -- "$DIR"; )"
+cd "$DIR/../.."
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 NUM_PROCESSES=${NUM_PROCESSES:-12}
 PAGE_SZ=gigantic
-PAGE_CNT=$(( 7 * $NUM_PROCESSES ))
+PAGE_CNT=$(( 7 * NUM_PROCESSES ))
 
-if [ "$LOG_PATH" == "" ]; then
-  LOG_PATH="`mktemp -d`"
+if [ -z "${LOG_PATH:-}" ]; then
+  LOG_PATH="$(mktemp -d)"
 else
-  rm    -rf $LOG_PATH
-  mkdir -pv $LOG_PATH
+  rm    -rf "$LOG_PATH"
+  mkdir -pv "$LOG_PATH"
 fi
 
-mkdir -p dump
-
-GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
-REPO_URL="https://github.com/firedancer-io/test-vectors.git"
-
-echo $GIT_REF
-
-# Prepare local repo and enter it
-if [ ! -d dump/test-vectors ]; then
-  cd dump
-  git clone -q --no-tags --depth=1 "$REPO_URL" test-vectors
-  cd test-vectors
+# If WORK_DIR is provided, use it directly and skip the whole
+# git clone/fetch/checkout/cache/rsync dance. The provided directory
+# is expected to already contain the fixtures laid out as
+# <WORK_DIR>/{block,syscall,txn,elf_loader,instr,shred}/fixtures
+if [ -n "${WORK_DIR:-}" ]; then
+  echo "Using provided WORK_DIR: $WORK_DIR"
 else
-  cd dump/test-vectors
+  mkdir -p dump
+
+  GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
+  REPO_URL="https://github.com/firedancer-io/test-vectors.git"
+
+  echo "$GIT_REF"
+
+  CACHE="/data/${USER}/.cache/firedancer/test-vectors"
+  WORK_DIR="dump/test-vectors-$$"
+
+  mkdir -p "$(dirname "$CACHE")"
+
+  exec {lockfd}>"$CACHE.lock"
+  flock -x "$lockfd"
+
+  # Clean up stale git lock files left by killed processes
+  rm -f "$CACHE/.git/index.lock"
+
+  if [ ! -d "$CACHE" ]; then
+      git clone -q "$REPO_URL" "$CACHE"
+  fi
+
+  git -C "$CACHE" fetch -q --prune
+  git -C "$CACHE" checkout -q "$GIT_REF"
+
+  # Remove stale working copies older than 24 hours (non-fatal)
+  find dump -maxdepth 1 -regex '.*/test-vectors-[0-9]+$' -type d -mtime +0 \
+    -exec echo "  removing stale: {}" \; -exec rm -rf {} \; 2>/dev/null || true
+
+  rm -rf "$WORK_DIR"
+  rsync -a --link-dest="$CACHE" "$CACHE"/ "$WORK_DIR"
+
+  flock -u "$lockfd"
+  exec {lockfd}>&-
 fi
 
-if ! git checkout -q $GIT_REF; then
-  git remote update
-  git checkout -q $GIT_REF
-fi
-cd ../..
+SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" --tile-cpus "f,0-$(( NUM_PROCESSES - 1 ))" )
 
-SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" --tile-cpus "f,0-$(( $NUM_PROCESSES - 1 ))" )
+export FD_LOG_PATH="$LOG_PATH/solfuzz.log"
+"${SOL_COMPAT[@]}" \
+  "$WORK_DIR/block/fixtures" \
+  "$WORK_DIR/syscall/fixtures" \
+  "$WORK_DIR/txn/fixtures" \
+  "$WORK_DIR/elf_loader/fixtures" \
+  "$WORK_DIR/instr/fixtures" \
+  "$WORK_DIR/shred/fixtures" \
+  "$WORK_DIR/cost/fixtures" \
+  "$WORK_DIR/vm_serialization/fixtures"
 
-export FD_LOG_PATH=$LOG_PATH/solfuzz.log
-${SOL_COMPAT[@]} \
-  dump/test-vectors/block/fixtures \
-  dump/test-vectors/syscall/fixtures \
-  dump/test-vectors/vm_interp/fixtures \
-  dump/test-vectors/txn/fixtures \
-  dump/test-vectors/elf_loader/fixtures \
-  dump/test-vectors/instr/fixtures
-
-echo Test vectors success
+echo "Test vectors success"

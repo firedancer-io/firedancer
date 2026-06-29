@@ -1,0 +1,6 @@
+| ReturnZeroForPointer.c:13:3:13:11 | return ... | Function $@ returns 0 instead of NULL for pointer return type. | ReturnZeroForPointer.c:12:1:12:25 | returns_zero_void_pointer | returns_zero_void_pointer |
+| ReturnZeroForPointer.c:18:3:18:11 | return ... | Function $@ returns 0 instead of NULL for pointer return type. | ReturnZeroForPointer.c:17:1:17:27 | returns_zero_struct_pointer | returns_zero_struct_pointer |
+| ReturnZeroForPointer.c:23:3:23:11 | return ... | Function $@ returns 0 instead of NULL for pointer return type. | ReturnZeroForPointer.c:22:1:22:28 | returns_zero_typedef_pointer | returns_zero_typedef_pointer |
+| ReturnZeroForPointer.c:29:5:29:13 | return ... | Function $@ returns 0 instead of NULL for pointer return type. | ReturnZeroForPointer.c:27:1:27:21 | returns_mixed_pointer | returns_mixed_pointer |
+| ReturnZeroForPointer.c:47:3:47:22 | return ... | Function $@ returns 0 instead of NULL for pointer return type. | ReturnZeroForPointer.c:46:1:46:19 | returns_casted_zero | returns_casted_zero |
+| ReturnZeroForPointer.c:62:3:62:12 | return ... | Function $@ returns 0 instead of NULL for pointer return type. | ReturnZeroForPointer.c:61:1:61:25 | returns_zero_long_literal | returns_zero_long_literal |

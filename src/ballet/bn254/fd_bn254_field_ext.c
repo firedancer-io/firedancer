@@ -69,30 +69,32 @@ const fd_bn254_fp_t fd_bn254_const_frob_gamma2_mont[5] = {
 /* Fp2 */
 
 static inline fd_bn254_fp2_t *
-fd_bn254_fp2_frombytes_be_nm( fd_bn254_fp2_t * r,
-                              uchar const      buf[64],
-                              int *            is_inf,
-                              int *            is_neg ) {
+fd_bn254_fp2_frombytes_nm( fd_bn254_fp2_t * r,
+                           uchar const      buf[64],
+                           int              big_endian,
+                           int *            is_inf,
+                           int *            is_neg ) {
   /* validate fp2.el[0] without flags */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &r->el[0], &buf[32], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &r->el[0], &buf[ big_endian ? 32 : 0 ], big_endian, NULL, NULL ) ) ) {
     return NULL;
   }
   /* validate fp2.el[1] with flags */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &r->el[1], &buf[0], is_inf, is_neg ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &r->el[1], &buf[ big_endian ? 0 : 32 ], big_endian, is_inf, is_neg ) ) ) {
     return NULL;
   }
   return r;
 }
 
 static inline uchar *
-fd_bn254_fp2_tobytes_be_nm( uchar                  buf[64],
-                            fd_bn254_fp2_t * const a ) {
-  fd_bn254_fp_tobytes_be_nm( &buf[ 0], &a->el[1] );
-  fd_bn254_fp_tobytes_be_nm( &buf[32], &a->el[0] );
+fd_bn254_fp2_tobytes_nm( uchar                  buf[64],
+                         fd_bn254_fp2_t * const a,
+                         int                    big_endian ) {
+  fd_bn254_fp_tobytes_nm( &buf[ 0], &a->el[ big_endian ? 1 : 0 ], big_endian );
+  fd_bn254_fp_tobytes_nm( &buf[32], &a->el[ big_endian ? 0 : 1 ], big_endian );
   return buf;
 }
 
-/* fd_bn254_fp2_is_neg_nm checks wheather x < 0 in Fp2.
+/* fd_bn254_fp2_is_neg_nm checks whether x < 0 in Fp2.
    Note: x is NON Montgomery.
    Returns 1 if x < 0, 0 otherwise. */
 static inline int
@@ -103,7 +105,7 @@ fd_bn254_fp2_is_neg_nm( fd_bn254_fp2_t * x ) {
   return fd_bn254_fp_is_neg_nm( &x->el[1] );
 }
 
-/* fd_bn254_fp2_is_minus_one checks wheather a == -1 in Fp2.
+/* fd_bn254_fp2_is_minus_one checks whether a == -1 in Fp2.
    Returns 1 if a==-1, 0 otherwise. */
 static inline int
 fd_bn254_fp2_is_minus_one( fd_bn254_fp2_t const * a ) {
@@ -111,7 +113,7 @@ fd_bn254_fp2_is_minus_one( fd_bn254_fp2_t const * a ) {
       && fd_uint256_eq( &a->el[1], fd_bn254_const_zero );
 }
 
-/* fd_bn254_fp2_eq checks wheather a == b in Fp2.
+/* fd_bn254_fp2_eq checks whether a == b in Fp2.
    Returns 1 if a == b, 0 otherwise. */
 static inline int
 fd_bn254_fp2_eq( fd_bn254_fp2_t const * a,
@@ -221,8 +223,9 @@ fd_bn254_fp2_mul( fd_bn254_fp2_t * r,
   fd_bn254_fp_t * r1 = &r->el[1];
   fd_bn254_fp_t a0b0[1], a1b1[1], sa[1], sb[1];
 
-  fd_bn254_fp_add( sa, a0, a1 );
-  fd_bn254_fp_add( sb, b0, b1 );
+  /* sa, sb are lazy additions as they're only consumed by fp_mul */
+  fd_bn254_fp_add_lazy( sa, a0, a1 );
+  fd_bn254_fp_add_lazy( sb, b0, b1 );
 
   fd_bn254_fp_mul( a0b0, a0, b0 );
   fd_bn254_fp_mul( a1b1, a1, b1 );
@@ -241,8 +244,9 @@ static inline fd_bn254_fp2_t *
 fd_bn254_fp2_sqr( fd_bn254_fp2_t * r,
                   fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_t p[1], m[1];
-  fd_bn254_fp_add( p, &a->el[0], &a->el[1] );
-  fd_bn254_fp_sub( m, &a->el[0], &a->el[1] );
+  /* p is a lazy addition as it's only consumed by fp_mul */
+  fd_bn254_fp_add_lazy( p, &a->el[0], &a->el[1] );
+  fd_bn254_fp_sub     ( m, &a->el[0], &a->el[1] );
   /* r1 = 2 a0*a1 */
   fd_bn254_fp_mul( &r->el[1], &a->el[0], &a->el[1] );
   fd_bn254_fp_add( &r->el[1], &r->el[1], &r->el[1] );
@@ -263,6 +267,7 @@ fd_bn254_fp2_mul_by_i( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_inv computes r = 1 / a in Fp2.
+   a MUST not be 0.
    https://eprint.iacr.org/2010/354, Alg. 8. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_inv( fd_bn254_fp2_t * r,
@@ -282,11 +287,14 @@ fd_bn254_fp2_inv( fd_bn254_fp2_t * r,
 fd_bn254_fp2_t *
 fd_bn254_fp2_pow( fd_bn254_fp2_t * restrict r,
                   fd_bn254_fp2_t const *    a,
-                  fd_uint256_t const *      b ) {
+                  fd_uint256_t   const *    b ) {
   fd_bn254_fp2_set_one( r );
+  if( fd_uint256_is_zero( b ) ) return r; /* x^0 = 1 */
 
+  /* There must be a bit set, as b>0, so if we reach i==0, it must be set. */
   int i = 255;
-  while( !fd_uint256_bit( b, i) ) i--;
+  while( !fd_uint256_bit( b, i ) ) i--;
+
   for( ; i>=0; i--) {
     fd_bn254_fp2_sqr( r, r );
     if( fd_uint256_bit( b, i ) ) {
@@ -297,39 +305,59 @@ fd_bn254_fp2_pow( fd_bn254_fp2_t * restrict r,
 }
 
 /* fd_bn254_fp2_sqrt computes r = sqrt(a) in Fp2.
-   https://eprint.iacr.org/2012/685, Alg. 9.
-   Note: r is one of the two sqrt, the other is -r. This function
-   can return either the positive or negative one, no assumptions/promises.
-   Returns r if a is a square (sqrt exists), or NULL otherwise. */
+   https://eprint.iacr.org/2012/685, Alg. 8.
+
+   For bn254 the non-residue is i with i^2 = -1, so norm(c) = c0^2 + c1^2.
+   This method costs us 2 fp_sqrt + 1 fp_inv + a few fp_mul/sqr.
+   The method described in Alg. 9 is 2 fp2_pow, which is more expensive. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_sqrt( fd_bn254_fp2_t * r,
                    fd_bn254_fp2_t const * a ) {
-  fd_bn254_fp2_t a0[1], a1[1], alpha[1], x0[1];
+  fd_bn254_fp_t const * c0 = &a->el[0];
+  fd_bn254_fp_t const * c1 = &a->el[1];
+  fd_bn254_fp_t norm[1], alpha[1], delta[1], tmp[1];
+  fd_bn254_fp_t x[1], y[1], xinv[1];
 
-  fd_bn254_fp2_pow( a1, a, fd_bn254_const_sqrt_exp );
-
-  fd_bn254_fp2_sqr( alpha, a1 );
-  fd_bn254_fp2_mul( alpha, alpha, a );
-
-  fd_bn254_fp2_conj( a0, alpha );
-  fd_bn254_fp2_mul( a0, a0, alpha );
-
-  if( FD_UNLIKELY( fd_bn254_fp2_is_minus_one( a0 ) ) ) {
-    return NULL;
+  /* c1 == 0, sqrt reduces to Fp sqrt on c0 (or sqrt(-c0) shifted to imaginary). */
+  if( FD_UNLIKELY( fd_bn254_fp_is_zero( c1 ) ) ) {
+    if( fd_bn254_fp_sqrt( x, c0 ) ) {
+      fd_bn254_fp_set( &r->el[0], x );
+      fd_bn254_fp_set_zero( &r->el[1] );
+      return r;
+    }
+    fd_bn254_fp_neg( y, c0 );
+    if( !fd_bn254_fp_sqrt( y, y ) ) return NULL;
+    fd_bn254_fp_set_zero( &r->el[0] );
+    fd_bn254_fp_set( &r->el[1], y );
+    return r;
   }
 
-  fd_bn254_fp2_mul( x0, a1, a );
-  if( fd_bn254_fp2_is_minus_one( alpha ) ) {
-    /* COV: I don't know if there's a point that hits this condition.
-       sqrt(-1) hits this, but doesn't correspond to a valid point.
-       Tried with some other possible values, nothing corresponds to a point. */
-    fd_bn254_fp2_mul_by_i( r, x0 );
-  } else {
-    fd_bn254_fp2_set_one( a1 );
-    fd_bn254_fp2_add( a0, alpha, a1 );                           /* 1 + alpha */
-    fd_bn254_fp2_pow( a1, a0, fd_bn254_const_p_minus_one_half ); /* b */
-    fd_bn254_fp2_mul( r, a1, x0 );
+  /* norm = c0^2 + c1^2 */
+  fd_bn254_fp_sqr( norm, c0 );
+  fd_bn254_fp_sqr( tmp,  c1 );
+  fd_bn254_fp_add( norm, norm, tmp );
+
+  /* alpha = sqrt(norm); NULL means a is a non-square in Fp2. */
+  if( !fd_bn254_fp_sqrt( alpha, norm ) ) return NULL;
+
+  /* delta = (alpha + c0) / 2
+     If delta is not a quadratic residue, use (c0 - alpha) / 2 instead.
+     We test this by trying sqrt(delta) first. */
+  fd_bn254_fp_add( delta, alpha, c0 );
+  fd_bn254_fp_halve( delta, delta );
+
+  if( !fd_bn254_fp_sqrt( x, delta ) ) {
+    fd_bn254_fp_sub( delta, delta, alpha );
+    if( !fd_bn254_fp_sqrt( x, delta ) ) return NULL;
   }
+
+  /* y = c1 / (2x) = c1 * (1/x) / 2 */
+  fd_bn254_fp_inv  ( xinv, x );
+  fd_bn254_fp_mul  ( y, c1, xinv );
+  fd_bn254_fp_halve( y, y );
+
+  fd_bn254_fp_set( &r->el[0], x );
+  fd_bn254_fp_set( &r->el[1], y );
   return r;
 }
 
@@ -430,6 +458,8 @@ fd_bn254_fp6_mul( fd_bn254_fp6_t * r,
   fd_bn254_fp2_mul( a1b1, a1, b1 );
   fd_bn254_fp2_mul( a2b2, a2, b2 );
 
+  /* fp2_mul has its own internal lazy additions, so we cannot compound
+     here as it would push intermediate values past our [0, 2p) bound. */
   fd_bn254_fp2_add( sa, a1, a2 );
   fd_bn254_fp2_add( sb, b1, b2 );
   fd_bn254_fp2_mul( r0, sa, sb );
@@ -479,6 +509,7 @@ fd_bn254_fp6_sqr( fd_bn254_fp6_t * r,
 
   fd_bn254_fp2_sqr( c3, a0 );
   fd_bn254_fp2_sub( c4, a0, a1 );
+  /* not lazy for the same reasons as fd_bn254_fp6_mul. */
   fd_bn254_fp2_add( c4, c4, a2 );
 
   fd_bn254_fp2_mul( c5, a1, a2 );
@@ -565,6 +596,97 @@ fd_bn254_fp12_sub( fd_bn254_fp12_t * r,
 }
 */
 
+/* fd_bn254_fp6_mul_by_fp2 computes r = a * (b, 0, 0) in Fp6.
+   Simply (a0*b, a1*b, a2*b).
+   Cost: 3 Fp2_mul (vs 6 for full Fp6_mul). */
+static inline fd_bn254_fp6_t *
+fd_bn254_fp6_mul_by_fp2( fd_bn254_fp6_t *       r,
+                         fd_bn254_fp6_t const *  a,
+                         fd_bn254_fp2_t const *  b ) {
+  fd_bn254_fp2_mul( &r->el[0], &a->el[0], b );
+  fd_bn254_fp2_mul( &r->el[1], &a->el[1], b );
+  fd_bn254_fp2_mul( &r->el[2], &a->el[2], b );
+  return r;
+}
+
+/* fd_bn254_fp6_mul_by_01 computes r = a * (b0, b1, 0) in Fp6.
+   Karatsuba with b2=0.
+   Cost: 5 Fp2_mul (vs 6 for full Fp6_mul). */
+static inline fd_bn254_fp6_t *
+fd_bn254_fp6_mul_by_01( fd_bn254_fp6_t *       r,
+                        fd_bn254_fp6_t const *  a,
+                        fd_bn254_fp2_t const *  b0,
+                        fd_bn254_fp2_t const *  b1 ) {
+  fd_bn254_fp2_t const * a0 = &a->el[0];
+  fd_bn254_fp2_t const * a1 = &a->el[1];
+  fd_bn254_fp2_t const * a2 = &a->el[2];
+  fd_bn254_fp2_t a0b0[1], a1b1[1];
+  fd_bn254_fp2_t sa[1], sb[1];
+  fd_bn254_fp2_t r0[1], r1[1], r2[1];
+
+  fd_bn254_fp2_mul( a0b0, a0, b0 );
+  fd_bn254_fp2_mul( a1b1, a1, b1 );
+
+  /* r0 = a0b0 + xi * a2*b1 */
+  fd_bn254_fp2_mul( r0, a2, b1 );
+  fd_bn254_fp2_mul_by_xi( r0, r0 );
+  fd_bn254_fp2_add( r0, r0, a0b0 );
+
+  /* r1 = (a0+a1)*(b0+b1) - a0b0 - a1b1 */
+  fd_bn254_fp2_add( sa, a0, a1 );
+  fd_bn254_fp2_add( sb, b0, b1 );
+  fd_bn254_fp2_mul( r1, sa, sb );
+  fd_bn254_fp2_sub( r1, r1, a0b0 );
+  fd_bn254_fp2_sub( r1, r1, a1b1 );
+
+  /* r2 = (a0+a2)*b0 - a0b0 + a1b1 */
+  fd_bn254_fp2_add( sa, a0, a2 );
+  fd_bn254_fp2_mul( r2, sa, b0 );
+  fd_bn254_fp2_sub( r2, r2, a0b0 );
+  fd_bn254_fp2_add( r2, r2, a1b1 );
+
+  fd_bn254_fp2_set( &r->el[0], r0 );
+  fd_bn254_fp2_set( &r->el[1], r1 );
+  fd_bn254_fp2_set( &r->el[2], r2 );
+  return r;
+}
+
+/* fd_bn254_fp12_mul_sparse computes r = a * b in Fp12,
+   where b has the "034" sparse pattern:
+     b.el[0] = (c0, 0, 0)
+     b.el[1] = (c3, c4, 0)
+   This is the pattern produced by line evaluation functions.
+   Cost: 13 Fp2_mul (vs 18 for full Fp12_mul). */
+static inline fd_bn254_fp12_t *
+fd_bn254_fp12_mul_sparse( fd_bn254_fp12_t *       r,
+                          fd_bn254_fp12_t const * a,
+                          fd_bn254_fp12_t const * b ) {
+  fd_bn254_fp2_t const * c0 = &b->el[0].el[0];
+  fd_bn254_fp2_t const * c3 = &b->el[1].el[0];
+  fd_bn254_fp2_t const * c4 = &b->el[1].el[1];
+  fd_bn254_fp6_t a0b0[1], a1b1[1], sa[1];
+  fd_bn254_fp2_t sc0[1];
+
+  /* a0*b0 = a.el[0] * (c0, 0, 0) : 3 Fp2_mul */
+  fd_bn254_fp6_mul_by_fp2( a0b0, &a->el[0], c0 );
+
+  /* a1*b1 = a.el[1] * (c3, c4, 0) : 5 Fp2_mul */
+  fd_bn254_fp6_mul_by_01( a1b1, &a->el[1], c3, c4 );
+
+  /* r1 = (a0+a1) * (c0+c3, c4, 0) - a0b0 - a1b1 : 5 Fp2_mul.
+     not lazy for the same reasons as fd_bn254_fp6_mul */
+  fd_bn254_fp6_add( sa, &a->el[0], &a->el[1] );
+  fd_bn254_fp2_add( sc0, c0, c3 );
+  fd_bn254_fp6_mul_by_01( &r->el[1], sa, sc0, c4 );
+  fd_bn254_fp6_sub( &r->el[1], &r->el[1], a0b0 );
+  fd_bn254_fp6_sub( &r->el[1], &r->el[1], a1b1 );
+
+  /* r0 = a0b0 + gamma * a1b1 */
+  fd_bn254_fp6_mul_by_gamma( a1b1, a1b1 );
+  fd_bn254_fp6_add( &r->el[0], a0b0, a1b1 );
+  return r;
+}
+
 fd_bn254_fp12_t *
 fd_bn254_fp12_mul( fd_bn254_fp12_t * r,
                    fd_bn254_fp12_t const * a,
@@ -578,6 +700,7 @@ fd_bn254_fp12_mul( fd_bn254_fp12_t * r,
   fd_bn254_fp6_t * r1 = &r->el[1];
   fd_bn254_fp6_t a0b0[1], a1b1[1], sa[1], sb[1];
 
+  /* not lazy for the same reasons as fd_bn254_fp6_mul */
   fd_bn254_fp6_add( sa, a0, a1 );
   fd_bn254_fp6_add( sb, b0, b1 );
 

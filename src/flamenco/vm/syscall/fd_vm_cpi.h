@@ -152,10 +152,10 @@ struct __attribute__((packed)) fd_vm_rc_refcell_ref {
 };
 typedef struct fd_vm_rc_refcell_ref fd_vm_rc_refcell_ref_t;
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L81
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L224-L247
 
-   This struct abstracts over the Rust/C ABI differences for the
-   cross-program-invocation (CPI) syscall.
+   This struct caches the result of a translated CallerAccount,
+   which could be translated from either the Rust or C ABI.
    It serves the same purpose as the corresponding struct in Agave.
    Essentially, it caches the results of translations that have been
    performed leading up to the CPI.
@@ -174,5 +174,19 @@ struct fd_vm_cpi_caller_account {
   ulong *       ref_to_len_in_vm;
 };
 typedef struct fd_vm_cpi_caller_account fd_vm_cpi_caller_account_t;
+
+/* TranslatedAccount is responsible for storing the result of Agave's
+   solana_program_runtime::cpi::SyscallInvokeSigned::translate_accounts.
+
+   The control and data flow matches Agave 1-1 for ease of auditability.
+
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L979-L985 */
+struct fd_vm_cpi_translated_account {
+  ushort                     index_in_caller;
+  fd_vm_cpi_caller_account_t caller_account;
+  uchar                      update_caller_account_region;
+  uchar                      update_caller_account_info;
+};
+typedef struct fd_vm_cpi_translated_account fd_vm_cpi_translated_account_t;
 
 #endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h */

@@ -1,15 +1,20 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssresolve_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssresolve_h
 
-#include "../../../util/fd_util_base.h"
+#include "../../../flamenco/fd_flamenco_base.h"
 #include "../../../util/net/fd_net_headers.h"
+
+#if FD_HAS_OPENSSL
+#include <openssl/ssl.h>
+#endif
 
 #define FD_SSRESOLVE_MAGIC (0xF17EDA2CE55E510) /* FIREDANCER HTTP RESOLVE V0 */
 #define FD_SSRESOLVE_ALIGN (8UL)
 
 struct fd_ssresolve_result {
-  ulong     slot;      /* slot of the snapshot */
-  ulong     base_slot; /* base slot of incremental snapshot or ULONG_MAX */
+  ulong     slot;                      /* slot of the snapshot */
+  ulong     base_slot;                 /* base slot of incremental snapshot or ULONG_MAX */
+  uchar     hash[ FD_HASH_FOOTPRINT ]; /* hash of the snapshot */
 };
 
 typedef struct fd_ssresolve_result fd_ssresolve_result_t;
@@ -40,11 +45,23 @@ void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
-                   int              full );
+                   int              full,
+                   char const *     hostname );
+
+#if FD_HAS_OPENSSL
+void
+fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
+                         fd_ip4_port_t    addr,
+                         int              sockfd,
+                         int              full,
+                         char const *     hostname,
+                         SSL_CTX *        ssl_ctx );
+#endif
 
 #define FD_SSRESOLVE_ADVANCE_ERROR   (-1) /* fatal error */
 #define FD_SSRESOLVE_ADVANCE_AGAIN   ( 0) /* try again */
-#define FD_SSRESOLVE_ADVANCE_SUCCESS ( 1) /* success */
+#define FD_SSRESOLVE_ADVANCE_SUCCESS ( 1) /* successful advance */
+#define FD_SSRESOLVE_ADVANCE_RESULT  ( 2) /* successful advance with valid resolve result */
 
 /* fd_ssresolve_advance_poll_out advances the ssresolve state machine
    when its socket file descriptor is ready for sending data. */
@@ -62,6 +79,9 @@ fd_ssresolve_advance_poll_in( fd_ssresolve_t *        ssresolve,
    reinitialized by fd_ssresolve_init. */
 int
 fd_ssresolve_is_done( fd_ssresolve_t * ssresolve );
+
+void
+fd_ssresolve_cancel( fd_ssresolve_t * ssresolve );
 
 FD_PROTOTYPES_END
 

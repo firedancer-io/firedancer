@@ -21,7 +21,7 @@
    is considered non-existent. */
 
 #include "fd_sysvar_base.h"
-#include "../../types/fd_types.h"
+#include "../../accdb/fd_accdb.h"
 
 #define FD_SYSVAR_CACHE_ENTRY_CNT 9
 
@@ -49,23 +49,14 @@ struct fd_sysvar_cache {
   fd_sysvar_desc_t desc[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
   uchar bin_clock             [ FD_SYSVAR_CLOCK_BINCODE_SZ             ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_clock             [ FD_SYSVAR_CLOCK_FOOTPRINT              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ    ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT  ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_rent              [ FD_SYSVAR_RENT_BINCODE_SZ              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_rent              [ FD_SYSVAR_RENT_FOOTPRINT               ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_FOOTPRINT        ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_slot_history      [ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_stake_history     [ FD_SYSVAR_STAKE_HISTORY_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
 
   /* Note that two sysvars are (deliberately) missing:
      - The 'fees' sysvar was deprecated/demoted.  It is not part of the
@@ -126,9 +117,8 @@ fd_sysvar_cache_delete( void * mem );
    include unexpected database error or sysvar deserialize failure. */
 
 int
-fd_sysvar_cache_restore( fd_bank_t *               bank,
-                         fd_funk_t *               funk,
-                         fd_funk_txn_xid_t const * xid );
+fd_sysvar_cache_restore( fd_bank_t *  bank,
+                         fd_accdb_t * accdb );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
@@ -136,9 +126,12 @@ fd_sysvar_cache_restore( fd_bank_t *               bank,
    log warning. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
-                              fd_funk_txn_xid_t const * xid );
+fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
+                              fd_accdb_t * accdb );
+
+void
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t * cache,
+                                  fd_acc_t const *    acc );
 
 /* Generic accessors for serialized sysvar account data. */
 
@@ -236,11 +229,8 @@ fd_sysvar_cache_last_restart_slot_is_valid( fd_sysvar_cache_t const * sysvar_cac
   return FD_SYSVAR_IS_VALID( sysvar_cache, last_restart_slot );
 }
 
-fd_sol_sysvar_last_restart_slot_t *
-fd_sysvar_cache_last_restart_slot_read(
-    fd_sysvar_cache_t const *           sysvar_cache,
-    fd_sol_sysvar_last_restart_slot_t * out
-);
+ulong const *
+fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * sysvar_cache );
 
 static inline int
 fd_sysvar_cache_rent_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
@@ -263,40 +253,17 @@ fd_sysvar_cache_recent_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache )
   return FD_SYSVAR_IS_VALID( sysvar_cache, recent_hashes );
 }
 
-fd_block_block_hash_entry_t const * /* deque */
-fd_sysvar_cache_recent_hashes_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
+/* fd_sysvar_cache_recent_hashes_is_empty returns 0 if there is at least
+   one valid blockhash queue entry in the 'recent blockhashes' sysvar,
+   1 otherwise (invalid sysvar or empty queue). */
 
-void
-fd_sysvar_cache_recent_hashes_leave_const(
-    fd_sysvar_cache_t const *           sysvar_cache,
-    fd_block_block_hash_entry_t const * hashes_deque
-);
-
-/* fd_sysvar_cache_slot_hashes_{join,leave}_const {attach,detach} the
-   caller {from,to} the slot hashes deque contained in the slot hashes
-   sysvar.
-
-   The join API returns a pointer into the sysvar cache.  If the sysvar
-   account is in an invalid state (non-existent, failed to deserialize),
-   join returns NULL. */
+int
+fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache );
 
 static inline int
 fd_sysvar_cache_slot_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_hashes );
 }
-
-fd_slot_hash_t const *
-fd_sysvar_cache_slot_hashes_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
-
-void
-fd_sysvar_cache_slot_hashes_leave_const(
-    fd_sysvar_cache_t const * sysvar_cache,
-    fd_slot_hash_t const *    slot_hashes
-);
 
 /* fd_sysvar_cache_slot_history_{join,leave}_const {attach,detach} the
    caller {from,to} the "slot history" sysvar.  Behavior analogous to
@@ -307,36 +274,22 @@ fd_sysvar_cache_slot_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) 
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_history );
 }
 
-fd_slot_history_global_t const *
-fd_sysvar_cache_slot_history_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
-
-void
-fd_sysvar_cache_slot_history_leave_const(
-    fd_sysvar_cache_t const *        sysvar_cache,
-    fd_slot_history_global_t const * slot_history
-);
-
-/* fd_sysvar_cache_stake_history_{join,leave}_const {attach,detach} the
-   caller {from,to} the "stake history" sysvar.  Behavior analogous to
-   above accessors. */
-
 static inline int
 fd_sysvar_cache_stake_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, stake_history );
 }
 
-fd_stake_history_t const *
-fd_sysvar_cache_stake_history_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
+/* View convenience wrappers.  These combine fd_sysvar_cache_data_query
+   with the corresponding fd_sysvar_*_view function.  Returns view on
+   success or NULL if the sysvar is invalid. */
 
-void
-fd_sysvar_cache_stake_history_leave_const(
-    fd_sysvar_cache_t const *  sysvar_cache,
-    fd_stake_history_t const * stake_history
-);
+fd_stake_history_t *
+fd_sysvar_cache_stake_history_view( fd_sysvar_cache_t const * cache,
+                                    fd_stake_history_t *      view );
+
+fd_slot_hashes_t *
+fd_sysvar_cache_slot_hashes_view( fd_sysvar_cache_t const * cache,
+                                  fd_slot_hashes_t *        view );
 
 FD_PROTOTYPES_END
 

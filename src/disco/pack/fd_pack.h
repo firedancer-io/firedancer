@@ -11,12 +11,23 @@
 #include "fd_est_tbl.h"
 #include "fd_microblock.h"
 #include "fd_pack_rebate_sum.h"
+#include "../metrics/generated/fd_metrics_enums.h"
 
 #define FD_PACK_ALIGN     (128UL)
 
-#define FD_PACK_MAX_BANK_TILES 62UL
+#define FD_PACK_MAX_EXECLE_TILES 62UL
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
+
+/* limit_instruction_accounts limits the number of accounts an
+   instruction can reference to 255. Any transactions that violate this
+   limit are invalid and cannot be included in a block.
+
+   To avoid feature-gating Pack, we always throw out transactions that
+   violate this limit.
+
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
+#define FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION (255UL)
 
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
@@ -26,6 +37,9 @@
 
 /* Optionally allow up to 1M shreds per block for benchmarking. */
 #define LARGER_MAX_DATA_PER_BLOCK  (32UL*FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX)
+
+/* Optionally allow a larger limit for benchmarking */
+#define LARGER_MAX_COST_PER_BLOCK (18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND)
 
 /* ---- End consensus-critical constants */
 
@@ -44,9 +58,11 @@
  */
 #define FD_PACK_MAX_TXN_PER_BUNDLE      5UL
 
+#define FD_PACK_ACCT_BLOCKLIST_LG_MAX   4
+#define FD_PACK_ACCT_BLOCKLIST_MAX      (1UL<<FD_PACK_ACCT_BLOCKLIST_LG_MAX)
+
 /* The percentage of the transaction fees that are burned */
 #define FD_PACK_TXN_FEE_BURN_PCT        50UL
-
 
 /* The Solana network and Firedancer implementation details impose
    several limits on what pack can produce.  These limits are grouped in
@@ -64,7 +80,7 @@ struct fd_pack_limits {
      Similarly, a block in where the sum of the cost of all transactions
      that write to a given account exceeds max_write_cost_per_acct is
      invalid. */
-  ulong max_cost_per_block;          /* in [0, ULONG_MAX) */
+  ulong max_cost_per_block;          /* in [0, UINT_MAX) */
   ulong max_vote_cost_per_block;     /* in [0, max_cost_per_block] */
   ulong max_write_cost_per_acct;     /* in [0, max_cost_per_block] */
 
@@ -93,9 +109,88 @@ struct fd_pack_limits {
   ulong max_txn_per_microblock;      /* in [0, 16777216] */
   ulong max_microblocks_per_block;   /* in [0, 1e12) */
 
+  /* max_allocated_data_per_block is a consensus-critical constant that
+     limits the total amount of data that can be allocated by
+     transactions in a block.  This includes new accounts and extending
+     existing accounts.  This limit is not especially well specified,
+     and rarely comes close to being hit in production, so we use a
+     conservative estimate when packing to ensure we never hit it.  It
+     is currently limited to 100 MB, without any features to change it,
+     but we include it here with other limits in case it is change-able
+     in the future. */
+  ulong max_allocated_data_per_block; /* in [1, 100,000,000 ] */
 };
 typedef struct fd_pack_limits fd_pack_limits_t;
 
+/* fd_pack_addr_use_t: Used for three distinct purposes:
+    -  to record that an address is in use and can't be used again until
+         certain microblocks finish execution
+    -  to keep track of the cost of all transactions that write to the
+         specified account.
+    -  to keep track of the write cost for accounts referenced by
+         transactions in a bundle and which transactions use which
+         accounts.
+   Making these separate structs might make it more clear, but then
+   they'd have identical shape and result in several fd_map_dynamic sets
+   of functions with identical code.  It doesn't seem like the compiler
+   is very good at merging code like that, so in order to reduce code
+   bloat, we'll just combine them. */
+struct fd_pack_private_addr_use_record {
+  fd_acct_addr_t key; /* account address */
+  union {
+    ulong          _;
+    ulong          in_use_by;  /* Bitmask indicating which banks */
+    ulong          total_cost; /* In cost units/CUs */
+    struct { uint    carried_cost;   /* In cost units */
+             ushort  ref_cnt;        /* In transactions */
+             ushort  last_use_in; }; /* In transactions */
+  };
+};
+typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
+
+/* The point of this array it to keep a simple heap of the top 5
+   writable accounts by cus in a given slot. The top writers heap is
+   constructed and available at the end of a leader slot, after all CUs
+   have been rebated. */
+#define FD_PACK_TOP_WRITERS_CNT (5UL)
+#define FD_PACK_TOP_WRITERS_SORT_BEFORE(writer1,writer2) ( (memcmp( (writer1).key.b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ) && (writer1).total_cost>(writer2).total_cost) || !memcmp( (writer2).key.b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ))
+
+#define SORT_NAME        fd_pack_writer_cost_sort
+#define SORT_KEY_T       fd_pack_addr_use_t
+#define SORT_BEFORE(a,b) (FD_PACK_TOP_WRITERS_SORT_BEFORE(a,b))
+#define SORT_FN_ATTR     __attribute__((no_sanitize("address", "undefined"))) /* excessive ASan slowdown */
+#include "../../util/tmpl/fd_sort.c"
+
+/* fd_pack_limit_usage_t is used to store the actual per-slot resource
+   utilization.  Each utilization field has a corresponding limit field
+   in fd_pack_limits_t which is greater than or equal to the utilization
+   field. */
+struct fd_pack_limits_usage {
+  ulong block_cost;
+  ulong vote_cost;
+
+  /* Contains the top 5 writers in the block. If there are less than 5
+     writeable accounts, unused slots will have their pubkey zeroed out. */
+  fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
+  ulong block_data_bytes;
+  ulong microblocks;
+  ulong alloc;
+};
+
+typedef struct fd_pack_limits_usage fd_pack_limits_usage_t;
+
+/* fd_pack_smallest: We want to keep track of the smallest transaction
+   in each treap.  That way, if we know the amount of space left in the
+   block is less than the smallest transaction in the heap, we can just
+   skip the heap.  Since transactions can be deleted, etc. maintaining
+   this precisely is hard, but we can maintain a conservative value
+   fairly cheaply.  Since the CU limit or the byte limit can be the one
+   that matters, we keep track of the smallest by both. */
+struct fd_pack_smallest {
+  ulong cus;
+  ulong bytes;
+};
+typedef struct fd_pack_smallest fd_pack_smallest_t;
 
 /* Forward declare opaque handle */
 struct fd_pack_private;
@@ -139,17 +234,25 @@ fd_pack_footprint( ulong                    pack_depth,
    local address space with the required alignment and footprint.
    pack_depth, bundle_meta_sz, bank_tile_cnt, and limits are as above.
    rng is a local join to a random number generator used to perturb
-   estimates.
+   estimates.  acct_blocklist is a list of accounts that cannot be read
+   or written to.  acct_blocklist is accessed acct_blocklist[i] for i in
+   [0, acct_blocklist_cnt).  acct_blocklist==NULL is okay if
+   acct_blocklist_cnt==0.  acct_blocklist_cnt must be no more than
+   FD_PACK_ACCT_BLOCKLIST_MAX.  acct_blocklist must not contain
+   duplicates or the zero address.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
-void * fd_pack_new( void                   * mem,
-                    ulong                    pack_depth,
-                    ulong                    bundle_meta_sz,
-                    ulong                    bank_tile_cnt,
-                    fd_pack_limits_t const * limits,
-                    fd_rng_t               * rng );
+void *
+fd_pack_new( void                   * mem,
+             ulong                    pack_depth,
+             ulong                    bundle_meta_sz,
+             ulong                    bank_tile_cnt,
+             fd_pack_limits_t const * limits,
+             fd_acct_addr_t const *   acct_blocklist,
+             ulong                    acct_blocklist_cnt,
+             fd_rng_t               * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
@@ -163,7 +266,7 @@ fd_pack_t * fd_pack_join( void * mem );
 
 /* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
    in fd_pack.c. */
-#define FD_PACK_PENDING_TXN_CNT_OFF 72
+#define FD_PACK_PENDING_TXN_CNT_OFF 80
 FD_FN_PURE static inline ulong
 fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
@@ -204,6 +307,32 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    the limits, all the remaining microblocks in the block will be empty,
    but the call is valid. */
 void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits );
+
+/* fd_pack_get_block_limits: Copies the currently active pack limits
+   into opt_limits, if opt_limits is not NULL.  Copies the current limit
+   utilization in opt_limits_usage, if opt_limits_usage is not NULL.
+
+   Limit utilization is updated both when each transactions is scheduled
+   and when any used resources are rebated.
+
+   The opt_limits_usage->top_writers field is ignored. */
+void fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits );
+
+/* fd_pack_get_top_writers copies the top FD_PACK_TOP_WRITERS_CNT by
+   writer cost writers into top_writers.  The copied elements will be
+   sorted by writer cost in descending order.
+
+   This should be called at the end of the relevant leader slot right
+   after fd_pack_end_block, otherwise the copied data will be stale. */
+void fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[static FD_PACK_TOP_WRITERS_CNT] );
+
+/* Copies the currently smallest pending,
+   non-conflicting, non-vote transaction into opt_pending_smallest iff
+   it is not NULL and the smallest pending vote into opt_vote_smallest
+   iff it is not NULL.  These values are updates any time a new
+   transaction is inserted into the pending treap, or moved from another
+   treap into the pending treap. */
+void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest, fd_pack_smallest_t * opt_votes_smallest );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
    indicate the transaction was accepted and may be returned in a future
@@ -264,10 +393,14 @@ void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits
     * INVALID_NONCE: the transaction looks like a durable nonce
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
-      account in the bundle blacklist.
+      account in the bundle blacklist, or the bundle contains a vote.
+    * ACCT_BLOCKLIST: the transaction included an account address in the
+      account blocklist.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock
       the exact same durable nonce (nonce account, authority, and block
       hash).
+    * INSTR_ACCT_CNT: the transaction includes an instruction that
+      references too many accounts.
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -290,15 +423,17 @@ void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits
 #define FD_PACK_INSERT_REJECT_WRITES_SYSVAR         (-11)
 #define FD_PACK_INSERT_REJECT_INVALID_NONCE         (-12)
 #define FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST      (-13)
-#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-14)
+#define FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST        (-14)
+#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-15)
+#define FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT        (-16)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 14
-#define FD_PACK_INSERT_RETVAL_CNT 21
+#define FD_PACK_INSERT_RETVAL_OFF 16
+#define FD_PACK_INSERT_RETVAL_CNT 23
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_NONCE_CONFLICT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
@@ -581,7 +716,7 @@ fd_pack_schedule_next_microblock( fd_pack_t  * pack,
                                   float        vote_fraction,
                                   ulong        bank_tile,
                                   int          schedule_flags,
-                                  fd_txn_p_t * out );
+                                  fd_txn_e_t * out );
 
 
 /* fd_pack_rebate_cus adjusts the compute unit accounting for the
@@ -653,6 +788,10 @@ void fd_pack_clear_all( fd_pack_t * pack );
 void
 fd_pack_metrics_write( fd_pack_t const * pack );
 
+/* fd_pack_get_sched_metrics: copies the current
+   FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT counters to metrics */
+void
+fd_pack_get_sched_metrics( fd_pack_t const * pack, ulong * metrics );
 
 /* fd_pack_leave leaves a local join of a pack object.  Returns pack. */
 void * fd_pack_leave(  fd_pack_t * pack );

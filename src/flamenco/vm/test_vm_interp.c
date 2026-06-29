@@ -2,6 +2,10 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
+#include "../runtime/fd_bank.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include <stdlib.h>  /* malloc */
 
 static int
@@ -16,14 +20,17 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
   return 0;
 }
 
-static void
-test_program_success( char *                test_case_name,
+/* Returns the number of instructions executed */
+static ulong
+test_program_exec( char *                   test_case_name,
                       ulong                 expected_result,
+                      int                   expected_err,
+                      ulong                 cu_limit,
+                      ulong                 sbpf_version,
                       ulong const *         text,
                       ulong                 text_cnt,
                       fd_sbpf_syscalls_t *  syscalls,
                       fd_exec_instr_ctx_t * instr_ctx ) {
-//FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
@@ -33,29 +40,31 @@ test_program_success( char *                test_case_name,
   FD_TEST( vm );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,
-      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                             */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata                               */ (uchar *)text,
-      /* rodata_sz                            */ 8UL*text_cnt,
-      /* text                                 */ text,
-      /* text_cnt                             */ text_cnt,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ 8UL*text_cnt,
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ NULL,
-      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls                             */ syscalls,
-      /* trace                                */ NULL,
-      /* sha                                  */ sha,
-      /* mem_regions                          */ NULL,
-      /* mem_regions_cnt                      */ 0UL,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ cu_limit,
+      /* rodata                                 */ (uchar *)text,
+      /* rodata_sz                              */ 8UL*text_cnt,
+      /* text                                   */ text,
+      /* text_cnt                               */ text_cnt,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ 8UL*text_cnt,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ sbpf_version,
+      /* syscalls                               */ syscalls,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ NULL,
+      /* mem_regions_cnt                        */ 0UL,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
 
@@ -74,17 +83,88 @@ test_program_success( char *                test_case_name,
   err = fd_vm_exec( vm );
   dt += fd_log_wallclock();
 
-  if( FD_UNLIKELY( vm->reg[0]!=expected_result ) ) {
-    FD_LOG_WARNING(( "Interp err: %i (%s)",   err,        fd_vm_strerror( err ) ));
-    FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm->reg[0], vm->reg[0]            ));
-    FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm->pc,     vm->pc                ));
-    FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm->ic,     vm->ic                ));
+  if( expected_err!=FD_VM_SUCCESS ) {
+    if( FD_UNLIKELY( err!=expected_err ) ) {
+      FD_LOG_WARNING(( "Expected err %i (%s), got %i (%s)",
+                       expected_err, fd_vm_strerror( expected_err ),
+                       err,          fd_vm_strerror( err ) ));
+    }
+    FD_TEST( err==expected_err );
+    test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+  } else {
+    if( FD_UNLIKELY( vm->reg[0]!=expected_result ) ) {
+      FD_LOG_WARNING(( "Interp err: %i (%s)",   err,        fd_vm_strerror( err ) ));
+      FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm->reg[0], vm->reg[0]            ));
+      FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm->pc,     vm->pc                ));
+      FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm->ic,     vm->ic                ));
+    }
+    FD_TEST( vm->reg[0]==expected_result );
   }
+
 //FD_LOG_NOTICE(( "Instr counter: %lu", vm.ic ));
-  FD_TEST( vm->reg[0]==expected_result );
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
 //FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.ic ));
 //FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.ic / (double) dt)));
+
+  return vm->ic;
+}
+
+
+static int
+test_vm_validate( ulong                 sbpf_version,
+                       ulong const *         text,
+                       ulong                 text_cnt,
+                       fd_sbpf_syscalls_t *  syscalls,
+                       fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+  int ok = !!fd_vm_init(
+      vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+      0UL, NULL, sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      0, 0UL );
+  FD_TEST( ok );
+  vm->pc        = vm->entry_pc;
+  vm->ic        = 0UL;
+  vm->cu        = vm->entry_cu;
+  vm->frame_cnt = 0UL;
+  vm->heap_sz   = 0UL;
+  fd_vm_mem_cfg( vm );
+  return fd_vm_validate( vm );
+}
+
+static void
+test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
+                          fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  ulong text[] = { fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) };
+
+  ulong versions[]    = { FD_SBPF_V0, FD_SBPF_V1, FD_SBPF_V2, FD_SBPF_V3 };
+  ulong expected_sz[] = { FD_VM_STACK_FRAME_SZ, 0UL, 0UL, FD_VM_STACK_FRAME_SZ };
+  ulong expected_ct[] = { 2UL, 0UL, 0UL, 1UL };
+
+  for( ulong i=0; i<4; i++ ) {
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+        (uchar *)text, 8UL, text, 1UL, 0UL, 8UL, 0UL, NULL,
+        versions[i], syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+        0, 0UL ) );
+    FD_TEST( vm->stack_frame_sz==expected_sz[i] );
+    FD_TEST( vm->stack_push_frame_count==expected_ct[i] );
+  }
+
+  FD_LOG_NOTICE(( "%-20s PASS", "stack-frame-cfg" ));
 }
 
 static void
@@ -208,7 +288,7 @@ generate_random_alu64_instrs( fd_rng_t * rng,
    the CU count after the final exit instruction reaches zero. */
 
 static void
-test_0cu_exit( void ) {
+test_0cu_exit( fd_runtime_t * runtime ) {
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
@@ -224,37 +304,40 @@ test_0cu_exit( void ) {
   };
   ulong text_cnt = 3UL;
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
+  static fd_exec_instr_ctx_t instr_ctx[1];
+  static fd_bank_t           bank[1];
+  static fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
 
   int vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,
-      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                             */ text_cnt,
-      /* rodata                               */ (uchar *)text,
-      /* rodata_sz                            */ 8UL*text_cnt,
-      /* text                                 */ text,
-      /* text_cnt                             */ text_cnt,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ 8UL*text_cnt,
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ NULL,
-      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls                             */ NULL,
-      /* trace                                */ NULL,
-      /* sha                                  */ sha,
-      /* mem_regions                          */ NULL,
-      /* mem_regions_cnt                      */ 0UL,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ text_cnt,
+      /* rodata                                 */ (uchar *)text,
+      /* rodata_sz                              */ 8UL*text_cnt,
+      /* text                                   */ text,
+      /* text_cnt                               */ text_cnt,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ 8UL*text_cnt,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                               */ NULL,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ NULL,
+      /* mem_regions_cnt                        */ 0UL,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
 
@@ -265,29 +348,31 @@ test_0cu_exit( void ) {
   /* Ensure the VM exits with failure if CUs are exhausted. */
 
   vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,
-      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                             */ text_cnt - 1UL,
-      /* rodata                               */ (uchar *)text,
-      /* rodata_sz                            */ 8UL*text_cnt,
-      /* text                                 */ text,
-      /* text_cnt                             */ text_cnt,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ 8UL*text_cnt,
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ NULL,
-      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls                             */ NULL,
-      /* trace                                */ NULL,
-      /* sha                                  */ sha,
-      /* mem_regions                          */ NULL,
-      /* mem_regions_cnt                      */ 0UL,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ text_cnt - 1UL,
+      /* rodata                                 */ (uchar *)text,
+      /* rodata_sz                              */ 8UL*text_cnt,
+      /* text                                   */ text,
+      /* text_cnt                               */ text_cnt,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ 8UL*text_cnt,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                               */ NULL,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ NULL,
+      /* mem_regions_cnt                        */ 0UL,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
 
@@ -298,145 +383,76 @@ test_0cu_exit( void ) {
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
-static const uint FD_VM_SBPF_STATIC_SYSCALLS_LIST[] = {
-  0,
-  //  1 = abort
-  0xb6fc1a11,
-  //  2 = sol_panic_
-  0x686093bb,
-  //  3 = sol_memcpy_
-  0x717cc4a3,
-  //  4 = sol_memmove_
-  0x434371f8,
-  //  5 = sol_memset_
-  0x3770fb22,
-  //  6 = sol_memcmp_
-  0x5fdcde31,
-  //  7 = sol_log_
-  0x207559bd,
-  //  8 = sol_log_64_
-  0x5c2a3178,
-  //  9 = sol_log_pubkey
-  0x7ef088ca,
-  // 10 = sol_log_compute_units_
-  0x52ba5096,
-  // 11 = sol_alloc_free_
-  0x83f00e8f,
-  // 12 = sol_invoke_signed_c
-  0xa22b9c85,
-  // 13 = sol_invoke_signed_rust
-  0xd7449092,
-  // 14 = sol_set_return_data
-  0xa226d3eb,
-  // 15 = sol_get_return_data
-  0x5d2245e4,
-  // 16 = sol_log_data
-  0x7317b434,
-  // 17 = sol_sha256
-  0x11f49d86,
-  // 18 = sol_keccak256
-  0xd7793abb,
-  // 19 = sol_secp256k1_recover
-  0x17e40350,
-  // 20 = sol_blake3
-  0x174c5122,
-  // 21 = sol_poseidon
-  0xc4947c21,
-  // 22 = sol_get_processed_sibling_instruction
-  0xadb8efc8,
-  // 23 = sol_get_stack_height
-  0x85532d94,
-  // 24 = sol_curve_validate_point
-  0xaa2607ca,
-  // 25 = sol_curve_group_op
-  0xdd1c41a6,
-  // 26 = sol_curve_multiscalar_mul
-  0x60a40880,
-  // 27 = sol_curve_pairing_map
-  0xf111a47e,
-  // 28 = sol_alt_bn128_group_op
-  0xae0c318b,
-  // 29 = sol_alt_bn128_compression
-  0x334fd5ed,
-  // 30 = sol_big_mod_exp
-  0x780e4c15,
-  // 31 = sol_remaining_compute_units
-  0xedef5aee,
-  // 32 = sol_create_program_address
-  0x9377323c,
-  // 33 = sol_try_find_program_address
-  0x48504a38,
-  // 34 = sol_get_sysvar
-  0x13c1b505,
-  // 35 = sol_get_epoch_stake
-  0x5be92f4a,
-  // 36 = sol_get_clock_sysvar
-  0xd56b5fe9,
-  // 37 = sol_get_epoch_schedule_sysvar
-  0x23a29a61,
-  // 38 = sol_get_last_restart_slot
-  0x188a0031,
-  // 39 = sol_get_epoch_rewards_sysvar
-  0xfdba2b3b,
-  // 40 = sol_get_fees_sysvar
-  0x3b97b73c,
-  // 41 = sol_get_rent_sysvar
-  0xbf7188f6,
-};
-#define FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ (sizeof(FD_VM_SBPF_STATIC_SYSCALLS_LIST) / sizeof(uint))
+static ulong
+build_alu_block( ulong * text,
+                 ulong   n_alu ) {
+  for( ulong i=0UL; i<n_alu; i++ ) text[ i ] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 );
+  text[ n_alu ] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+  return n_alu + 1UL;
+}
+
+static ulong
+build_lddw_block( ulong * text,
+                  ulong   n_lddw ) {
+  for( ulong i=0UL; i<n_lddw; i++ ) {
+    text[ 2UL*i     ] = fd_vm_instr( FD_SBPF_OP_LDDW,     0, 0, 0, 0 );
+    text[ 2UL*i+1UL ] = fd_vm_instr( FD_SBPF_OP_ADDL_IMM, 0, 0, 0, 0 );
+  }
+  text[ 2UL*n_lddw ] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+  return 2UL*n_lddw + 1UL;
+}
+
+/* Tests for the tighter block_text_limit:
+   - If a block fits into the CU budget, it always succeeds. Including
+     when the CU budget is the maximum FD_VM_COMPUTE_UNIT_LIMIT.
+   - A block succeeds when the CU budget is exactly its cost,
+     and fails when the CU budget is one short.
+   - This is the case for LDDW instructions too: each LDDW costs one
+     CU but occupies two text words, so the block_text_limit must be
+     2*(remaining cu budget).
+   - Blocks which have a large amount of instructions but a small amount
+     of remaining CU fail early, instead of scanning to the end. */
 
 static void
-test_static_syscalls_list( void ) {
-  const char *static_syscalls_from_simd[] = {
-    "abort",
-    "sol_panic_",
-    "sol_memcpy_",
-    "sol_memmove_",
-    "sol_memset_",
-    "sol_memcmp_",
-    "sol_log_",
-    "sol_log_64_",
-    "sol_log_pubkey",
-    "sol_log_compute_units_",
-    "sol_alloc_free_",
-    "sol_invoke_signed_c",
-    "sol_invoke_signed_rust",
-    "sol_set_return_data",
-    "sol_get_return_data",
-    "sol_log_data",
-    "sol_sha256",
-    "sol_keccak256",
-    "sol_secp256k1_recover",
-    "sol_blake3",
-    "sol_poseidon",
-    "sol_get_processed_sibling_instruction",
-    "sol_get_stack_height",
-    "sol_curve_validate_point",
-    "sol_curve_group_op",
-    "sol_curve_multiscalar_mul",
-    "sol_curve_pairing_map",
-    "sol_alt_bn128_group_op",
-    "sol_alt_bn128_compression",
-    "sol_big_mod_exp",
-    "sol_remaining_compute_units",
-    "sol_create_program_address",
-    "sol_try_find_program_address",
-    "sol_get_sysvar",
-    "sol_get_epoch_stake",
-    "sol_get_clock_sysvar",
-    "sol_get_epoch_schedule_sysvar",
-    "sol_get_last_restart_slot",
-    "sol_get_epoch_rewards_sysvar",
-    "sol_get_fees_sysvar",
-    "sol_get_rent_sysvar",
-  };
+test_block_text_limit( fd_sbpf_syscalls_t *  syscalls,
+                       fd_exec_instr_ctx_t * instr_ctx ) {
+  static ulong text[ 65536 ];
+  ulong        ver      = TEST_VM_DEFAULT_SBPF_VERSION;
+  ulong        text_cnt = 0UL;
+  ulong        ic       = 0UL;
 
-  FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[0]==0 );
-  for( ulong i=1; i<FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ; i++ ) {
-    const char *name = static_syscalls_from_simd[i-1];
-    uint key = fd_murmur3_32( name, strlen(name), 0 );
-    FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[i]==key );
-  }
+  /* If a block fits into the CU budget, it always succeeds.  Including
+     when the CU budget is the maximum FD_VM_COMPUTE_UNIT_LIMIT. */
+
+  text_cnt = build_alu_block( text, 4999UL ); /* 5000 instructions */
+  test_program_exec( "btl-fits",     0UL, FD_VM_SUCCESS, 5001UL,                   ver, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "btl-fits-max", 0UL, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, ver, text, text_cnt, syscalls, instr_ctx );
+
+  /* A block succeeds when the CU budget is exactly its cost, and fails
+     when the CU budget is one short. */
+
+  ic = test_program_exec( "btl-exact", 0UL, FD_VM_SUCCESS, 5000UL, ver, text, text_cnt, syscalls, instr_ctx );
+  FD_TEST( ic==5000UL );
+  test_program_exec( "btl-short", 0UL, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 4999UL, ver, text, text_cnt, syscalls, instr_ctx );
+
+  /* This is the case for LDDW instructions too: each LDDW costs one CU but
+     occupies two text words, so the block_text_limit must be
+     2*(remaining cu budget). */
+
+  text_cnt = build_lddw_block( text, 4000UL ); /* 4001 instructions, 8001 text words */
+  ic = test_program_exec( "btl-lddw-exact", 0UL, FD_VM_SUCCESS, 4001UL, ver, text, text_cnt, syscalls, instr_ctx );
+  FD_TEST( ic==4001UL );
+  test_program_exec( "btl-lddw-short", 0UL, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 4000UL, ver, text, text_cnt, syscalls, instr_ctx );
+
+  /* Blocks which have a large amount of instructions but a small amount of
+     remaining CU fail early, instead of scanning to the end. */
+
+  text_cnt = build_alu_block( text, 60000UL );
+  ic = test_program_exec( "btl-fail-early", 0UL, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 100UL, ver, text, text_cnt, syscalls, instr_ctx );
+  FD_TEST( ic<=2UL*100UL+2UL ); /* stopped near the limit       */
+  FD_TEST( ic< text_cnt      ); /* did not scan the whole block */
+
+  FD_LOG_NOTICE(( "test_block_text_limit: ok" ));
 }
 
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
@@ -446,19 +462,52 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  FD_TEST( runtime );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
+  static fd_exec_instr_ctx_t instr_ctx[1];
+  static fd_bank_t           bank[1];
+  static fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
-# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
-    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                       \
-    test_program_success( (test_case_name), (expected_result), _text, (text_cnt), syscalls, instr_ctx ); \
+# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do {         \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                               \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, \
+                          TEST_VM_DEFAULT_SBPF_VERSION, _text, (text_cnt), syscalls, instr_ctx ); \
+  } while(0)
+
+# define TEST_V3_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                  \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, \
+                          FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
+  } while(0)
+
+# define TEST_V3_ERROR( test_case_name, expected_err, text_cnt, ... ) do {    \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                \
+    test_program_exec( (test_case_name), 0UL, (expected_err), FD_VM_COMPUTE_UNIT_LIMIT, \
+                          FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
 # define FD_SBPF_INSTR(op, dst, src, off, val) (fd_vm_instr( op, dst, src, off, val ))
@@ -1086,29 +1135,804 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
+  /* SIMD-0178: Static syscalls (SBPF V3+) */
+
+  TEST_V3_SUCCESS("static-syscall", 15, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-syscall-args", 150, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 10),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 20),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 30),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 40),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 50),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-fwd", 42, 4,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           1,   0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,   0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0,  0,   0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,   0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-bwd", 99, 5,
+    FD_SBPF_INSTR(FD_SBPF_OP_JA,        0,          0,     +2, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 99),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, (uint)(int)-3),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-boundary", 55, 5,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 55),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-nested", 42, 8,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-then-external-syscall", 100, 11,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R6, 0,           0, 100),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,           0, 7),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_REG, FD_SBPF_R1, FD_SBPF_R6, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          0,           0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,           0, 0),
+  );
+
+  TEST_V3_ERROR("static-syscall-external-missing", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 0, 0, 0xDEADBEEF),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-syscall-external-zero", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-hi", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 3,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, 100),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-lo", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 3,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, (uint)(int)-10),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-eq", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 4,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, 2), /* target=4==text_cnt */
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-bad-src-2", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 2, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-bad-src-9", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 9, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-stack-ovflw", FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 1, 0, (uint)(int)-1), /* self-call (target=0) */
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  /* SIMD-0377: JMP32 (SBPF V3+)
+     Branch taken -> r0=2, not taken -> r0=1. */
+
+  /* JEQ32 */
+
+  TEST_V3_SUCCESS("jeq32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jeq32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jeq32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jeq32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JGT32 */
+
+  TEST_V3_SUCCESS("jgt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JGE32 */
+
+  TEST_V3_SUCCESS("jge32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JSET32 */
+
+  TEST_V3_SUCCESS("jset32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jset32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jset32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jset32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JNE32 */
+
+  TEST_V3_SUCCESS("jne32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_IMM, FD_SBPF_R1, 0, 1, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jne32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jne32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jne32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JSGT32 */
+
+  TEST_V3_SUCCESS("jsgt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JSGE32 */
+
+  TEST_V3_SUCCESS("jsge32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsge32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsge32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jsge32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JLT32 */
+
+  TEST_V3_SUCCESS("jlt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JLE32 */
+
+  TEST_V3_SUCCESS("jle32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jle32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jle32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jle32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JSLT32 */
+
+  TEST_V3_SUCCESS("jslt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jslt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jslt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jslt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JSLE32 */
+
+  TEST_V3_SUCCESS("jsle32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsle32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsle32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jsle32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JMP32 32-bit truncation: upper 32 bits should be ignored */
+  TEST_V3_SUCCESS("jeq32-trunc-imm", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(0,                     0,          0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jeq32-trunc-reg", 2, 9,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  TEST_V3_SUCCESS("jne32-trunc-reg", 1, 9,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0,          0, 0x42),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 0xDEAD),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R2, 0,          0, 0x42),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 0xBEEF),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  TEST_V3_SUCCESS("jeq32-hi-set-lo0", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(0,                     0,          0, 0, 0xFFFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* JMP32 signed vs unsigned cross-boundary edge cases */
+  TEST_V3_SUCCESS("jgt32-0x80000000", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-0x80000000", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jgt32-0xffffffff", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-neg1-vs-0", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jsgt32-max-vs-min", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-max-vs-min", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jsgt32-neg2-neg1", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-2),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-neg1-neg2", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, (uint)(int)-2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jsge32-min-vs-max", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_IMM, FD_SBPF_R1, 0, 1, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-min-vs-max", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_IMM, FD_SBPF_R1, 0, 1, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jslt32-max-vs-min", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-max-vs-min", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* JSET32 bit-test edge cases */
+  TEST_V3_SUCCESS("jset32-no-overlap", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0xAAAAAAAAU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 0x55555555U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jset32-all-overlap", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 0xFFFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jset32-high-bit", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jset32-upper-only", 1, 9,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,       FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(0,                      0,          0,          0, 0xFFFF0000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,       FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(0,                      0,          0,          0, 0xFFFF0000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JMP32 boundary values */
+  TEST_V3_SUCCESS("jeq32-both-zero", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jeq32-both-max", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 0xFFFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* SIMD-0377: CALLX uses dst register in V3 */
+
+  TEST_V3_SUCCESS("callx-dst-reg", 42, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0, 0, 5*8),
+    FD_SBPF_INSTR(0,                     0,         0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_REG,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* CALLX validation */
+  {
+    ulong vtext_callx_inv[] = {
+      fd_vm_instr( FD_SBPF_OP_CALL_REG, 10, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 ),
+    };
+    FD_TEST( test_vm_validate( FD_SBPF_V3, vtext_callx_inv, 2, syscalls, instr_ctx )==FD_VM_ERR_INVALID_REG );
+    FD_LOG_NOTICE(( "%-20s PASS", "callx-dst-inv-v3" ));
+  }
+
+  {
+    ulong vtext_callx_ok[] = {
+      fd_vm_instr( FD_SBPF_OP_CALL_REG, 9, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,     0, 0, 0, 0 ),
+    };
+    FD_TEST( test_vm_validate( FD_SBPF_V3, vtext_callx_ok, 2, syscalls, instr_ctx )==FD_VM_SUCCESS );
+    FD_LOG_NOTICE(( "%-20s PASS", "callx-dst-max-v3" ));
+  }
+
+  {
+    ulong vtext_jmp32[] = {
+      fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_JEQ32_IMM, 0, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 ),
+    };
+    FD_TEST( test_vm_validate( FD_SBPF_V0, vtext_jmp32, 3, syscalls, instr_ctx )!=FD_VM_SUCCESS );
+    FD_TEST( test_vm_validate( FD_SBPF_V3, vtext_jmp32, 3, syscalls, instr_ctx )==FD_VM_SUCCESS );
+    FD_LOG_NOTICE(( "%-20s PASS", "jmp32-vfy-gate" ));
+  }
+
+  test_stack_configuration( syscalls, instr_ctx );
+
   ulong   text_cnt = 128*1024*1024;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   text_cnt = 1024UL;
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench_short", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, FD_VM_COMPUTE_UNIT_LIMIT, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
-  test_0cu_exit();
+  test_0cu_exit( runtime );
+
+  test_block_text_limit( syscalls, instr_ctx );
 
   free( text );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
-
-  test_static_syscalls_list();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );

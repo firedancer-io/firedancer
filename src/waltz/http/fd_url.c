@@ -1,4 +1,6 @@
 #include "fd_url.h"
+#include "../../util/cstr/fd_cstr.h"
+#include "../../util/log/fd_log.h"
 
 fd_url_t *
 fd_url_parse_cstr( fd_url_t *   const url,
@@ -71,6 +73,56 @@ fd_url_parse_cstr( fd_url_t *   const url,
   return url;
 }
 
+int
+fd_url_parse_endpoint( fd_url_t *   url_,
+                       char const * url_str,
+                       ulong        url_str_len,
+                       ushort *     tcp_port,
+                       _Bool *      is_ssl,
+                       char const * context ) {
+  char const * ctx = context ? context : "URL";
+
+  int url_err[1];
+  fd_url_t * url = fd_url_parse_cstr( url_, url_str, url_str_len, url_err );
+  if( FD_UNLIKELY( !url ) ) {
+    switch( *url_err ) {
+    case FD_URL_ERR_SCHEME:
+      FD_LOG_WARNING(( "Invalid %s `%.*s`: must start with `http://` or `https://`", ctx, (int)url_str_len, url_str ));
+      return -1;
+    case FD_URL_ERR_HOST_OVERSZ:
+      FD_LOG_WARNING(( "Invalid %s `%.*s`: domain name is too long", ctx, (int)url_str_len, url_str ));
+      return -1;
+    case FD_URL_ERR_USERINFO:
+      FD_LOG_WARNING(( "Invalid %s `%.*s`: userinfo is not supported", ctx, (int)url_str_len, url_str ));
+      return -1;
+    default:
+      FD_LOG_WARNING(( "Invalid %s `%.*s`", ctx, (int)url_str_len, url_str ));
+      return -1;
+    }
+  }
+
+  /* fd_url_parse_cstr() already guarantees http:// or https:// */
+  *is_ssl = ( url->scheme_len==8UL );
+
+  *tcp_port = *is_ssl ? 443 : 80;
+  if( url->port_len ) {
+    if( FD_UNLIKELY( url->port_len > 5 ) ) {
+    invalid_port:
+      FD_LOG_WARNING(( "Invalid %s `%.*s`: invalid port number", ctx, (int)url_str_len, url_str ));
+      return -1;
+    }
+
+    char port_cstr[6];
+    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( port_cstr ), url->port, url->port_len ) );
+    ulong port_no = fd_cstr_to_ulong( port_cstr );
+    if( FD_UNLIKELY( !port_no || port_no>USHORT_MAX ) ) goto invalid_port;
+
+    *tcp_port = (ushort)port_no;
+  }
+
+  return 0;
+}
+
 
 static inline int
 fd_hex_unhex( int c ) {
@@ -84,34 +136,18 @@ ulong
 fd_url_unescape( char * const msg,
                  ulong  const len ) {
   char * end = msg+len;
-  int state = 0;
   char * dst = msg;
   for( char * src=msg; src<end; src++ ) {
-    /* invariant: p<=msg */
-    switch( state ) {
-    case 0:
-      if( FD_LIKELY( (*src)!='%' ) ) {
-        *dst = *src;
-        dst++;
-      } else {
-        state = 1;
-      }
-      break;
-    case 1:
-      if( FD_LIKELY( (*src)!='%' ) )  {
-        *dst = (char)( ( fd_hex_unhex( *src )&0xf )<<4 );
-        state = 2;
-      } else {
-        /* FIXME is 'aa%%aa' a valid escape? */
-        *(dst++) = '%';
-        state = 0;
-      }
-      break;
-    case 2:
-      *dst = (char)( (*dst) | ( fd_hex_unhex( *src )&0xf ) );
-      dst++;
-      state = 0;
-      break;
+    /* invariant: dst<=src */
+    if( FD_LIKELY( (*src)!='%' ) ) {
+      *(dst++) = *src;
+    } else {
+      if( FD_UNLIKELY( src+2>=end ) ) return 0UL; /* truncated percent encoding */
+      int hi = fd_hex_unhex( src[1] );
+      int lo = fd_hex_unhex( src[2] );
+      if( FD_UNLIKELY( (hi|lo)<0 ) ) return 0UL; /* invalid hex digit */
+      *(dst++) = (char)( (hi<<4) | lo );
+      src += 2;
     }
   }
   return (ulong)( dst-msg );

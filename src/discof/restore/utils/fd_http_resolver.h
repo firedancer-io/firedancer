@@ -13,9 +13,13 @@ typedef struct fd_http_resolver_private fd_http_resolver_t;
 #define FD_HTTP_RESOLVER_MAGIC (0xF17EDA2CE551170) /* FIREDANCE HTTP RESOLVER V0 */
 
 typedef void
-(* fd_http_resolver_on_resolve_fn_t)( void *              _ctx,
-                                      fd_ip4_port_t       addr,
-                                      fd_ssinfo_t const * ssinfo );
+(* fd_http_resolver_on_resolve_fn_t)( void *                  _ctx,
+                                      fd_sspeer_key_t const * key,
+                                      fd_ip4_port_t           addr,
+                                      ulong                   full_slot,
+                                      ulong                   incr_slot,
+                                      uchar                   full_hash[ FD_HASH_FOOTPRINT ],
+                                      uchar                   incr_hash[ FD_HASH_FOOTPRINT ] );
 
 FD_PROTOTYPES_BEGIN
 
@@ -33,10 +37,16 @@ fd_http_resolver_new( void *                           shmem,
                       void *                           cb_arg );
 
 /* Add a peer to the resolver.  Peers are not de-duplicated and must
-   be unique. */
-void
-fd_http_resolver_add( fd_http_resolver_t * resolver,
-                      fd_ip4_port_t        addr );
+   be unique.  The peer is inserted into the selector with unknown
+   slots and default latency so that subsequent on_resolve updates
+   can find it.  It becomes selectable by best() once resolved.
+   Returns 0 on success, and -1 otherwise. */
+int
+fd_http_resolver_add( fd_http_resolver_t *   resolver,
+                      fd_ip4_port_t          addr,
+                      char const *           hostname,
+                      int                    is_https,
+                      fd_sspeer_selector_t * selector );
 
 fd_http_resolver_t *
 fd_http_resolver_join( void * shresolve );

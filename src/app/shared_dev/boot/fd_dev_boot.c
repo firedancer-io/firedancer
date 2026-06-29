@@ -56,12 +56,29 @@ execve_as_root( int     argc,
 
 config_t config;
 
+void
+fd_global_options_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--config",           "<path>",  "Path to a configuration TOML file" );
+  fd_action_help_arg( help, "--mainnet",          NULL,      "Use Solana mainnet defaults" );
+  fd_action_help_arg( help, "--testnet",          NULL,      "Use Solana testnet defaults" );
+  fd_action_help_arg( help, "--devnet",           NULL,      "Use Solana devnet defaults" );
+  fd_action_help_arg( help, "--mainnet-jito",     NULL,      "Use Solana mainnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--testnet-jito",     NULL,      "Use Solana testnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--log-path",         "<path>",  "Path to write the log file to" );
+  fd_action_help_arg( help, "--log-level-stderr", "<level>", "Minimum log level to print to stderr" );
+  fd_action_help_arg( help, "--no-sandbox",       NULL,      "Disable the security sandbox (development only)" );
+  fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
+  fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
+  fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );
+}
+
 int
 fd_dev_main( int                        argc,
              char **                    _argv,
              int                        is_firedancer,
              fd_config_file_t * const * configs,
              void (* topo_init )( config_t * config ) ) {
+  fd_version_private_boot( &argc, &_argv );
   /* save original arguments list in case we need to respawn the process
      as privileged */
   int    orig_argc = argc;
@@ -90,7 +107,7 @@ fd_dev_main( int                        argc,
   if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--version" ) ) ) {
     action_name = "version";
     argc--; argv++;
-  } else if( FD_LIKELY( argc > 0 && !strcmp( argv[ 0 ], "--help" ) ) ) {
+  } else if( FD_LIKELY( argc > 0 && ( !strcmp( argv[ 0 ], "--help" ) || !strcmp( argv[ 0 ], "-h" ) ) ) ) {
     action_name = "help";
     argc--; argv++;
   } else if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
@@ -115,8 +132,18 @@ fd_dev_main( int                        argc,
     exit( 1 );
   }
 
+  int help_argc = argc; char ** help_argv = argv;
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &help_argc, &help_argv, "--help" ) ||
+                    fd_env_strip_cmdline_contains( &help_argc, &help_argv, "-h"     ) ) ) {
+    fd_action_help_print( action );
+    return 0;
+  }
+
+# if !FD_HAS_ASAN && !FD_HAS_MSAN
   fd_log_enable_signal_handler();
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, topo_init );
+# endif
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, action->is_local_cluster, log_path, configs, 1 /* dev */ );
+  if( FD_LIKELY( load_topo ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
 
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
@@ -127,7 +154,10 @@ fd_dev_main( int                        argc,
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
 
-  if( FD_LIKELY( action->topo ) ) action->topo( &config );
+  if( FD_LIKELY( load_topo ) ) {
+    if( FD_LIKELY( action->topo ) ) action->topo( &config );
+    else                            topo_init( &config );
+  }
 
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );

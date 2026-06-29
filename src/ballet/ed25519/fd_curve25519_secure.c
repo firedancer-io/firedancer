@@ -5,6 +5,7 @@
 #else
 #include "ref/fd_curve25519_secure.c"
 #endif
+#ifndef FD_ED25519_UNIT_TESTS
 
 /* All the functions in this file are considered "secure", specifically:
 
@@ -137,8 +138,10 @@ fd_ed25519_scalar_mul_base_const_time( fd_ed25519_point_t * r,
 
   /* Sanitize */
 
-  fd_memset_explicit( secret_scalar_naf, 0, sizeof(secret_scalar_naf) );
-  fd_memset_explicit( secret_tmp_points, 0, sizeof(secret_tmp_points) );
+  fd_memzero_explicit( secret_scalar_naf, sizeof(secret_scalar_naf) );
+  fd_memzero_explicit( secret_tmp_points, sizeof(secret_tmp_points) );
 
   return r;
 }
+
+#endif

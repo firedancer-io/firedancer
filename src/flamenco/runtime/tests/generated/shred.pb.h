@@ -5,160 +5,214 @@
 #define PB_ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_INCLUDED
 
 #include "../../../../ballet/nanopb/pb_firedancer.h"
+#include "metadata.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+typedef enum fd_exec_test_block_parse_result {
+    FD_EXEC_TEST_BLOCK_PARSE_RESULT_ACCEPTED = 0,
+    FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER = 1
+} fd_exec_test_block_parse_result_t;
+
 /* Struct definitions */
-/* raw bytes to test shred parsing */
-typedef struct fd_exec_test_shred_binary {
-    pb_bytes_array_t *data;
-} fd_exec_test_shred_binary_t;
+/* Any features that needed to be fuzzed should be manually added here.
+Once they're cleaned up / activated on all clusters, they can be
+removed via a reserved tag. */
+typedef struct fd_exec_test_shred_features {
+    bool discard_unexpected_data_complete_shreds;
+} fd_exec_test_shred_features_t;
 
-typedef struct fd_exec_test_data_header {
-    uint32_t parent_off;
-    uint32_t flags;
-    uint32_t size;
-} fd_exec_test_data_header_t;
+typedef struct fd_exec_test_shred_parse_context {
+    /* Raw bytes for each shred. */
+    pb_size_t shreds_count;
+    pb_bytes_array_t **shreds;
+    uint64_t root_slot;
+    uint32_t shred_version;
+    bool has_features;
+    fd_exec_test_shred_features_t features;
+} fd_exec_test_shred_parse_context_t;
 
-typedef struct fd_exec_test_code_header {
-    uint32_t data_cnt;
-    uint32_t code_cnt;
-    uint32_t idx;
-} fd_exec_test_code_header_t;
-
-typedef struct fd_exec_test_parsed_shred {
-    pb_callback_t signature;
-    uint32_t variant;
+typedef struct fd_exec_test_fec_set_parse_result {
+    /* Did the FEC set complete? */
+    bool completed;
+    /* Merkle root if completed. Exactly 32 bytes. */
+    pb_byte_t merkle_root[32];
+    /* Chained merkle root, if completed. Exactly 32 bytes. */
+    pb_byte_t chained_merkle_root[32];
+    /* Concatenated data shred payloads if completed. */
+    pb_bytes_array_t *payload;
+    /* Parsed header fields from shred */
     uint64_t slot;
-    uint32_t idx;
-    uint32_t version;
-    uint32_t fec_set_idx;
-    pb_size_t which_shred_type;
-    union {
-        fd_exec_test_data_header_t data;
-        fd_exec_test_code_header_t code;
-    } shred_type;
-} fd_exec_test_parsed_shred_t;
+    uint32_t fec_set_index;
+    uint32_t parent_offset;
+    uint32_t shred_version;
+    uint32_t num_data_shreds;
+    uint32_t num_coding_shreds;
+} fd_exec_test_fec_set_parse_result_t;
 
-/* If shred is accepted after parseing. This is all we are interested in
- between Firedancer and Agave. */
-typedef struct fd_exec_test_accepts_shred {
-    bool valid;
-} fd_exec_test_accepts_shred_t;
+typedef struct fd_exec_test_shred_parse_effects {
+    /* Did any part of the pipeline reject the block? */
+    fd_exec_test_block_parse_result_t block_parse_result;
+    /* Parsing results for each shred */
+    pb_size_t shred_results_count;
+    bool *shred_results;
+    /* Parsing results for each FEC set */
+    pb_size_t fec_set_results_count;
+    struct fd_exec_test_fec_set_parse_result *fec_set_results;
+} fd_exec_test_shred_parse_effects_t;
+
+typedef struct fd_exec_test_shred_parse_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
+    bool has_input;
+    fd_exec_test_shred_parse_context_t input;
+    bool has_output;
+    fd_exec_test_shred_parse_effects_t output;
+} fd_exec_test_shred_parse_fixture_t;
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _FD_EXEC_TEST_BLOCK_PARSE_RESULT_MIN FD_EXEC_TEST_BLOCK_PARSE_RESULT_ACCEPTED
+#define _FD_EXEC_TEST_BLOCK_PARSE_RESULT_MAX FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER
+#define _FD_EXEC_TEST_BLOCK_PARSE_RESULT_ARRAYSIZE ((fd_exec_test_block_parse_result_t)(FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER+1))
+
+
+
+
+#define fd_exec_test_shred_parse_effects_t_block_parse_result_ENUMTYPE fd_exec_test_block_parse_result_t
+
+
+
 /* Initializer values for message structs */
-#define FD_EXEC_TEST_SHRED_BINARY_INIT_DEFAULT   {NULL}
-#define FD_EXEC_TEST_DATA_HEADER_INIT_DEFAULT    {0, 0, 0}
-#define FD_EXEC_TEST_CODE_HEADER_INIT_DEFAULT    {0, 0, 0}
-#define FD_EXEC_TEST_PARSED_SHRED_INIT_DEFAULT   {{{NULL}, NULL}, 0, 0, 0, 0, 0, 0, {FD_EXEC_TEST_DATA_HEADER_INIT_DEFAULT}}
-#define FD_EXEC_TEST_ACCEPTS_SHRED_INIT_DEFAULT  {0}
-#define FD_EXEC_TEST_SHRED_BINARY_INIT_ZERO      {NULL}
-#define FD_EXEC_TEST_DATA_HEADER_INIT_ZERO       {0, 0, 0}
-#define FD_EXEC_TEST_CODE_HEADER_INIT_ZERO       {0, 0, 0}
-#define FD_EXEC_TEST_PARSED_SHRED_INIT_ZERO      {{{NULL}, NULL}, 0, 0, 0, 0, 0, 0, {FD_EXEC_TEST_DATA_HEADER_INIT_ZERO}}
-#define FD_EXEC_TEST_ACCEPTS_SHRED_INIT_ZERO     {0}
+#define FD_EXEC_TEST_SHRED_FEATURES_INIT_DEFAULT {0}
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_DEFAULT {0, NULL, 0, 0, false, FD_EXEC_TEST_SHRED_FEATURES_INIT_DEFAULT}
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_DEFAULT {0, {0}, {0}, NULL, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_DEFAULT {_FD_EXEC_TEST_BLOCK_PARSE_RESULT_MIN, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_SHRED_FEATURES_INIT_ZERO    {0}
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_ZERO {0, NULL, 0, 0, false, FD_EXEC_TEST_SHRED_FEATURES_INIT_ZERO}
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_ZERO {0, {0}, {0}, NULL, 0, 0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_ZERO {_FD_EXEC_TEST_BLOCK_PARSE_RESULT_MIN, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
-#define FD_EXEC_TEST_SHRED_BINARY_DATA_TAG       1
-#define FD_EXEC_TEST_DATA_HEADER_PARENT_OFF_TAG  1
-#define FD_EXEC_TEST_DATA_HEADER_FLAGS_TAG       2
-#define FD_EXEC_TEST_DATA_HEADER_SIZE_TAG        3
-#define FD_EXEC_TEST_CODE_HEADER_DATA_CNT_TAG    1
-#define FD_EXEC_TEST_CODE_HEADER_CODE_CNT_TAG    2
-#define FD_EXEC_TEST_CODE_HEADER_IDX_TAG         3
-#define FD_EXEC_TEST_PARSED_SHRED_SIGNATURE_TAG  1
-#define FD_EXEC_TEST_PARSED_SHRED_VARIANT_TAG    2
-#define FD_EXEC_TEST_PARSED_SHRED_SLOT_TAG       3
-#define FD_EXEC_TEST_PARSED_SHRED_IDX_TAG        4
-#define FD_EXEC_TEST_PARSED_SHRED_VERSION_TAG    5
-#define FD_EXEC_TEST_PARSED_SHRED_FEC_SET_IDX_TAG 6
-#define FD_EXEC_TEST_PARSED_SHRED_DATA_TAG       7
-#define FD_EXEC_TEST_PARSED_SHRED_CODE_TAG       8
-#define FD_EXEC_TEST_ACCEPTS_SHRED_VALID_TAG     1
+#define FD_EXEC_TEST_SHRED_FEATURES_DISCARD_UNEXPECTED_DATA_COMPLETE_SHREDS_TAG 1
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_SHREDS_TAG 1
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_ROOT_SLOT_TAG 2
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_SHRED_VERSION_TAG 3
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_FEATURES_TAG 4
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_COMPLETED_TAG 1
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_MERKLE_ROOT_TAG 2
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_CHAINED_MERKLE_ROOT_TAG 3
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_PAYLOAD_TAG 4
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_SLOT_TAG 5
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_FEC_SET_INDEX_TAG 6
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_PARENT_OFFSET_TAG 7
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_SHRED_VERSION_TAG 8
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_NUM_DATA_SHREDS_TAG 9
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_NUM_CODING_SHREDS_TAG 10
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_BLOCK_PARSE_RESULT_TAG 1
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_SHRED_RESULTS_TAG 2
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_FEC_SET_RESULTS_TAG 3
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_METADATA_TAG 1
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INPUT_TAG 2
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_OUTPUT_TAG 3
 
 /* Struct field encoding specification for nanopb */
-#define FD_EXEC_TEST_SHRED_BINARY_FIELDLIST(X, a) \
-X(a, POINTER,  SINGULAR, BYTES,    data,              1)
-#define FD_EXEC_TEST_SHRED_BINARY_CALLBACK NULL
-#define FD_EXEC_TEST_SHRED_BINARY_DEFAULT NULL
+#define FD_EXEC_TEST_SHRED_FEATURES_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     discard_unexpected_data_complete_shreds,   1)
+#define FD_EXEC_TEST_SHRED_FEATURES_CALLBACK NULL
+#define FD_EXEC_TEST_SHRED_FEATURES_DEFAULT NULL
 
-#define FD_EXEC_TEST_DATA_HEADER_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT32,   parent_off,        1) \
-X(a, STATIC,   SINGULAR, UINT32,   flags,             2) \
-X(a, STATIC,   SINGULAR, UINT32,   size,              3)
-#define FD_EXEC_TEST_DATA_HEADER_CALLBACK NULL
-#define FD_EXEC_TEST_DATA_HEADER_DEFAULT NULL
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_FIELDLIST(X, a) \
+X(a, POINTER,  REPEATED, BYTES,    shreds,            1) \
+X(a, STATIC,   SINGULAR, UINT64,   root_slot,         2) \
+X(a, STATIC,   SINGULAR, UINT32,   shred_version,     3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  features,          4)
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_CALLBACK NULL
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_DEFAULT NULL
+#define fd_exec_test_shred_parse_context_t_features_MSGTYPE fd_exec_test_shred_features_t
 
-#define FD_EXEC_TEST_CODE_HEADER_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT32,   data_cnt,          1) \
-X(a, STATIC,   SINGULAR, UINT32,   code_cnt,          2) \
-X(a, STATIC,   SINGULAR, UINT32,   idx,               3)
-#define FD_EXEC_TEST_CODE_HEADER_CALLBACK NULL
-#define FD_EXEC_TEST_CODE_HEADER_DEFAULT NULL
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     completed,         1) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, merkle_root,       2) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, chained_merkle_root,   3) \
+X(a, POINTER,  SINGULAR, BYTES,    payload,           4) \
+X(a, STATIC,   SINGULAR, UINT64,   slot,              5) \
+X(a, STATIC,   SINGULAR, UINT32,   fec_set_index,     6) \
+X(a, STATIC,   SINGULAR, UINT32,   parent_offset,     7) \
+X(a, STATIC,   SINGULAR, UINT32,   shred_version,     8) \
+X(a, STATIC,   SINGULAR, UINT32,   num_data_shreds,   9) \
+X(a, STATIC,   SINGULAR, UINT32,   num_coding_shreds,  10)
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_CALLBACK NULL
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_DEFAULT NULL
 
-#define FD_EXEC_TEST_PARSED_SHRED_FIELDLIST(X, a) \
-X(a, CALLBACK, SINGULAR, STRING,   signature,         1) \
-X(a, STATIC,   SINGULAR, UINT32,   variant,           2) \
-X(a, STATIC,   SINGULAR, UINT64,   slot,              3) \
-X(a, STATIC,   SINGULAR, UINT32,   idx,               4) \
-X(a, STATIC,   SINGULAR, UINT32,   version,           5) \
-X(a, STATIC,   SINGULAR, UINT32,   fec_set_idx,       6) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (shred_type,data,shred_type.data),   7) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (shred_type,code,shred_type.code),   8)
-#define FD_EXEC_TEST_PARSED_SHRED_CALLBACK pb_default_field_callback
-#define FD_EXEC_TEST_PARSED_SHRED_DEFAULT NULL
-#define fd_exec_test_parsed_shred_t_shred_type_data_MSGTYPE fd_exec_test_data_header_t
-#define fd_exec_test_parsed_shred_t_shred_type_code_MSGTYPE fd_exec_test_code_header_t
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    block_parse_result,   1) \
+X(a, POINTER,  REPEATED, BOOL,     shred_results,     2) \
+X(a, POINTER,  REPEATED, MESSAGE,  fec_set_results,   3)
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_CALLBACK NULL
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_DEFAULT NULL
+#define fd_exec_test_shred_parse_effects_t_fec_set_results_MSGTYPE fd_exec_test_fec_set_parse_result_t
 
-#define FD_EXEC_TEST_ACCEPTS_SHRED_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, BOOL,     valid,             1)
-#define FD_EXEC_TEST_ACCEPTS_SHRED_CALLBACK NULL
-#define FD_EXEC_TEST_ACCEPTS_SHRED_DEFAULT NULL
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_CALLBACK NULL
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_DEFAULT NULL
+#define fd_exec_test_shred_parse_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
+#define fd_exec_test_shred_parse_fixture_t_input_MSGTYPE fd_exec_test_shred_parse_context_t
+#define fd_exec_test_shred_parse_fixture_t_output_MSGTYPE fd_exec_test_shred_parse_effects_t
 
-extern const pb_msgdesc_t fd_exec_test_shred_binary_t_msg;
-extern const pb_msgdesc_t fd_exec_test_data_header_t_msg;
-extern const pb_msgdesc_t fd_exec_test_code_header_t_msg;
-extern const pb_msgdesc_t fd_exec_test_parsed_shred_t_msg;
-extern const pb_msgdesc_t fd_exec_test_accepts_shred_t_msg;
+extern const pb_msgdesc_t fd_exec_test_shred_features_t_msg;
+extern const pb_msgdesc_t fd_exec_test_shred_parse_context_t_msg;
+extern const pb_msgdesc_t fd_exec_test_fec_set_parse_result_t_msg;
+extern const pb_msgdesc_t fd_exec_test_shred_parse_effects_t_msg;
+extern const pb_msgdesc_t fd_exec_test_shred_parse_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
-#define FD_EXEC_TEST_SHRED_BINARY_FIELDS &fd_exec_test_shred_binary_t_msg
-#define FD_EXEC_TEST_DATA_HEADER_FIELDS &fd_exec_test_data_header_t_msg
-#define FD_EXEC_TEST_CODE_HEADER_FIELDS &fd_exec_test_code_header_t_msg
-#define FD_EXEC_TEST_PARSED_SHRED_FIELDS &fd_exec_test_parsed_shred_t_msg
-#define FD_EXEC_TEST_ACCEPTS_SHRED_FIELDS &fd_exec_test_accepts_shred_t_msg
+#define FD_EXEC_TEST_SHRED_FEATURES_FIELDS &fd_exec_test_shred_features_t_msg
+#define FD_EXEC_TEST_SHRED_PARSE_CONTEXT_FIELDS &fd_exec_test_shred_parse_context_t_msg
+#define FD_EXEC_TEST_FEC_SET_PARSE_RESULT_FIELDS &fd_exec_test_fec_set_parse_result_t_msg
+#define FD_EXEC_TEST_SHRED_PARSE_EFFECTS_FIELDS &fd_exec_test_shred_parse_effects_t_msg
+#define FD_EXEC_TEST_SHRED_PARSE_FIXTURE_FIELDS &fd_exec_test_shred_parse_fixture_t_msg
 
 /* Maximum encoded size of messages (where known) */
-/* fd_exec_test_ShredBinary_size depends on runtime parameters */
-/* fd_exec_test_ParsedShred_size depends on runtime parameters */
-#define FD_EXEC_TEST_ACCEPTS_SHRED_SIZE          2
-#define FD_EXEC_TEST_CODE_HEADER_SIZE            18
-#define FD_EXEC_TEST_DATA_HEADER_SIZE            18
-#define ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_MAX_SIZE FD_EXEC_TEST_DATA_HEADER_SIZE
+/* fd_exec_test_ShredParseContext_size depends on runtime parameters */
+/* fd_exec_test_FECSetParseResult_size depends on runtime parameters */
+/* fd_exec_test_ShredParseEffects_size depends on runtime parameters */
+/* fd_exec_test_ShredParseFixture_size depends on runtime parameters */
+#define FD_EXEC_TEST_SHRED_FEATURES_SIZE         2
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PB_H_MAX_SIZE FD_EXEC_TEST_SHRED_FEATURES_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
-#define org_solana_sealevel_v1_ShredBinary fd_exec_test_ShredBinary
-#define org_solana_sealevel_v1_DataHeader fd_exec_test_DataHeader
-#define org_solana_sealevel_v1_CodeHeader fd_exec_test_CodeHeader
-#define org_solana_sealevel_v1_ParsedShred fd_exec_test_ParsedShred
-#define org_solana_sealevel_v1_AcceptsShred fd_exec_test_AcceptsShred
-#define ORG_SOLANA_SEALEVEL_V1_SHRED_BINARY_INIT_DEFAULT FD_EXEC_TEST_SHRED_BINARY_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_DATA_HEADER_INIT_DEFAULT FD_EXEC_TEST_DATA_HEADER_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_CODE_HEADER_INIT_DEFAULT FD_EXEC_TEST_CODE_HEADER_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_PARSED_SHRED_INIT_DEFAULT FD_EXEC_TEST_PARSED_SHRED_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_ACCEPTS_SHRED_INIT_DEFAULT FD_EXEC_TEST_ACCEPTS_SHRED_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_SHRED_BINARY_INIT_ZERO FD_EXEC_TEST_SHRED_BINARY_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_DATA_HEADER_INIT_ZERO FD_EXEC_TEST_DATA_HEADER_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_CODE_HEADER_INIT_ZERO FD_EXEC_TEST_CODE_HEADER_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_PARSED_SHRED_INIT_ZERO FD_EXEC_TEST_PARSED_SHRED_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_ACCEPTS_SHRED_INIT_ZERO FD_EXEC_TEST_ACCEPTS_SHRED_INIT_ZERO
+#define org_solana_sealevel_v1_BlockParseResult fd_exec_test_BlockParseResult
+#define org_solana_sealevel_v1_ShredFeatures fd_exec_test_ShredFeatures
+#define org_solana_sealevel_v1_ShredParseContext fd_exec_test_ShredParseContext
+#define org_solana_sealevel_v1_FECSetParseResult fd_exec_test_FECSetParseResult
+#define org_solana_sealevel_v1_ShredParseEffects fd_exec_test_ShredParseEffects
+#define org_solana_sealevel_v1_ShredParseFixture fd_exec_test_ShredParseFixture
+#define _ORG_SOLANA_SEALEVEL_V1_BLOCK_PARSE_RESULT_MIN _FD_EXEC_TEST_BLOCK_PARSE_RESULT_MIN
+#define _ORG_SOLANA_SEALEVEL_V1_BLOCK_PARSE_RESULT_MAX _FD_EXEC_TEST_BLOCK_PARSE_RESULT_MAX
+#define _ORG_SOLANA_SEALEVEL_V1_BLOCK_PARSE_RESULT_ARRAYSIZE _FD_EXEC_TEST_BLOCK_PARSE_RESULT_ARRAYSIZE
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_FEATURES_INIT_DEFAULT FD_EXEC_TEST_SHRED_FEATURES_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PARSE_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_FEC_SET_PARSE_RESULT_INIT_DEFAULT FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PARSE_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PARSE_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_FEATURES_INIT_ZERO FD_EXEC_TEST_SHRED_FEATURES_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PARSE_CONTEXT_INIT_ZERO FD_EXEC_TEST_SHRED_PARSE_CONTEXT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_FEC_SET_PARSE_RESULT_INIT_ZERO FD_EXEC_TEST_FEC_SET_PARSE_RESULT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PARSE_EFFECTS_INIT_ZERO FD_EXEC_TEST_SHRED_PARSE_EFFECTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_SHRED_PARSE_FIXTURE_INIT_ZERO FD_EXEC_TEST_SHRED_PARSE_FIXTURE_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -2,12 +2,15 @@
 #ifndef HEADER_fd_src_app_shared_commands_monitor_generated_monitor_seccomp_h
 #define HEADER_fd_src_app_shared_commands_monitor_generated_monitor_seccomp_h
 
+#if defined(__linux__)
+
 #include "../../../../../../src/util/fd_util_base.h"
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <linux/bpf.h>
+#include <linux/unistd.h>
 #include <sys/syscall.h>
 #include <signal.h>
 #include <stddef.h>
@@ -21,86 +24,101 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_monitor_instr_cnt = 36;
 
-static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int drain_output_fd ) {
-  FD_TEST( out_cnt >= 36 );
-  struct sock_filter filter[36] = {
-    /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 32 ),
-    /* loading syscall number in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
-    /* allow write based on expression */
+#define FD_SECCOMP_ARG_LO_OFFSET(argno) ( offsetof( struct seccomp_data, args[(argno)] ) )
+#define FD_SECCOMP_ARG_HI_OFFSET(argno) ( offsetof( struct seccomp_data, args[(argno)] ) + 4U )
+
+#define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
+#define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
+
+static const uint sock_filter_policy_monitor_instr_cnt = 39;
+
+static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filter out[ static 39 ], uint logfile_fd, uint drain_output_fd ) {
+  FD_TEST( out_cnt >= 39 );
+  struct sock_filter filter[39] = {
+    /* validate architecture */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 8 ),
+    /* load syscall number */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) )),
+    /* check write */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 8, 0 ),
-    /* allow fsync based on expression */
+    /* check fsync */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 13, 0 ),
-    /* simply allow nanosleep */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_nanosleep, /* RET_ALLOW */ 29, 0 ),
-    /* simply allow sched_yield */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sched_yield, /* RET_ALLOW */ 28, 0 ),
-    /* simply allow exit_group */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit_group, /* RET_ALLOW */ 27, 0 ),
-    /* allow read based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 11, 0 ),
-    /* allow ioctl based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, /* check_ioctl */ 14, 0 ),
-    /* allow pselect6 based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pselect6, /* check_pselect6 */ 19, 0 ),
-    /* none of the syscalls matched */
-    { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 22 },
-//  check_write:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 1, /* RET_ALLOW */ 21, /* lbl_1 */ 0 ),
-//  lbl_1:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 19, /* lbl_2 */ 0 ),
-//  lbl_2:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 17, /* RET_KILL_PROCESS */ 16 ),
-//  check_fsync:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 15, /* RET_KILL_PROCESS */ 14 ),
-//  check_read:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, drain_output_fd, /* RET_ALLOW */ 13, /* lbl_3 */ 0 ),
-//  lbl_3:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 11, /* RET_KILL_PROCESS */ 10 ),
-//  check_ioctl:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* lbl_4 */ 0, /* RET_KILL_PROCESS */ 8 ),
-//  lbl_4:
-    /* load syscall argument 1 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, TCGETS, /* RET_ALLOW */ 7, /* lbl_5 */ 0 ),
-//  lbl_5:
-    /* load syscall argument 1 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, TCSETS, /* RET_ALLOW */ 5, /* RET_KILL_PROCESS */ 4 ),
-//  check_pselect6:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 1, /* lbl_6 */ 0, /* RET_KILL_PROCESS */ 2 ),
-//  lbl_6:
-    /* load syscall argument 2 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
+    /* allow nanosleep */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_nanosleep, /* RET_ALLOW */ 5, 0 ),
+    /* allow sched_yield */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sched_yield, /* RET_ALLOW */ 4, 0 ),
+    /* allow exit_group */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit_group, /* RET_ALLOW */ 3, 0 ),
+    /* check read */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 13, 0 ),
+    /* check ioctl */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, /* check_ioctl */ 17, 0 ),
 //  RET_KILL_PROCESS:
-    /* KILL_PROCESS is placed before ALLOW since it's the fallthrough case. */
+    /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  RET_ALLOW:
-    /* ALLOW has to be reached by jumping */
+    /* allow */
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_write:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000001U, /* write_ALLOW */ 3, /* or_eq_next_lo_1 */ 0 ),
+//  or_eq_next_lo_1:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 2, /* or_eq_next_lo_2 */ 0 ),
+//  or_eq_next_lo_2:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
+//  write_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  write_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_fsync:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* fsync_ALLOW */ 1, /* fsync_KILL */ 0 ),
+//  fsync_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  fsync_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_read:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(drain_output_fd)), /* read_ALLOW */ 2, /* or_eq_next_lo_3 */ 0 ),
+//  or_eq_next_lo_3:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* read_ALLOW */ 1, /* read_KILL */ 0 ),
+//  read_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  read_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_ioctl:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* and_4 */ 0, /* ioctl_KILL */ 8 ),
+//  and_4:
+    /* arg 1 high 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_HI_OFFSET(1)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_HI(TCGETS), /* or_eq_hi_6 */ 0, /* or_eq_next_hi_5 */ 2 ),
+//  or_eq_hi_6:
+    /* arg 1 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(TCGETS), /* ioctl_ALLOW */ 5, /* or_eq_next_hi_5 */ 0 ),
+//  or_eq_next_hi_5:
+    /* arg 1 high 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_HI_OFFSET(1)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_HI(TCSETS), /* or_eq_hi_7 */ 0, /* ioctl_KILL */ 2 ),
+//  or_eq_hi_7:
+    /* arg 1 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(TCSETS), /* ioctl_ALLOW */ 1, /* ioctl_KILL */ 0 ),
+//  ioctl_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  ioctl_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
   };
   fd_memcpy( out, filter, sizeof( filter ) );
 }
 
-#endif
+#endif /* defined(__linux__) */
+
+#endif /* HEADER_fd_src_app_shared_commands_monitor_generated_monitor_seccomp_h */

@@ -17,9 +17,9 @@ jobs:
       name: coverage-report
       url: ${{ vars.COVERAGE_URL }}
     steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:
@@ -29,8 +29,6 @@ jobs:
         with:
           count_gigantic: 60
           count_huge: 100 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
-
-      - uses: dtolnay/rust-toolchain@1.73.0
 
       - name: Generate all coverage
         run: |
@@ -52,14 +50,3 @@ jobs:
         run: |
           gcloud storage rm -r ${{ vars.COVERAGE_BUCKET }}/ || true
           gcloud storage cp -r ./build/cov/html/* ${{ vars.COVERAGE_BUCKET }}/
-
-      - name: Upload coverage report to CodeCov
-        uses: codecov/codecov-action@v5
-        timeout-minutes: 5
-        with:
-          files: build/cov/cov.lcov
-          name: dist-cov-report
-          fail_ci_if_error: false
-          functionalities: search
-          flags: ci
-          token: ${{ secrets.CODECOV_TOKEN }}

@@ -27,6 +27,8 @@ typedef struct {
   ulong _txn_idx;
   int _is_bundle;
 
+  fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
+
   ulong * busy_fseq;
 
   fd_wksp_t * pack_in_mem;
@@ -44,6 +46,8 @@ typedef struct {
   ulong       rebate_chunk;
   ulong       rebates_for_slot;
   fd_pack_rebate_sum_t rebater[ 1 ];
+
+  float ns_per_tick;
 
   struct {
     ulong txn_load_address_lookup_tables[ 6 ];
@@ -68,19 +72,21 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, FD_BANK_ABI_TXN_ALIGN, FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR_MAX );
+  l = FD_LAYOUT_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR_MAX );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_RESULT,  ctx->metrics.transaction_result );
+  FD_MCNT_ENUM_COPY( BANK, TXN_LOAD_ADDRESS_TABLE, ctx->metrics.txn_load_address_lookup_tables );
+  FD_MCNT_ENUM_COPY( BANK, TXN_RESULT,  ctx->metrics.transaction_result );
 
-  FD_MCNT_SET( BANK, PROCESSING_FAILED,            ctx->metrics.processing_failed );
-  FD_MCNT_SET( BANK, FEE_ONLY_TRANSACTIONS,        ctx->metrics.fee_only          );
-  FD_MCNT_SET( BANK, EXECUTED_FAILED_TRANSACTIONS, ctx->metrics.exec_failed       );
-  FD_MCNT_SET( BANK, SUCCESSFUL_TRANSACTIONS,      ctx->metrics.success           );
+  FD_MCNT_SET( BANK, TXN_PROCESSING_FAILED,        ctx->metrics.processing_failed );
+  FD_MCNT_SET( BANK, TXN_FEE_ONLY,                 ctx->metrics.fee_only          );
+  ulong txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_CNT ];
+  txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_SUCCESS_IDX ] = ctx->metrics.success;
+  txn_executed[ FD_METRICS_ENUM_TXN_EXECUTE_RESULT_V_FAILED_IDX  ] = ctx->metrics.exec_failed;
+  FD_MCNT_ENUM_COPY( BANK, TXN_EXECUTED, txn_executed );
 }
 
 static int
@@ -94,14 +100,14 @@ before_frag( fd_bank_ctx_t * ctx,
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
 
-  ulong target_bank_idx = fd_disco_poh_sig_bank_tile( sig );
+  ulong target_bank_idx = fd_disco_poh_sig_execle_tile( sig );
   if( FD_UNLIKELY( target_bank_idx!=ctx->kind_id ) ) return 1;
 
   return 0;
 }
 
-extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
+extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips, int * remove_simple_vote_from_cost_model );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips, int * remove_simple_vote_from_cost_model );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 
@@ -120,8 +126,19 @@ during_frag( fd_bank_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
 
-  fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
-  fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
+  /* Pack sends fd_txn_e_t (with ALT accounts), but PoH expects fd_txn_p_t.
+     We copy the fd_txn_p_t portion to the PoH output buffer, and copy the
+     ALT accounts to the tile context for rebates. */
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+  fd_txn_e_t const * src_txn_e = (fd_txn_e_t const *)src;
+  fd_txn_p_t       * dst_txn_p = (fd_txn_p_t       *)dst;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_memcpy( dst_txn_p + i, src_txn_e[i].txnp, sizeof(fd_txn_p_t) );
+    ulong alt_cnt = fd_ulong_min( (ulong)TXN(src_txn_e[i].txnp)->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
+    fd_memcpy( ctx->_alt_accts[i], src_txn_e[i].alt_accts, alt_cnt * sizeof(fd_acct_addr_t) );
+  }
+
+  fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank = trailer->bank;
   ctx->_pack_idx = trailer->pack_idx;
   ctx->_txn_idx = trailer->pack_txn_idx;
@@ -145,8 +162,14 @@ hash_transactions( void *       mem,
       fd_bmtree_commit_append( bmtree, node, 1UL );
     }
   }
-  uchar * root = fd_bmtree_commit_fini( bmtree );
-  fd_memcpy( mixin, root, 32UL );
+  if( FD_LIKELY( fd_bmtree_commit_leaf_cnt( bmtree ) ) ) {
+    uchar * root = fd_bmtree_commit_fini( bmtree );
+    fd_memcpy( mixin, root, 32UL );
+  } else {
+    fd_memset( mixin, 0, 32UL );
+    /* Poison so we can detect if this is ever accessed upstream, even though it should never be. */
+    fd_msan_poison( mixin, 32UL );
+  }
 }
 
 static inline void
@@ -159,9 +182,16 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  /* Use ALT accounts copied to context for rebates. These were resolved
+     by resolv_tile and are needed because the LUT may be deactivated by
+     the time we get here. Execution still uses the bank's current view
+     of the LUT via fd_bank_abi_txn_init. */
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    writable_alt[i] = ctx->_alt_accts[i];
+  }
 
   ulong sanitized_txn_cnt = 0UL;
   ulong sidecar_footprint_bytes = 0UL;
@@ -173,10 +203,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[ result ]++;
+    ctx->metrics.txn_load_address_lookup_tables[ (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LOAD_ADDRESS_TABLE_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) continue;
 
-    writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     fd_txn_t * txn1 = TXN(txn);
@@ -192,6 +221,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uint consumed_acct_data_cus[   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps       [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_tips             [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int   remove_simple_vote_from_cost_model = 0;
 
   void * load_and_execute_output = fd_ext_bank_load_and_execute_txns( ctx->_bank,
                                                                       ctx->txn_abi_mem,
@@ -201,9 +231,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       consumed_exec_cus,
                                                                       consumed_acct_data_cus,
                                                                       out_timestamps,
-                                                                      out_tips );
+                                                                      out_tips,
+                                                                      &remove_simple_vote_from_cost_model );
 
   ulong sanitized_idx = 0UL;
+  int skip_commit = 0;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
@@ -212,8 +244,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     /* Assume failure, set below if success.  If it doesn't land cin the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.actual_consumed_cus = 0U;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+    txn->execle_cu.actual_consumed_cus = 0U;
+    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
@@ -225,28 +257,50 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     ctx->metrics.transaction_result[ transaction_err   [ sanitized_idx-1UL ] ]++;
 
     ctx->metrics.processing_failed += (ulong)(processing_results[ sanitized_idx-1UL ]==0                         );
-    ctx->metrics.fee_only          += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_LANDED) ) ) continue;
 
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
-    int is_simple_vote = 0;
-    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      /* Simple votes are charged fixed amounts of compute regardless of
-      the real cost they incur.  fd_ext_bank_load_and_execute_txns
-      returns the real cost, however, so we override it here. */
-      actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      actual_acct_data_cus = 0U;
+
+    /* Check for FeesOnly transactions where actual CUs exceed
+       requested.  This can happen for durable nonce transactions
+       with oversized nonce accounts.  Skip the commit to prevent
+       underflow in the rebate computation.  The transaction keeps its
+       default full rebate set at the top of the loop. */
+    if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_EXECUTED) && ( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) ) {
+      FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
+                       actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus ));
+      skip_commit = 1;
+      ctx->metrics.processing_failed++;
+      continue;
     }
 
-    /* FeesOnly transactions are transactions that failed to load
-       before they even reach the VM stage. They have zero execution
-       cost but do charge for the account data they are able to load.
-       FeesOnly votes are charged the fixed voe cost. */
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    /* The VM will stop executing and fail an instruction immediately if
+       it exceeds its requested CUs.  A transaction which requests less
+       account data than it actually consumes will fail in the account
+       loading stage. */
+    if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
+      uchar * _sig = (uchar *)txn->payload + TXN(txn)->signature_off;
+      FD_BASE58_ENCODE_64_BYTES( _sig, _sig_b58 );
+      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+      FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit",
+                   _sig_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus ));
+    }
+
+    ctx->metrics.fee_only += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
+
+    int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
+    if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
+      /* TODO: remove this once remove_simple_vote_from_cost_model is
+         activated */
+      txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+      txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+    } else {
+      txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+      txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    }
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
@@ -257,27 +311,21 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
     else                                       ctx->metrics.success++;
-
-    /* The VM will stop executing and fail an instruction immediately if
-       it exceeds its requested CUs.  A transaction which requests less
-       account data than it actually consumes will fail in the account
-       loading stage. */
-    if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
-      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-      FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
-                   "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
-                   actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
-                   transaction_err[ sanitized_idx-1UL ] ));
-    }
   }
 
-  /* Commit must succeed so no failure path.  This function takes
-     ownership of the load_and_execute_output and will free it
-     before it returns.  They should not be reused.  Once commit
-     is called, the transactions MUST be mixed into the PoH otherwise
-     we will fork and diverge, so the link from here til PoH mixin
-     must be completely reliable with nothing dropped. */
-  fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output );
+  if( FD_UNLIKELY( skip_commit ) ) {
+    FD_TEST( txn_cnt==1UL ); /* see comment about FeesOnly nonce transactions above */
+    fd_ext_bank_release_thunks( load_and_execute_output );
+  } else {
+    /* Commit must succeed so no failure path.  This function takes
+       ownership of the load_and_execute_output and will free it
+       before it returns.  They should not be reused.  Once commit
+       is called, the transactions MUST be mixed into the PoH
+       otherwise we will fork and diverge, so the link from here
+       til PoH mixin must be completely reliable with nothing
+       dropped. */
+    fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output );
+  }
   load_and_execute_output = NULL;
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -293,26 +341,28 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->pack_txn_idx = ctx->_txn_idx;
-  trailer->tips = 0UL;
+  trailer->tips = 0;
+  for( ulong i=0UL; i<txn_cnt; i++ ) trailer->tips += out_tips[ i ];
 
-  long tickcount                 = fd_tickcount();
-  long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-  long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+  long const tickcount                 = fd_tickcount();
+  long const microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
 
-  long tx_start_ticks       = (long)out_timestamps[ 0 ];
-  long tx_load_end_ticks    = (long)out_timestamps[ 1 ];
-  long tx_end_ticks         = (long)out_timestamps[ 2 ];
-  long tx_preload_end_ticks = (long)out_timestamps[ 3 ];
+  long const tx_preload_end_ticks = (long)out_timestamps[ 3 ];
+  long const tx_start_ticks       = (long)out_timestamps[ 0 ];
+  long const tx_load_end_ticks    = (long)out_timestamps[ 1 ];
+  long const tx_end_ticks         = (long)out_timestamps[ 2 ];
 
-  trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-  trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+  trailer->txn_ns_dt.check_start  = (float)fd_long_max( 0L, tx_preload_end_ticks - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_ns_dt.load_start   = (float)fd_long_max( 0L, tx_start_ticks       - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_ns_dt.exec_start   = (float)fd_long_max( 0L, tx_load_end_ticks    - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_ns_dt.commit_start = (float)fd_long_max( 0L, tx_end_ticks         - microblock_start_ticks ) * ctx->ns_per_tick;
+  trailer->txn_ns_dt.commit_end   = (float)fd_long_max( 0L, fd_tickcount()       - microblock_start_ticks ) * ctx->ns_per_tick;
 
-  /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
-     so there's always 64 extra bytes at the end to stash the hash. */
+
+  /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
+     there's always extra bytes at the end to stash the trailer. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
-  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
+  FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
 
   /* We have a race window with the GUI, where if the slot is ending it
      will snap these metrics to draw the waterfall, but see them outdated
@@ -320,7 +370,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
-  ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx );
+  ulong bank_sig = fd_disco_execle_sig( slot, ctx->_pack_idx );
 
   /* We always need to publish, even if there are no successfully executed
      transactions so the PoH tile can keep an accurate count of microblocks
@@ -341,9 +391,16 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  /* Use ALT accounts copied to context for rebates. These were resolved
+     by resolv_tile and are needed because the LUT may be deactivated by
+     the time we get here. Execution still uses the bank's current view
+     of the LUT via fd_bank_abi_txn_init. */
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    writable_alt[i] = ctx->_alt_accts[i];
+  }
 
   int execution_success = 1;
 
@@ -356,13 +413,12 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
     int result = fd_bank_abi_txn_init( abi_txn, abi_txn_sidecar, ctx->_bank, slot, ctx->blake3, txn->payload, txn->payload_sz, TXN(txn), !!(txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) );
-    ctx->metrics.txn_load_address_lookup_tables[ result ]++;
+    ctx->metrics.txn_load_address_lookup_tables[  (ulong)((long)FD_METRICS_COUNTER_BANK_TXN_LOAD_ADDRESS_TABLE_CNT+result-1L) ]++;
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
       execution_success = 0;
       continue;
     }
 
-    writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     fd_txn_t * txn1 = TXN(txn);
@@ -377,8 +433,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   uint consumed_cus         [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps      [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong tips                [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int   remove_simple_vote_from_cost_model = 0;
   if( FD_LIKELY( execution_success ) ) {
-    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus, out_timestamps, tips );
+    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus, out_timestamps, tips, &remove_simple_vote_from_cost_model );
   }
 
   if( FD_LIKELY( execution_success ) ) {
@@ -414,36 +471,41 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
-    if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
-      /* Although bundles dont typically contain simple votes, we want
-        to charge them correctly anyways. */
-      consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-    } else {
-      /* Note that some transactions will have 0 consumed cus because
-         they were never actually executed, due to an earlier
-         transaction failing. */
-      consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
-    }
+    /* Note that some transactions will have 0 consumed cus because
+       they were never actually executed, due to an earlier
+       transaction failing. */
+    consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
 
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
 
-    /* We want to include consumed CUs for failed bundles for
-       monitoring, even though they aren't included in the block.  This
-       is safe because the poh tile first checks if a txn is included in
-       the block before counting its "actual_consumed_cus" towards the
-       block tally. */
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+    /* We want to include consumed CUs for successful txns from failed
+       bundles for monitoring, even though they aren't included in the
+       block.  This is safe because the poh tile first checks if a txn
+       is included in the block before counting its
+       "actual_consumed_cus" towards the block tally. */
+    txn->execle_cu.actual_consumed_cus = fd_uint_if( transaction_err[ i ], 0U, non_execution_cus+consumed_cus[ i ] );
 
     if( FD_LIKELY( execution_success ) ) {
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
+        uchar * _sig = (uchar *)txn->payload + TXN(txn)->signature_off;
+        FD_BASE58_ENCODE_64_BYTES( _sig, _sig_b58 );
         FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-        FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
+        FD_LOG_ERR(( "transaction %s in bundle consumed %u CUs > requested %u CUs despite pack guaranteeing it would fit",
+                     _sig_b58, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
       }
 
-      txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-      txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
+      int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
+      if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
+        /* TODO: remove this once remove_simple_vote_from_cost_model is
+           activated */
+        txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+        txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+      } else {
+        txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+        txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
+      }
     }
   }
 
@@ -466,21 +528,21 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips = tips[ i ];
 
-    ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
+    ulong bank_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
-    long tickcount                 = fd_tickcount();
-    long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
-    long microblock_duration_ticks = fd_long_max(tickcount - microblock_start_ticks, 0L);
+    long const tickcount                 = fd_tickcount();
+    long const microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
 
-    long tx_start_ticks       = (long)out_timestamps[ 4*i + 0 ];
-    long tx_load_end_ticks    = (long)out_timestamps[ 4*i + 1 ];
-    long tx_end_ticks         = (long)out_timestamps[ 4*i + 2 ];
-    long tx_preload_end_ticks = (long)out_timestamps[ 4*i + 3 ];
+    long const tx_preload_end_ticks = (long)out_timestamps[ 4*i + 3 ];
+    long const tx_start_ticks       = (long)out_timestamps[ 4*i + 0 ];
+    long const tx_load_end_ticks    = (long)out_timestamps[ 4*i + 1 ];
+    long const tx_end_ticks         = (long)out_timestamps[ 4*i + 2 ];
 
-    trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
-    trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+    trailer->txn_ns_dt.check_start  = (float)fd_long_max( 0L, tx_preload_end_ticks - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_ns_dt.load_start   = (float)fd_long_max( 0L, tx_start_ticks       - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_ns_dt.exec_start   = (float)fd_long_max( 0L, tx_load_end_ticks    - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_ns_dt.commit_start = (float)fd_long_max( 0L, tx_end_ticks         - microblock_start_ticks ) * ctx->ns_per_tick;
+    trailer->txn_ns_dt.commit_end   = (float)fd_long_max( 0L, fd_tickcount()       - microblock_start_ticks ) * ctx->ns_per_tick;
 
     ulong new_sz = sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
     fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
@@ -523,16 +585,16 @@ after_frag( fd_bank_ctx_t *     ctx,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  void * blake3 = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
-  void * bmtree = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
-  ctx->txn_abi_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT );
-  ctx->txn_sidecar_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_BANK_ABI_TXN_ALIGN, FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR_MAX );
+  void * blake3 = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
+  void * bmtree = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  ctx->txn_abi_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT );
+  ctx->txn_sidecar_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_BANK_ABI_TXN_ALIGN, MAX_TXN_PER_MICROBLOCK*FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR_MAX );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -546,7 +608,7 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
@@ -567,6 +629,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->rebate_chunk0 = fd_dcache_compact_chunk0( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
   ctx->rebate_wmark  = fd_dcache_compact_wmark ( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->rebate_chunk  = ctx->rebate_chunk0;
+
+  ctx->ns_per_tick = 1.f / (float)fd_tempo_tick_per_ns( NULL );
 }
 
 /* For a bundle, one bundle might burst into at most 5 separate PoH mixins, since the

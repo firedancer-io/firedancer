@@ -1050,7 +1050,7 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
   }
 
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid certificate type %u", cert_type ));
 
   } /* end switch */
 }
@@ -1061,6 +1061,9 @@ fd_tls_extract_cert_pubkey( uchar const * cert_chain,
                             uint          cert_type ) {
   fd_tls_extract_cert_pubkey_res_t res;
   long ret = fd_tls_extract_cert_pubkey_( &res, cert_chain, cert_chain_sz, cert_type );
-  (void)ret;
+  if( FD_UNLIKELY( ret<0L && !res.alert ) ) {
+    res.alert  = (uint)(-ret);
+    res.reason = FD_TLS_REASON_CERT_PARSE;
+  }
   return res;
 }

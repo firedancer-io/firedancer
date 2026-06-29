@@ -9,11 +9,11 @@ struct __attribute__((aligned(16))) fd_quic_conn_map {
 };
 typedef struct fd_quic_conn_map fd_quic_conn_map_t;
 
-#define MAP_NAME        fd_quic_conn_map
-#define MAP_T           fd_quic_conn_map_t
-#define MAP_KEY         conn_id
-#define MAP_MEMOIZE     0
-#define MAP_KEY_HASH(k) ((uint)k)
+#define MAP_NAME          fd_quic_conn_map
+#define MAP_T             fd_quic_conn_map_t
+#define MAP_KEY           conn_id
+#define MAP_MEMOIZE       0
+#define MAP_KEY_HASH(k,s) ((uint)k)
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 FD_PROTOTYPES_BEGIN

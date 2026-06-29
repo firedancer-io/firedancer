@@ -15,6 +15,7 @@ firedancer_dev_bench_cmd_fn( args_t *   args,
 action_t fd_action_bench = {
   .name             = "bench",
   .args             = bench_cmd_args,
+  .topo             = bench_topo,
   .fn               = firedancer_dev_bench_cmd_fn,
   .perm             = dev_cmd_perm,
   .is_local_cluster = 1,

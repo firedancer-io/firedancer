@@ -7,8 +7,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/txn/fd_compact_u16.h"
-#include "../../flamenco/types/fd_types_custom.h"
-#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 /* Struct used to define a list of accounts supplied in a txn.
    Also provides information on number of signers/writeable accounts. */
@@ -53,11 +52,6 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
                   uchar const * instr_buf,
                   ulong instr_buf_sz );
 
-/* Helper method to reset the list of instrs in the metadata and
-   remove all instrs from the txn payload. */
-void
-fd_txn_reset_instrs( uchar * txn_meta_ptr,
-                     uchar out_txn_payload[ static FD_TXN_MTU ] );
 FD_PROTOTYPES_END
 
 #endif

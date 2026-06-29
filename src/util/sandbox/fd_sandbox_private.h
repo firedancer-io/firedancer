@@ -133,7 +133,8 @@ fd_sandbox_private_pivot_root( void );
    zero.  Except RLIMIT_NOFILE which is restricted to the provided
    rlimit_file_cnt argument, RLIMIT_AS which is restricted to the
    provided rlimit_address_space argument, RLIMIT_DATA which is
-   restricted to the provided rlimit_data argument, and RLIMIT_CPU,
+   restricted to the provided rlimit_data argument, RLIMIT_NPROC which
+   is restricted to the provided rlimit_nproc argument, and RLIMIT_CPU,
    RLIMIT_FSIZE, and RLIMIT_RSS which are left as they are (unlimited).
 
    If the dumpable bit is set to 1, RLIMIT_CORE is left unchanged. */
@@ -142,6 +143,7 @@ void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
                                 ulong rlimit_address_space,
                                 ulong rlimit_data,
+                                ulong rlimit_nproc,
                                 int   dumpable );
 
 /* Read the value of cap_last_cap from /proc/sys/kernel/cap_last_cap
@@ -216,6 +218,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      ulong       rlimit_file_cnt,
                                      ulong       rlimit_address_space,
                                      ulong       rlimit_data,
+                                     ulong       rlimit_nproc,
                                      ulong       allowed_file_descriptor_cnt,
                                      int const * allowed_file_descriptor );
 

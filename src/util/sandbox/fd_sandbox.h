@@ -151,7 +151,8 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   int                  dumpable,                     /* True if the "dumpable" attribute of the process should be kept, otherwise it will be cleared */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
                   ulong                rlimit_address_space,         /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */
-                  ulong                rlimit_data,                  /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */
+                  ulong                rlimit_data,                  /* Maximum address segment size to provide to setrlimit(RLIMIT_DATA) */
+                  ulong                rlimit_nproc,                 /* Maximum threads (including kernel threads) to provide to setrlimit(RLIMIT_NPROC) */
                   ulong                allowed_file_descriptor_cnt,  /* Number of entries in the allowed_file_descriptor array */
                   int const *          allowed_file_descriptor,      /* Entries [0, allowed_file_descriptor_cnt) describe the allowed file descriptors */
                   ulong                seccomp_filter_cnt,           /* Number of entries in the seccomp_filter array */

@@ -5,16 +5,13 @@ use {
     },
     solana_rpc_client_api::config::RpcSendTransactionConfig,
     solana_sdk::{
-        feature_set::FeatureSet,
         transaction::Transaction,
         instruction::Instruction,
         signature::{Keypair, Signer},
         hash::Hash,
         message::Message,
     },
-    solana_bpf_loader_program::{
-        syscalls::create_program_runtime_environment_v1,
-    },
+    solana_feature_set::FeatureSet,
     solana_compute_budget::{
         compute_budget::ComputeBudget,
     },
@@ -31,32 +28,6 @@ use {
         sync::Arc,
     },
 };
-
-pub fn read_and_verify_elf(program_location: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut file = File::open(program_location)
-        .map_err(|err| format!("Unable to open program file: {err}"))?;
-    let mut program_data = Vec::new();
-    file.read_to_end(&mut program_data)
-        .map_err(|err| format!("Unable to read program file: {err}"))?;
-
-    // Verify the program
-    let program_runtime_environment = create_program_runtime_environment_v1(
-        &FeatureSet::all_enabled(),
-        &ComputeBudget::default(),
-        true,
-        false,
-    )
-    .unwrap();
-    let executable =
-        Executable::<InvokeContext>::from_elf(&program_data, Arc::new(program_runtime_environment))
-            .map_err(|err| format!("ELF error: {err}"))?;
-
-    executable
-        .verify::<RequisiteVerifier>()
-        .map_err(|err| format!("ELF error: {err}"))?;
-
-    Ok(program_data)
-}
 
 pub fn create_message_and_sign(instructions: &Vec<Instruction>, payer: &Keypair, signers: Vec<&Keypair>, blockhash: Hash) -> Transaction {
     let message = Message::new_with_blockhash(&instructions, Some(&payer.pubkey()), &blockhash);

@@ -130,6 +130,12 @@ fd_ed25519_point_if( fd_ed25519_point_t * restrict r,
   fd_f25519_if( r->X, secret_cond, a0->X, a1->X );
   fd_f25519_if( r->Y, secret_cond, a0->Y, a1->Y );
   fd_f25519_if( r->T, secret_cond, a0->T, a1->T );
+  /* fd_f25519_if( r->Z, secret_cond, a0->Z, a1->Z ); // explicitly dropped
+     we explicitly don't copy Z because this function is only used by
+     fd_ed25519_table_select(), the inputs are affine points from a
+     precomputed table, they all have Z==1, and Z is pre-set to 1
+     by fd_ed25519_point_set_zero_precomputed(), before calling this
+     function. */
 }
 
 /* fd_ed25519_point_neg_if sets r = -r if secret_cond, else r = r.

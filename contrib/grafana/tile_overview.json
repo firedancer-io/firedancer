@@ -118,7 +118,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "1 - (\nsum by (kind, kind_id) (increase(tile_regime_duration_nanos{instance=\"$instance\",tile_regime=~\"caught_up_\\\\w+\"}[$__rate_interval])) /\nsum by (kind, kind_id) (increase(tile_regime_duration_nanos{instance=\"$instance\"}[$__rate_interval]))\n)",
+          "expr": "1 - (\nsum by (kind, kind_id) (increase(tile_regime_duration_nanos_total{instance=\"$instance\",tile_regime=~\"caught_up_\\\\w+\"}[$__rate_interval])) /\nsum by (kind, kind_id) (increase(tile_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval]))\n)",
           "instant": false,
           "legendFormat": "{{kind}}:{{kind_id}}",
           "range": true,
@@ -220,7 +220,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(tile_backpressure_count{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "increase(tile_backpressure_total{instance=~\"$instance\"}[$__rate_interval])",
           "instant": false,
           "legendFormat": "{{kind}}:{{kind_id}}",
           "range": true,
@@ -264,7 +264,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(tile_regime_duration_nanos,instance)",
+        "definition": "label_values(tile_regime_duration_nanos_total,instance)",
         "hide": 0,
         "includeAll": false,
         "multi": false,
@@ -272,7 +272,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(tile_regime_duration_nanos,instance)",
+          "query": "label_values(tile_regime_duration_nanos_total,instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

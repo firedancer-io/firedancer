@@ -214,7 +214,7 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(ushort,16)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(uint,  32)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(ulong, 64)
 
-#if FD_HAS_INT128 /* FIXME: These probably could benefit from x86 specializations */
+#ifdef __SIZEOF_INT128__ /* FIXME: These probably could benefit from x86 specializations */
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(uint128,128)
 #endif
 
@@ -225,7 +225,7 @@ FD_FN_CONST static inline int fd_ushort_popcnt( ushort x ) { return __builtin_po
 FD_FN_CONST static inline int fd_uint_popcnt  ( uint   x ) { return __builtin_popcount (       x ); }
 FD_FN_CONST static inline int fd_ulong_popcnt ( ulong  x ) { return __builtin_popcountl(       x ); }
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_FN_CONST static inline int
 fd_uint128_popcnt( uint128 x ) {
   return  __builtin_popcountl( (ulong) x ) + __builtin_popcountl( (ulong)(x>>64) );
@@ -240,7 +240,7 @@ FD_FN_CONST static inline ushort fd_ushort_bswap( ushort x ) { return __builtin_
 FD_FN_CONST static inline uint   fd_uint_bswap  ( uint   x ) { return __builtin_bswap32( x ); }
 FD_FN_CONST static inline ulong  fd_ulong_bswap ( ulong  x ) { return __builtin_bswap64( x ); }
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_FN_CONST static inline uint128
 fd_uint128_bswap( uint128 x ) {
   ulong xl = (ulong) x;
@@ -349,7 +349,7 @@ fd_ulong_pow2_dn( ulong x ) {
   return x;
 }
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_FN_CONST static inline uint128
 fd_uint128_pow2_up( uint128 x ) {
   x--;
@@ -419,7 +419,7 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar, uchar,    8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(short, ushort,  16)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(int,   uint,    32)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(long,  ulong,   64)
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(int128,uint128,128)
 #endif
 
@@ -598,8 +598,8 @@ fd_double_eq( double x,
 #define fd_ptr_if(c,t,f) ((__typeof__((t)))fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
 #endif
 
-/* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP} are the same as
-   fd_ulong_{mask_lsb,mask_msb,align_up} but can be used at compile
+/* FD_ULONG_{MASK_LSB,MASK_MSB,ALIGN_UP,IS_POW2} are the same as
+   fd_ulong_{mask_lsb,mask_msb,align_up,is_pow2} but can be used at compile
    time.  The tradeoff is n/a must be safe against multiple evaluation
    at compile time.  x should be ulong compatible and n/a should be int
    compatible. */
@@ -607,7 +607,7 @@ fd_double_eq( double x,
 #define FD_ULONG_MASK_LSB( n )    ((((ulong)((n)<=63)) << ((n) & 63)) - 1UL)
 #define FD_ULONG_MASK_MSB( n )    (~FD_ULONG_MASK_LSB(64-(n)))
 #define FD_ULONG_ALIGN_UP( x, a ) (((x)+((a)-1UL)) & (~((a)-1UL)))
-
+#define FD_ULONG_IS_POW2( n )     ((!!(n)) & (!((n) & ((n)-1UL))))
 /* Unaligned access annotations.
 
    FD_LOAD( T, src ) is equivalent to:
@@ -678,7 +678,7 @@ fd_double_eq( double x,
    Hmmm. */
 
 #define FD_LOAD( T, src ) \
-  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (T const *)(src), sizeof(T) ); _fd_load_tmp; }))
+  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (void const *)(src), sizeof(T) ); _fd_load_tmp; }))
 
 #define FD_STORE( T, dst, val ) \
   (__extension__({ T _fd_store_tmp = (val); (T *)memcpy( (T *)(dst), &_fd_store_tmp, sizeof(T) ); }))
@@ -998,12 +998,12 @@ fd_ulong_svw_dec_tail( uchar const * b,
 #define FD_SCRATCH_ALLOC_APPEND( layout, align, sz ) (__extension__({                               \
     ulong _align = (align);                                                                         \
     ulong _sz    = (sz);                                                                            \
-    ulong _scratch_alloc = fd_ulong_align_up( _##layout, (align) );                                 \
-    if( FD_UNLIKELY( _scratch_alloc+_sz<_scratch_alloc ) )                                          \
-      FD_LOG_ERR(( "FD_SCRATCH_ALLOC_APPEND( %s, %lu, %lu ) overflowed", #layout, _align, _sz ));   \
-    _##layout = _scratch_alloc + _sz;                                                               \
+    ulong _scratch_alloc = fd_ulong_align_up( _##layout, (_align) );                                \
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( _scratch_alloc, _sz, &_##layout ) ) )                \
+      FD_LOG_CRIT(( "FD_SCRATCH_ALLOC_APPEND( "#layout", %lu, %lu ) overflowed ("#layout"=0x%lx)",  \
+        _align, _sz, _scratch_alloc ));                                                             \
     (void *)_scratch_alloc;                                                                         \
-    }))
+  }))
 #define FD_SCRATCH_ALLOC_FINI( layout, align ) (_##layout = FD_ULONG_ALIGN_UP( _##layout, (align) ) )
 
 #define FD_SCRATCH_ALLOC_PUBLISH( layout ) (__extension__({            \

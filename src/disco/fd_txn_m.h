@@ -10,7 +10,7 @@
 #define FD_TXN_M_TPU_SOURCE_UDP    (2UL)
 #define FD_TXN_M_TPU_SOURCE_GOSSIP (3UL)
 #define FD_TXN_M_TPU_SOURCE_BUNDLE (4UL)
-#define FD_TXN_M_TPU_SOURCE_SEND   (5UL)
+#define FD_TXN_M_TPU_SOURCE_TXSEND (5UL)
 
 struct fd_txn_m {
   /* The computed block height that this transaction is referencing, aka. the
@@ -72,7 +72,7 @@ typedef struct fd_txn_m fd_txn_m_t;
 
 static FD_FN_CONST inline ulong
 fd_txn_m_align( void ) {
-  return alignof( fd_txn_m_t );
+  return alignof(fd_txn_m_t);
 }
 
 static inline ulong

@@ -381,6 +381,32 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
 #endif
 
+#if FD_HAS_ARM
+
+static inline void
+fd_mcache_publish_arm( fd_frag_meta_t * mcache,   /* Assumed a current local join */
+                       ulong            depth,    /* Assumed an integer power-of-2 >= BLOCK */
+                       ulong            seq,
+                       ulong            sig,
+                       ulong            chunk,    /* Assumed in [0,UINT_MAX] */
+                       ulong            sz,       /* Assumed in [0,USHORT_MAX] */
+                       ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
+                       ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
+                       ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  /* stp   seq-1, sig, [meta]
+     stp   ul2,   ul3, [meta, #16]
+     stlr  seq,        [meta] */
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  ulong ul2 = fd_frag_meta_ul2( chunk, sz, ctl );
+  ulong ul3 = fd_frag_meta_ul3( tsorig, tspub );
+  fd_arm_stp16( meta->ul, fd_seq_dec( seq, 1UL ), sig );
+  FD_HW_MFENCE_ST();
+  fd_arm_stp16( meta->ul+2, ul2, ul3 );
+  __atomic_store_n( &meta->seq, seq, __ATOMIC_RELEASE );
+}
+
+#endif
+
 /* FD_MCACHE_WAIT does a bounded wait for a producer to transmit a
    particular frag.
 
@@ -607,7 +633,7 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 /* FD_MCACHE_WAIT_REG: similar to FD_MCACHE_WAIT but uses (nominally)
    registers to hold the metadata instead of a local buffer. */
 
-#define FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, mline, seq_found, seq_diff, poll_max,                     \
+#define FD_MCACHE_WAIT_REG( _sig, _chunk, _sz, _ctl, _tsorig, _tspub, mline, seq_found, seq_diff, poll_max,                     \
                             mcache, depth, seq_expected ) do {                                                            \
     ulong                  _fd_mcache_wait_seq_expected = (seq_expected);                                                 \
     fd_frag_meta_t const * _fd_mcache_wait_mline        = (mcache)                                                        \
@@ -641,12 +667,12 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
       if( FD_LIKELY( _fd_mcache_wait_done ) ) break; /* opt for exit, single exit to help spin_pause cpu hinting */       \
       FD_SPIN_PAUSE();                                                                                                    \
     }                                                                                                                     \
-    (sig)       = _fd_mcache_wait_sig;                                                                                    \
-    (chunk)     = _fd_mcache_wait_chunk;                                                                                  \
-    (sz)        = _fd_mcache_wait_sz;                                                                                     \
-    (ctl)       = _fd_mcache_wait_ctl;                                                                                    \
-    (tsorig)    = _fd_mcache_wait_tsorig;                                                                                 \
-    (tspub)     = _fd_mcache_wait_tspub;                                                                                  \
+    (_sig)       = _fd_mcache_wait_sig;                                                                                    \
+    (_chunk)     = _fd_mcache_wait_chunk;                                                                                  \
+    (_sz)        = _fd_mcache_wait_sz;                                                                                     \
+    (_ctl)       = _fd_mcache_wait_ctl;                                                                                    \
+    (_tsorig)    = _fd_mcache_wait_tsorig;                                                                                 \
+    (_tspub)     = _fd_mcache_wait_tspub;                                                                                  \
     (mline)     = _fd_mcache_wait_mline;                                                                                  \
     (seq_found) = _fd_mcache_wait_seq_found;                                                                              \
     (seq_diff)  = _fd_mcache_wait_seq_diff;                                                                               \

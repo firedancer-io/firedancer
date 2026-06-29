@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "run.h"
+#include "../../../../flamenco/accdb/fd_accdb.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -12,6 +13,7 @@
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
+#include "../../../../disco/net/fd_net_tile.h"
 
 #include "../configure/configure.h"
 
@@ -28,7 +30,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/capability.h>
-#include <linux/unistd.h>
 
 #include "../../../../util/tile/fd_tile_private.h"
 
@@ -56,8 +57,6 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
   if( FD_LIKELY( getgid()!=config->gid ) )
     fd_cap_chk_cap(        chk, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
-  if( FD_UNLIKELY( config->development.netns.enabled ) )
-    fd_cap_chk_cap(        chk, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
   if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
@@ -76,19 +75,9 @@ static pid_t pid_namespace;
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
-extern int * fd_log_private_shared_lock;
-
 static void
 parent_signal( int sig ) {
   if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
-
-  /* A pretty gross hack.  For the local process, clear the lock so that
-     we can always print the messages without waiting on another process,
-     particularly if one of those processes might have just died.  The
-     signal handler is re-entrant so this also avoids a deadlock since
-     the log lock is not re-entrant. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
@@ -223,8 +212,6 @@ execve_tile( fd_topo_tile_t const * tile,
   return 0;
 }
 
-extern int * fd_log_private_shared_lock;
-
 int
 main_pid_namespace( void * _args ) {
   struct pidns_clone_args * args = _args;
@@ -264,10 +251,6 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    fd_log_private_shared_lock[1] = 1;
-  }
-
   ulong child_cnt = 0UL;
   if( FD_LIKELY( !config->is_firedancer && !config->development.no_agave ) ) {
     int pipefd[ 2 ];
@@ -282,20 +265,18 @@ main_pid_namespace( void * _args ) {
     child_cnt++;
   }
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, NULL ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
-  }
-
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int need_xdp = 0==strcmp( config->net.provider, "xdp" );
-  fd_xdp_fds_t xdp_fds = {0};
+  fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
+  uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
   if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
+    fd_topo_install_xdp( &config->topo, xdp_fds, &xdp_fds_cnt, config->net.bind_address_parsed, 0 );
   }
+
+  initialize_accdb_fd( config );
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
@@ -303,12 +284,50 @@ main_pid_namespace( void * _args ) {
 
     if( need_xdp ) {
       if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-        /* close XDP related file descriptors */
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+          /* close XDP related file descriptors */
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
       } else {
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+      }
+    }
+
+    if( FD_LIKELY( config->is_firedancer ) ) {
+      int tile_uses_accdb    = 0;
+      int tile_uses_accdb_ro = 0;
+      for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+        fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
+        if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
+          if( FD_UNLIKELY( tile->uses_obj_mode[ i ]==FD_SHMEM_JOIN_MODE_READ_ONLY ) ) tile_uses_accdb_ro = 1;
+          else                                                                        tile_uses_accdb    = 1;
+          break;
+        }
+      }
+
+      /* The gui joins the accdb shmem read-only (for partition stats)
+         but never reads account data from the on-disk file, so it does
+         not need the accounts.db fd.  Withhold it to keep the gui at
+         least privilege. */
+      if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
+
+      /* snapwr writes accdb pwrite()s without joining accdb shmem, so
+         it needs the RW fd despite not appearing as an accdb obj user
+         in the topology. */
+      if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
+      if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else {
+        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
     }
 
@@ -333,10 +352,16 @@ main_pid_namespace( void * _args ) {
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
-    if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+      if( FD_UNLIKELY( close( xdp_fds[i].xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( xdp_fds[i].prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  if( FD_LIKELY( config->is_firedancer ) ) {
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
@@ -369,6 +394,7 @@ main_pid_namespace( void * _args ) {
                       1UL+child_cnt, /* RLIMIT_NOFILE needs to be set to the nfds argument of poll() */
                       0UL,
                       0UL,
+                      0UL,
                       allow_fds_cnt,
                       allow_fds,
                       instr_cnt,
@@ -376,12 +402,6 @@ main_pid_namespace( void * _args ) {
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
-
-  /* The supervsior process should not share the log lock, because a
-     child process might die while holding it and we still need to
-     reap and print errors. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   /* Reap child process PIDs so they don't show up in `ps` etc.  All of
      these children should have exited immediately after clone(2)'ing
@@ -414,7 +434,7 @@ main_pid_namespace( void * _args ) {
      a group.  The parent process will also die if this process dies,
      due to getting SIGHUP on the pipe. */
   while( 1 ) {
-    if( FD_UNLIKELY( -1==poll( fds, 1UL+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==poll( fds, 1UL+child_cnt, (int)-1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* Parent process died, probably SIGINT, exit gracefully. */
     if( FD_UNLIKELY( fds[ child_cnt ].revents ) ) fd_sys_util_exit_group( 0 );
@@ -532,7 +552,10 @@ warn_unknown_files( config_t const * config,
   }
 
   struct dirent * entry;
-  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_UNLIKELY( !strcmp( entry->d_name, ".") || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     char entry_path[ PATH_MAX ];
@@ -568,7 +591,7 @@ warn_unknown_files( config_t const * config,
     if( FD_UNLIKELY( !known_file ) ) FD_LOG_WARNING(( "unknown file `%s` found in `%s`", entry->d_name, mount_path ));
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "error reading dir `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "error reading dir `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
 }
 
@@ -630,7 +653,7 @@ initialize_workspaces( config_t * config ) {
                    "the system is using pages from the same mount.",
                    wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
     }
-    fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
     fd_topo_wksp_new( &config->topo, wksp, CALLBACKS );
     fd_topo_leave_workspace( &config->topo, wksp );
   }
@@ -713,38 +736,45 @@ initialize_stacks( config_t const * config ) {
 
 void
 fdctl_check_configure( config_t const * config ) {
-  configure_result_t check = fd_cfg_stage_hugetlbfs.check( config );
+  configure_result_t check = fd_cfg_stage_hugetlbfs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
+    FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `%s configure init hugetlbfs` "
                  "to create the mounts correctly. This must be done after every system restart before running "
-                 "Firedancer.", check.message ));
+                 "Firedancer.", check.message, FD_BINARY_NAME ));
 
-  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->net.provider, "xdp" ) ) ) {
-    check = fd_cfg_stage_ethtool_channels.check( config );
-    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
-                  "network device correctly.", check.message ));
+  if( FD_LIKELY( 0==strcmp( config->net.provider, "xdp" ) ) ) {
+    if( fd_cfg_stage_bonding.enabled( config ) ) {
+      check = fd_cfg_stage_bonding.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+      if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+        FD_LOG_ERR(( "Bonded network device is not configured correctly: %s. You can run `%s configure init bonding` "
+                    "to configure the bonding driver.", check.message, FD_BINARY_NAME ));
+    }
 
-    check = fd_cfg_stage_ethtool_offloads.check( config );
+    check = fd_cfg_stage_ethtool_channels.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-offloads` to disable features "
-                  "as required.", check.message ));
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-channels` to set the number of channels on the "
+                  "network device correctly.", check.message, FD_BINARY_NAME ));
 
-    check = fd_cfg_stage_ethtool_loopback.check( config );
+    check = fd_cfg_stage_ethtool_offloads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-loopback` to disable tx-udp-segmentation "
-                  "on the loopback device.", check.message ));
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-offloads` to disable features "
+                  "as required.", check.message, FD_BINARY_NAME ));
+
+    check = fd_cfg_stage_ethtool_loopback.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-loopback` to disable tx-udp-segmentation "
+                  "on the loopback device.", check.message, FD_BINARY_NAME ));
   }
 
-  check = fd_cfg_stage_sysctl.check( config );
+  check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
-                 "to set kernel parameters correctly.", check.message ));
+    FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `%s configure init sysctl` "
+                 "to set kernel parameters correctly.", check.message, FD_BINARY_NAME ));
 
-  check = fd_cfg_stage_hyperthreads.check( config );
+  check = fd_cfg_stage_hyperthreads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
-                 "to configure hyperthreading correctly.", check.message ));
+    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `%s configure init hyperthreads` "
+                 "to configure hyperthreading correctly.", check.message, FD_BINARY_NAME ));
 }
 
 void
@@ -753,7 +783,7 @@ run_firedancer_init( config_t * config,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->paths.identity_key ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `%s keys new %s --config <toml>`", config->paths.identity_key, FD_BINARY_NAME, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
@@ -773,23 +803,28 @@ run_firedancer_init( config_t * config,
 }
 
 void
-fdctl_setup_netns( config_t * config,
-                   int        stay ) {
-  if( !config->development.netns.enabled ) return;
+initialize_accdb_fd( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
 
-  int original_netns_;
-  int * original_netns = stay ? NULL : &original_netns_;
-  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, original_netns ) ) )
-    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
+  /* TODO: O_TRUNC is a lot slower here, because it means we have to
+     write out extents for the whole file instead of just marking them
+     as free.  Figure out performance implications of this and maybe
+     resolve. */
+  int accounts_fd = open( config->paths.accounts, O_RDWR|O_CREAT|O_NOATIME|O_TRUNC, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==accounts_fd ) ) FD_LOG_ERR(( "failed to open accounts.db (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( accounts_fd, FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_cfg_stage_ethtool_channels.init( config );
-    fd_cfg_stage_ethtool_offloads.init( config );
-    fd_cfg_stage_ethtool_loopback.init( config );
-  }
-
-  if( FD_UNLIKELY( original_netns && -1==fd_net_util_netns_restore( original_netns_ ) ) )
-    FD_LOG_ERR(( "failed to restore network namespace (fd=%d) (%i-%s)", original_netns_, errno, fd_io_strerror( errno ) ));
+  /* Read-only fd for tiles (e.g. rpc) that consume accdb but must not
+     be able to mutate the on-disk file.  Reopen via /proc/self/fd to
+     guarantee it refers to the same inode as the RW fd, avoiding any
+     race where the file at the path could be replaced between opens. */
+  char proc_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( proc_path, sizeof(proc_path), NULL, "/proc/self/fd/%d", FD_ACCDB_FD_RW ) );
+  int accounts_ro_fd = open( proc_path, O_RDONLY|O_NOATIME );
+  if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 /* The boot sequence is a little bit involved...
@@ -866,8 +901,6 @@ run_firedancer( config_t * config,
      get interleaved due to timing windows in the shutdown. */
   install_parent_signals();
 
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_main( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), (uint)pid_namespace );
 
@@ -891,6 +924,7 @@ run_firedancer( config_t * config,
                       0UL,
                       0UL,
                       0UL,
+                      0UL,
                       allow_fds_cnt,
                       allow_fds,
                       sock_filter_policy_main_instr_cnt,
@@ -898,12 +932,6 @@ run_firedancer( config_t * config,
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
-
-  /* The supervsior process should not share the log lock, because a
-     child process might die while holding it and we still need to
-     reap and print errors. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */
@@ -948,12 +976,28 @@ run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   run_firedancer( config, -1, 1 );
 }
 
+static void
+run1_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<tile-name>", NULL,   "Type of tile to run (e.g. `net`, `quic`, `replay`).  A tile is a single\n"
+                                                  "thread pinned to a CPU core that performs one part of the validator's work" );
+  fd_action_help_arg( help, "<kind-id>",   NULL,   "Zero-based index selecting which instance of that tile type to run\n"
+                                                  "when the topology has more than one" );
+  fd_action_help_arg( help, "--pipe-fd",   "<fd>", "Internal use: file descriptor over which the parent supervisor process\n"
+                                                  "communicates with this tile (default -1, standalone)" );
+}
+
 action_t fd_action_run1 = {
   .name        = "run1",
   .args        = run1_cmd_args,
   .fn          = run1_cmd_fn,
   .perm        = NULL,
-  .description = "Start up a single Firedancer tile"
+  .description = "Start up a single Firedancer tile",
+  .detail      = "Runs one tile of the validator topology in the current process.  A tile is a\n"
+                 "single thread pinned to a CPU core that performs one part of the validator's\n"
+                 "work.  This is primarily an internal command used by `run` to spawn individual\n"
+                 "tiles; most operators should use `run` instead.",
+  .usage       = "run1 <tile-name> <kind-id> [OPTIONS]",
+  .args_help   = run1_args_help,
 };
 
 action_t fd_action_run = {
@@ -963,6 +1007,11 @@ action_t fd_action_run = {
   .require_config = 1,
   .perm           = run_cmd_perm,
   .description    = "Start up a Firedancer validator",
+  .detail         = "Boots and runs the full validator described by the configuration file.  This\n"
+                    "is the main command operators use to run Firedancer.  It must be started with\n"
+                    "sufficient privileges to perform boot-time setup, after which it drops\n"
+                    "privileges to the configured user.",
+  .usage          = "run [OPTIONS]",
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
                     "to start Firedancer as the root user, but you can also start it "
                     "with the missing capabilities listed above. The program only needs "

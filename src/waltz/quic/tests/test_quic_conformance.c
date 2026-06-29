@@ -8,6 +8,10 @@
 #include "../templ/fd_quic_parse_util.h"
 #include "../../tls/fd_tls_proto.h"
 #include "../../../disco/metrics/generated/fd_metrics_enums.h"
+#include "../../../util/tmpl/fd_unit_test.c"
+
+static fd_quic_sandbox_t * sandbox;
+static fd_rng_t *          rng;
 
 /* RFC 9000 Section 4.1. Data Flow Control
 
@@ -15,9 +19,7 @@
    > FLOW_CONTROL_ERROR if the sender violates the advertised connection
    > or stream data limits */
 
-static __attribute__ ((noinline)) void
-test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
-                                         fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_stream_data_limit_enforcement ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   sandbox->quic->config.initial_rx_max_stream_data = 1UL;
@@ -55,9 +57,7 @@ test_quic_stream_data_limit_enforcement( fd_quic_sandbox_t * sandbox,
    > sent MUST treat this as a connection error of type
    > STREAM_LIMIT_ERROR */
 
-static __attribute__ ((noinline)) void
-test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
-                                    fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_stream_limit_enforcement ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
@@ -87,9 +87,7 @@ test_quic_stream_limit_enforcement( fd_quic_sandbox_t * sandbox,
 
    This is a custom protocol restriction that goes beyond QUIC's limits. */
 
-static __attribute__ ((noinline)) void
-test_quic_stream_concurrency( fd_quic_sandbox_t * sandbox,
-                              fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_stream_concurrency ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
@@ -114,9 +112,7 @@ test_quic_stream_concurrency( fd_quic_sandbox_t * sandbox,
 
 /* RFC 9000 Section 19.2. PING Frames */
 
-static __attribute__((noinline)) void
-test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
-                      fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_ping_frame ) {
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
   conn->ack_gen->is_elicited = 0;
@@ -128,11 +124,51 @@ test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->ack_gen->is_elicited == 1 );
 }
 
+static __attribute__((noinline)) void
+test_quic_sticky_peer_ip4_( int role ) {
+  fd_quic_sandbox_init( sandbox, role );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  FD_TEST( conn->server==(role==FD_QUIC_ROLE_SERVER) );
+  FD_TEST( conn->peer[0].ip_addr==FD_QUIC_SANDBOX_PEER_IP4 );
+
+  uchar pkt_buf[ FD_QUIC_SHORTEST_PKT ];
+  memset( pkt_buf, 0, sizeof(pkt_buf) );
+  pkt_buf[0] = 0x40; /* short header */
+  FD_STORE( ulong, pkt_buf+1, conn->our_conn_id );
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .saddr = FD_IP4_ADDR( 30, 0, 0, 99 ),
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+  };
+
+  ulong before_wrong_src_ip = sandbox->quic->metrics.pkt_wrong_src_cnt;
+  ulong before_no_conn     = sandbox->quic->metrics.pkt_no_conn_cnt[ fd_quic_enc_level_appdata_id ];
+  ulong before_ack         = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ];
+  ulong rc                 = fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, sizeof(pkt_buf) );
+
+  FD_TEST( rc==FD_QUIC_PARSE_FAIL );
+  FD_TEST( sandbox->quic->metrics.pkt_wrong_src_cnt==before_wrong_src_ip+1UL );
+  FD_TEST( sandbox->quic->metrics.pkt_no_conn_cnt[ fd_quic_enc_level_appdata_id ]==before_no_conn );
+  FD_TEST( sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ]==before_ack );
+}
+
+FD_UNIT_TEST( quic_sticky_peer_ip4_server ) {
+  test_quic_sticky_peer_ip4_( FD_QUIC_ROLE_SERVER );
+}
+
+FD_UNIT_TEST( quic_sticky_peer_ip4_client ) {
+  test_quic_sticky_peer_ip4_( FD_QUIC_ROLE_CLIENT );
+}
+
 /* Test an ALPN failure when acting as a server */
 
-static __attribute__((noinline)) void
-test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
-                            fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_server_alpn_fail ) {
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
 
   /* The first CRYPTO frame extracted from an Initial Packet crafted by
@@ -231,12 +267,87 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
 }
 
+/* RFC 9000 Section 19.6. CRYPTO Frames
+
+   > The CRYPTO frame offers the cryptographic protocol an in-order stream
+   > of bytes.
+
+   This test injects a retransmitted overlapping CRYPTO frame and verifies
+   that the contiguous receive watermark does not move backward. */
+
+FD_UNIT_TEST( quic_crypto_rx_watermark_monotonic ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  ulong             our_conn_id_u64  = fd_rng_ulong( rng );
+  ulong             peer_conn_id_u64 = fd_rng_ulong( rng );
+  fd_quic_conn_id_t peer_conn_id     = fd_quic_conn_id_new( &peer_conn_id_u64, 8UL );
+
+  fd_quic_conn_t * conn = fd_quic_conn_create(
+      quic,
+      our_conn_id_u64,
+      &peer_conn_id,
+      FD_QUIC_SANDBOX_PEER_IP4,
+      FD_QUIC_SANDBOX_PEER_PORT,
+      FD_QUIC_SANDBOX_SELF_IP4,
+      FD_QUIC_SANDBOX_SELF_PORT,
+      1 /* server */ );
+  FD_TEST( conn );
+
+  fd_quic_transport_params_t tp[1] = {0};
+  fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+      state->tls,
+      (void *)conn,
+      1 /* is_server */,
+      tp,
+      state->now );
+  FD_TEST( tls_hs );
+  conn->tls_hs = tls_hs;
+
+  ushort const rx_off_before = 100U;
+  ushort const rx_sz_before  = 300U;
+  ulong  const overlap_sz    = 150UL;
+
+  tls_hs->rx_enc_level = (uchar)fd_quic_enc_level_initial_id;
+  tls_hs->rx_off       = rx_off_before;
+  tls_hs->rx_sz        = rx_sz_before;
+  memset( tls_hs->rx_hs_buf, 0xaa, rx_sz_before );
+
+  uchar frame_buf[ 16 + overlap_sz ];
+  fd_quic_crypto_frame_t crypto = {
+    .type   = 0x06,
+    .offset = 0UL,
+    .length = overlap_sz,
+  };
+  ulong hdr_sz = fd_quic_encode_crypto_frame( frame_buf, sizeof(frame_buf), &crypto );
+  FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+  FD_TEST( hdr_sz + overlap_sz <= sizeof(frame_buf) );
+  memset( frame_buf + hdr_sz, 0xaa, overlap_sz );
+
+  fd_quic_pkt_t pkt = {
+    .pkt_number = 0UL,
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_initial_id,
+  };
+  fd_quic_sandbox_send_frame( sandbox, conn, &pkt, frame_buf, hdr_sz + overlap_sz );
+
+  FD_TEST( tls_hs->rx_off == rx_off_before );
+  FD_TEST( tls_hs->rx_sz  == rx_sz_before  );
+  FD_TEST( tls_hs->rx_hs_buf[ rx_off_before       ] == 0xaa );
+  FD_TEST( tls_hs->rx_hs_buf[ overlap_sz - 1UL    ] == 0xaa );
+  FD_TEST( tls_hs->rx_hs_buf[ rx_sz_before - 1UL  ] == 0xaa );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_HANDSHAKE );
+  FD_TEST( conn->reason == 0U );
+}
+
 /* Ensure that outgoing ACKs and metrics are done correctly if incoming
    packets skip packet numbers aggressively. */
 
-void
-test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
-                       fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_pktnum_skip ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t *    conn    = fd_quic_sandbox_new_conn_established( sandbox, rng );
@@ -265,9 +376,7 @@ test_quic_pktnum_skip( fd_quic_sandbox_t * sandbox,
 
 }
 
-__attribute__((noinline)) void
-test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
-                               fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_conn_initial_limits ) {
   (void)rng;
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
@@ -280,7 +389,11 @@ test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
   fd_quic_conn_id_t peer_conn_id = fd_quic_conn_id_new( &our_conn_id, 8UL );
   uint              dst_ip_addr  = FD_IP4_ADDR( 192, 168, 1, 1 );
   ushort            dst_udp_port = 8080;
-  fd_quic_conn_t * conn = fd_quic_conn_create( sandbox->quic, our_conn_id, &peer_conn_id, dst_ip_addr, dst_udp_port, 0, 0, 1 );
+  fd_quic_conn_t * conn = fd_quic_conn_create(
+      sandbox->quic, our_conn_id, &peer_conn_id,
+      dst_ip_addr, dst_udp_port,
+      FD_QUIC_SANDBOX_SELF_IP4, FD_QUIC_SANDBOX_SELF_PORT,
+      1 );
   FD_TEST( conn );
   FD_TEST( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE );
 
@@ -303,9 +416,7 @@ test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->srx->rx_max_data      == 987654321UL );
 }
 
-__attribute__((noinline)) void
-test_quic_rx_max_data_frame( fd_quic_sandbox_t * sandbox,
-                             fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_rx_max_data_frame ) {
   uchar buf[128];
   ulong sz;
   fd_quic_max_data_frame_t frame = {0};
@@ -332,9 +443,7 @@ test_quic_rx_max_data_frame( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->tx_max_data == 0x30 );
 }
 
-__attribute__((noinline)) void
-test_quic_rx_max_streams_frame( fd_quic_sandbox_t * sandbox,
-                                fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_rx_max_streams_frame ) {
   uchar buf[128];
   ulong sz;
   fd_quic_max_streams_frame_t frame = {0};
@@ -375,9 +484,7 @@ test_quic_rx_max_streams_frame( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
 }
 
-__attribute__((noinline)) void
-test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
-                             fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_small_pkt_ping ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
@@ -394,6 +501,8 @@ test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
   FD_LOG_HEXDUMP_DEBUG(( "pkt_key", &conn->keys[3][1].pkt_key, FD_AES_128_KEY_SZ ));
   FD_LOG_HEXDUMP_DEBUG(( "iv", &conn->keys[3][1].iv, FD_AES_GCM_IV_SZ ));
   FD_LOG_HEXDUMP_DEBUG(( "hp_key", &conn->keys[3][1].hp_key, FD_AES_128_KEY_SZ ));
+  fd_ip4_hdr_t * ip4 = fd_type_pun( data );
+  ip4->saddr = conn->peer[0].ip_addr;
 
   /* internal connection_map setup to process packet */
   do {
@@ -409,8 +518,7 @@ test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
   FD_TEST( after == before + 1 );
 }
 
-static __attribute__((noinline)) void
-test_quic_parse_path_challenge( void ) {
+FD_UNIT_TEST( quic_parse_path_challenge ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
   fd_quic_path_response_frame_t  path_response[1];
 
@@ -442,9 +550,7 @@ in_stream_list( fd_quic_stream_t * stream, fd_quic_stream_t * sentinel ) {
 /*
   Tests edge cases for send_streams
 */
-static __attribute__ ((noinline)) void
-test_quic_send_streams( fd_quic_sandbox_t * sandbox,
-                        fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_send_streams ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
@@ -498,9 +604,7 @@ static void pretend_stream( fd_quic_stream_t * stream ) {
   stream->tx_sent = 0;
 }
 
-static __attribute__ ((noinline)) void
-test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
-                              fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_inflight_pkt_limit ) {
 
   /* min_inflight reserved AND max enforced */
   fd_quic_t * quic = sandbox->quic;
@@ -555,9 +659,7 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
 
 }
 
-static __attribute__((noinline)) void
-test_quic_conn_free( fd_quic_sandbox_t * sandbox,
-                     fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_conn_free ) {
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_t *       quic     = sandbox->quic;
   fd_quic_state_t * state    = fd_quic_get_state( quic );
@@ -604,9 +706,7 @@ test_quic_conn_free( fd_quic_sandbox_t * sandbox,
 
 /* Ensure that packet numbers aren't skipped when pkt-meta runs out */
 
-void
-test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
-                               fd_rng_t *          rng ) {
+FD_UNIT_TEST( quic_pktmeta_pktnum_skip ) {
 
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_t *                  quic    = sandbox->quic;
@@ -704,8 +804,35 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
   FD_TEST( *metrics_alloc_fail_cnt == alloc_fail_cnt );
 }
 
-static void
-test_quic_rtt_sample( void ) {
+/* Regression test for integer underflow in ACK handler */
+
+FD_UNIT_TEST( quic_ack_largest_ack_zero ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_conn_t *  conn  = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  for( uint j = 0; j < 5; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 5UL );
+
+  ulong retx_before = quic->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_appdata_id ];
+  uchar ack_frame[] = { 0x02, 0x00, 0x00, 0x00, 0x00 };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack_frame, sizeof(ack_frame) );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  /* No retransmissions triggered (regression test) */
+  ulong retx_after = quic->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_appdata_id ];
+  FD_TEST( retx_after == retx_before );
+}
+
+FD_UNIT_TEST( quic_rtt_sample ) {
   fd_quic_t quic = {0};
   fd_quic_conn_t conn = {
     .quic = &quic
@@ -764,12 +891,49 @@ test_quic_rtt_sample( void ) {
 #undef SAMPLE
 }
 
+FD_UNIT_TEST( quic_ack_unsent_future_pktnum ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_conn_t *  conn  = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->tx_max_data                    = 1UL<<20;
+  conn->tx_initial_max_stream_data_uni = 1UL<<15;
+  conn->idle_timeout_ns                = (long)60e9;
+
+  for( uint j = 0; j < 5; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 5UL );
+
+  fd_quic_ack_frame_t ack_frame = {
+    .type            = 0x02,
+    .largest_ack     = 100UL,
+    .ack_delay       = 0UL,
+    .ack_range_count = 0UL,
+    .first_ack_range = 0UL,
+  };
+  uchar buf[ 64 ];
+  ulong sz = fd_quic_encode_ack_frame( buf, sizeof(buf), &ack_frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason == FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+  FD_TEST( conn->highest_acked[ 2 ] == 0UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_rng_t _rng[1]; rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -807,26 +971,10 @@ main( int     argc,
       /* size  */ fd_quic_sandbox_footprint( &quic_limits, pkt_cnt, pkt_mtu ),
       /* tag   */ 1UL );
 
-  fd_quic_sandbox_t * sandbox = fd_quic_sandbox_new( sandbox_mem, &quic_limits, pkt_cnt, pkt_mtu );
+  sandbox = fd_quic_sandbox_new( sandbox_mem, &quic_limits, pkt_cnt, pkt_mtu );
   FD_TEST( sandbox );
 
-  /* Run tests */
-  test_quic_stream_data_limit_enforcement( sandbox, rng );
-  test_quic_stream_limit_enforcement     ( sandbox, rng );
-  test_quic_stream_concurrency           ( sandbox, rng );
-  test_quic_ping_frame                   ( sandbox, rng );
-  test_quic_server_alpn_fail             ( sandbox, rng );
-  test_quic_pktnum_skip                  ( sandbox, rng );
-  test_quic_conn_initial_limits          ( sandbox, rng );
-  test_quic_rx_max_data_frame            ( sandbox, rng );
-  test_quic_rx_max_streams_frame         ( sandbox, rng );
-  test_quic_small_pkt_ping               ( sandbox, rng );
-  test_quic_send_streams                 ( sandbox, rng );
-  test_quic_inflight_pkt_limit           ( sandbox, rng );
-  test_quic_parse_path_challenge();
-  test_quic_conn_free                    ( sandbox, rng );
-  test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
-  test_quic_rtt_sample();
+  fd_unit_tests( argc, argv );
 
   /* Wind down */
 

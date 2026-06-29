@@ -3,12 +3,8 @@
 
 #include "fd_vm.h"
 
-#include "../../ballet/sbpf/fd_sbpf_instr.h"
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
-#include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/fd_runtime_const.h"
-#include "../features/fd_features.h"
+#include "../runtime/fd_runtime.h"
 #include "fd_vm_base.h"
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
@@ -48,7 +44,6 @@
 #define FD_VM_ALIGN_RUST_U32                      (4UL)
 #define FD_VM_ALIGN_RUST_I32                      (4UL)
 #define FD_VM_ALIGN_RUST_U64                      (8UL)
-#define FD_VM_ALIGN_RUST_U128                    (16UL)
 #define FD_VM_ALIGN_RUST_SLICE_U8_REF             (8UL)
 #define FD_VM_ALIGN_RUST_POD_U8_ARRAY             (1UL)
 #define FD_VM_ALIGN_RUST_PUBKEY                   (1UL)
@@ -57,7 +52,6 @@
 #define FD_VM_ALIGN_RUST_SYSVAR_RENT              (8UL)
 #define FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT (8UL)
 #define FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS    (16UL)
-#define FD_VM_ALIGN_RUST_STABLE_INSTRUCTION       (8UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
    Equal in layout to the Rust slice header &[_] and various vector
@@ -87,35 +81,37 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
    and create a huge mess.
    We define both, so hopefully it's foolproof. */
 
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v != FD_SBPF_V0 )
-#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v != FD_SBPF_V0 )
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L28-L93 */
 /* SIMD-0166 */
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
-/* SIMD-0173 */
-#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  FD_SBPF_V2 )
-#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  FD_SBPF_V2 )
-#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP(v)              ( v == FD_SBPF_V1 || v == FD_SBPF_V2 ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
+#define FD_VM_SBPF_STACK_FRAME_GAPS(v)                     ( v == FD_SBPF_V0 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
 /* SIMD-0174 */
-#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
-#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
-/* SIMD-0178 + SIMD-0179 */
-#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_ENABLE_PQR(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS(v)   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L45-L47 */
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)            ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L49-L51 */
+#define FD_VM_SBPF_DISABLE_NEG(v)                          ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L53-L55 */
+/* SIMD-0173 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)                   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L58-L60 */
+#define FD_VM_SBPF_DISABLE_LDDW(v)                         ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L62-L64 */
+#define FD_VM_SBPF_DISABLE_LE(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L66-L68 */
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)               ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L70-L72 */
+/* SIMD-0178 */
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)                      ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L75-L77 */
 /* SIMD-0189 */
-#define FD_VM_SBPF_ENABLE_LOWER_BYTECODE_VADDR(v)  ( v >= FD_SBPF_V3 )
-/* enable_strict_elf_headers is defined in fd_sbpf_loader.h because it's needed
-   by the ELF loader, not really by the VM
-   #define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 ) */
+#define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)          ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L79-L81 */
+#define FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR(v)            ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L83-L85 */
+/* SIMD-0377 */
+#define FD_VM_SBPF_ENABLE_JMP32(v)                         ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L87-L89 */
+#define FD_VM_SBPF_CALLX_USES_DST_REG(v)                   ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L91-L93 */
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L32 */
-#define FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION (FD_RUNTIME_ACC_SZ_MAX * 2UL)
+#define FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION ((long)(FD_RUNTIME_ACC_SZ_MAX * 2UL))
+
+/* Kept equal to the canonical constant in fd_runtime_const.h, which the
+   bpf loader serialization buffer bound relies on. */
+FD_STATIC_ASSERT( FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION==(long)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN, account_data_growth_cap );
 
 FD_PROTOTYPES_BEGIN
 
@@ -124,20 +120,20 @@ FD_PROTOTYPES_BEGIN
 #ifdef FD_RUNTIME_ERR_HANDHOLDING
 /* Asserts that the error and error kind are populated (non-zero) */
 #define FD_VM_TEST_ERR_EXISTS( vm )                                       \
-    FD_TEST( vm->instr_ctx->txn_ctx->exec_err );                          \
-    FD_TEST( vm->instr_ctx->txn_ctx->exec_err_kind )
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err );                      \
+    FD_TEST( vm->instr_ctx->txn_out->err.exec_err_kind )
 
 /* Used prior to a FD_VM_ERR_FOR_LOG_INSTR call to deliberately
    bypass overwrite handholding checks.
    Only use this if you know what you're doing. */
 #define FD_VM_PREPARE_ERR_OVERWRITE( vm )                                 \
-   vm->instr_ctx->txn_ctx->exec_err = 0;                                  \
-   vm->instr_ctx->txn_ctx->exec_err_kind = 0
+   vm->instr_ctx->txn_out->err.exec_err = 0;                              \
+   vm->instr_ctx->txn_out->err.exec_err_kind = 0
 
 /* Asserts that the error and error kind are not populated (zero) */
 #define FD_VM_TEST_ERR_OVERWRITE( vm )                                    \
-    FD_TEST( !vm->instr_ctx->txn_ctx->exec_err );                         \
-    FD_TEST( !vm->instr_ctx->txn_ctx->exec_err_kind )
+    FD_TEST( !vm->instr_ctx->txn_out->err.exec_err );                     \
+    FD_TEST( !vm->instr_ctx->txn_out->err.exec_err_kind )
 #else
 #define FD_VM_TEST_ERR_EXISTS( vm ) ( ( void )0 )
 #define FD_VM_PREPARE_ERR_OVERWRITE( vm ) ( ( void )0 )
@@ -146,22 +142,22 @@ FD_PROTOTYPES_BEGIN
 
 /* Log error within the instr_ctx to match Agave/Rust error. */
 
-#define FD_VM_ERR_FOR_LOG_EBPF( vm, err ) (__extension__({                \
-    FD_VM_TEST_ERR_OVERWRITE( vm );                                       \
-    vm->instr_ctx->txn_ctx->exec_err = err;                               \
-    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;    \
+#define FD_VM_ERR_FOR_LOG_EBPF( vm, err_ ) (__extension__({                \
+    FD_VM_TEST_ERR_OVERWRITE( vm );                                        \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                           \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF; \
   }))
 
-#define FD_VM_ERR_FOR_LOG_SYSCALL( vm, err ) (__extension__({             \
-    FD_VM_TEST_ERR_OVERWRITE( vm );                                       \
-    vm->instr_ctx->txn_ctx->exec_err = err;                               \
-    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
+#define FD_VM_ERR_FOR_LOG_SYSCALL( vm, err_ ) (__extension__({                \
+    FD_VM_TEST_ERR_OVERWRITE( vm );                                           \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                              \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
   }))
 
-#define FD_VM_ERR_FOR_LOG_INSTR( vm, err ) (__extension__({               \
-    FD_VM_TEST_ERR_OVERWRITE( vm );                                       \
-    vm->instr_ctx->txn_ctx->exec_err = err;                               \
-    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;   \
+#define FD_VM_ERR_FOR_LOG_INSTR( vm, err_ ) (__extension__({                \
+    FD_VM_TEST_ERR_OVERWRITE( vm );                                         \
+    vm->instr_ctx->txn_out->err.exec_err = err_;                            \
+    vm->instr_ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR; \
   }))
 
 #define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS, FD_VM_HIGH_REGION )
@@ -201,11 +197,12 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 /* fd_vm_mem API ******************************************************/
 
 /* fd_vm_mem APIs support the fast mapping of virtual address ranges to
-   host address ranges.  Since the SBPF virtual address space consists
-   of 4 consecutive 4GiB regions and the mapable size of each region is
-   less than 4 GiB (as implied by FD_VM_MEM_MAP_REGION_SZ==2^32-1 and
-   that Solana protocol limits are much smaller still), it is impossible
-   for a valid virtual address range to span multiple regions. */
+   host address ranges.  The SBPF virtual address space consists of
+   5 consecutive 4 GiB regions (see fd_vm_base.h for layout).  The
+   mapable size of each region is less than 4 GiB (as implied by
+   FD_VM_MEM_MAP_REGION_SZ==2^32-1 and that Solana protocol limits are
+   much smaller still), so a valid virtual address range cannot span
+   multiple regions. */
 
 /* fd_vm_mem_cfg configures the vm's tlb arrays.  Assumes vm is valid
    and vm already has configured the rodata, stack, heap and input
@@ -213,11 +210,25 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {
-  vm->region_haddr[0] = 0UL;                                vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
-  vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
-  vm->region_haddr[FD_VM_STACK_REGION] = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
-  vm->region_haddr[FD_VM_HEAP_REGION]  = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
-  vm->region_haddr[5]                  = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
+  if( FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR( vm->sbpf_version ) ) {
+    /* In SBPF V3, rodata is at vaddr 0:
+       [rodata@0, empty@0x100000000, stack@0x200000000, heap@0x300000000, input@0x400000000]
+
+       This is so that we don't need to do any relocations - all rodata
+       accesses are direct offsets from 0.
+
+       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L358-L362
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/syscalls/src/lib.rs#L346 */
+    vm->region_haddr[0]                  = (ulong)vm->rodata; vm->region_ld_sz[0]                  = (uint)vm->rodata_sz;   vm->region_st_sz[0]                  = (uint)0UL;
+    vm->region_haddr[FD_VM_PROG_REGION]  = 0UL;               vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)0UL;             vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
+  } else {
+    /* V0-V2: region 0 unused, rodata at region 1 (vaddr 0x100000000) */
+    vm->region_haddr[0]                  = 0UL;               vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
+    vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
+  }
+  vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
+  vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
+  vm->region_haddr[5]                    = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
   if( vm->direct_mapping || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
        the load and stores are fragmented. */
@@ -247,7 +258,7 @@ fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
      stack access violation. */
   long rel_offset = fd_long_sat_sub( (long)vaddr, (long)FD_VM_MEM_MAP_STACK_REGION_START );
   long stack_frame = rel_offset / (long)FD_VM_STACK_FRAME_SZ;
-  if( !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) &&
+  if( !fd_sbpf_manual_stack_frame_bump_enabled( sbpf_version ) &&
       stack_frame>=-1L && stack_frame<=(long)FD_VM_MAX_CALL_DEPTH ) {
     return FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION;
   }
@@ -320,9 +331,9 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
                                    ulong           sz,
                                    ulong           region_idx,
                                    uchar           write ) {
-  /* If stricter_abi_and_runtime_constraints is not enabled, we don't need to
+  /* If virtual_address_space_adjustments is not enabled, we don't need to
      do anything */
-  if( FD_UNLIKELY( !vm->stricter_abi_and_runtime_constraints ) ) {
+  if( FD_UNLIKELY( !vm->virtual_address_space_adjustments ) ) {
     return;
   }
 
@@ -348,9 +359,12 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
 
   /* Calculate the remaining allowed growth
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L549-L551 */
-  ulong remaining_allowed_growth = fd_ulong_sat_sub(
+  long remaining_growth_signed = fd_long_sat_sub(
     FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION,
-    vm->instr_ctx->txn_ctx->accounts_resize_delta );
+    vm->instr_ctx->txn_out->details.accounts_resize_delta );
+  ulong remaining_allowed_growth = (remaining_growth_signed > 0L)
+    ? (ulong)remaining_growth_signed
+    : 0UL;
 
   /* If the requested length is greater than the size of the region,
      resize the region
@@ -365,11 +379,14 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
     /* Resize the account and the region
        https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L569-L570 */
     if( FD_UNLIKELY( new_region_sz > region->region_sz ) ) {
-      vm->instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_sub(
-        fd_ulong_sat_add( vm->instr_ctx->txn_ctx->accounts_resize_delta, new_region_sz ),
-        region->region_sz );
+      /* Safe because new_region_sz > region->region_sz */
+      long growth = (long)(new_region_sz - region->region_sz);
+      vm->instr_ctx->txn_out->details.accounts_resize_delta = fd_long_sat_add(
+        vm->instr_ctx->txn_out->details.accounts_resize_delta, growth );
 
-      fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, requested_len );
+      ulong memset_sz = fd_ulong_sat_sub( new_region_sz, vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len );
+      fd_memset( vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data+vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len, 0, memset_sz );
+      vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len = new_region_sz;
       region->region_sz = (uint)new_region_sz;
     }
   }
@@ -437,12 +454,11 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
   ulong region = FD_VADDR_TO_REGION( vaddr );
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
 
-  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame, which only exist if...
-          - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
-     https://github.com/anza-xyz/agave/blob/v2.2.12/programs/bpf_loader/src/lib.rs#L344-L351
-    */
-  if( FD_UNLIKELY( region==FD_VM_STACK_REGION &&
-                   !fd_sbpf_dynamic_stack_frames_enabled( vm->sbpf_version ) ) ) {
+  /* Some configurations of the vm have unmapped gaps between each
+     stack frame. If this is the case, we need to check that the access
+     is not in a gap region. */
+  int stack_frame_gaps_enabled = vm->stack_push_frame_count > 1;
+  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && stack_frame_gaps_enabled ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
       return sentinel;

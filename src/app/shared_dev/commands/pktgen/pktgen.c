@@ -53,21 +53,21 @@ pktgen_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
-  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
+  fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   fd_topob_wksp( topo, "pktgen" );
-  fd_topo_tile_t * pktgen_tile = fd_topob_tile( topo, "pktgen", "pktgen", "pktgen", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * pktgen_tile = fd_topob_tile( topo, "pktgen", "pktgen", "pktgen", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.pktgen.fake_dst_ip, &pktgen_tile->pktgen.fake_dst_ip ) ) ) {
     FD_LOG_ERR(( "Invalid [development.pktgen.fake_dst_ip]" ));
   }
-  fd_topob_link( topo, "pktgen_out", "pktgen", 2048UL, FD_NET_MTU, 1UL );
+  fd_topob_link( topo, "pktgen_out", "pktgen", 32768UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_out", 0UL );
-  fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /* Create dummy RX link */
   fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
-  fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topos_net_tile_finish( topo, 0UL );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
@@ -130,15 +130,15 @@ render_status( ulong volatile const * net_metrics ) {
     /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_PREFRAG        ) ];
     /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG      ) ];
     /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG       ) ];
-    ulong rx_ok_now     = net_metrics[ MIDX( COUNTER, NET, RX_PKT_CNT           ) ];
-    ulong rx_byte_now   = net_metrics[ MIDX( COUNTER, NET, RX_BYTES_TOTAL       ) ];
-    ulong rx_drop_now   = net_metrics[ MIDX( COUNTER, NET, RX_FILL_BLOCKED_CNT  ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, RX_BACKPRESSURE_CNT  ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_DROPPED_OTHER ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCS ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL     ) ];
-    ulong tx_ok_now     = net_metrics[ MIDX( COUNTER, NET, TX_COMPLETE_CNT      ) ];
-    ulong tx_byte_now   = net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL       ) ];
+    ulong rx_ok_now     = net_metrics[ MIDX( COUNTER, NET, PKT_RX                    ) ];
+    ulong rx_byte_now   = net_metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES              ) ];
+    ulong rx_drop_now   = net_metrics[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL       ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE       ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED      ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR ) ];
+    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL          ) ];
+    ulong tx_ok_now     = net_metrics[ MIDX( COUNTER, NET, PKT_TX_COMPLETED          ) ];
+    ulong tx_byte_now   = net_metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES              ) ];
 
     ulong cum_idle_delta = cum_idle_now-cum_idle_last;
     ulong cum_tick_delta = cum_tick_now-cum_tick_last;
@@ -165,10 +165,10 @@ render_status( ulong volatile const * net_metrics ) {
     tx_byte_last         = tx_byte_now;
   }
 
-  ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_IDLE_CNT ) ];
-  ulong rx_busy = net_metrics[ MIDX( GAUGE, NET, RX_BUSY_CNT ) ];
-  ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_IDLE_CNT ) ];
-  ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUSY_CNT ) ];
+  ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_BUFFER_IDLE ) ];
+  ulong rx_busy = net_metrics[ MIDX( GAUGE, NET, RX_BUFFER_BUSY ) ];
+  ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_BUFFER_IDLE ) ];
+  ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUFFER_BUSY ) ];
   printf( "\033[2K" "  Net busy: %.2f%%\n"
           "\033[2K" "  RX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX drop: %10.3e pps\n"
@@ -205,6 +205,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
 
@@ -212,9 +213,10 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
-  fdctl_setup_netns( config, 1 );
-  (void)fd_topo_install_xdp( topo, config->net.bind_address_parsed );
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( 0==strcmp( config->net.provider, "xdp" ) ) {
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
+  }
+  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );

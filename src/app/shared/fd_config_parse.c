@@ -23,6 +23,8 @@ fd_config_extract_podh( uchar *        pod,
 
   CFG_POP      ( cstr,   layout.agave_affinity                            );
   CFG_POP      ( uint,   layout.agave_unified_scheduler_handler_threads   );
+  CFG_POP      ( uint,   layout.resolh_tile_count                         );
+  CFG_POP      ( uint,   layout.bank_tile_count                           );
 
   CFG_POP1      ( cstr,  ledger.accounts_path,             paths.accounts_path          );
   CFG_POP1_ARRAY( cstr,  consensus.authorized_voter_paths, paths.authorized_voter_paths );
@@ -31,9 +33,9 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP_ARRAY( cstr,   ledger.account_indexes                           );
   CFG_POP_ARRAY( cstr,   ledger.account_index_include_keys                );
   CFG_POP_ARRAY( cstr,   ledger.account_index_exclude_keys                );
+  CFG_POP      ( bool,   ledger.enable_accounts_disk_index                );
   CFG_POP      ( cstr,   ledger.accounts_index_path                       );
   CFG_POP      ( cstr,   ledger.accounts_hash_cache_path                  );
-  CFG_POP      ( bool,   ledger.enable_accounts_disk_index                );
   CFG_POP      ( bool,   ledger.require_tower                             );
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
 
@@ -78,28 +80,27 @@ fd_config_extract_podh( uchar *        pod,
 fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
+  CFG_POP_ARRAY( cstr,   paths.authorized_voter_paths                        );
+
   CFG_POP      ( cstr,   gossip.host                                         );
 
-  CFG_POP      ( uint,   layout.exec_tile_count                              );
+  CFG_POP      ( bool,   layout.enable_block_production                      );
+  CFG_POP      ( uint,   layout.execrp_tile_count                            );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
+  CFG_POP      ( uint,   layout.resolv_tile_count                            );
+  CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
 
-  CFG_POP      ( ulong,  funk.max_account_records                            );
-  CFG_POP      ( ulong,  funk.heap_size_gib                                  );
-  CFG_POP      ( ulong,  funk.max_database_transactions                      );
-
-  CFG_POP      ( bool,   vinyl.enabled                                       );
-  CFG_POP      ( ulong,  vinyl.max_account_records                           );
-  CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
+  CFG_POP      ( ulong,  accounts.max_accounts                               );
+  CFG_POP      ( ulong,  accounts.cache_size_gib                             );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
-  CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  runtime.program_cache.heap_size_mib                 );
   CFG_POP      ( ulong,  runtime.program_cache.mean_cache_entry_size         );
 
-  CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
+  CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
   CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );
@@ -111,7 +112,22 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( bool,   snapshots.genesis_download                          );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
-  CFG_POP      ( uint,   snapshots.full_effective_age_cancel_threshold       );
+  CFG_POP      ( uint,   snapshots.max_retry_abort                           );
+  CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
+
+  CFG_POP      ( bool,   development.hard_fork_fatal                         );
+  CFG_POP      ( bool,   development.fixed_fec_sets                          );
+
+  CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
+
+  CFG_POP      ( cstr,   development.ledger_input.format                     );
+  CFG_POP      ( cstr,   development.ledger_input.path                       );
+  CFG_POP      ( ulong,  development.ledger_input.end_slot                   );
+
+  CFG_POP      ( cstr,   development.backtest.affinity                       );
+  CFG_POP      ( ulong,  development.backtest.root_distance                  );
+
+  CFG_POP      ( cstr,   development.forktest.affinity                       );
 
   return config;
 }
@@ -122,6 +138,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   name                                             );
   CFG_POP      ( cstr,   user                                             );
 
+  CFG_POP      ( bool,   telemetry                                        );
+
   CFG_POP      ( cstr,   log.path                                         );
   CFG_POP      ( cstr,   log.colorize                                     );
   CFG_POP      ( cstr,   log.level_logfile                                );
@@ -130,15 +148,15 @@ fd_config_extract_pod( uchar *       pod,
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     CFG_POP    ( cstr,   paths.base                                       );
-    CFG_POP    ( cstr,   paths.ledger                                     );
     CFG_POP    ( cstr,   paths.identity_key                               );
     CFG_POP    ( cstr,   paths.vote_account                               );
     CFG_POP    ( cstr,   paths.snapshots                                  );
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
+    CFG_POP    ( cstr,   paths.shredb                                 );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
-    CFG_POP1   ( cstr,   ledger.path,                 paths.ledger        );
+    CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
     CFG_POP1   ( cstr,   consensus.identity_path,     paths.identity_key  );
     CFG_POP1   ( cstr,   consensus.vote_account_path, paths.vote_account  );
   }
@@ -148,19 +166,18 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ushort, consensus.expected_shred_version                 );
   CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
+  CFG_POP      ( bool,   consensus.wait_for_vote_to_start_leader          );
 
   CFG_POP      ( cstr,   layout.affinity                                  );
+  CFG_POP      ( cstr,   layout.blocklist_cores                           );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
-  CFG_POP      ( uint,   layout.resolv_tile_count                         );
   CFG_POP      ( uint,   layout.verify_tile_count                         );
-  CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
   CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
   CFG_POP      ( ulong,  hugetlbfs.gigantic_page_threshold_mib            );
-  CFG_POP      ( bool,   hugetlbfs.allow_hugepage_increase                );
 
   CFG_POP      ( cstr,   net.interface                                    );
   CFG_POP      ( cstr,   net.bind_address                                 );
@@ -172,6 +189,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
   CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
+  CFG_POP      ( bool,   net.xdp.listen_gre                               );
+  CFG_POP      ( bool,   net.xdp.native_bond                              );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
@@ -210,8 +229,12 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
   CFG_POP      ( cstr,   tiles.pack.schedule_strategy                     );
+  CFG_POP_ARRAY( cstr,   tiles.pack.account_blocklist                     );
 
-  CFG_POP      ( bool,   tiles.poh.lagged_consecutive_leader_start        );
+  CFG_POP      ( ulong,  tiles.replay.max_transaction_lookahead_buffer_size );
+  CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                       );
+
+  CFG_POP      ( bool,   tiles.pohh.lagged_consecutive_leader_start       );
 
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets                   );
   CFG_POP      ( ushort, tiles.shred.shred_listen_port                        );
@@ -220,6 +243,8 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
+
+  CFG_POP      ( cstr,   tiles.event.url                                  );
 
   CFG_POP      ( bool,   tiles.gui.enabled                                );
   CFG_POP      ( cstr,   tiles.gui.gui_listen_address                     );
@@ -233,58 +258,38 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.rpc.rpc_listen_address                     );
   CFG_POP      ( ushort, tiles.rpc.rpc_listen_port                        );
   CFG_POP      ( ulong,  tiles.rpc.max_http_connections                   );
+  CFG_POP      ( ulong,  tiles.rpc.max_websocket_connections              );
   CFG_POP      ( ulong,  tiles.rpc.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.rpc.send_buffer_size_mb                    );
+  CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
 
-  CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
-  CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
+  CFG_POP      ( ushort, tiles.repair.repair_client_listen_port           );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
+
+  CFG_POP      ( bool,   tiles.rserve.enabled                             );
+  CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
+  CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
+  CFG_POP      ( bool,   capture.recent_only                              );
+  CFG_POP      ( ulong,  capture.recent_slots_per_file                    );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
-  CFG_POP      ( bool,   capture.dump_elf_to_pb                           );
+  CFG_POP      ( cstr,   capture.dump_syscall_name_filter                 );
+  CFG_POP      ( cstr,   capture.dump_instr_program_id_filter             );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
   CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
+  CFG_POP      ( bool,   capture.dump_txn_as_fixture                      );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
-  CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
-  CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
-
-  CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
-  CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
-  CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
-  CFG_POP      ( ulong,  tiles.store_int.shred_cap_end_slot               );
-
-  CFG_POP      ( ushort, tiles.send.send_src_port                         );
-
-  CFG_POP      ( bool,   tiles.archiver.enabled                           );
-  CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
-  CFG_POP      ( cstr,   tiles.archiver.rocksdb_path                      );
-  CFG_POP      ( cstr,   tiles.archiver.shredcap_path                     );
-  CFG_POP      ( cstr,   tiles.archiver.bank_hash_path                    );
-  CFG_POP      ( cstr,   tiles.archiver.ingest_mode                       );
-
-  if( FD_UNLIKELY( config->is_firedancer ) ) {
-    CFG_POP      ( bool,    tiles.shredcap.enabled                        );
-    CFG_POP      ( cstr,    tiles.shredcap.folder_path                    );
-    CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size              );
-  }
+  CFG_POP      ( ushort, tiles.txsend.txsend_src_port                     );
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
-  CFG_POP      ( bool,   development.core_dump                            );
+  CFG_POP      ( cstr,   development.core_dump                            );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
-
-  CFG_POP      ( bool,   development.netns.enabled                        );
-  CFG_POP      ( cstr,   development.netns.interface0                     );
-  CFG_POP      ( cstr,   development.netns.interface0_mac                 );
-  CFG_POP      ( cstr,   development.netns.interface0_addr                );
-  CFG_POP      ( cstr,   development.netns.interface1                     );
-  CFG_POP      ( cstr,   development.netns.interface1_mac                 );
-  CFG_POP      ( cstr,   development.netns.interface1_addr                );
 
   CFG_POP      ( bool,   development.gossip.allow_private_address         );
 
@@ -308,6 +313,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   development.bundle.buffer_size_kib               );
   CFG_POP      ( uint,   development.bundle.ssl_heap_size_mib             );
 
+  CFG_POP      ( bool,   development.event.report_shreds                  );
+  CFG_POP      ( bool,   development.event.report_transactions            );
+
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
@@ -316,7 +324,10 @@ fd_config_extract_pod( uchar *       pod,
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
     CFG_POP    ( bool,   development.gui.websocket_compression            );
   }
-  CFG_POP      ( cstr,   development.gui.frontend_release_channel         );
+
+  CFG_POP      ( ulong,  development.accdb.partition_size_gib             );
+
+  CFG_POP      ( bool,   development.hugetlbfs.min_size                   );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
@@ -353,6 +364,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_RENAMED( development.net.provider,                 net.provider                   );
   CFG_RENAMED( development.net.sock_receive_buffer_size, net.socket.receive_buffer_size );
   CFG_RENAMED( development.net.sock_send_buffer_size,    net.socket.send_buffer_size    );
+
+  CFG_RENAMED( tiles.repair.repair_intake_listen_port,   tiles.repair.repair_client_listen_port );
 
 # undef CFG_RENAMED
 

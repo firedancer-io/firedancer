@@ -1217,6 +1217,7 @@
 #if MAP_IMPL_STYLE!=2 /* need header */
 
 #include "../bits/fd_bits.h"
+#include "../racesan/fd_racesan_target.h"
 
 /* Note: we don't overalign chain metadata to reduce on map metadata
    footprint requirements.  Though this can cause cache false sharing
@@ -1525,6 +1526,7 @@ MAP_(iter)( MAP_(t) const * join,
 
 FD_FN_CONST static inline int MAP_(iter_done)( MAP_(iter_t) iter ) { return MAP_(private_idx_is_null)( iter.ele_idx ); }
 
+__attribute__((warn_unused_result))
 FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(iter_t) iter ) {
   MAP_ELE_T const * ele = iter.ele + iter.ele_idx;
@@ -1707,17 +1709,20 @@ FD_PROTOTYPES_END
     int              _b          = (b);                                                     \
     int              retain_lock = 0;                                                       \
     for(;;) {                                                                               \
+      fd_racesan_hook( "map_crit:check" );                                                  \
       ulong ver_cnt = *_vc;                                                                 \
       /* use a test-and-test-and-set style to reduce atomic contention */                   \
       if( FD_LIKELY( !(ver_cnt & (1UL<<MAP_CNT_WIDTH)) ) ) { /* opt for low contention */   \
         ver_cnt = MAP_(private_fetch_and_or)( _vc, 1UL<<MAP_CNT_WIDTH );                    \
         if( FD_LIKELY( !(ver_cnt & (1UL<<MAP_CNT_WIDTH)) ) ) { /* opt for low contention */ \
+          fd_racesan_hook( "map_crit:pre_acquire" );                                        \
           FD_COMPILER_MFENCE();                                                             \
           do
 
 #define MAP_CRIT_BLOCKED                                                                    \
           while(0);                                                                         \
           FD_COMPILER_MFENCE();                                                             \
+          fd_racesan_hook( "map_crit:pre_release" );                                        \
           if( !retain_lock ) *_vc = ver_cnt+(2UL<<MAP_CNT_WIDTH); /* likely compile time */ \
           FD_COMPILER_MFENCE();                                                             \
           break;                                                                            \

@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_txncache_private_h
 
 #include "fd_txncache_shmem.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
 
 /* The number of transactions in each page.  This needs to be high
@@ -45,8 +45,11 @@ struct fd_txncache_blockcache_shmem {
   fd_txncache_fork_id_t child_id;
   fd_txncache_fork_id_t sibling_id;
 
-  int frozen;            /* If non-zero, the blockcache is frozen and should not be modified.  This is used to enforce
-                            invariants on the caller of the txncache. */
+  int frozen;            /* This is used to enforce invariants on the caller of the txncache.
+                            -1: invalid
+                             0: active
+                             1: semi frozen, only happens during snapshot load
+                             2: frozen, should not be modified */
 
   uint generation;
 
@@ -77,11 +80,6 @@ struct fd_txncache_blockcache_shmem {
     ulong next;
     ulong prev;
   } blockhash_map;
-
-  struct {
-    ulong next;
-    ulong prev;
-  } fork_map;
 };
 
 typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
@@ -138,7 +136,8 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
-  ulong magic; /* ==FD_TXNCACHE_MAGIC */
+  ulong seed;
+  ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
 };
 
 FD_PROTOTYPES_BEGIN

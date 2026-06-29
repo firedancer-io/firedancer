@@ -155,6 +155,11 @@ check_duplicates( fd_bundle_crank_gen_t * g,
   if( FD_UNLIKELY( !fd_memeq( addr[ payload[ txn->instr[1].acct_off + 3UL ] ].b, old_block_builder, 32UL ) ) ) return 0;
   if( FD_UNLIKELY( !fd_memeq( addr[ payload[ txn->instr[2].acct_off + 2UL ] ].b, old_block_builder, 32UL ) ) ) return 0;
 
+  /* Ensure they are writable. We know there are no readonly signers. */
+  if( FD_UNLIKELY( payload[ txn->instr[1].acct_off + 1UL ]>=fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE ) ) ) return 0;
+  if( FD_UNLIKELY( payload[ txn->instr[1].acct_off + 3UL ]>=fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE ) ) ) return 0;
+  if( FD_UNLIKELY( payload[ txn->instr[2].acct_off + 2UL ]>=fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE ) ) ) return 0;
+
   fd_chkdup_t chkdup[1];
   fd_chkdup_join( fd_chkdup_new( chkdup, rng ) );
 
@@ -173,11 +178,23 @@ test_no_duplicates( void ) {
                                _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD, _GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib,
                                "NONE",
                                0UL );
+
+  /* first byte one larger than DNVZ */
+  fd_acct_addr_t _DSPxzwZjK7VqwGBKhy82uHXrdfc9XdAFpp9mSzL3NKR1[1] = {{ .b={
+            0xb8,0xcd,0xbb,0x03,0x1e,0x27,0xa7,0xcc,0xb0,0x1b,0xc0,0x7e,0x1c,0x5a,0x30,0x9b,
+            0x18,0x61,0x2a,0x16,0xe8,0x10,0x00,0xb8,0x91,0xee,0x8d,0x46,0x0d,0x33,0x67,0x00 } }};
+  fd_acct_addr_t _1thX6LZfHDZZKUs92febYZhYRcXddmzfzF2NvTkPNE[1] = {{ .b={
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f } }};
+
   FD_TEST( check_duplicates( g, rng, _GiLHMES95axFbFX7ogCTwL6QQ1uqspajz9SHMpt5dCGh, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY  ) );
   FD_TEST( check_duplicates( g, rng, _GiLHMES95axFbFX7ogCTwL6QQ1uqspajz9SHMpt5dCGh, _DNVZMSqeRH18Xa4MCTrb1MndNf3Npg4MEwqswo23eWkf ) );
   FD_TEST( check_duplicates( g, rng, _DNVZMSqeRH18Xa4MCTrb1MndNf3Npg4MEwqswo23eWkf, _DNVZMSqeRH18Xa4MCTrb1MndNf3Npg4MEwqswo23eWkf ) );
   FD_TEST( check_duplicates( g, rng, _96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5, _HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe ) );
   FD_TEST( check_duplicates( g, rng, _G8RaABmvrvNCcGu41NV5oKjCfHeBv1zNn58dFcZzyRRw, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY  ) );
+  FD_TEST( check_duplicates( g, rng, _DNVZMSqeRH18Xa4MCTrb1MndNf3Npg4MEwqswo23eWkf, _DSPxzwZjK7VqwGBKhy82uHXrdfc9XdAFpp9mSzL3NKR1 ) );
+  FD_TEST( check_duplicates( g, rng, _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD, _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD ) );
+  FD_TEST( check_duplicates( g, rng, _1thX6LZfHDZZKUs92febYZhYRcXddmzfzF2NvTkPNE,   _1thX6LZfHDZZKUs92febYZhYRcXddmzfzF2NvTkPNE   ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

@@ -6,19 +6,34 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_GAUGE_SNAPWR_STATE_OFF  (16UL)
-#define FD_METRICS_GAUGE_SNAPWR_STATE_NAME "snapwr_state"
-#define FD_METRICS_GAUGE_SNAPWR_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPWR_STATE_DESC "State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN"
-#define FD_METRICS_GAUGE_SNAPWR_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
+enum {
+  FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_OFF = FD_METRICS_TILE_OFF,
+  FD_METRICS_GAUGE_SNAPWR_INCREMENTAL_BYTES_READ_OFF,
+  FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_OFF,
+  FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_OFF,
+};
 
-#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_OFF  (17UL)
-#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_NAME "snapwr_vinyl_bytes_written"
-#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_DESC "Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted"
-#define FD_METRICS_GAUGE_SNAPWR_VINYL_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_NAME "snapwr_full_bytes_read"
+#define FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_DESC "Number of decompressed snapshot bytes consumed from the full snapshot. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPWR_FULL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPWR_TOTAL (2UL)
+#define FD_METRICS_GAUGE_SNAPWR_INCREMENTAL_BYTES_READ_NAME "snapwr_incremental_bytes_read"
+#define FD_METRICS_GAUGE_SNAPWR_INCREMENTAL_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPWR_INCREMENTAL_BYTES_READ_DESC "Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPWR_INCREMENTAL_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_NAME "snapwr_bytes_written"
+#define FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_DESC "Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads."
+#define FD_METRICS_GAUGE_SNAPWR_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_NAME "snapwr_accounts_written"
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_DESC "Number of accounts written to the accounts database on disk. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPWR_ACCOUNTS_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_SNAPWR_TOTAL (4UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPWR[FD_METRICS_SNAPWR_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_snapwr_h */

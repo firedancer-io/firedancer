@@ -65,7 +65,10 @@ has_capability( uint capability ) {
 
   if( FD_UNLIKELY( syscall( SYS_capget, &capheader, capdata ) ) ) FD_LOG_ERR(( "capget syscall failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
   fd_msan_unpoison( capdata, sizeof(capdata) );
-  return !!(capdata[ 0 ].effective & (1U << capability));
+  uint idx = capability / 32U;
+  uint bit = capability % 32U;
+  if( FD_UNLIKELY( idx>=2 ) ) return 0;
+  return !!(capdata[ idx ].effective & (1U << bit));
 }
 
 FD_FN_CONST static char const *
@@ -207,8 +210,8 @@ fd_cap_chk_raise_rlimit( fd_cap_chk_t *  chk,
       if( FD_UNLIKELY( file_nr<limit ) )
         FD_LOG_ERR(( "Firedancer requires `/proc/sys/fs/nr_open` to be at least %lu "
                      "to raise RLIMIT_NOFILE, but it is %u. Please either increase "
-                     "the sysctl or run `fdctl configure init sysctl` which will do "
-                     "it for you.", limit, file_nr ));
+                     "the sysctl or run the `configure init sysctl` command which will "
+                     "do it for you.", limit, file_nr ));
     }
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;

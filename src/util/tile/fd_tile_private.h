@@ -52,6 +52,13 @@ int
 fd_cpuset_setaffinity( ulong               tid,
                        fd_cpuset_t const * mask );
 
+/* fd_tile_private_sibling_idx returns the sibling CPU (hyperthreaded
+   pair) of the provided CPU, if there is one, otherwise return ULONG_MAX.
+   On error, logs an error and exits the process. */
+
+ulong
+fd_tile_private_sibling_idx( ulong cpu_idx );
+
 /* These functions are for fd_tile internal use only. */
 
 void *

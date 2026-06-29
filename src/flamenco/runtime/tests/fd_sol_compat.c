@@ -1,23 +1,22 @@
 #include "fd_solfuzz.h"
 #include "fd_solfuzz_private.h"
-#define _GNU_SOURCE
 #include "fd_sol_compat.h"
-
-#include "../fd_executor_err.h"
 #include "../../capture/fd_solcap_writer.h"
-#include "../../../ballet/shred/fd_shred.h"
+#include "fd_gossip_harness.h"
 
 #include "generated/block.pb.h"
-#include "generated/elf.pb.h"
-#include "generated/invoke.pb.h"
-#include "generated/shred.pb.h"
+#include "generated/instr.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/txn.pb.h"
-#include "generated/type.pb.h"
+#include "generated/bundle.pb.h"
+#include "generated/cost.pb.h"
+#include "generated/elf.pb.h"
+#include "generated/vm_serialization.pb.h"
+#include "generated/shred.pb.h"
 
-#include <assert.h>
 #include <errno.h>
-#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static fd_wksp_t *           wksp   = NULL;
 static fd_solfuzz_runner_t * runner = NULL;
@@ -32,16 +31,16 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
 
   char const * solcap_path = getenv( "FD_SOLCAP" );
   if( solcap_path ) {
-    runner->solcap_file = fopen( solcap_path, "w" );
-    if( FD_UNLIKELY( !runner->solcap_file ) ) {
-      FD_LOG_ERR(( "fopen($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
+    int fd = open( solcap_path, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+    if( FD_UNLIKELY( fd == -1 ) ) {
+      FD_LOG_ERR(( "open($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
     }
+    runner->solcap_file = (void *)(ulong)fd;
     FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
 
     void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
-    runner->solcap = fd_solcap_writer_new( solcap_mem );
+    runner->solcap = fd_solcap_writer_init( solcap_mem, fd );
     FD_TEST( runner->solcap );
-    FD_TEST( fd_solcap_writer_init( solcap_mem, runner->solcap_file ) );
   }
 
   return runner;
@@ -51,11 +50,12 @@ static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
   /* Cleanup test runner */
   if( runner->solcap ) {
-    fd_solcap_writer_flush( runner->solcap );
-    fd_wksp_free_laddr( fd_solcap_writer_delete( runner->solcap ) );
+    fd_wksp_free_laddr( ( runner->solcap ) );
     runner->solcap = NULL;
-    fclose( runner->solcap_file );
-    runner->solcap_file = NULL;
+    if( runner->solcap_file ) {
+      close( (int)(ulong)runner->solcap_file );
+      runner->solcap_file = NULL;
+    }
   }
   fd_solfuzz_runner_delete( runner );
 }
@@ -82,7 +82,7 @@ sol_compat_init( int log_level ) {
     FD_LOG_ERR(( "sol_compat_init() called multiple times" ));
   }
 
-  ulong footprint = 7UL<<30;
+  ulong footprint = 22UL<<30;
   ulong part_max  = fd_wksp_part_max_est( footprint, 64UL<<10 );
   ulong data_max  = fd_wksp_data_max_est( footprint, part_max );
   wksp = fd_wksp_demand_paged_new( "sol_compat", 42U, part_max, data_max );
@@ -155,6 +155,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_instr_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
 
@@ -177,6 +178,53 @@ sol_compat_txn_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_txn_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_bundle_execute_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz ) {
+  fd_exec_test_bundle_context_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_bundle_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_bundle_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_bundle_effects_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_bundle_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_txn_cost_v1( uchar *       out,
+                        ulong *       out_sz,
+                        uchar const * in,
+                        ulong         in_sz ) {
+  fd_exec_test_cost_context_t input[1] = { FD_EXEC_TEST_COST_CONTEXT_INIT_ZERO };
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_cost_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_cost_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_cost_result_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_cost_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
 
@@ -199,28 +247,7 @@ sol_compat_block_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_block_context_t_msg, input );
-  return ok;
-}
-
-int
-sol_compat_elf_loader_v1( uchar *       out,
-                          ulong *       out_sz,
-                          uchar const * in,
-                          ulong         in_sz ) {
-  fd_exec_test_elf_loader_ctx_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_elf_loader_ctx_t_msg );
-  if( FD_UNLIKELY( !res ) ) return 0;
-
-  fd_spad_push( runner->spad );
-  int ok = 0;
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
-  }
-  fd_spad_pop( runner->spad );
-
-  pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
 
@@ -243,28 +270,65 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_syscall_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
 
 int
-sol_compat_vm_interp_v1( uchar *       out,
-                         ulong *       out_sz,
-                         uchar const * in,
-                         ulong         in_sz ) {
-  fd_exec_test_syscall_context_t input[1] = {0};
-  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+sol_compat_gossip_decode_v1( uchar *       out,
+                             ulong *       out_sz,
+                             uchar const * in,
+                             ulong         in_sz ) {
+  fd_spad_push( runner->spad );
+  int ok = fd_solfuzz_gossip_decode( runner, out, out_sz, in, in_sz );
+  fd_spad_pop( runner->spad );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_elf_loader_v1( uchar *       out,
+                          ulong *       out_sz,
+                          uchar const * in,
+                          ulong         in_sz ) {
+  fd_exec_test_elf_loader_ctx_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_elf_loader_ctx_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
-  fd_spad_push( runner->spad );
   int ok = 0;
+  fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_vm_interp_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
   if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
   }
   fd_spad_pop( runner->spad );
 
-  pb_release( &fd_exec_test_syscall_context_t_msg, input );
+  pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_vm_serialize_execute_v1( uchar *       out,
+                                    ulong *       out_sz,
+                                    uchar const * in,
+                                    ulong         in_sz ) {
+  fd_exec_test_instr_context_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_instr_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_vm_serialize_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_vm_serialization_effects_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_instr_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
 
@@ -273,17 +337,20 @@ sol_compat_shred_parse_v1( uchar *       out,
                            ulong *       out_sz,
                            uchar const * in,
                            ulong         in_sz ) {
-    fd_exec_test_shred_binary_t input[1] = {0};
-    void                      * res      = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
-    if( FD_UNLIKELY( res==NULL ) ) {
-        return 0;
-    }
-    if( FD_UNLIKELY( input[0].data==NULL ) ) {
-        pb_release( &fd_exec_test_shred_binary_t_msg, input );
-        return 0;
-    }
-    fd_exec_test_accepts_shred_t output[1] = {0};
-    output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
-    pb_release( &fd_exec_test_shred_binary_t_msg, input );
-    return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
+  fd_exec_test_shred_parse_context_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_shred_parse_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_shred_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_shred_parse_effects_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_shred_parse_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
 }

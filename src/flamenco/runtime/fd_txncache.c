@@ -30,6 +30,10 @@ struct fd_txncache_private {
                                        pages when storing transactions.  Transaction are grouped into pages of
                                        size 16384 to make certain allocation and deallocation operations faster
                                        (just the pages are acquired/released, rather than each txn). */
+
+  ushort * scratch_pages;
+  uint * scratch_heads;
+  fd_txncache_txnpage_t * scratch_txnpage;
 };
 
 FD_FN_CONST ulong
@@ -82,6 +86,9 @@ fd_txncache_new( void *                ljoin,
   void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                        );
   void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                                );
   void * _txnpages            = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                 );
+  void * _scratch_pages       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages_per_blockhash*sizeof(ushort)                  );
+  void * _scratch_heads       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   shmem->txn_per_slot_max*sizeof(uint)                        );
+  void * _scratch_txnpage     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  sizeof(fd_txncache_txnpage_t)                               );
 
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
   fd_txncache_t * ltc           = FD_SCRATCH_ALLOC_APPEND( l2, FD_TXNCACHE_ALIGN,     sizeof(fd_txncache_t)                 );
@@ -107,6 +114,10 @@ fd_txncache_new( void *                ljoin,
 
   ltc->txnpages_free = (ushort *)_txnpages_free;
   ltc->txnpages      = (fd_txncache_txnpage_t *)_txnpages;
+
+  ltc->scratch_pages   = _scratch_pages;
+  ltc->scratch_heads   = _scratch_heads;
+  ltc->scratch_txnpage = _scratch_txnpage;
 
   return (void *)ltc;
 }
@@ -142,6 +153,12 @@ fd_txncache_reset( fd_txncache_t * tc ) {
   blockhash_map_reset( tc->blockhash_map );
 
   fd_rwlock_unwrite( tc->shmem->lock );
+}
+
+FD_FN_PURE static inline ulong
+fd_txncache_bucket( fd_txncache_t const * tc,
+                    uchar const *         txnhash ) {
+  return fd_ulong_hash( FD_LOAD( ulong, txnhash )^tc->shmem->seed )%tc->shmem->txn_per_slot_max;
 }
 
 static fd_txncache_txnpage_t *
@@ -208,7 +225,7 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
     txnpage->txns[ txn_idx ]->generation = tc->blockcache_pool[ fork_id.val ].shmem->generation;
     FD_COMPILER_MFENCE();
 
-    ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
+    ulong txn_bucket = fd_txncache_bucket( tc, txnhash+txnhash_offset );
     for(;;) {
       uint head = blockcache->heads[ txn_bucket ];
       txnpage->txns[ txn_idx ]->blockcache_next = head;
@@ -244,7 +261,6 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
     root_slist_ele_push_tail( tc->shmem->root_ll, fork->shmem, tc->blockcache_shmem_pool );
   } else {
     blockcache_t * parent = &tc->blockcache_pool[ parent_fork_id.val ];
-    FD_TEST( parent );
     /* We might be tempted to freeze the parent here, and it's valid to
        do this ordinarily, but not when loading from a snapshot, when
        we need to load many transactions into a root parent chain at
@@ -293,6 +309,7 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
 
   blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
   FD_TEST( fork->shmem->frozen<=1 );
+  FD_TEST( fork->shmem->frozen>=0 );
   fork->shmem->txnhash_offset = txnhash_offset;
 
   memcpy( fork->shmem->blockhash.uc, blockhash, 32UL );
@@ -306,6 +323,7 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
 static inline void
 remove_blockcache( fd_txncache_t * tc,
                    blockcache_t *  blockcache ) {
+  FD_TEST( blockcache->shmem->frozen>=0 );
   memcpy( tc->txnpages_free+tc->shmem->txnpages_free_cnt, blockcache->pages, blockcache->shmem->pages_cnt*sizeof(tc->txnpages_free[ 0 ]) );
   tc->shmem->txnpages_free_cnt = (ushort)(tc->shmem->txnpages_free_cnt+blockcache->shmem->pages_cnt);
 
@@ -313,6 +331,7 @@ remove_blockcache( fd_txncache_t * tc,
   for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) descends_set_remove( tc->blockcache_pool[ i ].descends, idx );
 
   if( FD_LIKELY( blockcache->shmem->frozen ) ) blockhash_map_ele_remove_fast( tc->blockhash_map, blockcache->shmem, tc->blockcache_shmem_pool );
+  blockcache->shmem->frozen = -1;
   blockcache_pool_ele_release( tc->blockcache_shmem_pool, blockcache->shmem );
 }
 
@@ -323,7 +342,6 @@ remove_children( fd_txncache_t *      tc,
   fd_txncache_fork_id_t sibling_idx = fork->shmem->child_id;
   while( sibling_idx.val!=USHORT_MAX ) {
     blockcache_t * sibling = &tc->blockcache_pool[ sibling_idx.val ];
-    FD_TEST( sibling );
 
     sibling_idx = sibling->shmem->sibling_id;
     if( FD_UNLIKELY( sibling==except ) ) continue;
@@ -334,24 +352,50 @@ remove_children( fd_txncache_t *      tc,
 }
 
 void
+fd_txncache_cancel_fork( fd_txncache_t *       tc,
+                         fd_txncache_fork_id_t fork_id ) {
+  fd_rwlock_write( tc->shmem->lock );
+  blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
+  FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
+
+  /* The soon-to-be-pruned subtree must be unrooted. */
+  fd_txncache_blockcache_shmem_t const * latest_root = root_slist_ele_peek_tail_const( tc->shmem->root_ll, tc->blockcache_shmem_pool );
+  FD_TEST( latest_root );
+  FD_TEST( descends_set_test( fork->descends, blockcache_pool_idx( tc->blockcache_shmem_pool, latest_root ) ) );
+
+  remove_children( tc, fork, NULL );
+  remove_blockcache( tc, fork );
+  ushort * fork_id_p = &(tc->blockcache_pool[ fork->shmem->parent_id.val ].shmem->child_id.val);
+  while( *fork_id_p!=fork_id.val ) {
+    fork_id_p = &(tc->blockcache_pool[ *fork_id_p ].shmem->sibling_id.val);
+  }
+  *fork_id_p = fork->shmem->sibling_id.val;
+  fd_rwlock_unwrite( tc->shmem->lock );
+}
+
+void
 fd_txncache_advance_root( fd_txncache_t *       tc,
                           fd_txncache_fork_id_t fork_id ) {
   fd_rwlock_write( tc->shmem->lock );
 
   blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
-  FD_TEST( fork );
 
   blockcache_t * parent_fork = &tc->blockcache_pool[ fork->shmem->parent_id.val ];
   if( FD_UNLIKELY( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )!=parent_fork->shmem ) ) {
+    FD_BASE58_ENCODE_32_BYTES( parent_fork->shmem->blockhash.uc, parent_blockhash_b58 );
+    FD_BASE58_ENCODE_32_BYTES( fork->shmem->blockhash.uc, fork_blockhash_b58 );
+    FD_BASE58_ENCODE_32_BYTES( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )->blockhash.uc, root_blockhash_b58 );
     FD_LOG_CRIT(( "advancing root from %s to %s but that is not valid, last root is %s",
-                  FD_BASE58_ENC_32_ALLOCA( parent_fork->shmem->blockhash.uc ),
-                  FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ),
-                  FD_BASE58_ENC_32_ALLOCA( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )->blockhash.uc ) ));
+                  parent_blockhash_b58,
+                  fork_blockhash_b58,
+                  root_blockhash_b58 ));
   }
 
+  FD_BASE58_ENCODE_32_BYTES( parent_fork->shmem->blockhash.uc, parent_blockhash_b58 );
+  FD_BASE58_ENCODE_32_BYTES( fork->shmem->blockhash.uc, fork_blockhash_b58 );
   FD_LOG_DEBUG(( "advancing root from %s to %s",
-                 FD_BASE58_ENC_32_ALLOCA( parent_fork->shmem->blockhash.uc ),
-                 FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ) ));
+                 parent_blockhash_b58,
+                 fork_blockhash_b58 ));
 
   /* When a fork is rooted, any competing forks can be immediately
      removed as they will not be needed again.  This includes child
@@ -393,10 +437,88 @@ blockhash_on_fork( fd_txncache_t *      tc,
 }
 
 static void
-fd_txncache_purge_stale( fd_txncache_t * tc ) {
-  (void)tc;
-  FD_LOG_ERR(( "txncache full, purging stale transactions" ));
-  // TODO: Implement eviction of any txn with generation!=fork->generation
+purge_stale_on_blockcache( fd_txncache_t * tc,
+                           blockcache_t *  blockcache ) {
+  memset( tc->scratch_heads, 0xFF, tc->shmem->txn_per_slot_max*sizeof(tc->scratch_heads[ 0 ]) );
+  memset( tc->scratch_pages, 0xFF, tc->shmem->txnpages_per_blockhash_max*sizeof(tc->scratch_pages[ 0 ]) );
+  ushort scratch_pages_cnt = 0;
+  ushort scratch_txnpage_idx = USHORT_MAX;
+  tc->scratch_txnpage->free = 0;
+  for( ulong i=0UL; i<blockcache->shmem->pages_cnt; i++ ) {
+    ushort curr_txnpage_idx = blockcache->pages[ blockcache->shmem->pages_cnt-i-1UL ];
+    ulong curr_txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-tc->txnpages[ curr_txnpage_idx ].free;
+    for( ulong j=0UL; j<curr_txn_cnt; j++ ) {
+      fd_txncache_single_txn_t * curr_txn = tc->txnpages[ curr_txnpage_idx ].txns[ curr_txn_cnt-j-1UL ];
+      blockcache_t const * txn_fork = &tc->blockcache_pool[ curr_txn->fork_id.val ];
+      if( FD_LIKELY( txn_fork->shmem->frozen>=0 && txn_fork->shmem->generation==curr_txn->generation ) ) {
+        /* Valid transaction.  Keep. */
+        if( FD_UNLIKELY( !tc->scratch_txnpage->free ) ) {
+          FD_TEST( scratch_txnpage_idx!=curr_txnpage_idx );
+          if( FD_LIKELY( scratch_txnpage_idx!=USHORT_MAX ) ) {
+            fd_txncache_txnpage_t * txnpage = &tc->txnpages[ scratch_txnpage_idx ];
+            memcpy( txnpage, tc->scratch_txnpage, sizeof(*txnpage) );
+          }
+          scratch_txnpage_idx = curr_txnpage_idx;
+          tc->scratch_txnpage->free = FD_TXNCACHE_TXNS_PER_PAGE;
+          tc->scratch_pages[ scratch_pages_cnt ] = scratch_txnpage_idx;
+          scratch_pages_cnt++;
+        }
+        ulong txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-tc->scratch_txnpage->free;
+        memcpy( tc->scratch_txnpage->txns[ txn_idx ], curr_txn, sizeof(*curr_txn) );
+        ulong txn_bucket = fd_txncache_bucket( tc, curr_txn->txnhash );
+        uint head = tc->scratch_heads[ txn_bucket ];
+        tc->scratch_txnpage->txns[ txn_idx ]->blockcache_next = head;
+        ulong txn_gidx = FD_TXNCACHE_TXNS_PER_PAGE*scratch_txnpage_idx+txn_idx;
+        FD_TEST( txn_gidx<UINT_MAX );
+        tc->scratch_heads[ txn_bucket ] = (uint)txn_gidx;
+        tc->scratch_txnpage->free--;
+      } else {
+        /* Stale transaction.  Drop. */
+        continue;
+      }
+    }
+    if( FD_UNLIKELY( curr_txnpage_idx!=scratch_txnpage_idx ) ) {
+      /* The txnpage is not being used for compaction, free it up. */
+      tc->txnpages_free[ tc->shmem->txnpages_free_cnt ] = curr_txnpage_idx;
+      tc->shmem->txnpages_free_cnt++;
+    }
+  }
+  if( FD_LIKELY( scratch_txnpage_idx!=USHORT_MAX ) ) {
+    fd_txncache_txnpage_t * txnpage = &tc->txnpages[ scratch_txnpage_idx ];
+    memcpy( txnpage, tc->scratch_txnpage, sizeof(*txnpage) );
+  }
+  blockcache->shmem->pages_cnt = scratch_pages_cnt;
+  memcpy( blockcache->pages, tc->scratch_pages, tc->shmem->txnpages_per_blockhash_max*sizeof(blockcache->pages[0]) );
+  memcpy( blockcache->heads, tc->scratch_heads, tc->shmem->txn_per_slot_max*sizeof(blockcache->heads[0]) );
+}
+
+static void
+purge_stale_on_fork( fd_txncache_t * tc,
+                     blockcache_t *  fork ) {
+  purge_stale_on_blockcache( tc, fork );
+
+  fd_txncache_fork_id_t sibling_idx = fork->shmem->child_id;
+  while( sibling_idx.val!=USHORT_MAX ) {
+    blockcache_t * sibling = &tc->blockcache_pool[ sibling_idx.val ];
+    purge_stale_on_fork( tc, sibling );
+    sibling_idx = sibling->shmem->sibling_id;
+  }
+}
+
+static void
+purge_stale( fd_txncache_t * tc ) {
+  fd_txncache_blockcache_shmem_t * root_shmem = root_slist_ele_peek_head( tc->shmem->root_ll, tc->blockcache_shmem_pool );
+  FD_TEST( root_shmem );
+  blockcache_t * root = &tc->blockcache_pool[ blockcache_pool_idx( tc->blockcache_shmem_pool, root_shmem ) ];
+  ushort free_before = tc->shmem->txnpages_free_cnt;
+  /* One might think that an optimization here is to stop the descent on
+     the latest rooted blockcache.  There could be no pruned minority
+     forks from that point on.  As a result, there could be no stale
+     transactions in any blockcache descending from that.
+     Unfortunately, frontier eviction means that any blockcache in the
+     fork tree can have stale transactions. */
+  purge_stale_on_fork( tc, root );
+  FD_LOG_NOTICE(( "purge_stale: txnpages_free %hu -> %hu", free_before, tc->shmem->txnpages_free_cnt ));
 }
 
 void
@@ -408,12 +530,9 @@ fd_txncache_insert( fd_txncache_t *       tc,
 
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
   FD_TEST( fork->shmem->frozen<=1 );
+  FD_TEST( fork->shmem->frozen>=0 );
   blockcache_t * blockcache = blockhash_on_fork( tc, fork, blockhash );
-
-  /* TODO: We can't print the full txnhash here typically because we
-     might only be able to see 20 bytes, but we need to print it for
-     diagnostic purposes. Remove once bug is identified. */
-  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+  FD_TEST( blockcache );
 
   for(;;) {
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
@@ -422,7 +541,11 @@ fd_txncache_insert( fd_txncache_t *       tc,
          not typically possible to fill it, unless there are stale
          transactions from minority forks that were purged floating
          around, in which case we can purge them here and try again. */
-      fd_txncache_purge_stale( tc );
+      fd_rwlock_unread( tc->shmem->lock );
+      fd_rwlock_write( tc->shmem->lock );
+      if( FD_LIKELY( !fd_txncache_ensure_txnpage( tc, blockcache ) ) ) purge_stale( tc );
+      fd_rwlock_unwrite( tc->shmem->lock );
+      fd_rwlock_read( tc->shmem->lock );
       continue;
     }
 
@@ -443,21 +566,20 @@ fd_txncache_query( fd_txncache_t *       tc,
   fd_rwlock_read( tc->shmem->lock );
 
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
+  FD_TEST( fork->shmem->frozen>=0 );
   blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
-
-  /* TODO: We can't print the full txnhash here typically because we
-     might only be able to see 20 bytes, but we need to print it for
-     diagnostic purposes. Remove once bug is identified. */
-  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+  FD_TEST( blockcache );
+  FD_TEST( blockcache->shmem->frozen==2 );
 
   int found = 0;
 
   ulong txnhash_offset = blockcache->shmem->txnhash_offset;
-  ulong head_hash = FD_LOAD( ulong, txnhash+txnhash_offset ) % tc->shmem->txn_per_slot_max;
+  ulong head_hash = fd_txncache_bucket( tc, txnhash+txnhash_offset );
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
     fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
 
-    int descends = (txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val )) && fork->shmem->generation==txn->generation;
+    blockcache_t const * txn_fork = &tc->blockcache_pool[ txn->fork_id.val ];
+    int descends = (txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val )) && txn_fork->shmem->frozen>=0 && txn_fork->shmem->generation==txn->generation;
     if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
       found = 1;
       break;

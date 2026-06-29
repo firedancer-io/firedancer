@@ -7,28 +7,26 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 
 LEDGER=""
 RESTORE_ARCHIVE=""
-END_SLOT="1010"
-FUNK_PAGES="16"
+END_SLOT="0"
 INDEX_MAX="5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
 INGEST_MODE="rocksdb"
-CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
-HAS_INCREMENTAL="false"
-REDOWNLOAD=1
-SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
+EXECRP_TILE_COUNT="10"
+INGEST_DEAD_SLOTS="false"
+ROOT_DISTANCE="2"
+MAX_LIVE_SLOTS="32"
+DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
-  SKIP_CHECKSUM=0
   WATCH=( "--no-watch" )
   LOG_LEVEL_STDERR=INFO
 fi
@@ -50,18 +48,8 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-    -c|--cluster-version)
-       CLUSTER_VERSION="$2"
-       shift
-       shift
-       ;;
     -e|--end_slot)
        END_SLOT="$2"
-       shift
-       shift
-       ;;
-    -y|--funk-pages)
-       FUNK_PAGES="$2"
        shift
        shift
        ;;
@@ -97,29 +85,31 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    -h|--hugetlbfs-mount-path)
-        HUGE_TLBFS_MOUNT_PATH="$2"
-        shift
-        shift
-        ;;
-    -v|--has-incremental)
-        HAS_INCREMENTAL="$2"
-        shift
-        ;;
-    -nr|--no-redownload)
-        REDOWNLOAD=0
-        shift
-        ;;
     --debug)
         DEBUG=( gdb -q -x contrib/debug.gdb --args )
         shift
         ;;
-    --skip-checksum)
-        SKIP_CHECKSUM=1
-        shift
-        ;;
     --log)
         LOG="$2"
+        shift
+        shift
+        ;;
+    --exec)
+        EXECRP_TILE_COUNT="$2"
+        shift
+        shift
+        ;;
+    --ingest-dead-slots)
+        INGEST_DEAD_SLOTS="true"
+        shift
+        ;;
+    --root-distance)
+        ROOT_DISTANCE="$2"
+        shift
+        shift
+        ;;
+    --max-live-slots)
+        MAX_LIVE_SLOTS="$2"
         shift
         shift
         ;;
@@ -197,61 +187,69 @@ if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
     rm -rf $DUMP/$LEDGER.pending
   fi
   download_and_extract_ledger
-  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
-    create_checksum
+fi
+
+if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
+  exit 0
+fi
+
+if [[ "$INGEST_MODE" == "shredcap" ]]; then
+  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+    echo "Converted rocksdb to shredcap"
   fi
+  LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
 else
-  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
-    check_ledger_checksum_and_redownload
-  fi
+  LEDGER_INPUT="$DUMP/$LEDGER/rocksdb"
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
 
-echo_notice "Starting on-demand ingest and replay"
-if [[ -n "$GENESIS" ]]; then
-  HAS_INCREMENTAL="false"
-fi
-echo "
+CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
+cat <<EOF > ${CONFIG_FILE}
 [snapshots]
-    incremental_snapshots = $HAS_INCREMENTAL
+    max_full_snapshots_to_keep = 5
+    max_incremental_snapshots_to_keep = 5
     [snapshots.sources]
         servers = []
         [snapshots.sources.gossip]
             allow_any = false
             allow_list = []
 [layout]
-    shred_tile_count = 4
+    execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
-    [tiles.archiver]
-        enabled = true
-        end_slot = $END_SLOT
-        rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
-        shredcap_path = \"$DUMP/$LEDGER/slices.bin\"
-        bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
-        ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
-        cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
-[store]
-    max_completed_shred_sets = 32768
-[funk]
-    heap_size_gib = $FUNK_PAGES
-    max_account_records = $INDEX_MAX
-    max_database_transactions = 64
+    [tiles.rpc]
+        enabled = false
 [runtime]
-    max_live_slots = 32
+    max_live_slots = $MAX_LIVE_SLOTS
     max_fork_width = 4
 [log]
-    level_stderr = \"$LOG_LEVEL_STDERR\"
-    path = \"$LOG\"
+    level_stderr = "$LOG_LEVEL_STDERR"
+    path = "$LOG"
 [paths]
-    snapshots = \"$DUMP/$LEDGER\"
-[hugetlbfs]
-    mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+    snapshots = "$DUMP/$LEDGER"
+    accounts = "/$DUMP/accounts.db"
+[development]
+    fixed_fec_sets = false
+    [development.ledger_input]
+        path = "$LEDGER_INPUT"
+        end_slot = $END_SLOT
+    [development.backtest]
+        root_distance = $ROOT_DISTANCE
+EOF
+
+if [[ "$INDEX_MAX" -lt "1000000" ]]; then
+  INDEX_MAX=1000000
+fi
+cat <<EOF >> ${CONFIG_FILE}
+[accounts]
+    max_accounts = $INDEX_MAX
+    cache_size_gib = 3
+EOF
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
@@ -261,27 +259,36 @@ else
     genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
 fi
 
-echo "Running backtest for $LEDGER"
+echo_notice "Running backtest for $LEDGER"
 
-sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
-
-sudo killall firedancer-dev || true
+sudo killall firedancer-dev &> /dev/null || true
 
 set -x
-sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
-{ status=$?; set +x; } &> /dev/null
-
-sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
+if [[ -n "$CI" ]]; then
+  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
+  { status=$?; set +x; } &> /dev/null
+else
+  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+  { status=$?; set +x; }
+fi
 
 echo "Log for ledger $LEDGER at $LOG"
 
-# check that the ledger is not corrupted after a run
-if [[ $SKIP_CHECKSUM -eq 0 ]]; then
-  check_ledger_checksum
-fi
+rm -rf $DUMP/accounts.db
 
 if [ "$status" -eq 0 ]; then
-  echo_notice "Finished on-demand ingest and replay\n"
+  snapshot_load_time=$(grep "loaded" $LOG | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
+  echo "Snapshot load time for $LEDGER: $snapshot_load_time seconds"
+  elapsed_time=$(grep "Backtest playback done." $LOG | grep -o "elapsed: [0-9.]*" | grep -o "[0-9.]*")
+  echo "Replay time for $LEDGER: $elapsed_time seconds"
+
+  while IFS= read -r epoch_line; do
+    epoch_num=$(echo "$epoch_line" | grep -o "starting epoch [0-9]*" | grep -o "[0-9]*")
+    epoch_time_sec=$(echo "$epoch_line" | grep -o "took [0-9.]*" | grep -o "[0-9.]*")
+    echo "Epoch $epoch_num boundary time for $LEDGER: ${epoch_time_sec} seconds"
+  done < <(grep "starting epoch .* took " "$LOG")
+
+  echo_notice "Finished backtest for ledger $LEDGER\n"
   exit 0
 fi
 

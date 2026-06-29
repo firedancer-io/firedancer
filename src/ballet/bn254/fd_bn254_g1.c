@@ -45,7 +45,8 @@ fd_bn254_g1_to_affine( fd_bn254_g1_t *       r,
 
 uchar *
 fd_bn254_g1_tobytes( uchar                 out[64],
-                     fd_bn254_g1_t const * p ) {
+                     fd_bn254_g1_t const * p,
+                     int                   big_endian ) {
   if( FD_UNLIKELY( fd_bn254_g1_is_zero( p ) ) ) {
     fd_memset( out, 0, 64UL );
     /* no flags */
@@ -58,8 +59,8 @@ fd_bn254_g1_tobytes( uchar                 out[64],
   fd_bn254_fp_from_mont( &r->X, &r->X );
   fd_bn254_fp_from_mont( &r->Y, &r->Y );
 
-  fd_bn254_fp_tobytes_be_nm( &out[ 0], &r->X );
-  fd_bn254_fp_tobytes_be_nm( &out[32], &r->Y );
+  fd_bn254_fp_tobytes_nm( &out[ 0], &r->X, big_endian );
+  fd_bn254_fp_tobytes_nm( &out[32], &r->Y, big_endian );
   /* no flags */
   return out;
 }
@@ -121,7 +122,7 @@ fd_bn254_g1_affine_add( fd_bn254_g1_t *       r,
 }
 
 /* fd_bn254_g1_dbl computes r = 2p.
-   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-3.html#doubling-dbl-2007-bl */
+   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#doubling-dbl-2009-l */
 fd_bn254_g1_t *
 fd_bn254_g1_dbl( fd_bn254_g1_t *       r,
                  fd_bn254_g1_t const * p ) {
@@ -130,44 +131,48 @@ fd_bn254_g1_dbl( fd_bn254_g1_t *       r,
     return fd_bn254_g1_set_zero( r );
   }
 
-  fd_bn254_fp_t xx[1], yy[1], zz[1];
-  fd_bn254_fp_t y4[1], s[1], m[1];
-  /* XX = X1^2 */
-  fd_bn254_fp_sqr( xx, &p->X );
-  /* YY = Y1^2 */
-  fd_bn254_fp_sqr( yy, &p->Y );
-  /* YYYY = YY^2 */
-  fd_bn254_fp_sqr( y4, yy );
-  /* ZZ = Z1^2 */
-  fd_bn254_fp_sqr( zz, &p->Z );
-  /* S = 2*((X1+YY)^2-XX-YYYY) */
-  fd_bn254_fp_add( s, &p->X, yy );
-  fd_bn254_fp_sqr( s, s );
-  fd_bn254_fp_sub( s, s, xx );
-  fd_bn254_fp_sub( s, s, y4 );
-  fd_bn254_fp_add( s, s, s );
-  /* M = 3*XX+a*ZZ^2, a=0 */
-  fd_bn254_fp_add( m, xx, xx );
-  fd_bn254_fp_add( m, m, xx );
-  /* T = M^2-2*S
-     X3 = T */
-  fd_bn254_fp_sqr( &r->X, m );
-  fd_bn254_fp_sub( &r->X, &r->X, s );
-  fd_bn254_fp_sub( &r->X, &r->X, s );
+  fd_bn254_fp_t a[1], b[1], c[1];
+  fd_bn254_fp_t d[1], e[1], f[1];
+
+  /* A = X1^2 */
+  fd_bn254_fp_sqr( a, &p->X );
+  /* B = Y1^2 */
+  fd_bn254_fp_sqr( b, &p->Y );
+  /* C = B^2 */
+  fd_bn254_fp_sqr( c, b );
+  /* D = 2*((X1+B)^2-A-C)
+     (X1+B)^2 = X1^2 + 2*X1*B + B^2
+     D = 2*(X1^2 + 2*X1*B + B^2 - A    - C)
+     D = 2*(X1^2 + 2*X1*B + B^2 - X1^2 - B^2)
+            ^               ^     ^      ^
+            |---------------|-----|      |
+                            |------------|
+     These terms cancel each other out, and we're left with:
+     D = 2*(2*X1*B) */
+  fd_bn254_fp_mul( d, &p->X, b );
+  fd_bn254_fp_add( d, d, d );
+  fd_bn254_fp_add( d, d, d );
+  /* E = 3*A */
+  fd_bn254_fp_add( e, a, a );
+  fd_bn254_fp_add( e, a, e );
+  /* F = E^2 */
+  fd_bn254_fp_sqr( f, e );
+  /* X3 = F-2*D */
+  fd_bn254_fp_add( &r->X, d, d );
+  fd_bn254_fp_sub( &r->X, f, &r->X );
   /* Z3 = (Y1+Z1)^2-YY-ZZ
      note: compute Z3 before Y3 because it depends on p->Y,
      that might be overwritten if r==p. */
-  fd_bn254_fp_add( &r->Z, &p->Z, &p->Y );
-  fd_bn254_fp_sqr( &r->Z, &r->Z );
-  fd_bn254_fp_sub( &r->Z, &r->Z, yy );
-  fd_bn254_fp_sub( &r->Z, &r->Z, zz );
-  /* Y3 = M*(S-T)-8*YYYY */
-  fd_bn254_fp_sub( &r->Y, s, &r->X );
-  fd_bn254_fp_mul( &r->Y, &r->Y, m );
-  fd_bn254_fp_add( y4, y4, y4 ); /* 2 y^4 */
-  fd_bn254_fp_add( y4, y4, y4 ); /* 4 y^4 */
-  fd_bn254_fp_add( y4, y4, y4 ); /* 8 y^4 */
-  fd_bn254_fp_sub( &r->Y, &r->Y, y4 );
+  /* Z3 = 2*Y1*Z1 */
+  fd_bn254_fp_mul( &r->Z, &p->Y, &p->Z );
+  fd_bn254_fp_add( &r->Z, &r->Z, &r->Z );
+  /* Y3 = E*(D-X3)-8*C */
+  fd_bn254_fp_sub( &r->Y, d, &r->X );
+  fd_bn254_fp_mul( &r->Y, e, &r->Y );
+  fd_bn254_fp_add( c, c, c ); /* 2*c */
+  fd_bn254_fp_add( c, c, c ); /* 4*y */
+  fd_bn254_fp_add( c, c, c ); /* 8*y */
+  fd_bn254_fp_sub( &r->Y, &r->Y, c );
   return r;
 }
 
@@ -233,25 +238,87 @@ fd_bn254_g1_add_mixed( fd_bn254_g1_t *       r,
   return r;
 }
 
-/* fd_bn254_g1_scalar_mul computes r = s * p.
-   This assumes that p is affine, i.e. p->Z==1. */
+/* fd_bn254_g1_scalar_mul computes r = [s]P.
+   p must be in affine form (p->Z == 1).
+   The result is in projective coordinates. */
 fd_bn254_g1_t *
 fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
                         fd_bn254_g1_t const *     p,
                         fd_bn254_scalar_t const * s ) {
-  /* TODO: wNAF, GLV */
+  if( FD_UNLIKELY( fd_uint256_is_zero( s ) || fd_bn254_g1_is_zero( p ) ) ) {
+    return fd_bn254_g1_set_zero( r );
+  }
+  const ulong g1_const[ 3 ] = { 0x5398fd0300ff6565UL, 0x4ccef014a773d2d2UL, 0x0000000000000002UL };
+  ulong b1[ 3 ];
+  ulong b2[ 2 ];
+  fd_bn254_glv_sxg3( b1, s, g1_const );
+  fd_bn254_glv_sxg2( b2, s, g2_const );
+
+  /* k1 = s - b1*N_A - b2*N_B (always non-negative for G1) */
+  fd_uint256_t k1[1];
+  {
+    ulong p11[ 4 ];
+    /* b2*nb will produce at most 3 limbs, but we want the 4th zeroed for the addition. */
+    ulong p21[ 4 ] = {0};
+    ulong  t[ 4 ];
+    fd_bn254_glv_mul3x2( p11, b1, na );
+    fd_bn254_glv_mul2x1( p21, b2, nb );
+    fd_bn254_glv_add4( t, p11, p21 );
+    fd_bn254_glv_sub4( k1->limbs, s->limbs, t );
+  }
+
+  /* k2 = b1*N_B - b2*N_C (may be negative) */
+  fd_uint256_t k2_abs[1];
+  int k2_neg = 0;
+  {
+    ulong pos[ 4 ], neg[ 4 ];
+    fd_bn254_glv_mul3x1( pos, b1, nb );
+    fd_bn254_glv_mul2x2( neg, b2, nc );
+    ulong borrow = fd_bn254_glv_sub4( k2_abs->limbs, pos, neg );
+    if( borrow ) {
+      k2_neg = 1;
+      fd_bn254_glv_negate4( k2_abs->limbs );
+    }
+  }
+
+  /* pt2 = phi(P) = (beta * P.x, P.y). If k2 < 0, negate pt2. */
+  fd_bn254_g1_t pt2[1];
+  fd_bn254_fp_mul    ( &pt2->X, &p->X, fd_bn254_const_beta_mont );
+  fd_bn254_fp_set    ( &pt2->Y, &p->Y );
+  fd_bn254_fp_set_one( &pt2->Z );
+  if( k2_neg ) {
+    fd_bn254_fp_neg( &pt2->Y, &pt2->Y );
+  }
+
+  fd_bn254_g1_t pt12[1];
+  fd_bn254_g1_affine_add( pt12, p, pt2 );
+
+  /* Shamir's trick: simultaneous double-and-add on k1, k2. */
   int i = 255;
-  for( ; i>=0 && !fd_uint256_bit( s, i ); i-- ) ; /* do nothing, just i-- */
+  for( ; i>=0; i-- ) {
+    int k1b = !!fd_uint256_bit( k1, i );
+    int k2b = !!fd_uint256_bit( k2_abs, i );
+    if( k1b || k2b ) {
+      fd_bn254_g1_set( r, ( k1b && k2b ) ? pt12 : ( k1b ? p : pt2 ) );
+      break;
+    }
+  }
   if( FD_UNLIKELY( i<0 ) ) {
     return fd_bn254_g1_set_zero( r );
   }
-  fd_bn254_g1_set( r, p );
-  for( i--; i>=0; i-- ) {
+  for( i--; i >= 0; i-- ) {
     fd_bn254_g1_dbl( r, r );
-    if( fd_uint256_bit( s, i ) ) {
+    int k1b = !!fd_uint256_bit( k1, i );
+    int k2b = !!fd_uint256_bit( k2_abs, i );
+    if( k1b && k2b ) {
+      fd_bn254_g1_add_mixed( r, r, pt12 );
+    } else if( k1b ) {
       fd_bn254_g1_add_mixed( r, r, p );
+    } else if( k2b ) {
+      fd_bn254_g1_add_mixed( r, r, pt2 );
     }
   }
+
   return r;
 }
 
@@ -260,7 +327,8 @@ fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
    https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/mod.rs#L173-L178 */
 static inline fd_bn254_g1_t *
 fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
-                                uchar const     in[64] ) {
+                                uchar const     in[64],
+                                int             big_endian ) {
   /* Special case: all zeros => point at infinity */
   const uchar zero[64] = { 0 };
   if( FD_UNLIKELY( fd_memeq( in, zero, 64 ) ) ) {
@@ -268,13 +336,13 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
   }
 
   /* Check x < p */
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->X, &in[0], NULL, NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &p->X, &in[0], big_endian, NULL, NULL ) ) ) {
     return NULL;
   }
 
   /* Check flags and y < p */
   int is_inf, is_neg;
-  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_be_nm( &p->Y, &in[32], &is_inf, &is_neg ) ) ) {
+  if( FD_UNLIKELY( !fd_bn254_fp_frombytes_nm( &p->Y, &in[32], big_endian, &is_inf, &is_neg ) ) ) {
     return NULL;
   }
 
@@ -289,8 +357,9 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
 /* fd_bn254_g1_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
 static inline fd_bn254_g1_t *
 fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
-                                      uchar const     in[64] ) {
-  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in ) ) ) {
+                                      uchar const     in[64],
+                                      int             big_endian ) {
+  if( FD_UNLIKELY( !fd_bn254_g1_frombytes_internal( p, in, big_endian ) ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( fd_bn254_g1_is_zero( p ) ) ) {

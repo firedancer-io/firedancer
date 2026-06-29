@@ -85,7 +85,7 @@ app_main( int     argc,
   }
 
   /* Halt the app thread (we are in HALT state) */
-  
+
   /* Dummy halt operations */
 
   FD_YIELD();
@@ -118,6 +118,9 @@ main( int     argc,
   long now = fd_log_wallclock();
   void * shcnc = fd_cnc_new( shmem, app_sz, type, now ); FD_TEST( shcnc );
   fd_cnc_t * cnc = fd_cnc_join( shcnc );                 FD_TEST( cnc );
+
+  FD_TEST( fd_cnc_shmem      ( cnc )==shmem );
+  FD_TEST( fd_cnc_shmem_const( cnc )==shmem );
 
   FD_TEST( fd_cnc_app_sz( cnc )==app_sz );
   ulong *       app       = (ulong       *)fd_cnc_app_laddr( cnc );
@@ -164,7 +167,7 @@ main( int     argc,
 
   for( ulong iter=0UL; iter<32UL; iter++ ) {
     FD_LOG_NOTICE(( "Test %2lu (app thread heartbeat %li)", iter, fd_cnc_heartbeat_query( cnc ) ));
-    
+
     /* Request ack */
     fd_cnc_signal( cnc, USER_ACK );
     FD_TEST( fd_cnc_wait( cnc, USER_ACK, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );
@@ -226,4 +229,3 @@ main( int     argc,
 }
 
 #endif
-

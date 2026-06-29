@@ -2,12 +2,12 @@
 #include "fd_rpc_client_private.h"
 
 #include "../../../waltz/http/picohttpparser.h"
+#include "../../../waltz/http/fd_http.h"
 #include "../../../ballet/json/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <strings.h>
 #include <sys/socket.h>
@@ -28,6 +28,7 @@ fd_rpc_client_new( void * mem,
     rpc->requests[ i ].state = FD_RPC_CLIENT_STATE_NONE;
     rpc->fds[ i ].fd = -1;
     rpc->fds[ i ].events = POLLIN | POLLOUT;
+    rpc->fds[ i ].revents = 0;
   }
   return (void *)rpc;
 }
@@ -192,9 +193,9 @@ fd_rpc_phr_content_length( struct phr_header * headers,
   for( ulong i=0UL; i<num_headers; i++ ) {
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "Content-Length", 14UL ) ) ) continue;
-    char * end;
-    ulong content_length = strtoul( headers[i].value, &end, 10 );
-    if( FD_UNLIKELY( end==headers[i].value ) ) return ULONG_MAX;
+    ulong content_length = 0UL;
+    if( FD_UNLIKELY( fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &content_length ) ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( content_length>UINT_MAX ) ) return ULONG_MAX; /* prevent overflow */
     return content_length;
   }
   return ULONG_MAX;
@@ -292,7 +293,7 @@ fd_rpc_client_service( fd_rpc_client_t * rpc,
 
     if( FD_LIKELY( request->state==FD_RPC_CLIENT_STATE_CONNECTED && ( rpc->fds[ i ].revents & POLLOUT ) ) ) {
       long sent = send( rpc->fds[ i ].fd, request->connected.request_bytes+request->connected.request_bytes_sent,
-                        request->connected.request_bytes_cnt-request->connected.request_bytes_sent, 0 );
+                        request->connected.request_bytes_cnt-request->connected.request_bytes_sent, MSG_NOSIGNAL );
       if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) continue;
       if( FD_UNLIKELY( -1==sent ) ) {
         fd_rpc_mark_error( rpc, i, FD_RPC_CLIENT_ERR_NETWORK );

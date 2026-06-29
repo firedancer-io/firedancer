@@ -445,7 +445,9 @@ main( int     argc,
     for( int n=0; n< w; n++ ) {
       ulong x = (ulong)(1UL<<n);
       FD_TEST( fd_ulong_is_pow2( x ) );
+      FD_TEST( FD_ULONG_IS_POW2( x ) );
       FD_TEST( !fd_ulong_is_pow2( (ulong)~x ) );
+      FD_TEST( !FD_ULONG_IS_POW2( (ulong)~x ) );
     }
     for( int n=0; n<=w; n++ ) { ulong x = (ulong)((n<w) ? (1UL<<n) : 0UL); FD_TEST( fd_ulong_pow2( n )==x ); }
     for( int b=0; b< w; b++ ) {

@@ -1,9 +1,72 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/program/fd_vote_program.h"
-#include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
+
+/* The VM structs for sysvars that are exposed by the VM are represented
+   differently from the representations of the accounts in the accounts
+   database. These structs usually have padding which must be zeroed
+   out. */
+struct fd_vm_epoch_schedule {
+  ulong slots_per_epoch;
+  ulong leader_schedule_slot_offset;
+  uchar warmup; /* 0 or 1 */
+  uchar padding_[7];
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
+};
+typedef struct fd_vm_epoch_schedule fd_vm_epoch_schedule_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_epoch_schedule_t) == 40UL, "vm epoch schedule size mismatch" );
+FD_STATIC_ASSERT( alignof(fd_vm_epoch_schedule_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE, "vm epoch schedule alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, slots_per_epoch            ) == 0UL,      "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, leader_schedule_slot_offset) == 8UL,      "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, warmup                     ) == 16UL,     "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, first_normal_epoch         ) == 24UL,     "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, first_normal_slot          ) == 32UL,     "vm epoch schedule layout mismatch"    );
+
+struct fd_vm_rent {
+  ulong  lamports_per_uint8_year;
+  double exemption_threshold;
+  uchar  burn_percent;
+  uchar  padding_[7];
+};
+typedef struct fd_vm_rent fd_vm_rent_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_rent_t) == 24UL, "vm rent size mismatch" );
+FD_STATIC_ASSERT( alignof(fd_vm_rent_t) == FD_VM_ALIGN_RUST_SYSVAR_RENT,   "vm rent alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, lamports_per_uint8_year) == 0UL,  "vm rent layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, exemption_threshold    ) == 8UL,  "vm rent layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, burn_percent           ) == 16UL, "vm rent layout mismatch"    );
+
+typedef fd_sol_sysvar_clock_t fd_vm_clock_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_clock_t) == 40UL, "vm clock size mismatch" );
+FD_STATIC_ASSERT( alignof(fd_vm_clock_t) == FD_VM_ALIGN_RUST_SYSVAR_CLOCK, "vm clock alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, slot                 ) == 0UL,   "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, epoch_start_timestamp) == 8UL,   "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, epoch                ) == 16UL,  "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, leader_schedule_epoch) == 24UL,  "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, unix_timestamp       ) == 32UL,  "vm clock layout mismatch"    );
+
+struct __attribute__((aligned(16))) fd_vm_epoch_rewards {
+  ulong       distribution_starting_block_height;
+  ulong       num_partitions;
+  fd_hash_t   parent_blockhash;
+  fd_w_u128_t total_points;
+  ulong       total_rewards;
+  ulong       distributed_rewards;
+  uchar       active; /* 0 or 1 */
+  uchar       padding_[15];
+};
+typedef struct fd_vm_epoch_rewards fd_vm_epoch_rewards_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_epoch_rewards_t) == 96UL, "vm epoch rewards size mismatch" );
+FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS,     "vm epoch rewards alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, distribution_starting_block_height) == 0UL,  "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, num_partitions                    ) == 8UL,  "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, parent_blockhash                  ) == 16UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, total_points                      ) == 48UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, total_rewards                     ) == 64UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, distributed_rewards               ) == 72UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, active                            ) == 80UL, "vm epoch rewards layout mismatch"    );
 
 /* FIXME: In the original version of this code, there was an FD_TEST
    to check if the VM was attached to an instruction context (that
@@ -24,9 +87,15 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_clock_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -34,15 +103,15 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_CLOCK,
-    .sz       = sizeof(fd_sol_sysvar_clock_t),
+    .sz       = sizeof(fd_vm_clock_t),
     .is_slice = 0,
   };
 
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_clock_t clock = fd_sysvar_cache_clock_read_nofail( instr_ctx->sysvar_cache );
-  memcpy( var_query.haddr, &clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_vm_clock_t clock = fd_sysvar_cache_clock_read_nofail( instr_ctx->sysvar_cache );
+  memcpy( var_query.haddr, &clock, sizeof(fd_vm_clock_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -60,9 +129,15 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_epoch_schedule_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -70,7 +145,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE,
-    .sz       = sizeof(fd_epoch_schedule_t),
+    .sz       = sizeof(fd_vm_epoch_schedule_t),
     .is_slice = 0,
   };
 
@@ -79,10 +154,20 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   fd_epoch_schedule_t schedule;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_schedule_read( instr_ctx->sysvar_cache, &schedule ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->instr_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
-  memcpy( var_query.haddr, &schedule, sizeof(fd_epoch_schedule_t) );
+
+  /* Returned value has padding which must be zeroed out. */
+  uchar * dst = var_query.haddr;
+  fd_vm_epoch_schedule_t * vm_schedule = (fd_vm_epoch_schedule_t *)dst;
+  *vm_schedule = (fd_vm_epoch_schedule_t){
+    .slots_per_epoch             = schedule.slots_per_epoch,
+    .leader_schedule_slot_offset = schedule.leader_schedule_slot_offset,
+    .warmup                      = schedule.warmup,
+    .first_normal_epoch          = schedule.first_normal_epoch,
+    .first_normal_slot           = schedule.first_normal_slot,
+  };
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -103,9 +188,15 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_rent_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -113,7 +204,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_RENT,
-    .sz       = sizeof(fd_rent_t),
+    .sz       = sizeof(fd_vm_rent_t),
     .is_slice = 0,
   };
 
@@ -121,7 +212,15 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   FD_VM_TRANSLATE_MUT( vm, queries );
 
   fd_rent_t rent = fd_sysvar_cache_rent_read_nofail( instr_ctx->sysvar_cache );
-  memcpy( var_query.haddr, &rent, sizeof(fd_rent_t) );
+
+  /* The returned value has padding which must be zeroed out. */
+  uchar * dst = var_query.haddr;
+  fd_vm_rent_t * vm_rent = (fd_vm_rent_t *)dst;
+  *vm_rent = (fd_vm_rent_t){
+    .lamports_per_uint8_year = rent.lamports_per_uint8_year,
+    .exemption_threshold     = rent.exemption_threshold,
+    .burn_percent            = rent.burn_percent,
+  };
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -140,9 +239,15 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_last_restart_slot_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, 8UL ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -150,20 +255,20 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT,
-    .sz       = sizeof(fd_sol_sysvar_last_restart_slot_t),
+    .sz       = sizeof(ulong),
     .is_slice = 0,
   };
 
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  if( FD_UNLIKELY( !fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache, &last_restart_slot ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->instr_err_idx );
+  ulong const * last_restart_slot = fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache );
+  if( FD_UNLIKELY( last_restart_slot==NULL ) ) {
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
 
-  memcpy( var_query.haddr, &last_restart_slot, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+  memcpy( var_query.haddr, last_restart_slot, sizeof(ulong) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -187,7 +292,13 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   ulong sysvar_buf_cost = sz / FD_VM_CPI_BYTES_PER_UNIT;
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, fd_ulong_max( sysvar_buf_cost, FD_VM_MEM_OP_BASE_COST ) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -274,7 +385,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->txn_ctx->bank );
+    *_ret = vm->instr_ctx->bank->f.total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 
@@ -285,13 +396,22 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_MEM_OP_BASE_COST + FD_VM_SYSCALL_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
-  const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
+  fd_pubkey_t const * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
-  fd_vote_states_t const *    vote_states    = fd_bank_vote_states_prev_locking_query( vm->instr_ctx->txn_ctx->bank );
-  fd_vote_state_ele_t const * vote_state_ele = fd_vote_states_query_const( vote_states, vote_address );
-  *_ret = vote_state_ele ? vote_state_ele->stake : 0UL;
-  fd_bank_vote_states_prev_end_locking_query( vm->instr_ctx->txn_ctx->bank );
+
+  ulong stake = 0UL;
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
+    /* It's okay to ignore if an account is invalid since these stakes
+       are calculated from an older snapshot of vote account stakes. */
+    fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
+    fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL, NULL );
+  } else {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( vm->instr_ctx->bank );
+    fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->vote_stakes_fork_id, vote_address, &stake, NULL, NULL );
+  }
+
+  *_ret = stake;
 
   return FD_VM_SUCCESS;
 }
@@ -309,7 +429,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  *_ret = vm->instr_ctx->txn_ctx->instr_stack_sz;
+  *_ret = vm->instr_ctx->runtime->instr.stack_sz;
   return FD_VM_SUCCESS;
 }
 
@@ -327,7 +447,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1467 */
-  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_ctx->return_data;
+  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_out->details.return_data;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1468 */
   ulong length = fd_ulong_min( return_data->len, sz );
@@ -408,7 +528,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
     return err;
   }
 
-  fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
+  fd_txn_return_data_t * return_data = &instr_ctx->txn_out->details.return_data;
 
   return_data->len = src_sz;
   if( FD_LIKELY( src_sz!=0UL ) ) {
@@ -455,20 +575,20 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
   /* Get the current instruction stack height.  This value is 1-indexed
      (top level instruction has a stack height of 1).
     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1517 */
-  ulong stack_height = vm->instr_ctx->txn_ctx->instr_stack_sz;
+  ulong stack_height = vm->instr_ctx->runtime->instr.stack_sz;
 
   /* Reverse iterate through the instruction trace, ignoring anything except instructions on the same level.
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1518-L1522 */
-  ulong instruction_trace_length = vm->instr_ctx->txn_ctx->instr_trace_length;
+  ulong instruction_trace_length = vm->instr_ctx->runtime->instr.trace_length;
   ulong reverse_index_at_stack_height = 0UL;
-  fd_exec_instr_trace_entry_t * found_instruction_context = NULL;
+  fd_instr_info_t * found_instruction_context = NULL;
   for( ulong index_in_trace=instruction_trace_length; index_in_trace>0UL; index_in_trace-- ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1524-L1526
        This error can never happen */
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1527-L1529 */
-    fd_exec_instr_trace_entry_t * instruction_context = &vm->instr_ctx->txn_ctx->instr_trace[ index_in_trace-1UL ];
+    fd_instr_info_t * instruction_context = &vm->instr_ctx->runtime->instr.trace[ index_in_trace-1UL ];
     if( FD_LIKELY( instruction_context->stack_height<stack_height ) ) {
       break;
     }
@@ -488,8 +608,6 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1539-L1588
    */
   if( FD_LIKELY( found_instruction_context != NULL ) ) {
-    fd_instr_info_t * instr_info = found_instruction_context->instr_info;
-
     fd_vm_haddr_query_t result_header_query = {
       .vaddr    = result_meta_vaddr,
       .align    = FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_ALIGN,
@@ -503,7 +621,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     fd_vm_syscall_processed_sibling_instruction_t * result_header = result_header_query.haddr;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1546-L1583 */
-    if( result_header->data_len==instr_info->data_sz && result_header->accounts_len==instr_info->acct_cnt ) {
+    if( result_header->data_len==found_instruction_context->data_sz && result_header->accounts_len==found_instruction_context->acct_cnt ) {
       fd_vm_haddr_query_t program_id_query = {
         .vaddr    = result_program_id_vaddr,
         .align    = FD_VM_ALIGN_RUST_PUBKEY,
@@ -534,9 +652,11 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1561-L1562 */
       fd_pubkey_t const * instr_ctx_program_id = NULL;
-      int err = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx,
-                                                             instr_info->program_id,
-                                                             &instr_ctx_program_id );
+      int err = fd_runtime_get_key_of_account_at_index(
+          vm->instr_ctx->txn_out,
+          found_instruction_context->program_id,
+          &instr_ctx_program_id
+      );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return err;
@@ -544,27 +664,27 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       fd_memcpy( program_id, instr_ctx_program_id, sizeof(fd_pubkey_t) );
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1563 */
-      fd_memcpy( data, instr_info->data, instr_info->data_sz );
+      fd_memcpy( data, found_instruction_context->data, found_instruction_context->data_sz );
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1564-L1581 */
-      for( ushort i=0; i<instr_info->acct_cnt; i++ ) {
+      for( ushort i=0; i<found_instruction_context->acct_cnt; i++ ) {
         fd_pubkey_t const * account_key;
-        ushort txn_idx = instr_info->accounts[ i ].index_in_transaction;
-        err            = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx, txn_idx, &account_key );
+        ushort txn_idx = found_instruction_context->accounts[ i ].index_in_transaction;
+        err            = fd_runtime_get_key_of_account_at_index( vm->instr_ctx->txn_out, txn_idx, &account_key );
         if( FD_UNLIKELY( err ) ) {
           FD_VM_ERR_FOR_LOG_INSTR( vm, err );
           return err;
         }
 
         fd_memcpy( accounts[ i ].pubkey, account_key, sizeof(fd_pubkey_t) );
-        accounts[ i ].is_signer   = !!(instr_info->accounts[ i ].is_signer );
-        accounts[ i ].is_writable = !!(instr_info->accounts[ i ].is_writable );
+        accounts[ i ].is_signer   = !!(found_instruction_context->accounts[ i ].is_signer );
+        accounts[ i ].is_writable = !!(found_instruction_context->accounts[ i ].is_writable );
       }
     } else {
       /* Copy the actual metadata into the result meta struct
          https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1584-L1586 */
-      result_header->data_len     = instr_info->data_sz;
-      result_header->accounts_len = instr_info->acct_cnt;
+      result_header->data_len     = found_instruction_context->data_sz;
+      result_header->accounts_len = found_instruction_context->acct_cnt;
     }
 
     /* Return true as we found a sibling instruction
@@ -592,22 +712,37 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_epoch_rewards_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_epoch_rewards_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
 
-  uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_sysvar_epoch_rewards_t) );
+  uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_vm_epoch_rewards_t) );
 
   fd_sysvar_epoch_rewards_t epoch_rewards;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_ctx->instr_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
-  memcpy( out, &epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
-  memset( out+81, 0, 7 ); /* padding */
+
+  fd_vm_epoch_rewards_t * vm_epoch_rewards = (fd_vm_epoch_rewards_t *)out;
+  *vm_epoch_rewards = (fd_vm_epoch_rewards_t){
+    .distribution_starting_block_height = epoch_rewards.distribution_starting_block_height,
+    .num_partitions                     = epoch_rewards.num_partitions,
+    .parent_blockhash                   = epoch_rewards.parent_blockhash,
+    .total_points                       = epoch_rewards.total_points,
+    .total_rewards                      = epoch_rewards.total_rewards,
+    .distributed_rewards                = epoch_rewards.distributed_rewards,
+    .active                             = epoch_rewards.active,
+  };
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

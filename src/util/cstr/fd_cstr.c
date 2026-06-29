@@ -105,6 +105,24 @@ fd_cstr_nlen( char const * s,
 }
 
 char *
+fd_cstr_ncpy( char *       d,
+              char const * s,
+              ulong        m ) {
+  if( FD_LIKELY( m ) ){
+    ulong i = 0UL;
+    if( FD_LIKELY( s ) ) {
+      for( ; i<m-1UL; i++ ) {
+        char c = s[i];
+        if( !c ) break;
+        d[i] = c;
+      }
+    }
+    memset( d+i, 0, m-i );
+  }
+  return d;
+}
+
+char *
 fd_cstr_printf( char *       buf,
                 ulong        sz,
                 ulong *      opt_len,

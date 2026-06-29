@@ -1,376 +1,743 @@
 #!/usr/bin/env python3
 
 # THE OUTPUT OF THIS SCRIPT HAS TO BE AUDITED.
-# We have the choice to spend a lot of energy verifying this compiler or spend
-#  a little bit of energy each time verifying its outputs. Given that the code
-#  that it generates is succinct and commented, we picked the latter.
+# We have the choice to spend a lot of energy verifying this compiler or
+# spend a little bit of energy each time verifying its outputs.  Given that
+# the code that it generates is succinct and commented, we picked the
+# latter.
 
-# This file contains a naive compiler that turns symbolic expressions into cBPF code.
-# Instead of targeting cBPF, the compiler targets C header files.
-# This has the advantage of allowing the use of C constants, as long as they are in scope.
+# This file contains a naive compiler that turns symbolic expressions into
+# cBPF code.  Instead of targeting cBPF, the compiler targets C header
+# files. This has the advantage of allowing the use of C constants, as long
+# as they are in scope.
 
 import os
 import sys
-import edn_format
-from collections import defaultdict
+from collections import OrderedDict
 
-# Globals holding relocation information.
-relo_label_counter = 0
-relo_abs_mapping = {}
-
-# new_relo_label provides a unique label on every call
-def new_relo_label():
-    global relo_label_counter
-    relo_label_counter += 1
-    return "lbl_%d" % relo_label_counter
-
-# reverse_multi_mapping is useful to turn the map of labels_name -> line to line -> [label_name, ...]
-def reverse_multi_mapping(mapping):
-    res = defaultdict(list)
-    for lbl, idx in mapping.items():
-        res[idx].append(lbl)
-    return res
-
-
-# ReloCondJump contains a conditional jump instruction that is not yet realized.
-class ReloCondJump(object):
-    def __init__(self, code, t_label, f_label, pre_comment=None, post_comment=None):
-        self.code = code
-        self.t_label = t_label
-        self.f_label = f_label
-        self.pre_comment = pre_comment
-        self.post_comment = post_comment
-
-    def __str__(self):
-        return "BPF_JUMP( %s, %s, %s )" % (self.code, self.t_label, self.f_label)
-
-    def relocate(self, instr_idx):
-        self.t_label = replace_label(self.t_label, instr_idx=instr_idx)
-        self.f_label = replace_label(self.f_label, instr_idx=instr_idx)
-
-# replace_labels replaces an instruction's jump target to the relative distance
-def replace_label(label, instr_idx):
-    maybe_relo = relo_abs_mapping.get(label)
-    if maybe_relo is not None:
-        return f"/* {label} */ {maybe_relo - instr_idx - 1}"
-
-    return label
-
-# ReloCondJump contains an unconditional jump instruction that is not yet realized.
-class ReloJump(object):
-    def __init__(self, label, pre_comment=None, post_comment=None):
-        self.label = label
-        self.pre_comment = pre_comment
-        self.post_comment = post_comment
-
-    def __str__(self):
-        return "{ BPF_JMP | BPF_JA, 0, 0, %s }" % (self.label)
-
-    def relocate(self, instr_idx):
-        self.label = replace_label(self.label, instr_idx=instr_idx)
-
-# CommentedLiteral is an instruction that has a comment attached.
-class CommentedLiteral(object):
-    def __init__(self, lit, pre_comment=None, post_comment=None):
-        self.lit = lit
-        self.pre_comment = pre_comment
-        self.post_comment = post_comment
-
-    def __str__(self):
-        return self.lit
+# Arguments are passed to Linux syscalls through 64-bit registers. When
+# that syscall only uses the bottom 32-bits, like for an int, Linux ignores
+# the top 32-bits no matter what they are. On the other hand, Seccomp sees
+# the full 64-bits of the argument in its policies.
+#
+# Consider the example where close() is called with a bad argument, where
+# the top half is set to garbage and the bottom half is a valid file
+# descriptor. We want to prevent a certain file descriptor from being
+# closed, so we create a rule that says close: if (fd == 2) deny.
+#
+# Our policy will check both the top and bottom bits, and say that fd is
+# not equal to 2, as the top bits are set, and allow the syscall, while
+# Linux will cut off the top bits and close fd 2.
+#
+# We keep this table of prototypes for syscalls in order to decide whether
+# we should emit a 32-bit or a 64-bit check for that argument.
+SYSCALL_ARGS = {
+    #                        arg0     arg1     arg2     arg3     arg4     arg5
+    "accept4": ("int", "long", "long", "int", None, None),
+    "bind": ("int", "long", "int", None, None, None),
+    "clock_nanosleep": ("int", "int", "long", "long", None, None),
+    "close": ("int", None, None, None, None, None),
+    "connect": ("int", "long", "int", None, None, None),
+    "copy_file_range": ("int", "long", "int", "long", "long", "int"),
+    "exit_group": ("int", None, None, None, None, None),
+    "exit": ("int", None, None, None, None, None),
+    "fallocate": ("int", "int", "long", "long", None, None),
+    "fcntl": ("int", "int", "long", None, None, None),
+    "fstat": ("int", "long", None, None, None, None),
+    "fsync": ("int", None, None, None, None, None),
+    "ftruncate": ("int", "long", None, None, None, None),
+    "getsockopt": ("int", "int", "int", "long", "long", None),
+    "ioctl": ("int", "long", "long", None, None, None),
+    "kill": ("int", "int", None, None, None, None),
+    "lseek": ("int", "long", "int", None, None, None),
+    "poll": ("long", "long", "int", None, None, None),
+    "ppoll": ("long", "long", "long", "long", None, None),
+    "pread64": ("int", "long", "long", "long", None, None),
+    "preadv2": ("int", "long", "int", "long", "long", "int"),
+    "pwrite64": ("int", "long", "long", "long", None, None),
+    "pwritev2": ("int", "long", "int", "long", "long", "int"),
+    "read": ("int", "long", "long", None, None, None),
+    "recvfrom": ("int", "long", "long", "int", "long", "long"),
+    "recvmmsg": ("int", "long", "int", "int", "long", None),
+    "recvmsg": ("int", "long", "int", None, None, None),
+    "renameat": ("int", "long", "int", "long", None, None),
+    "renameat2": ("int", "long", "int", "long", "int", None),
+    "sendmmsg": ("int", "long", "int", "int", None, None),
+    "sendmsg": ("int", "long", "int", None, None, None),
+    "sendto": ("int", "long", "long", "int", "long", "int"),
+    "setsockopt": ("int", "int", "int", "long", "int", None),
+    "shutdown": ("int", "int", None, None, None, None),
+    "socket": ("int", "int", "int", None, None, None),
+    "wait4": ("int", "long", "int", "long", None, None),
+    "write": ("int", "long", "long", None, None, None),
+    "writev": ("int", "long", "int", None, None, None),
+}
 
 
-# append_prelude appends a prelude to the cBPF filter.
-def append_prelude(filter):
-    filter.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) )", pre_comment="Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch"))
-    # filter.append("BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 1, 0 )")
-    filter.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR", 0, "RET_KILL_PROCESS"))
-    filter.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) )", pre_comment="loading syscall number in accumulator"))
+def arg_is_32bit(syscall, n):
+    if syscall not in SYSCALL_ARGS:
+        die(f"syscall '{syscall}' not in argument table")
+    types = SYSCALL_ARGS[syscall]
+    if n < 0 or n > 5:
+        die(f"argument index {n} out of range [0, 5]")
+    t = types[n]
+    if t is None:
+        die(f"argument {n} of syscall '{syscall}' is not typed in argument table")
+    return t == "int"
 
 
-# codegen generates by appending to filt the bpf code for the policy_lines.
-def codegen(policy_lines, filt):
-    append_prelude(filt)
-
-    # track all of the expressions that will be appended after the syscall jump table
-    syscall_to_expression = {}
-
-    for line_number, line in enumerate(policy_lines):
-        lineparts = line.split(':', maxsplit=1)
-        lineparts[-1] = lineparts[-1].strip()
-
-        if len(lineparts) == 1:
-            syscall = lineparts[0]
-            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('SYS_'+syscall), 'RET_ALLOW', 0, pre_comment="simply allow %s" % syscall))
-        elif len(lineparts) == 2:
-            syscall = lineparts[0]
-            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('SYS_'+syscall), f'check_{syscall}', 0, pre_comment=f"allow {syscall} based on expression"))
-            syscall_to_expression[lineparts[0]] = lineparts[1]
-        else:
-            print("malformed line @ %s" % (line_number+1), file=sys.stderr)
-            sys.exit(1)
-
-    # append the last jump to the syscall jump table
-    filt.append(ReloJump("RET_KILL_PROCESS", pre_comment="none of the syscalls matched"))
-    # write all of the expression checks
-
-    for syscall, expr in syscall_to_expression.items():
-        expression(syscall, expr, filt)
-
-    # register the RET_KILL_PROCESS label
-    # it's registered before RET_ALLOW because it's the first fallthrough case for checks
-    relo_abs_mapping['RET_KILL_PROCESS'] = len(filt)
-    filt.append(CommentedLiteral('BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS )', pre_comment="KILL_PROCESS is placed before ALLOW since it's the fallthrough case."))
-
-    # register the RET_ALLOW label
-    relo_abs_mapping['RET_ALLOW'] = len(filt)
-    filt.append(CommentedLiteral('BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW )', pre_comment="ALLOW has to be reached by jumping"))
-
-    for instr_idx, entry in enumerate(filt):
-        if type(entry) is ReloCondJump or type(entry) is ReloJump:
-            entry.relocate(instr_idx)
-
-# expression handles a rule with a symbolic expression attached
-def expression(name, expr, filt):
-    # The check for `name` starts at the next instruction
-    relo_abs_mapping[f"check_{name}"] = len(filt)
-
-    expr = edn_format.loads(expr)
-
-    if type(expr) is tuple:
-        # Allow the call
-        success = 'RET_ALLOW'
-
-        # Write the eval code
-        eval_(expr, filt, success, 'RET_KILL_PROCESS')
-
-    elif type(expr) == edn_format.Symbol:
-        # Treat the symbol as the desired effect
-        filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('SYS_'+name), str(expr), 0))
+class Symbol(str):
+    pass
 
 
-# eval_ walks through the expression tree and lays instructions down
-def eval_(expr, filt, label_t, label_f):
-    if type(expr) is tuple:
-        expr0_str = str(expr[0])
-        if expr0_str == 'not':
-            if len(expr) != 2:
-                print(expr)
-                raise("expecting 1 argument to not")
-            # Flip jump labels
-            eval_(expr[1], filt, label_f, label_t)
-
-        elif expr0_str == 'and':
-            # Assert that there is at least one argument otherwise this is undefined behavior.
-            if len(expr) < 2:
-                raise("not enough arguments to and")
-
-            for idx, arg in enumerate(expr[1:]):
-                if idx == len(expr[1:])-1:
-                    # This is the last and entry
-                    eval_(arg, filt, label_t, label_f)
-                    # Register the end of this eval
-                else:
-                    next = new_relo_label()
-                    eval_(arg, filt, next, label_f)
-                    # Register the end of this eval
-                    relo_abs_mapping[next] = len(filt)
+def die(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
 
 
-        elif expr0_str == 'or':
-            # Assert that there is at least one argument otherwise this is undefined behavior.
-            if len(expr) < 2:
-                raise("not enough arguments to or")
-            # Evaluate each operand and jump to the negative case if any is false. Ultimately jump to true.
-
-            for idx, arg in enumerate(expr[1:]):
-                if idx == len(expr[1:])-1:
-                    # This is the last and entry
-                    eval_(arg, filt, label_t, label_f)
-                else:
-                    next = new_relo_label()
-                    eval_(arg, filt, label_t, next)
-                    relo_abs_mapping[next] = len(filt)
-
-        elif expr0_str == 'arg':
-            # Load arg n in accu
-            argno = expr[1]
-            if type(argno) is not int:
-                raise("arg 0 of arg should be int")
-
-            if 0 > argno or argno > 5:
-                raise("argno should be between 0 and 5")
-
-            filt.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[%s]))" % argno, pre_comment="load syscall argument %s in accumulator" % argno))
-
-        elif expr0_str == 'eq':
-            eval_equal(filt, expr[1], expr[2], label_t, label_f)
-
-        elif expr0_str == '<':
-            eval_less(filt, expr[1], expr[2], label_t, label_f)
-
-        elif expr0_str == '<=':
-            eval_less_or_equal(filt, expr[1], expr[2], label_t, label_f)
-
-        elif expr0_str == '>':
-            eval_greater(filt, expr[1], expr[2], label_t, label_f)
-
-        elif expr0_str == '>=':
-            eval_greater_or_equal(filt, expr[1], expr[2], label_t, label_f)
-
-        else:
-            print(expr0_str)
-            raise("unknown fn")
-
-def gen_cmp(filt, op1, op2, label_t, label_f, cmp_instr):
-    op1_type, op2_type = type(op1), type(op2)
-
-    if op1_type is edn_format.Symbol and op2_type is edn_format.Symbol:
-        # handle the case where both values are immediate
-        # tl;dr: load op1 in accu then cond jump
-        # This is not supported because the compiler does not optimize constants.
-        # Comparing two immediate values will always yield the same result.
-        raise("unsupported")
-
-    elif op1_type is tuple and op2_type is not tuple:
-        # eval op1 and do operation with op2 imm
-        eval_(op1, filt, None, None)
-        # accu now contains the eval res of op1
-        filt.append(ReloCondJump(f"BPF_JMP | {cmp_instr} | BPF_K, %s" % str(op2), label_t, label_f))
-
-    elif op2_type is tuple and op1_type is not tuple:
-        # eval op2 and do operation with op1 imm
-        eval_(op2, None, None)
-        # accu now contains the eval res of op2
-        filt.append(ReloCondJump(f"BPF_JMP | {cmp_instr} | BPF_K, %s" % str(op1), label_t, label_f))
-    else:
-        # This is unsupported because I didn't pick a calling convention and this means that accu and x should be saved to scratch.
-        # It's very easy to achieve but there's no need for it yet. It's basically register allocation over BPF scratch.
-        raise("unsupported")
-
-def eval_equal(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JEQ")
-
-def eval_less(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGE")
-
-def eval_less_or_equal(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGT")
-
-def eval_greater(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JGT")
-
-def eval_greater_or_equal(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JGE")
-
-def resplit_lines(lines):
+def tokenize(expr):
+    out = []
     i = 0
-    while i < len(lines):
-        if lines[i].startswith(" "):
-            lines[i-1] += lines[i]
-            lines.pop(i)
-        else:
+    while i < len(expr):
+        ch = expr[i]
+        if ch.isspace():
             i += 1
-    return lines
+        elif ch in "()":
+            out.append(ch)
+            i += 1
+        elif ch == '"':
+            i += 1
+            val = ""
+            while i < len(expr):
+                ch = expr[i]
+                if ch == "\\":
+                    if i + 1 >= len(expr):
+                        raise ValueError("unterminated escape in string")
+                    val += expr[i + 1]
+                    i += 2
+                elif ch == '"':
+                    out.append(val)
+                    i += 1
+                    break
+                else:
+                    val += ch
+                    i += 1
+            else:
+                raise ValueError("unterminated string")
+        else:
+            start = i
+            while i < len(expr) and not expr[i].isspace() and expr[i] not in "()":
+                i += 1
+            out.append(Symbol(expr[start:i]))
+    return out
 
 
-if __name__ == '__main__':
-    src_path = sys.argv[1]
+def parse_atom(tok):
+    if type(tok) is not Symbol:
+        return tok
+    try:
+        return int(tok, 10)
+    except ValueError:
+        return tok
+
+
+def parse_tokens(tokens, i=0):
+    if i >= len(tokens):
+        raise ValueError("unexpected end of expression")
+    tok = tokens[i]
+    if tok == "(":
+        i += 1
+        vals = []
+        while i < len(tokens) and tokens[i] != ")":
+            val, i = parse_tokens(tokens, i)
+            vals.append(val)
+        if i >= len(tokens):
+            raise ValueError("unterminated list")
+        return tuple(vals), i + 1
+    if tok == ")":
+        raise ValueError("unexpected ')'")
+    return parse_atom(tok), i + 1
+
+
+def parse_expr(expr):
+    tokens = tokenize(expr)
+    if not tokens:
+        raise ValueError("empty expression")
+    val, i = parse_tokens(tokens)
+    if i != len(tokens):
+        raise ValueError("trailing tokens")
+    return val
+
+
+def strip_comments(lines):
+    return [line for line in lines if not line.lstrip().startswith("#")]
+
+
+def join_continuations(lines):
+    out = []
+    for line in lines:
+        if line.startswith((" ", "\t")) and out:
+            out[-1] += line
+        else:
+            out.append(line)
+    return out
+
+
+def policy_lines(raw_lines):
+    return [
+        line.strip()
+        for line in join_continuations(strip_comments(raw_lines))
+        if line.strip()
+    ]
+
+
+def split_policy_line(line, line_no):
+    parts = line.split(":", 1)
+    if len(parts) == 1:
+        return parts[0].strip(), None
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    die(f"malformed policy line {line_no}")
+
+
+def parse_signature(sigline):
+    if sigline == "noarg":
+        return {}
+    params = {}
+    for raw_param in sigline.split(","):
+        raw_param = raw_param.strip()
+        if not raw_param:
+            continue
+        pieces = raw_param.split()
+        if len(pieces) < 2:
+            continue
+        name = pieces[-1].strip("*")
+        ctype = " ".join(pieces[:-1])
+        if not ctype in ["uint"]:
+            die(f"invalid parameter type: {ctype}")
+        params[name] = ctype
+    return params
+
+
+def is_arg(expr):
+    return type(expr) is tuple and len(expr) == 2 and str(expr[0]) == "arg"
+
+
+def arg_no(expr):
+    if not is_arg(expr):
+        raise ValueError("expected (arg N)")
+    n = expr[1]
+    if type(n) is not int or n < 0 or n > 5:
+        raise ValueError("argument number must be an integer in [0, 5]")
+    return n
+
+
+class ImmWords:
+    def __init__(self, lo, hi):
+        self.lo = lo
+        self.hi = hi
+
+
+def imm_words(expr, params):
+    if type(expr) is int:
+        if expr >= (1 << 32):
+            die(f"imm expr too large: {expr}")
+        return ImmWords(f"0x{expr:08x}U", "0x00000000U")
+
+    text = str(expr)
+    if type(expr) is Symbol and text in params:  # all params are uint
+        return ImmWords(f"((uint)({text}))", "0x00000000U")
+
+    return ImmWords(
+        f"FD_SECCOMP_ARG_LO({text})",
+        f"FD_SECCOMP_ARG_HI({text})",
+    )
+
+
+class Stmt:
+    def __init__(self, text, comment=None):
+        self.text = text
+        self.comment = comment
+
+
+class Jump:
+    def __init__(self, op, k, jt, jf, comment=None):
+        self.op = op
+        self.k = k
+        self.jt = jt
+        self.jf = jf
+        self.comment = comment
+
+
+class Label:
+    def __init__(self, name):
+        self.name = name
+
+
+class Program:
+    def __init__(self):
+        self.items = []
+        self.label_id = 0
+
+    def new_label(self, prefix="lbl"):
+        self.label_id += 1
+        return f"{prefix}_{self.label_id}"
+
+    def label(self, name):
+        self.items.append(Label(name))
+
+    def stmt(self, text, comment=None):
+        self.items.append(Stmt(text, comment))
+
+    def jump(self, op, k, jt, jf, comment=None):
+        self.items.append(Jump(op, k, jt, jf, comment))
+
+    def ret(self, value, comment=None):
+        self.stmt(f"BPF_STMT( BPF_RET | BPF_K, {value} )", comment)
+
+    def load_abs(self, expr, comment=None):
+        self.stmt(f"BPF_STMT( BPF_LD | BPF_W | BPF_ABS, {expr})", comment)
+
+    def load_arg_lo(self, n):
+        self.load_abs(f"FD_SECCOMP_ARG_LO_OFFSET({n})", f"arg {n} low 32 bits")
+
+    def load_arg_hi(self, n):
+        self.load_abs(f"FD_SECCOMP_ARG_HI_OFFSET({n})", f"arg {n} high 32 bits")
+
+    def instruction_count(self):
+        return sum(1 for item in self.items if not isinstance(item, Label))
+
+    def render_target(self, target, pc, labels, max_offset=None):
+        if type(target) is int:
+            return str(target)
+        if target not in labels:
+            raise ValueError(f"unknown label {target}")
+        off = labels[target] - pc - 1
+        if off < 0:
+            raise ValueError(f"backward jump to {target}")
+        if max_offset is not None and off > max_offset:
+            raise ValueError(
+                f"jump to {target} from instruction {pc} has offset {off}, max {max_offset}"
+            )
+        return f"/* {target} */ {off}"
+
+    def render(self):
+        labels = {}
+        pc = 0
+        for item in self.items:
+            if isinstance(item, Label):
+                labels[item.name] = pc
+            else:
+                pc += 1
+
+        line_labels = {}
+        for name, idx in labels.items():
+            line_labels.setdefault(idx, []).append(name)
+
+        lines = []
+        pc = 0
+        for item in self.items:
+            if isinstance(item, Label):
+                continue
+            for name in line_labels.get(pc, []):
+                lines.append(f"//  {name}:")
+            if item.comment:
+                lines.append(f"    /* {item.comment} */")
+            if isinstance(item, Stmt):
+                lines.append(f"    {item.text},")
+            elif isinstance(item, Jump):
+                jt = self.render_target(item.jt, pc, labels, 255)
+                jf = self.render_target(item.jf, pc, labels, 255)
+                lines.append(f"    BPF_JUMP( {item.op}, {item.k}, {jt}, {jf} ),")
+            pc += 1
+        return lines
+
+
+def emit_arg_eq(prog, n, imm, label_t, label_f, params, syscall):
+    words = imm_words(imm, params)
+    if arg_is_32bit(syscall, n):
+        prog.load_arg_lo(n)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.lo, label_t, label_f)
+    else:
+        hi_ok = prog.new_label("arg_hi_eq")
+        prog.load_arg_hi(n)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.hi, hi_ok, label_f)
+        prog.label(hi_ok)
+        prog.load_arg_lo(n)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.lo, label_t, label_f)
+
+
+def emit_arg_cmp(prog, op, n, imm, label_t, label_f, params, syscall):
+    if op == "eq":
+        emit_arg_eq(prog, n, imm, label_t, label_f, params, syscall)
+        return
+
+    words = imm_words(imm, params)
+
+    if arg_is_32bit(syscall, n):
+        prog.load_arg_lo(n)
+        if op == "<":
+            prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.lo, label_f, label_t)
+        elif op == "<=":
+            prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.lo, label_f, label_t)
+        elif op == ">":
+            prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.lo, label_t, label_f)
+        elif op == ">=":
+            prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.lo, label_t, label_f)
+        else:
+            raise ValueError(f"unsupported comparison {op}")
+        return
+
+    mid = prog.new_label("arg_cmp")
+    eq = prog.new_label("arg_cmp_eq")
+    prog.load_arg_hi(n)
+
+    if op == "<":
+        prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_f, mid)
+        prog.label(mid)
+        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_t)
+        prog.label(eq)
+        prog.load_arg_lo(n)
+        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.lo, label_f, label_t)
+    elif op == "<=":
+        prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_f, mid)
+        prog.label(mid)
+        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_t)
+        prog.label(eq)
+        prog.load_arg_lo(n)
+        prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.lo, label_f, label_t)
+    elif op == ">":
+        prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_t, mid)
+        prog.label(mid)
+        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_f)
+        prog.label(eq)
+        prog.load_arg_lo(n)
+        prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.lo, label_t, label_f)
+    elif op == ">=":
+        prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_t, mid)
+        prog.label(mid)
+        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_f)
+        prog.label(eq)
+        prog.load_arg_lo(n)
+        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.lo, label_t, label_f)
+    else:
+        raise ValueError(f"unsupported comparison {op}")
+
+
+def invert_cmp(op):
+    return {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "eq": "eq"}[op]
+
+
+def collect_or_eq_set(expr):
+    if type(expr) is not tuple or not expr or str(expr[0]) != "or":
+        return None
+    terms = []
+    for term in expr[1:]:
+        if (
+            type(term) is not tuple
+            or len(term) != 3
+            or str(term[0]) != "eq"
+            or not is_arg(term[1])
+        ):
+            return None
+        terms.append((arg_no(term[1]), term[2]))
+    if not terms:
+        return None
+    n = terms[0][0]
+    if any(term_n != n for term_n, _ in terms):
+        return None
+    return n, [imm for _, imm in terms]
+
+
+def emit_or_eq_set(prog, n, imms, label_t, label_f, params, syscall):
+    if arg_is_32bit(syscall, n):
+        prog.load_arg_lo(n)
+        for idx, imm in enumerate(imms):
+            words = imm_words(imm, params)
+            next_lo = (
+                label_f if idx == len(imms) - 1 else prog.new_label("or_eq_next_lo")
+            )
+            prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.lo, label_t, next_lo)
+            if idx != len(imms) - 1:
+                prog.label(next_lo)
+        return
+
+    groups = OrderedDict()
+    for imm in imms:
+        words = imm_words(imm, params)
+        groups.setdefault(words.hi, []).append(words.lo)
+
+    group_items = list(groups.items())
+    for idx, (hi, lows) in enumerate(group_items):
+        next_group = (
+            label_f if idx == len(group_items) - 1 else prog.new_label("or_eq_next_hi")
+        )
+        hi_match = prog.new_label("or_eq_hi")
+        prog.load_arg_hi(n)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", hi, hi_match, next_group)
+        prog.label(hi_match)
+        prog.load_arg_lo(n)
+        for low_idx, lo in enumerate(lows):
+            next_low = (
+                next_group
+                if low_idx == len(lows) - 1
+                else prog.new_label("or_eq_next_lo")
+            )
+            prog.jump("BPF_JMP | BPF_JEQ | BPF_K", lo, label_t, next_low)
+            if low_idx != len(lows) - 1:
+                prog.label(next_low)
+        if idx != len(group_items) - 1:
+            prog.label(next_group)
+
+
+def emit_expr(prog, expr, label_t, label_f, params, syscall):
+    eq_set = collect_or_eq_set(expr)
+    if eq_set is not None:
+        emit_or_eq_set(prog, eq_set[0], eq_set[1], label_t, label_f, params, syscall)
+        return
+
+    if type(expr) is not tuple or not expr:
+        raise ValueError(f"unsupported expression {expr}")
+
+    op = str(expr[0])
+    if op == "not":
+        if len(expr) != 2:
+            raise ValueError("not expects one argument")
+        emit_expr(prog, expr[1], label_f, label_t, params, syscall)
+    elif op == "and":
+        if len(expr) < 2:
+            raise ValueError("and expects arguments")
+        for idx, child in enumerate(expr[1:]):
+            if idx == len(expr) - 2:
+                emit_expr(prog, child, label_t, label_f, params, syscall)
+            else:
+                next_label = prog.new_label("and")
+                emit_expr(prog, child, next_label, label_f, params, syscall)
+                prog.label(next_label)
+    elif op == "or":
+        if len(expr) < 2:
+            raise ValueError("or expects arguments")
+        for idx, child in enumerate(expr[1:]):
+            if idx == len(expr) - 2:
+                emit_expr(prog, child, label_t, label_f, params, syscall)
+            else:
+                next_label = prog.new_label("or")
+                emit_expr(prog, child, label_t, next_label, params, syscall)
+                prog.label(next_label)
+    elif op in ("eq", "<", "<=", ">", ">="):
+        if len(expr) != 3:
+            raise ValueError(f"{op} expects two arguments")
+        lhs, rhs = expr[1], expr[2]
+        if is_arg(lhs) and not is_arg(rhs):
+            emit_arg_cmp(prog, op, arg_no(lhs), rhs, label_t, label_f, params, syscall)
+        elif is_arg(rhs) and not is_arg(lhs):
+            emit_arg_cmp(
+                prog,
+                invert_cmp(op),
+                arg_no(rhs),
+                lhs,
+                label_t,
+                label_f,
+                params,
+                syscall,
+            )
+        else:
+            raise ValueError(f"unsupported comparison operands {expr}")
+    elif op == "arg":
+        prog.load_arg_lo(arg_no(expr))
+    else:
+        raise ValueError(f"unknown operator {op}")
+
+
+def compile_policy(entries, params):
+    prog = Program()
+    checked = []
+    seen = set()
+
+    prog.load_abs("( offsetof( struct seccomp_data, arch ) )", "validate architecture")
+    prog.jump("BPF_JMP | BPF_JEQ | BPF_K", "ARCH_NR", 0, "RET_KILL_PROCESS")
+    prog.load_abs("( offsetof( struct seccomp_data, nr ) )", "load syscall number")
+
+    for line_no, (syscall, expr_text) in entries:
+        if syscall in seen:
+            die(f"duplicate syscall entry for {syscall} on line {line_no}")
+        seen.add(syscall)
+        if expr_text is None:
+            prog.jump(
+                "BPF_JMP | BPF_JEQ | BPF_K",
+                f"SYS_{syscall}",
+                "RET_ALLOW",
+                0,
+                f"allow {syscall}",
+            )
+        else:
+            label = f"check_{syscall}"
+            prog.jump(
+                "BPF_JMP | BPF_JEQ | BPF_K",
+                f"SYS_{syscall}",
+                label,
+                0,
+                f"check {syscall}",
+            )
+            checked.append((syscall, parse_expr(expr_text)))
+
+    prog.label("RET_KILL_PROCESS")
+    prog.ret("SECCOMP_RET_KILL_PROCESS", "default deny")
+    prog.label("RET_ALLOW")
+    prog.ret("SECCOMP_RET_ALLOW", "allow")
+
+    for syscall, expr in checked:
+        allow = f"{syscall}_ALLOW"
+        kill = f"{syscall}_KILL"
+        prog.label(f"check_{syscall}")
+        emit_expr(prog, expr, allow, kill, params, syscall)
+        prog.label(kill)
+        prog.ret("SECCOMP_RET_KILL_PROCESS")
+        prog.label(allow)
+        prog.ret("SECCOMP_RET_ALLOW")
+
+    prog.render()
+    return prog
+
+
+def header_guard(rel_dst):
+    child = rel_dst.replace("/", "_").replace(".", "_")
+    return f"HEADER_fd_{child}"
+
+
+def util_include_path(rel_dst):
+    return os.path.join(*([".."] * rel_dst.count("/")), "src/util/fd_util_base.h")
+
+
+def write_lines(out, lines):
+    out.write("\n".join(lines))
+    out.write("\n")
+
+
+def render_header(out, src_path, sigline, filter_name, prog):
+    dst_rel = os.path.join(
+        os.path.dirname(src_path), "generated", filter_name + "_seccomp.h"
+    )
+    if dst_rel.startswith("./"):
+        dst_rel = dst_rel[2:]
+    dst_rel = os.path.relpath(dst_rel, os.getcwd())
+    guard = header_guard(dst_rel)
+    util_path = util_include_path(dst_rel)
+    instr_cnt = prog.instruction_count()
+
+    constructor = f"static void populate_sock_filter_policy_{filter_name}( ulong out_cnt, struct sock_filter out[ static {instr_cnt} ]"
+    if sigline == "noarg":
+        constructor = f"{constructor} ) {{"
+    else:
+        constructor = f"{constructor}, {sigline} ) {{"
+
+    write_lines(
+        out,
+        [
+            "/* THIS FILE WAS GENERATED BY generate_filters.py. DO NOT EDIT BY HAND! */",
+            f"#ifndef {guard}",
+            f"#define {guard}",
+            "",
+            "#if defined(__linux__)",
+            "",
+            f'#include "{util_path}"',
+            "#include <linux/audit.h>",
+            "#include <linux/capability.h>",
+            "#include <linux/filter.h>",
+            "#include <linux/seccomp.h>",
+            "#include <linux/bpf.h>",
+            "#include <linux/unistd.h>",
+            "#include <sys/syscall.h>",
+            "#include <signal.h>",
+            "#include <stddef.h>",
+            "",
+            "#if defined(__i386__)",
+            "# define ARCH_NR  AUDIT_ARCH_I386",
+            "#elif defined(__x86_64__)",
+            "# define ARCH_NR  AUDIT_ARCH_X86_64",
+            "#elif defined(__aarch64__)",
+            "# define ARCH_NR AUDIT_ARCH_AARCH64",
+            "#else",
+            '# error "Target architecture is unsupported by seccomp."',
+            "#endif",
+            "",
+            "#define FD_SECCOMP_ARG_LO_OFFSET(argno) ( offsetof( struct seccomp_data, args[(argno)] ) )",
+            "#define FD_SECCOMP_ARG_HI_OFFSET(argno) ( offsetof( struct seccomp_data, args[(argno)] ) + 4U )",
+            "",
+            "#define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))",
+            "#define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))",
+            "",
+            f"static const uint sock_filter_policy_{filter_name}_instr_cnt = {instr_cnt};",
+            "",
+            constructor,
+            f"  FD_TEST( out_cnt >= {instr_cnt} );",
+            f"  struct sock_filter filter[{instr_cnt}] = {{",
+        ],
+    )
+
+    for line in prog.render():
+        out.write(line)
+        out.write("\n")
+
+    write_lines(
+        out,
+        [
+            "  };",
+            "  fd_memcpy( out, filter, sizeof( filter ) );",
+            "}",
+            "",
+            "#endif /* defined(__linux__) */",
+            "",
+            f"#endif /* {guard} */",
+        ],
+    )
+
+
+def output_path(src_path, filter_name):
+    return os.path.join(
+        os.path.dirname(src_path), "generated", filter_name + "_seccomp.h"
+    )
+
+
+def main(argv):
+    if len(argv) not in (2, 3):
+        die(f"usage: {argv[0]} [--stdout] path/to/policy.seccomppolicy")
+
+    to_stdout = False
+    src_path = argv[1]
+    if len(argv) == 3:
+        if src_path != "--stdout":
+            die(f"usage: {argv[0]} [--stdout] path/to/policy.seccomppolicy")
+        to_stdout = True
+        src_path = argv[2]
+
     filter_name = os.path.basename(src_path)
     if filter_name.endswith(".seccomppolicy"):
         filter_name = filter_name[:-14]
-    dst_path_base = filter_name + "_seccomp.h"
-    dst_path = os.path.join(
-        os.path.dirname(src_path),
-        "generated",
-        dst_path_base,
-    )
-    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
-    with open(src_path) as f:
-        with open(dst_path, "w") as of:
-            # set child_path to dst_path with the prefix of the parent of this files
-            # directory removed.
-            child_path = dst_path
-            parent_path = os.path.dirname(os.path.realpath(__file__))
-            if child_path.startswith("./"):
-                child_path = child_path[2:]
-            else:
-                raise Exception(f"child_path {child_path} does not start with ./")
+    with open(src_path, "r", encoding="utf-8") as f:
+        lines = policy_lines(f.readlines())
+    if not lines:
+        die("empty policy")
 
-            num_slashes = child_path.count('/')
+    sigline = lines[0]
+    if not (sigline == "noarg" or (" " in sigline and ":" not in sigline)):
+        die("malformed signature line")
 
-            child_path = child_path.replace('/', '_')
-            child_path = child_path.replace('.', '_')
+    entries = []
+    for idx, line in enumerate(lines[1:], start=2):
+        entries.append((idx, split_policy_line(line, idx)))
 
-            # create a path like "../../" for n num_slashes
-            util_path = os.path.join(*([".."] * num_slashes))
+    prog = compile_policy(entries, parse_signature(sigline))
 
-            of.write( f"""/* THIS FILE WAS GENERATED BY generate_filters.py. DO NOT EDIT BY HAND! */
-#ifndef HEADER_fd_{child_path}
-#define HEADER_fd_{child_path}
+    if to_stdout:
+        render_header(sys.stdout, src_path, sigline, filter_name, prog)
+    else:
+        dst = output_path(src_path, filter_name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst, "w", encoding="utf-8") as f:
+            render_header(f, src_path, sigline, filter_name, prog)
 
-#include "{util_path}/src/util/fd_util_base.h"
-#include <linux/audit.h>
-#include <linux/capability.h>
-#include <linux/filter.h>
-#include <linux/seccomp.h>
-#include <linux/bpf.h>
-#include <sys/syscall.h>
-#include <signal.h>
-#include <stddef.h>
 
-#if defined(__i386__)
-# define ARCH_NR  AUDIT_ARCH_I386
-#elif defined(__x86_64__)
-# define ARCH_NR  AUDIT_ARCH_X86_64
-#elif defined(__aarch64__)
-# define ARCH_NR AUDIT_ARCH_AARCH64
-#else
-# error "Target architecture is unsupported by seccomp."
-#endif
-""");
-
-            filter_body = []
-            policy_lines = list(filter(lambda line: not line.startswith("#"), f.readlines()))
-            policy_lines = resplit_lines(policy_lines)
-            policy_lines = list(filter(lambda x: x.strip() != "", policy_lines))
-            sigline = policy_lines[0].strip()
-            codegen(policy_lines[1:], filter_body)
-
-            line_to_labels = reverse_multi_mapping(relo_abs_mapping)
-
-            of.write("static const unsigned int sock_filter_policy_%s_instr_cnt = %s;\n\n" % (filter_name, len(filter_body)))
-
-            constructor_sig = ""
-            if sigline == "noarg":
-                constructor_sig = "static void populate_sock_filter_policy_%s( ulong out_cnt, struct sock_filter * out ) {\n" % (filter_name)
-            else:
-                constructor_sig = "static void populate_sock_filter_policy_%s( ulong out_cnt, struct sock_filter * out, %s ) {\n" % (filter_name, sigline)
-
-            of.write(constructor_sig)
-            of.write(f"  FD_TEST( out_cnt >= {len(filter_body)} );\n")
-            of.write(f"  struct sock_filter filter[{len(filter_body)}] = {{\n");
-
-            padding = "    "
-            for lineno, line in enumerate(filter_body):
-
-                maybe_labels = line_to_labels.get(lineno, [])
-
-                for label in maybe_labels:
-                    of.write(f"//  {label}:\n")
-
-                if hasattr(line, 'pre_comment'):
-                    comment = line.pre_comment
-                    if comment != None:
-                        of.write(f"{padding}/* {comment} */\n")
-                of.write(padding + str(line))
-                of.write(',\n')
-                if hasattr(line, 'post_comment'):
-                    comment = line.post_comment
-                    if comment != None:
-                        of.write(f"{padding}/* {comment} */\n\n")
-            of.write("  };\n")
-            of.write("  fd_memcpy( out, filter, sizeof( filter ) );\n")
-            of.write("}\n\n")
-            of.write("#endif\n")
+if __name__ == "__main__":
+    main(sys.argv)

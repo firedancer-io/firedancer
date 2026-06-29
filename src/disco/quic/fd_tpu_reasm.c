@@ -38,7 +38,7 @@ fd_tpu_reasm_new( void * shmem,
                   void * dcache ) {
 
   if( FD_UNLIKELY( !shmem ) ) return NULL;
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, FD_TPU_REASM_ALIGN ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, alignof(fd_tpu_reasm_t) ) ) ) return NULL;
   if( FD_UNLIKELY( !fd_tpu_reasm_footprint( depth, burst ) ) ) return NULL;
   if( FD_UNLIKELY( orig > FD_FRAG_META_ORIG_MAX ) ) return NULL;
 
@@ -56,7 +56,7 @@ fd_tpu_reasm_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_tpu_reasm_t *      reasm     = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_align(),         sizeof(fd_tpu_reasm_t)                  );
-  ulong *               pub_slots = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                depth*sizeof(uint)                      );
+  uint *                pub_slots = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                depth*sizeof(uint)                      );
   fd_tpu_reasm_slot_t * slots     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_slot_t), slot_cnt*sizeof(fd_tpu_reasm_slot_t)    );
   void *                map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_map_align(),     fd_tpu_reasm_map_footprint( chain_cnt ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_tpu_reasm_align() );
@@ -195,7 +195,6 @@ fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
     return FD_TPU_REASM_ERR_STATE;
 
   ulong slot_idx = slot_get_idx( reasm, slot );
-  ulong mtu      = FD_TPU_REASM_MTU;
   ulong sz0      = slot->k.sz;
 
   if( FD_UNLIKELY( data_off>sz0 ) ) {
@@ -212,13 +211,12 @@ fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
   }
 
   ulong sz1 = sz0 + data_sz;
-  if( FD_UNLIKELY( (sz1<sz0)|(sz1>mtu) ) ) {
+  if( FD_UNLIKELY( (sz1<sz0)|(sz1>FD_TPU_MTU) ) ) {
     fd_tpu_reasm_cancel( reasm, slot );
     return FD_TPU_REASM_ERR_SZ;
   }
 
-  uchar * msg = slot_get_data_pkt_payload( reasm, slot_idx );
-  fd_memcpy( msg+sz0, data, data_sz );
+  fd_memcpy( reasm->dcache[ slot_idx ].payload + sz0, data, data_sz );
 
   slot->k.sz = (ushort)( sz1 & FD_TPU_REASM_SZ_MASK );
   return FD_TPU_REASM_SUCCESS;
@@ -240,9 +238,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
     return FD_TPU_REASM_ERR_STATE;
 
   /* Derive chunk index */
-  uint    slot_idx = slot_get_idx( reasm, slot );
-  uchar * buf      = slot_get_data( reasm, slot_idx );
-  ulong   chunk    = fd_laddr_to_chunk( base, buf );
+  uint           slot_idx = slot_get_idx( reasm, slot );
+  fd_tpu_msg_t * buf      = &reasm->dcache[ slot_idx ];
+  ulong          chunk    = fd_laddr_to_chunk( base, buf );
   if( FD_UNLIKELY( ( (ulong)buf<(ulong)base ) |
                    ( chunk>UINT_MAX          ) ) ) {
     FD_LOG_CRIT(( "invalid base %p for slot %p in tpu_reasm %p",
@@ -268,8 +266,8 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   ulong tsorig_comp = slot->tsorig_comp;
   ulong tspub_comp  = fd_frag_meta_ts_comp( tspub );
 
-  fd_txn_m_t * txnm = (fd_txn_m_t *)buf;
-  *txnm = (fd_txn_m_t) { 0UL };
+  fd_txn_m_t * txnm = &buf->hdr;
+  *txnm = (fd_txn_m_t){0};
   txnm->payload_sz = (ushort)sz;
   txnm->source_ipv4 = source_ipv4;
   txnm->source_tpu  = source_tpu;
@@ -327,7 +325,7 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
                            uchar            source_tpu ) {
 
   ulong depth = reasm->depth;
-  if( FD_UNLIKELY( sz>FD_TPU_REASM_MTU ) ) return FD_TPU_REASM_ERR_SZ;
+  if( FD_UNLIKELY( sz>FD_TPU_MTU ) ) return FD_TPU_REASM_ERR_SZ;
 
   /* Acquire least recent slot.  This is our "new slot" */
   fd_tpu_reasm_slot_t * slot = slotq_pop_tail( reasm );
@@ -335,9 +333,9 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
   slot_begin( slot );
 
   /* Derive buffer address of new slot */
-  uint    slot_idx = slot_get_idx( reasm, slot );
-  uchar * buf      = slot_get_data( reasm, slot_idx );
-  ulong   chunk    = fd_laddr_to_chunk( base, buf );
+  uint           slot_idx = slot_get_idx( reasm, slot );
+  fd_tpu_msg_t * buf      = &reasm->dcache[ slot_idx ];
+  ulong          chunk    = fd_laddr_to_chunk( base, buf );
   if( FD_UNLIKELY( ( (ulong)buf<(ulong)base ) |
                    ( chunk>UINT_MAX         ) ) ) {
     FD_LOG_ERR(( "Computed invalid chunk index (base=%p buf=%p chunk=%lx)",
@@ -360,12 +358,12 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
   /* Copy data into new slot */
   FD_COMPILER_MFENCE();
   slot->k.sz = sz & FD_TPU_REASM_SZ_MASK;
-  fd_txn_m_t * txnm = (fd_txn_m_t *)buf;
-  *txnm = (fd_txn_m_t) { 0UL };
+  fd_txn_m_t * txnm = &buf->hdr;
+  *txnm = (fd_txn_m_t){0};
   txnm->payload_sz = (ushort)slot->k.sz,
   txnm->source_ipv4 = source_ipv4;
   txnm->source_tpu  = source_tpu;
-  fd_memcpy( buf + sizeof(fd_txn_m_t), data, sz );
+  fd_memcpy( buf->payload, data, sz );
   FD_COMPILER_MFENCE();
   slot->k.state = FD_TPU_REASM_STATE_PUB;
   FD_COMPILER_MFENCE();

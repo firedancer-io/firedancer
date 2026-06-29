@@ -3,14 +3,13 @@
 
 fd_racesan_weave_t *
 fd_racesan_weave_new( fd_racesan_weave_t * weave ) {
-  (void)weave;
+  memset( weave, 0, sizeof(fd_racesan_weave_t) );
   return NULL;
 }
 
 void *
 fd_racesan_weave_delete( fd_racesan_weave_t * weave ) {
-  (void)weave;
-  return NULL;
+  return weave;
 }
 
 void

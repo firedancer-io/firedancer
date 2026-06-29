@@ -3,9 +3,27 @@
 
 /* fd_rewards.h provides APIs for distributing Solana staking rewards. */
 
-#include "../types/fd_types.h"
 #include "../stakes/fd_stake_delegations.h"
-#include "../stakes/fd_vote_states.h"
+#include "../runtime/sysvar/fd_sysvar_base.h"
+
+struct fd_prev_epoch_inflation_rewards {
+  ulong  validator_rewards;
+  double prev_epoch_duration_in_years;
+  double validator_rate;
+  double foundation_rate;
+};
+typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
+
+struct fd_partitioned_rewards_calculation {
+  uint128 validator_points;
+  ulong   old_vote_balance_and_staked;
+  ulong   validator_rewards;
+  double  validator_rate;
+  double  foundation_rate;
+  double  prev_epoch_duration_in_years;
+  ulong   capitalization;
+};
+typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -30,8 +48,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_begin_partitioned_rewards( fd_bank_t *                    bank,
-                              fd_accdb_user_t *              accdb,
-                              fd_funk_txn_xid_t const *      xid,
+                              fd_accdb_t *                   accdb,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
@@ -50,12 +67,11 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
            - calculate_stake_points_and_credits */
 
 void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
-                                            fd_bank_t *               bank,
-                                            fd_funk_t *               funk,
-                                            fd_funk_txn_xid_t const * xid,
-                                            fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx );
+fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                            fd_bank_t *          bank,
+                                            fd_accdb_t *         accdb,
+                                            fd_runtime_stack_t * runtime_stack,
+                                            fd_capture_ctx_t *   capture_ctx );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
    accounts.  Called at the beginning of a few slots per epoch.
@@ -65,10 +81,31 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
      - for each stake account: distribute_epoch_reward_to_stake_acc */
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
-                                         fd_accdb_user_t *         accdb,
-                                         fd_funk_txn_xid_t const * xid,
-                                         fd_capture_ctx_t *        capture_ctx );
+fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
+                                         fd_accdb_t *       accdb,
+                                         fd_capture_ctx_t * capture_ctx );
+
+/* fd_rewards_get_reward_distribution_num_blocks returns the number of
+   blocks required to distribute rewards for a given epoch schedule and
+   stake account count. Useful for testing partition sizing logic. */
+
+uint
+fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
+                                               ulong                       slot,
+                                               ulong                       total_stake_accounts );
+
+struct fd_commission_split {
+  ulong voter_portion;
+  ulong staker_portion;
+  uint  is_split;
+};
+
+typedef struct fd_commission_split fd_commission_split_t;
+
+void
+fd_vote_commission_split( ushort                  commission,
+                          ulong                   on,
+                          fd_commission_split_t * result );
 
 FD_PROTOTYPES_END
 

@@ -331,6 +331,7 @@ union fd_quic_metrics {
     ulong pkt_decrypt_fail_cnt[ 4 ];    /* number of packets that failed decryption due to auth tag */
     ulong pkt_no_key_cnt[ 4 ];          /* number of packets that failed decryption due to missing key */
     ulong pkt_no_conn_cnt[ 4 ];         /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
+    ulong pkt_wrong_src_cnt;            /* number of packets from a wrong source IP */
     ulong frame_tx_alloc_cnt[ 3 ];      /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
     ulong pkt_verneg_cnt;               /* number of QUIC version negotiation packets or packets with wrong version */
     ulong pkt_retransmissions_cnt[ 4 ]; /* number of pkt_meta retries */
@@ -495,6 +496,13 @@ fd_quic_init( fd_quic_t * quic );
 FD_QUIC_API fd_quic_t *
 fd_quic_fini( fd_quic_t * quic );
 
+/* fd_quic_set_identity_public_key updates the public key used for
+   identity validation.  This function should only be called after the
+   QUIC has been initialized. */
+FD_QUIC_API void
+fd_quic_set_identity_public_key( fd_quic_t * quic,
+                                 uchar const public_key[ static 32 ] );
+
 /* NOTE: Calling any of the below requires valid initialization from
    this thread group. */
 
@@ -526,6 +534,14 @@ fd_quic_connect( fd_quic_t *  quic,  /* requires exclusive access */
 FD_QUIC_API void
 fd_quic_conn_close( fd_quic_conn_t * conn,
                     uint             reason );
+
+/* fd_quic_conn_free instantly frees the given conn object without
+   issuing a conn_final callback.  Does not send a CONNECTION_CLOSE
+   frame. */
+
+FD_QUIC_API void
+fd_quic_conn_free( fd_quic_t *      quic,
+                   fd_quic_conn_t * conn );
 
 /* fd_quic_conn_let_die stops keeping a conn alive after
    'keep_alive_duration_ns'. No-op if keep-alive is not configured.

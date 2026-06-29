@@ -1,6 +1,8 @@
-#include "fd_vm_private.h"
+#include "fd_vm.h"
+#include "../../ballet/sbpf/fd_sbpf_instr.h"
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include <stddef.h>
-#include <assert.h>
 
 FD_STATIC_ASSERT( FD_VM_FOOTPRINT                       == sizeof( fd_vm_t ), vm_struct );
 FD_STATIC_ASSERT( FD_VM_ALIGN                           == alignof( fd_vm_t ), vm_struct );
@@ -50,7 +52,7 @@ FD_STATIC_ASSERT( FD_VM_LOG_TAIL==128UL,   vm_log );
 FD_STATIC_ASSERT( FD_VM_COMPUTE_UNIT_LIMIT                       ==         1400000UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_LOG_64_UNITS                             ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CREATE_PROGRAM_ADDRESS_UNITS             ==            1500UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==            1000UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==             946UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_INVOKE_STACK_HEIGHT                  ==               5UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_INSTRUCTION_TRACE_LENGTH             ==              64UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SHA256_BASE_COST                         ==              85UL, vm_cu );
@@ -60,27 +62,42 @@ FD_STATIC_ASSERT( FD_VM_MAX_CALL_DEPTH                           ==             
 FD_STATIC_ASSERT( FD_VM_STACK_FRAME_SIZE                         ==            4096UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_LOG_PUBKEY_UNITS                         ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_CPI_INSTRUCTION_SIZE                 ==            1280UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ACCOUNT_INFO_BYTE_SIZE                   ==              80UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CPI_BYTES_PER_UNIT                       ==             250UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SYSVAR_BASE_COST                         ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SECP256K1_RECOVER_COST                   ==           25000UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SYSCALL_BASE_COST                        ==             100UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_VALIDATE_POINT_COST   ==             159UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_ADD_COST              ==             473UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST         ==             475UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST         ==            2177UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_MSM_BASE_COST         ==            2273UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_MSM_INCREMENTAL_COST  ==             758UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_VALIDATE_POINT_COST ==             169UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_ADD_COST            ==             521UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST       ==             519UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST       ==            2208UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_MSM_BASE_COST       ==            2303UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_MSM_INCREMENTAL_COST==             788UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_EDWARDS_VALIDATE_POINT_COST        ==             159UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_EDWARDS_ADD_COST                   ==             473UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_EDWARDS_SUBTRACT_COST              ==             475UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_EDWARDS_MULTIPLY_COST              ==            2177UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_EDWARDS_MSM_BASE_COST              ==            2273UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_EDWARDS_MSM_INCREMENTAL_COST       ==             758UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_RISTRETTO_VALIDATE_POINT_COST      ==             169UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_RISTRETTO_ADD_COST                 ==             521UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_RISTRETTO_SUBTRACT_COST            ==             519UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_RISTRETTO_MULTIPLY_COST            ==            2208UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_RISTRETTO_MSM_BASE_COST            ==            2303UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_RISTRETTO_MSM_INCREMENTAL_COST     ==             788UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_ADD_COST              ==             128UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_ADD_COST              ==             203UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_SUB_COST              ==             129UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_SUB_COST              ==             204UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_MUL_COST              ==            4627UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_MUL_COST              ==            8255UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_DECOMPRESS_COST       ==            2100UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_DECOMPRESS_COST       ==            3050UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G1_VALIDATE_COST         ==            1565UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_G2_VALIDATE_COST         ==            1968UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST        ==           25445UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST        ==           13023UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_HEAP_SIZE                                ==           32768UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_HEAP_COST                                ==               8UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MEM_OP_BASE_COST                         ==              10UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_ALT_BN128_ADDITION_COST                  ==             334UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_ALT_BN128_MULTIPLICATION_COST            ==            3840UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G1_ADDITION_COST               ==             334UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G2_ADDITION_COST               ==             535UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G1_MULTIPLICATION_COST         ==            3840UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G2_MULTIPLICATION_COST         ==           15670UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_FIRST    ==           36364UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_OTHER    ==           12121UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_BIG_MODULAR_EXPONENTIATION_COST          ==              33UL, vm_cu );
@@ -96,11 +113,6 @@ FD_STATIC_ASSERT( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT          ==64UL*1024UL*1
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2, vm_trace );
-
-#if 0 /* FIXME: MOVE TESTING TO VM */
-static fd_vm_log_collector_t lc[1];
-static uchar lc_mirror[ FD_VM_LOG_MAX ];
-#endif
 
 int
 main( int     argc,

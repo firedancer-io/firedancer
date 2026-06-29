@@ -12,15 +12,35 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Creates / overwrites an account in funk given an input account state.
-   On success, loads the account into acc.  Optionally, reject any
-   zero-lamport accounts from being loaded in. */
+/* Creates / overwrites an account in the accdb given an input account
+   state.  On success, loads the account into acc.  Optionally, reject
+   any zero-lamport accounts from being loaded in. */
 int
-fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
-                            fd_accdb_user_t *                 accdb,
-                            fd_funk_txn_xid_t const *         xid,
+fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
+                            fd_accdb_t *                      accdb,
+                            fd_accdb_fork_id_t                fork_id,
                             fd_exec_test_acct_state_t const * state,
-                            uchar                             reject_zero_lamports );
+                            ulong                             acc_idx );
+
+/* Restores the fee rate governor in the bank from the given protobuf
+   fee rate governor. */
+void
+fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
+                                         fd_exec_test_fee_rate_governor_t const * fee_rate_governor );
+
+/* Initializes the blockhash queue in the bank from the given protobuf
+   blockhash queue entries. */
+void
+fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                                    bank,
+                                       fd_exec_test_blockhash_queue_entry_t const *   entries,
+                                       ulong                                          entries_cnt );
+
+/* Retrieves the slot number from the clock sysvar account within the
+   given account states list.  Throws FD_LOG_ERR if the clock sysvar
+   is not found or is malformed. */
+ulong
+fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
+                        ulong                             acct_states_cnt );
 
 /* Activates features in the runtime given an input feature set.  Fails
    if a passed-in feature is unknown / not supported. */
@@ -28,18 +48,40 @@ int
 fd_solfuzz_pb_restore_features( fd_features_t *                    features,
                                 fd_exec_test_feature_set_t const * feature_set );
 
-typedef ulong( exec_test_run_fn_t )( fd_solfuzz_runner_t *,
-                                     void const *,
-                                     void **,
-                                     void *,
-                                     ulong );
+/* Due to how Firedancer's VM CU accounting works, when
+   virtual_address_space_adjustments is enabled and execution
+   fails with the CU meter exhausted, we cannot compare the data
+   region of the accounts with Agave. This function clears the
+   data field on each captured account in this case. */
+void
+fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
+                                                ulong                       cu_avail,
+                                                int                         has_err,
+                                                fd_exec_test_acct_state_t * accounts,
+                                                pb_size_t                   accounts_cnt );
+
+/* Create feature accounts for all active features in the given feature
+   set, with an activation slot of 0.  Skip any feature whose pubkey
+   already appears in acct_states so the caller-supplied state wins
+   (matches solfuzz-agave's accounts_to_store filter). */
+void
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
+                                       fd_accdb_fork_id_t                 fork_id,
+                                       fd_exec_test_feature_set_t const * feature_set,
+                                       fd_exec_test_acct_state_t const *  acct_states,
+                                       pb_size_t                          acct_states_count );
+
+typedef ulong( exec_test_run_pb_fn_t )( fd_solfuzz_runner_t *,
+                                        void const *,
+                                        void **,
+                                        void *,
+                                        ulong );
 
 static inline void
-fd_solfuzz_pb_execute_wrapper( fd_solfuzz_runner_t * runner,
-                               void *                input,
-                               void **               output,
-                               exec_test_run_fn_t *  exec_test_run_fn ) {
-
+fd_solfuzz_pb_execute_wrapper( fd_solfuzz_runner_t *   runner,
+                               void const *            input,
+                               void **                 output,
+                               exec_test_run_pb_fn_t * exec_test_run_fn ) {
   ulong out_bufsz = 100000000;  /* 100 MB */
   void * out0 = fd_spad_alloc( runner->spad, 1UL, out_bufsz );
   FD_TEST( out_bufsz <= fd_spad_alloc_max( runner->spad, 1UL ) );
@@ -48,7 +90,6 @@ fd_solfuzz_pb_execute_wrapper( fd_solfuzz_runner_t * runner,
   if( FD_UNLIKELY( !out_used ) ) {
     *output = NULL;
   }
-
 }
 
 /* Utils */

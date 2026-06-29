@@ -7,7 +7,7 @@
 #define MS_PER_TICK          (400.0 / TARGET_TICK_PER_SLOT)
 
 void *
-fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed ) {
+fd_policy_new( void * shmem, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -19,32 +19,24 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed ) {
     return NULL;
   }
 
-  ulong footprint = fd_policy_footprint( dedup_max, peer_max );
+  ulong footprint = fd_policy_footprint( peer_max );
   fd_memset( shmem, 0, footprint );
 
-  int lg_peer_max = fd_ulong_find_msb( fd_ulong_pow2_up( peer_max ) );
+  ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_policy_t * policy     = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),            sizeof(fd_policy_t)                           );
-  void *        dedup_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) );
-  void *        dedup_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max   ) );
-  void *        dedup_lru  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()               );
-  void *        peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_map_align(),   fd_policy_peer_map_footprint  ( lg_peer_max ) );
-  void *        peers_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_peer_pool_align(),         fd_peer_pool_footprint        ( peer_max    ) );
-  void *        peers_fast = FD_SCRATCH_ALLOC_APPEND( l, fd_peer_dlist_align(),        fd_peer_dlist_footprint()                     );
-  void *        peers_slow = FD_SCRATCH_ALLOC_APPEND( l, fd_peer_dlist_align(),        fd_peer_dlist_footprint()                     );
+  fd_policy_t * policy     = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),            sizeof(fd_policy_t)                            );
+  void *        peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_map_align(),   fd_policy_peer_map_footprint( peer_chain_cnt ) );
+  void *        peers_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max )      );
+  void *        peers_fast = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()               );
+  void *        peers_slow = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()               );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_policy_align() ) == (ulong)shmem + footprint );
 
-  policy->dedup.map     = fd_policy_dedup_map_new ( dedup_map,  dedup_max, seed );
-  policy->dedup.pool    = fd_policy_dedup_pool_new( dedup_pool, dedup_max       );
-  policy->dedup.lru     = fd_policy_dedup_lru_new ( dedup_lru                   );
-  policy->peers.map     = fd_policy_peer_map_new  ( peers,      lg_peer_max     );
-  policy->peers.pool    = fd_peer_pool_new        ( peers_pool, peer_max        );
-  policy->peers.fast    = fd_peer_dlist_new       ( peers_fast                  );
-  policy->peers.slow    = fd_peer_dlist_new       ( peers_slow                  );
-  policy->iterf.ele_idx = ULONG_MAX;
+  policy->peers.map     = fd_policy_peer_map_new  ( peers,      peer_chain_cnt, seed );
+  policy->peers.pool    = fd_policy_peer_pool_new ( peers_pool, peer_max             );
+  policy->peers.fast    = fd_policy_peer_dlist_new( peers_fast                       );
+  policy->peers.slow    = fd_policy_peer_dlist_new( peers_slow                       );
   policy->turbine_slot0 = ULONG_MAX;
-  policy->tsreset       = 0;
-  policy->nonce         = 1;
+  policy->rnonce_ss[0]  = *rnonce_ss;
 
   return shmem;
 }
@@ -69,16 +61,14 @@ fd_policy_join( void * shpolicy ) {
     return NULL;
   }
 
-  policy->dedup.map  = fd_policy_dedup_map_join ( policy->dedup.map   );
-  policy->dedup.pool = fd_policy_dedup_pool_join( policy->dedup.pool  );
-  policy->dedup.lru  = fd_policy_dedup_lru_join ( policy->dedup.lru   );
-  policy->peers.map  = fd_policy_peer_map_join  ( policy->peers.map   );
-  policy->peers.pool = fd_peer_pool_join        ( policy->peers.pool  );
-  policy->peers.fast = fd_peer_dlist_join       ( policy->peers.fast  );
-  policy->peers.slow = fd_peer_dlist_join       ( policy->peers.slow );
+  policy->peers.map  = fd_policy_peer_map_join  ( policy->peers.map  );
+  policy->peers.pool = fd_policy_peer_pool_join ( policy->peers.pool );
+  policy->peers.fast = fd_policy_peer_dlist_join( policy->peers.fast );
+  policy->peers.slow = fd_policy_peer_dlist_join( policy->peers.slow );
 
-  policy->peers.select.iter  = fd_peer_dlist_iter_fwd_init( policy->peers.slow, policy->peers.pool );
-  policy->peers.select.stage = 0;
+  policy->peers.select.fast_iter = fd_policy_peer_dlist_iter_fwd_init( policy->peers.fast, policy->peers.pool );
+  policy->peers.select.slow_iter = fd_policy_peer_dlist_iter_fwd_init( policy->peers.slow, policy->peers.pool );
+  policy->peers.select.cnt       = 0;
 
   return policy;
 }
@@ -110,35 +100,6 @@ fd_policy_delete( void * policy ) {
   return policy;
 }
 
-/* dedup_evict evicts the first element returned by the map iterator. */
-
-static void
-dedup_evict( fd_policy_t * policy ) {
-  fd_policy_dedup_ele_t * ele = fd_policy_dedup_lru_ele_pop_head( policy->dedup.lru, policy->dedup.pool );
-  fd_policy_dedup_map_ele_remove( policy->dedup.map, &ele->key, NULL, policy->dedup.pool );
-  fd_policy_dedup_pool_ele_release( policy->dedup.pool, ele );
-}
-
-/* dedup_next returns 1 if key is deduped, 0 otherwise. */
-static int
-dedup_next( fd_policy_t * policy, ulong key, long now ) {
-  fd_policy_dedup_t *     dedup = &policy->dedup;
-  fd_policy_dedup_ele_t * ele   = fd_policy_dedup_map_ele_query( dedup->map, &key, NULL, dedup->pool );
-  if( FD_UNLIKELY( !ele ) ) {
-    if( FD_UNLIKELY( !fd_policy_dedup_pool_free( dedup->pool ) ) ) dedup_evict( policy );
-    ele         = fd_policy_dedup_pool_ele_acquire( dedup->pool );
-    ele->key    = key;
-    ele->req_ts = 0;
-    fd_policy_dedup_map_ele_insert   ( dedup->map, ele, dedup->pool );
-    fd_policy_dedup_lru_ele_push_tail( dedup->lru, ele, dedup->pool );
-  }
-  if( FD_LIKELY( now < ele->req_ts + (long)FD_POLICY_DEDUP_TIMEOUT ) ) {
-    return 1;
-  }
-  ele->req_ts = now;
-  return 0;
-}
-
 static ulong ts_ms( long wallclock ) {
   return (ulong)wallclock / (ulong)1e6;
 }
@@ -153,143 +114,169 @@ passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele ) {
   double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6; // change to 400e6 for a slot duration policy
 
   if( current_duration >= tick_plus_buffer ){
-    FD_MCNT_INC( REPAIR, EAGER_REPAIR_AGGRESSES, 1 );
+    FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
     return 1;
   }
   return 0;
 }
 
+static inline fd_policy_peer_dlist_iter_t
+peer_iter_advance( fd_policy_peer_dlist_iter_t iter,
+                   fd_policy_peer_dlist_t *    dlist,
+                   fd_policy_peer_t *          pool ) {
+  iter = fd_policy_peer_dlist_iter_fwd_next( iter, dlist, pool );
+  if( FD_UNLIKELY( fd_policy_peer_dlist_iter_done( iter, dlist, pool ) ) ) {
+    iter = fd_policy_peer_dlist_iter_fwd_init( dlist, pool );
+  }
+  return iter;
+}
+
 fd_pubkey_t const *
 fd_policy_peer_select( fd_policy_t * policy ) {
-  fd_peer_dlist_t * best_dlist  = policy->peers.fast;
-  fd_peer_dlist_t * worst_dlist = policy->peers.slow;
-  fd_peer_t       * pool        = policy->peers.pool;
+  fd_policy_peer_dlist_t * fast = policy->peers.fast;
+  fd_policy_peer_dlist_t * slow = policy->peers.slow;
+  fd_policy_peer_t       * pool = policy->peers.pool;
 
-  fd_peer_dlist_t * dlist = bucket_stages[policy->peers.select.stage] == FD_POLICY_LATENCY_FAST ? best_dlist : worst_dlist;
+  if( FD_UNLIKELY( fd_policy_peer_pool_used( pool ) == 0 ) ) return NULL;
 
-  while( FD_UNLIKELY( fd_peer_dlist_iter_done( policy->peers.select.iter, dlist, pool ) ) ) {
-    policy->peers.select.stage = (policy->peers.select.stage + 1) % (sizeof(bucket_stages) / sizeof(uint));
-    dlist = bucket_stages[policy->peers.select.stage] == FD_POLICY_LATENCY_FAST ? best_dlist : worst_dlist;
-    policy->peers.select.iter = fd_peer_dlist_iter_fwd_init( dlist, pool );
+  /* reinit stale iterators.  happens when peers are inserted into a
+     previously-empty list after the iterator was initialized. */
+  int fast_empty = fd_policy_peer_dlist_iter_done( fd_policy_peer_dlist_iter_fwd_init( fast, pool ), fast, pool );
+  int slow_empty = fd_policy_peer_dlist_iter_done( fd_policy_peer_dlist_iter_fwd_init( slow, pool ), slow, pool );
+
+  if( FD_UNLIKELY( !fast_empty && fd_policy_peer_dlist_iter_done( policy->peers.select.fast_iter, fast, pool ) ) ) {
+    policy->peers.select.fast_iter = fd_policy_peer_dlist_iter_fwd_init( fast, pool );
   }
-  fd_peer_t * select = fd_peer_dlist_iter_ele( policy->peers.select.iter, dlist, pool );
-  policy->peers.select.iter = fd_peer_dlist_iter_fwd_next( policy->peers.select.iter, dlist, pool );
-  return &select->identity;
+  if( FD_UNLIKELY( !slow_empty && fd_policy_peer_dlist_iter_done( policy->peers.select.slow_iter, slow, pool ) ) ) {
+    policy->peers.select.slow_iter = fd_policy_peer_dlist_iter_fwd_init( slow, pool );
+  }
+
+  fd_policy_peer_t * select;
+
+  /* select will be set to current iterator status. Then iterator should
+     be advanced for the following peer_select call. */
+
+  if( FD_UNLIKELY( fast_empty ) ) {
+    select = fd_policy_peer_dlist_iter_ele( policy->peers.select.slow_iter, slow, pool );
+    policy->peers.select.slow_iter = peer_iter_advance( policy->peers.select.slow_iter, slow, pool );
+    return &select->key;
+  }
+
+  if( FD_UNLIKELY( slow_empty ) ) {
+    select = fd_policy_peer_dlist_iter_ele( policy->peers.select.fast_iter, fast, pool );
+    policy->peers.select.fast_iter = peer_iter_advance( policy->peers.select.fast_iter, fast, pool );
+    return &select->key;
+  }
+
+  /* interleave FD_POLICY_FAST_PER_SLOW fast, 1 slow. */
+  if( FD_LIKELY( policy->peers.select.cnt < FD_POLICY_FAST_PER_SLOW ) ) {
+    select = fd_policy_peer_dlist_iter_ele( policy->peers.select.fast_iter, fast, pool );
+    policy->peers.select.fast_iter = peer_iter_advance( policy->peers.select.fast_iter, fast, pool );
+    policy->peers.select.cnt++;
+    return &select->key;
+  }
+
+  select = fd_policy_peer_dlist_iter_ele( policy->peers.select.slow_iter, slow, pool );
+  policy->peers.select.slow_iter = peer_iter_advance( policy->peers.select.slow_iter, slow, pool );
+  policy->peers.select.cnt = 0;
+  return &select->key;
 }
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot ) {
+fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
-  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  fd_forest_subtlist_t * subtlist = fd_forest_subtlist( forest );
+  *charge_busy = 0;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
-  if( FD_UNLIKELY( fd_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
+  if( FD_UNLIKELY( fd_policy_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
 
   fd_repair_msg_t * out = NULL;
   ulong now_ms = ts_ms( now );
 
-  if( FD_UNLIKELY( forest->subtree_cnt > 0 ) ) {
-    for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
-          !fd_forest_subtrees_iter_done( iter, subtrees, pool );
-          iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
-      fd_forest_blk_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
-      ulong key                = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
-      if( FD_UNLIKELY( !dedup_next( policy, key, now ) ) ) {
-        out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, orphan->slot );
-        policy->nonce++;
-        return out;
-      }
+  for( fd_forest_subtlist_iter_t iter = fd_forest_subtlist_iter_fwd_init( subtlist, pool );
+                                       !fd_forest_subtlist_iter_done    ( iter, subtlist, pool );
+                                 iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
+    *charge_busy = 1;
+    fd_forest_blk_t * orphan = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
+    ulong key                = fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
+    if( FD_UNLIKELY( !fd_reqlim_next( dedup, key, now ) ) ) {
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, orphan->slot, 0U, now );
+      out = fd_repair_orphan( repair, fd_policy_peer_select( policy ), now_ms, nonce, orphan->slot );
+      return out;
     }
   }
 
-  /* Every so often we'll need to reset the frontier iterator to the
-     head of frontier, because we could end up traversing down a very
-     long tree if we are far behind. */
-
-  if( FD_UNLIKELY( now_ms - policy->tsreset > 100UL /* ms */ ||
-                   policy->iterf.frontier_ver != fd_fseq_query( fd_forest_ver_const( forest ) ) ) ) {
-    fd_policy_reset( policy, forest );
+  /* Select a slot to operate on 🔪. Advance either the orphan iter or
+     regular iter. */
+  fd_forest_iter_t * iter = NULL;
+  if( FD_UNLIKELY( fd_forest_reqslist_is_empty( fd_forest_reqslist( forest ), fd_forest_reqspool( forest ) ) ) ) {
+    /* If the main tree has nothing to iterate at the moment, we can
+       request down the ORPHAN trees on slots we know about. */
+    iter = &forest->orphiter;
+  } else {
+    iter = &forest->iter;
   }
 
-  fd_forest_blk_t * ele = fd_forest_pool_ele( pool, policy->iterf.ele_idx );
-  if( FD_UNLIKELY( !ele ) ) {
-    // This happens when we are fully caught up i.e. we have all the shreds of every slot we know about.
+  fd_forest_iter_next( iter, forest );
+  if( FD_UNLIKELY( fd_forest_iter_done( iter, forest ) ) ) {
+    // This happens when we have already requested all the shreds we know about.
     return NULL;
   }
 
-  /* When we are at the head of the turbine, we should give turbine the
-     chance to complete the shreds.  Agave waits 200ms from the
-     estimated "correct time" of the highest shred received to repair.
-     i.e. if we've received the first 200 shreds, the 200th has a tick
-     of x. Translate that to millis, and we should wait to request shred
-     201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
-     receive except shred 100, and the 101th shred has a tick of y, we
-     should wait until y + 200ms to request shred 100.
+  fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
+  if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
+    /* When we are at the head of the turbine, we should give turbine the
+       chance to complete the shreds.  Agave waits 200ms from the
+       estimated "correct time" of the highest shred received to repair.
+       i.e. if we've received the first 200 shreds, the 200th has a tick
+       of x. Translate that to millis, and we should wait to request shred
+       201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
+       receive except shred 100, and the 101th shred has a tick of y, we
+       should wait until y + 200ms to request shred 100.
 
-     At the start of the loop, the policy iterf is valid and requestable.
-     At the end of the loop, the policy iterf has been advanced to the
-     next valid requestable element. */
+       Here we did not pass the timeout threshold, so we are not ready
+       to repair this slot yet.  But it's possible we have another fork
+       that we need to repair... so we just should skip to the next SLOT
+       in the main tree iterator.  The likelihood that this ele is the
+       head of turbine is high, which means that the shred_idx of the
+       iterf is likely to be UINT_MAX, which means calling
+       fd_forest_iter_next will advance the iterf to the next slot. */
+    iter->shred_idx = UINT_MAX;
+    /* TODO: Heinous... but the easiest way to ensure this slot gets
+       added back to the requests deque is if we set the shred_idx to
+       UINT_MAX, but maybe there should be an explicit API for it. */
 
-  int req_made = 0;
-  while( !req_made ) {
-    ele = fd_forest_pool_ele( pool, policy->iterf.ele_idx );
-
-    if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
-      /* We are not ready to repair this slot yet.  But it's possible we
-         have another fork that we need to repair... so we just
-         should skip to the next SLOT in the consumed iterator.  The
-         likelihood that this ele is the head of turbine is high, which
-         means that the shred_idx of the iterf is likely to be UINT_MAX,
-         which means calling fd_forest_iter_next will advance the iterf
-         to the next slot. */
-      policy->iterf.shred_idx = UINT_MAX; // heinous... i'm sorry
-      policy->iterf = fd_forest_iter_next( policy->iterf, forest );
-      if( FD_UNLIKELY( fd_forest_iter_done( policy->iterf, forest ) ) ) {
-         policy->iterf = fd_forest_iter_init( forest );
-         break;
-      }
-      continue;
-    }
-
-    if( FD_UNLIKELY( policy->iterf.shred_idx == UINT_MAX ) ) {
-      ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, 0 );
-      if( FD_UNLIKELY( ele->slot < highest_known_slot && !dedup_next( policy, key, now ) ) ) {
-        // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
-        out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, 0 );
-        policy->nonce++;
-        req_made = 1;
-      }
-    } else {
-      ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_SHRED, ele->slot, policy->iterf.shred_idx );
-      if( FD_UNLIKELY( !dedup_next( policy, key, now ) ) ) {
-        out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, policy->iterf.shred_idx );
-        policy->nonce++;
-        if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
-        req_made = 1;
-      }
-    }
-
-    /* Even if we have a request ready, we need to advance the iterator.
-       Otherwise on the next call of policy_next, we'll try to re-request the
-       same shred and it will get deduped. */
-
-    policy->iterf = fd_forest_iter_next( policy->iterf, forest );
-    if( FD_UNLIKELY( fd_forest_iter_done( policy->iterf, forest ) ) ) {
-      policy->iterf = fd_forest_iter_init( forest );
-      break;
-    }
+    return NULL;
   }
 
-  if( FD_UNLIKELY( !req_made ) ) return NULL;
+  *charge_busy = 1;
+
+  if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
+    // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
+    if( FD_UNLIKELY( ele->slot < highest_known_slot && !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, UINT_MAX ), now ) ) ) {
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
+      out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
+    }
+  } else {
+    /* Regular repair requests are not deduped.  Any potential regular
+       shred request that will be made needs to be handled at the repair
+       tile level to allow repair tile to re-request the same shred if
+       it gets deduped. */
+    uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, iter->shred_idx, now );
+    out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, iter->shred_idx );
+    if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
+  }
   return out;
 }
 
 fd_policy_peer_t const *
-fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr ) {
-  fd_policy_peer_t * peer_map = policy->peers.map;
-  fd_policy_peer_t * peer = fd_policy_peer_map_query( peer_map, *key, NULL );
-  if( FD_UNLIKELY( !peer && fd_policy_peer_map_key_cnt( peer_map ) < fd_policy_peer_map_key_max( peer_map ) ) ) {
-    peer = fd_policy_peer_map_insert( policy->peers.map, *key );
+fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr ) {
+  fd_policy_peer_map_t * peer_map = policy->peers.map;
+  fd_policy_peer_t * pool = policy->peers.pool;
+  fd_policy_peer_t * peer = fd_policy_peer_map_ele_query( peer_map, key, NULL, pool );
+  if( FD_UNLIKELY( !peer && fd_policy_peer_pool_free( pool ) ) ) {
+    peer = fd_policy_peer_pool_ele_acquire( pool );
     peer->key  = *key;
     peer->ip4  = addr->addr;
     peer->port = addr->port;
@@ -300,38 +287,50 @@ fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
     peer->first_resp_ts = 0;
     peer->last_resp_ts  = 0;
     peer->total_lat     = 0;
+    peer->ewma_lat      = 0;
     peer->stake         = 0;
+    peer->unanswered    = 0;
+    peer->ping          = 0;
 
-    fd_peer_t * peer_ele = fd_peer_pool_ele_acquire( policy->peers.pool );
-    peer->pool_idx = fd_peer_pool_idx( policy->peers.pool, peer_ele );
-    peer_ele->identity = *key;
-    fd_peer_dlist_ele_push_tail( policy->peers.slow, peer_ele, policy->peers.pool );
+    fd_policy_peer_map_ele_insert( peer_map, peer, pool );
+    fd_policy_peer_dlist_ele_push_tail( policy->peers.slow, peer, pool );
     return peer;
+  }
+  if( FD_LIKELY( peer ) ) {
+    peer->ip4  = addr->addr;
+    peer->port = addr->port;
   }
   return NULL;
 }
 
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key ) {
-  return fd_policy_peer_map_query( policy->peers.map, *key, NULL );
+  if( FD_UNLIKELY( memcmp( key->key, null_pubkey.key, 32UL ) == 0 ) ) return NULL;
+  fd_policy_peer_t * pool = policy->peers.pool;
+  return fd_policy_peer_map_ele_query( policy->peers.map, key, NULL, pool );
 }
 
 int
 fd_policy_peer_remove( fd_policy_t * policy, fd_pubkey_t const * key ) {
-  fd_policy_peer_t * peer = fd_policy_peer_map_query( policy->peers.map, *key, NULL );
+  fd_policy_peer_t * pool = policy->peers.pool;
+  fd_policy_peer_t * peer = fd_policy_peer_map_ele_query( policy->peers.map, key, NULL, pool );
   if( FD_UNLIKELY( !peer ) ) return 0;
-  fd_peer_t * peer_ele = fd_peer_pool_ele( policy->peers.pool, peer->pool_idx );
-  fd_policy_peer_map_remove( policy->peers.map, peer );
 
-  if( FD_UNLIKELY( policy->peers.select.iter == fd_peer_pool_idx( policy->peers.pool, peer_ele ) ) ) {
-    /* In general removal during iteration is safe, except when the iterator is on the peer to be removed. */
-    fd_peer_dlist_t * dlist = policy->peers.select.stage == FD_POLICY_LATENCY_FAST ? policy->peers.fast : policy->peers.slow;
-    policy->peers.select.iter = fd_peer_dlist_iter_fwd_next( policy->peers.select.iter, dlist, policy->peers.pool );
+  ulong peer_idx = fd_policy_peer_pool_idx( pool, peer );
+  fd_policy_peer_dlist_t * bucket = fd_policy_peer_latency_bucket( policy, peer->ewma_lat, peer->res_cnt );
+
+  /* Advance iterators past the peer being removed while the dlist links
+     are still intact, so iter_fwd_next can follow the forward pointer. */
+  if( FD_UNLIKELY( policy->peers.select.fast_iter == peer_idx ) ) {
+    policy->peers.select.fast_iter = fd_policy_peer_dlist_iter_fwd_next( policy->peers.select.fast_iter, bucket, pool );
+  }
+  if( FD_UNLIKELY( policy->peers.select.slow_iter == peer_idx ) ) {
+    policy->peers.select.slow_iter = fd_policy_peer_dlist_iter_fwd_next( policy->peers.select.slow_iter, bucket, pool );
   }
 
-  fd_peer_dlist_t * bucket = fd_policy_peer_latency_bucket( policy, peer->total_lat, peer->res_cnt );
-  fd_peer_dlist_ele_remove( bucket, peer_ele, policy->peers.pool );
-  fd_peer_pool_ele_release( policy->peers.pool, peer_ele );
+  fd_policy_peer_dlist_ele_remove( bucket, peer, pool );
+  fd_policy_peer_map_ele_remove  ( policy->peers.map, key, NULL, pool );
+  fd_policy_peer_pool_ele_release( pool,   peer );
   return 1;
 }
 
@@ -340,6 +339,7 @@ fd_policy_peer_request_update( fd_policy_t * policy, fd_pubkey_t const * to ) {
   fd_policy_peer_t * active = fd_policy_peer_query( policy, to );
   if( FD_LIKELY( active ) ) {
     active->req_cnt++;
+    active->unanswered++;
     active->last_req_ts = fd_tickcount();
     if( FD_UNLIKELY( active->first_req_ts == 0 ) ) active->first_req_ts = active->last_req_ts;
   }
@@ -350,25 +350,30 @@ fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, lo
   fd_policy_peer_t * peer = fd_policy_peer_query( policy, to );
   if( FD_LIKELY( peer ) ) {
     long now = fd_tickcount();
-    fd_peer_dlist_t * prev_bucket = fd_policy_peer_latency_bucket( policy, peer->total_lat, peer->res_cnt );
+    fd_policy_peer_dlist_t * prev_bucket = fd_policy_peer_latency_bucket( policy, peer->ewma_lat, peer->res_cnt );
     peer->res_cnt++;
+    peer->unanswered = 0;
     if( FD_UNLIKELY( peer->first_resp_ts == 0 ) ) peer->first_resp_ts = now;
     peer->last_resp_ts = now;
     peer->total_lat   += rtt;
-    fd_peer_dlist_t * new_bucket = fd_policy_peer_latency_bucket( policy, peer->total_lat, peer->res_cnt  );
 
+    if( FD_UNLIKELY( peer->res_cnt == 1 ) ) {
+      peer->ewma_lat = rtt;
+    } else {
+      peer->ewma_lat = peer->ewma_lat - peer->ewma_lat / (long)FD_POLICY_EWMA_ALPHA_DENOM
+                      + rtt / (long)FD_POLICY_EWMA_ALPHA_DENOM;
+    }
+    fd_policy_peer_dlist_t * new_bucket = fd_policy_peer_latency_bucket( policy, peer->ewma_lat, peer->res_cnt );
     if( prev_bucket != new_bucket ) {
-      fd_peer_t * peer_ele = fd_peer_pool_ele( policy->peers.pool, peer->pool_idx );
-      fd_peer_dlist_ele_remove   ( prev_bucket, peer_ele, policy->peers.pool );
-      fd_peer_dlist_ele_push_tail( new_bucket,  peer_ele, policy->peers.pool );
+      /* Advance stale iterators */
+      ulong peer_idx = fd_policy_peer_pool_idx( policy->peers.pool, peer );
+      if( FD_UNLIKELY( policy->peers.select.fast_iter == peer_idx ) ) policy->peers.select.fast_iter = fd_policy_peer_dlist_iter_fwd_next( policy->peers.select.fast_iter, policy->peers.fast, policy->peers.pool );
+      if( FD_UNLIKELY( policy->peers.select.slow_iter == peer_idx ) ) policy->peers.select.slow_iter = fd_policy_peer_dlist_iter_fwd_next( policy->peers.select.slow_iter, policy->peers.slow, policy->peers.pool );
+
+      fd_policy_peer_dlist_ele_remove   ( prev_bucket, peer, policy->peers.pool );
+      fd_policy_peer_dlist_ele_push_tail( new_bucket,  peer, policy->peers.pool );
     }
   }
-}
-
-void
-fd_policy_reset( fd_policy_t * policy, fd_forest_t * forest ) {
-  policy->iterf   = fd_forest_iter_init( forest );
-  policy->tsreset = ts_ms( fd_log_wallclock() );
 }
 
 void

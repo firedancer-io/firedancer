@@ -1,8 +1,8 @@
 #include "../fd_vinyl.h"
 #include <stddef.h>
 
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_SZ==512UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_LG_SZ==9,  unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_SZ==128UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_BLOCK_LG_SZ==7,  unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_PAIR==(int)0x9a17, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_CTL_TYPE_SYNC==(int)0x512c, unit_test );
@@ -19,21 +19,21 @@ FD_STATIC_ASSERT( sizeof( fd_vinyl_bstream_phdr_t)==8UL+sizeof(fd_vinyl_key_t)+s
 
 FD_STATIC_ASSERT( FD_VINYL_BSTREAM_FTR_SZ==16UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_LZ4_VAL_THRESH==432UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_LZ4_VAL_THRESH==56UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_SYNC_INFO_MAX==464UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_DEAD_INFO_MAX==408UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_MOVE_INFO_MAX==368UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_BSTREAM_PART_INFO_MAX==448UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_SYNC_INFO_MAX==80UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_DEAD_INFO_MAX==32UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_MOVE_INFO_MAX== 0UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_BSTREAM_PART_INFO_MAX==64UL, unit_test );
 
-FD_STATIC_ASSERT( alignof(fd_vinyl_bstream_block_t)==512UL, unit_test );
-FD_STATIC_ASSERT( sizeof (fd_vinyl_bstream_block_t)==512UL, unit_test );
+FD_STATIC_ASSERT( alignof(fd_vinyl_bstream_block_t)==128UL, unit_test );
+FD_STATIC_ASSERT( sizeof (fd_vinyl_bstream_block_t)==128UL, unit_test );
 
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, ftr .hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, sync.hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, dead.hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, move.hash_trail )==496UL, unit_test );
-FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, part.hash_trail )==496UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, ftr .hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, sync.hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, dead.hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, move.hash_trail )==112UL, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_vinyl_bstream_block_t, part.hash_trail )==112UL, unit_test );
 
 int
 main( int     argc,
@@ -118,7 +118,7 @@ main( int     argc,
     memset( &cache.phdr.key,                             (int)((r>> 8) & 255UL), FD_VINYL_KEY_FOOTPRINT );
     memset( &cache.phdr.info,                            (int)((r>>16) & 255UL), FD_VINYL_INFO_SZ       );
     memset( cache.buf + sizeof(fd_vinyl_bstream_phdr_t), (int)((r>>24) & 255UL), val_sz                 );
-    cache.phdr.info._val_sz = (uint)val_sz;
+    cache.phdr.info.val_sz = (uint)val_sz;
 
     fd_vinyl_bstream_pair_hash( s, cache.block );
 
@@ -146,11 +146,11 @@ main( int     argc,
     cache.phdr.ctl       = phdr_ctl;
 
     /* Bad val_sz (and bad hash but val_sz will hit first) */
-    cache.phdr.info._val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
+    cache.phdr.info.val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
     end->ftr.hash_trail    = hash_trail;
     end->ftr.hash_blocks   = hash_blocks;
     FD_TEST( fd_vinyl_bstream_pair_test( s, 0UL, cache.block, pair_sz ) );
-    cache.phdr.info._val_sz = (uint)val_sz;
+    cache.phdr.info.val_sz = (uint)val_sz;
 
     /* Truncated */
     end->ftr.hash_trail    = hash_trail;
@@ -192,11 +192,11 @@ main( int     argc,
     cache.phdr.ctl       = phdr_ctl;
 
     /* Bad val_sz (and bad hash but val_sz will hit first) */
-    cache.phdr.info._val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
+    cache.phdr.info.val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
     end->ftr.hash_trail    = hash_trail;
     end->ftr.hash_blocks   = hash_blocks;
     FD_TEST( fd_vinyl_bstream_pair_test_fast( s, 0UL, cache.block, end ) );
-    cache.phdr.info._val_sz = (uint)val_sz;
+    cache.phdr.info.val_sz = (uint)val_sz;
 
     /* Bad trailing hash (fast will detect as leading blocks not matched to trailing blocks) */
     end->ftr.hash_trail  = hash_trail ^ 1UL;

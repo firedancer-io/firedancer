@@ -11,10 +11,9 @@
    - Multi-session use */
 
 #include "../../capture/fd_solcap_writer.h"
-#include "../../accdb/fd_accdb_admin.h"
-#include "../../accdb/fd_accdb_user.h"
-#include "../../progcache/fd_progcache_admin.h"
+#include "../../accdb/fd_accdb.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../fd_bank.h"
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
    for different inputs, even of different types.  Single-thread per
@@ -24,21 +23,22 @@
    each other (or any other allocations) just fine. */
 
 struct fd_solfuzz_runner {
-  fd_wksp_t *  wksp;
-  fd_spad_t *  spad;
-  fd_banks_t * banks;
-  fd_bank_t *  bank;
+  fd_wksp_t *     wksp;
+  ulong           wksp_tag;
+  ulong           wksp_baseline_used_sz;
+  fd_spad_t *     spad;
+  fd_banks_t *    banks;
+  fd_bank_t *     bank;
+  fd_runtime_t *  runtime;
 
   fd_progcache_t       progcache[1];
-  fd_progcache_admin_t progcache_admin[1];
 
-  fd_accdb_user_t      accdb[1];
-  fd_accdb_admin_t     accdb_admin[1];
+  fd_accdb_t *         accdb;
+  fd_accdb_fork_id_t   root_fork_id;
 
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
 
-  fd_exec_stack_t *    exec_stack;
   fd_runtime_stack_t * runtime_stack;
 
   int enable_vm_tracing;
@@ -134,6 +134,20 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
                            uchar const *         in,
                            ulong                 in_sz );
 
+/* Jito Transaction Bundle Execution (FD-only for now) */
+
+ulong
+fd_solfuzz_pb_bundle_run( fd_solfuzz_runner_t * runner,
+                          void const *          input_,
+                          void **               output_,
+                          void *                output_buf,
+                          ulong                 output_bufsz );
+
+int
+fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz );
+
 /* SVM Block Execution
 
    - All sysvars must be provided
@@ -154,16 +168,21 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz );
 
-/* SVM Program Loading
+/* Shred parse / FEC / replay ingestion harness */
 
-   Loads an ELF binary (in input->elf.data).
-   output_buf points to a memory region of output_bufsz bytes where the
-   result is allocated into. During execution, the contents of
-   fd_sbpf_program_t are wrapped in *output (backed by output_buf).
+ulong
+fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
+                         void const *          input_,
+                         void **               output_,
+                         void *                output_buf,
+                         ulong                 output_bufsz );
 
-   Returns number of bytes allocated at output_buf OR 0UL on any
-   harness-specific failures. Execution failures still return number of allocated bytes,
-   but output is incomplete/undefined. */
+int
+fd_solfuzz_pb_shred_fixture( fd_solfuzz_runner_t * runner,
+                             uchar const *         in,
+                             ulong                 in_sz );
+
+/* SVM Program Loading */
 
 ulong
 fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
@@ -191,19 +210,33 @@ fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
                                uchar const *         in,
                                ulong                 in_sz );
 
-/* SVM sBPF Bytecode Execution */
+/* SVM BPF Loader Serialization */
 
 ulong
-fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
-                             void const *          input,
-                             void **               output,
-                             void *                output_buf,
-                             ulong                 output_bufsz );
+fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
+                                void const *          input_,
+                                void **               output_,
+                                void *                output_buf,
+                                ulong                 output_bufsz );
 
 int
-fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
-                                 uchar const *         in,
-                                 ulong                 in_sz );
+fd_solfuzz_pb_vm_serialize_fixture( fd_solfuzz_runner_t * runner,
+                                    uchar const *         in,
+                                    ulong                 in_sz );
+
+/* Transaction Cost Model */
+
+ulong
+fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t * runner,
+                        void const *          input_,
+                        void **               output_,
+                        void *                output_buf,
+                        ulong                 output_bufsz );
+
+int
+fd_solfuzz_pb_cost_fixture( fd_solfuzz_runner_t * runner,
+                            uchar const *         in,
+                            ulong                 in_sz );
 
 FD_PROTOTYPES_END
 

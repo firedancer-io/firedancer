@@ -2,7 +2,8 @@
 
 fd_shred_t const *
 fd_shred_parse( uchar const * const buf,
-                ulong         const sz ) {
+                ulong         const sz,
+                ulong         const max_shred_idx ) {
   ulong total_shred_sz = sz;
   /* Initial bounds check */
   if( FD_UNLIKELY( total_shred_sz<fd_ulong_min( FD_SHRED_DATA_HEADER_SZ, FD_SHRED_CODE_HEADER_SZ ) ) ) return NULL;
@@ -94,18 +95,28 @@ fd_shred_parse( uchar const * const buf,
 
     if( FD_UNLIKELY( ((slot!=0UL) & (parent_off==0UL)) | ((slot>1UL) & (parent_off==slot)) ) ) return NULL;
     if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
+
+    /* https://github.com/anza-xyz/agave/blob/v4.0.2/ledger/src/shred/shred_data.rs#L19 */
+    if( FD_UNLIKELY( shred->idx>=max_shred_idx                                   ) ) return NULL;
   } else {
     if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;
     if( FD_UNLIKELY( shred->code.idx> shred->idx                                 ) ) return NULL;
     if( FD_UNLIKELY( (shred->code.data_cnt==0)|(shred->code.code_cnt==0)         ) ) return NULL;
     if( FD_UNLIKELY( shred->code.code_cnt>256                                    ) ) return NULL;
     if( FD_UNLIKELY( (ulong)shred->code.data_cnt+(ulong)shred->code.code_cnt>256 ) ) return NULL; /* I don't see this check in Agave, but it seems necessary */
+
+    /* https://github.com/anza-xyz/agave/blob/v4.0.2/ledger/src/shred/shred_code.rs#L40 */
+    if( FD_UNLIKELY( shred->idx>=max_shred_idx                                                          ) ) return NULL;
+    /* https://github.com/anza-xyz/agave/blob/v4.0.2/ledger/src/shred/shred_code.rs#L12-L25
+       Subtractions are safe here due to the checks above. */
+    if( FD_UNLIKELY( (ulong)shred->fec_set_idx+(ulong)shred->code.data_cnt-1UL>=max_shred_idx           ) ) return NULL;
+    if( FD_UNLIKELY( (ulong)(shred->idx-shred->code.idx)+(ulong)shred->code.code_cnt-1UL>=max_shred_idx ) ) return NULL;
   }
 
   return shred;
 }
 
-FD_FN_PURE int
+int
 fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out ) {
   fd_bmtree_commit_t * tree = fd_bmtree_commit_init( bmtree_mem,
                                                      FD_SHRED_MERKLE_NODE_SZ,
@@ -118,6 +129,7 @@ fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_nod
   ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
 
   ulong tree_depth           = fd_shred_merkle_cnt( shred->variant ); /* In [0, 15] */
+  if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return 0;
   ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
                                       - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
                                       - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/

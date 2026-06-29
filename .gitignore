@@ -1,10 +1,12 @@
 *ATTIC*
 /build
+/build-cross
 bin
 dump
 unit-test
 tmp
 frontend
+.DS_Store
 
 genhtml/
 target/
@@ -45,6 +47,8 @@ deps-bundle.tar.zst
 # VSCode
 .vscode
 
+.claude
+
 # JetBrains
 .fleet
 .idea
@@ -63,20 +67,23 @@ deps-bundle.tar.zst
 /book/bun.lock
 /book/bun.lockb
 
-# TVU
-/mainnet.toml
-/testnet.toml
-/privatenet.toml
-/localnet.toml
-/sim.toml
-/backtest.toml
-/mainnet.sh
-/testnet.sh
-/privatenet.sh
-/localnet.sh
-/sim.sh
-/backtest.sh
+# Custom config
+/*.toml
+/*.sh
 
 # Python
 venv
+.venv
 *.pyc
+*.egg-info/
+
+# Fuchsia trace format
+*.fxt
+
+# LLMs
+.claude
+.codex
+
+# Version derive
+src/util/fd_version_generated.h
+src/util/fd_version_generated1.h

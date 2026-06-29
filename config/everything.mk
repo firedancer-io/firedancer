@@ -1,11 +1,6 @@
-MAKEFLAGS += --no-builtin-rules
-MAKEFLAGS += --no-builtin-variables
-.SUFFIXES:
-.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
-.SECONDARY:
-.SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
@@ -21,10 +16,21 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
+AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend env
 
 # Dry rules that should set up dependency targets, but not generate them
-DRY_RULES:=check show-deps
+DRY_RULES:=check show-deps proof
+
+# Quiet/verbose build switch
+Q=@
+ifeq ($(VERBOSE),1)
+Q=
+ARFLAGS:=$(ARFLAGS)v
+MKDIR+=-v
+CP+=-v
+RM+=-v
+RMDIR+=-v
+endif
 
 all: info bin include lib unit-test fuzz-test
 
@@ -35,6 +41,7 @@ help:
 	# SHELL           = $(SHELL)
 	# BASEDIR         = $(BASEDIR)
 	# BUILDDIR        = $(BUILDDIR)
+	# VERBOSE         = $(VERBOSE)
 	# OBJDIR          = $(OBJDIR)
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
@@ -84,29 +91,17 @@ help:
 info: $(OBJDIR)/info
 
 clean: frontend-clean
-	#######################################################################
-	# Cleaning $(OBJDIR)
-	#######################################################################
 	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean:
-	#######################################################################
-	# Cleaning $(BASEDIR)
-	#######################################################################
 	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 run-unit-test:
-	#######################################################################
-	# Running unit tests
-	#######################################################################
 	contrib/test/run_unit_tests.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
 
 run-integration-test:
-	#######################################################################
-	# Running integration tests
-	#######################################################################
 	contrib/test/run_integration_tests.sh --tests $(OBJDIR)/integration-test/automatic.txt $(TEST_OPTS)
 
 ##############################
@@ -156,17 +151,6 @@ endef
 add-hdrs = $(eval $(call _add-hdrs,$(1)))
 
 ##############################
-# Usage: $(call add-examples,examples)
-
-define _add-examples
-
-include: $(foreach example,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/example/%,$(OBJDIR)/$(MKPATH)$(example)))
-
-endef
-
-add-examples = $(eval $(call _add-examples,$(1)))
-
-##############################
 # Usage: $(call add-scripts,scripts)
 # Usage: $(call add-test-scripts,scripts)
 
@@ -175,10 +159,7 @@ add-examples = $(eval $(call _add-examples,$(1)))
 define _add-script
 
 $(OBJDIR)/$(1)/$(2): $(MKPATH)$(2)
-	#######################################################################
-	# Copying script $$^ to $$@
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
+	$(Q)$(MKDIR) $$(dir $$@) && \
 $(CP) $$< $$@ && \
 chmod 755 $$@ && \
 $(TOUCH) $$@
@@ -217,11 +198,9 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 $(1): $(OBJDIR)/$(5)/$(1)
 
 $(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
-	#######################################################################
-	# Creating $(5) $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $(LDFLAGS) -o $$@
+	@echo -e "LD\t$$(notdir $$@) ($(5))"
+	$(Q)$(MKDIR) $$(dir $$@) && \
+$$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
@@ -260,7 +239,7 @@ $(OBJDIR)/fuzz-test/$(1): $(FUZZ_EXTRA)
 
 .PHONY: $(1)_unit
 $(1)_unit:
-	$(MKDIR) "corpus/$(1)" && \
+	$(Q)$(MKDIR) "corpus/$(1)" && \
 $(MKDIR) -p "$(OBJDIR)/cov/raw" && \
 FD_LOG_PATH="" \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_unit.profraw" \
@@ -288,12 +267,24 @@ run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 ##############################
+# Usage: $(call make-proof,name,source_file)
+
+define _make-proof
+
+.PHONY: $(1)
+$(1):
+	$(CBMC) $(MKPATH)$(2) --c17 -DCBMC --function cbmc_main
+
+proof: $(1)
+
+endef
+
+make-proof = $(eval $(call _make-proof,$(1),$(2)))
+
+##############################
 ## GENERIC RULES
 
 $(OBJDIR)/info :
-	#######################################################################
-	# Saving build info to $(OBJDIR)/info
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 echo -e \
 "# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
@@ -302,76 +293,44 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Generating dependencies for C source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
+$(OBJDIR)/obj/util/log/fd_log.o: $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Generating dependencies for C++ source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
+DEPFLAGS=-MD -MP -MF $(basename $@).d -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
 
-$(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Compiling C source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
+$(OBJDIR)/obj/%.o : src/%.c
+	@echo -e "CC\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(OBJDIR)/obj/%.o : src/%.cxx
+	@echo -e "CXX\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(OBJDIR)/obj/%.o : src/%.S
+	@echo -e "AS\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Compiling C++ source $< to $@
-	#######################################################################
+$(OBJDIR)/obj/%.S : src/%.c
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
-	#######################################################################
-	# Compiling asm source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Compiling C source $< to assembly $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Compiling C++ source $< to assembly $@
-	#######################################################################
+$(OBJDIR)/obj/%.S : src/%.cxx
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Preprocessing C source $< to $@
-	#######################################################################
+$(OBJDIR)/obj/%.i : src/%.c
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Preprocessing C++ source $< to $@
-	#######################################################################
+$(OBJDIR)/obj/%.i : src/%.cxx
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -E $< -o $@
 
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
@@ -380,27 +339,14 @@ $(OBJDIR)/obj/%.check : src/%.cxx
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
-	#######################################################################
-	# Creating library $@ from $^
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
+	@echo -e "AR\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 $(RM) $@ && \
 $(AR) $(ARFLAGS) $@ $^ && \
 $(RANLIB)  $@
 
 $(OBJDIR)/include/firedancer/% : src/%
-	#######################################################################
-	# Copying header $^ to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CP) $^ $@ && \
-$(TOUCH) $@
-
-$(OBJDIR)/example/% : src/%
-	#######################################################################
-	# Copying example $^ to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
+	$(Q)$(MKDIR) $(dir $@) && \
 $(CP) $^ $@ && \
 $(TOUCH) $@
 
@@ -431,8 +377,10 @@ show-deps:
 check: $(DEPFILES:.d=.check)
 
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES) $(DRY_RULES)),)
-# Generate dependency files
-include $(DEPFILES)
+# Include dependency files emitted as a side effect of C/C++ object builds.
+# The leading dash avoids the old up-front dependency generation pass on clean
+# trees, which kept make busy before it could start compiling objects.
+-include $(DEPFILES)
 endif
 
 # Define the asm target.  Must be after the make fragments include so that
@@ -469,7 +417,7 @@ run-solcap-tests: bin unit-test
 	contrib/test/run_solcap_tests.sh
 
 seccomp-policies:
-	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;
+	$(FIND) . -name '*.seccomppolicy' -print0 | xargs -0 -n 1 $(PYTHON) contrib/codegen/generate_filters.py
 
 ##############################
 # LLVM Coverage
@@ -515,10 +463,10 @@ $(OBJDIR)/cov/cov.profdata: $(wildcard $(OBJDIR)/cov/raw/*.profraw)
 # objects compiled from assembly code.
 .PHONY: $(OBJDIR)/cov/mappings.ar
 $(OBJDIR)/cov/mappings.ar:
-	rm -f $(OBJDIR)/cov/mappings.ar &&                       \
-  $(MKDIR) $(dir $@) &&                                    \
-  find $(addsuffix /obj,$(OBJDIR)) -name '*.o' -exec sh -c \
-    '[ -n "`llvm-objdump -h $$1 | grep llvm_covmap`" ]     \
+	rm -f $(OBJDIR)/cov/mappings.ar &&                        \
+  $(MKDIR) $(dir $@) &&                                       \
+  $(FIND) $(addsuffix /obj,$(OBJDIR)) -name '*.o' -exec sh -c \
+    '[ -n "`llvm-objdump -h $$1 | $(GREP) llvm_covmap`" ]     \
     && llvm-ar --thin q $@ $$1' sh {} \;
 
 # llvm-cov step 1.5
@@ -530,12 +478,12 @@ endif
   -format=lcov                          \
   $(addprefix -instr-profile=,$<)       \
   $(OBJDIR)/cov/mappings.ar             \
-  --ignore-filename-regex="test_.*\\.c" \
+  --ignore-filename-regex="(test_|fuzz_).*\\.c" \
 > $@
 
 # llvm-cov step 2.1
 # Merge multiple lcov files together
-$(BASEDIR)/cov/cov.lcov: $(shell find $(BASEDIR) -name 'cov.lcov' -print)
+$(BASEDIR)/cov/cov.lcov: $(shell $(FIND) $(BASEDIR) -name 'cov.lcov' -print)
 	$(MKDIR) $(BASEDIR)/cov && $(LCOV) -o $@ $(addprefix -a ,$^)
 
 # llvm-cov step 1.6, 2.2
@@ -554,60 +502,70 @@ cov-report: $(OBJDIR)/cov/html/index.html
 dist-cov-report: $(BASEDIR)/cov/html/index.html
 	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov
 
-# frontend release channel. alpha releases are new frontend features
-# that require internal testing before releasing to frankendancer
-FRONTEND_RELEASE_CHANNEL := stable
-ifeq ($(FRONTEND_RELEASE_CHANNEL),stable)
-else ifeq ($(FRONTEND_RELEASE_CHANNEL),alpha)
-else ifeq ($(FRONTEND_RELEASE_CHANNEL),dev)
+# Builds the frontend bundle and bakes it into the binary.  There are two
+# independent GUI binaries with their own frontend bundle:
+#
+#   FRONTEND_CLIENT=Firedancer -> src/disco/gui      (full client)
+#   FRONTEND_CLIENT=Frankendancer -> src/discoh/guih (frankendancer)
+#
+# Each client has a single bundle, stored under its dist/ directory; there
+# are no longer per-channel (stable/alpha/dev) variants.
+FRONTEND_CLIENT := Firedancer
+ifeq ($(FRONTEND_CLIENT),Firedancer)
+FRONTEND_DIR := src/disco/gui
+else ifeq ($(FRONTEND_CLIENT),Frankendancer)
+FRONTEND_DIR := src/discoh/guih
 else
-$(error "unexpected FRONTEND_RELEASE_CHANNEL")
+$(error "unexpected FRONTEND_CLIENT (expected Firedancer or Frankendancer)")
 endif
 
 frontend: frontend-clean
+	echo "VITE_VALIDATOR_CLIENT=$(FRONTEND_CLIENT)" > frontend/.env.production
 	cd frontend && npm ci && npm run build
-	rm -rf src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
-	mkdir -p src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
-	cp -r frontend/dist/* src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
-	> src/disco/gui/generated/http_import_dist.c; \
-	echo "/* THIS FILE WAS GENERATED BY make frontend. DO NOT EDIT BY HAND! */" >> src/disco/gui/generated/http_import_dist.c; \
-	echo "#include \"http_import_dist.h\"" >> src/disco/gui/generated/http_import_dist.c; \
-	echo "" >> src/disco/gui/generated/http_import_dist.c; \
-	for release_channel in stable alpha dev; do \
-		counter=0; \
-		if [ ! -d "src/disco/gui/dist_$$release_channel" ]; then continue; fi; \
-		for file in $$(find src/disco/gui/dist_$$release_channel -type f | sort); do \
-			compress_prefix=$$(echo "$$file" | sed "s|src/disco/gui/dist_$${release_channel}/|src/disco/gui/dist_$${release_channel}_cmp/|"); \
-			echo "FD_IMPORT_BINARY( file_$$release_channel$$counter, \"$$file\" );" >> src/disco/gui/generated/http_import_dist.c; \
-			echo "FD_IMPORT_BINARY( file_$$release_channel$${counter}_zstd, \"$${compress_prefix}.zst\" );" >> src/disco/gui/generated/http_import_dist.c; \
-			echo "FD_IMPORT_BINARY( file_$$release_channel$${counter}_gzip, \"$${compress_prefix}.gz\" );" >> src/disco/gui/generated/http_import_dist.c; \
-			counter=$$((counter + 1)); \
-		done; \
-		echo "" >> src/disco/gui/generated/http_import_dist.c; \
+	rm -rf $(FRONTEND_DIR)/dist
+	mkdir -p $(FRONTEND_DIR)/dist
+	cp -r frontend/dist/* $(FRONTEND_DIR)/dist
+	cd frontend && git rev-parse HEAD > ../$(FRONTEND_DIR)/dist/version
+	mkdir -p $(FRONTEND_DIR)/generated
+	> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	echo "/* THIS FILE WAS GENERATED BY make frontend. DO NOT EDIT BY HAND! */" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	echo "#include \"http_import_dist.h\"" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	echo "" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	counter=0; \
+	for file in $$($(FIND) $(FRONTEND_DIR)/dist -type f | sort); do \
+		compress_prefix=$$(echo "$$file" | sed "s|$(FRONTEND_DIR)/dist/|$(FRONTEND_DIR)/dist_cmp/|"); \
+		echo "FD_IMPORT_BINARY( file_$$counter, \"$$file\" );" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "FD_IMPORT_BINARY( file_$${counter}_zstd, \"$${compress_prefix}.zst\" );" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "FD_IMPORT_BINARY( file_$${counter}_gzip, \"$${compress_prefix}.gz\" );" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		counter=$$((counter + 1)); \
 	done; \
-	echo "" >> src/disco/gui/generated/http_import_dist.c; \
-	for release_channel in stable alpha dev; do \
-		echo "fd_http_static_file_t STATIC_FILES_$$(echo $$release_channel | tr '[:lower:]' '[:upper:]')[] = {" >> src/disco/gui/generated/http_import_dist.c; \
-		counter=0; \
-		for file in $$(find src/disco/gui/dist_$$release_channel -type f | sort); do \
-			stripped_file=$$(echo $$file | sed "s|^src/disco/gui/dist_$$release_channel/||"); \
-			echo "	{" >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.name = \"/$$stripped_file\"," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.data = file_$$release_channel$$counter," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.data_len = &file_$$release_channel$${counter}_sz," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.zstd_data = file_$$release_channel$${counter}_zstd," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.zstd_data_len = &file_$$release_channel$${counter}_zstd_sz," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.gzip_data = file_$$release_channel$${counter}_gzip," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "		.gzip_data_len = &file_$$release_channel$${counter}_gzip_sz," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "	}," >> src/disco/gui/generated/http_import_dist.c; \
-			counter=$$((counter + 1)); \
-		done; \
-		echo "	{0}" >> src/disco/gui/generated/http_import_dist.c; \
-		echo "};" >> src/disco/gui/generated/http_import_dist.c; \
-		echo "" >> src/disco/gui/generated/http_import_dist.c; \
+	echo "" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	echo "fd_http_static_file_t STATIC_FILES[] = {" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	counter=0; \
+	for file in $$($(FIND) $(FRONTEND_DIR)/dist -type f | sort); do \
+		stripped_file=$$(echo $$file | sed "s|^$(FRONTEND_DIR)/dist/||"); \
+		echo "	{" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.name = \"/$$stripped_file\"," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.data = file_$$counter," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.data_len = &file_$${counter}_sz," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.zstd_data = file_$${counter}_zstd," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.zstd_data_len = &file_$${counter}_zstd_sz," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.gzip_data = file_$${counter}_gzip," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "		.gzip_data_len = &file_$${counter}_gzip_sz," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		echo "	}," >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+		counter=$$((counter + 1)); \
 	done; \
+	echo "	{0}" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	echo "};" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
+	echo "" >> $(FRONTEND_DIR)/generated/http_import_dist.c; \
 
 frontend-clean:
-	rm -rf src/disco/gui/dist_stable_cmp
-	rm -rf src/disco/gui/dist_alpha_cmp
-	rm -rf src/disco/gui/dist_dev_cmp
+	rm -rf src/discoh/guih/dist_cmp
+	rm -rf src/discoh/gui/dist_cmp
+
+env:
+	@echo BUILDDIR=\'$(BUILDDIR)\'
+	@echo OBJDIR=\'$(CURDIR)/$(OBJDIR)\'
+	@echo MACHINE=\'$(MACHINE)\'
+	@echo EXTRAS=\'$(EXTRAS)\'
+	@echo CC=\'$(CC)\'

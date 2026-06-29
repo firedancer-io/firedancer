@@ -1,15 +1,19 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
+#include "../../runtime/fd_bank.h"
+
+#include <stdlib.h> // ARM64: malloc(3), free(3)
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
 static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
-  char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
-  fd_features_enable_one_offs( (fd_features_t*)&vm_ctx->instr_ctx->txn_ctx->features, one_offs, 1U, slot );
+  char const * one_offs[] = { "CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE", "EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF", "7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz" };
+  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->f.features, one_offs, 3U, slot );
   vm_ctx->direct_mapping = enable;
-  vm_ctx->stricter_abi_and_runtime_constraints = enable;
+  vm_ctx->syscall_parameter_address_restrictions = enable;
+  vm_ctx->virtual_address_space_adjustments = enable;
 }
 
 static void
@@ -34,7 +38,7 @@ test_vm_syscall_sol_memset( char const * test_case_name,
     FD_TEST( !memcmp( (void *)dst_haddr, expected_block, sz ) );
   }
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -57,7 +61,7 @@ test_vm_syscall_sol_memcpy( char const * test_case_name,
 
   if( !ret && !err ) FD_TEST( !memcmp( (void *)dst_haddr, (void *)src_haddr, sz ) );
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out  );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -80,7 +84,7 @@ test_vm_syscall_sol_memcmp( char const * test_case_name,
 
   if( !ret && !err ) FD_TEST( memcmp( (void *)haddr_1, (void *)haddr_2, sz )==*(int *)(host_cmp_result_addr) );
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -108,7 +112,7 @@ test_vm_syscall_sol_memmove( char const * test_case_name,
 
   free( temp );
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -121,7 +125,7 @@ test_vm_syscall_sol_log( char const *            test_case_name,
                          int                     expected_err,
                          uchar *                 expected_log,
                          ulong                   expected_log_sz ) {
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
   ulong ret = 0UL;
@@ -134,7 +138,7 @@ test_vm_syscall_sol_log( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -150,7 +154,7 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
                             int                     expected_err,
                             uchar *                 expected_log,
                             ulong                   expected_log_sz ) {
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
   ulong ret = 0UL;
@@ -163,7 +167,7 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -176,7 +180,7 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
                               int                     expected_err,
                               uchar *                 expected_log,
                               ulong                   expected_log_sz ) {
-  fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
+  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
   ulong ret = 0UL;
@@ -190,13 +194,13 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
 
-  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
 static void
 dump_syscall_table( void ) {
-  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ];
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
   FD_TEST( syscalls );
 
@@ -218,6 +222,25 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+
+  fd_wksp_t * wksp;
+  if( name ) {
+    FD_LOG_NOTICE(( "Attaching to --wksp %s", name ));
+    wksp = fd_wksp_attach( name );
+  } else {
+    FD_LOG_NOTICE(( "--wksp not specified, using an anonymous local workspace, --page-sz %s, --page-cnt %lu, --near-cpu %lu",
+                    _page_sz, page_cnt, near_cpu ));
+    wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
+  }
+
+  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
+  FD_TEST( runtime );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_sha256_t _sha[1];
@@ -236,39 +259,46 @@ main( int     argc,
   uchar input[ input_sz ];
   ulong const mem_regions_cnt = 4UL;
   fd_vm_input_region_t input_mem_regions[ mem_regions_cnt ];
+  set_memory_region( input, input_sz );
+
   input_mem_regions[0] = (fd_vm_input_region_t){ .haddr = (ulong)input,         .region_sz = 100UL, .address_space_reserved = 100UL, .is_writable = 1, .vaddr_offset = 0UL };
   input_mem_regions[1] = (fd_vm_input_region_t){ .haddr = (ulong)input + 100UL, .region_sz = 1UL,   .address_space_reserved = 1UL,   .is_writable = 1, .vaddr_offset = 100UL };
   input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .address_space_reserved = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
   input_mem_regions[3] = (fd_vm_input_region_t){ .haddr = (ulong)input + 501UL, .region_sz = 499UL, .address_space_reserved = 499UL, .is_writable = 1, .vaddr_offset = 501UL };
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
+  static fd_exec_instr_ctx_t instr_ctx[1];
+  static fd_bank_t           bank[1];
+  static fd_txn_out_t        txn_out[1];
+  static fd_log_collector_t  log_collector[1];
+  runtime->log.log_collector = log_collector;
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,
-      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                             */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata                               */ rodata,
-      /* rodata_sz                            */ rodata_sz,
-      /* text                                 */ NULL,
-      /* text_cnt                             */ 0UL,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ 0UL,
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ NULL,
-      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls                             */ NULL,
-      /* trace                                */ NULL,
-      /* sha                                  */ sha,
-      /* mem_regions                          */ input_mem_regions,
-      /* mem_regions_cnt                      */ (uint)mem_regions_cnt,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata                                 */ rodata,
+      /* rodata_sz                              */ rodata_sz,
+      /* text                                   */ NULL,
+      /* text_cnt                               */ 0UL,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ 0UL,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                               */ NULL,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ input_mem_regions,
+      /* mem_regions_cnt                        */ (uint)mem_regions_cnt,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
 
@@ -703,7 +733,7 @@ main( int     argc,
     expected_log_sz += _cpy_sz;                                                          \
   } while(0)
 
-  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( vm->instr_ctx->runtime->log.log_collector, 1 );
 
   expected_log_sz = 0UL;
   APPEND( "Program log: hello world", 24UL );
@@ -744,7 +774,7 @@ main( int     argc,
 
   // test for collecting log_64 at the heap region
 
-  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( vm->instr_ctx->runtime->log.log_collector, 1 );
 
   expected_log_sz = 0UL;
 
@@ -764,7 +794,7 @@ main( int     argc,
 
   // test for collecting log_data at the heap region
 
-  fd_log_collector_init( &vm->instr_ctx->txn_ctx->log_collector, 1 );
+  fd_log_collector_init( vm->instr_ctx->runtime->log.log_collector, 1 );
 
   expected_log_sz = 0UL;
 

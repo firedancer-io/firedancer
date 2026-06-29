@@ -15,6 +15,12 @@ extern ulong const firedancer_devnet_config_sz;
 extern uchar const firedancer_mainnet_config[];
 extern ulong const firedancer_mainnet_config_sz;
 
+extern uchar const firedancer_testnet_jito_config[];
+extern ulong const firedancer_testnet_jito_config_sz;
+
+extern uchar const firedancer_mainnet_jito_config[];
+extern ulong const firedancer_mainnet_jito_config_sz;
+
 fd_config_file_t
 fd_config_file_default( void ) {
   return (fd_config_file_t) {
@@ -48,6 +54,24 @@ fd_config_file_mainnet( void ) {
     .name    = "mainnet",
     .data    = firedancer_mainnet_config,
     .data_sz = firedancer_mainnet_config_sz,
+  };
+}
+
+fd_config_file_t
+fd_config_file_testnet_jito( void ) {
+  return (fd_config_file_t) {
+    .name    = "testnet-jito",
+    .data    = firedancer_testnet_jito_config,
+    .data_sz = firedancer_testnet_jito_config_sz,
+  };
+}
+
+fd_config_file_t
+fd_config_file_mainnet_jito( void ) {
+  return (fd_config_file_t) {
+    .name    = "mainnet-jito",
+    .data    = firedancer_mainnet_jito_config,
+    .data_sz = firedancer_mainnet_jito_config_sz,
   };
 }
 

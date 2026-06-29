@@ -102,7 +102,11 @@ state_log( fd_slot_delta_parser_t * parser ) {
     case STATE_SLOT_DELTA_SLOT:        FD_LOG_NOTICE(( "STATE_SLOT_DELTA_SLOT:        %lu", parser->entry->slot ));                                 break;
     case STATE_SLOT_DELTA_IS_ROOT:     FD_LOG_NOTICE(( "STATE_SLOT_DELTA_IS_ROOT:     %d",  parser->is_root ));                                     break;
     case STATE_SLOT_DELTA_STATUS_LEN:  FD_LOG_NOTICE(( "STATE_SLOT_DELTA_STATUS_LEN:  %lu", parser->slot_delta_status_len ));                       break;
-    case STATE_STATUS_BLOCKHASH:       FD_LOG_NOTICE(( "STATE_STATUS_BLOCKHASH:       %s",  FD_BASE58_ENC_32_ALLOCA( parser->entry->blockhash ) )); break;
+    case STATE_STATUS_BLOCKHASH: {
+      FD_BASE58_ENCODE_32_BYTES( parser->entry->blockhash, blockhash_b58 );
+      /*                             */FD_LOG_NOTICE(( "STATE_STATUS_BLOCKHASH:       %s",  blockhash_b58 ));
+      break;
+    }
     case STATE_CACHE_STATUS_LEN:       FD_LOG_NOTICE(( "STATE_CACHE_STATUS_LEN:       %lu", parser->cache_status_len ));                            break;
     default: break;
   }
@@ -114,14 +118,22 @@ state_validate( fd_slot_delta_parser_t * parser ) {
   switch( parser->state ) {
     case STATE_SLOT_DELTAS_LEN:
       if( FD_UNLIKELY( parser->len>FD_SLOT_DELTA_MAX_ENTRIES ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L535 */
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES;
       }
       break;
     case STATE_SLOT_DELTA_SLOT: {
       ulong slot_idx = slot_set_idx_query_const( parser->slot_set, &parser->entry->slot, ULONG_MAX, parser->slot_pool );
-      if( FD_UNLIKELY( slot_idx!=ULONG_MAX ) ) return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
+      /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L558 */
+      if( FD_UNLIKELY( slot_idx!=ULONG_MAX ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
+      }
 
       if( FD_UNLIKELY( parser->slot_pool_ele_cnt>=FD_SLOT_DELTA_MAX_ENTRIES ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L535 */
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES;
       }
 
@@ -132,7 +144,17 @@ state_validate( fd_slot_delta_parser_t * parser ) {
     }
     case STATE_SLOT_DELTA_IS_ROOT:
       if( FD_UNLIKELY( !parser->is_root) ) {
+        /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L545 */
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT;
+      }
+      break;
+    case STATE_STATUS_TXN_IDX:
+      if( FD_UNLIKELY( parser->txnhash_offset>FD_SLOT_DELTA_MAX_TXNHASH_OFFSET ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
+                         fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ),
+                         FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET;
       }
       break;
     default: break;
@@ -166,7 +188,8 @@ state_process( fd_slot_delta_parser_t * parser ) {
 
   switch( parser->state ) {
     case STATE_SLOT_DELTAS_LEN:
-      parser->state = STATE_SLOT_DELTA_SLOT;
+      if( FD_UNLIKELY( !parser->len ) ) parser->state = STATE_DONE;
+      else                              parser->state = STATE_SLOT_DELTA_SLOT;
       break;
     case STATE_SLOT_DELTA_SLOT:
       parser->state = STATE_SLOT_DELTA_IS_ROOT;
@@ -248,7 +271,7 @@ state_process( fd_slot_delta_parser_t * parser ) {
 
 FD_FN_CONST ulong
 fd_slot_delta_parser_align( void ) {
-  return fd_ulong_max( alignof(fd_slot_delta_parser_t), slot_set_align() );
+  return fd_ulong_max( fd_ulong_max( alignof(fd_slot_delta_parser_t), slot_pool_align() ), slot_set_align() );
 }
 
 FD_FN_CONST ulong
@@ -257,7 +280,7 @@ fd_slot_delta_parser_footprint( void ) {
   l = FD_LAYOUT_APPEND( l,  alignof(fd_slot_delta_parser_t), sizeof(fd_slot_delta_parser_t)                                  );
   l = FD_LAYOUT_APPEND( l,  slot_pool_align(),               slot_pool_footprint( FD_SLOT_DELTA_MAX_ENTRIES )                );
   l = FD_LAYOUT_APPEND( l,  slot_set_align(),                slot_set_footprint( FD_SLOT_DELTA_PARSER_SLOT_SET_MAX_ENTRIES ) );
-  return FD_LAYOUT_FINI( l, alignof(fd_slot_delta_parser_t) );
+  return FD_LAYOUT_FINI( l, fd_slot_delta_parser_align() );
 }
 
 void *
@@ -276,6 +299,7 @@ fd_slot_delta_parser_new( void * shmem ) {
   fd_slot_delta_parser_t * parser = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_slot_delta_parser_t), sizeof(fd_slot_delta_parser_t)                                  );
   void * slot_pool_mem            = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),               slot_pool_footprint( FD_SLOT_DELTA_MAX_ENTRIES )                );
   void * slot_set_mem             = FD_SCRATCH_ALLOC_APPEND( l, slot_set_align(),                slot_set_footprint( FD_SLOT_DELTA_PARSER_SLOT_SET_MAX_ENTRIES ) );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_slot_delta_parser_align() ) == (ulong)shmem + fd_slot_delta_parser_footprint() );
 
   parser->slot_pool = slot_pool_join( slot_pool_new( slot_pool_mem, FD_SLOT_DELTA_MAX_ENTRIES ) );
   FD_TEST( parser->slot_pool );
@@ -400,5 +424,22 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
   }
 
   result->bytes_consumed = (ulong)(data - buf);
-  return parser->state==STATE_DONE ? FD_SLOT_DELTA_PARSER_ADVANCE_DONE : FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN;
+  if( FD_LIKELY( parser->state==STATE_DONE ) ) return FD_SLOT_DELTA_PARSER_ADVANCE_DONE;
+
+  if( FD_UNLIKELY( !bufsz ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing slot delta, state=%d, dst_cur=%lu, dst_sz=%lu",
+                     parser->state, parser->dst_cur, parser->dst_sz ));
+    return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_UNEXPECTED_EOF;
+  }
+
+  return FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN;
+}
+
+fd_slot_delta_slot_set_t
+fd_slot_delta_parser_slot_set( fd_slot_delta_parser_t * parser ) {
+  return (fd_slot_delta_slot_set_t){
+    .map  = parser->slot_set,
+    .pool = parser->slot_pool,
+    .ele_cnt   = parser->slot_pool_ele_cnt
+  };
 }

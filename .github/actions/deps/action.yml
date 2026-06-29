@@ -38,6 +38,13 @@ runs:
           echo "HAS_APT_GET=0" >> $GITHUB_ENV
         fi
 
+    - name: Set extras key value
+      shell: bash
+      id: extras_trimmed
+      run: |
+        key=$(echo "${{ inputs.extras }}" | sed 's/[[:space:]]//g')
+        echo "extras_key=$key" >> $GITHUB_OUTPUT
+
     - name: apt-get update
       shell: bash
       run: sudo apt-get update
@@ -52,7 +59,7 @@ runs:
       with:
         base: "${{ runner.tool_cache }}/cache"
         path: deps-bundle.tar.zst
-        key: deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ inputs.extras }}-${{ steps.deps-sh-hash.outputs.HASH }}
+        key: deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ steps.extras_trimmed.outputs.extras_key }}-${{ steps.deps-sh-hash.outputs.HASH }}
         clean-key: deps-sh
 
     - name: Install system level dependencies

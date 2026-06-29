@@ -501,6 +501,38 @@ test_multiscalar_mul( fd_rng_t * rng ) {
   free(f);
 }
 
+static void
+test_point_neg( fd_rng_t * rng FD_PARAM_UNUSED ) {
+  uchar _bufa[32]; uchar * bufa = _bufa;
+  uchar _bufr[32]; uchar * bufr = _bufr;
+  uchar _bufe[32]; uchar * bufe = _bufe;
+
+  fd_ristretto255_point_t a[1];
+  fd_ristretto255_point_t r[1];
+  fd_ristretto255_point_t e[1];
+
+  {
+    // this failed the point_neg
+    fd_hex_decode( bufa, "000080000000000100000032ff00000000000000000000000000800000000001", 32 );
+    fd_hex_decode( bufe, "c60a34a98ded4d41eee39d5491684c1fbfc5a61a0059ed9c03a7b45f319d4914", 32 );
+
+    FD_TEST( fd_ristretto255_point_frombytes( a, bufa ) );
+
+    FD_TEST( fd_ristretto255_point_frombytes( e, bufe ) );
+    {
+      fd_ristretto255_point_tobytes( bufr, a );
+      FD_TEST( fd_memeq( bufr, bufa, 32UL ) );
+      fd_ristretto255_point_tobytes( bufr, e );
+      FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+    }
+
+    fd_ed25519_point_neg( r, a );
+    fd_ristretto255_point_tobytes( bufr, r );
+
+    FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -512,6 +544,7 @@ main( int     argc,
 
   test_hash_to_curve    ( rng );
 
+  test_point_neg        ( rng );
   test_point_add_sub    ( rng );
   test_scalar_validate  ( rng );
   test_point_scalarmult ( rng );

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssctrl_h
 
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../flamenco/runtime/fd_runtime_const.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snapct.  Imagine first the following sequence:
@@ -42,16 +43,53 @@
         will not be in an ERROR state and will continue producing frags.
         When snapct receives the ERROR message, it will send a FAIL
         message.  snapct then waits for this FAIL message to be
-        progagated through the pipeline and received back.  It then
-        knows that all tiles are synchonized back in an IDLE state and
-        it can try again with a new INIT.
-     4. Once snapct detects that the processing is finished, it sends
-        a DONE message through the pipeline and waits for it to be
-        received back.  We then either move on to the incremental
-        snapshot, or shut down the whole pipeline.
+        propagated through the pipeline and received back.  snapct
+        also guarantees to flush any pending load data in the
+        pipeline.  It then knows that all tiles are synchronized back
+        in an IDLE state and it can try again with a new INIT.
+     4. Once all snapshot data has entered the pipeline, snapct sends
+        a FINI message through the pipeline and waits for it to be
+        received back.  This synchronizes tiles to finish any
+        remaining in-flight work.  It then sends either a NEXT or a
+        DONE message through the pipeline, again waiting for it to be
+        received back.  NEXT means another snapshot follows, whereas
+        DONE means a shutdown will follow.
 
-   The keeps the tiles in lockstep, and simplifies the state machine to
-   a manageable level. */
+   That keeps the tiles in lockstep, and simplifies the state machine
+   to a manageable level.
+
+   In more detail, all tiles in the feedback loop of the pipeline must
+   comply with the following rules; snapct enforces them; tiles outside
+   of the feedback loop may support a subset of these:
+     - Allowed state transitions on given control message:
+        IDLE       to PROCESSING: on INIT_FULL / INIT_INCR ctrl msg.
+        PROCESSING to FINISHING : on FINI ctrl msg (*).
+        FINISHING  to IDLE      : on NEXT / DONE ctrl msg.
+        IDLE       to SHUTDOWN  : on SHUTDOWN ctrl msg.
+     - Control messages that apply to all states (except SHUTDOWN):
+        On ERROR msg, always transition to ERROR.
+        On FAIL msg, always transition to IDLE.
+     - When in SHUTDOWN state, no data or control message is allowed.
+     - Error handling:
+        A tile that enters ERROR state on its own must forward an
+        ERROR control message and discard any incoming message.  When
+        in ERROR state, data is discarded, and only a FAIL control
+        message is processed and forwarded (all others are discarded).
+        As a result, only one ERROR message can propagate through the
+        pipeline at any given time.
+     - Holding onto a control message:
+        A tile may hold onto a control message and forward it later
+        after performing some asynchronous routine.  The tile's state
+        transition may also be deferred until that control message is
+        forwarded.
+     - (*) A tile may self-transition from PROCESSING to FINISHING
+        early, if it can detect end-of-stream.  The FINI message is
+        used to synchronize the transition.
+
+   Each non-ERROR control message is only generated once in snapct
+   and will not be re-sent.  The pipeline will be locked on flushing
+   that control message until all tiles forward it on, or an ERROR
+   message is triggered by any of the tiles and forwarded. */
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */
@@ -67,20 +105,85 @@
 #define FD_SNAPSHOT_MSG_CTRL_FAIL              (4UL) /* Current snapshot failed, undo work and reset to idle state */
 #define FD_SNAPSHOT_MSG_CTRL_NEXT              (5UL) /* Current snapshot succeeded, commit work, go idle, and expect another snapshot */
 #define FD_SNAPSHOT_MSG_CTRL_DONE              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
-#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* No work left to do, perform final cleanup and shut down */
+#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* Snapshot load successful, no work left to do, perform final cleanup and shut down*/
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
+#define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
+
+/* snapld -> snapct (via snapld_dc) */
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (10UL) /* snapld finished reading/downloading all data */
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
 typedef struct fd_ssctrl_init {
   int           file;
+  int           zstd;
+  ulong         slot; /* slot advertised by the snapshot peer */
   fd_ip4_port_t addr;
+  uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
+  char          hostname[ 256UL ];
+  char          path[ PATH_MAX ];
+  ulong         path_len;
+  int           is_https;
 } fd_ssctrl_init_t;
 
 /* Sent by snapld to tell snapct metadata about a downloaded snapshot. */
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
-  char  name[ PATH_MAX ];
 } fd_ssctrl_meta_t;
+
+struct fd_snapshot_account_hdr {
+  uchar   pubkey[ FD_PUBKEY_FOOTPRINT ];
+  uchar   owner[ FD_PUBKEY_FOOTPRINT ];
+  ulong   lamports;
+  uchar   executable;
+  ulong   data_len;
+};
+typedef struct fd_snapshot_account_hdr fd_snapshot_account_hdr_t;
+
+/* fd_snapshot_account_hdr_init initializes a fd_snapshot_account_hdr_t struct
+   with the appropriate account metadata fields. */
+static inline void
+fd_snapshot_account_hdr_init( fd_snapshot_account_hdr_t * account,
+                           uchar const                    pubkey[ FD_PUBKEY_FOOTPRINT ],
+                           uchar const                    owner[ FD_PUBKEY_FOOTPRINT ],
+                           ulong                          lamports,
+                           uchar                          executable,
+                           ulong                          data_len ) {
+  fd_memcpy( account->pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
+  fd_memcpy( account->owner,  owner,  FD_PUBKEY_FOOTPRINT );
+  account->lamports   = lamports;
+  account->executable = executable;
+  account->data_len   = data_len;
+}
+
+static inline const char *
+fd_ssctrl_state_str( ulong state ) {
+  switch( state ) {
+    case FD_SNAPSHOT_STATE_IDLE:        return "idle";
+    case FD_SNAPSHOT_STATE_PROCESSING:  return "processing";
+    case FD_SNAPSHOT_STATE_FINISHING:   return "finishing";
+    case FD_SNAPSHOT_STATE_ERROR:       return "error";
+    case FD_SNAPSHOT_STATE_SHUTDOWN:    return "shutdown";
+    default:                            return "unknown";
+  }
+}
+
+static inline const char *
+fd_ssctrl_msg_ctrl_str( ulong sig ) {
+  switch( sig ) {
+    case FD_SNAPSHOT_MSG_DATA:                  return "data";
+    case FD_SNAPSHOT_MSG_META:                  return "meta";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:        return "init_full";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:        return "init_incr";
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:             return "fail";
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:             return "next";
+    case FD_SNAPSHOT_MSG_CTRL_DONE:             return "done";
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:         return "shutdown";
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
+    case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
+    case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
+    default:                                    return "unknown";
+  }
+}
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */

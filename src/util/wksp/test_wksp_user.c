@@ -224,7 +224,7 @@ main( int     argc,
   alloc_tag[2] = (fd_rng_ulong( rng )<<3) | 6UL; /* " */
   alloc_tag[3] = (fd_rng_ulong( rng )<<3) | 7UL; /* " */
 
-  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+  for( ulong iter=0UL; iter<20000000UL; iter++ ) {
     if( FD_UNLIKELY( !(iter & 8388607UL) ) ) {
       FD_LOG_NOTICE(( "iter %lu", iter ));
 

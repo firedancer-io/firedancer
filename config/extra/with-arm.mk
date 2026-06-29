@@ -1,3 +1,6 @@
+# Experimental Arm support.
+# Requires at least Armv8.4-a (LSE2 and RCPC3)
+
 ifneq ($(filter-out aarch64 arm64,$(shell uname -m)),)
 # uname -m is not empty and is neither aarch64 nor arm64
 CROSS=1
@@ -27,10 +30,9 @@ endif
 
 else # CROSS=0
 
-include config/extra/with-ucontext.mk
-include config/extra/with-secp256k1.mk
+include config/extra/with-s2nbignum.mk
+include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
-include config/extra/with-bzip2.mk
 include config/extra/with-lz4.mk
 include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk

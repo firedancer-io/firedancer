@@ -1,11 +1,15 @@
 #define _GNU_SOURCE
+#include "bench.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
+#include "../../../shared/commands/watch/watch.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
+#include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
+#include <errno.h>
 #include <unistd.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -29,7 +33,8 @@ void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
-  args->load.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
+  args->load.no_quic  = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
+  args->load.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
 }
 
 void
@@ -46,7 +51,6 @@ add_bench_topo( fd_topo_t  * topo,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
-                int          no_quic,
                 int          reserve_agave_cores ) {
 
   fd_topob_wksp( topo, "bench" );
@@ -83,22 +87,21 @@ add_bench_topo( fd_topo_t  * topo,
                        "in the [development.bench.affinity] provides for %lu cores. The extra cores will be unused.",
                        benchg_tile_cnt+1UL+benchs_tile_cnt, affinity_tile_cnt ));
   }
-  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", tile_to_cpu[ 0 ], 0, 0 );
+  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", tile_to_cpu[ 0 ], 0, 0, 0 );
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", tile_to_cpu[ i+1UL ], 0, 0 );
+    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", tile_to_cpu[ i+1UL ], 0, 0, 0 );
     benchg->benchg.accounts_cnt        = accounts_cnt;
     benchg->benchg.mode                = transaction_mode;
     benchg->benchg.contending_fraction = contending_fraction;
     benchg->benchg.cu_price_spread     = cu_price_spread;
   }
   for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, 0 );
+    fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL+i ], 0, 0, 0 );
     benchs->benchs.send_to_ip_addr = send_to_ip_addr;
     benchs->benchs.send_to_port    = send_to_port;
     benchs->benchs.conn_cnt        = conn_cnt;
-    benchs->benchs.no_quic         = no_quic;
   }
 
   fd_topob_tile_out( topo, "bencho", 0UL, "bencho_out", 0UL );
@@ -117,15 +120,14 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topob_finish( topo, CALLBACKS );
 }
 
-extern int * fd_log_private_shared_lock;
+void
+fd_topo_initialize( config_t * config );
 
 void
-bench_cmd_fn( args_t *   args,
-              config_t * config ) {
+bench_topo( config_t * config ) {
+  config->tiles.rpc.delay_startup = 0;
 
-  ushort dest_port = fd_ushort_if( args->load.no_quic,
-                                   config->tiles.quic.regular_transaction_listen_port,
-                                   config->tiles.quic.quic_transaction_listen_port );
+  fd_topo_initialize( config );
 
   ushort rpc_port;
   uint rpc_ip_addr;
@@ -162,12 +164,26 @@ bench_cmd_fn( args_t *   args,
                   config->development.genesis.fund_initial_accounts,
                   0, 0.0f, 0.0f,
                   config->layout.quic_tile_count,
-                  dest_port,
+                  config->tiles.quic.quic_transaction_listen_port,
                   config->net.ip_addr,
                   rpc_port,
                   rpc_ip_addr,
-                  args->load.no_quic,
                   !config->is_firedancer );
+}
+
+void
+bench_cmd_fn( args_t *   args,
+              config_t * config ) {
+
+  if( args->load.no_quic ) {
+    ushort port = config->tiles.quic.regular_transaction_listen_port;
+    ulong benchs_tile_cnt = fd_topo_tile_name_cnt( &config->topo, "benchs" );
+    for( ulong i=0UL; i<benchs_tile_cnt; i++ ) {
+      fd_topo_tile_t * benchs = &config->topo.tiles[ fd_topo_find_tile( &config->topo, "benchs", i ) ];
+      benchs->benchs.no_quic      = 1;
+      benchs->benchs.send_to_port = port;
+    }
+  }
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
@@ -180,16 +196,32 @@ bench_cmd_fn( args_t *   args,
   update_config_for_dev( config );
 
   run_firedancer_init( config, 1, 1 );
-  fdctl_setup_netns( config, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-    (void)fds;
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
-  fd_log_private_shared_lock[ 1 ] = 0;
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  initialize_accdb_fd( config );
 
-  /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+
+  if( !args->load.no_watch ) {
+    /* watch incompatible with sandbox */
+    config->development.sandbox  = 0;
+    config->development.no_clone = 1;
+
+    int pipefd[2];
+    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    args_t watch_args;
+    watch_args.watch.drain_output_fd = pipefd[0];
+    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* FIXME allow running sandboxed/multiprocess */
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+    watch_cmd_fn( &watch_args, config );
+  } else {
+    /* FIXME allow running sandboxed/multiprocess */
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  }
 }

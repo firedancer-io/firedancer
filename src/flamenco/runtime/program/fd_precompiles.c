@@ -1,10 +1,11 @@
 #include "fd_precompiles.h"
-#include "../fd_bank.h"
-#include "../fd_executor_err.h"
+#include "../context/fd_exec_instr_ctx.h"
+#include "../fd_runtime.h"
+#include "../fd_system_ids.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
-#include "../../../ballet/ed25519/fd_ed25519.h"
-#include "../../../ballet/secp256k1/fd_secp256k1.h"
 #include "../../../ballet/secp256r1/fd_secp256r1.h"
+#include "../../../ballet/secp256k1/fd_secp256k1.h"
+#include "../../../ballet/ed25519/fd_ed25519.h"
 
 /* Docs:
    https://docs.solana.com/developing/runtime-facilities/programs#ed25519-program
@@ -97,11 +98,14 @@ fd_precompile_get_instr_data( fd_exec_instr_ctx_t * ctx,
 
   } else {
 
-    if( FD_UNLIKELY( index>=ctx->txn_ctx->instr_info_cnt ) )
+    if( FD_UNLIKELY( index>=TXN( ctx->txn_in->txn )->instr_cnt ) )
       return FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET;
 
-    fd_instr_info_t const * instr = &ctx->txn_ctx->instr_infos[ index ];
-    data    = instr->data;
+    fd_txn_t const *       txn     = TXN( ctx->txn_in->txn );
+    uchar const *          payload = ctx->txn_in->txn->payload;
+    fd_txn_instr_t const * instr   = &txn->instr[ index ];
+
+    data    = fd_txn_get_instr_data( instr, payload );
     data_sz = instr->data_sz;
 
   }
@@ -136,20 +140,20 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( data_sz == 2 && data[0] == 0 ) ) {
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   ulong sig_cnt = data[0];
   if( FD_UNLIKELY( sig_cnt==0 ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L97-L103 */
   ulong expected_data_size = sig_cnt * SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSETS_START;
   if( FD_UNLIKELY( data_sz < expected_data_size ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -169,7 +173,7 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
                                             SIGNATURE_SERIALIZED_SIZE,
                                             &sig );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -185,7 +189,7 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
                                         ED25519_PUBKEY_SERIALIZED_SIZE,
                                         &pubkey );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -202,20 +206,22 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
                                         msg_sz,
                                         &msg );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L147-L149 */
     fd_sha512_t sha[1];
     if( FD_UNLIKELY( fd_ed25519_verify( msg, msg_sz, sig, pubkey, sha )!=FD_ED25519_SUCCESS ) ) {
-      ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
+      ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+#if FD_HAS_S2NBIGNUM
 
 /*
   Secp256K1
@@ -233,21 +239,21 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( data_sz == 1 && data[0] == 0 ) ) {
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/sdk/src/secp256k1_instruction.rs#L938-L947 */
   ulong sig_cnt = data[0];
   if( FD_UNLIKELY( sig_cnt==0 && data_sz>1 ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L948-L953 */
   ulong expected_data_size = sig_cnt * SECP256K1_SIGNATURE_OFFSETS_SERIALIZED_SIZE + SECP256K1_SIGNATURE_OFFSETS_START;
   if( FD_UNLIKELY( data_sz < expected_data_size ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -269,7 +275,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
                                             SIGNATURE_SERIALIZED_SIZE + 1, /* extra byte is recovery id */
                                             &sig );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -286,7 +292,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
                                         SECP256K1_PUBKEY_SERIALIZED_SIZE,
                                         &eth_address );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -299,7 +305,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
                                         msg_sz,
                                         &msg );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -310,7 +316,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L1003-L1008 */
     uchar pubkey[64];
     if ( FD_UNLIKELY( fd_secp256k1_recover( pubkey, msg_hash, sig, recovery_id ) == NULL ) ) {
-      ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
+      ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -319,7 +325,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
     fd_keccak256_hash( pubkey, 64, pubkey_hash );
 
     if( FD_UNLIKELY( memcmp( eth_address, pubkey_hash+(FD_KECCAK256_HASH_SZ-SECP256K1_PUBKEY_SERIALIZED_SIZE), SECP256K1_PUBKEY_SERIALIZED_SIZE ) ) ) {
-      ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
+      ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
   }
@@ -331,38 +337,33 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
   Secp256r1
 */
 
-#ifdef FD_HAS_S2NBIGNUM
 int
 fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, enable_secp256r1_precompile ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-  }
-
   uchar const * data    = ctx->instr->data;
   ulong         data_sz = ctx->instr->data_sz;
 
   /* ... */
   if( FD_UNLIKELY( data_sz < DATA_START ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   ulong sig_cnt = data[0];
   if( FD_UNLIKELY( sig_cnt==0UL ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/precompiles/src/secp256r1.rs#L30 */
   if( FD_UNLIKELY( sig_cnt>8UL ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* ... */
   ulong expected_data_size = sig_cnt * SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSETS_START;
   if( FD_UNLIKELY( data_sz < expected_data_size ) ) {
-    ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
+    ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -379,7 +380,7 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
                                             SIGNATURE_SERIALIZED_SIZE,
                                             &sig );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -391,7 +392,7 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
                                         SECP256R1_PUBKEY_SERIALIZED_SIZE,
                                         &pubkey );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
@@ -404,23 +405,78 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
                                         msg_sz,
                                         &msg );
     if( FD_UNLIKELY( err ) ) {
-      ctx->txn_ctx->custom_err = (uint)err;
+      ctx->txn_out->err.custom_err = (uint)err;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
     /* ... */
     fd_sha256_t sha[1];
     if( FD_UNLIKELY( fd_secp256r1_verify( msg, msg_sz, sig, pubkey, sha )!=FD_SECP256R1_SUCCESS ) ) {
-      ctx->txn_ctx->custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
+      ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-#else
-int
-fd_precompile_secp256r1_verify( FD_PARAM_UNUSED fd_exec_instr_ctx_t * ctx ) {
-  return FD_EXECUTOR_INSTR_ERR_FATAL;
+
+static const fd_precompile_program_t precompiles[] = {
+    { &fd_solana_secp256r1_program_id,          NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256r1_verify },
+    { &fd_solana_keccak_secp_256k_program_id,   NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256k1_verify },
+    { &fd_solana_ed25519_sig_verify_program_id, NO_ENABLE_FEATURE_ID,                                 fd_precompile_ed25519_verify   },
+    {0}
+};
+
+fd_precompile_program_t const *
+fd_precompiles( void ) {
+  return precompiles;
 }
-#endif
+
+#define MAP_PERFECT_NAME fd_native_precompile_program_fn_lookup_tbl
+#define MAP_PERFECT_LG_TBL_SZ 2
+#define MAP_PERFECT_T fd_native_prog_info_t
+#define MAP_PERFECT_HASH_C 63546U
+#define MAP_PERFECT_KEY key.uc
+#define MAP_PERFECT_KEY_T fd_pubkey_t const *
+#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
+#define MAP_PERFECT_COMPLEX_KEY 1
+#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
+
+#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>30)&0x3U)
+
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( (a00 | (a01<<8)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_2( (uchar const *)ptr ) )
+
+#define MAP_PERFECT_0 ( ED25519_SV_PROG_ID  ), .fn = fd_precompile_ed25519_verify
+#define MAP_PERFECT_1 ( KECCAK_SECP_PROG_ID ), .fn = fd_precompile_secp256k1_verify
+#define MAP_PERFECT_2 ( SECP256R1_PROG_ID   ), .fn = fd_precompile_secp256r1_verify
+
+#include "../../../util/tmpl/fd_map_perfect.c"
+#undef PERFECT_HASH
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
+  const fd_native_prog_info_t null_function = {0};
+  return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
+}
+
+#else /* !FD_HAS_S2NBIGNUM */
+
+fd_precompile_program_t const *
+fd_precompiles( void ) {
+  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
+               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+  return NULL;
+}
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
+  (void)pubkey;
+  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
+               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+  return NULL;
+}
+
+#endif /* FD_HAS_S2NBIGNUM */

@@ -78,10 +78,10 @@ fd_fseq_leave( ulong const * fseq );
 void *
 fd_fseq_delete( void * shfseq );
 
-/* fd_fctl_app_laddr returns local address of the fctl's application
-   region.  This will have FD_FCTL_APP_ALIGN alignment and room for at
-   least FD_FCTL_APP_FOOTPRINT bytes.  Assumes fseq is a current local
-   join.  fd_cnc_app_laddr_const is for const correctness.  The return
+/* fd_fseq_app_laddr returns local address of the fseq's application
+   region.  This will have FD_FSEQ_APP_ALIGN alignment and room for at
+   least FD_FSEQ_APP_FOOTPRINT bytes.  Assumes fseq is a current local
+   join.  fd_fseq_app_laddr_const is for const correctness.  The return
    values are valid for the lifetime of the local join. */
 
 FD_FN_CONST static inline void *       fd_fseq_app_laddr      ( ulong *       fseq ) { return (void       *)(fseq+2); }

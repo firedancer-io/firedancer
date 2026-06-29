@@ -20,6 +20,21 @@ log_bench( char const * descr,
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
 }
 
+/* Hash a series of bytes.
+   Must be called with bytes_len<=384. */
+static inline int
+fd_poseidon_hash( fd_poseidon_hash_result_t * result,
+                  uchar const *               bytes,
+                  ulong                       bytes_len,
+                  int const                   big_endian ) {
+  fd_poseidon_t pos[1];
+  fd_poseidon_init( pos, big_endian );
+  for( ulong i=0; i<bytes_len/32; i++ ) {
+    fd_poseidon_append( pos, &bytes[i*32], 32, 1 );
+  }
+  return !fd_poseidon_fini( pos, fd_type_pun(result) );
+}
+
 int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
@@ -56,7 +71,7 @@ int main( int     argc,
     FD_TEST(memcmp(res.v, gold.v, FD_POSEIDON_HASH_SZ) == 0);
 
     fd_poseidon_t pos[1];
-    fd_poseidon_fini( fd_poseidon_append( fd_poseidon_init( pos, 0 ), bytes, 32 ), res.v );
+    fd_poseidon_fini( fd_poseidon_append( fd_poseidon_init( pos, 0 ), bytes, 32, 1 ), res.v );
     FD_TEST(memcmp(res.v, gold.v, FD_POSEIDON_HASH_SZ) == 0);
   }
 
@@ -71,7 +86,7 @@ int main( int     argc,
     FD_TEST(memcmp(res.v, gold.v, FD_POSEIDON_HASH_SZ) == 0);
 
     fd_poseidon_t pos[1];
-    fd_poseidon_fini( fd_poseidon_append( fd_poseidon_init( pos, 1 ), bytes, 32 ), res.v );
+    fd_poseidon_fini( fd_poseidon_append( fd_poseidon_init( pos, 1 ), bytes, 32, 1 ), res.v );
     FD_TEST(memcmp(res.v, gold.v, FD_POSEIDON_HASH_SZ) == 0);
   }
 
@@ -96,15 +111,15 @@ int main( int     argc,
 
     fd_poseidon_t pos[1];
     fd_poseidon_init( pos, 1 );
-    fd_poseidon_append( pos, input, 32 );
-    fd_poseidon_append( pos, input+32, 32 );
+    fd_poseidon_append( pos, input, 32, 0 );
+    fd_poseidon_append( pos, input+32, 32, 0 );
     fd_poseidon_fini( pos, res.v );
     FD_TEST(memcmp(res.v, output, FD_POSEIDON_HASH_SZ) == 0);
 
     static const uchar input1[] = { 1 };
     fd_poseidon_init( pos, 1 );
-    fd_poseidon_append( pos, input1, 1 );
-    fd_poseidon_append( pos, input1, 1 );
+    fd_poseidon_append( pos, input1, 1, 0 );
+    fd_poseidon_append( pos, input1, 1, 0 );
     fd_poseidon_fini( pos, res.v );
     FD_TEST(memcmp(res.v, output, FD_POSEIDON_HASH_SZ) == 0);
 
@@ -112,11 +127,31 @@ int main( int     argc,
     byte_swap_32(output_le);
 
     fd_poseidon_init( pos, 0 );
-    fd_poseidon_append( pos, input1, 1 );
-    fd_poseidon_append( pos, input1, 1 );
+    fd_poseidon_append( pos, input1, 1, 0 );
+    fd_poseidon_append( pos, input1, 1, 0 );
     fd_poseidon_fini( pos, res.v );
     FD_TEST(memcmp(res.v, output_le, FD_POSEIDON_HASH_SZ) == 0);
+  }
 
+  { /* enforce padding */
+    static const uchar input[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+    static const uchar output[] = { 0, 122, 243, 70, 226, 211, 4, 39, 158, 121, 224, 169, 243, 2, 63, 119, 18, 148, 167, 138, 203, 112, 231, 63, 144, 175, 226, 124, 173, 64, 30, 129 };
+    fd_poseidon_hash_result_t res;
+    fd_poseidon_hash(&res, input, sizeof(input), 1);
+    FD_TEST(memcmp(res.v, output, FD_POSEIDON_HASH_SZ) == 0);
+
+    /* 32-byte elements - same as with no enforce padding */
+    fd_poseidon_t pos[1];
+    fd_poseidon_init( pos, 1 );
+    fd_poseidon_append( pos, input, 32, 1 );
+    fd_poseidon_append( pos, input+32, 32, 1 );
+    fd_poseidon_fini( pos, res.v );
+    FD_TEST(memcmp(res.v, output, FD_POSEIDON_HASH_SZ) == 0);
+
+    /* small element - should fail */
+    static const uchar input1[] = { 1 };
+    fd_poseidon_init( pos, 1 );
+    FD_TEST( !fd_poseidon_append( pos, input1, 1, 1 ) );
   }
 
   {
@@ -225,7 +260,7 @@ int main( int     argc,
     fd_poseidon_t pos[1];
     fd_poseidon_init( pos, 1 );
     for (ulong i = 0; i < 12; ++i) {
-      fd_poseidon_append( pos, FLIST[i], 32 );
+      fd_poseidon_append( pos, FLIST[i], 32, 1 );
     }
     uchar res[32];
     fd_poseidon_fini( pos, res );
@@ -239,7 +274,7 @@ int main( int     argc,
       for( ulong rem=iter; rem; rem-- ) {
         fd_poseidon_init( pos, 1 );
         for (ulong i = 0; i < j; ++i) {
-          fd_poseidon_append( pos, FLIST[i], 32 );
+          fd_poseidon_append( pos, FLIST[i], 32, 1 );
         }
         fd_poseidon_fini( pos, res );
       }

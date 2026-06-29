@@ -17,9 +17,9 @@ jobs:
       MACHINE: ${{ inputs.machine }}
       AGAVE_VERSION: v2.0.3
     steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:

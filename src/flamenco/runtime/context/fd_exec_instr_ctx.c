@@ -1,17 +1,17 @@
 #include "fd_exec_instr_ctx.h"
-#include "fd_exec_txn_ctx.h"
+#include "../fd_runtime.h"
 #include "../fd_borrowed_account.h"
 
-int
+ulong
 fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
                                              fd_pubkey_t const *         pubkey ) {
-  for( int i=0; i<ctx->instr->acct_cnt; i++ ) {
+  for( ulong i=0UL; i<ctx->instr->acct_cnt; i++ ) {
     ushort idx_in_txn = ctx->instr->accounts[ i ].index_in_transaction;
-    if( memcmp( pubkey->uc, ctx->txn_ctx->account_keys[ idx_in_txn ].uc, sizeof(fd_pubkey_t) )==0 ) {
+    if( memcmp( pubkey->uc, ctx->txn_out->accounts.keys[ idx_in_txn ].uc, sizeof(fd_pubkey_t) )==0 ) {
       return i;
     }
   }
-  return -1;
+  return ULONG_MAX;
 }
 
 int
@@ -22,21 +22,15 @@ fd_exec_instr_ctx_get_key_of_account_at_index( fd_exec_instr_ctx_t const * ctx,
   int err = fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( ctx,
                                                                          idx_in_instr,
                                                                          &idx_in_txn );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
-  }
+  if( FD_UNLIKELY( err ) ) return err;
 
-  return fd_exec_txn_ctx_get_key_of_account_at_index( ctx->txn_ctx,
-                                                      idx_in_txn,
-                                                      key );
+  return fd_runtime_get_key_of_account_at_index( ctx->txn_out, idx_in_txn, key );
 }
 
 int
 fd_exec_instr_ctx_get_last_program_key( fd_exec_instr_ctx_t const * ctx,
                                         fd_pubkey_t const * *       key ) {
-  return fd_exec_txn_ctx_get_key_of_account_at_index( ctx->txn_ctx,
-                                                      ctx->instr->program_id,
-                                                      key );
+  return fd_runtime_get_key_of_account_at_index( ctx->txn_out, ctx->instr->program_id, key );
 }
 
 int
@@ -46,31 +40,28 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
                                       fd_borrowed_account_t *     account ) {
   /* Get the account from the transaction context using idx_in_txn.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L600-L602 */
-  fd_txn_account_t * txn_account = NULL;
-  int err = fd_exec_txn_ctx_get_account_at_index( ctx->txn_ctx,
-                                                  idx_in_txn,
-                                                  &txn_account,
-                                                  NULL );
-  if( FD_UNLIKELY( err ) ) {
+  fd_acc_t * ref = fd_runtime_get_account_at_index( ctx->txn_in, ctx->txn_out, idx_in_txn, NULL );
+  if( FD_UNLIKELY( !ref ) ) {
     /* Return a MissingAccount error if the account is not found.
        https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L603 */
-    FD_TXN_ERR_FOR_LOG_INSTR( ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, ctx->txn_ctx->instr_err_idx );
+    FD_TXN_ERR_FOR_LOG_INSTR( ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   /* Return an AccountBorrowFailed error if the write is not acquirable.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L605 */
-  int borrow_res = fd_txn_account_try_borrow_mut( txn_account );
-  if( FD_UNLIKELY( !borrow_res ) ) {
+  if( FD_UNLIKELY( ctx->runtime->accounts.refcnt[idx_in_txn]!=0UL ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   }
+  ctx->runtime->accounts.refcnt[idx_in_txn]++;
 
   /* Create a BorrowedAccount upon success.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
   fd_borrowed_account_init( account,
-                            txn_account,
+                            ref,
                             ctx,
-                            idx_in_instr );
+                            idx_in_instr,
+                            &ctx->runtime->accounts.refcnt[idx_in_txn] );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -95,23 +86,6 @@ fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
 }
 
 int
-fd_exec_instr_ctx_try_borrow_instr_account_with_key( fd_exec_instr_ctx_t const * ctx,
-                                                     fd_pubkey_t const *         pubkey,
-                                                     fd_borrowed_account_t *     account ) {
-  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    ushort idx_in_txn = ctx->instr->accounts[ i ].index_in_transaction;
-    if( memcmp( pubkey->uc, ctx->txn_ctx->account_keys[ idx_in_txn ].uc, sizeof(fd_pubkey_t) )==0 ) {
-      return fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, account );
-    }
-  }
-
-  /* Return a NotEnoughAccountKeys error if the account is not found
-     in the instruction context to match the error code returned by
-     fd_exec_instr_ctx_try_borrow_instr_account. */
-  return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-}
-
-int
 fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * ctx,
                                                    fd_borrowed_account_t *     account ) {
   /* The index_in_instruction for a borrowed program account is invalid,
@@ -124,18 +98,31 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
-                               fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] ) {
+                               fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX],
+                               ulong *                     signers_cnt ) {
   ulong j = 0UL;
-  for( ushort i=0; i<ctx->instr->acct_cnt && j<FD_TXN_SIG_MAX; i++ )
+  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     if( fd_instr_acc_is_signer_idx( ctx->instr, i, NULL ) ) {
       ushort idx_in_txn = ctx->instr->accounts[i].index_in_transaction;
-      int err = fd_exec_txn_ctx_get_key_of_account_at_index( ctx->txn_ctx,
-                                                             idx_in_txn,
-                                                             &signers[j++] );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
+      fd_pubkey_t const * pubkey = NULL;
+      int err = fd_runtime_get_key_of_account_at_index( ctx->txn_out, idx_in_txn, &pubkey );
+      if( FD_UNLIKELY( err ) ) return err;
+
+      /* Skip if duplicate signer */
+      if( FD_UNLIKELY( fd_signers_contains( signers, j, pubkey ) ) ) {
+        continue;
       }
+
+      /* This should never be possible */
+      if( FD_UNLIKELY( j>=FD_TXN_SIG_MAX ) ) {
+        FD_LOG_CRIT(( "invariant violation: too many signers (cnt=%lu, FD_TXN_SIG_MAX=%lu)", j, (ulong)FD_TXN_SIG_MAX ));
+      }
+
+      signers[j++] = pubkey;
     }
+  }
+
+  *signers_cnt = j;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -147,7 +134,7 @@ fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,
     ushort idx_in_txn = ctx->instr->accounts[ j ].index_in_transaction;
     is_signer |=
         ( ( !!fd_instr_acc_is_signer_idx( ctx->instr, j, NULL ) ) &
-        ( 0==memcmp( pubkey->key, ctx->txn_ctx->account_keys[ idx_in_txn ].key, sizeof(fd_pubkey_t) ) ) );
+        ( 0==memcmp( pubkey->key, ctx->txn_out->accounts.keys[ idx_in_txn ].key, sizeof(fd_pubkey_t) ) ) );
   }
   return is_signer;
 }

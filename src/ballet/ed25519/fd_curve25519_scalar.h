@@ -8,6 +8,7 @@
    to secret data) */
 
 #include "../fd_ballet_base.h"
+#include "../bigint/fd_uint256.h"
 
 static const uchar fd_curve25519_scalar_zero[ 32 ] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -56,20 +57,33 @@ fd_curve25519_scalar_reduce( uchar       out[ 32 ],
 
 static inline uchar const *
 fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
-  ulong s0 = fd_ulong_load_8_fast( s      );
-  ulong s1 = fd_ulong_load_8_fast( s +  8 );
-  ulong s2 = fd_ulong_load_8_fast( s + 16 );
-  ulong s3 = fd_ulong_load_8_fast( s + 24 );
-  ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
-  ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
-  ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
-  ulong l3 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 24 ]);
-  return (
-    (s3 < l3)
-    || ((s3 == l3) && (s2 < l2))
-    || ((s3 == l3) && (s2 == l2) && (s1 < l1))
-    || ((s3 == l3) && (s2 == l2) && (s1 == l1) && (s0 <= l0))
-  ) ? s : NULL;
+  /* If none of the top 4 bits are set, then the scalar fits into S \in [0, 2^252),
+     which is a tighter range than [0, L), which is about [0, 2^252.2). In this case
+     we can "succeed-fast" and skip the full canonical check. */
+  if ( FD_UNLIKELY( s[31] & 0xF0 ) ) {
+    /* Assuming canonical and IID scalars, the chance of the 252nd bit being
+       set is roughly 1/2^128 or log2(1 - (2^252 - 1) / L). */
+
+    /* If any of the top 3 bits are set, the scalar representation must be invalid. */
+    if ( FD_LIKELY( s[31] & 0xE0 ) ) return NULL;
+
+    /* Nothing left for us to do except determine if `s` is between [2^252, L) or not. */
+    ulong s0 = fd_ulong_load_8_fast( s      );
+    ulong s1 = fd_ulong_load_8_fast( s +  8 );
+    ulong s2 = fd_ulong_load_8_fast( s + 16 );
+    ulong s3 = fd_ulong_load_8_fast( s + 24 );
+    ulong l0 = *(ulong *)(&fd_curve25519_scalar_minus_one[  0 ]);
+    ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
+    ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
+    ulong l3 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 24 ]);
+    ulong r; int b;
+    fd_ulong_sub_borrow( &r, &b, s0, l0, 1 );
+    fd_ulong_sub_borrow( &r, &b, s1, l1, b );
+    fd_ulong_sub_borrow( &r, &b, s2, l2, b );
+    fd_ulong_sub_borrow( &r, &b, s3, l3, b );
+    return b ? s : NULL;
+  }
+  return s;
 }
 
 /* fd_curve25519_scalar_muladd computes s = (a*b+c) mod l where a, b and c
@@ -163,6 +177,12 @@ fd_curve25519_scalar_inv( uchar *       s,
   return s;
 }
 
+/* fd_curve25519_scalar_batch_inv computes the modular inverse of each
+   scalar in a[] using Montgomery's batch inversion trick (one inversion
+   + 3(sz-1) multiplications).  s[] receives the individual inverses;
+   allinv receives the inverse of the product of all nonzero inputs.
+   Zero inputs are skipped and their corresponding output set to zero.
+   https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/scalar.rs#L788-L837 */
 static inline void
 fd_curve25519_scalar_batch_inv( uchar       s     [ 32 ], /* sz scalars */
                                 uchar       allinv[ 32 ], /* 1 scalar */
@@ -171,14 +191,19 @@ fd_curve25519_scalar_batch_inv( uchar       s     [ 32 ], /* sz scalars */
   uchar acc[ 32 ];
   fd_memcpy( acc, fd_curve25519_scalar_one, 32 );
   for( ulong i=0; i<sz; i++ ) {
-    fd_memcpy( &s[ i*32 ], acc, 32 );
-    fd_curve25519_scalar_mul( acc, acc, &a[ i*32 ] );
+    if( FD_UNLIKELY( fd_memeq( &a[ i*32 ], fd_curve25519_scalar_zero, 32 ) ) ) {
+      fd_memcpy( &s[ i*32 ], fd_curve25519_scalar_zero, 32 );
+    } else {
+      fd_memcpy( &s[ i*32 ], acc, 32 );
+      fd_curve25519_scalar_mul( acc, acc, &a[ i*32 ] );
+    }
   }
 
   fd_curve25519_scalar_inv( acc, acc );
   fd_memcpy( allinv, acc, 32 );
 
   for( int i=(int)sz-1; i>=0; i-- ) {
+    if( FD_UNLIKELY( fd_memeq( &a[ i*32 ], fd_curve25519_scalar_zero, 32 ) ) ) continue;
     fd_curve25519_scalar_mul( &s[ i*32 ], &s[ i*32 ], acc );
     fd_curve25519_scalar_mul( acc, acc, &a[ i*32 ] );
   }

@@ -21,8 +21,19 @@
 
 static int g_fail_fast;
 static int g_error_occurred;
+static int g_type_override;
 
 static uint shutdown_signal __attribute__((aligned(64)));
+
+#define FIXTURE_TYPE_PB_INSTR        0x01
+#define FIXTURE_TYPE_PB_TXN          0x02
+#define FIXTURE_TYPE_PB_SYSCALL      0x03
+#define FIXTURE_TYPE_PB_BLOCK        0x04
+#define FIXTURE_TYPE_PB_ELF_LOADER   0x05
+#define FIXTURE_TYPE_PB_BUNDLE       0x06
+#define FIXTURE_TYPE_PB_SHRED        0x07
+#define FIXTURE_TYPE_PB_COST         0x08
+#define FIXTURE_TYPE_PB_VM_SERIALIZE 0x09
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
@@ -52,20 +63,53 @@ run_test1( fd_solfuzz_runner_t * runner,
 
   FD_LOG_DEBUG(( "Running test %s", path ));
 
-  if( strstr( path, "/instr/" ) != NULL ) {
+  int type = g_type_override;
+  if( !type ) {
+    if(      strstr( path, "/instr/fixtures/"             ) ) type = FIXTURE_TYPE_PB_INSTR;
+    else if( strstr( path, "/txn/fixtures/"               ) ) type = FIXTURE_TYPE_PB_TXN;
+    else if( strstr( path, "/elf_loader/fixtures/"        ) ) type = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( strstr( path, "/syscall/fixtures/"           ) ) type = FIXTURE_TYPE_PB_SYSCALL;
+    else if( strstr( path, "/block/fixtures/"             ) ) type = FIXTURE_TYPE_PB_BLOCK;
+    else if( strstr( path, "/bundle/fixtures/"            ) ) type = FIXTURE_TYPE_PB_BUNDLE;
+    else if( strstr( path, "/shred/fixtures/"             ) ) type = FIXTURE_TYPE_PB_SHRED;
+    else if( strstr( path, "/cost/fixtures/"              ) ) type = FIXTURE_TYPE_PB_COST;
+    else if( strstr( path, "/vm_serialization/fixtures/"  ) ) type = FIXTURE_TYPE_PB_VM_SERIALIZE;
+    else {
+      FD_LOG_WARNING(( "Unsupported test type: %s", path ));
+      return 0;
+    }
+  }
+
+  switch( type ) {
+  case FIXTURE_TYPE_PB_INSTR:
     ok = fd_solfuzz_pb_instr_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/txn/" ) != NULL ) {
+    break;
+  case FIXTURE_TYPE_PB_TXN:
     ok = fd_solfuzz_pb_txn_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/elf_loader/" ) != NULL ) {
-    ok = fd_solfuzz_pb_elf_loader_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/syscall/" ) != NULL ) {
+    break;
+  case FIXTURE_TYPE_PB_SYSCALL:
     ok = fd_solfuzz_pb_syscall_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/vm_interp/" ) != NULL ){
-    ok = fd_solfuzz_pb_vm_interp_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/block/" ) != NULL ){
+    break;
+  case FIXTURE_TYPE_PB_BLOCK:
     ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
-  } else {
-    FD_LOG_WARNING(( "Unknown test type: %s", path ));
+    break;
+  case FIXTURE_TYPE_PB_ELF_LOADER:
+    ok = fd_solfuzz_pb_elf_loader_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_BUNDLE:
+    ok = fd_solfuzz_pb_bundle_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_SHRED:
+    ok = fd_solfuzz_pb_shred_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_COST:
+    ok = fd_solfuzz_pb_cost_fixture( runner, buf, file_sz );
+    break;
+  case FIXTURE_TYPE_PB_VM_SERIALIZE:
+    ok = fd_solfuzz_pb_vm_serialize_fixture( runner, buf, file_sz );
+    break;
+  default:
+    FD_LOG_CRIT(( "unsupported fixture type" ));
   }
 
   if( ok ) FD_LOG_INFO   (( "OK   %s", path ));
@@ -405,6 +449,7 @@ main( int     argc,
         "  --wksp         [file path]               Reuse existing workspace\n"
         "  --wksp-tag     1                         Workspace allocation tag\n"
         "  --fail-fast    1                         Stop executing after first failure?\n"
+        "  --type         pb_{instr,txn,bundle,elf_loader,syscall,block,shred,cost,vm_serialize}\n"
         "\n",
         stderr );
     return 0;
@@ -418,6 +463,7 @@ main( int     argc,
   uint         wksp_seed = fd_env_strip_cmdline_uint ( &argc, &argv, "--wksp-seed", NULL,         0U );
   ulong        wksp_tag  = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL,        1UL );
   int const    fail_fast = fd_env_strip_cmdline_int  ( &argc, &argv, "--fail-fast", NULL,        1   );
+  char const * type_str  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--type",      NULL,       NULL );
   g_fail_fast = !!fail_fast;
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -435,7 +481,7 @@ main( int     argc,
     FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
     wksp = fd_wksp_attach( wksp_name );
   } else if( !page_cnt ) {
-    ulong data_max = worker_cnt*(7UL<<30);
+    ulong data_max = worker_cnt*(22UL<<30);
     ulong part_max = fd_wksp_part_max_est( data_max, 64UL<<10 );
     FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
     wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );
@@ -469,6 +515,22 @@ main( int     argc,
   uchar *          dcache = fd_dcache_join( fd_dcache_new( dcache_mem, DCACHE_DATA_SZ, 0UL    ) ); FD_TEST( dcache );
   for( ulong i=0UL; i<worker_cnt; i++ ) {
     fseqs[i] = fd_fseq_join( fd_fseq_new( fseqs_mem + i*FD_FSEQ_FOOTPRINT, 0UL ) ); FD_TEST( fseqs[i] );
+  }
+
+  /* Parse type */
+  if( type_str ) {
+    if(      0==strcmp( type_str, "pb_instr"        ) ) g_type_override = FIXTURE_TYPE_PB_INSTR;
+    else if( 0==strcmp( type_str, "pb_txn"          ) ) g_type_override = FIXTURE_TYPE_PB_TXN;
+    else if( 0==strcmp( type_str, "pb_elf_loader"   ) ) g_type_override = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( 0==strcmp( type_str, "pb_syscall"      ) ) g_type_override = FIXTURE_TYPE_PB_SYSCALL;
+    else if( 0==strcmp( type_str, "pb_block"        ) ) g_type_override = FIXTURE_TYPE_PB_BLOCK;
+    else if( 0==strcmp( type_str, "pb_bundle"       ) ) g_type_override = FIXTURE_TYPE_PB_BUNDLE;
+    else if( 0==strcmp( type_str, "pb_shred"        ) ) g_type_override = FIXTURE_TYPE_PB_SHRED;
+    else if( 0==strcmp( type_str, "pb_cost"         ) ) g_type_override = FIXTURE_TYPE_PB_COST;
+    else if( 0==strcmp( type_str, "pb_vm_serialize" ) ) g_type_override = FIXTURE_TYPE_PB_VM_SERIALIZE;
+    else if( FD_UNLIKELY( type_str ) ) {
+      FD_LOG_ERR(( "Unsupported --type %s", type_str ));
+    }
   }
 
   /* Run strategy */

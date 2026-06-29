@@ -7,10 +7,10 @@ so Firedancer can run correctly. It does the following:
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
 * **hyperthreads** Checks hyperthreaded pair for critical CPU cores.
+* **bonding** Prepares bonded network devices for XDP networking.
 * **ethtool-channels** Configures the number of channels on the network
 device.
-* **ethtool-offloads** Disable generic-receive-offload (GRO) and GRE
-segmentation offload on the network device.
+* **ethtool-offloads** Modify offload feature flags on the network device.
 * **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
 
@@ -30,9 +30,9 @@ where `mode` is one of:
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
-`ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`, and
-`snapshots` and these stages are described below. You can also use the
-stage `all` which will configure everything.
+`bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
+and `snapshots` and these stages are described below. You can also use
+the stage `all` which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -140,6 +140,24 @@ This stage has no dependencies on any other stage, but it is dependent
 on the topology specified in your configuration. It is recommended that
 you turn off the CPUs specified in the warning for optimal performance.
 
+## bonding
+Validator hosts commonly use bonded network devices to increase
+bandwidth and fault tolerance.  Common Linux distributions pick defaults
+for bonding driver configuration that are incompatible with the XDP mode
+of some network drivers.  When attaching XDP to a network device part of
+such an incorrectly configured bond, the bonding driver may erroneously
+consider that device as failed, leading to connectivity loss.
+
+Firedancer reconfigures bonding driver parameters to tolerate brief
+downtime when configuring XDP networking.  This is done by increasing
+the `miimode`, `downdelay`, and `peer_notif_delay` timeout parameters in
+`/sys/class/net/bond0/bonding/` to five seconds.
+
+<<< @/snippets/bonding.ansi
+
+Changing device settings with `bonding` requires root privileges, and
+cannot be performed with capabilities.
+
 ## ethtool-channels
 In addition to XDP, Firedancer uses receive side scaling (RSS) to
 improve network performance. This uses functionality of modern NICs to
@@ -188,7 +206,7 @@ privileges, and cannot be performed with capabilities.
 
 ## ethtool-offloads
 XDP is incompatible with a feature of network devices called
-`generic-receive-offload`. This feature must be disabled for Firedancer
+`rx-udp-gro-forwarding`. This feature must be disabled for Firedancer
 to work. GRE segmentation offload is also disabled.
 
 The command run by the stage is similar to running

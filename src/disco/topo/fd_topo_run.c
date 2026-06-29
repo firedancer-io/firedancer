@@ -2,11 +2,10 @@
 #include "fd_topo.h"
 
 #include "../metrics/fd_metrics.h"
-#include "../../waltz/xdp/fd_xdp1.h"
+#include "../events/fd_event_report.h"
 #include "../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
-#include <signal.h>
 #include <errno.h>
 #include <pthread.h>
 #include <sys/syscall.h>
@@ -46,33 +45,15 @@ initialize_logging( char const * tile_name,
   fd_log_wallclock_cstr( 0L, wallclock );
 }
 
-static void
-check_wait_debugger( ulong          pid,
-                     volatile int * wait,
-                     volatile int * debugger ) {
-  if( FD_UNLIKELY( debugger ) ) {
-    FD_LOG_WARNING(( "waiting for debugger to attach to tile pid:%lu", pid ));
-    if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
-      FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    *FD_VOLATILE( debugger ) = 1;
-  }
-
-  if( FD_UNLIKELY( wait ) ) {
-    while( FD_LIKELY( !*FD_VOLATILE( wait ) ) ) FD_SPIN_PAUSE();
-  }
-}
-
 void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
                   int                  keep_controlling_terminal,
-                  int                  dumpable,
+                  int                  core_dump_level,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
-                  volatile int *       wait,
-                  volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run ) {
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile->name, tile->kind_id ) );
@@ -81,11 +62,10 @@ fd_topo_run_tile( fd_topo_t *          topo,
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
-  check_wait_debugger( pid, wait, debugger );
   initialize_logging( tile->name, tile->kind_id, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
-  fd_topo_join_tile_workspaces( topo, tile );
+  fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
 
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile );
@@ -120,6 +100,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   }
 
   if( FD_LIKELY( sandbox ) ) {
+    int dumpable = core_dump_level == FD_TOPO_CORE_DUMP_LEVEL_DISABLED ? 0 : 1;
     fd_sandbox_enter( uid,
                       gid,
                       tile_run->keep_host_networking,
@@ -130,6 +111,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                       rlimit_file_cnt,
                       tile_run->rlimit_address_space,
                       tile_run->rlimit_data,
+                      tile_run->rlimit_nproc,
                       allow_fds_cnt+allow_fds_offset,
                       allow_fds,
                       seccomp_filter_cnt,
@@ -143,6 +125,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
 
   FD_TEST( tile->metrics );
   fd_metrics_register( tile->metrics );
+  fd_event_register( topo, tile );
 
   FD_MGAUGE_SET( TILE, PID, pid );
   FD_MGAUGE_SET( TILE, TID, tid );
@@ -179,7 +162,7 @@ run_tile_thread_main( void * _args ) {
     FD_LOG_ERR(( "madvise(stack,MADV_DONTFORK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
+  fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, &args.tile_run );
   FD_TEST( args.tile->allow_shutdown );
   return NULL;
 }
@@ -236,7 +219,8 @@ fd_topo_tile_stack_join( char const * app_name,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
-  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL );
+  int dump = strcmp( tile_name, "sign" ) ? 1 : 0; /* avoid core dumps of sign tile stacks */
+  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, NULL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
 
   /* Make space for guard lo and guard hi */
@@ -260,42 +244,6 @@ fd_topo_tile_stack_join( char const * app_name,
   return stack;
 }
 
-fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo,
-                     uint              bind_addr ) {
-  ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
-  FD_TEST( net0_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
-
-  ushort udp_port_candidates[] = {
-    (ushort)net0_tile->xdp.net.legacy_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
-    (ushort)net0_tile->xdp.net.shred_listen_port,
-    (ushort)net0_tile->xdp.net.gossip_listen_port,
-    (ushort)net0_tile->xdp.net.repair_intake_listen_port,
-    (ushort)net0_tile->xdp.net.repair_serve_listen_port,
-    (ushort)net0_tile->xdp.net.send_src_port,
-  };
-
-  uint if_idx = if_nametoindex( net0_tile->xdp.interface );
-  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->xdp.interface ));
-
-  fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
-                                         bind_addr,
-                                         sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
-                                         udp_port_candidates,
-                                         net0_tile->xdp.xdp_mode );
-  if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, 123462 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==dup2( xdp_fds.prog_link_fd, 123463 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  xdp_fds.xsk_map_fd = 123462;
-  xdp_fds.prog_link_fd = 123463;
-
-  return xdp_fds;
-}
-
 static inline void
 run_tile_thread( fd_topo_t *         topo,
                  fd_topo_tile_t *    tile,
@@ -310,8 +258,10 @@ run_tile_thread( fd_topo_t *         topo,
   void * stack = fd_topo_tile_stack_join( topo->app_name, tile->name, tile->kind_id );
 
   pthread_attr_t attr[ 1 ];
-  if( FD_UNLIKELY( pthread_attr_init( attr ) ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ ) ) ) FD_LOG_ERR(( "pthread_attr_setstacksize() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int err = pthread_attr_init( attr );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", err, fd_io_strerror( err ) ));
+  err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_setstack() failed (%i-%s)", err, fd_io_strerror( err ) ));
 
   FD_CPUSET_DECL( cpu_set );
   if( FD_LIKELY( tile->cpu_idx<65535UL ) ) {
@@ -347,7 +297,8 @@ run_tile_thread( fd_topo_t *         topo,
   };
 
   pthread_t pthread;
-  if( FD_UNLIKELY( pthread_create( &pthread, attr, run_tile_thread_main, args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  err = pthread_create( &pthread, attr, run_tile_thread_main, args );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", err, fd_io_strerror( err ) ));
 }
 
 void

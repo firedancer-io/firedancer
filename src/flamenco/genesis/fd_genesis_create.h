@@ -41,7 +41,7 @@ typedef struct fd_genesis_options fd_genesis_options_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_genesis_create creates a 'genesis.bin' compatible genesis blob.
-   (Bincode encoded fd_genesis_solana_t)  [buf,bufsz) it the output
+   (Bincode encoded Solana GenesisConfig)  [buf,bufsz) is the output
    memory region into which the genesis blob will be written.  options
    points to a struct containing the genesis configuration parameters.
 

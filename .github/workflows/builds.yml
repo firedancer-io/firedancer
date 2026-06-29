@@ -44,6 +44,22 @@ on:
         type: boolean
         description: Exit on the first error
         default: false
+      no_optimization:
+        type: boolean
+        description: Compile with optimizations disabled
+        default: false
+      verbose:
+        type: boolean
+        description: Show output from failed builds
+        default: false
+      gcc_runner_labels:
+        type: string
+        description: Runner labels where gcc jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
+      clang_runner_labels:
+        type: string
+        description: Runner labels where clang jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
   workflow_dispatch:
     inputs:
       cid:
@@ -86,21 +102,37 @@ on:
         type: boolean
         description: Exit on the first error
         default: false
+      no_optimization:
+        type: boolean
+        description: Compile with optimizations disabled
+        default: false
+      verbose:
+        type: boolean
+        description: Show output from failed builds
+        default: false
+      gcc_runner_labels:
+        type: string
+        description: Runner labels where gcc jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
+      clang_runner_labels:
+        type: string
+        description: Runner labels where clang jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
 concurrency:
   group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.cid }}
   cancel-in-progress: true
 jobs:
   build_gcc:
     runs-on:
-      labels: rocky8
+      labels: ${{ fromJSON(inputs.gcc_runner_labels) }}
       group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@1.81.0
+      - uses: ./.github/actions/submodule-init
+
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: ./.github/actions/deps
         with:
@@ -131,6 +163,14 @@ jobs:
           if [ ! -z "${{ inputs.gcc }}" ] && [ "${{ inputs.gcc }}" != "all" ]; then
             ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
           fi
+          # no-optimization
+          if [ "${{ inputs.no_optimization }}" == "true" ]; then
+            ARGS="$ARGS --no-optimization"
+          fi
+          # verbose
+          if [ "${{ inputs.verbose }}" == "true" ]; then
+            ARGS="$ARGS --verbose"
+          fi
           # exceptions
           if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
             no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.gcc_exceptions }}")
@@ -147,15 +187,15 @@ jobs:
 
   build_clang:
     runs-on:
-      labels: rocky9
+      labels: ${{ fromJSON(inputs.clang_runner_labels) }}
       group: fd-public-repo
     if: ${{ inputs.clang != 'none' }}
     steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@1.81.0
+      - uses: ./.github/actions/submodule-init
+
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: ./.github/actions/deps
         with:
@@ -186,6 +226,14 @@ jobs:
           if [ ! -z "${{ inputs.clang }}" ] && [ "${{ inputs.clang }}" != "all" ]; then
             ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
           fi
+          # no-optimization
+          if [ "${{ inputs.no_optimization }}" == "true" ]; then
+            ARGS="$ARGS --no-optimization"
+          fi
+          # verbose
+          if [ "${{ inputs.verbose }}" == "true" ]; then
+            ARGS="$ARGS --verbose"
+          fi
           # exceptions
           if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then
             no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.clang_exceptions }}")
@@ -209,17 +257,17 @@ jobs:
       matrix:
         gcc_version: [12]
     steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/submodule-init
 
       - name: Run build
         env:
-          MACHINE: linux_gcc_arm_n1
+          MACHINE: linux_gcc_neoverse_n2
         run: |
           if [ "${{ matrix.gcc_version }}" != "8" ]; then
             source /opt/rh/gcc-toolset-${{ matrix.gcc_version }}/enable
           fi
-          ./deps.sh +dev fetch install
+          ./deps.sh fetch install
           make -j clean
           make -j all

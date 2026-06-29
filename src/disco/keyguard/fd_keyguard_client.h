@@ -94,6 +94,44 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          ulong                  sign_data_len,
                          int                    sign_type );
 
+/* fd_keyguard_client_vote_txn_sign sends a remote signing request to
+   the signing server, and blocks (spins) until the response is
+   received.
+
+   Signing is treated as infallible, and there are no error codes or
+   results. If the remote signer is stuck or not running, this function
+   will not timeout and instead hangs forever waiting for a response.
+   This is currently by design.
+
+   A vote transaction can have up to 2 signers: either just the identity
+   key or the combination of the identity key and an authorized voter.
+
+   sign_data should be a pointer to a buffer, with length sign_data_len
+   that will be signed.  The data should correspond to one of the
+   roles described in fd_keyguard.h.  If the remote signing tile
+   receives a malformed signing request, or one for a role that does
+   not correspond to the role assigned to the receiving mcache, it
+   will abort the whole program with a critical error.
+
+   The authority_idx is the index of the second signer on the vote
+   transaction where the index corresponds to the authorized voter
+   the caller passes into the toml.  If there is no second signer
+   (the case where the identity is the only signer) then the
+   authority_idx should be ULONG_MAX.
+
+   The response will be either 1 or 2 64 byte signatures which will be
+   written into the signature buffer which must have the capacity to
+   hold the maximum number of signatures, which is 2.  There will be
+   2 signatures if authority_idx!=ULONG_MAX and 1 otherwise.
+   authority_idx should be in the range [0,16). */
+
+void
+fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
+                                  uchar *                signatures,
+                                  ulong                  authority_idx,
+                                  uchar const *          sign_data,
+                                  ulong                  sign_data_len );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_keyguard_fd_keyguard_client_h */

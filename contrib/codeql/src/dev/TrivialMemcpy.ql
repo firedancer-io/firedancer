@@ -1,0 +1,53 @@
+/**
+ * @name Call to `memcpy` could be an assignment instead
+ * @description Instead of using the `memcpy` function to copy a value
+ *                between two pointers, an assignment statement could be
+ *                used instead. `memcpy` is more susceptible to bugs due
+ *                to weaker typing.
+ * @kind problem
+ * @id firedancer-io/trivial-memcpy
+ * @problem.severity recommendation
+ * @precision high
+ * @tags maintainability
+ *       readability
+ */
+
+import cpp
+import filter
+import fd_memcpy
+
+predicate ignoredLocation(Location l) {
+  // we don't want to change vendored code if not really necessary
+  l.getFile().getBaseName() = "cJSON.c"
+}
+
+/**
+ * The pointer types that are in scope for this query.
+ * We exclude pointer to array types, as they are not directly assignable.
+ * We also exclude some specific types that are used in ways
+ * that make this transformation not possible.
+ */
+class InScopeType extends PointerType {
+  InScopeType() {
+    not this.getBaseType() instanceof ArrayType and
+    not this.getBaseType().getUnspecifiedType().hasName(["fd_txn_p", "fd_hash"])
+  }
+}
+
+/** Gets the type whose size is being queried. */
+Type getSizeofType(SizeofOperator so) {
+  result = so.(SizeofTypeOperator).getTypeOperand() or
+  result = so.(SizeofExprOperator).getExprOperand().getType()
+}
+
+from FunctionCall call, MemcpyFunction memcpy, InScopeType t
+where
+  included(call.getLocation()) and
+  not call.isInMacroExpansion() and
+  not ignoredLocation(call.getLocation()) and
+  call.getTarget() = memcpy and
+  t = call.getArgument(0).getUnspecifiedType() and
+  t = call.getArgument(1).getUnspecifiedType() and
+  t.getBaseType().getUnspecifiedType() = getSizeofType(call.getArgument(2)).getUnspecifiedType()
+select call,
+  "Call to " + memcpy.getName() + " could be rewritten as an assignment." + t.getUnderlyingType()

@@ -4,8 +4,6 @@
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/hmac/fd_hmac.h"
 
-#include <assert.h>
-
 /* Pre-generated keys */
 
 char const fd_tls13_cli_sign_prefix[ 98 ] =
@@ -829,8 +827,11 @@ fd_tls_handle_cert_chain( fd_tls_estate_base_t * const base,
   fd_tls_extract_cert_pubkey_res_t extract =
   fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz, fd_uint_if( is_rpk, FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 ) );
 
-  if( FD_UNLIKELY( !extract.pubkey ) )
-    return fd_tls_alert( base, extract.alert, extract.reason );
+  if( FD_UNLIKELY( !extract.pubkey ) ) {
+    uint   alert  = extract.alert  ? extract.alert  : FD_TLS_ALERT_DECODE_ERROR;
+    ushort reason = extract.reason ? extract.reason : FD_TLS_REASON_CERT_PARSE;
+    return fd_tls_alert( base, alert, reason );
+  }
 
   if( expected_pubkey )
     if( FD_UNLIKELY( 0!=memcmp( extract.pubkey, expected_pubkey, 32UL ) ) )

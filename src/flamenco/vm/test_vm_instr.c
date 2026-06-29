@@ -4,8 +4,7 @@
 #include "fd_vm.h"
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
-#include "test_vm_util.h"
-#include <assert.h>
+#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -86,7 +85,7 @@ typedef struct test_parser test_parser_t;
 static void
 parse_advance( test_parser_t * p,
                ulong           n ) {
-  assert( p->cur+n <= p->end );
+  FD_TEST( p->cur+n <= p->end );
   for( ulong i=0UL; i<n; i++ ) {
     if( p->cur[i]=='\n' ) {
       p->line++;
@@ -133,7 +132,7 @@ parse_hex_buf( test_parser_t * p,
   }
 
   uchar * buf = malloc( sz );
-  assert( buf );
+  FD_TEST( buf );
 
   /* Second pass: Deserialize */
 
@@ -276,7 +275,7 @@ parse_token( test_parser_t *  p,
 
     parse_assign_sep( p );
     ulong op = parse_hex_int( p );
-    assert( op <= UCHAR_MAX );
+    FD_TEST( op <= UCHAR_MAX );
     p->input.op = (uchar)op;
 
   } else if( 0==strncmp( word, "dst", word_len ) ) {
@@ -295,7 +294,7 @@ parse_token( test_parser_t *  p,
 
     parse_assign_sep( p );
     ulong off = parse_hex_int( p );
-    assert( off <= USHORT_MAX );
+    FD_TEST( off <= USHORT_MAX );
     p->input.off = (ushort)off;
 
   } else if( 0==strncmp( word, "imm", word_len ) ) {
@@ -324,7 +323,7 @@ parse_token( test_parser_t *  p,
   } else if( word_len >= 2 && word[0] == 'r' && fd_isdigit( word[1] ) ) {
 
     ulong reg = fd_cstr_to_uchar( word+1 );
-    assert( reg < REG_CNT );
+    FD_TEST( reg < REG_CNT );
     parse_assign_sep( p );
 
     ulong * out = p->state == PARSE_STATE_ASSERT ? p->effects.reg : p->input.reg;
@@ -403,7 +402,7 @@ run_input( test_input_t const * input,
   /* Set up VM */
 
   uchar * input_copy = malloc( input->input_sz );
-  assert( input_copy );
+  FD_TEST( input_copy );
   memcpy( input_copy, input->input, input->input_sz );
 
   /* Turn input into a single memory region */
@@ -433,47 +432,47 @@ run_input( test_input_t const * input,
     }
   }
 
-  fd_sbpf_calldests_t * calldests =
-      fd_sbpf_calldests_join(
-      fd_sbpf_calldests_new(
-      aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( text_cnt ) ),
-        text_cnt ) );
+  /* SBPF V3+ rejects non-NULL calldests (stricter ELF headers). */
+  fd_sbpf_calldests_t * calldests = NULL;
+  void * calldests_mem = NULL;
+  if( !fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) {
+    calldests_mem = aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( text_cnt ) );
+    calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, text_cnt ) );
+  }
 
   fd_sbpf_syscalls_t * syscalls =
       fd_sbpf_syscalls_join(
       fd_sbpf_syscalls_new(
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) ) );
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_exec_txn_ctx_t   txn_ctx[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
-
   int vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,
-      /* heap_max                             */ 0UL,
-      /* entry_cu                             */ 100UL,
-      /* rodata                               */ (uchar const *)text,
-      /* rodata_sz                            */ text_cnt * sizeof(ulong),
-      /* text                                 */ text,
-      /* text_cnt                             */ text_cnt,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ text_cnt * sizeof(ulong),
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ calldests,
-      /* sbpf_version                         */ sbpf_version,
-      /* syscalls                             */ syscalls,
-      /* trace                                */ NULL,
-      /* sha                                  */ NULL,
-      /* mem_regions                          */ input_region,
-      /* mem_regions_cnt                      */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb */ 0
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ NULL,
+      /* heap_max                               */ 0UL,
+      /* entry_cu                               */ 100UL,
+      /* rodata                                 */ (uchar const *)text,
+      /* rodata_sz                              */ text_cnt * sizeof(ulong),
+      /* text                                   */ text,
+      /* text_cnt                               */ text_cnt,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ text_cnt * sizeof(ulong),
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ calldests,
+      /* sbpf_version                           */ sbpf_version,
+      /* syscalls                               */ syscalls,
+      /* trace                                  */ NULL,
+      /* sha                                    */ NULL,
+      /* mem_regions                            */ input_region,
+      /* mem_regions_cnt                        */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ 0,
+      /* syscall_parameter_address_restrictions */ 0,
+      /* virtual_address_space_adjustments      */ 0,
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
-  assert( vm_ok );
+  FD_TEST( vm_ok );
 
   for( uint i=0; i<REG_CNT; i++ ) {
     vm->reg[i] = input->reg[i];
@@ -483,7 +482,8 @@ run_input( test_input_t const * input,
 
   /* Clean up */
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
-  free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
+  if( calldests ) free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
+  else            free( calldests_mem );
   free( input_copy );
 }
 
@@ -547,7 +547,7 @@ handle_file( char const * file_path,
   }
 
   char * buf = malloc( (ulong)st.st_size );
-  assert( buf );
+  FD_TEST( buf );
 
   if( FD_UNLIKELY( st.st_size!=read( fd, buf, (ulong)st.st_size ) ) ) {
     FD_LOG_ERR(( "read(%s) failed (%d-%s)", file_path, errno, fd_io_strerror( errno ) ));
@@ -586,15 +586,12 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  (void)fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, NULL );
+  (void)fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 0    );
+  (void)fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, 0    );
+
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                 );
-  ulong        page_cnt       = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                        );
-  ulong        numa_idx       = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx(cpu_idx) );
-
-  /* TODO set up a workspace */
-  (void)_page_sz; (void)page_cnt; (void)numa_idx;
 
   static fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
@@ -607,7 +604,7 @@ main( int     argc,
   for( int i=1; i<argc; i++ ) {
     int flag = 0==strncmp( argv[i], "--", 2 );
     if( literal || !flag ) {
-      fail += handle_file( argv[i], vm, TEST_VM_DEFAULT_SBPF_VERSION );
+      fail += handle_file( argv[i], vm, FD_SBPF_V0 );
       executed_cnt += 1;
     } else {
       if( argv[i][2] == '\0' ) literal = 1;
@@ -650,6 +647,18 @@ main( int     argc,
       }
       if( !fail ) FD_LOG_NOTICE(( "v2 pass" ));
       else        FD_LOG_WARNING(( "v2 fail cnt %d", fail ));
+    }
+
+    {
+      char const * default_paths[] = {
+        "src/flamenco/vm/instr_test/v3/jump.instr",
+        NULL
+      };
+      for( char const ** path=default_paths; *path; path++ ) {
+        fail += handle_file( *path, vm, 3 );
+      }
+      if( !fail ) FD_LOG_NOTICE(( "v3 pass" ));
+      else        FD_LOG_WARNING(( "v3 fail cnt %d", fail ));
     }
   }
 

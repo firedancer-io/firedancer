@@ -1,5 +1,12 @@
 #include "./fd_bn254.h"
 #include "../fiat-crypto/bn254_64.c"
+#if FD_HAS_S2NBIGNUM
+#include <s2n-bignum.h>
+#endif
+#if FD_HAS_X86
+#include <immintrin.h>
+#endif
+
 
 /* Fp = base field */
 
@@ -65,14 +72,15 @@ fd_bn254_fp_is_neg_nm( fd_bn254_fp_t * x ) {
 }
 
 static inline fd_bn254_fp_t *
-fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
-                             uchar const     buf[32],
-                             int *           is_inf,
-                             int *           is_neg ) {
+fd_bn254_fp_frombytes_nm( fd_bn254_fp_t * r,
+                          uchar const     buf[32],
+                          int             big_endian,
+                          int *           is_inf,
+                          int *           is_neg ) {
   /* Flags (optional) */
   if( is_inf != NULL /* && is_neg != NULL */ ) {
-    *is_inf = !!(buf[0] & FLAG_INF);
-    *is_neg = !!(buf[0] & FLAG_NEG);
+    *is_inf = !!(buf[ big_endian ? 0 : 31 ] & FLAG_INF);
+    *is_neg = !!(buf[ big_endian ? 0 : 31 ] & FLAG_NEG);
     /* If both flags are set (bit 6, 7), return error.
        https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/serialization_flags.rs#L75 */
     if( FD_UNLIKELY( *is_inf && *is_neg ) ) {
@@ -81,9 +89,11 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
   }
 
   fd_memcpy( r, buf, 32 );
-  fd_uint256_bswap( r, r );
+  if( FD_BIG_ENDIAN_LIKELY( big_endian ) ) {
+    fd_uint256_bswap( r, r );
+  }
   if( is_inf != NULL ) {
-    r->buf[31] &= FLAG_MASK;
+    r->buf[ 31 ] &= FLAG_MASK;
   }
 
   /* Field element */
@@ -94,9 +104,12 @@ fd_bn254_fp_frombytes_be_nm( fd_bn254_fp_t * r,
 }
 
 static inline uchar *
-fd_bn254_fp_tobytes_be_nm( uchar           buf[32],
-                           fd_bn254_fp_t * a ) {
-  fd_uint256_bswap( a, a );
+fd_bn254_fp_tobytes_nm( uchar           buf[32],
+                        fd_bn254_fp_t * a,
+                        int             big_endian ) {
+  if( FD_BIG_ENDIAN_LIKELY( big_endian ) ) {
+    fd_uint256_bswap( a, a );
+  }
   fd_memcpy( buf, a, 32 );
   return buf;
 }
@@ -149,7 +162,8 @@ fd_bn254_fp_set( fd_bn254_fp_t * r,
   return r;
 }
 
-static inline fd_bn254_fp_t *
+/* r = a + b mod p, output in [0, p). */
+INLINE fd_bn254_fp_t *
 fd_bn254_fp_add( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
@@ -157,7 +171,34 @@ fd_bn254_fp_add( fd_bn254_fp_t * r,
   return r;
 }
 
-static inline fd_bn254_fp_t *
+/* r = a + b, output in [0, 2p).
+   Safe only if the result feeds into a multiplication, but should not
+   be fed into fp_sub, fp_neg, fp_eq, frombytes, halve, etc. */
+INLINE fd_bn254_fp_t *
+fd_bn254_fp_add_lazy( fd_bn254_fp_t * r,
+                      fd_bn254_fp_t const * a,
+                      fd_bn254_fp_t const * b ) {
+#if FD_HAS_X86
+  unsigned long long t0, t1, t2, t3;
+  uchar c = 0;
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[0], (unsigned long long)b->limbs[0], &t0 );
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[1], (unsigned long long)b->limbs[1], &t1 );
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[2], (unsigned long long)b->limbs[2], &t2 );
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[3], (unsigned long long)b->limbs[3], &t3 );
+  (void)c; /* p < 2^254 so c is always 0 for a, b < 2p */
+  r->limbs[0] = (ulong)t0;
+  r->limbs[1] = (ulong)t1;
+  r->limbs[2] = (ulong)t2;
+  r->limbs[3] = (ulong)t3;
+  return r;
+#else
+  /* We find no performance improvement on non-x86 targets, so we
+     fallback to the original fp_add. */
+  return fd_bn254_fp_add( r, a, b );
+#endif
+}
+
+INLINE fd_bn254_fp_t *
 fd_bn254_fp_sub( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
@@ -165,7 +206,7 @@ fd_bn254_fp_sub( fd_bn254_fp_t * r,
   return r;
 }
 
-static inline fd_bn254_fp_t *
+INLINE fd_bn254_fp_t *
 fd_bn254_fp_neg( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a ) {
   fiat_bn254_opp( r->limbs, a->limbs );
@@ -195,11 +236,14 @@ fd_bn254_fp_sqr( fd_bn254_fp_t * r,
 fd_bn254_fp_t *
 fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
                  fd_bn254_fp_t const *    a,
-                 fd_uint256_t const *     b ) {
+                 fd_uint256_t  const *    b ) {
   fd_bn254_fp_set_one( r );
+  if( fd_uint256_is_zero( b ) ) return r; /* x^0 = 1 */
 
+  /* There must be a bit set, as b>0, so if we reach i==0, it must be set. */
   int i = 255;
-  while( !fd_uint256_bit( b, i) ) i--;
+  while( !fd_uint256_bit( b, i ) ) i--;
+
   for( ; i>=0; i--) {
     fd_bn254_fp_sqr( r, r );
     if( fd_uint256_bit( b, i ) ) {
@@ -209,13 +253,28 @@ fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
   return r;
 }
 
+/* r = 1 / a mod p. a MUST not be 0. */
 static inline fd_bn254_fp_t *
 fd_bn254_fp_inv( fd_bn254_fp_t * r,
                   fd_bn254_fp_t const * a ) {
+#if FD_HAS_S2NBIGNUM
+  /* a is in montgomery form, giving a' = a*R mod p.
+     bignum_modinv treats its inputs as canonical residues, so it computes:
+      z = (a*R)^{-1} = a^{-1} * R^{-1}
+     We can apply to_montgomery twice, each time multiplying by R, giving:
+      r = a^{-1} * R^{-1} * R * R = a^{-1} * R = (a^{-1})' */
+  ulong tmp[12];
+  ulong z[4];
+  bignum_modinv( 4, z, a->limbs, fd_bn254_const_p->limbs, tmp );
+  fiat_bn254_to_montgomery( r->limbs, z );
+  fiat_bn254_to_montgomery( r->limbs, r->limbs );
+  return r;
+#else
   fd_uint256_t p_minus_2[1];
   fd_bn254_fp_set( p_minus_2, fd_bn254_const_p );
-  p_minus_2->limbs[0] = p_minus_2->limbs[0] - 2UL;
+  p_minus_2->limbs[0] -= 2UL;
   return fd_bn254_fp_pow( r, a, p_minus_2 );
+#endif
 }
 
 static inline fd_bn254_fp_t *

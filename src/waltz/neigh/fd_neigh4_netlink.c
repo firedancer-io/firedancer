@@ -93,11 +93,6 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
 
   }
 
-  if( FD_UNLIKELY( !mac_addr.ul || !ip4_dst ) ) {
-    FD_LOG_DEBUG(( "Ignoring neighbor table update with missing or invalid L2 or L3 address" ));
-    return;
-  }
-
   /* Determine if we should remove or insert/update entry */
 
   int remove = 0;
@@ -117,29 +112,33 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
     remove = 1;
   }
 
+  if( FD_UNLIKELY( !ip4_dst ) ) {
+    FD_LOG_DEBUG(( "Ignoring neighbor table update with missing or invalid L3 address" ));
+    return;
+  }
+
   /* Perform update */
 
   if( remove ) {
-
-    fd_neigh4_hmap_remove( map, &ip4_dst, NULL, FD_MAP_FLAG_BLOCKING );
-
+    fd_neigh4_entry_t * e = fd_neigh4_hmap_update( map, &ip4_dst );
+    if( FD_LIKELY( e ) ) fd_neigh4_hmap_remove( map, e );
   } else {
-
-    fd_neigh4_hmap_query_t query[1];
-    int prepare_res = fd_neigh4_hmap_prepare( map, &ip4_dst, NULL, query, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( prepare_res!=FD_MAP_SUCCESS ) ) {
-      FD_LOG_WARNING(( "Failed to update neighbor table" ));
+    if( FD_UNLIKELY( !mac_addr.ul ) ) {
+      FD_LOG_DEBUG(( "Ignoring neighbor table update with missing or invalid L2 address" ));
       return;
     }
 
-    fd_neigh4_entry_t * ele = fd_neigh4_hmap_query_ele( query );
+    fd_neigh4_entry_t to_insert = {
+      .ip4_addr = ip4_dst,
+      .state    = FD_NEIGH4_STATE_ACTIVE,
+    };
+    memcpy( to_insert.mac_addr, mac_addr.u6, 6 );
 
-    ele->state    = FD_NEIGH4_STATE_ACTIVE;
-    ele->ip4_addr = ip4_dst;
-    memcpy( ele->mac_addr, mac_addr.u6, 6 );
-
-    fd_neigh4_hmap_publish( query );
-
+    fd_neigh4_entry_t * ele = fd_neigh4_hmap_upsert( map, &ip4_dst );
+    if( FD_LIKELY( ele ) ) {
+      ulong suppress_until = ele->probe_suppress_until; /* either 0 or some old value */
+      to_insert.probe_suppress_until = suppress_until&FD_NEIGH4_PROBE_SUPPRESS_MASK;
+      fd_neigh4_entry_atomic_st( ele, &to_insert );
+    }
   }
-
 }

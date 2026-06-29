@@ -8,6 +8,99 @@
 #include <linux/rtnetlink.h>
 #include "../../util/fd_util.h"
 
+struct test_neigh_msg {
+  struct nlmsghdr nlh;
+  struct ndmsg    ndm;
+  uchar           attr[ 64 ];
+};
+
+static void
+test_neigh_msg_init( struct test_neigh_msg * msg,
+                     ushort                  type,
+                     ushort                  state,
+                     int                     if_idx ) {
+  memset( msg, 0, sizeof(struct test_neigh_msg) );
+
+  msg->nlh = (struct nlmsghdr) {
+    .nlmsg_type = type,
+    .nlmsg_len  = NLMSG_LENGTH( sizeof(struct ndmsg) )
+  };
+  msg->ndm = (struct ndmsg) {
+    .ndm_family  = AF_INET,
+    .ndm_ifindex = if_idx,
+    .ndm_state   = state
+  };
+}
+
+static void
+test_neigh_msg_add_attr( struct test_neigh_msg * msg,
+                         ushort                  type,
+                         void const *            data,
+                         ulong                   data_sz ) {
+  ulong len  = RTA_LENGTH( data_sz );
+  ulong off  = NLMSG_ALIGN( msg->nlh.nlmsg_len );
+  FD_TEST( off+RTA_ALIGN( len )<=sizeof(struct test_neigh_msg) );
+
+  struct rtattr * rta = (struct rtattr *)( (uchar *)msg + off );
+  rta->rta_type = type;
+  rta->rta_len  = (ushort)len;
+  memcpy( RTA_DATA( rta ), data, data_sz );
+
+  msg->nlh.nlmsg_len = (uint)( off+RTA_ALIGN( len ) );
+}
+
+static void
+test_neigh_msg_add_dst( struct test_neigh_msg * msg,
+                        uint                    ip4_dst ) {
+  test_neigh_msg_add_attr( msg, NDA_DST, &ip4_dst, sizeof(uint) );
+}
+
+static void
+test_neigh_msg_add_lladdr( struct test_neigh_msg * msg,
+                           uchar const            mac_addr[ 6 ] ) {
+  test_neigh_msg_add_attr( msg, NDA_LLADDR, mac_addr, 6UL );
+}
+
+static void
+test_synthetic_neigh_messages( fd_neigh4_hmap_t * map ) {
+  int const if_idx  = 7;
+  uint      ip4_dst = FD_LOAD( uint, "\x0a\x01\x02\x03" );
+  uchar     mac[6]  = { 0x02, 0x00, 0x00, 0x01, 0x02, 0x03 };
+
+  struct test_neigh_msg msg[1];
+  fd_neigh4_entry_t     entry[1];
+
+  test_neigh_msg_init( msg, RTM_NEWNEIGH, NUD_REACHABLE, if_idx );
+  test_neigh_msg_add_dst( msg, ip4_dst );
+  test_neigh_msg_add_lladdr( msg, mac );
+  fd_neigh4_netlink_ingest_message( map, &msg->nlh, (uint)if_idx );
+
+  FD_TEST( fd_neigh4_hmap_query_entry( map, ip4_dst, entry )==FD_MAP_SUCCESS );
+  FD_TEST( entry->state==FD_NEIGH4_STATE_ACTIVE );
+  FD_TEST( !memcmp( entry->mac_addr, mac, 6UL ) );
+
+  test_neigh_msg_init( msg, RTM_DELNEIGH, NUD_FAILED, if_idx );
+  test_neigh_msg_add_dst( msg, ip4_dst );
+  fd_neigh4_netlink_ingest_message( map, &msg->nlh, (uint)if_idx );
+  FD_TEST( fd_neigh4_hmap_query_entry( map, ip4_dst, entry )==FD_MAP_ERR_KEY );
+
+  test_neigh_msg_init( msg, RTM_NEWNEIGH, NUD_REACHABLE, if_idx );
+  test_neigh_msg_add_dst( msg, ip4_dst );
+  test_neigh_msg_add_lladdr( msg, mac );
+  fd_neigh4_netlink_ingest_message( map, &msg->nlh, (uint)if_idx );
+  FD_TEST( fd_neigh4_hmap_query_entry( map, ip4_dst, entry )==FD_MAP_SUCCESS );
+
+  test_neigh_msg_init( msg, RTM_NEWNEIGH, NUD_FAILED, if_idx );
+  test_neigh_msg_add_dst( msg, ip4_dst );
+  fd_neigh4_netlink_ingest_message( map, &msg->nlh, (uint)if_idx );
+  FD_TEST( fd_neigh4_hmap_query_entry( map, ip4_dst, entry )==FD_MAP_ERR_KEY );
+
+  test_neigh_msg_init( msg, RTM_NEWNEIGH, NUD_REACHABLE, if_idx );
+  test_neigh_msg_add_dst( msg, ip4_dst );
+  fd_neigh4_netlink_ingest_message( map, &msg->nlh, (uint)if_idx );
+  FD_TEST( fd_neigh4_hmap_query_entry( map, ip4_dst, entry )==FD_MAP_ERR_KEY );
+}
+
 static void
 dump_neighbor_table( fd_neigh4_hmap_t * map,
                      fd_netlink_t *     netlink1,
@@ -29,18 +122,14 @@ dump_neighbor_table( fd_neigh4_hmap_t * map,
   fputs( "\n", stderr );
 
   /* Reinitialize table */
-
   ulong  ele_max   = fd_neigh4_hmap_ele_max  ( map );
-  ulong  lock_cnt  = fd_neigh4_hmap_lock_cnt ( map );
   ulong  probe_max = fd_neigh4_hmap_probe_max( map );
   ulong  seed      = fd_neigh4_hmap_seed     ( map );
-  void * shmap     = fd_neigh4_hmap_shmap    ( map );
-  void * shele     = fd_neigh4_hmap_shele    ( map );
+  void * shmem     = fd_neigh4_hmap_ele0     ( map );
   void * ljoin     = fd_neigh4_hmap_leave    ( map );
-  fd_neigh4_hmap_delete( shmap );
-  fd_memset( shele, 0, ele_max*sizeof(fd_neigh4_entry_t) );
-  FD_TEST( fd_neigh4_hmap_new( shmap, ele_max, lock_cnt, probe_max, seed ) );
-  FD_TEST( fd_neigh4_hmap_join( ljoin, shmap, shele ) );
+  fd_neigh4_hmap_delete( shmem );
+  FD_TEST( fd_neigh4_hmap_new( shmem, ele_max, 1 ) );
+  FD_TEST( fd_neigh4_hmap_join( ljoin, shmem, ele_max, probe_max, seed ) );
 }
 
 static void
@@ -125,17 +214,17 @@ main( int     argc,
   FD_TEST( netlink1 );
 
   ulong  ele_max   = 16384UL;
-  ulong  lock_cnt  = 4UL;
   ulong  probe_max = 16UL;
   ulong  seed      = 42UL;
-  void * hmap_mem  = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( ele_max, lock_cnt, probe_max ), 1UL );
-  void * ele_mem   = fd_wksp_alloc_laddr( wksp, alignof(fd_neigh4_entry_t), ele_max*sizeof(fd_neigh4_entry_t), 1UL );
-  FD_TEST( hmap_mem ); FD_TEST( ele_mem );
-  FD_TEST( fd_neigh4_hmap_new( hmap_mem, ele_max, lock_cnt, probe_max, seed ) );
+  void * hmap_mem  = fd_wksp_alloc_laddr( wksp, fd_neigh4_hmap_align(), fd_neigh4_hmap_footprint( ele_max ), 1UL );
+  FD_TEST( hmap_mem );
+  FD_TEST( fd_neigh4_hmap_new( hmap_mem, ele_max, 1 ) );
 
   fd_neigh4_hmap_t _map[1];
-  fd_neigh4_hmap_t * map = fd_neigh4_hmap_join( _map, hmap_mem, ele_mem );
+  fd_neigh4_hmap_t * map = fd_neigh4_hmap_join( _map, hmap_mem, ele_max, probe_max, seed );
   FD_TEST( map );
+
+  test_synthetic_neigh_messages( map );
 
   dump_all_neighbor_tables( map, netlink0, netlink1 );
 
@@ -143,8 +232,8 @@ main( int     argc,
   fd_netlink_fini( netlink1 );
 
   fd_neigh4_hmap_leave( map );
+
   fd_wksp_free_laddr( fd_neigh4_hmap_delete( hmap_mem ) );
-  fd_wksp_free_laddr( ele_mem );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

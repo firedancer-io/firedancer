@@ -4,6 +4,12 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 
 source $NETWORK_PARAMETERS_FILE $NETWORK
 echo "Updated network parameters"
+
+# AGAVE_TAG is determined per-ledger from each ledger's version.txt inside the
+# loop below. Whatever is exported here is only used as a fallback if a given
+# ledger's version.txt cannot be read.
+echo "Initial AGAVE_TAG=$AGAVE_TAG (will be overridden per-ledger from version.txt)"
+
 send_slack_message() {
     MESSAGE=$1
     json_payload=$(cat <<EOF
@@ -40,13 +46,14 @@ EOF
     curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_DEBUG_WEBHOOK_URL
 }
 
-send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\` and firedancer cluster version \`$FD_CLUSTER_VERSION\`"
+send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\`"
 CURRENT_MISMATCH_COUNT=0
 CURRENT_FAILURE_COUNT=0
 
 while true; do
     source $NETWORK_PARAMETERS_FILE $NETWORK
     echo "Updated network parameters"
+
     NEWEST_BUCKET=$(gcloud storage ls $BUCKET_ENDPOINT --billing-project=$BILLING_PROJECT | sort -n -t / -k 4 | tail -n 1)
     NEWEST_BUCKET_SLOT=$(echo $NEWEST_BUCKET | awk -F'/' '{print $(NF-1)}')
     LATEST_RUN_BUCKET_SLOT=$(cat $LATEST_RUN_BUCKET_SLOT_FILE)
@@ -56,10 +63,35 @@ while true; do
     if [ "$NEWEST_BUCKET_SLOT" -gt "$LATEST_RUN_BUCKET_SLOT" ]; then
         CURRENT_MISMATCH_COUNT=0
         CURRENT_FAILURE_COUNT=0
+
+        # Determine the agave-ledger-tool version that produced this ledger from
+        # the version.txt that lives alongside the ledger in its bucket, e.g.
+        #   gs://testnet-ledger-us-sv15/410883856/version.txt
+        #   -> "agave-ledger-tool 4.1.0-beta.1 (src:8e81e22a; feat:3b4f0ba8, client:Agave)"
+        VERSION_TXT=$(gcloud storage cat ${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}/version.txt --billing-project=$BILLING_PROJECT 2>/dev/null)
+        AGAVE_VERSION_OUTPUT=$(echo "$VERSION_TXT" | awk '{print $2}')
+        if [ -n "$AGAVE_VERSION_OUTPUT" ]; then
+            export AGAVE_TAG="v${AGAVE_VERSION_OUTPUT}"
+            echo "Using AGAVE_TAG=$AGAVE_TAG (from ${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}/version.txt)"
+        else
+            echo "Could not read version.txt for slot $NEWEST_BUCKET_SLOT; falling back to AGAVE_TAG=$AGAVE_TAG"
+        fi
+        send_slack_message "Using agave tag \`$AGAVE_TAG\` for ledger \`$NEWEST_BUCKET_SLOT\` (from version.txt)"
+
         cd $AGAVE_REPO
         git pull
         git checkout $AGAVE_TAG
-        cargo build --release
+
+        AGAVE_VERSION=$(echo "$AGAVE_TAG" | sed 's/^v//')
+        if [ "$(printf '%s\n' "$AGAVE_VERSION" "3.1.0" | sort -V | head -n1)" = "3.1.0" ]; then
+            cargo clean
+            cargo build --manifest-path dev-bins/Cargo.toml -p agave-ledger-tool --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/dev-bins/target/release/agave-ledger-tool"
+        else
+            cargo clean
+            cargo build --release
+            AGAVE_LEDGER_TOOL="${AGAVE_REPO}/target/release/agave-ledger-tool"
+        fi
 
         send_slack_message "Bucket Slot \`$NEWEST_BUCKET_SLOT\` is greater than the last run bucket slot \`$LATEST_RUN_BUCKET_SLOT\`"
 
@@ -92,8 +124,7 @@ while true; do
                 fi
             done
             gcloud storage cp ${SOLANA_BUCKET_PATH}/rocksdb.tar.zst . --billing-project=$BILLING_PROJECT
-            zstd -d rocksdb.tar.zst && sleep 5 && rm -rf rocksdb.tar.zst
-            tar -xf rocksdb.tar && sleep 5 && rm -rf rocksdb.tar
+            tar --zstd -xf rocksdb.tar.zst && sleep 5 && rm -f rocksdb.tar.zst
             send_slack_message "Downloaded rocksdb to \`$LEDGER_DIR/rocksdb\`"
         fi
         gcloud storage cp ${SOLANA_BUCKET_PATH}/bounds.txt . --billing-project=$BILLING_PROJECT
@@ -165,7 +196,7 @@ while true; do
 
         while [ $DONE -eq 0 ]; do
             cd $FIREDANCER_REPO
-            send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\` and cluster version \`$FD_CLUSTER_VERSION\`"
+            send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\`"
             set +e
 
             cp $FIREDANCER_REPO/contrib/offline-replay/offline_replay.toml $LEDGER_DIR
@@ -173,17 +204,13 @@ while true; do
             export ledger=$LEDGER_DIR
             echo "ledger: $ledger"
             export end_slot=$ROCKSDB_ROOTED_MAX
-            export funk_pages=$BACKTEST_FUNK_PAGES
             export index_max=$INDEX_MAX
-            export cluster_version=$FD_CLUSTER_VERSION
             export heap_size=$HEAP_SIZE
             export log=$TEMP_LOG
 
             sed -i "s#{ledger}#${ledger}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{end_slot}#${end_slot}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{funk_pages}#${funk_pages}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{index_max}#${index_max}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{cluster_version}#${cluster_version}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{heap_size}#${heap_size}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{log}#${log}#g" "$LEDGER_DIR/offline_replay.toml"
 
@@ -295,7 +322,7 @@ while true; do
                 # create new snapshot at that slot
                 if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
                     echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
-                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR
+                    $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                     sleep 10
                     rm $LEDGER_DIR/ledger_tool -rf
                     # delete old snapshot (LEADER_REPLAY_SNAPSHOT)
@@ -308,7 +335,7 @@ while true; do
 
                 # create a new base snapshot for rooted slot right after the mismatch slot
                 echo "Creating new snapshot at $NEXT_ROOTED_SLOT"
-                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR
+                $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
 
@@ -328,20 +355,17 @@ while true; do
                 MINIMIZED_END_SLOT=$((NEXT_ROOTED_SLOT+32))
                 send_slack_message "Minifying rocksdb for mismatch"
                 "$OBJDIR"/bin/fd_ledger \
-                    --reset 1 \
                     --cmd minify \
                     --rocksdb $LEDGER_DIR/rocksdb \
                     --minified-rocksdb $MISMATCH_DIR/rocksdb \
                     --start-slot $PREVIOUS_ROOTED_SLOT \
-                    --end-slot $MINIMIZED_END_SLOT \
-                    --page-cnt $PAGES \
-                    --copy-txn-status 0 >> $LOG 2>&1
+                    --end-slot $MINIMIZED_END_SLOT >> $LOG 2>&1
                 status=$?
                 sleep 10
 
                 mv $LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
                 echo "Creating minimized snapshot for mismatch"
-                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT
+                $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT --enable-capitalization-change
                 sleep 10
                 rm $LEDGER_DIR/ledger_tool -rf
                 mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
@@ -365,7 +389,7 @@ while true; do
 
                 ledger_name=$(basename $MISMATCH_DIR)
                 end_slot=$((NEXT_ROOTED_SLOT+5))
-                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -y 10 -m 2000000 -e $end_slot -c $FD_CLUSTER_VERSION\`\`\`"
+                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -m 2000000 -e $end_slot\`\`\`"
 
             fi
         done

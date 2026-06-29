@@ -1,4 +1,4 @@
-ifdef FD_HAS_ALLOCA
+ifdef FD_HAS_HOSTED
 $(call add-objs,fd_quic_trace_frame,fddev_shared)
 $(call add-objs,fd_quic_trace_main,fddev_shared)
 $(call add-objs,fd_quic_trace_rx_tile,fddev_shared)

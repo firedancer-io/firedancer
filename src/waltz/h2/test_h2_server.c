@@ -67,9 +67,10 @@ static fd_h2_stream_t *
 test_cb_stream_create( fd_h2_conn_t * conn,
                        uint           stream_id ) {
   (void)conn;
+  (void)stream_id;
   fd_h2_stream_t * stream = g_app->stream;
   if( FD_UNLIKELY( stream->stream_id ) ) return NULL;
-  fd_h2_stream_open( fd_h2_stream_init( stream ), conn, stream_id );
+  fd_h2_stream_init( stream );
   return stream;
 }
 

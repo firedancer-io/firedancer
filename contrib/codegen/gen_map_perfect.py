@@ -85,6 +85,31 @@ fd_pack_unwritable = [
     "Secp256r1SigVerify1111111111111111111111111",
 ]
 
+fd_pack_tip_prog_blacklist = [
+    "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt",
+    "DCN82qDxJAQuSqHhv2BJuAgi41SPeKZB5ioBCTMNDrCC",
+    "HgzT81VF1xZ3FT9Eq1pHhea7Wcfq2bv4tWTP3VvJ8Y9D",
+    "AXaHLTKzVyRUccE8bPskqsnc1YcTd648PjmMwKWS7R6N",
+    # Mainnet tip accounts
+    "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+    "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+    "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+    "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+    "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+    "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+    # Testnet tip accounts
+    "BkMx5bRzQeP6tUZgzEs3xeDWJfQiLYvNDqSgmGZKYJDq",
+    "CwWZzvRgmxj9WLLhdoWUVrHZ1J8db3w2iptKuAitHqoC",
+    "4uRnem4BfVpZBv7kShVxUYtcipscgZMSHi3B9CSL6gAA",
+    "AzfhMPcx3qjbvCK3UUy868qmc5L451W341cpFqdL3EBe",
+    "84DrGKhycCUGfLzw8hXsUYX9SnWdh2wW3ozsTPrC5xyg",
+    "7aewvu8fMf1DK4fKoMXKfs3h3wpAQ7r7D8T1C71LmMF",
+    "G2d63CEgKBdgtpYT2BuheYQ9HFuFCenuHLNyKVpqAuSD",
+    "F7ThiQUBYiEcyaxpmMuUeACdoiSLKg4SZZ8JSfpFNwAf",
+]
+
 def map_perfect_el(s):
     x = b58decode(s)
     return x[8] | (x[9]<<8) | (x[10]<<16) | (x[11]<<24)
@@ -126,6 +151,13 @@ for c in range(1227063708-1, 1227063708+1):
     if cur == len(arr):
         print(f"fd_pack_unwritable: use MAP_PERFECT_HASH_C = {c}")
         # break
+
+arr = [map_perfect_el(x) for x in fd_pack_tip_prog_blacklist]
+for c in range(240642447-1, 240642447+1):
+    cur = len(set( map_perfect_5(x, c) for x in arr ))
+    if cur == len(arr):
+        print(f"fd_pack_tip_prog_blacklist: use MAP_PERFECT_HASH_C = {c}")
+        break
 
 # the example below runs over all 2^32 keys
 # last c found = ...

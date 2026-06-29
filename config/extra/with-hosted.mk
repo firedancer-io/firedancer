@@ -3,7 +3,7 @@ LDFLAGS+=-z noexecstack -lrt
 
 FD_HAS_HOSTED:=1
 
-UNAME := $(shell uname)
+UNAME?=$(shell uname)
 ifeq ($(UNAME), Linux)
 FD_HAS_LINUX:=1
 endif

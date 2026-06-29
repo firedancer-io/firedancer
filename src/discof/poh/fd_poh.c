@@ -61,7 +61,7 @@ fd_poh_align( void ) {
 
 FD_FN_CONST ulong
 fd_poh_footprint( void ) {
-  return FD_POH_FOOTPRINT;
+  return sizeof(fd_poh_t);
 }
 
 void *
@@ -80,6 +80,7 @@ fd_poh_new( void * shmem ) {
 
   poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
+  poh->wfs_paused = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( poh->magic ) = FD_POH_MAGIC;
@@ -215,6 +216,7 @@ fd_poh_reset( fd_poh_t *          poh,
 
   if( FD_UNLIKELY( poh->state!=STATE_FOLLOWER ) ) transition_to_follower( poh, stem, 0 );
   if( FD_UNLIKELY( poh->slot==poh->next_leader_slot ) ) poh->state = STATE_WAITING_FOR_BANK;
+
 }
 
 void
@@ -223,7 +225,8 @@ fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      hashcnt_per_tick,
                      ulong      ticks_per_slot,
                      ulong      tick_duration_ns,
-                     ulong      max_microblocks_in_slot ) {
+                     ulong      max_microblocks_in_slot,
+                     long       slot_start_ns ) {
   FD_TEST( poh->state==STATE_FOLLOWER || poh->state==STATE_WAITING_FOR_BANK );
   FD_TEST( slot==poh->next_leader_slot );
 
@@ -241,6 +244,7 @@ fd_poh_begin_leader( fd_poh_t * poh,
   else                                          poh->state = STATE_LEADER;
 
   poh->microblocks_lower_bound = 0UL;
+  poh->leader_slot_start_ns    = slot_start_ns;
 
   FD_LOG_INFO(( "begin_leader(slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, poh->last_slot, poh->last_hashcnt ));
 }
@@ -256,6 +260,33 @@ fd_poh_hashing_to_leader_slot( fd_poh_t const * poh ) {
   return hashing && poh->slot<poh->next_leader_slot;
 }
 
+int
+fd_poh_must_tick( fd_poh_t const * poh ) {
+  return poh->state==STATE_LEADER && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL);
+}
+
+int
+fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
+  return poh->state==STATE_LEADER && poh->last_slot<poh->slot;
+}
+
+void
+fd_poh_wfs_done( fd_poh_t * poh ) {
+  poh->wfs_paused = 0;
+  poh->reset_slot_start_ns = fd_log_wallclock();
+}
+
+void
+fd_poh_update_max_microblocks( fd_poh_t * poh,
+                               ulong      new_max ) {
+  ulong inflated = new_max + 1UL;
+
+  /* Guaranteed to be monotonically decreasing. */
+  FD_TEST( inflated <= poh->max_microblocks_per_slot );
+  poh->max_microblocks_per_slot = inflated;
+  FD_TEST( poh->max_microblocks_per_slot >= poh->microblocks_lower_bound );
+}
+
 void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
@@ -266,7 +297,10 @@ fd_poh_done_packing( fd_poh_t * poh,
                 microblocks_in_slot ));
   FD_TEST( poh->microblocks_lower_bound==microblocks_in_slot );
   FD_TEST( poh->microblocks_lower_bound<=poh->max_microblocks_per_slot );
-  poh->microblocks_lower_bound += poh->max_microblocks_per_slot - microblocks_in_slot;
+
+  poh->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
+                                + (poh->max_microblocks_per_slot-1UL) /* the canonical microblock limit */
+                                - microblocks_in_slot /* the actual microblock count */;
   FD_TEST( poh->microblocks_lower_bound==poh->max_microblocks_per_slot );
 }
 
@@ -326,6 +360,7 @@ fd_poh_advance( fd_poh_t *          poh,
                 int *               opt_poll_in,
                 int *               charge_busy ) {
   if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return;
+  if( FD_UNLIKELY( poh->wfs_paused ) ) return;
   if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay tile, do not do any hashing. */
@@ -334,7 +369,9 @@ fd_poh_advance( fd_poh_t *          poh,
 
   /* If we have skipped ticks pending because we skipped some slots to
      become leader, register them now one at a time. */
-  if( FD_UNLIKELY( poh->state==STATE_LEADER && poh->last_slot<poh->slot ) ) {
+  if( FD_UNLIKELY( fd_poh_must_publish_skipped_tick( poh ) ) ) {
+    FD_TEST( poh->hashcnt==0UL ); /* Current hashcnt stays 0 until the math below is run at least once. */
+    FD_TEST( !(poh->last_hashcnt%poh->hashcnt_per_tick) ); /* While skipped ticks are being published, last_hashcnt marches forward in increments of hashcnt_per_tick. */
     ulong publish_hashcnt = poh->last_hashcnt+poh->hashcnt_per_tick;
     ulong tick_idx = (poh->last_slot*poh->ticks_per_slot+publish_hashcnt/poh->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
 
@@ -353,21 +390,32 @@ fd_poh_advance( fd_poh_t *          poh,
 
   /* If we are the leader, always leave enough capacity in the slot so
      that we can mixin any potential microblocks still coming from the
-     pack tile for this slot. */
-  ulong max_remaining_microblocks = poh->max_microblocks_per_slot - poh->microblocks_lower_bound;
+     pack tile for this slot.
 
-  /* With hashcnt_per_tick hashes per tick, we actually get
-     hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
-     span that we need to reserve, we also need to reserve the hashcnt
-     for the tick, hence the +
-     max_remaining_microblocks/(hashcnt_per_tick-1) rounded up.
+     When not leading (FOLLOWER or WAITING_FOR_SLOT), no microblocks
+     will be mixed in, so there is nothing to reserve so
+     restricted_hashcnt does not need to be reduced from hashcnt_per_slot. */
+  ulong max_remaining_microblocks;
+  ulong restricted_hashcnt;
+  if( FD_LIKELY( poh->state==STATE_LEADER ) ) {
+    max_remaining_microblocks = poh->max_microblocks_per_slot - poh->microblocks_lower_bound;
 
-     However, if hashcnt_per_tick is 1 because we're in low power mode,
-     this should probably just be max_remaining_microblocks. */
-  ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks;
-  if( FD_LIKELY( !low_power_mode ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+poh->hashcnt_per_tick-2UL)/(poh->hashcnt_per_tick-1UL);
+    /* With hashcnt_per_tick hashes per tick, we actually get
+       hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
+       span that we need to reserve, we also need to reserve the hashcnt
+       for the tick, hence the +
+       max_remaining_microblocks/(hashcnt_per_tick-1) rounded up.
 
-  ulong restricted_hashcnt = fd_ulong_if( poh->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, poh->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
+       However, if hashcnt_per_tick is 1 because we're in low power mode,
+       this should probably just be max_remaining_microblocks. */
+    ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks;
+    if( FD_LIKELY( !low_power_mode ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+poh->hashcnt_per_tick-2UL)/(poh->hashcnt_per_tick-1UL);
+
+    restricted_hashcnt = fd_ulong_if( poh->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, poh->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
+  } else {
+    max_remaining_microblocks = 0UL;
+    restricted_hashcnt        = poh->hashcnt_per_slot;
+  }
 
   ulong min_hashcnt = poh->hashcnt;
 
@@ -483,7 +531,7 @@ fd_poh_advance( fd_poh_t *          poh,
   /* Now figure out how many hashes are needed to "catch up" the hash
      count to the current system clock, and clamp it to the allowed
      range. */
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( poh->clock );
   ulong target_hashcnt;
   if( FD_LIKELY( poh->state==STATE_FOLLOWER ||poh->state==STATE_WAITING_FOR_SLOT ) ) {
     target_hashcnt = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;
@@ -567,10 +615,14 @@ fd_poh_advance( fd_poh_t *          poh,
     }
     case STATE_WAITING_FOR_SLOT:
     case STATE_FOLLOWER: {
-      if( FD_UNLIKELY( !(poh->hashcnt%poh->hashcnt_per_tick ) ) ) {
+      if( FD_UNLIKELY( !(poh->hashcnt%poh->hashcnt_per_tick ) && poh->next_leader_slot!=ULONG_MAX ) ) {
         /* We finished a tick while not leader... save the current hash
            so it can be played back into the bank when we become the
-           leader. */
+           leader.
+
+           If next_leader_slot is ULONG_MAX, we have no upcoming leader
+           slot and these tick hashes will never be published, so we
+           skip storing them. */
         ulong tick_idx = (poh->slot*poh->ticks_per_slot+poh->hashcnt/poh->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
         fd_memcpy( poh->skipped_tick_hashes[ tick_idx ], poh->hash, 32UL );
 
@@ -650,6 +702,7 @@ fd_poh1_mixin( fd_poh_t *          poh,
   if( FD_UNLIKELY( slot!=poh->next_leader_slot || slot!=poh->slot ) ) {
     FD_LOG_ERR(( "packed too early or late slot=%lu, current_slot=%lu", slot, poh->slot ));
   }
+  if( FD_UNLIKELY( (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL) ) ) FD_LOG_CRIT(( "a tick will be skipped due to hashcnt %lu hashcnt_per_tick %lu", poh->hashcnt, poh->hashcnt_per_tick ));
 
   FD_TEST( poh->state==STATE_LEADER );
   FD_TEST( poh->microblocks_lower_bound<poh->max_microblocks_per_slot );

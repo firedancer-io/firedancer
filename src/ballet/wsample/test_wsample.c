@@ -64,7 +64,7 @@ static inline void
 test_probability_dist_replacement( void ) {
   fd_chacha_rng_t _rng[1];
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-  fd_chacha20_rng_init( rng, seed );
+  fd_chacha_rng_init( rng, seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   for( ulong i=0UL; i<1024UL; i++ ) weights[i] = 2000000UL / (i+1UL);
 
@@ -101,7 +101,7 @@ static inline void
 test_probability_dist_noreplacement( void ) {
   fd_chacha_rng_t _rng[1];
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-  fd_chacha20_rng_init( rng, seed );
+  fd_chacha_rng_init( rng, seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   for( ulong sz=1UL; sz<1024UL; sz+=113UL ) {
     void * partial = fd_wsample_new_init( _shmem, rng, sz, 1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
@@ -184,19 +184,18 @@ test_probability_dist_noreplacement( void ) {
 
 static void
 test_matches_solana( void ) {
-  /* Adopted from test_repeated_leader_schedule_specific: */
   fd_chacha_rng_t _rng[1];
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_MOD ) );
   uchar zero_seed[32] = {0};
 
   void * partial = fd_wsample_new_init( _shmem, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
   fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ), 0UL ) );
-  fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
+  fd_wsample_seed_rng( tree, zero_seed );
 
-  FD_TEST( fd_wsample_sample( tree ) == 0UL );
-  FD_TEST( fd_wsample_sample( tree ) == 0UL );
-  FD_TEST( fd_wsample_sample( tree ) == 0UL );
   FD_TEST( fd_wsample_sample( tree ) == 1UL );
+  FD_TEST( fd_wsample_sample( tree ) == 0UL );
+  FD_TEST( fd_wsample_sample( tree ) == 0UL );
+  FD_TEST( fd_wsample_sample( tree ) == 0UL );
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
   FD_TEST( fd_wsample_sample( tree ) == 0UL );
@@ -207,39 +206,32 @@ test_matches_solana( void ) {
 
   rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
 
-  /* Adopted from test_weighted_shuffle_hard_coded, except they handle
-     the special case for 0 weights inside their WeightedShuffle object,
-     and the test case initially used i32 as weights, which made their
-     Chacha20 object generate i32s instead of u64s. */
   ulong weights2[18] = { 78, 70, 38, 27, 21, 82, 42, 21, 77, 77, 17, 4, 50, 96, 83, 33, 16, 72 };
 
   memset( zero_seed, 48, 32UL );
-  fd_chacha20_rng_init( rng, zero_seed );
-
   partial = fd_wsample_new_init( _shmem, rng, 18UL, 0, FD_WSAMPLE_HINT_FLAT );
   for( ulong i=0UL; i<18UL; i++ ) partial = fd_wsample_new_add( partial, weights2[i] );
   tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
-  fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
+  fd_wsample_seed_rng( tree, zero_seed );
 
-
-  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  9UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  3UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 12UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 15UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  0UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 13UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  8UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  6UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 14UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  0UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 17UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  1UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 12UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  3UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) == 16UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  5UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 15UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  9UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  2UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  1UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 14UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) ==  6UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 11UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 13UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 17UL );
-  FD_TEST( fd_wsample_sample_and_remove( tree ) == 10UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  4UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  7UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 10UL );
+  FD_TEST( fd_wsample_sample_and_remove( tree ) == 11UL );
 
   fd_wsample_delete( fd_wsample_leave( tree ) );
   fd_chacha_rng_delete( fd_chacha_rng_leave( rng ) );
@@ -252,7 +244,7 @@ test_sharing( void ) {
 
   for( ulong i=0UL; i<0x100UL; i++ ) {
     fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-    fd_chacha20_rng_init( rng, zero_seed );
+    fd_chacha_rng_init( rng, zero_seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
     void * pl1 = fd_wsample_new_init( _shmem , rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
     void * pl2 = fd_wsample_new_init( _shmem2, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
@@ -283,7 +275,7 @@ test_restore_disabled( void ) {
   uchar zero_seed[32] = {0};
 
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-  fd_chacha20_rng_init( rng, zero_seed );
+  fd_chacha_rng_init( rng, zero_seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   void * partial1 = fd_wsample_new_init( _shmem,  rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
   void * partial2 = fd_wsample_new_init( _shmem2, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
@@ -316,7 +308,7 @@ test_remove_idx( void ) {
   uchar zero_seed[32] = {0};
 
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-  fd_chacha20_rng_init( rng, zero_seed );
+  fd_chacha_rng_init( rng, zero_seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   void * partial = fd_wsample_new_init( _shmem, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
   fd_wsample_t * sample = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial, 2UL ), 1UL ), 0UL ) );
@@ -419,7 +411,7 @@ static void
 test_poison( void ) {
   fd_chacha_rng_t _rng[1];
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( _rng, FD_CHACHA_RNG_MODE_SHIFT ) );
-  fd_chacha20_rng_init( rng, seed );
+  fd_chacha_rng_init( rng, seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
 
   void * partial = fd_wsample_new_init( _shmem, rng, 23UL, 1, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
 

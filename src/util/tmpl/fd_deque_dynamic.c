@@ -598,7 +598,7 @@ DEQUE_(iter_done_rev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   return !iter.rem;
 }
 
-static inline DEQUE_(iter_t)
+__attribute__((warn_unused_result)) static inline DEQUE_(iter_t)
 DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   iter.rem--;
@@ -606,7 +606,7 @@ DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   return iter;
 }
 
-static inline DEQUE_(iter_t)
+__attribute__((warn_unused_result)) static inline DEQUE_(iter_t)
 DEQUE_(iter_prev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   iter.rem--;

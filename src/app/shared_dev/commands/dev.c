@@ -5,6 +5,7 @@
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/watch/watch.h"
 #include "../../../discof/genesis/genesis_hash.h"
+#include "../../../disco/net/fd_net_tile.h"
 
 #include <stdio.h>
 #include <stdlib.h> /* setenv */
@@ -27,9 +28,6 @@ dev_cmd_args( int *    pargc,
   args->dev.no_init_workspaces = fd_env_strip_cmdline_contains( pargc, pargv, "--no-init-workspaces" );
   args->dev.no_agave = fd_env_strip_cmdline_contains( pargc, pargv, "--no-agave"  ) ||
                        fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" );
-  const char * debug_tile = fd_env_strip_cmdline_cstr( pargc, pargv, "--debug-tile", NULL, NULL );
-  if( FD_UNLIKELY( debug_tile ) )
-    strncpy( args->dev.debug_tile, debug_tile, sizeof( args->dev.debug_tile ) - 1 );
 }
 
 void
@@ -54,16 +52,11 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
 extern int fd_log_private_restore_stderr;
-extern int * fd_log_private_shared_lock;
 
 static void
 parent_signal( int sig ) {
   if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
   if( FD_LIKELY( watch_pid ) )      kill( watch_pid, SIGKILL );
-
-  /* Same hack as in run.c, see comments there. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   if( FD_LIKELY( -1!=fd_log_private_restore_stderr ) ) {
     if( FD_UNLIKELY( -1==dup2( fd_log_private_restore_stderr, STDERR_FILENO ) ) ) FD_LOG_STDOUT(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -94,10 +87,11 @@ update_config_for_dev( fd_config_t * config ) {
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
   char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+  if( FD_LIKELY( config->is_firedancer ) ) fd_memcpy( genesis_path, config->paths.genesis, PATH_MAX );
+  else FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
 
   ushort shred_version = 0;
-  int result = compute_shred_version( genesis_path, &shred_version, NULL );
+  int result = read_genesis_bin( genesis_path, &shred_version, NULL );
   if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {
@@ -106,13 +100,6 @@ update_config_for_dev( fd_config_t * config ) {
     fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
     if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
       shred->shred.expected_shred_version = shred_version;
-    }
-  }
-  ulong store_id = fd_topo_find_tile( &config->topo, "storei", 0 );
-  if( FD_UNLIKELY( store_id!=ULONG_MAX ) ) {
-    fd_topo_tile_t * storei = &config->topo.tiles[ store_id ];
-    if( FD_LIKELY( storei->store_int.expected_shred_version==(ushort)0 ) ) {
-      storei->store_int.expected_shred_version = shred_version;
     }
   }
 }
@@ -129,23 +116,20 @@ run_firedancer_threaded( config_t * config,
   fd_topo_print_log( 0, &config->topo );
 
   run_firedancer_init( config, init_workspaces, 1 );
-  fdctl_setup_netns( config, 1 );
-
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    fd_log_private_shared_lock[ 1 ] = 1;
-  }
-
-  /* This is kind of a hack, but we have to join all the workspaces as read-write
-     if we are running things threaded.  The reason is that if one of the earlier
-     tiles maps it in as read-only, later tiles will reuse the same cached shmem
-     join (the key is only on shmem name, when it should be (name, mode)). */
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->net.bind_address_parsed );
-    (void)fds;
+    fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  initialize_accdb_fd( config );
+
+  /* This is kind of a hack, but we have to join all the workspaces as
+     read-write if we are running things threaded.  The reason is that
+     if one of the earlier tiles maps it in as read-only, later tiles
+     will reuse the same cached shmem join (the key is only on shmem
+     name, when it should be (name, mode)). */
+
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   if( FD_UNLIKELY( agave_main && !config->development.no_agave ) ) {
@@ -168,22 +152,6 @@ dev_cmd_fn( args_t *   args,
 
   update_config_for_dev( config );
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
-
-  if( FD_UNLIKELY( strcmp( "", args->dev.debug_tile ) ) ) {
-    if( FD_LIKELY( config->development.sandbox ) ) {
-      FD_LOG_WARNING(( "disabling sandbox to debug tile `%s`", args->dev.debug_tile ));
-      config->development.sandbox = 0;
-    }
-
-    if( !strcmp( args->dev.debug_tile, "solana" ) ||
-        !strcmp( args->dev.debug_tile, "agave" ) ) {
-      config->development.debug_tile = UINT_MAX; /* Sentinel value representing Agave */
-    } else {
-      ulong tile_id = fd_topo_find_tile( &config->topo, args->dev.debug_tile, 0UL );
-      if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "--debug-tile `%s` not present in topology", args->dev.debug_tile ));
-      config->development.debug_tile = 1U+(uint)tile_id;
-    }
-  }
 
   if( FD_LIKELY( args->dev.no_watch ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );

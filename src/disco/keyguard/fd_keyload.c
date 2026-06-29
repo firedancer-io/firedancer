@@ -49,8 +49,8 @@ fd_keyload_read( int          key_fd,
 
 
   /* Clear out the buffer just in case it was actually used */
-  explicit_bzero( json_key_file, MAX_KEY_FILE_SZ       );
-  explicit_bzero( tok,           KEY_SZ*sizeof(char *) );
+  fd_memzero_explicit( json_key_file, MAX_KEY_FILE_SZ       );
+  fd_memzero_explicit( tok,           KEY_SZ*sizeof(char *) );
 #undef MAX_KEY_FILE_SZ
 #undef MIN_KEY_FILE_SZ
 #undef KEY_SZ
@@ -71,7 +71,7 @@ read_key( char const * key_path,
           "keyfile at `%s` but there is no such file. Either update the "
           "configuration file to point to your validator identity "
           "keypair, or generate a new validator identity key by running "
-          "`fdctl keys new identity`", key_path ));
+          "`fdctl keys new %s`", key_path, key_path ));
     } else
       FD_LOG_ERR(( "Opening key file (%s) failed (%i-%s)", key_path,  errno, fd_io_strerror( errno ) ));
   }
@@ -79,7 +79,7 @@ read_key( char const * key_path,
   return fd_keyload_read( key_fd, key_path, key );
 }
 
-uchar * FD_FN_SENSITIVE
+uchar const * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only ) {
   if( FD_UNLIKELY( !key_path || !key_path[0] ) ) {
@@ -93,10 +93,33 @@ fd_keyload_load( char const * key_path,
 
   read_key( key_path, key_page );
 
-  if( public_key_only ) explicit_bzero( key_page, 32UL );
+  if( public_key_only ) fd_memzero_explicit( key_page, 32UL );
+
+  /* Make the key page read-only now that the key has been loaded. */
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( public_key_only ) return key_page+32UL;
   else                  return key_page;
+}
+
+uchar * FD_FN_SENSITIVE
+fd_keyload_mprotect_wr( uchar const * key,
+                        int           public_key_only ) {
+  uchar * key_mut = (uchar *)key;
+  void * key_page = public_key_only ? key_mut-32UL : key_mut;
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ | PROT_WRITE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return key_mut;
+}
+
+uchar const * FD_FN_SENSITIVE
+fd_keyload_mprotect_ro( uchar * key,
+                        int     public_key_only ) {
+  void * key_page = public_key_only ? key-32UL : key;
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return key;
 }
 
 void FD_FN_SENSITIVE
@@ -107,7 +130,7 @@ fd_keyload_unload( uchar const * key,
 
   if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ | PROT_WRITE ) ) )
     FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  explicit_bzero( key_page, 4096UL );
+  fd_memzero_explicit( key_page, 4096UL );
 
   if( FD_UNLIKELY( -1==munmap( (uchar*)key_page - 2UL*4096UL, sz ) ) )
     FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -136,7 +159,10 @@ fd_keyload_alloc_protected_pages( ulong page_cnt,
   /* Prevent the key page from showing up in core dumps. It shouldn't be
      possible to fork this process typically, but we also prevent any
      forked child from having this page. */
-  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK | MADV_DONTDUMP ) ) )
+  /* `madvise` supports only a single `advice` per call, so we cannot combine via bitwise or. */
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_DONTDUMP ) ) )
     FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return middle_pages;

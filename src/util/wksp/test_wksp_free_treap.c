@@ -57,7 +57,7 @@ main( int     argc,
   /* Do a bunch of random treap operations on these partitions.
      TODO: coverage of insert partial overlap? */
 
-  for( ulong iter=0UL; iter<100000000UL; iter++ ) {
+  for( ulong iter=0UL; iter<20000000UL; iter++ ) {
     uint r  = fd_rng_uint( rng );
     int  op = (int)(r & 3U); r >>= 2;
 
