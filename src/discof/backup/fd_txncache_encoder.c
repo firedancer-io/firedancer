@@ -37,7 +37,7 @@ ENCODE_FN {
     PUSH_VAL( fd_hash_t, bc_shmem->blockhash      );
     PUSH_VAL( ulong,     bc_shmem->txnhash_offset  );
 
-    ulong txn_cnt = txncache_count_txns( tc, bc_idx );
+    ulong txn_cnt = txncache_count_txns( tc, enc->snapshot_root_idx, bc_idx );
     PUSH_VAL( ulong, txn_cnt );
 
     if( txn_cnt ) {
@@ -64,6 +64,10 @@ ENCODE_FN {
       fd_txncache_txnpage_t const * page = &tc->txnpages[ bc->pages[ enc->page_idx ] ];
       while( enc->txn_idx < enc->txns_in_page ) {
         fd_txncache_single_txn_t const * txn = page->txns[ enc->txn_idx ];
+        if( FD_UNLIKELY( !txncache_txn_on_snapshot_root( tc, enc->snapshot_root_idx, txn ) ) ) {
+          enc->txn_idx++;
+          continue;
+        }
         fd_txnhash_20_t h;
         __builtin_memcpy( h.b, txn->txnhash, 20UL );
         PUSH_VAL( fd_txnhash_20_t, h  );

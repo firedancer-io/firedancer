@@ -31,14 +31,34 @@ typedef struct fd_txncache_writer_tc fd_txncache_writer_tc_t;
 #define STATE_DONE      4
 #define STATE_INIT STATE_HEADER
 
+static int
+txncache_txn_on_snapshot_root( fd_txncache_writer_tc_t const * tc,
+                               ulong                           snapshot_root_idx,
+                               fd_txncache_single_txn_t const * txn ) {
+  if( FD_UNLIKELY( snapshot_root_idx>=tc->shmem->active_slots_max ) ) return 0;
+  if( FD_UNLIKELY( txn->fork_id.val>=tc->shmem->active_slots_max ) ) return 0;
+
+  fd_txncache_blockcache_shmem_t const * txn_fork = &tc->blockcache_shmem_pool[ txn->fork_id.val ];
+  if( FD_UNLIKELY( txn_fork->frozen<0 || txn_fork->generation!=txn->generation ) ) return 0;
+
+  return txn->fork_id.val==snapshot_root_idx ||
+         descends_set_test( tc->blockcache_pool[ snapshot_root_idx ].descends, txn->fork_id.val );
+}
+
 static ulong
 txncache_count_txns( fd_txncache_writer_tc_t const * tc,
+                     ulong                           snapshot_root_idx,
                      ulong                           bc_idx ) {
   fd_txncache_blockcache_shmem_t const * bc_shmem = &tc->blockcache_shmem_pool[ bc_idx ];
   fd_txncache_writer_blockcache_t const * bc      = &tc->blockcache_pool[ bc_idx ];
   ulong cnt = 0UL;
   for( ushort p=0; p<bc_shmem->pages_cnt; p++ ) {
-    cnt += FD_TXNCACHE_TXNS_PER_PAGE - (ulong)tc->txnpages[ bc->pages[ p ] ].free;
+    fd_txncache_txnpage_t const * page = &tc->txnpages[ bc->pages[ p ] ];
+    ulong txns_in_page = FD_TXNCACHE_TXNS_PER_PAGE - (ulong)page->free;
+    for( ulong t=0UL; t<txns_in_page; t++ ) {
+      fd_txncache_single_txn_t const * txn = page->txns[ t ];
+      if( FD_LIKELY( txncache_txn_on_snapshot_root( tc, snapshot_root_idx, txn ) ) ) cnt++;
+    }
   }
   return cnt;
 }
@@ -51,6 +71,9 @@ fd_txncache_writer_init( fd_txncache_writer_t * writer,
   writer->state      = STATE_INIT;
   writer->tc         = tc;
   writer->slot       = slot;
+  writer->snapshot_root_idx = root_slist_is_empty( ltc->shmem->root_ll, ltc->blockcache_shmem_pool ) ?
+                              ULONG_MAX :
+                              root_slist_idx_peek_tail( ltc->shmem->root_ll, ltc->blockcache_shmem_pool );
   writer->root_iter  = root_slist_iter_init( ltc->shmem->root_ll, ltc->blockcache_shmem_pool );
   writer->page_idx   = 0UL;
   writer->txn_idx    = 0UL;

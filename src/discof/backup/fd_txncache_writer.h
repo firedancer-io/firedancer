@@ -10,6 +10,7 @@ struct fd_txncache_writer {
   uint              state;
   fd_txncache_t *   tc;
   ulong             slot;
+  ulong             snapshot_root_idx;
 
   ulong             root_iter;
   ulong             page_idx;
