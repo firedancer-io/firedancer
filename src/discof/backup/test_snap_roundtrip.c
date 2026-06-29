@@ -85,6 +85,15 @@ populate_txncache( fd_txncache_t * tc,
   }
   fd_txncache_finalize_fork( tc, s3, 0UL, blockhashes[3] );
   fd_txncache_advance_root( tc, s3 );
+
+  fd_txncache_fork_id_t future = fd_txncache_attach_child( tc, s3 );
+  for( ulong tx=0UL; tx<2UL; tx++ ) {
+    uchar future_txnhash[ 20UL ];
+    memset( future_txnhash, 0, 20UL );
+    future_txnhash[0] = (uchar)(0x80U+tx);
+    future_txnhash[1] = 0xCD;
+    fd_txncache_insert( tc, future, tx ? blockhashes[2] : blockhashes[3], future_txnhash );
+  }
 }
 
 static void

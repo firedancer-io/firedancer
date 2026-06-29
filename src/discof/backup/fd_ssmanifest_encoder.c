@@ -41,8 +41,11 @@ ENCODE_FN {
     break;
   }
   case STATE_HARD_FORKS: {
-    /* FIXME support hard forks */
-    PUSH_VAL( ulong, 0UL );
+    PUSH_VAL( ulong, bank->f.hard_fork_cnt );
+    for( ulong i=0UL; i<bank->f.hard_fork_cnt; i++ ) {
+      PUSH_VAL( ulong, bank->f.hard_forks[ i ].slot );
+      PUSH_VAL( ulong, bank->f.hard_forks[ i ].cnt  );
+    }
     enc->state = STATE_COUNTERS;
     break;
   }

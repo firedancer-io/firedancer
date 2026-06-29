@@ -24,11 +24,11 @@
    Usage like:
 
      fd_backup_cache_t scan[1];
-     fd_backup_frag_t frag[1];
+     fd_backup_cache_msg_t frag[1];
      while( fd_backup_cache_scan( scan, frag ) ) {
        for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-         fd_pubkey_t const * pubkey  = &frag->acc_cache.pubkey [ i ];
-         uint                acc_idx =  frag->acc_cache.acc_idx[ i ];
+         fd_pubkey_t const * pubkey  = &frag->pubkey [ i ];
+         uint                acc_idx =  frag->acc_idx[ i ];
          if( acc_idx==UINT_MAX ) continue;
          if( fd_backup_cache_read( ..., pubkey, acc_idx, ... ) ) {
            // ... process account ...
@@ -100,9 +100,9 @@ fd_backup_cache_join( fd_backup_cache_t * backup,
 /* fd_backup_cache_scan yields a batch of rooted accounts found in
    cache.  Returns NULL once the scan completes. */
 
-fd_backup_frag_t *
-fd_backup_cache_scan( fd_backup_cache_t * backup,
-                      fd_backup_frag_t *  frag );
+fd_backup_cache_msg_t *
+fd_backup_cache_scan( fd_backup_cache_t *     backup,
+                      fd_backup_cache_msg_t * frag );
 
 static inline void
 fd_backup_cache_reset( fd_backup_cache_t * backup,

@@ -1624,7 +1624,7 @@ EXAMPLES
 </tile>
 
 <tile name="snapmk">
-    <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
+    <gauge name="State" summary="0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail" />
     <counter name="SnapshotsCreated" summary="Number of snapshots created (includes in-progress)" />
     <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
     <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
@@ -1641,7 +1641,7 @@ EXAMPLES
 </tile>
 
 <tile name="snaprd">
-    <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
+    <gauge name="State" summary="0=idle, 1=read, 2=done" />
     <counter name="BytesRead" summary="Number of bytes read from the account database file" />
     <gauge name="ExportProgressBytes" summary="Account database read progress in bytes of the current snapshot creation job" />
     <gauge name="ExportTotalBytes" summary="Total bytes to be read from account database for the current snapshot creation job" />
