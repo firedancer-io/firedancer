@@ -723,7 +723,6 @@ struct fd_gui {
     ulong identity_account_balance;
     ulong vote_account_balance;
     ulong estimated_slot_duration_nanos;
-    ulong target_slot_duration_nanos;
 
     ulong sock_tile_cnt;
     ulong net_tile_cnt;

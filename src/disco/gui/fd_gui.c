@@ -182,7 +182,6 @@ fd_gui_new( void *                   shmem,
   gui->summary.identity_account_balance      = 0UL;
   gui->summary.vote_account_balance          = 0UL;
   gui->summary.estimated_slot_duration_nanos = 0UL;
-  gui->summary.target_slot_duration_nanos    = 0UL;
 
   gui->summary.vote_distance = 0UL;
   gui->summary.vote_state = is_voting ? FD_GUI_VOTE_STATE_VOTING : FD_GUI_VOTE_STATE_NON_VOTING;
@@ -412,7 +411,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_identity_balance,
     fd_gui_printf_vote_balance,
     fd_gui_printf_estimated_slot_duration_nanos,
-    fd_gui_printf_target_slot_duration_nanos,
     fd_gui_printf_root_slot,
     fd_gui_printf_storage_slot,
     fd_gui_printf_reset_slot,
@@ -2067,16 +2065,6 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 
   fd_gui_printf_epoch( gui, idx );
   fd_http_server_ws_broadcast( gui->http );
-
-  ulong current_epoch_idx = fd_gui_current_epoch_idx( gui );
-  if( FD_LIKELY( current_epoch_idx!=ULONG_MAX ) ) {
-    ulong target = gui->epoch.epochs[ current_epoch_idx ].target_slot_duration_nanos;
-    if( FD_UNLIKELY( gui->summary.target_slot_duration_nanos!=target ) ) {
-      gui->summary.target_slot_duration_nanos = target;
-      fd_gui_printf_target_slot_duration_nanos( gui );
-      fd_http_server_ws_broadcast( gui->http );
-    }
-  }
 }
 
 static void
