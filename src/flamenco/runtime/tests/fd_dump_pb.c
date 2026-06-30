@@ -1143,7 +1143,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
 
     if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
       txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
-      txn_result->instruction_error_index = (uint32_t) txn_out->err.exec_err_idx;
+      txn_result->instruction_error_index = txn_out->err.exec_err_idx;
       if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
         txn_result->custom_error = txn_out->err.custom_err;
       }
@@ -1156,11 +1156,11 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   /* Capture instruction error code for executed transactions */
   if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
     fd_txn_t const * txn            = TXN( txn_in->txn );
-    int              instr_err_idx  = txn_out->err.exec_err_idx;
+    uint             instr_err_idx  = txn_out->err.exec_err_idx;
     int              program_id_idx = txn->instr[instr_err_idx].program_id;
 
     txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
-    txn_result->instruction_error_index = (uint32_t) instr_err_idx;
+    txn_result->instruction_error_index = instr_err_idx;
 
     if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
         fd_executor_lookup_native_precompile_program( &txn_out->accounts.keys[ program_id_idx ] )==NULL ) {

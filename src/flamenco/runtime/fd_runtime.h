@@ -213,6 +213,12 @@ typedef struct fd_runtime fd_runtime_t;
 struct fd_txn_in {
   fd_txn_p_t const * txn;
 
+  /* FEC-set merkle root at dispatch time. */
+  uchar fec_merkle_root[ 32 ];
+
+  /* 0-indexed position of this txn within its block. */
+  ulong index_in_slot;
+
   struct {
     int            is_bundle;
     fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
@@ -230,7 +236,7 @@ struct fd_txn_out {
        when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
     int  exec_err;
     int  exec_err_kind;
-    int  exec_err_idx;
+    uint exec_err_idx;
     uint custom_err;
   } err;
 
@@ -257,6 +263,7 @@ struct fd_txn_out {
     ulong                       signature_count;           /* Number of signatures in the transaction */
     fd_signature_t              signature;                 /* First transaction signature */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
+    ulong                       commit_index_in_slot;      /* 0-indexed commit-completion order within this slot */
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
@@ -355,9 +362,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
    database. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs );
 
 /* fd_runtime_cancel_txn cancels the result of a transaction execution
    and frees any resources that may have been acquired.  A transaction
@@ -368,8 +377,11 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       canceled as they will not be included in the block. */
 
 void
-fd_runtime_cancel_txn( fd_runtime_t * runtime,
-                       fd_txn_out_t * txn_out );
+fd_runtime_cancel_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs );
 
 /* fd_runtime_prepare_bundle_accounts is called before executing a
    bundle.  It is responsible for acquiring the union of all accounts

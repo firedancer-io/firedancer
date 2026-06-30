@@ -22,6 +22,12 @@ struct fd_execrp_txn_exec_msg {
   /* Used currently by solcap to maintain ordering of messages
      this will change to using txn sigs eventually */
   ulong      capture_txn_idx;
+
+  /* FEC-set merkle root at dispatch time. */
+  uchar      fec_merkle_root[ 32 ];
+
+  /* 0-indexed position of this transaction within its block. */
+  ulong      index_in_slot;
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 

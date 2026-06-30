@@ -1,4 +1,5 @@
 #include "fd_runtime.h"
+#include "../events/fd_event_runtime.h"
 
 #include "../types/fd_cast.h"
 #include "fd_alut.h"
@@ -972,9 +973,11 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
    function should probably be moved to fd_executor.c. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out ) {
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1043,7 +1046,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     if( FD_UNLIKELY( txn_out->details.tips ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.tips, txn_out->details.tips );
   }
 
-  FD_ATOMIC_FETCH_AND_ADD( &bank->f.txn_count,       1UL );
+  txn_out->details.commit_index_in_slot = FD_ATOMIC_FETCH_AND_ADD( &bank->f.txn_count, 1UL );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.execution_fees,  txn_out->details.execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.priority_fees,   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.signature_count, txn_out->details.signature_count );
@@ -1112,6 +1115,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
+  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
                          txn_out->accounts.cnt, runtime->accounts.account,
@@ -1121,10 +1126,15 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 }
 
 void
-fd_runtime_cancel_txn( fd_runtime_t * runtime,
-                       fd_txn_out_t * txn_out ) {
+fd_runtime_cancel_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs ) {
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
+
+  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   fd_accdb_release_ab( runtime->accdb,
                        txn_out->accounts.cnt, runtime->accounts.account,
@@ -1207,7 +1217,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
   txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
-  txn_out->err.exec_err_idx   = INT_MAX;
+  txn_out->err.exec_err_idx   = UINT_MAX;
   txn_out->err.custom_err     = 0;
 }
 

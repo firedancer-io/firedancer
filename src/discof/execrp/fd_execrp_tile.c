@@ -13,6 +13,7 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/events/fd_event_runtime.h"
 
 #include <time.h>
 #include "generated/fd_execrp_tile_seccomp.h"
@@ -87,6 +88,9 @@ struct fd_execrp_tile {
 
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
+
+  /* If non-zero, emit one runtime_txn event per dispatched txn */
+  int report_transaction_diffs;
 };
 
 typedef struct fd_execrp_tile fd_execrp_tile_t;
@@ -159,6 +163,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
 
+
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            fd_stem_context_t * stem ) {
@@ -215,6 +220,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
+        memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
+        ctx->txn_in.index_in_slot = msg->index_in_slot;
 
         /* Set the capture txn index from the message so account updates
            during commit are recorded with the correct transaction index. */
@@ -227,9 +234,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
+          fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
         } else {
-          fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out, ctx->report_transaction_diffs );
         }
 
         long const txn_end_ticks = fd_tickcount();
@@ -454,6 +461,8 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
+  ctx->report_transaction_diffs = tile->execrp.report_transaction_diffs;
+
   fd_wksp_oom_silent = 1;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -505,8 +514,14 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile ) {
+  return tile->execrp.report_transaction_diffs ? sizeof(fd_event_runtime_txn_t) : 0UL;
+}
+
 fd_topo_run_tile_t fd_tile_execrp = {
   .name                     = "execrp",
+  .max_event_sz             = max_event_sz,
   .loose_footprint          = 0UL,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,

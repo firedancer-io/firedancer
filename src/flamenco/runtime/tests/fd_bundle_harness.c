@@ -207,7 +207,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         fd_solfuzz_bundle_mark_uncommittable( txn_outs, ran_cnt );
       } else {
         txn_outs[i].err.is_committable = 0;
-        fd_runtime_cancel_txn( runtime, &txn_outs[i] );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, &txn_outs[i], 0 );
       }
       break;
     }
@@ -250,12 +250,12 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
       }
     }
 
-    if( !is_bundle ) fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
+    if( !is_bundle ) fd_runtime_commit_txn( runtime, runner->bank, NULL, &txn_outs[i], 0 );
   }
 
   if( is_bundle && !saw_exec_err ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, &txn_outs[i], 0 );
     }
   }
 
