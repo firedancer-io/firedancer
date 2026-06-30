@@ -1370,6 +1370,7 @@ fd_quic_tls_hs_cache_evict( fd_quic_t       * quic,
     return 0;
   }
 
+  fd_quic_cb_conn_final(quic, hs_to_free->context);
   fd_quic_conn_free( quic, hs_to_free->context );
   quic->metrics.hs_evicted_cnt++;
   return 1;
