@@ -16,6 +16,9 @@ $(call run-unit-test,test_ping_tracker)
 $(call make-unit-test,test_gossip_wsample,test_gossip_wsample,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_gossip_wsample)
 
+$(call make-unit-test,test_epoch_slots_flate2,test_epoch_slots_flate2,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_epoch_slots_flate2)
+
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_gossip_message_serialize,fuzz_gossip_message_serialize,fd_flamenco fd_ballet fd_util)
 endif
