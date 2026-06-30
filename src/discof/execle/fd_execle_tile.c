@@ -6,6 +6,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
@@ -836,5 +837,6 @@ fd_topo_run_tile_t fd_tile_execle = {
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = sizeof(fd_event_accdb_partition_added_t),
   .run                      = stem_run,
 };

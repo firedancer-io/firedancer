@@ -1,0 +1,14 @@
+{
+    "name": "accdb_partition_added",
+    "id": 6,
+    "description": "The accounts database grew its backing file by one partition. The accounts DB is a single file divided into fixed-size partitions; when a write head runs off the end of the allocated file, a new partition is fallocated and the file grows. Emitted once per grow by the accdb tile. Partitions are large (e.g. 32 GiB) so grows are infrequent and each one is a meaningful step in the database's on-disk footprint.",
+    "fields": {
+        "partition_idx":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Index of the newly allocated partition. Equals old_partition_max, i.e. it is appended at the end of the previously allocated range." },
+        "prior_partition_idx":  { "type": "UInt64",                                     "description": "Index of the partition the write head rotated off of to trigger this grow, i.e. the partition that just filled up. UINT64_MAX when there was no prior write head (the very first partition allocated on this layer)." },
+        "layer":                { "type": "UInt8",                                      "description": "Storage tier whose write head triggered the grow. Layer 0 is the hot tier fed by live execution writes; higher layers are colder compaction-destination tiers. A layer-0 grow means live ingest outran reclamation; a higher-layer grow means compaction is staging more cold data." },
+        "old_partition_max":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Number of allocated partitions before this grow." },
+        "new_partition_max":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Number of allocated partitions after this grow, always old_partition_max+1." },
+        "partition_sz":         { "type": "UInt64",                                     "description": "Size of a single partition in bytes; the increment by which the backing file grows." },
+        "disk_allocated_bytes": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Total fallocated size of the accounts database file in bytes after this grow, equal to new_partition_max times partition_sz. Tracks the database's on-disk footprint over time." }
+    }
+}

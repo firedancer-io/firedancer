@@ -13,6 +13,7 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 
 #include <time.h>
 #include "generated/fd_execrp_tile_seccomp.h"
@@ -513,5 +514,6 @@ fd_topo_run_tile_t fd_tile_execrp = {
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = sizeof(fd_event_accdb_partition_added_t),
   .run                      = stem_run,
 };
