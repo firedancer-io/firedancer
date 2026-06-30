@@ -32,6 +32,14 @@ enum SlotConfirmedLevel {
   SLOT_CONFIRMED_LEVEL_ROOTED = 7;  // The block or a descendant reached maximum lockout and can never be rolled back. The strongest level, equivalent to Solana's 'finalized' commitment.
 }
 
+// How the equivocation was detected.
+enum BlockEquivocatedDetection {
+  BLOCK_EQUIVOCATED_DETECTION_UNSPECIFIED = 0;
+  BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY = 1;  // A second, different block for the slot finished replaying locally.
+  BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH = 2;  // Votes confirmed a block id for the slot that differs from the one this validator replayed.
+  BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF = 3;  // A duplicate-shred proof showed the slot equivocates; the conflicting block id is not known, so sibling_block_id is zero.
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -158,6 +166,40 @@ message AccdbPartitionAdded {
   uint64 disk_allocated_bytes = 7;
 }
 
+// Two different blocks (different block ids) were observed for the same slot. Emitted once when the validator first detects the equivocation, after both blocks are known.
+message BlockEquivocated {
+  // Sequence number of this validator's replayed block, joining to block_completed; zero if there is no local replayed bank (forward-confirmed or shred-proof detection).
+  uint64 bank_seq = 1;
+  // The slot that equivocates (has more than one block).
+  uint64 slot = 2;
+  // The slot number of the parent block.
+  uint64 parent_slot = 3;
+  // The epoch this slot belongs to.
+  uint64 epoch = 4;
+  // Identifier of the block this validator replayed for the slot.
+  bytes block_id = 5;
+  // Identifier of the conflicting block for the same slot; zero if not known (shred-proof detection).
+  bytes sibling_block_id = 6;
+  // This validator's bank hash for the block it replayed; zero if the block was not replayed locally.
+  bytes bank_hash = 7;
+  // Last microblock header hash of the block this validator replayed; zero if not replayed locally.
+  bytes block_hash = 8;
+  // Whether this validator produced the equivocating block it replayed.
+  bool is_leader = 9;
+  // Whether this validator had voted for its replayed block when the equivocation was detected.
+  bool our_block_voted = 10;
+  // Whether this validator's replayed block had been duplicate confirmed when the equivocation was detected.
+  bool our_block_confirmed = 11;
+  // Stake in lamports voted on the block this validator replayed at detection; zero if none/unknown. Typically small, as an equivocating block usually did not win confirmation.
+  uint64 block_stake = 12;
+  // Stake in lamports on the conflicting (typically confirmed) block at detection; zero if not known.
+  uint64 sibling_stake = 13;
+  // Total cluster stake in lamports at detection; the denominator for the stake fields. Zero if not known.
+  uint64 total_stake = 14;
+  // How the equivocation was detected.
+  BlockEquivocatedDetection detection = 15;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -167,5 +209,6 @@ message Event {
     SlotConfirmed slot_confirmed = 4;
     AccdbCompactionCompleted accdb_compaction_completed = 5;
     AccdbPartitionAdded accdb_partition_added = 6;
+    BlockEquivocated block_equivocated = 7;
   }
 }

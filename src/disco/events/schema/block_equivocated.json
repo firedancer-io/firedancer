@@ -1,0 +1,30 @@
+{
+    "name": "block_equivocated",
+    "id": 7,
+    "description": "Two different blocks (different block ids) were observed for the same slot. Emitted once when the validator first detects the equivocation, after both blocks are known.",
+    "fields": {
+        "bank_seq":           { "type": "UInt64", "description": "Sequence number of this validator's replayed block, joining to block_completed; zero if there is no local replayed bank (forward-confirmed or shred-proof detection)." },
+        "slot":               { "type": "UInt64", "description": "The slot that equivocates (has more than one block)." },
+        "parent_slot":        { "type": "UInt64", "description": "The slot number of the parent block." },
+        "epoch":              { "type": "UInt64", "description": "The epoch this slot belongs to." },
+        "block_id":           { "type": "Hash",   "description": "Identifier of the block this validator replayed for the slot." },
+        "sibling_block_id":   { "type": "Hash",   "description": "Identifier of the conflicting block for the same slot; zero if not known (shred-proof detection)." },
+        "bank_hash":          { "type": "Hash",   "description": "This validator's bank hash for the block it replayed; zero if the block was not replayed locally." },
+        "block_hash":         { "type": "Hash",   "description": "Last microblock header hash of the block this validator replayed; zero if not replayed locally." },
+        "is_leader":          { "type": "Bool",   "description": "Whether this validator produced the equivocating block it replayed." },
+        "our_block_voted":    { "type": "Bool",   "description": "Whether this validator had voted for its replayed block when the equivocation was detected." },
+        "our_block_confirmed":{ "type": "Bool",   "description": "Whether this validator's replayed block had been duplicate confirmed when the equivocation was detected." },
+        "block_stake":        { "type": "UInt64", "description": "Stake in lamports voted on the block this validator replayed at detection; zero if none/unknown. Typically small, as an equivocating block usually did not win confirmation." },
+        "sibling_stake":      { "type": "UInt64", "description": "Stake in lamports on the conflicting (typically confirmed) block at detection; zero if not known." },
+        "total_stake":        { "type": "UInt64", "description": "Total cluster stake in lamports at detection; the denominator for the stake fields. Zero if not known." },
+        "detection": {
+            "type": "LowCardinality(String)",
+            "description": "How the equivocation was detected.",
+            "variants": {
+                "duplicate_replay": { "description": "A second, different block for the slot finished replaying locally." },
+                "confirm_mismatch": { "description": "Votes confirmed a block id for the slot that differs from the one this validator replayed." },
+                "shred_proof":      { "description": "A duplicate-shred proof showed the slot equivocates; the conflicting block id is not known, so sibling_block_id is zero." }
+            }
+        }
+    }
+}
