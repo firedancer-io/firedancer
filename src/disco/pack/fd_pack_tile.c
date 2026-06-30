@@ -222,8 +222,9 @@ typedef struct {
      successful transaction insert. */
   long last_successful_insert;
 
-   /* root_block_height stores the block height of the last rooted slot we've seen
-     coming from the resolv tile.  When this increases, we expire old transactions. */
+   /* root_block_height stores the block height of the last rooted slot
+      we've seen coming from the resolv tile.  When this increases, we
+      expire old transactions. */
   ulong root_block_height;
 
   /* microblock_duration_ns, and wait_duration
@@ -563,6 +564,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   spot->txnp->source_tpu  = insert->txnp->source_tpu;
   spot->txnp->source_ipv4 = insert->txnp->source_ipv4;
   spot->txnp->scheduler_arrival_time_nanos = insert->txnp->scheduler_arrival_time_nanos;
+  spot->txnp->reference_block_height = insert->txnp->reference_block_height;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
   ulong deleted;

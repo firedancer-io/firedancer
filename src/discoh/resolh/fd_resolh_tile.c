@@ -327,8 +327,8 @@ after_frag( fd_resolh_tile_t *  ctx,
         fd_rooted_bank_t * frag = (fd_rooted_bank_t *)ctx->_bank_msg;
         if( FD_LIKELY( ctx->root_bank ) ) fd_ext_bank_release( ctx->root_bank );
 
-        ctx->root_bank = frag->bank;
-        ctx->root_slot = frag->slot;
+        ctx->root_bank         = frag->bank;
+        ctx->root_slot         = frag->slot;
         ctx->root_block_height = frag->block_height;
         break;
       }

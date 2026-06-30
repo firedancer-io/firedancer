@@ -161,7 +161,7 @@ typedef struct {
   lru_list_t           lru_list[1];
 
   ulong completed_block_height;
-  ulong root_block_height;
+  ulong root_block_height; // 0-initialized then == bank->f.block_height
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
@@ -451,6 +451,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
+        ctx->root_block_height = ctx->bank->f.block_height;
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */

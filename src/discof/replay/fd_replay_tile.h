@@ -153,7 +153,6 @@ typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 struct fd_replay_oc_advanced {
   ulong slot;
   ulong bank_idx;
-  ulong block_height;
 };
 typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
 
