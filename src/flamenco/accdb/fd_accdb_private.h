@@ -128,6 +128,15 @@ struct fd_accdb_partition {
   uchar queued;
   uchar compacting_now;
 
+  /* Per-compaction-pass telemetry accumulators for the
+     accdb_compaction_completed event.  Reset when a partition's
+     compaction begins (compacting_now set in background_compact) and
+     accumulated as records are scanned/relocated. */
+  long  compaction_start_wallclock;    /* timestamp when this pass began */
+  ulong compaction_accounts_relocated; /* live records moved this pass */
+  ulong compaction_bytes_relocated;    /* bytes moved this pass */
+  ulong compaction_dead_records;       /* records skipped (no live index entry) this pass */
+
   /* Epoch at which this partition was enqueued for compaction.  Set by
      fd_accdb_shmem_bytes_freed when the partition crosses the
      freed-bytes threshold.  The compaction tile will not begin reading

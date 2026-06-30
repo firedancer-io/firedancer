@@ -3,6 +3,7 @@
 #include "generated/fd_accdb_tile_seccomp.h"
 
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include "fd_accdb.h"
@@ -176,5 +177,7 @@ fd_topo_run_tile_t fd_tile_accdb = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = sizeof(fd_event_accdb_compaction_completed_t) > sizeof(fd_event_accdb_partition_added_t) ?
+                              sizeof(fd_event_accdb_compaction_completed_t) : sizeof(fd_event_accdb_partition_added_t),
   .run                      = stem_run,
 };
