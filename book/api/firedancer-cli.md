@@ -70,3 +70,50 @@ than 16).
 | `--config <path>` | Path to a configuration TOML file of the validator to add an authorized voter for. This must be the same configuration file the validator was started with |
 
 <<< @/snippets/commands/add-authorized-voter.ansi
+
+## `remove-all-authorized-voters`
+Removes all authorized voters from the running validator, including any
+seeded from `[paths.authorized_voter_paths]` at startup as well as any
+added at runtime with `add-authorized-voter`. After removal the validator
+can only sign votes for vote accounts whose authorized voter is the
+identity key. The command takes no arguments.
+
+::: warning WARNING
+
+`remove-all-authorized-voters` is only supported with `firedancer` and
+not `fdctl`. In other words, the command is only supported while running
+the full client validator and not Frankendancer.
+
+:::
+
+::: warning WARNING
+
+`remove-all-authorized-voters` must be called with the configuration file
+you started the validator with, like
+`firedancer remove-all-authorized-voters --config <config.toml>`, if the
+`config` argument is not provided, the command may not clear the
+authorized voter keys on all tiles and your validator may produce invalid
+votes.
+
+:::
+
+It is safe to call the command while the validator is running and voting.
+The client clears the tower tile before the sign tiles, so a vote is
+never produced referencing an authorized voter after its key has been
+removed; in between, the validator simply falls back to signing with the
+identity key.
+
+The command is idempotent: removing when there are no authorized voters
+also succeeds. It exits successfully (with an exit code of 0) and prints
+`All authorized voters removed`.
+
+The change is live only: it is not written back to the configuration
+file, so any voters listed in `[paths.authorized_voter_paths]` return on
+the validator's next restart. To drop them across restarts, also remove
+them from the configuration file.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `--config <path>` | Path to a configuration TOML file of the validator to remove authorized voters from. This must be the same configuration file the validator was started with |
+
+<<< @/snippets/commands/remove-all-authorized-voters.ansi
