@@ -3,15 +3,15 @@
     "id": 3,
     "description": "The validator generated a vote transaction",
     "fields": {
-        "signed_txn":     { "type": "Bytes", "max_len": 1232, "description": "Serialized signed vote transaction" },
-        "vote_account":   { "type": "Pubkey",                 "description": "The public key of the vote account" },
-        "vote_authority": { "type": "Pubkey",                 "description": "The public key that authorized the vote" },
-        "fee_payer":      { "type": "Pubkey",                 "description": "The public key that pays for transaction fees" },
-        "signature":      { "type": "Signature",              "description": "Signature identifying the transaction" },
-        "vote_slot":      { "type": "UInt64",                 "description": "Slot being voted on (top of tower)" },
-        "vote_bank_hash": { "type": "Hash",                   "description": "Bank hash of the slot being voted on" },
-        "vote_block_id":  { "type": "Hash",                   "description": "Block ID of the slot being voted on" },
-        "txn_blockhash":  { "type": "Hash",                   "description": "Recent blockhash parameter of the vote transaction" },
+        "signed_txn":     { "type": "Bytes",     "max_len": 1232,                                     "description": "Serialized signed vote transaction" },
+        "vote_account":   { "type": "Pubkey",                                                         "description": "The public key of the vote account" },
+        "vote_authority": { "type": "Pubkey",                                                         "description": "The public key that authorized the vote" },
+        "fee_payer":      { "type": "Pubkey",                                                         "description": "The public key that pays for transaction fees" },
+        "signature":      { "type": "Signature",                                                      "description": "Signature identifying the transaction" },
+        "vote_slot":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Slot being voted on (top of tower)" },
+        "vote_bank_hash": { "type": "Hash",                                                           "description": "Bank hash of the slot being voted on" },
+        "vote_block_id":  { "type": "Hash",                                                           "description": "Block ID of the slot being voted on" },
+        "txn_blockhash":  { "type": "Hash",                                                           "description": "Recent blockhash parameter of the vote transaction" },
         "tower": {
             "type": "Array",
             "max_len": 31,
@@ -22,10 +22,12 @@
                 "fields": {
                     "slot": {
                         "type": "UInt64",
+                        "compression": "Delta, ZSTD",
                         "description": "Slot being voted on / locked out for"
                     },
                     "confirmation_count": {
                         "type": "UInt8",
+                        "compression": "Delta, ZSTD",
                         "description": "Confirmation count (higher = closer to root)"
                     }
                 }
