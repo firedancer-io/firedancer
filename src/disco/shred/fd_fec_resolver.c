@@ -242,12 +242,27 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   fd_fec_resolver_sign_fn * signer;
   void                    * sign_ctx;
 
-  /* max_shred_idx is the exclusive upper bound for shred indices.  We
-     need to reject any shred with an index >= max_shred_idx, but we
-     also want to reject anything that is part of an FEC set where the
-     highest index of a shred in the FEC set will be >= max_shred_idx.
-     */
-  ulong max_shred_idx;
+  /* max_shred_idx is the exclusive upper bound for shred
+     indicies. We need to reject any shred with an
+     index >= current_max_shred_idx, but we also want to reject anything
+     that is part of an FEC set whose highest shred index would reach
+     the bound.
+
+     Because this bound can change with feature gates, for example the
+     reduce_slot_time feature gates, we store the bound for the previous,
+     current, and next regimes, along with the slots at which the current
+     and next bounds take effect. This lets us apply, to each shred, the
+     limit effective at that shreds slot.
+
+     For a given shred slot, the max_shred_idx for that shred is:
+       slot >= next_max_shred_idx_start_slot    -> next_max_shred_idx
+       slot >= current_max_shred_idx_start_slot -> current_max_shred_idx
+       otherwise                                -> prev_max_shred_idx */
+  ulong prev_max_shred_idx;
+  ulong current_max_shred_idx;
+  ulong next_max_shred_idx;
+  ulong current_max_shred_idx_start_slot;
+  ulong next_max_shred_idx_start_slot;
 
   /* slot_old: slot_old is the lowest slot for which shreds will be
      accepted.  That is any shred with slot<slot_old is rejected by
@@ -381,7 +396,11 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->free_list_cnt                           = depth+partial_depth;
   resolver->signer                                  = signer;
   resolver->sign_ctx                                = sign_ctx;
-  resolver->max_shred_idx                           = max_shred_idx;
+  resolver->prev_max_shred_idx                      = max_shred_idx;
+  resolver->current_max_shred_idx                   = max_shred_idx;
+  resolver->next_max_shred_idx                      = max_shred_idx;
+  resolver->current_max_shred_idx_start_slot        = 0UL;
+  resolver->next_max_shred_idx_start_slot           = ULONG_MAX;
   resolver->slot_old                                = 0UL;
   resolver->seed                                    = seed3;
   resolver->discard_unexpected_data_complete_shreds = ULONG_MAX;
@@ -427,6 +446,20 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version ) {
   resolver->expected_shred_version = expected_shred_version;
+}
+
+void
+fd_fec_resolver_set_shred_limits( fd_fec_resolver_t * resolver,
+                                  ulong               prev_max_shred_idx,
+                                  ulong               current_max_shred_idx,
+                                  ulong               current_max_shred_idx_start_slot,
+                                  ulong               next_max_shred_idx,
+                                  ulong               next_max_shred_idx_start_slot ) {
+  resolver->prev_max_shred_idx               = prev_max_shred_idx;
+  resolver->current_max_shred_idx            = current_max_shred_idx;
+  resolver->current_max_shred_idx_start_slot = current_max_shred_idx_start_slot;
+  resolver->next_max_shred_idx               = next_max_shred_idx;
+  resolver->next_max_shred_idx_start_slot    = next_max_shred_idx_start_slot;
 }
 
 void
@@ -528,13 +561,17 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      care about? */
   if( FD_UNLIKELY( shred->slot<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
 
+  ulong max_shred_idx = resolver->current_max_shred_idx;
+  if( FD_UNLIKELY( shred->slot< resolver->current_max_shred_idx_start_slot ) ) max_shred_idx = resolver->prev_max_shred_idx;
+  if( FD_UNLIKELY( shred->slot>=resolver->next_max_shred_idx_start_slot    ) ) max_shred_idx = resolver->next_max_shred_idx;
+
   /* Do a bunch of quick validity checks */
-  if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred_sz<fd_shred_sz( shred )                               ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred->idx>=resolver->max_shred_idx                         ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred->fec_set_idx>resolver->max_shred_idx-FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred->idx-shred->fec_set_idx>=FD_FEC_SHRED_CNT             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred->fec_set_idx%FD_FEC_SHRED_CNT!=0UL                    ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version  ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred_sz<fd_shred_sz( shred )                     ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->idx>=max_shred_idx                         ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->fec_set_idx>max_shred_idx-FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->idx-shred->fec_set_idx>=FD_FEC_SHRED_CNT   ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->fec_set_idx%FD_FEC_SHRED_CNT!=0UL          ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   uchar variant    = shred->variant;
   uchar shred_type = fd_shred_type( variant );
@@ -935,8 +972,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* Check that all the fields that are supposed to be consistent across
      an FEC set actually are. */
-  fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ, resolver->max_shred_idx );
-  fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ, resolver->max_shred_idx );
+  fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ, max_shred_idx );
+  fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ].b, FD_SHRED_MAX_SZ, max_shred_idx );
   int reject = (!base_data_shred) | (!base_parity_shred);
 
   /* Check idx of base shreds */
@@ -947,7 +984,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     /* Technically, we only need to re-parse the ones we recovered with
        Reedsol, but parsing is pretty cheap and the rest of the
        validation we need to do on all of them. */
-    fd_shred_t const * parsed = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ, resolver->max_shred_idx );
+    fd_shred_t const * parsed = fd_shred_parse( set->data_shreds[ i ].b, FD_SHRED_MIN_SZ, max_shred_idx );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
     reject |= parsed->variant         != base_data_shred->variant;
     reject |= parsed->slot            != base_data_shred->slot;
@@ -963,7 +1000,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   }
 
   for( ulong i=0UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
-    fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ, resolver->max_shred_idx );
+    fd_shred_t const * parsed = fd_shred_parse( set->parity_shreds[ i ].b, FD_SHRED_MAX_SZ, max_shred_idx );
     if( FD_UNLIKELY( !parsed ) ) { reject = 1; break; }
     reject |= fd_shred_type( parsed->variant )       != fd_shred_swap_type( fd_shred_type( base_data_shred->variant ) );
     reject |= fd_shred_merkle_cnt( parsed->variant ) != fd_shred_merkle_cnt( base_data_shred->variant );

@@ -172,6 +172,26 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version );
 
+/* fd_fec_resolver_set_shred_limits updates the upper bound on the
+   shred index, which can change with the reduce_slot_time feature gates.
+   prev_max_shred_idx = the upper bound for max_shred_idx used for the
+   previous slot time regime.
+   current_max_shred_idx = the upper bound for max_shred_idx used for the
+   current slot time regime.
+   current_max_shred_idx_start_slot = the effective start slot of the
+   current slot time regime.
+   next_max_shred_idx = the upper bound for max_shred_idx used for the
+   next slot time regime.
+   next_max_shred_idx_start_slot = the effective start slot of the next
+   slot time regime. */
+void
+fd_fec_resolver_set_shred_limits( fd_fec_resolver_t * resolver,
+                                  ulong               prev_max_shred_idx,
+                                  ulong               current_max_shred_idx,
+                                  ulong               current_max_shred_idx_start_slot,
+                                  ulong               next_max_shred_idx,
+                                  ulong               next_max_shred_idx_start_slot );
+
 /* fd_fec_resolver_set_bypass_verify configures whether Merkle proof and
    leader signature verification are bypassed in add_shred.  This is
    intended for test and fuzz harnesses that focus on parser/replay

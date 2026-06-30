@@ -579,6 +579,13 @@ fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui ) {
   jsonp_close_envelope( gui->http );
 }
 
+void
+fd_gui_printf_target_slot_duration_nanos( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "target_slot_duration_nanos" );
+    jsonp_ulong( gui->http, "value", gui->summary.target_slot_duration_nanos );
+  jsonp_close_envelope( gui->http );
+}
+
 
 void
 fd_gui_printf_root_slot( fd_gui_t * gui ) {

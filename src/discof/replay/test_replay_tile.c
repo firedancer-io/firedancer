@@ -239,10 +239,11 @@ setup_ctx( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   FD_TEST( ctx->banks );
   fd_bank_t * root_bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( root_bank );
-  root_bank->f.slot            = 0UL;
-  root_bank->f.parent_slot     = ULONG_MAX;
-  root_bank->f.ticks_per_slot  = 64UL;
-  root_bank->f.hashes_per_tick = 4UL;
+  root_bank->f.slot                        = 0UL;
+  root_bank->f.parent_slot                 = ULONG_MAX;
+  root_bank->f.ticks_per_slot              = 64UL;
+  root_bank->f.slot_params                 = FD_SLOT_PARAMS_400MS;
+  root_bank->f.slot_params.hashes_per_tick = 4UL;
   fd_epoch_schedule_derive( &root_bank->f.epoch_schedule, 128UL, 128UL, 0 );
   fd_hash_t genesis_hash = { .ul = { 1UL } };
   fd_blockhashes_init( &root_bank->f.block_hash_queue, 42UL );
