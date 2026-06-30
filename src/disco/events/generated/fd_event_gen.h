@@ -95,9 +95,38 @@ typedef struct fd_event_accdb_partition_added fd_event_accdb_partition_added_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (197UL)
 
+/* How the equivocation was detected. */
+#define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY (1) /* A second, different block for the slot finished replaying locally. */
+#define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH (2) /* Votes confirmed a block id for the slot that differs from the one this validator replayed. */
+#define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF      (3) /* A duplicate-shred proof showed the slot equivocates; the conflicting block id is not known, so sibling_block_id is zero. */
+
+/* Two different blocks (different block ids) were observed for the same slot. Emitted once when the validator first detects the equivocation, after both blocks are known. */
+struct fd_event_block_equivocated {
+  ulong bank_seq;                 /* Sequence number of this validator's replayed block, joining to block_completed; zero if there is no local replayed bank (forward-confirmed or shred-proof detection). */
+  ulong slot;                     /* The slot that equivocates (has more than one block). */
+  ulong parent_slot;              /* The slot number of the parent block. */
+  ulong epoch;                    /* The epoch this slot belongs to. */
+  uchar block_id[ 32UL ];         /* Identifier of the block this validator replayed for the slot. */
+  uchar sibling_block_id[ 32UL ]; /* Identifier of the conflicting block for the same slot; zero if not known (shred-proof detection). */
+  uchar bank_hash[ 32UL ];        /* This validator's bank hash for the block it replayed; zero if the block was not replayed locally. */
+  uchar block_hash[ 32UL ];       /* Last microblock header hash of the block this validator replayed; zero if not replayed locally. */
+  int   is_leader;                /* Whether this validator produced the equivocating block it replayed. */
+  int   our_block_voted;          /* Whether this validator had voted for its replayed block when the equivocation was detected. */
+  int   our_block_confirmed;      /* Whether this validator's replayed block had been duplicate confirmed when the equivocation was detected. */
+  ulong block_stake;              /* Stake in lamports voted on the block this validator replayed at detection; zero if none/unknown. Typically small, as an equivocating block usually did not win confirmation. */
+  ulong sibling_stake;            /* Stake in lamports on the conflicting (typically confirmed) block at detection; zero if not known. */
+  ulong total_stake;              /* Total cluster stake in lamports at detection; the denominator for the stake fields. Zero if not known. */
+  int   detection;                /* How the equivocation was detected. */
+};
+typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
+
+/* Worst-case encoded size of a block_equivocated event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX (398UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ))
+#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ))
 
 FD_PROTOTYPES_BEGIN
 
@@ -141,6 +170,16 @@ fd_event_accdb_partition_added_serialize( fd_circq_t *                          
                                           ulong                                    link_seq,
                                           fd_event_accdb_partition_added_t const * msg );
 
+/* Serialize a block_equivocated event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_block_equivocated_serialize( fd_circq_t *                         circq,
+                                      fd_event_client_t *                  client,
+                                      long                                 timestamp_nanos,
+                                      ulong                                link_seq,
+                                      fd_event_block_equivocated_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -178,6 +217,13 @@ fd_event_report_accdb_compaction_completed( fd_event_accdb_compaction_completed_
 static inline void
 fd_event_report_accdb_partition_added( fd_event_accdb_partition_added_t const * msg ) {
   fd_event_report_( 6UL, msg, sizeof(fd_event_accdb_partition_added_t) );
+}
+
+/* Report a block_equivocated event (BlockEquivocated, id 7) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_block_equivocated( fd_event_block_equivocated_t const * msg ) {
+  fd_event_report_( 7UL, msg, sizeof(fd_event_block_equivocated_t) );
 }
 
 FD_PROTOTYPES_END
