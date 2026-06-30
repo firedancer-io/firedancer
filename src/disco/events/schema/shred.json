@@ -3,7 +3,7 @@
     "id": 2,
     "description": "The validator received a valid shred",
     "fields": {
-        "source_ip":   { "type": "IPv6", "description": "The source IP address of the shred" },
+        "source_ip":   { "type": "IPv6",   "description": "The source IP address of the shred" },
         "source_port": { "type": "UInt16", "description": "The source port of the shred" },
         "protocol": {
             "type": "LowCardinality(String)",
@@ -14,6 +14,6 @@
                 "leader":  { "description": "Leader" }
             }
         },
-        "payload":     { "type": "Bytes", "description": "The raw shred payload bytes" }
+        "payload":     { "type": "Bytes",  "description": "The raw shred payload bytes" }
     }
 }

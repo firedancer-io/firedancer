@@ -3,8 +3,8 @@
     "id": 1,
     "description": "The validator received a verified, deduplicated transaction",
     "fields": {
-        "source_ip":   { "type": "IPv6",   "description": "The source IP address of the transaction sender" },
-        "source_port": { "type": "UInt16", "description": "The source port of the transaction sender" },
+        "source_ip":   {              "type": "IPv6",   "description": "The source IP address of the transaction sender" },
+        "source_port": {              "type": "UInt16", "description": "The source port of the transaction sender" },
         "protocol": {
             "type": "LowCardinality(String)",
             "description": "The protocol used to submit the transaction (e.g., QUIC, UDP, ...)",
