@@ -278,7 +278,7 @@ message RuntimeTxn {
   RuntimeTxnExecErrKind exec_err_kind = 16;
   // Instruction index that failed (UINT_MAX if not applicable)
   uint32 exec_err_idx = 17;
-  // Custom error code returned by the program (only meaningful for CUSTOM_ERROR)
+  // Custom error code returned by the program (UINT_MAX if not applicable)
   uint32 custom_err = 18;
   // Compute unit limit requested by the transaction
   uint64 compute_unit_limit = 19;

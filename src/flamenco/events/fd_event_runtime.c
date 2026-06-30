@@ -37,7 +37,8 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.exec_err      = fd_event_exec_err_from_exec_err          ( txn_out->err.exec_err      );
   ev.exec_err_kind = fd_event_exec_err_kind_from_exec_err_kind( txn_out->err.exec_err_kind );
   ev.exec_err_idx  = txn_out->err.exec_err_idx;
-  ev.custom_err    = txn_out->err.custom_err;
+  ev.custom_err    = ( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR )
+                       ? txn_out->err.custom_err : UINT_MAX;
 
   /* Compute budget */
   fd_compute_budget_details_t const * cb = &txn_out->details.compute_budget;

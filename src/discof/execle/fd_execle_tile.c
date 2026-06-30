@@ -570,6 +570,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
+    /* A failed bundle is dropped in its entirety: every transaction is
+       marked non-committable and none of them land in the block. We
+       intentionally do NOT emit runtime_txn events here */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       ctx->txn_out[ i ].err.is_committable = 0;

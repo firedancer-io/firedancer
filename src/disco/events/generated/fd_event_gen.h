@@ -185,7 +185,7 @@ struct fd_event_runtime_txn {
   int                                  exec_err;                          /* Instruction execution error; only meaningful when txn_err = instruction_error */
   int                                  exec_err_kind;                     /* Source kind of exec_err; only meaningful when txn_err = instruction_error */
   uint                                 exec_err_idx;                      /* Instruction index that failed (UINT_MAX if not applicable) */
-  uint                                 custom_err;                        /* Custom error code returned by the program (only meaningful for CUSTOM_ERROR) */
+  uint                                 custom_err;                        /* Custom error code returned by the program (UINT_MAX if not applicable) */
   ulong                                compute_unit_limit;                /* Compute unit limit requested by the transaction */
   ulong                                compute_unit_price;                /* Compute unit price (micro-lamports per CU) requested by the transaction */
   ulong                                compute_units_consumed;            /* compute_unit_limit minus the remaining compute meter at commit */

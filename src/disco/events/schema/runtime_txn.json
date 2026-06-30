@@ -118,7 +118,7 @@
             }
         },
         "exec_err_idx":                      { "type": "UInt32",        "description": "Instruction index that failed (UINT_MAX if not applicable)" },
-        "custom_err":                        { "type": "UInt32",        "description": "Custom error code returned by the program (only meaningful for CUSTOM_ERROR)" },
+        "custom_err":                        { "type": "UInt32",        "description": "Custom error code returned by the program (UINT_MAX if not applicable)" },
         "compute_unit_limit":                { "type": "UInt64",        "description": "Compute unit limit requested by the transaction" },
         "compute_unit_price":                { "type": "UInt64",        "description": "Compute unit price (micro-lamports per CU) requested by the transaction" },
         "compute_units_consumed":            { "type": "UInt64",        "description": "compute_unit_limit minus the remaining compute meter at commit" },
