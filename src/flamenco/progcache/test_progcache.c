@@ -1121,6 +1121,67 @@ FD_UNIT_TEST( clock_evict_heap_only ) {
   test_env_destroy( env );
 }
 
+/* test_pull_refreshes_clock_bit: a cache hit via pull() marks the record
+   accessed for CLOCK replacement, so frequently-pulled programs are
+   protected from eviction.  fd_prog_clock_touch runs on insert and on
+   pull hits (not in peek, which is a pure query).
+
+   Setup: two records with their visited bits cleared (as if the CLOCK
+   hand had already passed once).  We then pull ("hit") only the hot
+   record and run one eviction starting the hand at the hot record.  A
+   correct CLOCK gives the just-accessed hot record a second chance and
+   evicts the cold record instead; without the touch-on-hit the hand
+   evicts the hot record first. */
+
+FD_UNIT_TEST( pull_refreshes_clock_bit ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
+
+  fd_pubkey_t key_hot  = test_key( 1UL );
+  fd_pubkey_t key_cold = test_key( 2UL );
+  test_account_t acc_hot, acc_cold;
+  test_account_init( &acc_hot,  &key_hot,  &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc_cold, &key_cold, &fd_solana_bpf_loader_program_id,
+                     1, valid_program_data, valid_program_data_sz );
+
+  fd_prog_load_env_t load_env = {
+    .features     = env->features,
+    .feature_slot = 0UL
+  };
+  fd_progcache_rec_t * rec_hot  = test_pull( env->progcache, acc_hot.entry,  xid, &key_hot,  &load_env );
+  fd_progcache_rec_t * rec_cold = test_pull( env->progcache, acc_cold.entry, xid, &key_cold, &load_env );
+  FD_TEST( rec_hot && rec_cold );
+
+  ulong hot_idx  = (ulong)( rec_hot  - env->progcache->join->rec.pool->ele );
+  ulong cold_idx = (ulong)( rec_cold - env->progcache->join->rec.pool->ele );
+
+  /* Clear both visited bits (insert sets them) to simulate the CLOCK
+     hand having already passed once. */
+  atomic_ulong * hot_slot  = fd_prog_cbits_slot( env->progcache->join->clock.bits, hot_idx  );
+  atomic_ulong * cold_slot = fd_prog_cbits_slot( env->progcache->join->clock.bits, cold_idx );
+  atomic_fetch_and_explicit( hot_slot,  ~( 1UL<<fd_prog_visited_bit( hot_idx  ) ), memory_order_relaxed );
+  atomic_fetch_and_explicit( cold_slot, ~( 1UL<<fd_prog_visited_bit( cold_idx ) ), memory_order_relaxed );
+
+  /* Pull (hit) only the hot program.  This must re-set its reference
+     bit.  (peek is pure and would not.) */
+  FD_TEST( test_pull( env->progcache, acc_hot.entry, xid, &key_hot, &load_env )==rec_hot );
+
+  /* Evict one record, starting the hand at the hot record. */
+  env->progcache->join->shmem->clock.head = hot_idx;
+  ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
+  fd_prog_clock_evict( env->progcache, 1UL, 0UL );
+  FD_TEST( env->progcache->metrics->evict_cnt - evict_cnt_before == 1UL );
+
+  /* The hot (recently-pulled) program survives; the cold one is evicted.
+     (peek is used here only as a pure existence check.) */
+  FD_TEST(  test_peek( env->progcache, xid, &key_hot,  0UL, 0UL ) );
+  FD_TEST( !test_peek( env->progcache, xid, &key_cold, 0UL, 0UL ) );
+
+  fd_progcache_cancel_fork( env->progcache->join, xid );
+  test_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
