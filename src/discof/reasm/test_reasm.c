@@ -1258,6 +1258,51 @@ test_eqvoc_xid_evict( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_eqvoc_xid_evict passed" ));
 }
 
+void
+test_self_chained_fec( fd_wksp_t * wksp ) {
+  /* Regression test for a segfault in clear_xid_metadata.
+
+     A malformed/equivocating FEC whose chained_merkle_root equals its
+     own merkle_root (key == cmr) used to crash fd_reasm_insert.  Such a
+     FEC finds no parent at line ~826, so it is inserted as an orphan
+     subtree root into subtrees/subtreel.  The subsequent "search for
+     children" loop then iterates over subtreel -- which now contains
+     the in-flight FEC itself -- matches the FEC against itself
+     (fd_hash_eq(parent->key, child->cmr) is true because key==cmr),
+     fails validate_chained_block_id (a FEC cannot be its own parent),
+     and calls subtrees_remove() on the in-flight FEC.  That happens
+     *before* xid_update() registered the FEC in the xid map, so
+     clear_xid_metadata()'s xid_query() returns NULL and the xid->cnt--
+     dereferences NULL.
+
+     Before the fix this test segfaults; after it the self-referential
+     FEC is rejected cleanly. */
+
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_reasm_fec_t * ev[1];
+
+  fd_hash_t mr0[1] = {{{ 0 }}};
+  fd_reasm_init( reasm, mr0, 0 );
+
+  /* mr_self chains off itself: chained_merkle_root == merkle_root. */
+
+  fd_hash_t mr_self[1] = {{{ 0xab, 0xcd }}};
+  fd_reasm_fec_t * fec = fd_reasm_insert( reasm, mr_self, mr_self, 5180239, 1088, 1, 32, 1, 0, 0, NULL, ev );
+
+  /* The self-referential FEC is invalid and must be rejected without
+     crashing or being inserted. */
+
+  FD_TEST( !fec );
+  FD_TEST( !fd_reasm_query( reasm, mr_self ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  FD_LOG_NOTICE(( "test_self_chained_fec passed" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1285,6 +1330,7 @@ main( int argc, char ** argv ) {
   test_confirm_out_ordering( wksp );
   test_remove_bank_eviction( wksp );
   test_insert_rejects_when_full_and_nothing_is_evictable( wksp );
+  test_self_chained_fec( wksp );
 
   fd_halt();
   return 0;
