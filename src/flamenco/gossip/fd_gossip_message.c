@@ -262,9 +262,14 @@ deser_epoch_slots( fd_gossip_value_t * value,
     if( FD_UNLIKELY( is_uncompressed ) ) {
       CHECK( deser_bitvec_u8_epoch_slots( payload, payload_sz ) );
     } else {
-      ulong compressed_len;
-      READ_U64( compressed_len, payload, payload_sz );
-      SKIP_BYTES( compressed_len, payload, payload_sz );
+      /* BP707: Firedancer has no DEFLATE decoder, so the compressed
+         bytes cannot be validated here.  fd_gossip_epoch_slots_t has
+         no field for the decoded slot set on either branch
+         (fd_gossip_message.h:227-229), so dropping the value at the
+         wire boundary loses no consumer state.  Relaying unvalidated
+         bytes would forward malformed payloads to Agave peers that
+         pay inflate+drop cost (asymmetric DoS amplification). */
+      return 0;
     }
   }
   READ_WALLCLOCK( value->wallclock, payload, payload_sz );
