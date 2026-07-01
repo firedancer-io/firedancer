@@ -201,9 +201,7 @@
 #define PRQ_TMP_CMOV(c,x,y) if( (c) ) (x) = (y)
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
@@ -393,9 +391,7 @@ PRQ_(footprint)( ulong max ) {
 static inline void *
 PRQ_(new)( void * mem,
            ulong  max ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !mem | !fd_ulong_is_aligned( (ulong)mem, PRQ_(align)() ) ) ) FD_LOG_CRIT(( "invalid mem" ));
-# endif
+  FD_DCHECK_CRIT( mem && fd_ulong_is_aligned( (ulong)mem, PRQ_(align)() ), "invalid mem" );
   /* FIXME: VALIDATE MEM AND MAX? */
   PRQ_(private_t) * prq = (PRQ_(private_t) *)mem;
   prq->cnt = 0UL;
@@ -415,9 +411,7 @@ PRQ_(insert)( PRQ_T *       heap,
               PRQ_T const * event ) {
   PRQ_(private_t) * prq = PRQ_(private_from_heap)( heap );
   ulong hole = prq->cnt++;
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( hole==prq->max ) ) FD_LOG_CRIT(( "prq full" ));
-# endif
+  FD_DCHECK_CRIT( hole<prq->max, "prq full" );
   PRQ_(private_fill_hole_up)( heap, hole, event );
   return heap;
 }
@@ -425,9 +419,7 @@ PRQ_(insert)( PRQ_T *       heap,
 static inline PRQ_T *
 PRQ_(remove_min)( PRQ_T * heap ) {
   PRQ_(private_t) * prq = PRQ_(private_from_heap)( heap );
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( prq->cnt==0UL ) ) FD_LOG_CRIT(( "prq empty" ));
-# endif
+  FD_DCHECK_CRIT( prq->cnt>0UL, "prq empty" );
   ulong cnt = --prq->cnt;
   PRQ_(private_fill_hole_dn)( heap, 0UL, cnt );
   return heap;
@@ -437,9 +429,7 @@ static inline PRQ_T *
 PRQ_(remove)( PRQ_T * heap,
               ulong   idx ) {
   PRQ_(private_t) * prq = PRQ_(private_from_heap)( heap );
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( prq->cnt==0UL ) ) FD_LOG_CRIT(( "prq empty" ));
-# endif
+  FD_DCHECK_CRIT( prq->cnt>0UL, "prq empty" );
   ulong cnt = --prq->cnt;
   PRQ_(private_fill_hole)( heap, idx, cnt );
   return heap;

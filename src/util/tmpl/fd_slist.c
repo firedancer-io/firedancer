@@ -293,9 +293,7 @@ FD_FN_PURE static inline ulong
 SLIST_(idx_peek_head)( SLIST_(t) const *   join,
                        SLIST_ELE_T const * pool ) {
   (void)pool;
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( SLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot peek on empty slist" ));
-# endif
+  FD_DCHECK_CRIT( !SLIST_(is_empty)( join, pool ), "cannot peek on empty slist" );
   return SLIST_(private_idx)( SLIST_(private_const)( join )->head );
 }
 
@@ -303,9 +301,7 @@ FD_FN_PURE static inline ulong
 SLIST_(idx_peek_tail)( SLIST_(t) const *   join,
                        SLIST_ELE_T const * pool ) {
   (void)pool;
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( SLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot peek on empty slist" ));
-# endif
+  FD_DCHECK_CRIT( !SLIST_(is_empty)( join, pool ), "cannot peek on empty slist" );
   return SLIST_(private_idx)( SLIST_(private_const)( join )->tail );
 }
 
@@ -347,9 +343,7 @@ SLIST_(idx_push_tail)( SLIST_(t) *   join,
 static inline ulong
 SLIST_(idx_pop_head)( SLIST_(t) *   join,
                       SLIST_ELE_T * pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( SLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot pop from empty slist" ));
-# endif
+  FD_DCHECK_CRIT( !SLIST_(is_empty)( join, pool ), "cannot pop from empty slist" );
   SLIST_(private_t) * slist = SLIST_(private)( join );
 
   ulong ele_idx  = SLIST_(private_idx)( slist->head ); /* Not NULL as per contract */
