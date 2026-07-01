@@ -182,8 +182,10 @@ ping_tracker_change( void *        _ctx,
 
 static inline void
 refresh_contact_info( fd_gossip_t * gossip,
-                      long          now ) {
+                      long          now,
+                      ulong         identity_outset ) {
   fd_memcpy( gossip->my_contact_info.ci->origin, gossip->identity_pubkey, 32UL );
+  if( FD_UNLIKELY( identity_outset ) ) gossip->my_contact_info.ci->contact_info->outset = identity_outset;
   gossip->my_contact_info.ci->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
   long sz = fd_gossip_value_serialize( gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, FD_GOSSIP_VALUE_MAX_SZ );
   FD_TEST( sz!=-1L );
@@ -304,7 +306,7 @@ fd_gossip_new( void *                           shmem,
   *gossip->my_contact_info.ci->contact_info = *my_contact_info;
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = 0UL;
-  refresh_contact_info( gossip, now );
+  refresh_contact_info( gossip, now, 0UL );
 
   fd_memset( gossip->metrics, 0, sizeof(fd_gossip_metrics_t) );
 
@@ -368,7 +370,8 @@ get_stake( fd_gossip_t const * gossip,
 void
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
-                        long          now ) {
+                        long          now,
+                        ulong         identity_outset ) {
   int identity_changed = memcmp( gossip->identity_pubkey, identity_pubkey, 32UL );
   if( FD_UNLIKELY( !identity_changed ) ) return;
 
@@ -391,7 +394,9 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
   fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
 
-  refresh_contact_info( gossip, now );
+  /* For identity swaps, refresh the contact info outset so this
+     instance can override older contact info for the same identity. */
+  refresh_contact_info( gossip, now, identity_outset );
 }
 
 void
@@ -399,7 +404,7 @@ fd_gossip_set_shred_version( fd_gossip_t * gossip,
                              ushort        shred_version,
                              long          now ) {
   gossip->my_contact_info.ci->contact_info->shred_version = shred_version;
-  refresh_contact_info( gossip, now );
+  refresh_contact_info( gossip, now, 0UL );
 }
 
 void
@@ -1146,7 +1151,7 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   }
   if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
-    refresh_contact_info( gossip, now );
+    refresh_contact_info( gossip, now, 0UL );
     int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
     fd_crds_insert( gossip->crds, gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_stake, origin_active, 1, now, stem );
     fd_active_set_push( gossip->active_set, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
