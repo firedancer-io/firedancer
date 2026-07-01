@@ -2,6 +2,143 @@
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 
+#include <stdio.h>
+
+#define FD_VM_TRACE_OUT_BUF_SZ    (4096UL)
+#define FD_VM_TRACE_DUMP_DATA_MAX (2048UL)
+
+typedef struct {
+  char  buf[ FD_VM_TRACE_OUT_BUF_SZ ];
+  ulong buf_sz;
+} fd_vm_trace_out_t;
+
+static int
+fd_vm_trace_out_flush( fd_vm_trace_out_t * out ) {
+  ulong buf_sz = out->buf_sz;
+  if( FD_UNLIKELY( !buf_sz ) ) return FD_VM_SUCCESS;
+
+  if( FD_UNLIKELY( fwrite( out->buf, 1UL, buf_sz, stdout )!=buf_sz ) ) return FD_VM_ERR_IO;
+
+  out->buf_sz = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+static int
+fd_vm_trace_out_write( fd_vm_trace_out_t * out,
+                       void const *        _data,
+                       ulong               data_sz ) {
+  char const * data = (char const *)_data;
+
+  while( data_sz ) {
+    ulong rem = FD_VM_TRACE_OUT_BUF_SZ - out->buf_sz;
+    if( FD_UNLIKELY( !rem ) ) {
+      int err = fd_vm_trace_out_flush( out );
+      if( FD_UNLIKELY( err ) ) return err;
+      rem = FD_VM_TRACE_OUT_BUF_SZ;
+    }
+
+    ulong chunk_sz = fd_ulong_min( data_sz, rem );
+    fd_memcpy( out->buf + out->buf_sz, data, chunk_sz );
+    out->buf_sz += chunk_sz;
+    data        += chunk_sz;
+    data_sz     -= chunk_sz;
+  }
+
+  return FD_VM_SUCCESS;
+}
+
+static int
+fd_vm_trace_out_cstr( fd_vm_trace_out_t * out,
+                      char const *        cstr ) {
+  return fd_vm_trace_out_write( out, cstr, strlen( cstr ) );
+}
+
+static int
+fd_vm_trace_out_char( fd_vm_trace_out_t * out,
+                      char                c ) {
+  return fd_vm_trace_out_write( out, &c, 1UL );
+}
+
+static int
+fd_vm_trace_out_repeat( fd_vm_trace_out_t * out,
+                        char                c,
+                        ulong               cnt ) {
+  char buf[ 64 ];
+  memset( buf, c, sizeof(buf) );
+
+  while( cnt ) {
+    ulong chunk_sz = fd_ulong_min( cnt, sizeof(buf) );
+    int err = fd_vm_trace_out_write( out, buf, chunk_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+    cnt -= chunk_sz;
+  }
+
+  return FD_VM_SUCCESS;
+}
+
+static int
+fd_vm_trace_out_ulong_dec( fd_vm_trace_out_t * out,
+                           ulong               x,
+                           ulong               width ) {
+  char  buf[ 32 ];
+  char * end = buf + sizeof(buf);
+  char * p   = end;
+
+  do {
+    ulong d = x % 10UL; x /= 10UL;
+    *(--p) = (char)( d + (ulong)'0' );
+  } while( x );
+
+  ulong digit_cnt = (ulong)( end - p );
+  if( FD_UNLIKELY( digit_cnt<width ) ) {
+    int err = fd_vm_trace_out_repeat( out, ' ', width - digit_cnt );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+
+  return fd_vm_trace_out_write( out, p, digit_cnt );
+}
+
+static int
+fd_vm_trace_out_int_dec( fd_vm_trace_out_t * out,
+                         int                 x ) {
+  ulong ux;
+  if( FD_UNLIKELY( x<0 ) ) {
+    int err = fd_vm_trace_out_char( out, '-' );
+    if( FD_UNLIKELY( err ) ) return err;
+    ux = (ulong)(-(long)x);
+  } else {
+    ux = (ulong)x;
+  }
+
+  return fd_vm_trace_out_ulong_dec( out, ux, 0UL );
+}
+
+static int
+fd_vm_trace_out_ulong_hex( fd_vm_trace_out_t * out,
+                           ulong               x,
+                           ulong               width ) {
+  static char const hex[ 16 ] = {
+    '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'
+  };
+
+  char  buf[ 16 ];
+  char * end = buf + sizeof(buf);
+  char * p   = end;
+
+  do {
+    ulong d = x & 0xFUL; x >>= 4;
+    *(--p) = hex[ d ];
+  } while( x );
+
+  ulong digit_cnt = (ulong)( end - p );
+  if( FD_UNLIKELY( digit_cnt<width ) ) {
+    int err = fd_vm_trace_out_repeat( out, '0', width - digit_cnt );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+
+  return fd_vm_trace_out_write( out, p, digit_cnt );
+}
+
 ulong
 fd_vm_trace_align( void ) {
   return 8UL;
@@ -184,8 +321,6 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
   return FD_VM_SUCCESS;
 }
 
-#include <stdio.h>
-
 int
 fd_vm_trace_printf( fd_vm_trace_t const *      trace,
                     fd_sbpf_syscalls_t const * syscalls ) {
@@ -196,6 +331,14 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
   }
 
   ulong data_max = fd_vm_trace_event_data_max( trace );
+  fd_vm_trace_out_t out[1] = {{ .buf_sz = 0UL }};
+
+#define OUT( expr ) do { int _err = (expr); if( FD_UNLIKELY( _err ) ) return _err; } while(0)
+#define OUT_TEXT( text ) OUT( fd_vm_trace_out_write( out, (text), sizeof(text)-1UL ) )
+#define OUT_CSTR( cstr ) OUT( fd_vm_trace_out_cstr( out, (cstr) ) )
+#define OUT_CHAR( c )    OUT( fd_vm_trace_out_char( out, (c) ) )
+#define OUT_DEC( x, w )  OUT( fd_vm_trace_out_ulong_dec( out, (x), (w) ) )
+#define OUT_HEX( x, w )  OUT( fd_vm_trace_out_ulong_hex( out, (x), (w) ) )
 
   uchar const * ptr = fd_vm_trace_event   ( trace ); /* Note: this point is 8 byte aligned */
   ulong         rem = fd_vm_trace_event_sz( trace );
@@ -229,24 +372,39 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
       /* Pretty print the architectural state before the instruction */
 
-      printf( "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-              event->ic,
-              event->reg[ 0], event->reg[ 1], event->reg[ 2], event->reg[ 3],
-              event->reg[ 4], event->reg[ 5], event->reg[ 6], event->reg[ 7],
-              event->reg[ 8], event->reg[ 9], event->reg[10], event_pc );
+      OUT_DEC( event->ic, 5UL );
+      OUT_TEXT( " [" );
+      for( ulong reg_idx=0UL; reg_idx<FD_VM_REG_CNT; reg_idx++ ) {
+        if( FD_LIKELY( reg_idx ) ) OUT_TEXT( ", " );
+        OUT_HEX( event->reg[ reg_idx ], 16UL );
+      }
+      OUT_TEXT( "] " );
+      OUT_DEC( event_pc, 5UL );
+      OUT_TEXT( ": " );
 
       /* Print the instruction */
 
       ulong out_len = 0UL;
-      char  out[128];
-      out[0] = '\0';
-      int err = fd_vm_disasm_instr( event->text, fd_ulong_if( !multiword, 1UL, 2UL ), event_pc, syscalls, out, 128UL, &out_len );
-      if( FD_UNLIKELY( err ) ) printf( "disasm failed (%i-%s)", err, fd_vm_strerror( err ) );
-      else                     printf( "%s", out );
+      char  instr[128];
+      instr[0] = '\0';
+      int err = fd_vm_disasm_instr( event->text, fd_ulong_if( !multiword, 1UL, 2UL ), event_pc, syscalls, instr, 128UL, &out_len );
+      if( FD_UNLIKELY( err ) ) {
+        OUT_TEXT( "disasm failed (" );
+        OUT( fd_vm_trace_out_int_dec( out, err ) );
+        OUT_CHAR( '-' );
+        OUT_CSTR( fd_vm_strerror( err ) );
+        OUT_CHAR( ')' );
+      } else {
+        OUT( fd_vm_trace_out_write( out, instr, out_len ) );
+      }
 
       /* Print CUs  */
-      printf( " %lu\n", event->cu );
-      fflush( stdout );
+
+      OUT_CHAR( ' ' );
+      OUT_DEC( event->cu, 0UL );
+      OUT_CHAR( '\n' );
+      OUT( fd_vm_trace_out_flush( out ) );
+      if( FD_UNLIKELY( fflush( stdout ) ) ) return FD_VM_ERR_IO;
       break;
     }
 
@@ -275,26 +433,39 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
       ulong prev_ic = 0UL; /* FIXME: there was some commented out code originally to find the ic that previously modified */
 
-      printf( "        %s: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ",
-              event_type==FD_VM_TRACE_EVENT_TYPE_READ ? "R" : "W", event->vaddr, event_sz, prev_ic );
+      OUT_TEXT( "        " );
+      OUT_CHAR( event_type==FD_VM_TRACE_EVENT_TYPE_READ ? 'R' : 'W' );
+      OUT_TEXT( ": vm_addr: 0x" );
+      OUT_HEX( event->vaddr, 16UL );
+      OUT_TEXT( ", sz: " );
+      OUT_DEC( event_sz, 8UL );
+      OUT_TEXT( ", prev_ic: " );
+      OUT_DEC( prev_ic, 8UL );
+      OUT_TEXT( ", data: " );
 
-      char buf[ 1024UL + 6UL*2048UL ]; /* 1KiB for overhead + 6 bytes for every byte of event_data_max */
+      ulong print_data_sz = fd_ulong_min( data_sz, FD_VM_TRACE_DUMP_DATA_MAX );
 
-      char * p = fd_cstr_init( buf );
-      if( !valid ) p = fd_cstr_append_char( p, '-' );
-      else {
-        for( ulong data_off=0UL; data_off<data_sz; data_off++ ) {
-          if( FD_UNLIKELY( (data_off & 0xfUL)==0UL ) ) p = fd_cstr_append_printf( p, "\n                0x%04lX:", data_off );
-          if( FD_UNLIKELY( (data_off & 0xfUL)==8UL ) ) p = fd_cstr_append_char( p, ' ' );
-          p = fd_cstr_append_printf( p, " %02X", (uint)data[ data_off ] );
-        }
-        if( FD_UNLIKELY( data_sz < event_sz ) )
-          p = fd_cstr_append_printf( p, "\n                ... omitted %lu bytes ...", event_sz - data_sz );
+      if( !valid ) {
+        OUT_CHAR( '-' );
       }
-      p = fd_cstr_append_char( p, '\n' );
-      fd_cstr_fini( p );
-
-      printf( "%s", buf );
+      else {
+        for( ulong data_off=0UL; data_off<print_data_sz; data_off++ ) {
+          if( FD_UNLIKELY( (data_off & 0xfUL)==0UL ) ) {
+            OUT_TEXT( "\n                0x" );
+            OUT_HEX( data_off, 4UL );
+            OUT_CHAR( ':' );
+          }
+          if( FD_UNLIKELY( (data_off & 0xfUL)==8UL ) ) OUT_CHAR( ' ' );
+          OUT_CHAR( ' ' );
+          OUT_HEX( (ulong)data[ data_off ], 2UL );
+        }
+        if( FD_UNLIKELY( print_data_sz < event_sz ) ) {
+          OUT_TEXT( "\n                ... omitted " );
+          OUT_DEC( event_sz - print_data_sz, 0UL );
+          OUT_TEXT( " bytes ..." );
+        }
+      }
+      OUT_CHAR( '\n' );
       break;
     }
 
@@ -308,6 +479,15 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
     ptr += event_footprint;
     rem -= event_footprint;
   }
+
+  OUT( fd_vm_trace_out_flush( out ) );
+
+#undef OUT_HEX
+#undef OUT_DEC
+#undef OUT_CHAR
+#undef OUT_CSTR
+#undef OUT_TEXT
+#undef OUT
 
   return FD_VM_SUCCESS;
 }
