@@ -843,6 +843,9 @@ handle_contact_info_update( fd_votor_tile_t *                  ctx,
   if( FD_UNLIKELY( !ctx->quic_client ) ) return;                          /* QUIC disabled (unit test) */
   if( FD_LIKELY  (  peer->conn        ) ) return;                          /* already connected         */
   if( FD_UNLIKELY( peer->last_connected + (long)2e9 > ctx->now ) ) return; /* reconnect throttle        */
+  FD_BASE58_ENCODE_32_BYTES( peer->pubkey.uc, pubkey_str );
+  FD_LOG_NOTICE(( "votor connecting to quic server %s at " FD_IP4_ADDR_FMT ":%u",
+                  pubkey_str, FD_IP4_ADDR_FMT_ARGS( peer->ip4 ), (uint)peer->port ));
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client,
                                            peer->ip4,        peer->port,           /* dst */
                                            ctx->src_ip_addr, ctx->alpenglow_port,  /* src */
