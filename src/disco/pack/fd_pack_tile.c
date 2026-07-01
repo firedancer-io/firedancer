@@ -762,7 +762,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
         ctx->crank->ib_inserted = 1;
         ulong deleted;
-        int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL, &deleted );
+        int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->_became_leader->block_height-1UL, 1, NULL, &deleted );
         FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
         if( FD_UNLIKELY( retval<0 ) ) {
