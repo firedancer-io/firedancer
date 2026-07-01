@@ -120,7 +120,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
                       fd_features_t const *    features,
                       fd_slot_params_t const * slot_params,
                       ulong                    slot ) {
-  /* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L4757-L4764 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4809-L4816 */
   cost_tracker->block_cost_limit   = slot_params->max_block_units;
   cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
   cost_tracker->account_cost_limit = slot_params->max_writable_account_units;

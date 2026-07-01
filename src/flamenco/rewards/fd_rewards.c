@@ -60,7 +60,7 @@ get_inflation_start_slot( fd_bank_t const * bank ) {
   return min_slot;
 }
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L2895-L2902 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2921-L2928 */
 static ulong
 inflation_start_slot_aligned_to_rewards( fd_bank_t const *           bank,
                                          fd_epoch_schedule_t const * epoch_schedule ) {
@@ -69,7 +69,7 @@ inflation_start_slot_aligned_to_rewards( fd_bank_t const *           bank,
                          fd_ulong_sat_sub( fd_slot_to_epoch( epoch_schedule, inflation_activation_slot, NULL ), 1UL ) );
 }
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L2889-L2892 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2915-L2918 */
 static ulong
 get_inflation_num_slots( fd_bank_t const *           bank,
                          fd_epoch_schedule_t const * epoch_schedule,
@@ -78,7 +78,7 @@ get_inflation_num_slots( fd_bank_t const *           bank,
   return fd_epoch_slot0( epoch_schedule, fd_slot_to_epoch( epoch_schedule, slot, NULL ) ) - inflation_start_slot;
 }
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L2905-L2909 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2931-L2935 */
 static double
 slot_in_year_for_inflation( fd_bank_t const * bank ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;

@@ -6,7 +6,7 @@
 
 /* Hardcoded slot time parameter values for each slot time regime */
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L123-L133 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L123-L133 */
 fd_slot_params_t const FD_SLOT_PARAMS_400MS = {
   .ns_per_slot                                              = 400000000UL,
   .slots_per_year                                           = 78892314.984,
@@ -19,7 +19,7 @@ fd_slot_params_t const FD_SLOT_PARAMS_400MS = {
   .partitioned_epoch_rewards_stake_account_stores_per_block = 4096UL,
 };
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L135-L145 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L135-L145 */
 fd_slot_params_t const FD_SLOT_PARAMS_350MS = {
   .ns_per_slot                                              = 350000000UL,
   .slots_per_year                                           = 90162645.696,
@@ -32,7 +32,7 @@ fd_slot_params_t const FD_SLOT_PARAMS_350MS = {
   .partitioned_epoch_rewards_stake_account_stores_per_block = 3584UL,
 };
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L147-L157 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L147-L157 */
 fd_slot_params_t const FD_SLOT_PARAMS_300MS = {
   .ns_per_slot                                              = 300000000UL,
   .slots_per_year                                           = 105189753.312,
@@ -45,7 +45,7 @@ fd_slot_params_t const FD_SLOT_PARAMS_300MS = {
   .partitioned_epoch_rewards_stake_account_stores_per_block = 3072UL,
 };
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L159-L169 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L159-L169 */
 fd_slot_params_t const FD_SLOT_PARAMS_250MS = {
   .ns_per_slot                                              = 250000000UL,
   .slots_per_year                                           = 126227703.974,
@@ -58,7 +58,7 @@ fd_slot_params_t const FD_SLOT_PARAMS_250MS = {
   .partitioned_epoch_rewards_stake_account_stores_per_block = 2560UL,
 };
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L171-L181 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L171-L181 */
 fd_slot_params_t const FD_SLOT_PARAMS_200MS = {
   .ns_per_slot                                              = 200000000UL,
   .slots_per_year                                           = 157784629.968,
@@ -181,7 +181,7 @@ fd_slot_params_slot_range_duration_ns( fd_slot_params_t const *    default_param
      practice, the callers all limit the inputs such that this range
      will never overflow ULONG_MAX, but we saturate for defense in
      depth.
-     https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L2959-L2961 */
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2985-L2987 */
   return ns>(uint128)ULONG_MAX ? ULONG_MAX : (ulong)ns;
 }
 

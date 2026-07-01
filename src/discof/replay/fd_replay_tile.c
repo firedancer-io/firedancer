@@ -928,7 +928,7 @@ restore_default_slot_params( fd_bank_t const * bank ) {
 
   /* A reduction is effective if the effective ns_per_slot is less than
      the 400ms value.
-     https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L332-L350 */
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L332-L350 */
   int reduction_effective = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS,
                                                     &bank->f.features,
                                                     &bank->f.epoch_schedule,
@@ -1174,7 +1174,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* Set slot params based on the feature gates in the snapshot,
        and assert that these are consistent with the values from the
        manifest. These assertions match Agave:
-       https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L4787-L4817 */
+       https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
     fd_slot_params_t manifest_params = bank->f.slot_params;
     fd_bank_slot_params_set_default( bank, restore_default_slot_params( bank ) );
     bank->f.slot_params = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),

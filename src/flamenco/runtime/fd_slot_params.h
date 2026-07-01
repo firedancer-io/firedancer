@@ -18,16 +18,16 @@
    have been activated, because they affect the turbine shred filtering
    rules. */
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L13 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L13 */
 #define FD_DEFAULT_MAX_ENTRY_BYTES_PER_SLOT (20UL*1024UL*1024UL) /* 20 MiB */
 
-/* https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L122 */
+/* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L122 */
 #define FD_LEGACY_HASHES_PER_TICK (62500UL)
 
 /* Runtime parameters that need to change when the slot time changes
    due to one of the reduce_slot_time feature gates.
 
-   https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L20-L30 */
+   https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L20-L30 */
 
 struct fd_slot_params {
   ulong  ns_per_slot;
@@ -56,7 +56,7 @@ FD_PROTOTYPES_BEGIN
    This takes into account the fact that the reduce_slot_time feature
    gates take effect an epoch after they have been activated.
 
-   https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L241-L286 */
+   https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L241-L286 */
 
 fd_slot_params_t
 fd_slot_params_at_slot( fd_slot_params_t const *    default_params,
@@ -86,7 +86,7 @@ fd_slot_params_next_effective_slot( fd_slot_params_t const *    params,
    between the two slots.
 
    This is equivalent to Agave's slot_range_duration_nanos
-   https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/slot_params.rs#L295-L320 */
+   https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L295-L320 */
 
 FD_FN_PURE ulong
 fd_slot_params_slot_range_duration_ns( fd_slot_params_t const *    default_params,
@@ -101,7 +101,7 @@ fd_slot_params_slot_range_duration_ns( fd_slot_params_t const *    default_param
    two slots.
 
    This is equivalent to Agave's slot_range_duration_in_years:
-   https://github.com/anza-xyz/agave/blob/8d6ad05ea1424cb40e7bed7830759347b1b1571b/runtime/src/bank.rs#L2824-L2848 */
+   https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2850-L2874 */
 
 FD_FN_PURE double
 fd_slot_params_slot_range_duration_years( fd_slot_params_t const *    default_params,
