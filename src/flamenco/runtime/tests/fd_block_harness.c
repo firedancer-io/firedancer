@@ -220,6 +220,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   bank->f.ticks_per_slot                     = 64UL;
   runner->bank->f.slot_params.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
   bank->f.slot_params.hashes_per_tick        = (slot+1UL)*64UL;
+  fd_bank_slot_params_set_default( bank, bank->f.slot_params );
 
   /* Load in accounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );

@@ -106,10 +106,11 @@ fd_slot_params_feature_effective_slot( fd_features_t const *       features,
 }
 
 fd_slot_params_t
-fd_slot_params_at_slot( fd_features_t const *       features,
+fd_slot_params_at_slot( fd_slot_params_t const *    default_params,
+                        fd_features_t const *       features,
                         fd_epoch_schedule_t const * epoch_schedule,
                         ulong                       slot ) {
-  fd_slot_params_t result = FD_SLOT_PARAMS_400MS;
+  fd_slot_params_t result = *default_params;
   for( ulong i=0UL; i<FD_SLOT_TIME_GATE_CNT; i++ ) {
     fd_slot_time_gate_t const * gate = &fd_slot_time_gates[ i ];
     ulong eff                        = fd_slot_params_feature_effective_slot( features, epoch_schedule, gate );
@@ -162,14 +163,15 @@ fd_slot_params_next_effective_slot( fd_slot_params_t const *    params,
 }
 
 FD_FN_PURE ulong
-fd_slot_params_slot_range_duration_ns( fd_features_t const *       features,
+fd_slot_params_slot_range_duration_ns( fd_slot_params_t const *    default_params,
+                                       fd_features_t const *       features,
                                        fd_epoch_schedule_t const * epoch_schedule,
                                        ulong                       start_slot,
                                        ulong                       end_slot ) {
   ulong   curr_slot = start_slot;
   uint128 ns        = 0;
   while( curr_slot<end_slot ) {
-    fd_slot_params_t params    = fd_slot_params_at_slot( features, epoch_schedule, curr_slot );
+    fd_slot_params_t params    = fd_slot_params_at_slot( default_params, features, epoch_schedule, curr_slot );
     ulong            next      = fd_slot_params_next_transition( features, epoch_schedule, curr_slot, params.ns_per_slot );
     ulong            seg_end   = next<end_slot ? next : end_slot;
                      ns        = fd_uint128_sat_add( ns, fd_uint128_sat_mul( (uint128)( seg_end-curr_slot ), (uint128)params.ns_per_slot ) );
@@ -184,14 +186,15 @@ fd_slot_params_slot_range_duration_ns( fd_features_t const *       features,
 }
 
 FD_FN_PURE double
-fd_slot_params_slot_range_duration_years( fd_features_t const *       features,
+fd_slot_params_slot_range_duration_years( fd_slot_params_t const *    default_params,
+                                          fd_features_t const *       features,
                                           fd_epoch_schedule_t const * epoch_schedule,
                                           ulong                       start_slot,
                                           ulong                       end_slot ) {
   ulong  curr_slot = start_slot;
   double years     = 0.0;
   while( curr_slot<end_slot ) {
-    fd_slot_params_t p         = fd_slot_params_at_slot( features, epoch_schedule, curr_slot );
+    fd_slot_params_t p         = fd_slot_params_at_slot( default_params, features, epoch_schedule, curr_slot );
     ulong            next      = fd_slot_params_next_transition( features, epoch_schedule, curr_slot, p.ns_per_slot );
     ulong            seg_end   = next<end_slot ? next : end_slot;
                      years    += (double)( seg_end-curr_slot ) / p.slots_per_year;

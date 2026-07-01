@@ -84,7 +84,8 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong num_slots            = get_inflation_num_slots( bank, epoch_schedule, bank->f.slot );
   ulong inflation_start_slot = inflation_start_slot_aligned_to_rewards( bank, epoch_schedule );
-  return fd_slot_params_slot_range_duration_years( &bank->f.features, epoch_schedule,
+  return fd_slot_params_slot_range_duration_years( fd_bank_slot_params_get_default( bank ),
+                                                   &bank->f.features, epoch_schedule,
                                                    inflation_start_slot, inflation_start_slot + num_slots );
 }
 
@@ -293,7 +294,8 @@ epoch_duration_in_years( fd_bank_t const * bank,
                          ulong             prev_epoch ) {
   fd_epoch_schedule_t const * epoch_schedule  = &bank->f.epoch_schedule;
   ulong                        slots_in_epoch = get_slots_in_epoch( prev_epoch, epoch_schedule );
-  double                       slots_per_year = fd_slot_params_at_slot( &bank->f.features, epoch_schedule,
+  double                       slots_per_year = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
+                                                                        &bank->f.features, epoch_schedule,
                                                                         fd_epoch_slot0( epoch_schedule, prev_epoch ) ).slots_per_year;
   return (double)slots_in_epoch / slots_per_year;
 }

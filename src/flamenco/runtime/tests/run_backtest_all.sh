@@ -2,23 +2,23 @@
 set -e
 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-v4.1.0-beta.1 -m 2000000 -e 255312007
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-v4.1.0-beta.1 -m 2000000 -e 257066038
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066844-v4.1.0-beta.1 -m 2000000 -e 257066849
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257067457-v4.1.0-beta.1 -m 2000000 -e 257067461
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257068890-v4.1.0-beta.1 -m 2000000 -e 257068895
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257181622-v4.1.0-beta.1 -m 2000000 -e 257181624
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.1.0-beta.1 -m 10000000 -e 254462598
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-v4.1.0-beta.1 -m 2000000 -e 257066038
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066844-v4.1.0-beta.1 -m 2000000 -e 257066849
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257067457-v4.1.0-beta.1 -m 2000000 -e 257067461
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257068890-v4.1.0-beta.1 -m 2000000 -e 257068895
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257181622-v4.1.0-beta.1 -m 2000000 -e 257181624
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.1.0-beta.1 -m 10000000 -e 254462598
 # [skipped: un-creatable under v4.1: ALT durable-nonce rejected by require_static_nonce_account] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-262654839-v4.0.0 -m 10000000 -e 262654840
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257037451-v4.1.0-beta.1 -m 2000000 -e 257037454
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257035225-v4.1.0-beta.1 -m 2000000 -e 257035233
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257465453-v4.1.0-beta.1 -m 10000000 -e 257465454
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257058865-v4.1.0-beta.1 -m 2000000 -e 257058870
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257059815-v4.1.0-beta.1 -m 2000000 -e 257059818
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257061172-v4.1.0-beta.1 -m 2000000 -e 257061175
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257222682-v4.1.0-beta.1 -m 2000000 -e 257222688
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257037451-v4.1.0-beta.1 -m 2000000 -e 257037454
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257035225-v4.1.0-beta.1 -m 2000000 -e 257035233
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257465453-v4.1.0-beta.1 -m 10000000 -e 257465454
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257058865-v4.1.0-beta.1 -m 2000000 -e 257058870
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257059815-v4.1.0-beta.1 -m 2000000 -e 257059818
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257061172-v4.1.0-beta.1 -m 2000000 -e 257061175
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257222682-v4.1.0-beta.1 -m 2000000 -e 257222688
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-264890264-v4.1.0-beta.1 -m 2000000 -e 264890265
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257229353-v4.1.0-beta.1 -m 2000000 -e 257229357
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257257983-v4.1.0-beta.1 -m 2000000 -e 257257986
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257229353-v4.1.0-beta.1 -m 2000000 -e 257229357
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257257983-v4.1.0-beta.1 -m 2000000 -e 257257986
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-267728520-v4.1.0-beta.1 -m 2000000 -e 267728522
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-267651942-v4.1.0-beta.1 -m 2000000 -e 267651943
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-267081197-v4.1.0-beta.1 -m 2000000 -e 267081198
@@ -42,21 +42,21 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-277660422-v4.1.0-be
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-277876060-v4.1.0-beta.1 -m 2000000 -e 277876061
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-277927063-v4.1.0-beta.1 -m 2000000 -e 277927065
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-281375356-v4.1.0-beta.1 -m 2000000 -e 281375359
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-251418170-v4.1.0-beta.1 -m 2000000 -e 251418233
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-251418170-v4.1.0-beta.1 -m 2000000 -e 251418233
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-282232100-v4.1.0-beta.1 -m 2000000 -e 282232101
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-282151715-v4.1.0-beta.1 -m 2000000 -e 282151717
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-286450148-v4.1.0-beta.1 -m 2000000 -e 286450151
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-200-v4.1.0-beta.1 -m 2000000 -e 984
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-300-v4.1.0-beta.1 -m 2000000 -e 984
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-500-v4.1.0-beta.1 -m 2000000 -e 984
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-200-v4.1.0-beta.1 -m 2000000 -e 984
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-300-v4.1.0-beta.1 -m 2000000 -e 984
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-500-v4.1.0-beta.1 -m 2000000 -e 984
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-297489336-v4.1.0-beta.1 -m 2000000 -e 297489363
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-300377724-v4.1.0-beta.1 -m 2000000 -e 300377724
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-300645644-v4.1.0-beta.1 -m 2000000 -e 300645644
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-300648964-v4.1.0-beta.1 -m 2000000 -e 300648964
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-301359740-v4.1.0-beta.1 -m 2000000 -e 301359740
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257181032-v4.1.0-beta.1 -m 2000000 -e 257181035
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257047660-v4.1.0-beta.1 -m 2000000 -e 257047662
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257047659-v4.1.0-beta.1 -m 2000000 -e 257047660
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257181032-v4.1.0-beta.1 -m 2000000 -e 257181035
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257047660-v4.1.0-beta.1 -m 2000000 -e 257047662
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257047659-v4.1.0-beta.1 -m 2000000 -e 257047660
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308445707-v4.1.0-beta.1 -m 2000000 -e 308445711
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-307395181-v4.1.0-beta.1 -m 2000000 -e 307395190
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308392063-v4.1.0-beta.1 -m 2000000 -e 308392063
@@ -80,9 +80,9 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340272018-v4.1.0-be
 # src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v4.1.0-beta.1 -m 2000000 -e 390056406
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.1.0-beta.1 -m 2000000 -e 346556337
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346179946-v4.1.0-beta.1 -m 90000000 -e 346179950
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v4.1.0-beta.1 -m 1000 -e 108
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary-v4.1.0-beta.1 -m 1000 -e 2325
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -m 3000 -e 1352 -g
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v4.1.0-beta.1 -m 1000 -e 108
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary-v4.1.0-beta.1 -m 1000 -e 2325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -m 3000 -e 1352 -g
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v4.1.0-beta.1 -m 3000 -e 541
 # src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-413869565-v4.1.0-beta.1 -m 100000000 -e 413869600
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-v4.1.0-beta.1 -m 2000000 -e 376969880
@@ -92,10 +92,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810-v4.1.0-be
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.1.0-beta.1 -m 2000000 -e 385786452
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-386300256-v4.1.0-beta.1 -m 2000000 -e 386300289
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.1.0-beta.1 -m 2000000 -e 387596373
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.1.0-beta.1 -m 1000 -e 75
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.1.0-beta.1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.1.0-beta.1 -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary-v4.1.0-beta.1 -m 2000000 -e 391824016
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.1.0-beta.1 -m 10000 -e 135
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.1.0-beta.1 -m 10000 -e 135
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot_block_id_some-v4.1.0-beta.1 -m 1000 -e 110
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot_block_id_none-v4.1.0-beta.1 -m 1000 -e 110
 
@@ -109,9 +109,9 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot_block_id_none-v4.1
 # [skipped: direct-mapping (-o); not rewritten to v4.1.0-beta.1] src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-3 -m 2000000 -e 362219427 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
 
 # Local cluster ledgers testing specific feature gates
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold-v4.1.0-beta.1 -m 1000 -e 260
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold-v4.1.0-beta.1 -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks-v4.1.0-beta.1 -m 1000 -e 240
-# [SIMD-525: unsupported non-400ms slot-params baseline] src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.1.0-beta.1 -m 3000 -e 1000
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.1.0-beta.1 -m 3000 -e 1000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l limit_instruction_accounts_rekey-v4.1.0-beta.1 -m 1000 -e 275
 # [skipped: fails under v4.1: slashing Core-BPF migration build-hash mismatch] src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefund-v4.1.0-beta.1 -m 1000 -e 520

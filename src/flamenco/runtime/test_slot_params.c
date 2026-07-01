@@ -44,7 +44,7 @@ params_eq( fd_slot_params_t const * a, fd_slot_params_t const * b ) {
 
 /* Assert the regime effective at `slot` equals `exp`. */
 #define EXPECT_REGIME( feat, es, slot, exp ) do {                          \
-    fd_slot_params_t _p = fd_slot_params_at_slot( (feat), (es), (slot) );  \
+    fd_slot_params_t _p = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, (feat), (es), (slot) );  \
     FD_TEST( params_eq( &_p, &(exp) ) );                                   \
   } while( 0 )
 
@@ -107,17 +107,17 @@ test_out_of_order_range( void ) {
   double  const spy200 = FD_SLOT_PARAMS_200MS.slots_per_year;
 
   /* range_ns is integer-exact across the dropped boundary. */
-  FD_TEST( fd_slot_params_slot_range_duration_ns( &f, &es,  0UL, 160UL )==(uint128)32UL*ns400 + (uint128)128UL*ns200 );
-  FD_TEST( fd_slot_params_slot_range_duration_ns( &f, &es, 40UL, 100UL )==(uint128)60UL*ns200 );
+  FD_TEST( fd_slot_params_slot_range_duration_ns( &FD_SLOT_PARAMS_400MS, &f, &es,  0UL, 160UL )==(uint128)32UL*ns400 + (uint128)128UL*ns200 );
+  FD_TEST( fd_slot_params_slot_range_duration_ns( &FD_SLOT_PARAMS_400MS, &f, &es, 40UL, 100UL )==(uint128)60UL*ns200 );
 
   /* range_years must integrate over the normalized segments (no split at 64). */
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es, 32UL,  66UL )==(double)34UL/spy200 );
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es,  0UL,  66UL )==(double)32UL/spy400 + (double)34UL/spy200 ); /* crosses 32 and 64 */
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es, 40UL, 100UL )==(double)60UL/spy200 );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es, 32UL,  66UL )==(double)34UL/spy200 );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es,  0UL,  66UL )==(double)32UL/spy400 + (double)34UL/spy200 ); /* crosses 32 and 64 */
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es, 40UL, 100UL )==(double)60UL/spy200 );
 
   /* Ranges that don't straddle slot 64 already agree. */
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es, 32UL,  64UL )==(double)32UL/spy200 );
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es,  0UL,  32UL )==(double)32UL/spy400 );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es, 32UL,  64UL )==(double)32UL/spy200 );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es,  0UL,  32UL )==(double)32UL/spy400 );
 }
 
 /* All four gates activated out of slot-time order.  Effective slots: 300ms@32,
@@ -150,11 +150,11 @@ test_out_of_order_all_gates( void ) {
   double  const spy200 = FD_SLOT_PARAMS_200MS.slots_per_year;
 
   /* range_ns (half-open) [0,160): 32 @ 400ms, 64 @ 300ms, 64 @ 200ms. */
-  FD_TEST( fd_slot_params_slot_range_duration_ns( &f, &es, 0UL, 160UL )
+  FD_TEST( fd_slot_params_slot_range_duration_ns( &FD_SLOT_PARAMS_400MS, &f, &es, 0UL, 160UL )
            ==(uint128)32UL*ns400 + (uint128)64UL*ns300 + (uint128)64UL*ns200 );
 
   /* range_years over the same segments. */
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es, 0UL, 160UL )
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es, 0UL, 160UL )
            ==(double)32UL/spy400 + (double)64UL/spy300 + (double)64UL/spy200 );
 }
 
@@ -173,7 +173,7 @@ test_range_integration( void ) {
                  + (uint128)SLOTS_PER_EPOCH*FD_SLOT_PARAMS_300MS.ns_per_slot
                  + (uint128)SLOTS_PER_EPOCH*FD_SLOT_PARAMS_250MS.ns_per_slot
                  + (uint128)SLOTS_PER_EPOCH*FD_SLOT_PARAMS_200MS.ns_per_slot;
-  FD_TEST( fd_slot_params_slot_range_duration_ns( &f, &es, 0UL, SLOTS_PER_EPOCH*5UL )==exp_ns );
+  FD_TEST( fd_slot_params_slot_range_duration_ns( &FD_SLOT_PARAMS_400MS, &f, &es, 0UL, SLOTS_PER_EPOCH*5UL )==exp_ns );
 
   /* range_years over half-open [0, 5*32=160). */
   double exp_years = (double)SLOTS_PER_EPOCH/FD_SLOT_PARAMS_400MS.slots_per_year
@@ -181,16 +181,75 @@ test_range_integration( void ) {
                    + (double)SLOTS_PER_EPOCH/FD_SLOT_PARAMS_300MS.slots_per_year
                    + (double)SLOTS_PER_EPOCH/FD_SLOT_PARAMS_250MS.slots_per_year
                    + (double)SLOTS_PER_EPOCH/FD_SLOT_PARAMS_200MS.slots_per_year;
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es, 0UL, SLOTS_PER_EPOCH*5UL )==exp_years );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es, 0UL, SLOTS_PER_EPOCH*5UL )==exp_years );
 
   /* Empty ranges: start>=end. */
-  FD_TEST( fd_slot_params_slot_range_duration_ns   (&f, &es, 5UL, 4UL )==(uint128)0 );
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f, &es, 5UL, 5UL )==0.0         );
+  FD_TEST( fd_slot_params_slot_range_duration_ns   ( &FD_SLOT_PARAMS_400MS, &f, &es, 5UL, 4UL )==(uint128)0 );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f, &es, 5UL, 5UL )==0.0         );
 
   /* No reduction: constant default. */
   fd_features_t f0 = no_features();
-  FD_TEST( fd_slot_params_slot_range_duration_ns   (&f0, &es, 0UL, 100UL )==(uint128)100UL*FD_SLOT_PARAMS_400MS.ns_per_slot );
-  FD_TEST( fd_slot_params_slot_range_duration_years( &f0, &es, 0UL, 100UL )==(double)100UL/FD_SLOT_PARAMS_400MS.slots_per_year );
+  FD_TEST( fd_slot_params_slot_range_duration_ns   ( &FD_SLOT_PARAMS_400MS, &f0, &es, 0UL, 100UL )==(uint128)100UL*FD_SLOT_PARAMS_400MS.ns_per_slot );
+  FD_TEST( fd_slot_params_slot_range_duration_years( &FD_SLOT_PARAMS_400MS, &f0, &es, 0UL, 100UL )==(double)100UL/FD_SLOT_PARAMS_400MS.slots_per_year );
+}
+
+/* Snapshot-restore baseline selection.  Hand-kept copy of the static
+   fd_replay_tile.c:restore_default_slot_params, FD's analogue of Agave's
+   snapshot_restore_slot_params_baseline
+   (https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2775).
+   Returns the slot-0 default: the 400ms baseline once a reduction is effective,
+   else the restored manifest params. */
+static fd_slot_params_t
+restore_default_slot_params( fd_slot_params_t const *    manifest,
+                             fd_features_t const *       features,
+                             fd_epoch_schedule_t const * es,
+                             ulong                       slot ) {
+  int reduction_effective =
+      fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, features, es, slot ).ns_per_slot
+        < FD_SLOT_PARAMS_400MS.ns_per_slot;
+  return reduction_effective ? FD_SLOT_PARAMS_400MS : *manifest;
+}
+
+static void
+test_snapshot_baseline_select( void ) {
+  fd_epoch_schedule_t es = test_epoch_schedule();
+
+  /* 350ms@1 -> effective 32; 300ms@33 -> effective 64. */
+  fd_features_t f = no_features();
+  f.reduce_slot_time_to_350ms = 1UL;
+  f.reduce_slot_time_to_300ms = 33UL;
+
+  /* No reduction yet (slot 31 < 32): keep the manifest.  hpt=57500 checks the
+     restored fields survive rather than snapping to the 400ms table (62500). */
+  fd_slot_params_t manifest_pre = FD_SLOT_PARAMS_400MS;
+  manifest_pre.hashes_per_tick  = 57500UL;
+  fd_slot_params_t d0 = restore_default_slot_params( &manifest_pre, &f, &es, 31UL );
+  FD_TEST( params_eq( &d0, &manifest_pre ) );
+  FD_TEST( d0.hashes_per_tick==57500UL );
+
+  /* Reduction effective (slot >= 32): the manifest holds a reduced regime, so
+     revert to the 400ms baseline, else inflation over pre-reduction slots uses
+     the reduced slots_per_year and the bank hash is wrong. */
+  fd_slot_params_t manifest_350 = FD_SLOT_PARAMS_350MS;
+  fd_slot_params_t d_b = restore_default_slot_params( &manifest_350, &f, &es, 32UL );
+  FD_TEST( params_eq( &d_b, &FD_SLOT_PARAMS_400MS ) ); /* boundary: just effective */
+  FD_TEST( d_b.hashes_per_tick==62500UL );
+
+  fd_slot_params_t d1 = restore_default_slot_params( &manifest_350, &f, &es, 40UL );
+  FD_TEST( params_eq( &d1, &FD_SLOT_PARAMS_400MS ) );
+
+  fd_slot_params_t manifest_300 = FD_SLOT_PARAMS_300MS;
+  fd_slot_params_t d2 = restore_default_slot_params( &manifest_300, &f, &es, 100UL );
+  FD_TEST( params_eq( &d2, &FD_SLOT_PARAMS_400MS ) );
+
+  /* No gate active: keep the manifest, even a non-400ms one. */
+  fd_features_t    f_none      = no_features();
+  fd_slot_params_t manifest_64 = FD_SLOT_PARAMS_400MS;
+  manifest_64.ns_per_slot     = (uint128)64000000UL;
+  manifest_64.slots_per_year  = 493076968.65;
+  manifest_64.hashes_per_tick = 0UL;
+  fd_slot_params_t d3 = restore_default_slot_params( &manifest_64, &f_none, &es, 1000UL );
+  FD_TEST( params_eq( &d3, &manifest_64 ) );
 }
 
 /* hashes_per_tick feeds the tick count -> last blockhash -> bank hash, so it
@@ -206,15 +265,21 @@ test_hashes_per_tick( void ) {
   f.reduce_slot_time_to_200ms = 97UL; /* effective 128 */
 
   /* hpt steps with the regime (Agave table values). */
-  FD_TEST( fd_slot_params_at_slot( &f, &es,  31UL ).hashes_per_tick==62500UL );
-  FD_TEST( fd_slot_params_at_slot( &f, &es,  32UL ).hashes_per_tick==54687UL );
-  FD_TEST( fd_slot_params_at_slot( &f, &es,  64UL ).hashes_per_tick==46875UL );
-  FD_TEST( fd_slot_params_at_slot( &f, &es,  96UL ).hashes_per_tick==39062UL );
-  FD_TEST( fd_slot_params_at_slot( &f, &es, 128UL ).hashes_per_tick==31250UL );
+  FD_TEST( fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, &f, &es,  31UL ).hashes_per_tick==62500UL );
+  FD_TEST( fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, &f, &es,  32UL ).hashes_per_tick==54687UL );
+  FD_TEST( fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, &f, &es,  64UL ).hashes_per_tick==46875UL );
+  FD_TEST( fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, &f, &es,  96UL ).hashes_per_tick==39062UL );
+  FD_TEST( fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS, &f, &es, 128UL ).hashes_per_tick==31250UL );
 
   /* 400ms hpt is the exported LEGACY constant. */
   FD_TEST( FD_LEGACY_HASHES_PER_TICK==62500UL );
   FD_TEST( FD_SLOT_PARAMS_400MS.hashes_per_tick==FD_LEGACY_HASHES_PER_TICK );
+
+  /* No reduction: a non-standard restored hpt (57500) flows through unchanged. */
+  fd_slot_params_t manifest = FD_SLOT_PARAMS_400MS;
+  manifest.hashes_per_tick  = 57500UL;
+  fd_features_t f0 = no_features();
+  FD_TEST( fd_slot_params_at_slot( &manifest, &f0, &es, 10UL ).hashes_per_tick==57500UL );
 }
 
 int
@@ -228,6 +293,7 @@ main( int     argc,
   test_out_of_order_normalization();
   test_out_of_order_range();
   test_out_of_order_all_gates();
+  test_snapshot_baseline_select();
   test_hashes_per_tick();
 
   FD_LOG_NOTICE(( "pass" ));

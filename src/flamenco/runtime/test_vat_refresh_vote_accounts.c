@@ -374,6 +374,7 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   env->bank->f.epoch                   = 1UL;
   env->bank->f.genesis_creation_time   = (ulong)GENESIS_CREATION_TIME;
   env->bank->f.slot_params             = FD_SLOT_PARAMS_400MS;
+  fd_bank_slot_params_set_default( env->bank, FD_SLOT_PARAMS_400MS );
   env->bank->f.ticks_per_slot          = 64UL;
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );

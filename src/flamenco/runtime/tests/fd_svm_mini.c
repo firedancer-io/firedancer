@@ -481,6 +481,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
      (target_tick_duration=6250000ns, ticks_per_slot=64). */
   bank->f.slot_params = FD_SLOT_PARAMS_400MS;
   bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / 6250000.0) / 64.0;
+  fd_bank_slot_params_set_default( bank, bank->f.slot_params );
 
   if( params->rent ) {
     bank->f.rent = *params->rent;
