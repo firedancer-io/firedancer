@@ -1896,6 +1896,48 @@ fd_feature_id_t const ids[] = {
     .name                      = "validate_chained_block_id_2",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_6333)>>3,
+    .id                        = {"\x35\x0d\x9f\xc4\x1f\x1f\xd7\xf2\xdd\xce\xca\xfa\x8f\x5f\xae\x76\xd4\x93\xdf\xa5\x5c\xf2\x66\x7d\x8b\x31\x01\x35\x9c\x8f\x83\x5b"},
+                                 /* 4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC */
+    .name                      = "set_lamports_per_byte_to_6333",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_5080)>>3,
+    .id                        = {"\x4a\x56\xbe\x1f\x51\xef\x5c\x80\xcc\x02\xc6\x46\x2b\xeb\x7d\x8c\x22\x91\xc1\x59\xdc\x1c\x2e\x08\x89\x83\xdc\x4e\x47\xc9\x71\xa2"},
+                                 /* 61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81 */
+    .name                      = "set_lamports_per_byte_to_5080",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_2575)>>3,
+    .id                        = {"\xdd\x53\x17\x32\x99\x74\x3e\x41\x0a\x19\xc8\x8e\xd1\x45\xa8\x4d\x09\x52\x91\xc3\x27\xcb\x1a\x8a\x9b\x6e\xee\xaf\x46\x36\x97\xd7"},
+                                 /* Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz */
+    .name                      = "set_lamports_per_byte_to_2575",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_1322)>>3,
+    .id                        = {"\xeb\xcd\x13\x56\x4b\xd9\xe3\xb8\x77\x18\x7f\x80\x49\x2a\x74\x92\x7e\x4b\xf9\x66\xd1\x95\xe7\x0e\xbc\x56\xda\x25\x84\x7b\x3e\x7e"},
+                                 /* GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM */
+    .name                      = "set_lamports_per_byte_to_1322",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_696)>>3,
+    .id                        = {"\x0b\x6a\x74\x87\xee\x08\x84\x07\x1d\xd4\xe9\xe7\x97\x29\x50\x32\x5d\x96\x72\x7c\x04\x04\x24\xe2\xc1\xf6\x4e\x90\x3a\x78\xda\xfb"},
+                                 /* mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY */
+    .name                      = "set_lamports_per_byte_to_696",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_6960)>>3,
+    .id                        = {"\x3d\xf4\x3b\x99\x54\x61\x60\x0b\xf2\x9a\xa8\xf3\xab\xd8\x14\x37\x0d\xd1\x17\xce\x0e\xc4\xd2\xcc\x9a\xb3\x43\x29\xf1\xe4\xb9\xbb"},
+                                 /* 5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni */
+    .name                      = "set_lamports_per_byte_to_6960",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, relax_post_exec_min_balance_check)>>3,
+    .id                        = {"\xb5\xb4\xe3\xe7\x17\x0f\xb3\x8a\xd3\x7c\x18\xf7\x8a\xfe\x4c\x43\x3c\x0c\xc6\x6a\x59\xb9\x5c\xdd\x47\xdc\x15\x4f\x1b\x15\xcd\x7d"},
+                                 /* DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg */
+    .name                      = "relax_post_exec_min_balance_check",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2189,6 +2231,13 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_274 0xbe56a012b91e1808UL, .val = &ids[274]
 #define MAP_PERFECT_275 0x902a0ec624adfb04UL, .val = &ids[275]
 #define MAP_PERFECT_276 0x944290a2683bbc0dUL, .val = &ids[276]
+#define MAP_PERFECT_277 0xf2d71f1fc49f0d35UL, .val = &ids[277]
+#define MAP_PERFECT_278 0x805cef511fbe564aUL, .val = &ids[278]
+#define MAP_PERFECT_279 0x413e7499321753ddUL, .val = &ids[279]
+#define MAP_PERFECT_280 0xb8e3d94b5613cdebUL, .val = &ids[280]
+#define MAP_PERFECT_281 0x078408ee87746a0bUL, .val = &ids[281]
+#define MAP_PERFECT_282 0x0b606154993bf43dUL, .val = &ids[282]
+#define MAP_PERFECT_283 0x8ab30f17e7e3b4b5UL, .val = &ids[283]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2476,4 +2525,11 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points      
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_minimum_extend_program_size                   )>>3==274UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, define_ltds_fee_only_semantics                          )>>3==275UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id_2                             )>>3==276UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6333                           )>>3==277UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_5080                           )>>3==278UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_2575                           )>>3==279UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_1322                           )>>3==280UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_696                            )>>3==281UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6960                           )>>3==282UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_post_exec_min_balance_check                       )>>3==283UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

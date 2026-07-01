@@ -67,6 +67,8 @@ $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_deprecate_rent_exemption_threshold)
+$(call make-unit-test,test_lamports_per_byte_feature_gates,test_lamports_per_byte_feature_gates,fd_flamenco_test fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_lamports_per_byte_feature_gates)
 $(call make-unit-test,test_vat_refresh_vote_accounts,test_vat_refresh_vote_accounts,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vat_refresh_vote_accounts)
 $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_ballet fd_util)

@@ -275,5 +275,12 @@
   {"name":"commission_rate_in_basis_points","pubkey":"Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj"},
   {"name":"loader_v3_minimum_extend_program_size","pubkey":"YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5"},
   {"name":"define_ltds_fee_only_semantics","pubkey":"LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD"},
-  {"name":"validate_chained_block_id_2","pubkey":"vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA"}
+  {"name":"validate_chained_block_id_2","pubkey":"vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA"},
+  {"name":"set_lamports_per_byte_to_6333","pubkey":"4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC"},
+  {"name":"set_lamports_per_byte_to_5080","pubkey":"61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81"},
+  {"name":"set_lamports_per_byte_to_2575","pubkey":"Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz"},
+  {"name":"set_lamports_per_byte_to_1322","pubkey":"GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM"},
+  {"name":"set_lamports_per_byte_to_696","pubkey":"mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY"},
+  {"name":"set_lamports_per_byte_to_6960","pubkey":"5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni"},
+  {"name":"relax_post_exec_min_balance_check","pubkey":"DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg"}
 ]

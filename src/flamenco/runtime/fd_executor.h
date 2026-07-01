@@ -3,6 +3,7 @@
 
 #include "info/fd_instr_info.h"
 #include "../../disco/fd_txn_p.h"
+#include "sysvar/fd_sysvar_rent.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
 #define FD_TRANSACTION_ACCOUNT_BASE_SIZE  (64UL)
@@ -54,6 +55,15 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
 int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
                         fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
+
+/* TODO: Change the commit SHA to a version tag once a release is cut.
+   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L144-L178 */
+int
+fd_executor_check_static_account_rent_state_transition( ulong             pre_exec_balance,
+                                                        ulong             post_exec_balance,
+                                                        ulong             data_size,
+                                                        fd_rent_t const * rent,
+                                                        int               relax_post_exec_min_balance_check );
 
 int
 fd_execute_instr( fd_runtime_t *      runtime,

@@ -2,6 +2,7 @@
 
 #include "../types/fd_cast.h"
 #include "fd_alut.h"
+#include "fd_executor.h"
 #include "fd_hashes.h"
 #include "fd_runtime_stack.h"
 #include "fd_accdb_svm.h"
@@ -201,38 +202,34 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 /* Various Private Runtime Helpers                                            */
 /******************************************************************************/
 
+/* Validates the fee collector account before depositing fees.  Returns
+   0 on success.  Returns 1 if the fee collector is not owned by the
+   system program or if the fee collector's rent state transition is
+   invalid.
+
+   TODO: Change the commit SHA to a version tag once a release is cut.
+   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/fee_distribution.rs#L206-L230 */
 static int
 fd_runtime_validate_fee_collector( fd_bank_t const * bank,
                                    fd_acc_t const *  collector,
                                    ulong             fee ) {
   FD_TEST( fee );
-  if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, 32UL ) ) ) return 0;
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.23/runtime/src/bank/fee_distribution.rs#L111
-     https://github.com/anza-xyz/agave/blob/v1.18.23/runtime/src/accounts/account_rent_state.rs#L39
+  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/fee_distribution.rs#L206-L208 */
+  if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
 
-     In agave's fee deposit code, rent state transition check logic is as follows:
-     The transition is NOT allowed iff
-     === BEGIN
-     the post deposit account is rent paying AND the pre deposit account is not rent paying
-     OR
-     the post deposit account is rent paying AND the pre deposit account is rent paying AND !(post_data_size == pre_data_size && post_lamports <= pre_lamports)
-     === END
-     post_data_size == pre_data_size is always true during fee deposit.
-     However, post_lamports > pre_lamports because we are paying a >0 amount.
-     So, the above reduces down to
-     === BEGIN
-     the post deposit account is rent paying AND the pre deposit account is not rent paying
-     OR
-     the post deposit account is rent paying AND the pre deposit account is rent paying AND TRUE
-     === END
-     This is equivalent to checking that the post deposit account is rent paying.
-     An account is rent paying if the post deposit balance is >0 AND it's not rent exempt.
-     We already know that the post deposit balance is >0 because we are paying a >0 amount.
-     So TLDR we just check if the account is rent exempt. */
-  ulong balance = collector->lamports;
-  FD_TEST( !__builtin_uaddl_overflow( balance, fee, &balance ) );
-  return balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, collector->data_len );
+  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/fee_distribution.rs#L210 */
+  ulong pre_balance = collector->lamports;
+  ulong post_balance;
+  FD_TEST( !__builtin_uaddl_overflow( pre_balance, fee, &post_balance ) );
+
+  return !!fd_executor_check_static_account_rent_state_transition(
+    pre_balance,
+    post_balance,
+    collector->data_len,
+    &bank->f.rent,
+    FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check )
+  );
 }
 
 /* fd_runtime_settle_fees settles transaction fees accumulated during a
@@ -269,7 +266,7 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
     fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, leader, 1 );
-    if( FD_UNLIKELY( !fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
+    if( FD_UNLIKELY( fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
       FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     } else {
       acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
@@ -484,6 +481,18 @@ deprecate_rent_exemption_threshold( fd_bank_t *        bank,
   bank->f.rent = rent;
 }
 
+static void
+set_lamports_per_byte( fd_bank_t *        bank,
+                       fd_accdb_t *       accdb,
+                       fd_capture_ctx_t * capture_ctx,
+                       ulong              lamports_per_byte ) {
+  fd_rent_t rent = bank->f.rent;
+  rent.lamports_per_uint8_year = lamports_per_byte;
+
+  fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
+  bank->f.rent = rent;
+}
+
 // https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
 static void
 fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
@@ -499,6 +508,31 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
       https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, deprecate_rent_exemption_threshold ) ) ) {
     deprecate_rent_exemption_threshold( bank, accdb, capture_ctx );
+  }
+
+  /* SIMD-0437 rent reduction gates.
+     https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank.rs#L5612-L5639 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_6333 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 6333UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_5080 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 5080UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_2575 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 2575UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_1322 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 1322UL );
+  }
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_696 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 696UL );
+  }
+
+  /* SIMD-0438 resets rent to the legacy value (in case something goes
+     wrong with the above).
+     https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank.rs#L5641-L5644 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_6960 ) ) ) {
+    set_lamports_per_byte( bank, accdb, capture_ctx, 6960UL );
   }
 
   /* Apply builtin program feature transitions
@@ -1411,6 +1445,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           stake_state->stake.stake.delegation.activation_epoch,
           stake_state->stake.stake.delegation.deactivation_epoch,
           stake_state->stake.stake.credits_observed,
+          account->lamports,
+          (uint)account->data_len,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
 
     } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
@@ -1800,6 +1836,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
         txn_out->accounts.account[ j ]           = acc;
         txn_out->accounts.starting_lamports[ j ] = acc->prior_lamports;
         txn_out->accounts.starting_data_len[ j ] = acc->prior_data_len;
+        memcpy( &txn_out->accounts.starting_owner[ j ], acc->prior_owner, sizeof(fd_pubkey_t) );
         break;
       }
     }
