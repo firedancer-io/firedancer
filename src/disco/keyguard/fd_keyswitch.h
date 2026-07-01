@@ -17,6 +17,7 @@
 #define FD_KEYSWITCH_STATE_UNHALT_PENDING (3UL)
 #define FD_KEYSWITCH_STATE_FAILED         (4UL)
 #define FD_KEYSWITCH_STATE_COMPLETED      (5UL)
+#define FD_KEYSWITCH_STATE_CLEAR_PENDING  (6UL)
 
 
 struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {

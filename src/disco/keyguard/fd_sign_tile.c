@@ -125,6 +125,13 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
     ctx->authorized_voters_cnt++;
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
+
+  if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_CLEAR_PENDING ) ) {
+    fd_memzero_explicit( ctx->authorized_voter_private_keys, sizeof( ctx->authorized_voter_private_keys ) );
+    fd_memzero_explicit( ctx->authorized_voter_pubkeys,      sizeof( ctx->authorized_voter_pubkeys      ) );
+    ctx->authorized_voters_cnt = 0UL;
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 }
 
 static inline void
