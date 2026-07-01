@@ -12,6 +12,20 @@
 #include <sys/mount.h>
 #include <linux/capability.h>
 
+static long const FD_HUGETLBFS_SLOW_STEP_THRESHOLD_MS = 100L;
+static long const FD_HUGETLBFS_NS_PER_MS              = 1000L * 1000L;
+static long const FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS = FD_HUGETLBFS_SLOW_STEP_THRESHOLD_MS * FD_HUGETLBFS_NS_PER_MS;
+
+static long
+hugetlbfs_step_start( void ) {
+  return -fd_log_wallclock();
+}
+
+static long
+hugetlbfs_step_elapsed( long step_ts ) {
+  return fd_log_wallclock() + step_ts;
+}
+
 static void
 init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
@@ -80,8 +94,13 @@ init( config_t const * config ) {
         ulong additional_pages_needed = required_pages[ j ]-free_pages;
 
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
+        long step_ts = hugetlbfs_step_start();
         if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
           FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
+        long elapsed = hugetlbfs_step_elapsed( step_ts );
+        if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+          FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `echo \"%u\" > %s`", elapsed/FD_HUGETLBFS_NS_PER_MS, (uint)(total_pages+additional_pages_needed), total_page_path ));
+        }
 
         uint raised_free_pages;
         if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) )
@@ -96,24 +115,44 @@ init( config_t const * config ) {
                            PAGE_NAMES[ j ],
                            i ));
           FD_LOG_NOTICE(( "RUN: `echo \"1\" > /proc/sys/vm/compact_memory" ));
+          step_ts = hugetlbfs_step_start();
           if( FD_UNLIKELY( -1==fd_file_util_write_uint( "/proc/sys/vm/compact_memory", 1 ) ) )
             FD_LOG_ERR(( "could not write to `%s` (%i-%s)", "/proc/sys/vm/compact_memory", errno, fd_io_strerror( errno ) ));
+          elapsed = hugetlbfs_step_elapsed( step_ts );
+          if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+            FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `echo \"1\" > /proc/sys/vm/compact_memory`", elapsed/FD_HUGETLBFS_NS_PER_MS ));
+          }
           /* Sleep a little to give the OS some time to perform the
              compaction. */
           FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
           FD_LOG_NOTICE(( "RUN: `echo \"3\" > /proc/sys/vm/drop_caches" ));
+          step_ts = hugetlbfs_step_start();
           if( FD_UNLIKELY( -1==fd_file_util_write_uint( "/proc/sys/vm/drop_caches", 3 ) ) )
             FD_LOG_ERR(( "could not write to `%s` (%i-%s)", "/proc/sys/vm/drop_caches", errno, fd_io_strerror( errno ) ));
+          elapsed = hugetlbfs_step_elapsed( step_ts );
+          if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+            FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `echo \"3\" > /proc/sys/vm/drop_caches`", elapsed/FD_HUGETLBFS_NS_PER_MS ));
+          }
           FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
           FD_LOG_NOTICE(( "RUN: `echo \"1\" > /proc/sys/vm/compact_memory" ));
+          step_ts = hugetlbfs_step_start();
           if( FD_UNLIKELY( -1==fd_file_util_write_uint( "/proc/sys/vm/compact_memory", 1 ) ) )
             FD_LOG_ERR(( "could not write to `%s` (%i-%s)", "/proc/sys/vm/compact_memory", errno, fd_io_strerror( errno ) ));
+          elapsed = hugetlbfs_step_elapsed( step_ts );
+          if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+            FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `echo \"1\" > /proc/sys/vm/compact_memory`", elapsed/FD_HUGETLBFS_NS_PER_MS ));
+          }
           FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
         }
 
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
+        step_ts = hugetlbfs_step_start();
         if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
           FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
+        elapsed = hugetlbfs_step_elapsed( step_ts );
+        if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+          FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `echo \"%u\" > %s`", elapsed/FD_HUGETLBFS_NS_PER_MS, (uint)(total_pages+additional_pages_needed), total_page_path ));
+        }
         if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) )
           FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
         if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
@@ -159,8 +198,13 @@ init( config_t const * config ) {
 
   for( ulong i=0UL; i<2UL; i++ ) {
     FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", mount_path[ i ] ));
+    long step_ts = hugetlbfs_step_start();
     if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( mount_path[ i ], config->uid, config->gid, 1 ) ) ) {
       FD_LOG_ERR(( "could not create hugetlbfs mount directory `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
+    }
+    long elapsed = hugetlbfs_step_elapsed( step_ts );
+    if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+      FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `mkdir -p %s`", elapsed/FD_HUGETLBFS_NS_PER_MS, mount_path[ i ] ));
     }
 
     char options[ 256 ];
@@ -170,8 +214,13 @@ init( config_t const * config ) {
       FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu", FD_PAGE_SIZE[ i ] ) );
     }
     FD_LOG_NOTICE(( "RUN: `mount -t hugetlbfs none %s -o %s`", mount_path[ i ], options ));
+    step_ts = hugetlbfs_step_start();
     if( FD_UNLIKELY( mount( "none", mount_path[ i ], "hugetlbfs", 0, options) ) )
       FD_LOG_ERR(( "mount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
+    elapsed = hugetlbfs_step_elapsed( step_ts );
+    if( FD_UNLIKELY( elapsed > FD_HUGETLBFS_SLOW_STEP_THRESHOLD_NS ) ) {
+      FD_LOG_WARNING(( "slow hugetlbfs step (%ld ms): `mount -t hugetlbfs none %s -o %s`", elapsed/FD_HUGETLBFS_NS_PER_MS, mount_path[ i ], options ));
+    }
     if( FD_UNLIKELY( chown( mount_path[ i ], config->uid, config->gid ) ) )
       FD_LOG_ERR(( "chown of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( chmod( mount_path[ i ], S_IRUSR | S_IWUSR | S_IXUSR ) ) )
