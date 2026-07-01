@@ -44,6 +44,8 @@ struct fd_sshttp_private {
   char  response[ USHORT_MAX ];
 
   char  snapshot_name[ PATH_MAX ];
+  ulong resolved_slot;       /* effective slot from redirect filename */
+  uchar resolved_hash[ 32 ]; /* binary hash from redirect filename */
 
 #if FD_HAS_OPENSSL
   SSL_CTX * ssl_ctx;

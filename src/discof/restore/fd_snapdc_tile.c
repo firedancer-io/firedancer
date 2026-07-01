@@ -99,12 +99,13 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               sig,
                      ulong               chunk,
                      ulong               sz ) {
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
 
-  /* All control messages cause us to want to reset the decompression stream */
-  ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
-  if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
+  /* All control messages except META reset the decompression stream */
+  if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_META ) ) {
+    ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
+    if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
+  }
 
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
@@ -113,6 +114,17 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
        valid messages.  Only a fail message can revert this. */
     return;
   };
+
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
+    /* Forward META to snapin so it can update the advertised
+       slot/hash for redirect-based downloads. */
+    FD_TEST( sz<=ctx->out.mtu );
+    void * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+    fd_memcpy( dst, fd_chunk_to_laddr_const( ctx->in.mem, chunk ), sz );
+    fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
+    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
+    return;
+  }
 
   int forward_msg = 1;
 

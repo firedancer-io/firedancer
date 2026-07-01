@@ -1137,7 +1137,8 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
-                     ulong               chunk ) {
+                     ulong               chunk,
+                     ulong               sz ) {
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
@@ -1209,13 +1210,28 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
-         against the slot in the snapshot manifest.  For downloaded
-         snapshots, this is simply a best estimate.  The actual
-         advertised slot for downloaded snapshots is received in a
-         separate fd_ssctrl_meta_t message below. */
+         against the slot in the snapshot manifest.  For redirect-based
+         HTTP downloads, these are initial estimates from gossip and
+         will be updated by the META message below once the redirect
+         resolves to a concrete snapshot filename. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
       fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_META: {
+      /* For redirect-based HTTP downloads, the META message carries
+         the resolved slot and hash from the actual snapshot filename
+         the server redirected to.  Update the advertised values so
+         that process_manifest can verify the manifest against them. */
+      FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
+      fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      if( meta->resolved_slot!=ULONG_MAX ) {
+        ctx->advertised_slot = meta->resolved_slot;
+        fd_memcpy( ctx->advertised_hash, meta->resolved_hash, FD_HASH_FOOTPRINT );
+      }
+      forward_msg = 0; /* snapct already receives META directly from snapld */
       break;
     }
 
@@ -1353,7 +1369,7 @@ returnable_frag( fd_snapin_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig, chunk );
+  else                                           handle_control_frag( ctx, stem, sig, chunk, sz );
 
   return 0;
 }
