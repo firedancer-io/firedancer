@@ -742,6 +742,9 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   FD_TEST( chained_merkle_root );
 
+  /* invalid, self-chaining FEC. reject it. */
+  if( FD_UNLIKELY( fd_hash_eq( chained_merkle_root, merkle_root ) ) ) return NULL;
+
   ulong        null     = pool_idx_null( pool );
   ancestry_t * ancestry = reasm->ancestry;
   frontier_t * frontier = reasm->frontier;
