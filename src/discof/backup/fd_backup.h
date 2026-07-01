@@ -15,6 +15,7 @@
 #define FD_BACKUP_ORIG_ACC_DISK     3  /* mk->zp: disk offset to cold account */
 #define FD_BACKUP_ORIG_FLUSH        4  /* mk->zp: flush compress buffer */
 #define FD_BACKUP_ORIG_DONE         5  /* mk->zp: stop compressing */
+#define FD_BACKUP_ORIG_ACC_DISK_BATCH 6 /* mk->zp: batch of cold accounts within one rd frag */
 #define FD_BACKUP_ORIG_DISK_START  16  /* mk->rd: start reading from disk */
 #define FD_BACKUP_ORIG_DISK_FRAG   17  /* rd->mk: accdb file frag */
 
@@ -35,17 +36,20 @@
 
 /* FD_BACKUP_CACHE_PARA controls the batch size of ultra-sparse random
    index lookups from acc_map.  Tunes memory-level parallelism settings
-   when doing DRAM gather. */
+   when doing DRAM gather.  Tuned on mainnet snapshot-create 2026-07-01:
+   DISK_PARA 64 -> 128 was a solid win (deeper software pipeline plus
+   halved per-batch fixed costs), 128 -> 256 measured slower. */
 #define FD_BACKUP_CACHE_PARA 128
+#define FD_BACKUP_DISK_PARA  128
 
 /* FD_BACKUP_NAME_MAX is the max cstr size (null included) of a snapshot
    file name. */
 #define FD_BACKUP_NAME_MAX 128
 
-/* FD_BACKUP_RD_MTU is the max frag size on an snaprd_out link.
-   The snaprd_out::sz field is 1-based to support this.
-   (It is not possible to publish an empty-sized frag) */
-#define FD_BACKUP_RD_MTU 65536UL
+/* FD_BACKUP_RD_MTU is the max frag size on a snaprd_out link.
+   snaprd_out uses fd_frag_meta_t::tspub as the authoritative 32-bit
+   frag byte count because fd_frag_meta_t::sz is only 16 bits wide. */
+#define FD_BACKUP_RD_MTU 262144UL
 
 struct fd_backup_start_msg {
   ushort name_len;
@@ -69,11 +73,33 @@ struct fd_backup_disk_msg {
 };
 typedef struct fd_backup_disk_msg fd_backup_disk_msg_t;
 
+/* fd_backup_disk_batch_msg_t (FD_BACKUP_ORIG_ACC_DISK_BATCH) describes a
+   batch of cold accounts that are wholly contained within a single
+   snaprd input frag, enabling memory-level-parallel account index
+   lookups on both the producer (snapmk) and consumer (snapzp) sides.
+
+   The frag's meta->sig carries the base wksp gaddr of the snaprd frag
+   that contains the batch (i.e. fd_wksp_gaddr of the snaprd dcache slot).
+   frag_off[i] is the byte offset of account i's fd_accdb_disk_meta_t
+   within that frag; the account data follows the meta.  acc_idx[i] is the
+   account index in the accdb in-memory index (UINT_MAX marks an empty
+   slot).  pubkey[i] is a cache-friendly copy used for the batched index
+   validation.  All accounts in a batch share one snaprd frag, so the
+   whole batch can be routed to any zp tile (no SOM/EOM straddle). */
+
+struct fd_backup_disk_batch_msg {
+  fd_pubkey_t pubkey  [ FD_BACKUP_DISK_PARA ];
+  uint        acc_idx [ FD_BACKUP_DISK_PARA ]; /* UINT_MAX is sentinel */
+  uint        frag_off[ FD_BACKUP_DISK_PARA ];
+};
+typedef struct fd_backup_disk_batch_msg fd_backup_disk_batch_msg_t;
+
 /* Only used to determine MTU of link */
 union fd_backup_frag {
-  fd_backup_start_msg_t start;
-  fd_backup_cache_msg_t acc_cache;
-  fd_backup_disk_msg_t  acc_disk;
+  fd_backup_start_msg_t      start;
+  fd_backup_cache_msg_t      cache;
+  fd_backup_disk_msg_t       disk;
+  fd_backup_disk_batch_msg_t disk_batch;
 };
 typedef union fd_backup_frag fd_backup_frag_t;
 

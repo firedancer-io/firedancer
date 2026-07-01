@@ -37,6 +37,7 @@ struct fd_snaprd {
     ulong  chunk0;
     ulong  wmark;
     ulong  chunk;
+    ulong  mtu;
   } out;
 
   struct {
@@ -99,11 +100,12 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_CHECK_ERR( tile->out_cnt==1UL, "topology mismatch" );
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
   FD_CHECK_ERR( !strcmp( out_link->name, "snaprd_out" ), "topology mismatch" );
-  FD_CHECK_ERR( out_link->mtu==FD_BACKUP_RD_MTU, "topology mismatch" );
+  FD_CHECK_ERR( out_link->mtu && out_link->mtu<=UINT_MAX, "topology mismatch" );
   ctx->out.mem    = topo->workspaces[ topo->objs[ out_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, out_link->dcache );
-  ctx->out.wmark  = fd_dcache_compact_wmark( ctx->out.mem, out_link->dcache, FD_BACKUP_RD_MTU );
+  ctx->out.wmark  = fd_dcache_compact_wmark( ctx->out.mem, out_link->dcache, out_link->mtu );
   ctx->out.chunk  = ctx->out.chunk0;
+  ctx->out.mtu    = out_link->mtu;
 }
 
 static int
@@ -169,9 +171,9 @@ before_credit( fd_snaprd_t *       ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->idle_cnt++ > 65536UL ) ) {
-    fd_log_sleep( (long)1e6 );
-  }
+  // if( FD_UNLIKELY( ctx->idle_cnt++ > 65536UL ) ) {
+  //   fd_log_sleep( (long)1e6 );
+  // }
 }
 
 static void
@@ -186,7 +188,7 @@ after_credit( fd_snaprd_t *       ctx,
 
   ulong burst_rem = STEM_BURST;
   while( ctx->state==SNAPRD_STATE_READ && stem->cr_avail[ 0 ] && burst_rem-- ) {
-    ulong frag_sz = fd_ulong_min( FD_BACKUP_RD_MTU, ctx->part_sz-ctx->part_cur );
+    ulong frag_sz = fd_ulong_min( ctx->out.mtu, ctx->part_sz-ctx->part_cur );
     if( FD_UNLIKELY( !frag_sz ) ) {
       if( FD_UNLIKELY( !next_partition( ctx ) ) ) ctx->state = SNAPRD_STATE_DONE;
       continue;
@@ -219,7 +221,9 @@ after_credit( fd_snaprd_t *       ctx,
     }
 
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DISK_FRAG, 0, eom, 0 );
-    fd_stem_publish( stem, 0UL, src_off, chunk, frag_sz-1UL, ctl, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, src_off, chunk,
+                     fd_ulong_min( frag_sz, (ulong)USHORT_MAX ),
+                     ctl, 0UL, frag_sz );
     ctx->out.chunk = fd_dcache_compact_next( chunk, frag_sz, ctx->out.chunk0, ctx->out.wmark );
 
     ctx->idle_cnt = 0UL;

@@ -163,6 +163,9 @@
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
 | <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
 | <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing |
+| <span class="metrics-name">snapmk_&#8203;disk_&#8203;batches_&#8203;emitted</span> | counter | Number of multi-account disk batch fragments emitted to zp |
+| <span class="metrics-name">snapmk_&#8203;disk_&#8203;accounts_&#8203;single</span> | counter | Number of disk accounts emitted via the single-account (straddle/large) path |
+| <span class="metrics-name">snapmk_&#8203;snaprd_&#8203;inflight_&#8203;frags</span> | gauge | Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth) |
 
 </div>
 
@@ -177,6 +180,8 @@
 | <span class="metrics-name">snapzp_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
 | <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
 | <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
+| <span class="metrics-name">snapzp_&#8203;disk_&#8203;batches</span> | counter | Number of multi-account disk batch fragments processed |
+| <span class="metrics-name">snapzp_&#8203;disk_&#8203;batch_&#8203;accounts</span> | counter | Number of disk accounts processed via the batch path |
 
 </div>
 

@@ -21,6 +21,13 @@
 #define RAW_BUF_SZ    (32UL<<20)
 #define COMP_BUF_SZ   ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
 
+/* FD_SNAPMK_ZP_DEPTH must match the snapmk_zp link depth in topology.c.
+   Asserted at init.  Sizes the per-link snaprd-seq shadow rings. */
+#define FD_SNAPMK_ZP_DEPTH 1024UL
+
+#define SNAPMK_STEM_BURST 1UL
+#define SNAPMK_STEM_LAZY  8700UL
+
 /* fd_snapmk_accparse_t does streaming zero-copy parsing of accdb
    partitions.  Ingests a stream of disk data (arbitrarily fragmented)
    and produces an account-aligned fragment stream. */
@@ -36,6 +43,8 @@ struct fd_snapmk_accparse {
   ulong         data_sz;
   ulong         src_gaddr;
   ulong         src_off;
+  ulong         frag_base_gaddr; /* src_gaddr at start of current frag */
+  uchar const * pf_cursor;       /* sequential-prefetch high-water mark within current frag */
   int           input_active;
 
   uint meta_sz;
@@ -68,6 +77,29 @@ struct fd_snapmk_accparse {
   ulong                      acc_chain_mask;
   uint                       root_generation;
 
+  /* Prestaged disk batch (see fd_snapmk_accparse_prestage).  Staging
+     batch N+1 is decoupled from resolving batch N so that N+1's chain
+     head prefetches overlap N's chain walk.  ps_cnt!=0 iff a prestaged
+     batch is buffered; it is always consumed before the streaming
+     single-account path runs, so a prestaged batch never outlives the
+     snaprd frag it was staged from. */
+  uint        ps_cnt;
+  ulong       ps_base_gaddr;
+  uint        ps_head    [ FD_BACKUP_DISK_PARA ];
+  uint        ps_frag_off[ FD_BACKUP_DISK_PARA ];
+  ulong       ps_file_off[ FD_BACKUP_DISK_PARA ];
+  fd_pubkey_t ps_pubkey  [ FD_BACKUP_DISK_PARA ];
+
+  /* Chain-walk occupancy stats (logged once per snapshot at disk phase
+     end).  walk_lanes[k] accumulates lanes still alive entering round
+     k of the keep_batch walk (k clamped to the last bucket), i.e. the
+     MLP the walk can actually expose at each depth.  walk_batches and
+     walk_accts give per-batch averages. */
+  #define FD_SNAPMK_WALK_DEPTH_MAX 8UL
+  ulong walk_lanes[ FD_SNAPMK_WALK_DEPTH_MAX ];
+  ulong walk_batches;
+  ulong walk_accts;
+
 };
 
 typedef struct fd_snapmk_accparse fd_snapmk_accparse_t;
@@ -86,20 +118,41 @@ struct fd_snapmk {
   char wip_name  [ FD_BACKUP_NAME_MAX ];
 
   ulong            zp_cnt; /* [0,zp_cnt] out links are to zp */
+  ulong const *    zp_cons_fseq[ SNAPZP_TILE_MAX ];
   ulong volatile * zp_file_off;
   ulong *          accdb_epoch_idx;
+
+  /* snaprd input lifetime management.  snapmk takes manual ownership of
+     the flow control credit it returns to snaprd so that snaprd does not
+     overwrite dcache slots whose bytes are still referenced (zero-copy)
+     by in-flight frags queued at the zp tiles.  The stem is redirected to
+     publish its parse cursor into stem_snaprd_fseq (a throwaway), while
+     snapmk publishes the lagging release watermark to snaprd_release_fseq
+     (the real fseq object snaprd waits on).  See snapmk_run. */
+  ulong *          snaprd_release_fseq;
+  ulong            stem_snaprd_fseq[1];
+  ulong            snaprd_parse_seq;  /* seq of the snaprd frag last parsed */
+  ulong            snaprd_release_seq;/* last watermark published to snaprd */
+
+  /* per zp out link shadow ring: rd_shadow[i][seq%depth] = snaprd seq
+     referenced by the mk_zp frag published at seq on link i */
+  ulong *          rd_shadow[ SNAPZP_TILE_MAX ];
+  ulong            zp_depth [ SNAPZP_TILE_MAX ];
 
   ulong in_idle_cnt;
 
   ulong out_meta_idx;
   ulong out_ready;         /* bit set */
   ulong out_flush_pending; /* bit set */
+  ulong out_catchup_seq[ SNAPZP_TILE_MAX ];
+  ulong out_flush_seq  [ SNAPZP_TILE_MAX ];
 
   fd_banks_t *    banks;
   fd_bank_t *     bank;
   fd_txncache_t * txncache;
   fd_wksp_t *     replay_in_mem;
   fd_wksp_t *     snaprd_in_mem;
+  ulong           snaprd_in_mtu;
   fd_ssmanifest_writer_t manifest_writer[1];
   fd_txncache_writer_t   txncache_writer[1];
   fd_accdb_shmem_t * accdb_shmem;
@@ -119,7 +172,16 @@ struct fd_snapmk {
   ushort                in_kind   [ FD_TOPO_MAX_TILE_IN_LINKS  ];
   fd_snapmk_accparse_t  accparse[1];
 
+  /* disk batch staging (FD_BACKUP_ORIG_ACC_DISK_BATCH).  A batch is
+     staged out of the parser, then flushed to a zp tile once an output
+     link has credit.  disk_batch_pending guards against re-staging while
+     a staged batch is awaiting credit. */
+  fd_backup_disk_batch_msg_t disk_batch[1];
+  ulong                      disk_batch_base_gaddr;
+  int                        disk_batch_pending;
+
   ulong                disk_out_idx;
+  ulong                rr_out; /* round-robin cursor over zp out links */
   uint                 drain_next_state;
 
   /* account data cache */
@@ -142,10 +204,22 @@ struct fd_snapmk {
     ulong io_ticks;
     ulong bytes_compressed;
     ulong bytes_written;
+    ulong disk_batches_emitted;
+    ulong disk_accounts_single;
   } metrics;
 };
 
 typedef struct fd_snapmk fd_snapmk_t;
+
+static void
+metrics_clear( fd_snapmk_t * ctx ) {
+  ctx->metrics.compress_ticks       = 0UL;
+  ctx->metrics.io_ticks             = 0UL;
+  ctx->metrics.bytes_compressed     = 0UL;
+  ctx->metrics.bytes_written        = 0UL;
+  ctx->metrics.disk_batches_emitted = 0UL;
+  ctx->metrics.disk_accounts_single = 0UL;
+}
 
 static inline void
 fd_snapmk_accparse_reset( fd_snapmk_accparse_t *     parse,
@@ -216,6 +290,8 @@ fd_snapmk_accparse_insert( fd_snapmk_accparse_t * parse,
   parse->data_sz   = data_sz;
   parse->src_gaddr = src_gaddr;
   parse->src_off   = src_off;
+  parse->frag_base_gaddr = src_gaddr;
+  parse->pf_cursor = data;
   parse->input_active = 1;
 }
 
@@ -234,10 +310,10 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
     if( FD_UNLIKELY( parse->pub_pending ) ) {
       meta->sig    = parse->pub_gaddr;
       meta->chunk  = parse->pub_acc_idx;
-      meta->sz     = (ushort)fd_uint_if( !!parse->pub_sz, parse->pub_sz-1U, 0U );
+      meta->sz     = 0;
       meta->ctl    = (ushort)fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DISK, parse->pub_som, parse->pub_eom, 0 );
       meta->tsorig = 0U;
-      meta->tspub  = (ulong)parse->pub_sz; /* FIXME precision issue */
+      meta->tspub  = (uint)parse->pub_sz;
       parse->pub_pending = 0;
       return meta;
     }
@@ -349,6 +425,213 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
 
 }
 
+/* fd_snapmk_accparse_keep_batch resolves a batch of staged disk accounts
+   to their in-memory account index, walking all hash chains in lockstep
+   (one chain hop per round) so the random acc_pool loads of a round
+   issue independently (the same memory-level-parallelism trick
+   filter_batch uses for cached accounts).
+
+   Lanes that hit or exhaust their chain drop out via branchless
+   compaction: every loop body is straight-line cmov/mask code
+   (unconditional store, conditional index bump), so per-round work
+   shrinks to the surviving lanes without data-dependent branches for
+   the predictor to eat.  A conditional continuation (branch over the
+   compaction stores + prefetch) was tried twice -- 2026-07-01, both
+   before and after the stream prefetch landed -- and measured slower
+   both times despite near-zero mispredict samples; don't retry it.
+
+   The staged pubkey determines the hash bucket before this function is
+   called.  Candidates must be rooted (generation<=root_generation) and be
+   the on-disk copy the index currently points at (offset_fork low bits ==
+   the account's file offset).  The visited-set dedup is then applied
+   in lane order (lane n's insert is visible to lane n+1's test, which is
+   what catches intra-batch duplicates).  acc_idx[n] is set to the
+   resolved index or UINT_MAX. */
+
+static void
+fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
+                               ulong const *          file_off,
+                               uint const *           head,
+                               uint *                 acc_idx,
+                               ulong                  cnt ) {
+  fd_accdb_accmeta_t const * acc_pool     = parse->acc_pool;
+  ulong                      max_accounts = parse->max_accounts;
+  uint                       root_gen     = parse->root_generation;
+
+  uint matched[ FD_BACKUP_DISK_PARA ];
+  for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) matched[ n ] = UINT_MAX;
+
+  /* lane[i]/cur[i] is the compacted live-lane list: lane index and the
+     chain node it sits on.  cur[i] is always a valid pool index for
+     i<active_cnt (checked before a lane is admitted / advanced), so the
+     gather pass loads unconditionally with no masking.  head[] was
+     loaded (and its pool lines prefetched) when the batch was
+     prestaged, a full batch resolve ago. */
+  uint  lane[ FD_BACKUP_DISK_PARA ];
+  uint  cur [ FD_BACKUP_DISK_PARA ];
+
+  ulong active_cnt = 0UL;
+  for( ulong n=0UL; n<cnt; n++ ) {
+    uint h    = head[ n ];
+    uint live = ( h!=UINT_MAX ) & ( (ulong)h<max_accounts );
+    lane[ active_cnt ] = (uint)n;
+    cur [ active_cnt ] = h;
+    active_cnt += live;
+  }
+
+  parse->walk_batches++;
+  parse->walk_accts += cnt;
+  ulong round = 0UL;
+
+  while( active_cnt ) {
+    parse->walk_lanes[ fd_ulong_min( round++, FD_SNAPMK_WALK_DEPTH_MAX-1UL ) ] += active_cnt;
+    /* One chain hop for every live lane.  Lane i's node loads depend
+       only on cur[i] from the previous round, so the DRAM misses of a
+       round all issue independently.  hit is resolved in the same pass
+       (gen/off are already loaded), so the next-node prefetch fires the
+       moment a lane is known to continue -- and only then: most lanes
+       match on their first node, and an unconditional next prefetch
+       would waste a random DRAM line per account.  Lanes that hit or
+       exhaust their chain drop out via in-place branchless compaction
+       (writes trail reads, next_cnt<=i). */
+    ulong next_cnt = 0UL;
+    for( ulong i=0UL; i<active_cnt; i++ ) {
+      uint n    = lane[ i ];
+      uint idx  = cur [ i ];
+      fd_accdb_accmeta_t const * m = &acc_pool[ idx ];
+      uint  next = FD_VOLATILE_CONST( m->map.next       );
+      uint  gen  = FD_VOLATILE_CONST( m->key.generation );
+      ulong off  = FD_VOLATILE_CONST( m->offset_fork    );
+      uint hit  = ( gen<=root_gen )
+                & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ n ] );
+      uint hm   = 0U-hit;
+      matched[ n ] = ( idx & hm ) | ( matched[ n ] & ~hm );
+      uint cont = ( hit^1U ) & ( next!=UINT_MAX ) & ( (ulong)next<max_accounts );
+      __builtin_prefetch( &acc_pool[ next & ( 0U-cont ) ], 0, 0 );
+      lane[ next_cnt ] = n;
+      cur [ next_cnt ] = next;
+      next_cnt += cont;
+    }
+    active_cnt = next_cnt;
+  }
+
+  for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) {
+    uint  idx  = matched[ n ];
+    uint  have = idx!=UINT_MAX;
+    ulong safe = (ulong)( idx & ( 0U-have ) );
+    uint  keep = have & (uint)!fd_backup_visited_test( parse->visited_set, safe );
+    fd_backup_visited_insert_if( parse->visited_set, (int)keep, safe );
+    acc_idx[ n ] = idx | ( keep-1U );
+  }
+}
+
+/* fd_snapmk_accparse_prestage stages the next batch of wholly-contained
+   accounts out of the current frag into the parser's prestage buffer:
+   record walk (pubkey copy, hash, acc_map line prefetch), then a head
+   pass that loads acc_map[hash] and prefetches each head's acc_pool
+   line.  Resolving the batch (the chain walk) happens one publish later
+   in fd_snapmk_accparse_publish_batch, so the head prefetches get a
+   full batch resolve of lead time instead of just the staging tail.
+   No-op if a prestaged batch is already buffered or the parser is not
+   at a clean account boundary. */
+
+static void
+fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
+  if( FD_UNLIKELY( parse->ps_cnt ) ) return;
+  /* Only batch at a clean account boundary with no straddle carry. */
+  if( FD_UNLIKELY( parse->pub_pending || parse->acc_active || parse->meta_sz ) ) return;
+
+  ulong const meta_sz = sizeof(fd_accdb_disk_meta_t);
+  ulong hash[ FD_BACKUP_DISK_PARA ];
+  ulong seed       = parse->acc_seed;
+  uint  chain_mask = (uint)parse->acc_chain_mask;
+  uint const *               acc_map  = parse->acc_map;
+  fd_accdb_accmeta_t const * acc_pool = parse->acc_pool;
+  ulong n = 0UL;
+
+  while( n<FD_BACKUP_DISK_PARA ) {
+    if( parse->data_sz < meta_sz ) break; /* partial meta straddles frag end */
+
+    /* Keep a fixed sequential prefetch window ahead of the record
+       cursor.  The stream is consumed strictly front to back, so a
+       flat FD_SNAPMK_PF_LEAD-byte lead covers the next several records'
+       size loads and pubkey copies without having to walk the
+       (size-dependent, serial) record chain to find them.  pf_cursor
+       is a per-frag high-water mark, so each line is prefetched once
+       (clamped up to data: the streaming path consumes bytes without
+       advancing it, and re-prefetching consumed lines is waste).
+       Locality hint 2 (prefetcht1: fill L2, not L1) on purpose: at this
+       lead an NTA line could be evicted from L1 before its record is
+       reached, while an L2 hit already hides nearly all of the DRAM
+       latency without displacing the walk's L1 working set. */
+    #define FD_SNAPMK_PF_LEAD 4096UL
+    uchar const * pf_lim = parse->data + fd_ulong_min( parse->data_sz, FD_SNAPMK_PF_LEAD );
+    uchar const * pf     = fd_ptr_if( parse->pf_cursor>parse->data, parse->pf_cursor, parse->data );
+    for( ; pf<pf_lim; pf+=64UL ) __builtin_prefetch( pf, 0, 2 );
+    parse->pf_cursor = pf_lim;
+
+    fd_accdb_disk_meta_t const * dm = (fd_accdb_disk_meta_t const *)parse->data;
+    ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( dm->size );
+    ulong rec      = meta_sz + data_len;
+    if( parse->data_sz < rec ) break;     /* account data straddles frag end */
+
+    fd_memcpy( parse->ps_pubkey[ n ].uc, dm->pubkey, sizeof(fd_pubkey_t) );
+    hash[ n ] = fd_accdb_hash( parse->ps_pubkey[ n ].uc, seed ) & chain_mask;
+    __builtin_prefetch( &acc_map[ hash[ n ] ], 0, 0 );
+    parse->ps_frag_off[ n ] = (uint)( parse->src_gaddr - parse->frag_base_gaddr );
+    parse->ps_file_off[ n ] = parse->src_off;
+    n++;
+
+    parse->data      += rec;
+    parse->data_sz   -= rec;
+    parse->src_gaddr += rec;
+    parse->src_off   += rec;
+  }
+
+  /* Head pass: the acc_map lines were prefetched during the record walk
+     above, so these loads are near-hits; the acc_pool[head] prefetches
+     are the ones that need the long lead time. */
+  ulong max_accounts = parse->max_accounts;
+  for( ulong i=0UL; i<n; i++ ) {
+    uint head = FD_VOLATILE_CONST( acc_map[ hash[ i ] ] );
+    uint live = ( head!=UINT_MAX ) & ( (ulong)head<max_accounts );
+    __builtin_prefetch( &acc_pool[ head & ( 0U-live ) ], 0, 0 );
+    parse->ps_head[ i ] = head;
+  }
+
+  parse->ps_cnt        = (uint)n;
+  parse->ps_base_gaddr = parse->frag_base_gaddr;
+}
+
+static ulong
+fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
+                                  fd_backup_disk_batch_msg_t * batch,
+                                  ulong *                      base_gaddr ) {
+  fd_snapmk_accparse_prestage( parse ); /* no-op unless prestage empty */
+
+  ulong n = (ulong)parse->ps_cnt;
+  if( !n ) return 0UL;
+
+  /* Move batch N out of the prestage buffer, then stage batch N+1
+     before resolving N: N+1's head loads and acc_pool prefetches issue
+     here and overlap N's entire chain walk below. */
+  uint  head    [ FD_BACKUP_DISK_PARA ];
+  ulong file_off[ FD_BACKUP_DISK_PARA ];
+  memcpy( head,            parse->ps_head,     n*sizeof(uint)        );
+  memcpy( file_off,        parse->ps_file_off, n*sizeof(ulong)       );
+  memcpy( batch->frag_off, parse->ps_frag_off, n*sizeof(uint)        );
+  memcpy( batch->pubkey,   parse->ps_pubkey,   n*sizeof(fd_pubkey_t) );
+  *base_gaddr   = parse->ps_base_gaddr;
+  parse->ps_cnt = 0U;
+
+  fd_snapmk_accparse_prestage( parse );
+
+  fd_snapmk_accparse_keep_batch( parse, file_off, head, batch->acc_idx, n );
+  for( ulong i=n; i<FD_BACKUP_DISK_PARA; i++ ) batch->acc_idx[ i ] = UINT_MAX;
+
+  return n;
+}
+
 #define IN_KIND_REPLAY 1
 #define IN_KIND_SNAPRD 2
 
@@ -361,10 +644,13 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong max_live_slots = tile->snapmk.max_live_slots;
 
+  ulong zp_cnt = tile->out_cnt - 1UL; /* last out link is snapmk_replay */
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t)                       );
   l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),  fd_txncache_footprint( max_live_slots )   );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),       zp_cnt*FD_SNAPMK_ZP_DEPTH*sizeof(ulong)   );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -409,12 +695,23 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong max_live_slots = tile->snapmk.max_live_slots;
 
+  ulong zp_cnt = tile->out_cnt - 1UL;
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapmk_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
   void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
   void *        _txnc_lj = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),  fd_txncache_footprint( max_live_slots ) );
+  ulong *       _rd_shdw = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),       zp_cnt*FD_SNAPMK_ZP_DEPTH*sizeof(ulong) );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   FD_TEST( end==(ulong)scratch + scratch_footprint( tile ) );
+
+  for( ulong i=0UL; i<zp_cnt; i++ ) {
+    ctx->rd_shadow[ i ] = _rd_shdw + i*FD_SNAPMK_ZP_DEPTH;
+    ctx->zp_depth [ i ] = FD_SNAPMK_ZP_DEPTH;
+  }
+  ctx->stem_snaprd_fseq[0] = 0UL;
+  ctx->snaprd_parse_seq    = 0UL;
+  ctx->snaprd_release_seq  = ULONG_MAX; /* force first publish */
 
   ctx->state = SNAPMK_STATE_IDLE;
   ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id ) );
@@ -461,10 +758,23 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in_kind[ i ] = IN_KIND_SNAPRD;
       fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
       ctx->snaprd_in_mem = link_wksp->wksp;
+      ctx->snaprd_in_mtu = link->mtu;
+      /* Take manual ownership of the credit we return to snaprd.  The
+         stem is redirected (see snapmk_run) to publish its parse cursor
+         into the throwaway stem_snaprd_fseq, while we drive the real fseq
+         (snaprd_release_fseq) to the lagging release watermark. */
+      FD_TEST( tile->in_link_fseq[ i ] );
+      ctx->snaprd_release_fseq = tile->in_link_fseq[ i ];
     } else {
       FD_LOG_ERR(( "Unexpected input link \"%s\"", link->name ));
     }
   }
+
+  /* snaprd_release_fseq is required: the disk phase drives it as snaprd's
+     flow control credit.  Fail loudly at boot rather than NULL-deref in
+     snapmk_update_release if the snaprd_out link is missing. */
+  FD_TEST( ctx->snaprd_release_fseq );
+  FD_TEST( ctx->snaprd_in_mtu && ctx->snaprd_in_mtu<=UINT_MAX );
 
   FD_TEST( tile->out_cnt >= 2 );
   FD_TEST( tile->out_cnt <= SNAPZP_TILE_MAX );
@@ -475,10 +785,22 @@ unprivileged_init( fd_topo_t const *      topo,
       FD_LOG_ERR(( "Unexpected output link \"%s\"", link->name ));
     }
     FD_TEST( link->mcache );
+    FD_TEST( fd_mcache_depth( link->mcache )==FD_SNAPMK_ZP_DEPTH );
     ctx->zp_out[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->zp_out[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->zp_out[ i ].mem, link->dcache );
     ctx->zp_out[ i ].wmark  = fd_dcache_compact_wmark ( ctx->zp_out[ i ].mem, link->dcache, link->mtu );
     ctx->zp_out[ i ].chunk  = ctx->zp_out[ i ].chunk0;
+
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t const * consumer = &topo->tiles[ j ];
+      for( ulong k=0UL; k<consumer->in_cnt; k++ ) {
+        if( FD_LIKELY( consumer->in_link_id[ k ]!=tile->out_link_id[ i ] ) ) continue;
+        if( FD_UNLIKELY( !consumer->in_link_reliable[ k ] ) ) continue;
+        FD_TEST( !ctx->zp_cons_fseq[ i ] );
+        ctx->zp_cons_fseq[ i ] = consumer->in_link_fseq[ k ];
+      }
+    }
+    FD_TEST( ctx->zp_cons_fseq[ i ] );
   }
   ctx->out_meta_idx = tile->out_cnt - 1UL;
   if( 0!=strcmp( topo->links[ tile->out_link_id[ ctx->out_meta_idx ] ].name, "snapmk_replay" ) ) {
@@ -497,8 +819,21 @@ unprivileged_init( fd_topo_t const *      topo,
 }
 
 static void
+refresh_zp_flow_control( fd_snapmk_t *             ctx,
+                         fd_stem_context_t const * stem ) {
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+    ulong cons_seq = fd_fseq_query( ctx->zp_cons_fseq[ i ] );
+    long  in_flight = fd_long_max( fd_seq_diff( stem->seqs[ i ], cons_seq ), 0L );
+    ulong cr_avail = fd_ulong_if( in_flight>=(long)stem->depths[ i ], 0UL, stem->depths[ i ]-(ulong)in_flight );
+    stem->cr_avail[ i ] = cr_avail;
+  }
+}
+
+static void
 update_flow_control( fd_snapmk_t *             ctx,
                      fd_stem_context_t const * stem ) {
+  refresh_zp_flow_control( ctx, stem );
+
   ulong out_ready = 0UL;
   for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
     out_ready |= fd_ulong_if( !!stem->cr_avail[ i ], 1UL<<i, 0UL );
@@ -506,14 +841,78 @@ update_flow_control( fd_snapmk_t *             ctx,
   ctx->out_ready = out_ready;
 }
 
-static int
-all_out_links_caught_up( fd_snapmk_t *             ctx,
-                         fd_stem_context_t const * stem ) {
-  _Bool caught_up = 1;
-  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
-    if( stem->cr_avail[ i ] < stem->depths[ i ] ) caught_up = 0;
+/* pick_out_rr returns the next ready zp out link in round-robin order,
+   or ULONG_MAX if none are ready.  find_lsb always returns the lowest
+   ready index, which starves higher-index zp tiles (an idle tile always
+   has full credit, so index 0 would win every time); rotating spreads
+   account/batch frags across all zp tiles for real parallelism and lets
+   the snaprd release watermark advance at the aggregate consume rate. */
+
+static inline ulong
+pick_out_rr( fd_snapmk_t * ctx ) {
+  ulong n = ctx->zp_cnt;
+  for( ulong k=0UL; k<n; k++ ) {
+    ulong idx = ctx->rr_out;
+    ctx->rr_out = fd_ulong_if( ctx->rr_out+1UL>=n, 0UL, ctx->rr_out+1UL );
+    if( ctx->out_ready & (1UL<<idx) ) return idx;
   }
-  return caught_up;
+  return ULONG_MAX;
+}
+
+static void
+set_zp_catchup_seq( fd_snapmk_t *             ctx,
+                    fd_stem_context_t const * stem ) {
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) ctx->out_catchup_seq[ i ] = stem->seqs[ i ];
+}
+
+/* snapmk_stamp_shadow records, for the mk_zp frag about to be published at
+   seq `pub_seq` on out link `out_idx`, the snaprd input seq whose dcache
+   bytes that frag references zero-copy.  Must be called for every frag
+   that references snaprd data (ACC_DISK and ACC_DISK_BATCH).  See the
+   shadow-ring lifetime tracker in snapmk_update_release. */
+
+static inline void
+snapmk_stamp_shadow( fd_snapmk_t * ctx,
+                     ulong         out_idx,
+                     ulong         pub_seq ) {
+  ctx->rd_shadow[ out_idx ][ pub_seq % ctx->zp_depth[ out_idx ] ] = ctx->snaprd_parse_seq;
+}
+
+/* snapmk_update_release recomputes the snaprd release watermark from the
+   per-link shadow rings and the zp consumer fseqs, then publishes it to
+   the real snaprd consumer fseq (which snaprd's flow control waits on).
+
+   A zp tile that has consumed everything we published to it (caught up)
+   imposes no floor -- this is the deadlock guard: only tiles that still
+   have queued frags pin snaprd, and a tile with queued frags is
+   guaranteed to drain.  The release is clamped to our own parse cursor so
+   snaprd is never told to free a frag we have not parsed yet.
+
+   Must be called every loop iteration during the disk phase, including
+   when backpressured, so the watermark keeps advancing as zp drains. */
+
+static void
+snapmk_update_release( fd_snapmk_t *             ctx,
+                       fd_stem_context_t const * stem ) {
+  ulong release = ctx->snaprd_parse_seq;
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+    ulong cons = fd_fseq_query( ctx->zp_cons_fseq[ i ] );
+    ulong pub  = stem->seqs[ i ];
+    if( FD_UNLIKELY( !fd_seq_lt( cons, pub ) ) ) continue; /* caught up: no floor */
+    /* rd_shadow[cons] is always a stamped slot here: the cache->disk DRAIN
+       barrier leaves every tile caught up at disk-phase entry, and a slot
+       is stamped before its frag is published (so cons<pub implies the
+       oldest unconsumed frag, at seq cons, was already stamped).  Hence no
+       uninitialized read despite rd_shadow not being pre-zeroed -- and we
+       must NOT pre-zero it to a sentinel, since fd_seq_lt would treat a
+       large sentinel as an older seq and wrongly drag the watermark back. */
+    ulong floor = ctx->rd_shadow[ i ][ cons % ctx->zp_depth[ i ] ];
+    if( fd_seq_lt( floor, release ) ) release = floor;
+  }
+  if( release!=ctx->snaprd_release_seq ) {
+    __atomic_store_n( ctx->snaprd_release_fseq, release, __ATOMIC_RELEASE );
+    ctx->snaprd_release_seq = release;
+  }
 }
 
 static int
@@ -563,7 +962,7 @@ check_credit( fd_snapmk_t *       ctx,
   (void)stem; (void)is_backpressured;
   switch( ctx->state ) {
   case SNAPMK_STATE_IDLE:
-    if( ctx->in_idle_cnt++ > 128 ) fd_log_sleep( (long)1e6 );
+    // if( ctx->in_idle_cnt++ > 128 ) fd_log_sleep( (long)1e6 );
     *charge_busy = 0;
     *is_backpressured = 0;
     break;
@@ -571,6 +970,20 @@ check_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_ACCOUNTS_CACHE:
   case SNAPMK_STATE_ACCOUNTS_DISK:
     *is_backpressured = 0;
+    if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK ) ) {
+      /* Advance the snaprd release watermark every loop iteration --
+         including the backpressured paths below -- so snaprd keeps
+         getting credit as the zp tiles drain.  This is what prevents the
+         lifetime tracker from deadlocking. */
+      snapmk_update_release( ctx, stem );
+    }
+    /* Refresh cr_avail/out_ready every iteration.  The stem's own
+       housekeeping recomputes cr_avail from the consumer fseqs and can
+       drive a tile's credit to 0 without clearing our cached out_ready
+       bit; publishing to such a tile would trip the BURST assertion.
+       Recomputing here keeps out_ready consistent with cr_avail before
+       any publish in after_credit / returnable_frag. */
+    update_flow_control( ctx, stem );
     if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK && ctx->disk_out_idx<ctx->zp_cnt ) ) {
       if( FD_UNLIKELY( !stem->cr_avail[ ctx->disk_out_idx ] ) ) {
         *is_backpressured = 1;
@@ -579,22 +992,42 @@ check_credit( fd_snapmk_t *       ctx,
       break;
     }
     if( FD_UNLIKELY( !ctx->out_ready ) ) {
-      update_flow_control( ctx, stem );
-      if( FD_UNLIKELY( !ctx->out_ready ) ) {
-        *is_backpressured = 1;
-        return;
-      }
+      *is_backpressured = 1;
+      return;
     }
     break;
   case SNAPMK_STATE_ACCOUNTS_FLUSH1:
   case SNAPMK_STATE_ACCOUNTS_FLUSH2:
   case SNAPMK_STATE_ACCOUNTS_DRAIN:
-    /* Block until all zp tiles are caught up */
-    if( !all_out_links_caught_up( ctx, stem ) ) {
+    refresh_zp_flow_control( ctx, stem );
+    ulong const * target_seq = ctx->state==SNAPMK_STATE_ACCOUNTS_DRAIN ? ctx->out_flush_seq : ctx->out_catchup_seq;
+    *is_backpressured = 0;
+    for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+      if( FD_LIKELY( !fd_seq_lt( fd_fseq_query( ctx->zp_cons_fseq[ i ] ), target_seq[ i ] ) ) ) continue;
       *is_backpressured = 1;
       return;
     }
+    break;
+  case SNAPMK_STATE_DONE:
+    refresh_zp_flow_control( ctx, stem );
     *is_backpressured = 0;
+    if( FD_UNLIKELY( ctx->out_flush_pending ) ) {
+      for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+        if( !fd_ulong_extract_bit( ctx->out_flush_pending, (int)i ) ) continue;
+        if( stem->cr_avail[ i ] ) return;
+      }
+      *is_backpressured = 1;
+      return;
+    }
+    for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+      if( FD_LIKELY( !fd_seq_lt( fd_fseq_query( ctx->zp_cons_fseq[ i ] ), ctx->out_flush_seq[ i ] ) ) ) continue;
+      *is_backpressured = 1;
+      return;
+    }
+    if( FD_UNLIKELY( !stem->cr_avail[ ctx->out_meta_idx ] ) ) {
+      *is_backpressured = 1;
+      return;
+    }
     break;
   }
 }
@@ -798,10 +1231,11 @@ after_credit( fd_snapmk_t *       ctx,
     break;
   }
   case SNAPMK_STATE_ACCOUNTS_CACHE: {
-    int out_idx = fd_ulong_find_lsb( ctx->out_ready );
+    ulong out_idx = pick_out_rr( ctx );
     fd_backup_cache_msg_t * frag = ctx->scan_batch;
     frag = fd_backup_cache_scan( ctx->acc_cache, frag );
     if( FD_UNLIKELY( !frag ) ) {
+      set_zp_catchup_seq( ctx, stem );
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH1;
       ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
       break;
@@ -834,7 +1268,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_CACHE, 0, 0, 0 );
     fd_stem_publish( stem, (ulong)out_idx, 0UL, chunk, sizeof(fd_backup_cache_msg_t), ctl, 0UL, 0UL );
     _Bool blocked = !stem->cr_avail[ out_idx ];
-    ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( out_idx ) : ULONG_MAX;
+    ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( (int)out_idx ) : ULONG_MAX;
     *charge_busy = 1;
     break;
   }
@@ -850,6 +1284,7 @@ after_credit( fd_snapmk_t *       ctx,
       if( !stem->cr_avail[ i ] ) continue;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_FLUSH, 0, 0, 0 );
       fd_stem_publish( stem, i, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+      ctx->out_flush_seq[ i ] = stem->seqs[ i ];
       ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
       *charge_busy = 1;
       break;
@@ -937,9 +1372,31 @@ after_credit( fd_snapmk_t *       ctx,
                     (double)( fd_log_wallclock() - ctx->start_time )/1e9,
                     final_path, (double)st.st_size/1e9 ));
 
+    ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
+    ctx->state = SNAPMK_STATE_DONE;
+    FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
+    *charge_busy = 1;
+    break;
+  }
+  case SNAPMK_STATE_DONE: {
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
+    int published_done = 0;
+    for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+      if( !fd_ulong_extract_bit( ctx->out_flush_pending, (int)i ) ) continue;
+      if( !stem->cr_avail[ i ] ) continue;
+      fd_stem_publish( stem, i, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+      ctx->out_flush_seq[ i ] = stem->seqs[ i ];
+      ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
+      *charge_busy = 1;
+      published_done = 1;
+      break;
+    }
+    if( published_done ) break;
+    if( ctx->out_flush_pending ) break;
+
     fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
     resume_accdb_compaction( ctx );
+    metrics_clear( ctx );
     ctx->state = SNAPMK_STATE_IDLE;
     FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
     *charge_busy = 1;
@@ -993,6 +1450,7 @@ snap_begin( fd_snapmk_t * ctx,
   ctx->raw_buf.pos   = 0UL;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
+  metrics_clear( ctx );
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
@@ -1023,6 +1481,7 @@ snap_begin( fd_snapmk_t * ctx,
   ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
   ctx->out_ready = 0UL;
   ctx->disk_out_idx = ULONG_MAX;
+  ctx->disk_batch_pending = 0;
   ctx->start_time = fd_log_wallclock();
   FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
   FD_MCNT_INC  ( SNAPMK, SNAPSHOTS_CREATED, 1UL );
@@ -1040,7 +1499,7 @@ returnable_frag( fd_snapmk_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)seq; (void)tsorig; (void)tspub;
+  (void)sz; (void)tsorig;
   ctx->in_idle_cnt = 0UL;
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY:
@@ -1057,9 +1516,20 @@ returnable_frag( fd_snapmk_t *       ctx,
   case IN_KIND_SNAPRD: {
     FD_CHECK_ERR( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK, "lifecycle bug" );
 
+    /* Record the snaprd seq currently being parsed.  mk_zp frags emitted
+       while parsing this frag reference its dcache bytes zero-copy; the
+       shadow ring stamps this seq so snapmk can hold back snaprd's credit
+       until the zp tiles drain those frags (see snapmk_update_release). */
+    ctx->snaprd_parse_seq = seq;
+
     ulong orig = fd_frag_meta_ctl_orig( ctl );
     if( FD_UNLIKELY( orig!=FD_BACKUP_ORIG_DISK_FRAG ) ) {
       FD_LOG_CRIT(( "unexpected snaprd msg from link %lu with orig %lu", in_idx, orig ));
+    }
+
+    ulong frag_sz = tspub;
+    if( FD_UNLIKELY( !frag_sz || frag_sz>FD_BACKUP_RD_MTU || frag_sz>UINT_MAX ) ) {
+      FD_LOG_CRIT(( "invalid snaprd frag size %lu", frag_sz ));
     }
 
     fd_snapmk_accparse_t * parse = ctx->accparse;
@@ -1067,32 +1537,81 @@ returnable_frag( fd_snapmk_t *       ctx,
       uchar const * data = fd_chunk_to_laddr_const( ctx->snaprd_in_mem, chunk );
       fd_snapmk_accparse_insert( parse,
                                  data,
-                                 sz+1UL,
+                                 frag_sz,
                                  fd_wksp_gaddr_fast( ctx->snaprd_in_mem, data ),
                                  sig );
     }
 
     for(;;) {
+      /* (A) Flush a previously-staged batch once an output link frees up.
+         A batch is self-contained within one snaprd frag, so it may be
+         routed to any ready zp tile (no disk_out_idx pinning). */
+      if( FD_UNLIKELY( ctx->disk_batch_pending ) ) {
+        update_flow_control( ctx, stem );
+        if( FD_UNLIKELY( !ctx->out_ready ) ) return 1;
+        ulong out_idx = pick_out_rr( ctx );
+        ulong out_chunk;
+        void * payload = alloc_zp_payload( ctx, out_idx, sizeof(fd_backup_disk_batch_msg_t), &out_chunk );
+        fd_memcpy( payload, ctx->disk_batch, sizeof(fd_backup_disk_batch_msg_t) );
+        ulong ctl_batch = fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DISK_BATCH, 1, 1, 0 );
+        snapmk_stamp_shadow( ctx, out_idx, stem->seqs[ out_idx ] );
+        fd_stem_publish( stem, out_idx, ctx->disk_batch_base_gaddr, out_chunk,
+                         sizeof(fd_backup_disk_batch_msg_t), ctl_batch, 0UL, 0UL );
+        if( FD_UNLIKELY( !stem->cr_avail[ out_idx ] ) ) ctx->out_ready &= ~fd_ulong_mask_bit( (int)out_idx );
+        ctx->disk_batch_pending = 0;
+        ctx->metrics.disk_batches_emitted++;
+        return 1;
+      }
+
+      /* (B) Stage a batch of wholly-contained accounts (no straddle).
+         Staging consumes the accounts into ctx->disk_batch; (A) flushes
+         it on the next iteration once credit is available. */
+      if( FD_LIKELY( ctx->disk_out_idx>=ctx->zp_cnt ) ) {
+        ulong base_gaddr;
+        ulong n = fd_snapmk_accparse_publish_batch( parse, ctx->disk_batch, &base_gaddr );
+        if( n ) {
+          ctx->disk_batch_pending    = 1;
+          ctx->disk_batch_base_gaddr = base_gaddr;
+          continue;
+        }
+      }
+
+      /* (C) Single-account fallback for straddling / mid-record accounts. */
       ulong out_idx = ctx->disk_out_idx;
       if( FD_LIKELY( out_idx<ctx->zp_cnt ) ) {
         if( FD_UNLIKELY( !stem->cr_avail[ out_idx ] ) ) return 1;
       } else {
         update_flow_control( ctx, stem );
         if( FD_UNLIKELY( !ctx->out_ready ) ) return 1;
-        out_idx = (ulong)fd_ulong_find_lsb( ctx->out_ready );
+        out_idx = pick_out_rr( ctx );
       }
 
       fd_frag_meta_t meta[1];
       if( FD_UNLIKELY( !fd_snapmk_accparse_publish( parse, meta ) ) ) {
         parse->input_active = 0;
+        /* A prestaged batch references the current frag's bytes and must
+           be drained before this frag is released (publish_batch above
+           returns 0 only once the prestage is empty). */
+        FD_CHECK_ERR( !parse->ps_cnt, "prestaged batch outlived its frag" );
         if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) {
           if( FD_UNLIKELY( parse->meta_sz || parse->acc_active || parse->pub_pending ) ) {
             FD_LOG_CRIT(( "snaprd stream ended mid-account record" ));
           }
           ctx->disk_out_idx      = ULONG_MAX;
+          set_zp_catchup_seq( ctx, stem );
           ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
           ctx->state             = SNAPMK_STATE_ACCOUNTS_FLUSH2;
           FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
+          if( FD_LIKELY( parse->walk_batches ) ) {
+            double b = (double)parse->walk_batches;
+            FD_LOG_NOTICE(( "disk chain walk stats: batches=%lu avg_batch=%.1f lanes/round"
+                            " [%.1f %.2f %.2f %.2f %.2f %.2f %.2f %.2f+]",
+                            parse->walk_batches, (double)parse->walk_accts/b,
+                            (double)parse->walk_lanes[0]/b, (double)parse->walk_lanes[1]/b,
+                            (double)parse->walk_lanes[2]/b, (double)parse->walk_lanes[3]/b,
+                            (double)parse->walk_lanes[4]/b, (double)parse->walk_lanes[5]/b,
+                            (double)parse->walk_lanes[6]/b, (double)parse->walk_lanes[7]/b ));
+          }
         }
         return 0;
       }
@@ -1103,6 +1622,7 @@ returnable_frag( fd_snapmk_t *       ctx,
       ulong out_sz    = 0UL;
       if( FD_UNLIKELY( som ) ) {
         ctx->disk_out_idx = out_idx;
+        ctx->metrics.disk_accounts_single++;
         fd_backup_disk_msg_t * frag = alloc_zp_payload( ctx, out_idx, sizeof(fd_backup_disk_msg_t), &out_chunk );
         frag->pubkey  = parse->pub_pubkey;
         frag->owner   = parse->pub_owner;
@@ -1113,6 +1633,7 @@ returnable_frag( fd_snapmk_t *       ctx,
         out_sz = sizeof(fd_backup_disk_msg_t);
       }
 
+      snapmk_stamp_shadow( ctx, out_idx, stem->seqs[ out_idx ] );
       fd_stem_publish( stem, out_idx, meta->sig, out_chunk, out_sz, meta->ctl, meta->tsorig, meta->tspub );
       if( FD_UNLIKELY( !stem->cr_avail[ out_idx ] ) ) ctx->out_ready &= ~fd_ulong_mask_bit( (int)out_idx );
       if( FD_UNLIKELY( eom ) ) ctx->disk_out_idx = ULONG_MAX;
@@ -1134,10 +1655,16 @@ metrics_write( fd_snapmk_t * ctx ) {
   FD_MCNT_SET(   SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
   FD_MCNT_SET(   SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_ticks         );
   FD_MCNT_SET(   SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
+  FD_MCNT_SET(   SNAPMK, DISK_BATCHES_EMITTED,        ctx->metrics.disk_batches_emitted );
+  FD_MCNT_SET(   SNAPMK, DISK_ACCOUNTS_SINGLE,        ctx->metrics.disk_accounts_single );
+  ulong inflight_frags = ( ctx->snaprd_release_seq==ULONG_MAX ) ? 0UL
+                       : fd_ulong_if( fd_seq_lt( ctx->snaprd_release_seq, ctx->snaprd_parse_seq ),
+                                      ctx->snaprd_parse_seq - ctx->snaprd_release_seq, 0UL );
+  FD_MGAUGE_SET( SNAPMK, SNAPRD_INFLIGHT_FRAGS,       inflight_frags                    );
 }
 
-#define STEM_BURST 1UL
-#define STEM_LAZY  8700UL
+#define STEM_BURST SNAPMK_STEM_BURST
+#define STEM_LAZY  SNAPMK_STEM_LAZY
 #define STEM_CALLBACK_CONTEXT_TYPE    fd_snapmk_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(fd_snapmk_t)
 #define STEM_CALLBACK_CHECK_CREDIT    check_credit
@@ -1146,6 +1673,81 @@ metrics_write( fd_snapmk_t * ctx ) {
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #include "../../disco/stem/fd_stem.c"
 
+/* snapmk_run wraps stem_run1 so snapmk can take manual ownership of the
+   flow control credit it returns to snaprd.  It is a copy of the
+   generated stem_run() preamble with one change: the in_fseq entry for
+   the snaprd_out link is redirected to ctx->stem_snaprd_fseq (a
+   throwaway), so the stem publishes its parse cursor there instead of to
+   the real fseq.  snapmk drives the real fseq (snaprd_release_fseq) to
+   the lagging release watermark itself, so snaprd never overwrites dcache
+   slots whose bytes are still referenced zero-copy by in-flight zp frags.
+   This avoids editing the shared fd_stem.c, and mutates no shared state:
+   the redirect lives only in this stack-local in_fseq[] array, while
+   snaprd discovers the real consumer fseq independently from the topo. */
+
+static void
+snapmk_run( fd_topo_t *      topo,
+            fd_topo_tile_t * tile ) {
+  fd_snapmk_t * ctx = (fd_snapmk_t *)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), alignof(fd_snapmk_t) );
+
+  fd_frag_meta_t const * in_mcache[ FD_TOPO_MAX_LINKS ];
+  ulong *                in_fseq  [ FD_TOPO_MAX_TILE_IN_LINKS ];
+
+  ulong polled_in_cnt = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    in_mcache[ polled_in_cnt ] = link->mcache;
+    FD_TEST( in_mcache[ polled_in_cnt ] );
+    /* Redirect the snaprd link's fseq to the throwaway; snapmk owns the
+       real credit return to snaprd. */
+    if( 0==strcmp( link->name, "snaprd_out" ) ) in_fseq[ polled_in_cnt ] = ctx->stem_snaprd_fseq;
+    else                                        in_fseq[ polled_in_cnt ] = tile->in_link_fseq[ i ];
+    FD_TEST( in_fseq[ polled_in_cnt ] );
+    polled_in_cnt += 1UL;
+  }
+
+  fd_frag_meta_t * out_mcache[ FD_TOPO_MAX_LINKS ];
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    out_mcache[ i ] = topo->links[ tile->out_link_id[ i ] ].mcache;
+    FD_TEST( out_mcache[ i ] );
+  }
+
+  ulong            reliable_cons_cnt = 0UL;
+  ulong            cons_out [ FD_TOPO_MAX_LINKS ];
+  ulong *          cons_fseq[ FD_TOPO_MAX_LINKS ];
+  volatile ulong * cons_slow[ FD_TOPO_MAX_LINKS ];
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+    ulong polled_in_idx = 0UL;
+    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      int is_polled = consumer_tile->in_link_poll[ j ];
+      for( ulong k=0UL; k<tile->out_cnt; k++ ) {
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
+          cons_out [ reliable_cons_cnt ] = k;
+          cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
+          FD_TEST( cons_fseq[ reliable_cons_cnt ] );
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_OFF;
+          reliable_cons_cnt++;
+          FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
+        }
+      }
+      if( FD_LIKELY( is_polled ) ) polled_in_idx++;
+    }
+  }
+
+  fd_rng_t rng[1];
+  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_ulong_hash( (ulong)fd_tickcount() + tile->id ), 0UL ) ) );
+
+  uchar __attribute__((aligned(FD_STEM_SCRATCH_ALIGN))) stem_scratch[ stem_scratch_footprint( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ];
+
+  stem_run1( polled_in_cnt, in_mcache, in_fseq,
+             tile->out_cnt, out_mcache,
+             reliable_cons_cnt, cons_out, cons_fseq, cons_slow,
+             SNAPMK_STEM_BURST, SNAPMK_STEM_LAZY,
+             rng, stem_scratch, ctx );
+}
+
 fd_topo_run_tile_t fd_tile_snapmk = {
   .name                 = "snapmk",
   .populate_allowed_fds = populate_allowed_fds,
@@ -1153,6 +1755,6 @@ fd_topo_run_tile_t fd_tile_snapmk = {
   .scratch_footprint    = scratch_footprint,
   .privileged_init      = privileged_init,
   .unprivileged_init    = unprivileged_init,
-  .run                  = stem_run,
+  .run                  = snapmk_run,
   .allow_renameat       = 1
 };

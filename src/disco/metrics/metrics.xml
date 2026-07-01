@@ -1630,6 +1630,9 @@ EXAMPLES
     <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing" />
+    <counter name="DiskBatchesEmitted" summary="Number of multi-account disk batch fragments emitted to zp" />
+    <counter name="DiskAccountsSingle" summary="Number of disk accounts emitted via the single-account (straddle/large) path" />
+    <gauge name="SnaprdInflightFrags" summary="Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth)" />
 </tile>
 
 <tile name="snapzp">
@@ -1638,6 +1641,8 @@ EXAMPLES
     <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
+    <counter name="DiskBatches" summary="Number of multi-account disk batch fragments processed" />
+    <counter name="DiskBatchAccounts" summary="Number of disk accounts processed via the batch path" />
 </tile>
 
 <tile name="snaprd">
