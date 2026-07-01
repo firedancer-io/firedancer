@@ -222,9 +222,9 @@ typedef struct {
      successful transaction insert. */
   long last_successful_insert;
 
-   /* root_block_height stores the block height of the last rooted slot
-      we've seen coming from the resolv tile.  When this increases, we
-      expire old transactions. */
+  /* root_block_height stores the block height of the last rooted slot
+     we've seen coming from the resolv tile.  When this increases, we
+     expire old transactions. */
   ulong root_block_height;
 
   /* microblock_duration_ns, and wait_duration

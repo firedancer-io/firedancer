@@ -161,7 +161,7 @@ typedef struct {
   lru_list_t           lru_list[1];
 
   ulong completed_block_height;
-  ulong root_block_height; // 0-initialized then == bank->f.block_height
+  ulong root_block_height;
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
