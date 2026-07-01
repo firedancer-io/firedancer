@@ -148,8 +148,10 @@ gossip_activity_update_fn( void *                           _ctx,
 
 static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting" ));
     FD_CHECK_CRIT( ctx->is_halting_signing, "state machine corruption" );
@@ -242,7 +244,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     /* the identity key is swapped after the sign tile has been swapped
        because the below function directly sends a sign request. */
     FD_BASE58_ENCODE_32_BYTES( ctx->keyswitch->bytes, _new_id_b58 );
-    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
+    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, fd_clock_tile_now( ctx->clock ) );
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -264,7 +266,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
      the new one. */
   if( FD_UNLIKELY( ctx->is_halting_signing ) ) return;
 
-  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  long now = fd_clock_tile_now( ctx->clock );
   fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
 
   /* Peer table saturation detection.  After fd_gossip_advance updates
@@ -292,7 +294,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_shred_version( fd_gossip_tile_ctx_t * ctx,
                        ulong                 sig ) {
-  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  long now = fd_clock_tile_now( ctx->clock );
   ctx->my_contact_info->shred_version = (ushort)sig;
   fd_gossip_set_shred_version( ctx->gossip, (ushort)sig, now );
 }
@@ -301,7 +303,7 @@ static void
 handle_local_vote( fd_gossip_tile_ctx_t * ctx,
                    fd_txn_m_t const *     txn_m,
                    fd_stem_context_t *    stem ) {
-  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  long now = fd_clock_tile_now( ctx->clock );
   fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, stem, now );
 }
 
@@ -323,7 +325,7 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
                uchar const *          payload,
                ulong                  payload_sz,
                fd_stem_context_t *    stem ) {
-  long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+  long now = fd_clock_tile_now( ctx->clock );
 
   fd_ip4_port_t peer = (fd_ip4_port_t){
     .addr = fd_gossvf_sig_addr( sig ),
@@ -349,7 +351,7 @@ handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
                               fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT],
                               fd_stem_context_t *               stem ) {
   if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_DUPLICATE ) ) {
-    long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+    long now = fd_clock_tile_now( ctx->clock );
     for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], stem, now );
   }
 }
@@ -587,9 +589,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "failed to join keyguard client" ));
   }
 
-  ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
-  ctx->last_wallclock = fd_log_wallclock();
-  ctx->last_tickcount = fd_tickcount();
+  fd_clock_tile_init( ctx->clock );
 
   ctx->my_contact_info->shred_version = tile->gossip.shred_version;
 
@@ -624,7 +624,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                tile->gossip.entrypoints,
                                                ctx->identity_key->uc,
                                                ctx->my_contact_info,
-                                               ctx->last_wallclock,
+                                               fd_clock_tile_now( ctx->clock ),
                                                gossip_send_fn,
                                                ctx,
                                                gossip_sign_fn,

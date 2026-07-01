@@ -21,16 +21,12 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "fd_guih.h"
 #include "../../discoh/plugin/fd_plugin.h"
-#include "../../discof/replay/fd_execrp.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/fd_clock_tile.h"
-#include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/json/cJSON_alloc.h"
-#include "../../discof/repair/fd_repair.h"
-#include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
@@ -86,20 +82,13 @@ typedef struct {
   ulong in_cnt;
   ulong idle_cnt;
 
-  /* Most of the gui tile uses fd_clock for timing, but some stem
-     timestamps still used tickcounts, so we keep separate timestamps
-     here to handle those cases until fd_clock is more widely adopted. */
-  long ref_wallclock;
-  long ref_tickcount;
-  double tick_per_ns;
-
   fd_clock_tile_t clock[1];
 
   ulong chunk;
 
   fd_http_server_t * gui_server;
 
-  long next_poll_deadline;
+  long next_poll_nanos;
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
@@ -143,9 +132,6 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static inline void
 during_housekeeping( fd_guih_ctx_t * ctx ) {
-  ctx->ref_wallclock = fd_log_wallclock();
-  ctx->ref_tickcount = fd_tickcount();
-
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
     fd_clock_tile_recal( ctx->clock );
   }
@@ -179,14 +165,14 @@ before_credit( fd_guih_ctx_t *      ctx,
   ctx->idle_cnt = 0UL;
 
   int charge_busy_server = 0;
-  long now = fd_tickcount();
-  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now>=ctx->next_poll_nanos ) ) {
     charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
+    ctx->next_poll_nanos = now + 128L*1000L;
   }
 
   int charge_poll = 0;
-  charge_poll |= fd_guih_poll( ctx->gui, fd_clock_tile_now( ctx->clock ) );
+  charge_poll |= fd_guih_poll( ctx->gui, now );
 
   *charge_busy = charge_busy_server | charge_poll;
 }
@@ -277,7 +263,7 @@ after_frag( fd_guih_ctx_t *      ctx,
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
         fd_microblock_execle_trailer_t trailer[1];
         fd_memcpy( trailer, src+sz-sizeof(fd_microblock_execle_trailer_t), sizeof(fd_microblock_execle_trailer_t) );
-        long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        long tspub_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
         fd_guih_microblock_execution_begin( ctx->gui,
                                           tspub_ns,
                                           fd_disco_poh_sig_slot( sig ),
@@ -296,7 +282,7 @@ after_frag( fd_guih_ctx_t *      ctx,
 
       fd_microblock_trailer_t trailer[1];
       fd_memcpy( trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
-      long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tspub_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
       ulong txn_cnt = (sz-sizeof( fd_microblock_trailer_t ))/sizeof(fd_txn_p_t);
       fd_guih_microblock_execution_end( ctx->gui,
                                       tspub_ns,
@@ -495,10 +481,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_clock_tile_init( ctx->clock );
 
-  ctx->ref_wallclock = fd_log_wallclock();
-  ctx->ref_tickcount = fd_tickcount();
-  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
-
   ctx->topo = topo;
   ctx->gui   = fd_guih_join( fd_guih_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, 0, 0, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
@@ -510,7 +492,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( alloc );
   cJSON_alloc_install( alloc );
 
-  ctx->next_poll_deadline = fd_tickcount();
+  ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock );
 
   ctx->idle_cnt = 0UL;
   ctx->in_cnt = tile->in_cnt;

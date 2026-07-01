@@ -5,6 +5,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -265,7 +266,8 @@ struct fd_rpc_tile {
 
   fd_alloc_t * bz2_alloc;
 
-  long next_poll_deadline;
+  fd_clock_tile_t clock[1];
+  long next_poll_nanos;
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -454,6 +456,10 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static inline void
 during_housekeeping( fd_rpc_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -476,11 +482,11 @@ before_credit( fd_rpc_tile_t *     ctx,
                int *               charge_busy ) {
   (void)stem;
 
-  long now = fd_tickcount();
+  long now = fd_clock_tile_now( ctx->clock );
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
-  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
+  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_nanos ) ) {
     *charge_busy = fd_http_server_poll( ctx->http, 0 );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
+    ctx->next_poll_nanos = now + 128L*1000L;
   }
 }
 
@@ -2413,7 +2419,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
 
-  ctx->next_poll_deadline = fd_tickcount();
+  fd_clock_tile_init( ctx->clock );
+  ctx->next_poll_nanos = fd_clock_tile_now( ctx->clock );
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
   ctx->genesis_tar_bz_sz = ULONG_MAX;
