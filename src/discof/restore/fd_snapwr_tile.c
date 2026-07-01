@@ -360,14 +360,14 @@ returnable_frag( fd_snapwr_tile_t *  ctx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
-                 ulong               sz,
+                 ulong               sz     FD_PARAM_UNUSED,
                  ulong               ctl    FD_PARAM_UNUSED,
-                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tsorig,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, tsorig, stem );
   else                                           handle_control_frag( ctx, stem, sig );
 
   return 0;
