@@ -1482,12 +1482,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-#define PARSE_PUBKEY( _tile, f ) \
+#define PARSE_BUNDLE_PUBKEY( _tile, f ) \
       if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
         FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
       tile->replay.bundle.enabled = 1;
-      PARSE_PUBKEY( replay, tip_distribution_program_addr );
-      PARSE_PUBKEY( replay, tip_payment_program_addr      );
+      PARSE_BUNDLE_PUBKEY( replay, tip_distribution_program_addr );
+      PARSE_BUNDLE_PUBKEY( replay, tip_payment_program_addr      );
       fd_cstr_ncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
@@ -1592,9 +1592,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 
       tile->pack.bundle.enabled = 1;
-      PARSE_PUBKEY( pack, tip_distribution_program_addr );
-      PARSE_PUBKEY( pack, tip_payment_program_addr      );
-      PARSE_PUBKEY( pack, tip_distribution_authority    );
+      PARSE_BUNDLE_PUBKEY( pack, tip_distribution_program_addr );
+      PARSE_BUNDLE_PUBKEY( pack, tip_payment_program_addr      );
+      PARSE_BUNDLE_PUBKEY( pack, tip_distribution_authority    );
       tile->pack.bundle.commission_bps = config->tiles.bundle.commission_bps;
       fd_cstr_ncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
       fd_cstr_ncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
@@ -1643,6 +1643,14 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
       fd_cstr_ncpy( tile->sign.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->sign.authorized_voter_paths[ i ]) );
+    }
+    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+      PARSE_BUNDLE_PUBKEY( sign, tip_distribution_program_addr );
+      PARSE_BUNDLE_PUBKEY( sign, tip_payment_program_addr      );
+    } else {
+      /* 0xFF.. is not an invocable program */
+      memset( tile->sign.bundle.tip_distribution_program_addr, '\xFF', 32UL );
+      memset( tile->sign.bundle.tip_payment_program_addr,      '\xFF', 32UL );
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {

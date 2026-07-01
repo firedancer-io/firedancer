@@ -55,6 +55,9 @@ typedef struct {
   uchar *           public_key;
   uchar *           private_key;
 
+  uchar tip_payment_program     [32];
+  uchar tip_distribution_program[32];
+
   ulong             authorized_voters_cnt;
   uchar             authorized_voter_pubkeys[ 16UL ][ 32UL ];
   uchar             authorized_voter_private_keys[ 16UL ][ 32UL ];
@@ -210,7 +213,9 @@ after_frag_sensitive( void *              _ctx,
   int role = ctx->in[ in_idx ].role;
 
   fd_keyguard_authority_t authority = {0};
-  memcpy( authority.identity_pubkey, ctx->public_key, 32 );
+  memcpy( authority.identity_pubkey,          ctx->public_key,               32UL );
+  memcpy( authority.tip_payment_program,      ctx->tip_payment_program,      32UL );
+  memcpy( authority.tip_distribution_program, ctx->tip_distribution_program, 32UL );
 
   if( FD_UNLIKELY( !fd_keyguard_payload_authorize( &authority, ctx->_data, sz, role, sign_type ) ) ) {
     FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed (role=%d sign_type=%d)", role, sign_type ));
@@ -321,7 +326,7 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
   fd_histf_join( fd_histf_new( ctx->sign_duration, FD_MHIST_SECONDS_MIN( SIGN, SIGN_DURATION_SECONDS ),
-                                                       FD_MHIST_SECONDS_MAX( SIGN, SIGN_DURATION_SECONDS ) ) );
+                                                   FD_MHIST_SECONDS_MAX( SIGN, SIGN_DURATION_SECONDS ) ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
@@ -332,6 +337,9 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
   } else {
     ctx->av_keyswitch = NULL;
   }
+
+  memcpy( ctx->tip_payment_program,      tile->sign.bundle.tip_payment_program_addr,      32UL );
+  memcpy( ctx->tip_distribution_program, tile->sign.bundle.tip_distribution_program_addr, 32UL );
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 

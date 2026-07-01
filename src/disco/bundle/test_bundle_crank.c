@@ -3,6 +3,13 @@
 #include "../../ballet/base64/fd_base64.h"
 
 #include <stddef.h>
+#include <stdio.h>
+
+
+static const uchar fd_bundle_crank_3_vals[] = { FD_BUNDLE_CRANK_3_VALS };
+static const uchar fd_bundle_crank_3_mask[] = { FD_BUNDLE_CRANK_3_MASK };
+static const uchar fd_bundle_crank_2_vals[] = { FD_BUNDLE_CRANK_2_VALS };
+static const uchar fd_bundle_crank_2_mask[] = { FD_BUNDLE_CRANK_2_MASK };
 
 /* crank2:  */
 FD_IMPORT_BINARY( payload_2ni,
@@ -11,11 +18,11 @@ FD_IMPORT_BINARY( payload_2ni,
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_2_t)==FD_BUNDLE_CRANK_2_SZ, crank );
 FD_STATIC_ASSERT( sizeof(fd_bundle_crank_3_t)==FD_BUNDLE_CRANK_3_SZ, crank );
 
-FD_STATIC_ASSERT( offsetof(fd_bundle_crank_2_t, change_tip_receiver.ix_discriminator       )==FD_BUNDLE_CRANK_2_IX1_DISC_OFF, crank );
-FD_STATIC_ASSERT( offsetof(fd_bundle_crank_2_t, change_block_builder.ix_discriminator      )==FD_BUNDLE_CRANK_2_IX2_DISC_OFF, crank );
-FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, init_tip_distribution_acct.ix_discriminator)==FD_BUNDLE_CRANK_3_IX1_DISC_OFF, crank );
-FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, change_tip_receiver.ix_discriminator       )==FD_BUNDLE_CRANK_3_IX2_DISC_OFF, crank );
-FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, change_block_builder.ix_discriminator      )==FD_BUNDLE_CRANK_3_IX3_DISC_OFF, crank );
+FD_STATIC_ASSERT( offsetof(fd_bundle_crank_2_t, authorized_voter         )==FD_BUNDLE_CRANK_SIGNER_OFFSET,           crank );
+FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, authorized_voter         )==FD_BUNDLE_CRANK_SIGNER_OFFSET,           crank );
+FD_STATIC_ASSERT( offsetof(fd_bundle_crank_2_t, tip_payment_program      )==FD_BUNDLE_CRANK_TIP_PAYMENT_OFFSET,      crank );
+FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, tip_payment_program      )==FD_BUNDLE_CRANK_TIP_PAYMENT_OFFSET,      crank );
+FD_STATIC_ASSERT( offsetof(fd_bundle_crank_3_t, tip_distribution_program )==FD_BUNDLE_CRANK_TIP_DISTRIBUTION_OFFSET, crank );
 
 fd_acct_addr_t _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD[1] = {{ .b={
             0x28,0x52,0x15,0xd0,0x34,0x59,0xfa,0xc3,0xaf,0xa0,0xa5,0x52,0xcf,0x8c,0xbb,0x79,
@@ -57,6 +64,27 @@ fd_acct_addr_t _T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt[1] = {{ .b={
 #define EXPAND_ARR8(arr, i)  arr[(i)], arr[(i)+1], arr[(i)+2], arr[(i)+3], arr[(i)+4], arr[(i)+5], arr[(i)+6], arr[(i)+7],
 #define EXPAND_ARR32(arr, i) EXPAND_ARR8(arr, (i)) EXPAND_ARR8(arr, (i)+8) EXPAND_ARR8(arr, (i)+16) EXPAND_ARR8(arr, (i)+24)
 
+ulong
+crank_generate_and_test( fd_bundle_crank_gen_t                       * gen,
+                         fd_bundle_crank_tip_payment_config_t const  * old_tip_payment_config,
+                         fd_acct_addr_t                       const  * new_block_builder,
+                         fd_acct_addr_t                       const  * identity,
+                         fd_acct_addr_t                       const  * tip_receiver_owner,
+                         ulong                                         epoch,
+                         ulong                                         block_builder_commission,
+                         uchar                                       * out_payload,
+                         fd_txn_t                                    * out_txn ) {
+  ulong retval = fd_bundle_crank_generate( gen, old_tip_payment_config, new_block_builder, identity, tip_receiver_owner, epoch, block_builder_commission, out_payload, out_txn );
+  if( FD_LIKELY( retval==FD_BUNDLE_CRANK_2_SZ ) ) {
+    for( ulong i=0UL; i<retval; i++ ) FD_TEST( (out_payload[i]&fd_bundle_crank_2_mask[i])==fd_bundle_crank_2_vals[i] );
+  }
+  else if( FD_LIKELY( retval==FD_BUNDLE_CRANK_3_SZ ) ) {
+    for( ulong i=0UL; i<retval; i++ ) FD_TEST( (out_payload[i]&fd_bundle_crank_3_mask[i])==fd_bundle_crank_3_vals[i] );
+  }
+  /* Could be 0 or ULONG_MAX */
+  return retval;
+}
+
 static inline void
 test_repro_onchain( void ) {
   fd_bundle_crank_gen_t g[1];
@@ -86,7 +114,7 @@ test_repro_onchain( void ) {
   uchar _txn_2ni[ FD_TXN_MAX_SZ ];
   fd_txn_t * txn_2ni = (fd_txn_t *)_txn_2ni;
 
-  ulong sz = fd_bundle_crank_generate( g, old_tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  ulong sz = crank_generate_and_test( g, old_tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn );
   FD_TEST( sz==sizeof(fd_bundle_crank_2_t) );
   /* The transactions are not necessarily byte-for-byte identical,
@@ -144,7 +172,7 @@ check_duplicates( fd_bundle_crank_gen_t * g,
   uchar _txn[ FD_TXN_MAX_SZ ];
   fd_txn_t * txn = (fd_txn_t *)_txn;
 
-  ulong sz = fd_bundle_crank_generate( g, old_tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  ulong sz = crank_generate_and_test( g, old_tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn );
 
   FD_TEST( sz==sizeof(fd_bundle_crank_2_t) );
@@ -222,29 +250,276 @@ test_crank_cnt( void ) {
   fd_txn_t * txn = (fd_txn_t *)_txn;
 
   fd_acct_addr_t uncreated[1] = {{{ 0 }}};
-  FD_TEST( sizeof(fd_bundle_crank_3_t)==fd_bundle_crank_generate( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  FD_TEST( sizeof(fd_bundle_crank_3_t)==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, uncreated, 740UL, 5UL, payload, txn ) );
-  FD_TEST( 0UL==fd_bundle_crank_generate( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  FD_TEST( 0UL==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
 
   tip_payment_config->commission_pct++;
-  FD_TEST( sizeof(fd_bundle_crank_2_t)==fd_bundle_crank_generate( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  FD_TEST( sizeof(fd_bundle_crank_2_t)==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
   tip_payment_config->commission_pct--;
 
   tip_payment_config->tip_receiver->b[1]++;
-  FD_TEST( sizeof(fd_bundle_crank_2_t)==fd_bundle_crank_generate( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  FD_TEST( sizeof(fd_bundle_crank_2_t)==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
   tip_payment_config->tip_receiver->b[1]--;
 
   tip_payment_config->block_builder->b[2]++;
-  FD_TEST( sizeof(fd_bundle_crank_2_t)==fd_bundle_crank_generate( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  FD_TEST( sizeof(fd_bundle_crank_2_t)==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
   tip_payment_config->block_builder->b[2]--;
 
-  FD_TEST( 0UL==fd_bundle_crank_generate( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+  FD_TEST( 0UL==crank_generate_and_test( g, tip_payment_config, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
       _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7, 740UL, 5UL, payload, txn ) );
 }
+
+static void
+test_masks( void ) {
+#define MEMO_PROGRAM_ID 0x05U,0x4aU,0x53U,0x5aU,0x99U,0x29U,0x21U,0x06U,0x4dU,0x24U,0xe8U,0x71U,0x60U,0xdaU,0x38U,0x7cU, \
+                        0x7cU,0x35U,0xb5U,0xddU,0xbcU,0x92U,0xbbU,0x81U,0xe4U,0x1fU,0xa8U,0x40U,0x41U,0x05U,0x44U,0x8dU
+#define FULL_MASK       0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, \
+                        0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF
+  static const union {
+    fd_bundle_crank_3_t m;
+    uchar b[sizeof(fd_bundle_crank_3_t)];
+  } vals3 = { .m = {
+    .sig_cnt         =  1,
+    ._sig_cnt        =  1,
+    .ro_signed_cnt   =  0,
+    .ro_unsigned_cnt =  5,
+    .acct_addr_cnt   = 21,
+
+    .system_program         = { SYS_PROG_ID            },
+    .compute_budget_program = { COMPUTE_BUDGET_PROG_ID },
+    .memo_program           = { MEMO_PROGRAM_ID        },
+
+    .instr_cnt = 5,
+    .compute_budget_instruction = {
+        .prog_id = 16,
+        .acct_cnt = 0,
+        .data_sz = 5,
+        .set_cu_limit = 2,
+        .cus = 130000U
+    },
+
+    .init_tip_distribution_acct = {
+        .prog_id = 20,
+        .acct_cnt = 5,
+        .acct_idx = { 9, 13, 15, 0, 19 },
+        .data_sz = 43,
+        .ix_discriminator = { FD_BUNDLE_CRANK_DISC_INIT_TIP_DISTR },
+    },
+
+    .change_tip_receiver = {
+        .prog_id = 17,
+        .acct_cnt = 13,
+        .acct_idx = { 10, 0, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0 },
+        .data_sz = 8,
+        .ix_discriminator = { FD_BUNDLE_CRANK_DISC_CHANGE_TIP_RCV }
+    },
+
+    .change_block_builder = {
+        .prog_id = 17,
+        .acct_cnt = 13,
+        .acct_idx = { 10, 13, 0, 14, 1, 2, 3, 4, 5, 6, 7, 8, 0},
+        .data_sz = 16,
+        .ix_discriminator = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD },
+    },
+
+    .memo = {
+      .prog_id = 18,
+      .acct_cnt = 0,
+      .data_sz  = 3
+    },
+  }};
+  static const union {
+    fd_bundle_crank_3_t m;
+    uchar b[sizeof(fd_bundle_crank_3_t)];
+  } mask3 = { .m = {
+    .sig_cnt         = 0xFF,
+    ._sig_cnt        = 0xFF,
+    .ro_signed_cnt   = 0xFF,
+    .ro_unsigned_cnt = 0xFF,
+    .acct_addr_cnt   = 0xFF,
+
+    .system_program         = { FULL_MASK },
+    .compute_budget_program = { FULL_MASK },
+    .memo_program           = { FULL_MASK },
+
+    .instr_cnt = 0xFF,
+    .compute_budget_instruction = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .data_sz = 0xFF,
+        .set_cu_limit = 0xFF,
+        .cus = 0xFFFFFFFFU
+    },
+
+    .init_tip_distribution_acct = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .acct_idx = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+        .data_sz = 0xFF,
+        .ix_discriminator = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+    },
+
+    .change_tip_receiver = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .acct_idx = { 0xFF, 0, 0xFF, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+        .data_sz = 0xFF,
+        .ix_discriminator = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
+    },
+
+    .change_block_builder = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .acct_idx = { 0xFF, 0xFF, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+        .data_sz = 0xFF,
+        .ix_discriminator = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
+    },
+
+    .memo = {
+      .prog_id = 0xFF,
+      .acct_cnt = 0xFF,
+      .data_sz  = 0xFF
+    },
+  }};
+
+  static const union {
+    fd_bundle_crank_2_t m;
+    uchar b[sizeof(fd_bundle_crank_2_t)];
+  } vals2 = { .m = {
+    .sig_cnt         =  1,
+    ._sig_cnt        =  1,
+    .ro_signed_cnt   =  0,
+    .ro_unsigned_cnt =  3,
+    .acct_addr_cnt   = 19,
+
+    .compute_budget_program = { COMPUTE_BUDGET_PROG_ID },
+    .memo_program           = { MEMO_PROGRAM_ID        },
+
+    .instr_cnt = 4,
+    .compute_budget_instruction = {
+        .prog_id = 16,
+        .acct_cnt = 0,
+        .data_sz = 5,
+        .set_cu_limit = 2,
+        .cus = 83000U
+    },
+
+    .change_tip_receiver = {
+        .prog_id = 17,
+        .acct_cnt = 13,
+        .acct_idx = { 10, 0, 13, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0 },
+        .data_sz = 8,
+        .ix_discriminator = { FD_BUNDLE_CRANK_DISC_CHANGE_TIP_RCV }
+    },
+
+    .change_block_builder = {
+        .prog_id = 17,
+        .acct_cnt = 13,
+        .acct_idx = { 10, 13, 0, 14, 1, 2, 3, 4, 5, 6, 7, 8, 0},
+        .data_sz = 16,
+        .ix_discriminator = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD },
+    },
+
+    .memo = {
+      .prog_id = 18,
+      .acct_cnt = 0,
+      .data_sz = 3
+    }
+  }};
+  static const union {
+    fd_bundle_crank_2_t m;
+    uchar b[sizeof(fd_bundle_crank_2_t)];
+  } mask2 = { .m = {
+    .sig_cnt         = 0xFF,
+    ._sig_cnt        = 0xFF,
+    .ro_signed_cnt   = 0xFF,
+    .ro_unsigned_cnt = 0xFF,
+    .acct_addr_cnt   = 0xFF,
+
+    .compute_budget_program = { FULL_MASK },
+    .memo_program           = { FULL_MASK },
+
+    .instr_cnt = 0xFF,
+    .compute_budget_instruction = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .data_sz = 0xFF,
+        .set_cu_limit = 0xFF,
+        .cus = 0xFFFFFFFFU
+    },
+    .change_tip_receiver = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .acct_idx = { 0xFF, 0, 0xFF, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+        .data_sz = 0xFF,
+        .ix_discriminator = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
+    },
+
+    .change_block_builder = {
+        .prog_id = 0xFF,
+        .acct_cnt = 0xFF,
+        .acct_idx = { 0xFF, 0xFF, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+        .data_sz = 0xFF,
+        .ix_discriminator = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
+    },
+
+    .memo = {
+      .prog_id = 0xFF,
+      .acct_cnt = 0xFF,
+      .data_sz = 0xFF
+    }
+  }};
+
+  if( FD_UNLIKELY( sizeof(fd_bundle_crank_3_t)!=sizeof(fd_bundle_crank_3_vals) ||
+                   sizeof(fd_bundle_crank_3_t)!=sizeof(fd_bundle_crank_3_mask) ||
+                   sizeof(fd_bundle_crank_2_t)!=sizeof(fd_bundle_crank_2_vals) ||
+                   sizeof(fd_bundle_crank_2_t)!=sizeof(fd_bundle_crank_2_mask) ||
+                   !fd_memeq( vals3.b, fd_bundle_crank_3_vals, sizeof(fd_bundle_crank_3_t) ) ||
+                   !fd_memeq( mask3.b, fd_bundle_crank_3_mask, sizeof(fd_bundle_crank_3_t) ) ||
+                   !fd_memeq( vals2.b, fd_bundle_crank_2_vals, sizeof(fd_bundle_crank_2_t) ) ||
+                   !fd_memeq( mask2.b, fd_bundle_crank_2_mask, sizeof(fd_bundle_crank_2_t) ) ) ) {
+
+    printf("#define FD_BUNDLE_CRANK_3_VALS ");
+    for( ulong i=0UL; i<sizeof(fd_bundle_crank_3_t); i++ ) {
+      FD_TEST( mask3.b[i]==0xFF || vals3.b[i]==0 );
+      printf( "0x%02hhx, ", vals3.b[i] );
+      if( i%16UL==15UL ) printf("\\\n                               ");
+    }
+    printf("\n#define FD_BUNDLE_CRANK_3_MASK ");
+    for( ulong i=0UL; i<sizeof(fd_bundle_crank_3_t); i++ ) {
+      printf( "0x%02hhx, ", mask3.b[i] );
+      if( i%16UL==15UL ) printf("\\\n                               ");
+    }
+    printf("\n");
+
+    printf("#define FD_BUNDLE_CRANK_2_VALS ");
+    for( ulong i=0UL; i<sizeof(fd_bundle_crank_2_t); i++ ) {
+      FD_TEST( mask2.b[i]==0xFF || vals2.b[i]==0 );
+      printf( "0x%02hhx, ", vals2.b[i] );
+      if( i%16UL==15UL ) printf("\\\n                               ");
+    }
+    printf("\n#define FD_BUNDLE_CRANK_2_MASK ");
+    for( ulong i=0UL; i<sizeof(fd_bundle_crank_2_t); i++ ) {
+      printf( "0x%02hhx, ", mask2.b[i] );
+      if( i%16UL==15UL ) printf("\\\n                               ");
+    }
+    printf("\n");
+  }
+  FD_TEST( sizeof(fd_bundle_crank_3_t)==sizeof(fd_bundle_crank_3_vals) );
+  FD_TEST( sizeof(fd_bundle_crank_3_t)==sizeof(fd_bundle_crank_3_mask) );
+  FD_TEST( sizeof(fd_bundle_crank_2_t)==sizeof(fd_bundle_crank_2_vals) );
+  FD_TEST( sizeof(fd_bundle_crank_2_t)==sizeof(fd_bundle_crank_2_mask) );
+  FD_TEST( fd_memeq( vals3.b, fd_bundle_crank_3_vals, sizeof(fd_bundle_crank_3_t) ) );
+  FD_TEST( fd_memeq( mask3.b, fd_bundle_crank_3_mask, sizeof(fd_bundle_crank_3_t) ) );
+  FD_TEST( fd_memeq( vals2.b, fd_bundle_crank_2_vals, sizeof(fd_bundle_crank_2_t) ) );
+  FD_TEST( fd_memeq( mask2.b, fd_bundle_crank_2_mask, sizeof(fd_bundle_crank_2_t) ) );
+}
+
 
 int
 main( int argc,
@@ -254,6 +529,8 @@ main( int argc,
   test_repro_onchain();
   test_no_duplicates();
   test_crank_cnt();
+  test_masks();
+
 
   FD_LOG_NOTICE(( "pass" ));
 
