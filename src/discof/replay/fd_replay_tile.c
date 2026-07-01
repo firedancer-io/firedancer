@@ -569,10 +569,34 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   return ctx->leader_bank;
 }
 
+/* keyswitch_near_leader returns 1 if identity has any leader slots
+   within FD_EPOCH_SLOTS_PER_ROTATION slots of cur_slot. */
+static inline int
+keyswitch_near_leader( fd_multi_epoch_leaders_t const * mleaders,
+                       ulong                            cur_slot,
+                       fd_pubkey_t const *              identity ) {
+  ulong lo   = fd_ulong_if( cur_slot>=FD_EPOCH_SLOTS_PER_ROTATION, cur_slot-FD_EPOCH_SLOTS_PER_ROTATION, 0UL );
+  ulong next = fd_multi_epoch_leaders_get_next_slot( mleaders, lo, identity );
+  return next!=ULONG_MAX && next<=cur_slot+FD_EPOCH_SLOTS_PER_ROTATION;
+}
+
 static inline void
 maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
   if( FD_LIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return;
+
+  /* Wait until we are comfortably clear (>FD_EPOCH_SLOTS_PER_ROTATION
+     slots) of both the most recent and the next leader slot before
+     applying the switch.
+
+     This is a best-effort mitigation against an accidental equivocation
+     involving operators who don't follow correct switching protocol. It
+     gives them a slightly wider window to safely switch. */
+  fd_pubkey_t const * pending_identity = fd_type_pun_const( ctx->keyswitch->bytes );
+  fd_epoch_leaders_t const * cur_lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, ctx->reset_slot );
+  if( FD_UNLIKELY( cur_lsched && ( ctx->reset_slot <  cur_lsched->slot0 + FD_EPOCH_SLOTS_PER_ROTATION || ctx->reset_slot >= cur_lsched->slot0 + fd_ulong_sat_sub( cur_lsched->slot_cnt, FD_EPOCH_SLOTS_PER_ROTATION ) ) ) ) return;
+  if( FD_UNLIKELY( keyswitch_near_leader( ctx->mleaders, ctx->reset_slot, ctx->identity_pubkey ) ||
+                   keyswitch_near_leader( ctx->mleaders, ctx->reset_slot, pending_identity ) ) ) return;
 
   /* Switch identity */
 

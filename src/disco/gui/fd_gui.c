@@ -2067,33 +2067,23 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 }
 
 static void
-fd_gui_handle_slot_start( fd_gui_t * gui,
-                          ulong      _slot,
-                          ulong      parent_slot,
-                          long       now ) {
-  FD_TEST( gui->leader_slot==ULONG_MAX );
-  gui->leader_slot = _slot;
-
-  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
-  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, parent_slot );
-
-  fd_gui_tile_timers_snap( gui );
-  gui->summary.tile_timers_snap_idx_slot_start = (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT;
-
-  fd_gui_scheduler_counts_snap( gui, now );
-  gui->summary.scheduler_counts_snap_idx_slot_start = (gui->summary.scheduler_counts_snap_idx+(FD_GUI_SCHEDULER_COUNT_SNAP_CNT-1UL))%FD_GUI_SCHEDULER_COUNT_SNAP_CNT;
-
-  fd_gui_txn_waterfall_t waterfall[ 1 ];
-  fd_gui_txn_waterfall_snap( gui, waterfall );
-  fd_gui_tile_stats_snap( gui, waterfall, slot->tile_stats_begin, now );
-}
-
-static void
 fd_gui_handle_slot_end( fd_gui_t * gui,
                         ulong      _slot,
-                        ulong      _cus_used,
+                        ulong      _cus_used FD_PARAM_UNUSED,
                         long       now ) {
-  (void)_cus_used;
+  if( FD_UNLIKELY( !gui->summary.is_full_client && gui->leader_slot!=_slot ) ) {
+    /* slot_end for a slot we are not tracking (e.g. a duplicate from
+       a set-identity rewind, or a reordered/missed slot_end).
+       (a) leader_slot==ULONG_MAX: nothing open, ignore (re-running the
+           bookkeeping below would double-snap the waterfall).
+       (b) leader_slot!=ULONG_MAX: a different slot is open; finalize it
+           so its snaps run and the reference advances. */
+    FD_LOG_WARNING(( "gui->leader_slot %lu does not match SLOT_END _slot %lu; %s", gui->leader_slot, _slot,
+                     gui->leader_slot==ULONG_MAX ? "ignoring stale SLOT_END" : "finalizing tracked slot" ));
+    if( FD_UNLIKELY( gui->leader_slot!=ULONG_MAX ) ) fd_gui_handle_slot_end( gui, gui->leader_slot, ULONG_MAX, now );
+    gui->leader_slot = ULONG_MAX;
+    return;
+  }
   gui->leader_slot = ULONG_MAX;
 
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
@@ -2150,6 +2140,34 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
 
   fd_gui_tile_stats_snap( gui, slot->waterfall_end, slot->tile_stats_end, now );
+}
+
+static void
+fd_gui_handle_slot_start( fd_gui_t * gui,
+                          ulong      _slot,
+                          ulong      parent_slot,
+                          long       now ) {
+  /* If a prior slot is still open (a slot_end was missed), finalize it
+     first so its snaps run and txn_waterfall_reference advances before
+     we adopt the new slot.  fd_gui_handle_slot_end clears leader_slot. */
+  if( FD_UNLIKELY( gui->leader_slot!=ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "gui->leader_slot %lu still set on SLOT_START _slot %lu; finalizing prior slot", gui->leader_slot, _slot ));
+    fd_gui_handle_slot_end( gui, gui->leader_slot, ULONG_MAX, now );
+  }
+  gui->leader_slot = _slot;
+
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, parent_slot );
+
+  fd_gui_tile_timers_snap( gui );
+  gui->summary.tile_timers_snap_idx_slot_start = (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT;
+
+  fd_gui_scheduler_counts_snap( gui, now );
+  gui->summary.scheduler_counts_snap_idx_slot_start = (gui->summary.scheduler_counts_snap_idx+(FD_GUI_SCHEDULER_COUNT_SNAP_CNT-1UL))%FD_GUI_SCHEDULER_COUNT_SNAP_CNT;
+
+  fd_gui_txn_waterfall_t waterfall[ 1 ];
+  fd_gui_txn_waterfall_snap( gui, waterfall );
+  fd_gui_tile_stats_snap( gui, waterfall, slot->tile_stats_begin, now );
 }
 
 void
