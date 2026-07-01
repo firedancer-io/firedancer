@@ -521,8 +521,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
     *ctx->epoch_schedule = epoch_msg->epoch_schedule;
 
-    fd_slot_params_t slot_params = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS,
-                                                           &epoch_msg->features,
+    fd_slot_params_t slot_params = fd_slot_params_at_slot( &epoch_msg->features,
                                                            &epoch_msg->epoch_schedule,
                                                            epoch_msg->start_slot );
 
@@ -533,12 +532,10 @@ during_frag( fd_shred_ctx_t * ctx,
     ctx->next_max_shred_idx_start_slot    = fd_slot_params_next_effective_slot( &slot_params,
                                                                                 &epoch_msg->features,
                                                                                 &epoch_msg->epoch_schedule );
-    ctx->prev_max_shred_idx               = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS,
-                                                                    &epoch_msg->features,
+    ctx->prev_max_shred_idx               = fd_slot_params_at_slot( &epoch_msg->features,
                                                                     &epoch_msg->epoch_schedule,
                                                                     fd_ulong_sat_sub( ctx->current_max_shred_idx_start_slot, 1UL ) ).max_shred_idx;
-    ctx->next_max_shred_idx               = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS,
-                                                                    &epoch_msg->features,
+    ctx->next_max_shred_idx               = fd_slot_params_at_slot( &epoch_msg->features,
                                                                     &epoch_msg->epoch_schedule,
                                                                     ctx->next_max_shred_idx_start_slot ).max_shred_idx;
     ctx->features_activation->enforce_fixed_fec_set     = fd_shred_get_feature_activation_slot0(

@@ -59,8 +59,7 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L241-L286 */
 
 fd_slot_params_t
-fd_slot_params_at_slot( fd_slot_params_t const *    default_params,
-                        fd_features_t const *       features,
+fd_slot_params_at_slot( fd_features_t const *       features,
                         fd_epoch_schedule_t const * epoch_schedule,
                         ulong                       slot );
 
@@ -89,8 +88,7 @@ fd_slot_params_next_effective_slot( fd_slot_params_t const *    params,
    https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L295-L320 */
 
 FD_FN_PURE ulong
-fd_slot_params_slot_range_duration_ns( fd_slot_params_t const *    default_params,
-                                       fd_features_t const *       features,
+fd_slot_params_slot_range_duration_ns( fd_features_t const *       features,
                                        fd_epoch_schedule_t const * epoch_schedule,
                                        ulong                       start_slot,
                                        ulong                       end_slot );
@@ -104,8 +102,7 @@ fd_slot_params_slot_range_duration_ns( fd_slot_params_t const *    default_param
    https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L2850-L2874 */
 
 FD_FN_PURE double
-fd_slot_params_slot_range_duration_years( fd_slot_params_t const *    default_params,
-                                          fd_features_t const *       features,
+fd_slot_params_slot_range_duration_years( fd_features_t const *       features,
                                           fd_epoch_schedule_t const * epoch_schedule,
                                           ulong                       start_slot,
                                           ulong                       end_slot );

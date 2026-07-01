@@ -94,7 +94,6 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   runner->bank->f.ticks_per_slot             = 64;
   runner->bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
   runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
-  fd_bank_slot_params_set_default( runner->bank, runner->bank->f.slot_params );
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );

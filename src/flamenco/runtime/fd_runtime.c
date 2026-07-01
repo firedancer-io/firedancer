@@ -559,8 +559,7 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
 
   fd_compute_and_apply_new_feature_activations( bank, accdb, runtime_stack, capture_ctx );
 
-  bank->f.slot_params = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
-                                                &bank->f.features,
+  bank->f.slot_params = fd_slot_params_at_slot( &bank->f.features,
                                                 &bank->f.epoch_schedule,
                                                 bank->f.slot );
 
@@ -1377,7 +1376,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   bank->f.slot_params.ns_per_slot     = (ulong)( target_tick_duration * genesis->poh.ticks_per_slot );
   bank->f.slot_params.slots_per_year  = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
   bank->f.slot_params.hashes_per_tick = genesis->poh.hashes_per_tick;
-  fd_bank_slot_params_set_default( bank, bank->f.slot_params );
 
   bank->f.ticks_per_slot = genesis->poh.ticks_per_slot;
   bank->f.genesis_creation_time = genesis->creation_time;

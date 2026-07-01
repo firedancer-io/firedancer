@@ -355,13 +355,6 @@ fd_bank_vote_stakes( fd_bank_t const * bank );
 fd_new_votes_t *
 fd_bank_new_votes( fd_bank_t const * bank );
 
-fd_slot_params_t const *
-fd_bank_slot_params_get_default( fd_bank_t const * bank );
-
-void
-fd_bank_slot_params_set_default( fd_bank_t const * bank,
-                                 fd_slot_params_t  slot_params );
-
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
@@ -397,11 +390,6 @@ struct fd_banks {
   ulong max_vote_accounts;  /* Maximum number of vote accounts */
   ulong root_idx;           /* root idx */
   ulong bank_seq;           /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
-
-  /* The default slot parameters used if no reduce_slot_time feature
-     gates are active. These depend on genesis, and typically vary for
-     local/test clusters. */
-  fd_slot_params_t slot_params_default;
 
   ulong pool_offset;        /* offset of pool from banks */
 

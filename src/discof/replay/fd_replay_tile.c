@@ -205,8 +205,7 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( schedule, epoch );
-  epoch_info_msg->ns_per_slot       = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
-                                                              features,
+  epoch_info_msg->ns_per_slot       = fd_slot_params_at_slot( features,
                                                               schedule,
                                                               epoch_info_msg->start_slot ).ns_per_slot;
   epoch_info_msg->excluded_id_stake = next_epoch ? runtime_stack->epoch_weights.next_id_weights_excluded : runtime_stack->epoch_weights.id_weights_excluded;
@@ -913,40 +912,6 @@ process_poh_message( fd_replay_tile_t *                 ctx,
   ctx->recv_poh = 1;
 }
 
-/* Determine the default slot params to use for slots where no
-   reduce_slot_time feature gate is in effect. This is important for
-   the inflation calculations, which use the slot times for
-   historical slots as input. Therefore we need the same semantics
-   as Agave, even after the reduce_slot_time feature gates are active.
-
-   TODO: We do not yet support test clusters where a slot time
-   reduction is in effect and the genesis slot params are not 400ms.
-   To suppport these clusters we need to plumb through the genesis
-   config values during snapshot load. */
-static fd_slot_params_t
-restore_default_slot_params( fd_bank_t const * bank ) {
-
-  /* A reduction is effective if the effective ns_per_slot is less than
-     the 400ms value.
-     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L332-L350 */
-  int reduction_effective = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS,
-                                                    &bank->f.features,
-                                                    &bank->f.epoch_schedule,
-                                                    bank->f.slot ).ns_per_slot < FD_SLOT_PARAMS_400MS.ns_per_slot;
-
-  /* In order to behave correctly in real networks, if a reduction is
-     effective then we use the 400ms slot params as the default. */
-  if( reduction_effective ) {
-    return FD_SLOT_PARAMS_400MS;
-  }
-
-  /* If a reduction is not effective, then we can rely on the slot
-     times having remained constant throughout the lifetime of the
-     cluster, and can use the slot params from the manifest. Note that
-     in test clusters these may differ from the 400ms values. */
-  return bank->f.slot_params;
-}
-
 /* TODO: potentially adjust this based on shorter slot times? A
    consistent 50ms headroom is what Anza uses, so to be consistent we
    have used the same.
@@ -1173,19 +1138,29 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     /* Set slot params based on the feature gates in the snapshot,
        and assert that these are consistent with the values from the
-       manifest. These assertions match Agave:
+       manifest.
        https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
     fd_slot_params_t manifest_params = bank->f.slot_params;
-    fd_bank_slot_params_set_default( bank, restore_default_slot_params( bank ) );
-    bank->f.slot_params = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
-                                                  &bank->f.features,
-                                                  &bank->f.epoch_schedule,
-                                                  bank->f.slot );
-    FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
-    FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
-    if( FD_LIKELY( manifest_params.hashes_per_tick ) ) {
-      FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
-    }
+    fd_slot_params_t expected_params = fd_slot_params_at_slot( &bank->f.features,
+                                                               &bank->f.epoch_schedule,
+                                                               bank->f.slot );
+    bank->f.slot_params = expected_params;
+
+    /* To simplify our code, we only support certain values for some of
+       the slot params. Snapshots which have different values for these
+       are from clusters which have non-standard genesis parameters,
+       such as some testing cluster configurations, which we don't
+       support. */
+    if( FD_UNLIKELY( manifest_params.ns_per_slot != expected_params.ns_per_slot ) )
+      FD_LOG_ERR(( "unsupported snapshot: only ns_per_slot=%lu is supported, but the snapshot has ns_per_slot=%lu",
+                   expected_params.ns_per_slot, manifest_params.ns_per_slot ));
+    if( FD_UNLIKELY( manifest_params.slots_per_year != expected_params.slots_per_year ) )
+      FD_LOG_ERR(( "unsupported snapshot: only slots_per_year=%.3f is supported, but the snapshot has slots_per_year=%.3f",
+                   expected_params.slots_per_year, manifest_params.slots_per_year ));
+    if( FD_UNLIKELY( manifest_params.hashes_per_tick &&
+                     manifest_params.hashes_per_tick != expected_params.hashes_per_tick ) )
+      FD_LOG_ERR(( "unsupported snapshot: only hashes_per_tick=%lu is supported, but the snapshot has hashes_per_tick=%lu",
+                   expected_params.hashes_per_tick, manifest_params.hashes_per_tick ));
     set_slot_duration( ctx, bank );
 
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
