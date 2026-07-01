@@ -242,7 +242,10 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     /* the identity key is swapped after the sign tile has been swapped
        because the below function directly sends a sign request. */
     FD_BASE58_ENCODE_32_BYTES( ctx->keyswitch->bytes, _new_id_b58 );
-    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
+    fd_gossip_set_identity( ctx->gossip,
+                            ctx->keyswitch->bytes,
+                            ctx->last_wallclock,
+                            (ulong)FD_NANOSEC_TO_MICRO( ctx->keyswitch->param ) );
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
