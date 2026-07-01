@@ -25,6 +25,7 @@ fd_netdev_init( fd_netdev_t * netdev ) {
     .master_idx    = -1,
     .oper_status   = FD_OPER_STATUS_INVALID,
     .dev_type      = ARPHRD_NONE,
+    .glob_ip4_addr = 0,
     .gre_dst_ip    = 0,
     .gre_src_ip    = 0
   };
@@ -52,6 +53,102 @@ ifoper_to_oper_status( uint if_oper ) {
   default:
     return FD_OPER_STATUS_INVALID;
   }
+}
+
+static int
+fd_netdev_netlink_load_addrs( fd_netdev_tbl_join_t * tbl,
+                              fd_netlink_t *         netlink ) {
+  uint seq = netlink->seq++;
+
+  struct {
+    struct nlmsghdr  nlh;
+    struct ifaddrmsg ifa;
+  } request;
+  request.nlh = (struct nlmsghdr) {
+    .nlmsg_type  = RTM_GETADDR,
+    .nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP,
+    .nlmsg_len   = sizeof(request),
+    .nlmsg_seq   = seq
+  };
+  request.ifa = (struct ifaddrmsg) {
+    .ifa_family = AF_INET,
+  };
+
+  long send_res = sendto( netlink->fd, &request, sizeof(request), 0, NULL, 0 );
+  if( FD_UNLIKELY( send_res<0 ) ) {
+    FD_LOG_WARNING(( "netlink send(%d,RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP) failed (%i-%s)", netlink->fd, errno, fd_io_strerror( errno ) ));
+    return errno;
+  }
+  if( FD_UNLIKELY( send_res!=sizeof(request) ) ) {
+    FD_LOG_WARNING(( "netlink send(%d,RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP) failed (short write)", netlink->fd ));
+    return EPIPE;
+  }
+
+  int err = 0;
+
+  uchar buf[ 4096 ];
+  fd_netlink_iter_t iter[1];
+  for( fd_netlink_iter_init( iter, netlink, buf, sizeof(buf) );
+       !fd_netlink_iter_done( iter );
+       fd_netlink_iter_next( iter, netlink ) ) {
+    struct nlmsghdr const * nlh = fd_netlink_iter_msg( iter );
+    if( FD_UNLIKELY( nlh->nlmsg_type==NLMSG_ERROR ) ) {
+      struct nlmsgerr * nlerr = NLMSG_DATA( nlh );
+      int nl_err = -nlerr->error;
+      FD_LOG_WARNING(( "netlink RTM_GETADDR,NLM_F_REQUEST|NLM_F_DUMP failed (%d-%s)", nl_err, fd_io_strerror( nl_err ) ));
+      return nl_err;
+    }
+    if( FD_UNLIKELY( nlh->nlmsg_type!=RTM_NEWADDR ) ) {
+      FD_LOG_DEBUG(( "unexpected nlmsg_type %u", nlh->nlmsg_type ));
+      continue;
+    }
+
+    struct ifaddrmsg const * ifa = NLMSG_DATA( nlh );
+    if( ifa->ifa_family!=AF_INET || ifa->ifa_scope!=RT_SCOPE_UNIVERSE ) continue;
+
+    fd_netdev_t * netdev = fd_netdev_tbl_query( tbl, ifa->ifa_index );
+    if( !netdev || netdev->glob_ip4_addr ) continue;
+
+    uint ip4_local = 0U;
+    uint ip4_addr  = 0U;
+
+    struct rtattr * rat    = IFA_RTA( ifa );
+    long            rat_sz = (long)IFA_PAYLOAD( nlh );
+    for( ; RTA_OK( rat, rat_sz ); rat=RTA_NEXT( rat, rat_sz ) ) {
+      void * rta    = RTA_DATA( rat );
+      ulong  rta_sz = RTA_PAYLOAD( rat );
+
+      switch( rat->rta_type ) {
+      case IFA_LOCAL:
+        if( FD_UNLIKELY( rta_sz!=4UL ) ) {
+          FD_LOG_WARNING(( "Error reading interface table: IFA_LOCAL has unexpected size %lu", rta_sz ));
+          err = EPROTO;
+          goto fail;
+        }
+        ip4_local = FD_LOAD( uint, rta ); /* big endian */
+        break;
+      case IFA_ADDRESS:
+        if( FD_UNLIKELY( rta_sz!=4UL ) ) {
+          FD_LOG_WARNING(( "Error reading interface table: IFA_ADDRESS has unexpected size %lu", rta_sz ));
+          err = EPROTO;
+          goto fail;
+        }
+        ip4_addr = FD_LOAD( uint, rta ); /* big endian */
+        break;
+      default:
+        break;
+      }
+    }
+
+    uint glob_ip4_addr = ip4_local ? ip4_local : ip4_addr;
+    if( glob_ip4_addr ) netdev->glob_ip4_addr = glob_ip4_addr;
+  }
+
+  return 0;
+
+fail:
+  fd_netlink_iter_drain( iter, netlink );
+  return err;
 }
 
 int
@@ -240,6 +337,12 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
     }
     *dst = *netdev;
   }
+
+  if( FD_UNLIKELY( err ) ) goto fail;
+  if( FD_UNLIKELY( iter->err > 0 ) ) return iter->err;
+
+  err = fd_netdev_netlink_load_addrs( tbl, netlink );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* Walk the table again to index the bond master => slave mapping */
 
