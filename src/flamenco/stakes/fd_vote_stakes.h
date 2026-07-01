@@ -224,6 +224,14 @@ void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
                              ushort             root_idx );
 
+/* fd_vote_stakes_purge_child removes a non-root child fork from the
+   structure.  If fork_idx is equal to the root, this function is a
+   no-op. */
+
+void
+fd_vote_stakes_purge_child( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx );
+
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise
    returns 0.  If any of the optional fields are set to NULL, then their

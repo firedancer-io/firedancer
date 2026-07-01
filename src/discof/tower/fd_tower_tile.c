@@ -1228,6 +1228,13 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
                        ulong                        tsorig,
                        fd_stem_context_t *          stem ) {
 
+  /* If the slot has already been replayed, we can just ignore it, but
+     still need to release the bank ref. */
+  if( FD_UNLIKELY( fd_ghost_query( ctx->ghost, &slot_completed->block_id ) ) ) {
+    publish_slot_ignored( ctx, slot_completed, tsorig, stem );
+    return;
+  }
+
   /* Sanity checks. */
 
   FD_TEST( 0!=memcmp( &slot_completed->block_id, &hash_null, sizeof(fd_hash_t) ) );

@@ -50,6 +50,7 @@ struct fd_block_id_ele {
   uint      latest_fec_idx;
   int       block_id_seen;
   ulong     slot;
+  ulong     bank_seq;
   ulong     next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
@@ -76,8 +77,6 @@ struct fd_replay_tile {
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;
-  ulong           frontier_indices[ FD_BANKS_MAX_BANKS ];
-  ulong           frontier_cnt;
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -265,7 +264,6 @@ struct fd_replay_tile {
      */
   fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower. */
   ulong     consensus_root_slot;     /* slot number of the above. */
-  ulong     consensus_root_bank_idx; /* bank index of the above. */
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
 
@@ -326,7 +324,6 @@ struct fd_replay_tile {
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
-  fd_bank_t * reset_bank;
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
   fd_bank_t * leader_bank;

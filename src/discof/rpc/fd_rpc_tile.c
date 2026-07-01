@@ -684,8 +684,13 @@ returnable_frag( fd_rpc_tile_t *     ctx,
            "voted-for" would fail in Agave in cases where a cast vote
            does not land.
 
+           Due to bank eviction semantics, it is possible that the RPC
+           can return data about a slot that is not the most recently
+           replayed slot (since slots can be re-replayed).
+
            tldr: This isn't strictly conformant with Agave, but doesn't
-           need to be since Agave doesn't provide any guarantees anyways. */
+           need to be since Agave doesn't provide any guarantees
+           anyways. */
         if( FD_LIKELY( ctx->processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->processed_idx = slot_completed->bank_idx;
         break;
@@ -703,6 +708,23 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
+        break;
+      }
+      case REPLAY_SIG_DROP_BANK_REF: {
+        fd_replay_drop_bank_ref_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( ctx->processed_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->processed_idx = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->confirmed_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->confirmed_idx = ULONG_MAX;
+          ctx->cluster_confirmed_slot = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->finalized_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->finalized_idx = ULONG_MAX;
+        }
         break;
       }
       default: {
@@ -2507,7 +2529,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return base + tile->rpc.max_http_connections + tile->rpc.max_websocket_connections;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (3UL)
 
 /* The default STEM_LAZY is based on cr_max, which is the minimum depth
    across all output links that have at least one reliable consumer.
