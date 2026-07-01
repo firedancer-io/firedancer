@@ -1,4 +1,5 @@
 #include "fd_gossip.h"
+#include "fd_crds.h"
 #include "fd_bloom.h"
 #include "fd_gossip_message.h"
 #include "fd_gossip_txbuild.h"
@@ -121,6 +122,10 @@ struct fd_gossip_private {
     ulong             crds_val_sz;
     fd_gossip_value_t ci[1];
   } my_contact_info;
+
+  union {
+    fd_stake_weight_t epoch_stakes[ MAX_SHRED_DESTS ];
+  } scratch;
 
   fd_gossip_out_ctx_t * gossip_net_out;
 };
@@ -409,12 +414,23 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
   stake_map_reset( gossip->stake.map );
   stake_pool_reset( gossip->stake.pool );
 
-  for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
+  if( FD_UNLIKELY( stake_weights_cnt>MAX_SHRED_DESTS ) ) {
+    FD_LOG_WARNING(( "stake_weights_cnt %lu exceeds scratch capacity %lu; clamping", stake_weights_cnt, MAX_SHRED_DESTS ));
+  }
+  ulong cnt = fd_ulong_min( stake_weights_cnt, MAX_SHRED_DESTS );
+  if( FD_LIKELY( cnt ) ) {
+    fd_memcpy( gossip->scratch.epoch_stakes, stake_weights, cnt*sizeof(fd_stake_weight_t) );
+    fd_stake_weight_key_sort_inplace( gossip->scratch.epoch_stakes, cnt );
+  }
+
+  for( ulong i=0UL; i<cnt; i++ ) {
     stake_t * entry = stake_pool_ele_acquire( gossip->stake.pool );
-    entry->pubkey = stake_weights[i].key;
-    entry->stake  = stake_weights[i].stake;
+    entry->pubkey = gossip->scratch.epoch_stakes[i].key;
+    entry->stake  = gossip->scratch.epoch_stakes[i].stake;
     stake_map_ele_insert( gossip->stake.map, entry, gossip->stake.pool );
   }
+
+  fd_crds_refresh_stakes( gossip->crds, gossip->scratch.epoch_stakes, cnt );
 
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
