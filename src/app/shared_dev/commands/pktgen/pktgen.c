@@ -208,6 +208,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_sysfs_poll,       CONFIGURE_CMD_INIT, config );
 
   fdctl_check_configure( config );
   /* FIXME this allocates lots of memory unnecessarily */
