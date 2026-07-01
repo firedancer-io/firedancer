@@ -13,7 +13,8 @@
 #include <linux/filter.h>
 
 struct fd_became_leader {
-   ulong slot;
+  ulong slot;
+  ulong block_height;
 
   /* Start and end time of the slot in nanoseconds (from
      fd_log_wallclock()). */
@@ -82,12 +83,13 @@ typedef struct fd_became_leader fd_became_leader_t;
 struct fd_rooted_bank {
   void * bank;
   ulong  slot;
+  ulong  block_height;
 };
 
 typedef struct fd_rooted_bank fd_rooted_bank_t;
 
 struct fd_completed_bank {
-   ulong slot;
+   ulong block_height;
    uchar hash[32];
 };
 

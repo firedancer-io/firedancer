@@ -855,6 +855,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->slot_end_ns         = now_nanos+(long)ctx->slot_duration_nanos;
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
+  msg->block_height        = bank->f.block_height;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
   msg->hashcnt_per_tick    = bank->f.hashes_per_tick;
   msg->tick_duration_ns    = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
