@@ -59,6 +59,7 @@ struct fd_configh {
     ulong  known_validators_cnt;
     char   known_validators[ 16 ][ 256 ];
     int    os_network_limits_test;
+    int    alpenglow;
   } consensus;
 
   struct {
@@ -282,6 +283,7 @@ struct fd_config {
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
 
     int wait_for_vote_to_start_leader;
+    int alpenglow;
   } consensus;
 
   struct {

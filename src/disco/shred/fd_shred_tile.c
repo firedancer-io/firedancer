@@ -94,6 +94,7 @@
 #define IN_KIND_GOSSIP  ( 8UL)
 #define IN_KIND_ROOTED  ( 9UL)
 #define IN_KIND_ROOTEDH (10UL)
+#define IN_KIND_ROOTEDA (11UL) /* Alpenglow rooting */
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -937,6 +938,9 @@ after_frag( fd_shred_ctx_t *    ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
     return;
   }
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
+    return;
+  }
 
   ulong fanout = 200UL; /* Default Agave's DATA_PLANE_FANOUT = 200UL */
 
@@ -1437,6 +1441,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) )   ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTED;
+    else if( FD_LIKELY( !strcmp( link->name, "votor_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDA;
     else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDH;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_CONTACT;
       if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));

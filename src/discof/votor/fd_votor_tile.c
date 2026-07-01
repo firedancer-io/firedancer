@@ -46,7 +46,7 @@
       skipped.
 
    3. Alpenglow ConsensusMessages (GOSSIP link).  Votes and certs received
-      from other validators.  Decoded into fd_vote_t / fd_cert_t and fed into
+      from other validators.  Decoded into fd_ag_vote_t / fd_cert_t and fed into
       the pool via fd_pool_add_vote / fd_pool_add_cert.  (See the .h: FD
       gossip does not carry Alpenglow messages yet, so this is a staged
       ingest path with a fixed wire layout.)
@@ -191,9 +191,18 @@ struct fd_votor_tile {
   ulong validator_max;
   ulong blockid_max;
 
-  ulong     root_slot;     /* highest finalized slot (the consensus root)   */
-  fd_hash_t root_block_id; /* block id of root_slot (pool's seeded root)    */
-  ulong     reset_slot;    /* last reset target published                   */
+  ulong     root_slot;      /* last ROOTED slot published (finalized ∧ replayed) */
+  fd_hash_t root_block_id;  /* block id of root_slot (pool's seeded root)        */
+  ulong     finalized_slot; /* last FINALIZED slot published (cert-driven)        */
+  ulong     reset_slot;     /* last reset target published                       */
+
+  /* highest slot we have actually REPLAYED (its bank is frozen), and its block
+     id.  Rooting is gated on this: a finalization cert may arrive ahead of
+     replay, but we only root (and tell replay to root the bank) up to a slot we
+     have both finalized and replayed -- mirroring Agave's finalized ∧ is_frozen
+     gate. */
+  ulong     highest_replayed_slot;
+  fd_hash_t highest_replayed_block_id;
 
   /* metadata */
 
@@ -296,7 +305,7 @@ fresh_pool_out( fd_votor_tile_t * ctx ) {
    broadcast over the votor_out link. */
 
 static inline void
-queue_vote( fd_votor_tile_t * ctx, fd_vote_t const * vote ) {
+queue_vote( fd_votor_tile_t * ctx, fd_ag_vote_t const * vote ) {
   publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
   pub->sig      = FD_VOTOR_SIG_VOTE;
   pub->msg.vote = *vote;
@@ -324,7 +333,7 @@ epoch_info_vtrs( fd_votor_tile_t const * ctx, ulong epoch ) {
    towards our own certs. */
 
 static int
-ingest_vote( fd_votor_tile_t * ctx, fd_vote_t const * vote, fd_validator_epoch_info_t const * ei );
+ingest_vote( fd_votor_tile_t * ctx, fd_ag_vote_t const * vote, fd_validator_epoch_info_t const * ei );
 
 static void
 schedule_timeout( fd_votor_tile_t * ctx, ulong slot ) {
@@ -357,7 +366,7 @@ drain_votor_out( fd_votor_tile_t *      ctx,
       /* The votor leaves the signer unset on our own votes.  Resolve it
          now from the vote's slot epoch and stamp it before both
          broadcast and pool ingest. */
-      fd_vote_t vote  = m->inner.vote; /* mutable copy */
+      fd_ag_vote_t vote  = m->inner.vote; /* mutable copy */
       ulong     epoch = fd_slot_to_epoch( &ctx->epoch_schedule, fd_vote_slot( &vote ), NULL );
       fd_validator_epoch_info_t const * ei = epoch_info_vtrs( ctx, epoch );
       if( FD_UNLIKELY( !ei ) ) FD_LOG_CRIT(( "own vote for epoch %lu but no validator epoch info", epoch ));
@@ -443,7 +452,7 @@ drive_pool_events( fd_votor_tile_t *     ctx,
    fd_pool_add_vote result. */
 
 static int
-ingest_vote( fd_votor_tile_t * ctx, fd_vote_t const * vote, fd_validator_epoch_info_t const * ei ) {
+ingest_vote( fd_votor_tile_t * ctx, fd_ag_vote_t const * vote, fd_validator_epoch_info_t const * ei ) {
   fd_pool_out_t          out = fresh_pool_out( ctx );
   fd_slashable_offence_t offence[1] = {{ .kind = FD_SLASHABLE_NONE }};
 
@@ -527,24 +536,62 @@ publish_slot_done( fd_votor_tile_t *                  ctx,
   ctx->metrics.reset_slot = msg->reset_slot;
 }
 
-/* maybe_publish_finalized checks whether the pool's finalized slot has
-   advanced and, if so, queues a FD_VOTOR_SIG_FINALIZED frag and records the
-   new root. */
+/* maybe_publish_finalized emits two distinct frags as state advances:
+
+   FD_VOTOR_SIG_FINALIZED -- whenever consensus finalizes a higher slot (a
+     final / fast-final cert).  Cert-driven, NOT gated on replay; a pure
+     notification ("slot X is finalized").
+
+   FD_VOTOR_SIG_ROOTED    -- whenever the bank root can advance, i.e. the
+     highest slot that is BOTH finalized AND replayed (its bank is frozen).
+     This is the "root your bank here" command for replay.  It mirrors Agave's
+     scan of finalized_blocks for the max whose bank.is_frozen():
+     highest_replayed_slot is our frozen-bank frontier, fd_pool_finalized_slot
+     the cert frontier, so the rootable slot is min(finalized, replayed).  A
+     cert ahead of replay (catchup) leaves ROOTED lagging FINALIZED until replay
+     catches up; in steady state finalization trails replay and ROOTED ==
+     FINALIZED.
+
+   Called from both the replay path (votor_slot_completed) and the cert RX path
+   so whichever of {finalized, replayed} advances second fires the root. */
 
 static void
 maybe_publish_finalized( fd_votor_tile_t * ctx ) {
   ulong fin = fd_pool_finalized_slot( ctx->pool );
-  if( FD_UNLIKELY( fin>ctx->root_slot ) ) {
+
+  /* FINALIZED: consensus finalization advanced (cert-driven). */
+  if( FD_UNLIKELY( fin>ctx->finalized_slot ) ) {
+    fd_hash_t block_id[1];
+    memset( block_id, 0, sizeof(fd_hash_t) );
+    fd_pool_get_notarized_block( ctx->pool, fin, block_id );
     publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-    pub->sig                = FD_VOTOR_SIG_FINALIZED;
-    pub->msg.finalized.slot = fin;
-    fd_hash_t notarized[1];
-    memset( notarized, 0, sizeof(notarized) );
-    fd_pool_get_notarized_block( ctx->pool, fin, notarized );
-    pub->msg.finalized.block_id = *notarized;
-    ctx->root_slot          = fin;
-    ctx->root_block_id      = *notarized; /* keep the root block id for the next pool rebuild */
-    ctx->metrics.root_slot  = fin;
+    pub->sig                    = FD_VOTOR_SIG_FINALIZED;
+    pub->msg.finalized.slot     = fin;
+    pub->msg.finalized.block_id = *block_id;
+    ctx->finalized_slot         = fin;
+  }
+
+  /* ROOTED: the bank root can advance to the highest finalized+replayed slot. */
+  ulong rootable = fd_ulong_min( fin, ctx->highest_replayed_slot );
+  if( FD_UNLIKELY( rootable>ctx->root_slot ) ) {
+    /* block id of the rootable slot: at the replay frontier (catchup) use the
+       block we just replayed there; otherwise (finalized trails replay) the
+       finalized slot has a notar cert -> read it from the pool. */
+    fd_hash_t block_id[1];
+    if( rootable==ctx->highest_replayed_slot ) {
+      *block_id = ctx->highest_replayed_block_id;
+    } else {
+      memset( block_id, 0, sizeof(fd_hash_t) );
+      fd_pool_get_notarized_block( ctx->pool, rootable, block_id );
+    }
+    publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
+    pub->sig                 = FD_VOTOR_SIG_ROOTED;
+    pub->msg.rooted.slot     = rootable;
+    pub->msg.rooted.block_id = *block_id;
+    ctx->root_slot           = rootable;
+    ctx->root_block_id       = *block_id;
+    ctx->metrics.root_slot   = rootable;
+    FD_LOG_INFO(( "votor rooted slot %lu", rootable ));
   }
 }
 
@@ -629,7 +676,14 @@ votor_slot_completed( fd_votor_tile_t *                  ctx,
     drain_votor_out( ctx, &out );
   }
 
-  /* 4. Check for finalization advancement and publish a new root if so. */
+  /* 4. Replay froze this slot's bank -> advance our frozen-bank frontier (the
+        analog of Agave's VotorEvent::Block / bank.is_frozen()), then check for
+        finalization / root advancement. */
+
+  if( FD_LIKELY( slot_completed->slot > ctx->highest_replayed_slot ) ) {
+    ctx->highest_replayed_slot     = slot_completed->slot;
+    ctx->highest_replayed_block_id = slot_completed->block_id;
+  }
 
   maybe_publish_finalized( ctx );
 
@@ -668,7 +722,7 @@ votor_slot_dead( fd_votor_tile_t *               ctx,
    Agave serializes the ConsensusMessage enum with bincode, so the first
    4 bytes are the variant index (0 = Vote, 1 = Certificate).  See
    votor-messages/src/consensus_message.rs.  When real ingest lands this
-   should deserialize into fd_vote_t / fd_cert_t and call ingest_vote /
+   should deserialize into fd_ag_vote_t / fd_cert_t and call ingest_vote /
    ingest_cert (cf. ingest_consensus_msg above). */
 
 static void
@@ -683,7 +737,7 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
   case FD_CONSENSUS_MESSAGE_VOTE: {
     /* advance payload past the discriminant */
     payload += sizeof(uint); sz -= sizeof(uint);
-    fd_vote_t * vote = (fd_vote_t *)fd_type_pun_const( payload );
+    fd_ag_vote_t * vote = (fd_ag_vote_t *)fd_type_pun_const( payload );
 
     ulong epoch     = fd_slot_to_epoch( &ctx->epoch_schedule, fd_vote_slot( vote ), NULL );
     fd_validator_epoch_info_t const * ei = epoch_info_vtrs( ctx, epoch );
@@ -974,6 +1028,9 @@ init_choreo( void                 * scratch,
   ctx->fixpoint_depth = 0UL;
   ctx->root_slot      = ULONG_MAX;
   fd_memset( &ctx->root_block_id, 0, sizeof(fd_hash_t) );
+  ctx->finalized_slot = 0UL;
+  ctx->highest_replayed_slot = 0UL;
+  fd_memset( &ctx->highest_replayed_block_id, 0, sizeof(fd_hash_t) );
   ctx->reset_slot     = 0UL;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );

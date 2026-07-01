@@ -59,7 +59,7 @@
 struct fd_consensus_message {
   uint discriminant; /* FD_CONSENSUS_MESSAGE_VOTE / FD_CONSENSUS_MESSAGE_CERT */
   union {
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_cert_t cert;
   } inner;
 };

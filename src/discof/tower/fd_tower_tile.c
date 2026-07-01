@@ -625,7 +625,7 @@ static void
 publish_slot_done( fd_tower_tile_t *            ctx,
                    fd_replay_slot_completed_t * slot_completed,
                    fd_tower_out_t *             out,
-                   int                          found FD_PARAM_UNUSED,
+                   int                          found,
                    ulong                        our_vote_acct_bal,
                    ulong                        tsorig FD_PARAM_UNUSED,
                    fd_stem_context_t *          stem FD_PARAM_UNUSED ) {
@@ -644,11 +644,32 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   msg->replay_bank_idx       = slot_completed->bank_idx;
   msg->vote_acct_bal         = our_vote_acct_bal;
 
+  ulong       authority_idx = ULONG_MAX;
+  fd_pubkey_t authority[1];
+  fd_pubkey_t identity[1];
   /* Refuse to vote if we don't have a matching vote authority key */
+  int found_authority  = found && vote_account_config( ctx, ctx->our_vote_acct, ctx->our_vote_acct_sz, slot_completed->epoch, authority, &authority_idx, identity );
   /* Refuse to vote if our node identity does not match the one
      specified in the vote account (hot spare check) */
-  msg->has_vote_txn = 0;
+  int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
+  if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
+                found_authority &&
+                identity_matches &&
+                !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
+    msg->has_vote_txn = 1;
+    fd_txn_p_t          txn[1];
+    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, &out->vote_block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
+    FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
+    FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
+    fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
+    msg->vote_txn_sz   = txn->payload_sz;
+    msg->authority_idx = authority_idx;
+  } else {
+    msg->has_vote_txn = 0;
+  }
+
   msg->tower_cnt = 0UL; /* FIXME */
+  if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct, ctx->our_vote_acct_sz );
 }
 
 static void

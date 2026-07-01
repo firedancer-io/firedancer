@@ -131,7 +131,7 @@ slot_state_query_const( fd_votor_t const * votor, ulong slot ) {
 /* ---------------------------------------------------------------------- */
 
 static void
-out_push_vote( fd_votor_out_t * out, fd_vote_t const * vote ) {
+out_push_vote( fd_votor_out_t * out, fd_ag_vote_t const * vote ) {
   FD_TEST( out->msg_cnt < out->msg_max );
   fd_consensus_message_t * m = &out->msgs[ out->msg_cnt++ ];
   m->discriminant = FD_CONSENSUS_MESSAGE_VOTE;
@@ -238,7 +238,7 @@ try_final( fd_votor_t *      votor,
   int voted_notar = s && s->has_voted_notar     && !memcmp( s->voted_notar.uc,     hash->uc, sizeof(fd_hash_t) );
   int not_bad     = !( s && s->bad_window );
   if( notarized && voted_notar && not_bad ) {
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_vote_new_final( &vote, slot, &votor->voting_key, VOTOR_SIGNER_UNSET );
     out_push_vote( out, &vote );
     slot_state_mut( votor, slot )->retired = 1;
@@ -281,7 +281,7 @@ try_notar( fd_votor_t *          votor,
     if( !matches ) return 0;
   }
 
-  fd_vote_t vote;
+  fd_ag_vote_t vote;
   fd_vote_new_notar( &vote, slot, hash, &votor->voting_key, VOTOR_SIGNER_UNSET );
   FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_cstr );
   FD_LOG_NOTICE(( "try_notar slot=%lu hash=%s", slot, hash_cstr ));
@@ -313,7 +313,7 @@ try_skip_window( fd_votor_t *     votor,
     fd_votor_slot_state_t * state = slot_state_mut( votor, s );
     state->voted      = 1;
     state->bad_window = 1;
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_vote_new_skip( &vote, s, &votor->voting_key, VOTOR_SIGNER_UNSET );
     FD_LOG_NOTICE(( "try_skip_window slot=%lu", s ));
     out_push_vote( out, &vote );
@@ -477,7 +477,7 @@ fd_votor_handle_pool_event( fd_votor_t *                  votor,
 
   case FD_VOTOR_POOL_EVENT_SAFE_TO_NOTAR: {
     fd_block_id_t const blk = event->inner.safe_to_notar;
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_vote_new_notar_fallback( &vote, blk.slot, &blk.hash, &votor->voting_key, VOTOR_SIGNER_UNSET );
     out_push_vote( out, &vote );
     try_skip_window( votor, blk.slot, out );
@@ -487,7 +487,7 @@ fd_votor_handle_pool_event( fd_votor_t *                  votor,
 
   case FD_VOTOR_POOL_EVENT_SAFE_TO_SKIP: {
     ulong slot = event->inner.safe_to_skip;
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_vote_new_skip_fallback( &vote, slot, &votor->voting_key, VOTOR_SIGNER_UNSET );
     out_push_vote( out, &vote );
     try_skip_window( votor, slot, out );

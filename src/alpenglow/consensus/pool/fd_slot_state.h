@@ -40,7 +40,7 @@
    generics (fd_pool, fd_map_chain) rather than the choreo primitives. */
 
 #include "../../fd_alpenglow_base.h" /* Slot/Stake/ValidatorIndex, fd_block_id_t */
-#include "../fd_vote.h"              /* fd_vote_t + concrete vote types         */
+#include "../fd_vote.h"              /* fd_ag_vote_t + concrete vote types         */
 #include "../fd_cert.h"             /* fd_cert_t + concrete cert types          */
 #include "../fd_epoch_info.h"       /* fd_epoch_info_t / fd_validator_info_t    */
 
@@ -180,7 +180,7 @@ void fd_slot_state_add_cert( fd_slot_state_t * ss, fd_cert_t const * cert );
    fd_slot_state_check_slashable_offence (to detect slashing). */
 
 void fd_slot_state_add_vote( fd_slot_state_t *         ss,
-                             fd_vote_t const *         vote,
+                             fd_ag_vote_t const *      vote,
                              ulong                     voter_stake,
                              fd_epoch_info_t const *   epoch_info,
                              fd_slot_state_outputs_t * out );
@@ -210,14 +210,14 @@ fd_slot_state_notify_parent_certified( fd_slot_state_t *       ss,
    duplicates via should_ignore_vote. */
 
 FD_FN_PURE fd_slashable_offence_t
-fd_slot_state_check_slashable_offence( fd_slot_state_t const * ss, fd_vote_t const * vote );
+fd_slot_state_check_slashable_offence( fd_slot_state_t const * ss, fd_ag_vote_t const * vote );
 
 /* fd_slot_state_should_ignore_vote returns 1 iff the given vote should be
    ignored as a (benign) duplicate, mirroring SlotState::should_ignore_vote.
    Votes for which this returns 1 must never be counted (double counting). */
 
 FD_FN_PURE int
-fd_slot_state_should_ignore_vote( fd_slot_state_t const * ss, fd_vote_t const * vote );
+fd_slot_state_should_ignore_vote( fd_slot_state_t const * ss, fd_ag_vote_t const * vote );
 
 /* fd_slot_state_is_notar_fallback returns 1 iff a notar-fallback cert exists
    for block_hash in this slot (SlotState::is_notar_fallback). */

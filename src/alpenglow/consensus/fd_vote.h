@@ -64,8 +64,8 @@ struct __attribute__((packed)) fd_final_vote {
 };
 typedef struct fd_final_vote fd_final_vote_t;
 
-/* fd_vote_t is the Vote sum type (network form). */
-struct __attribute__((packed)) fd_vote {
+/* fd_ag_vote_t is the Vote sum type (network form). */
+struct __attribute__((packed)) fd_ag_vote_t {
   uint discriminant;           /* FD_VOTE_TYPE_* */
   union {
     fd_notar_vote_t          notar;
@@ -75,7 +75,7 @@ struct __attribute__((packed)) fd_vote {
     fd_final_vote_t          final_;
   } inner;
 };
-typedef struct fd_vote fd_vote_t;
+typedef struct fd_ag_vote_t fd_ag_vote_t;
 
 /* Maximum size of a VotePayload's bytes-to-sign: 4 (discriminant) + 8 (slot)
    + 32 (block_hash). */
@@ -118,16 +118,16 @@ void fd_final_vote_new         ( fd_final_vote_t *          out, ulong slot,    
 
 /* Tagged Vote constructors (Vote::new_*). */
 
-void fd_vote_new_notar         ( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
-void fd_vote_new_notar_fallback( fd_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
-void fd_vote_new_skip          ( fd_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
-void fd_vote_new_skip_fallback ( fd_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
-void fd_vote_new_final         ( fd_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_notar         ( fd_ag_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_notar_fallback( fd_ag_vote_t * out, ulong slot, fd_hash_t const * h, fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_skip          ( fd_ag_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_skip_fallback ( fd_ag_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
+void fd_vote_new_final         ( fd_ag_vote_t * out, ulong slot,                      fd_aggsig_sk_t const * sk, ushort signer );
 
 /* fd_vote_check_sig returns 1 iff the vote's signature is valid under pk
    (Vote::check_sig). */
 
-int fd_vote_check_sig( fd_vote_t const * v, fd_aggsig_pk_t const * pk );
+int fd_vote_check_sig( fd_ag_vote_t const * v, fd_aggsig_pk_t const * pk );
 
 /* fd_vote_serialize serializes vote v into out[0,out_max) and
    returns the number of bytes written, or 0 on failure (out too small).  The
@@ -142,14 +142,14 @@ int fd_vote_check_sig( fd_vote_t const * v, fd_aggsig_pk_t const * pk );
    out_max should be >= FD_VOTE_SERIALIZED_MAX. */
 
 ulong
-fd_vote_serialize( fd_vote_t const * v,
+fd_vote_serialize( fd_ag_vote_t const * v,
                    uchar *           out,
                    ulong             out_max );
 
 /* Accessors (Vote::slot / signer / block_hash). */
 
 FD_FN_PURE static inline ulong
-fd_vote_slot( fd_vote_t const * v ) {
+fd_vote_slot( fd_ag_vote_t const * v ) {
   switch( v->discriminant ) {
   case FD_VOTE_TYPE_NOTAR:          return v->inner.notar.slot;
   case FD_VOTE_TYPE_NOTAR_FALLBACK: return v->inner.notar_fallback.slot;
@@ -160,7 +160,7 @@ fd_vote_slot( fd_vote_t const * v ) {
 }
 
 FD_FN_PURE static inline ushort
-fd_vote_signer( fd_vote_t const * v ) {
+fd_vote_signer( fd_ag_vote_t const * v ) {
   switch( v->discriminant ) {
   case FD_VOTE_TYPE_NOTAR:          return v->inner.notar.signer;
   case FD_VOTE_TYPE_NOTAR_FALLBACK: return v->inner.notar_fallback.signer;
@@ -176,7 +176,7 @@ fd_vote_signer( fd_vote_t const * v ) {
    unset and the tile fills it in per the vote's slot epoch before broadcast. */
 
 static inline void
-fd_vote_set_signer( fd_vote_t * v, ushort signer ) {
+fd_vote_set_signer( fd_ag_vote_t * v, ushort signer ) {
   switch( v->discriminant ) {
   case FD_VOTE_TYPE_NOTAR:          v->inner.notar.signer          = signer; break;
   case FD_VOTE_TYPE_NOTAR_FALLBACK: v->inner.notar_fallback.signer = signer; break;
@@ -190,7 +190,7 @@ fd_vote_set_signer( fd_vote_t * v, ushort signer ) {
    skip / skip-fallback / final votes (Vote::block_hash). */
 
 FD_FN_PURE static inline fd_hash_t const *
-fd_vote_block_hash( fd_vote_t const * v ) {
+fd_vote_block_hash( fd_ag_vote_t const * v ) {
   switch( v->discriminant ) {
   case FD_VOTE_TYPE_NOTAR:          return &v->inner.notar.block_hash;
   case FD_VOTE_TYPE_NOTAR_FALLBACK: return &v->inner.notar_fallback.block_hash;

@@ -153,7 +153,8 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.snapshots                                  );
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
-    CFG_POP    ( cstr,   paths.shredb                                 );
+    CFG_POP    ( cstr,   paths.shredb                                     );
+    CFG_POP    ( bool,   consensus.alpenglow                              );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
