@@ -162,6 +162,11 @@ main( int     argc,
   );
   FD_TEST( vm_ok );
 
+  /* Test writes directly to vm->heap via memcpy, bypassing VM address
+     translation.  Mark all pages as initialized so that lazy zeroing
+     doesn't clobber these direct writes. */
+  fd_vm_mark_all_pages_initialized( vm );
+
   ulong scalar_vaddr = 0;
   ulong point_vaddr = 0;
   ulong result_point_vaddr = 0;

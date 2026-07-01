@@ -5,8 +5,9 @@
 #include "../runtime/fd_bank.h"
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include <stdlib.h>  /* malloc */
+#include <stdlib.h>
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
@@ -455,6 +456,50 @@ test_block_text_limit( fd_sbpf_syscalls_t *  syscalls,
   FD_LOG_NOTICE(( "test_block_text_limit: ok" ));
 }
 
+/* Regression: the soft-TLB cached slot must not extend past a
+   non-page-aligned heap region.  heap_max is a runtime value validated to
+   [32KiB,256KiB] in 1KiB steps (sanitize_requested_heap_size), so e.g.
+   33792 (=33*1024) is a legal heap_max that is NOT a multiple of the 2KiB
+   lazy page.  Its last lazy page [32768,34816) over-hangs the region
+   [0,33792); without clamping slot_sz the cached slot would accept
+   out-of-bounds accesses in [33792,34816) that the miss path (and agave)
+   reject -- a consensus divergence.  (greptile P1) */
+
+static void
+test_tlb_heap_bound( void ) {
+  static fd_vm_t vm_[1];                            /* BSS: zero-initialized */
+  fd_vm_t * vm = vm_;
+
+  ulong const HEAP    = FD_VM_MEM_MAP_HEAP_REGION_START;
+  ulong const HEAPMAX = 33792UL;                    /* 33*1024: valid heap_max, not 2KiB-aligned */
+  vm->region_haddr[ FD_VM_HEAP_REGION ] = (ulong)vm->heap;
+  vm->region_ld_sz [ FD_VM_HEAP_REGION ] = (uint)HEAPMAX;
+  vm->region_st_sz [ FD_VM_HEAP_REGION ] = (uint)HEAPMAX;
+  vm->input_mem_regions_cnt = 0UL;
+  memset( vm->heap_zero_bitmap, 0, sizeof(vm->heap_zero_bitmap) );
+
+  fd_vm_tlb_slot_t slot = { .haddr_base=0UL, .vaddr_lo=0UL, .region_sz=0UL };
+
+  /* (1) valid load at offset 32768 (start of the last, partial lazy page)
+     populates the slot, clamped to the region boundary. */
+  ulong h1 = fd_vm_mem_haddr_tlb_miss( vm, HEAP+32768UL, 8UL, 0, &slot, 0 );
+  FD_TEST( h1 == (ulong)vm->heap + 32768UL );
+  FD_TEST( slot.region_sz == HEAPMAX-32768UL );     /* 1024 clamped (would be 2048 unclamped) */
+
+  /* (2) OOB load at offset 33800 (>= heap_max) MUST fault, not hit the slot. */
+  ulong h2 = fd_vm_mem_haddr_with_tlb( vm, HEAP+33800UL, 8UL, 0, &slot, 0 );
+  FD_TEST( h2 == 0UL );
+
+  /* (3) in-bounds load ending exactly at heap_max still hits the slot. */
+  ulong h3 = fd_vm_mem_haddr_with_tlb( vm, HEAP+33784UL, 8UL, 0, &slot, 0 );  /* 33784+8 == 33792 */
+  FD_TEST( h3 == (ulong)vm->heap + 33784UL );
+
+  FD_LOG_NOTICE(( "test_tlb_heap_bound: ok" ));
+}
+
+/* NOTE: p-token transfer + mem-load + branch + lazy-zero benchmarks are in bench_vm_interp.c */
+
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -462,11 +507,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
-  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
-  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+  char const * name       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",       NULL, NULL            );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic"      );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 5UL             );
+  ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",   NULL, fd_log_cpu_id() );
+  ulong        wksp_tag   = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",   NULL, 1234UL          );
 
   fd_wksp_t * wksp;
   if( name ) {
@@ -1929,6 +1974,8 @@ main( int     argc,
   test_0cu_exit( runtime );
 
   test_block_text_limit( syscalls, instr_ctx );
+
+  test_tlb_heap_bound();
 
   free( text );
 

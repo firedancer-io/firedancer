@@ -503,6 +503,11 @@ rust_cpi_build( fd_vm_t *              vm,
   memcpy( instr->pubkey, callee_program_pubkey.uc, 32 );
 
   setup_input_region_for_cfg( vm, cfg );
+
+  /* The CPI memory above was written directly into vm->heap, bypassing VM
+     address translation, so the lazy-zeroing bitmap is unaware of it. Mark
+     all pages initialized so the CPI's first read doesn't zero them. */
+  fd_vm_mark_all_pages_initialized( vm );
 }
 
 /* -------------------------------------------------------------------------- *
@@ -592,6 +597,10 @@ c_cpi_build( fd_vm_t *              vm,
   instr->data_len        = 1UL;
 
   setup_input_region_for_cfg( vm, cfg );
+
+  /* See rust_cpi_build: mark heap pages initialized so lazy zeroing doesn't
+     clobber the directly-written CPI memory on first read. */
+  fd_vm_mark_all_pages_initialized( vm );
 }
 
 /* -------------------------------------------------------------------------- *
@@ -673,6 +682,11 @@ run_one( fd_svm_mini_t *  mini,
   ulong signers_va  = build_signers_in_heap( vm, cfg, &signers_h, &signers_cnt );
 
   if( cfg->pre_cpi_hook ) cfg->pre_cpi_hook( cfg );
+
+  /* Signer seeds were written to vm->heap by build_signers_in_heap above
+     (bypassing translation). The *_cpi_build functions already marked all
+     pages initialized, so these writes landed on marked pages and survive
+     lazy zeroing — no extra mark needed here. */
 
   cpi_syscall_fn_t fn = rust_abi ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
   ulong ret = 0UL;
