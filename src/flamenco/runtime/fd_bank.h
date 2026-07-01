@@ -144,6 +144,12 @@ FD_PROTOTYPES_BEGIN
     can only be copied from a parent bank (fd_banks_clone_from_parent)
     if the parent bank has been frozen.  The program will crash if this
     invariant is violated.
+  - Prunable: This bank has been marked for pruning away due to memory
+    pressure on the banks.  Additional references on the bank should not
+    be accumulated after the bank has been marked prunable and once
+    references reach zero, it is safe to evict the bank and free any
+    related resources.  Any bank that is not inactive or dead can be
+    marked prunable.
 
   The usage pattern is as follows:
 
@@ -191,7 +197,7 @@ FD_PROTOTYPES_BEGIN
   fd_banks_mark_bank_dead( banks, dead_bank_idx, NULL, NULL );
 
   To actually prune away any dead banks, the caller should call:
-  fd_banks_prune_one_dead_bank( banks, cancel_info )
+  fd_banks_prune_one_bank( banks, cancel_info )
 
   The data used by an fd_bank_t or an fd_banks_t is stored in an
   fd_banks_t struct.
@@ -226,30 +232,21 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
    A bank can be marked DEAD even before it enters the replayable or
    frozen state.  A dead bank can only transition to INACTIVE.
 
-       INACTIVE -> INIT -> REPLAYABLE -> FROZEN -> INACTIVE
-                        \            \
-                         v            v
-                        DEAD    ->   DEAD -> INACTIVE */
+      INACTIVE -> INIT -> REPLAYABLE -> FROZEN -> INACTIVE
+                   |  \       |     \        |
+                   v   v      v      v       v
+              PRUNABLE DEAD PRUNABLE DEAD PRUNABLE
+                   \    \      /    /      /
+                    +----+----+----+------+
+                              v
+                          INACTIVE */
 
 #define FD_BANK_STATE_INACTIVE   (0UL)
 #define FD_BANK_STATE_INIT       (1UL)
 #define FD_BANK_STATE_REPLAYABLE (2UL)
 #define FD_BANK_STATE_FROZEN     (3UL)
 #define FD_BANK_STATE_DEAD       (4UL)
-
-/* As mentioned above, the overall layout of the bank struct:
-   - Fields used for internal pool/bank management
-   - Non-Cow fields
-   - CoW fields
-   - Locks for CoW fields
-
-   The CoW fields are laid out contiguously in the bank struct.
-   The locks for the CoW fields are laid out contiguously after the
-   CoW fields.
-
-   (r) Field is owned by the replay tile, and should be updated only by
-       the replay tile.
-*/
+#define FD_BANK_STATE_PRUNABLE   (5UL)
 
 struct fd_bank {
 
@@ -383,6 +380,11 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 #define DEQUE_MAX  FD_BANKS_MAX_BANKS
 #include "../../util/tmpl/fd_deque.c"
 
+#define DEQUE_NAME fd_banks_prune
+#define DEQUE_T    fd_bank_idx_seq_t
+#define DEQUE_MAX  FD_BANKS_MAX_BANKS
+#include "../../util/tmpl/fd_deque.c"
+
 struct fd_banks {
   ulong magic;              /* ==FD_BANKS_MAGIC */
   ulong max_total_banks;    /* Maximum number of banks */
@@ -403,6 +405,7 @@ struct fd_banks {
   ulong stake_rewards_offset;
 
   ulong dead_banks_deque_offset;
+  ulong prune_banks_deque_offset;
 
   ulong epoch_credits_offset;
   ulong epoch_credits_len;
@@ -655,19 +658,6 @@ void
 fd_banks_advance_root( fd_banks_t * banks,
                        ulong        bank_idx );
 
-/* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
-   be used with banks that have no children and should only be used in
-   testing and fuzzing.
-
-   This function will memset all non-CoW fields to 0.
-
-   For all CoW fields, we will reset the indices to its parent. */
-
-void
-fd_banks_clear_bank( fd_banks_t * banks,
-                     fd_bank_t *  bank,
-                     ulong        max_vote_accounts );
-
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to
    any bank.  WARNING: collision risk, resets bank_seq to 1 (0 is the
@@ -719,18 +709,18 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
                          ulong *      opt_idxs,
                          ulong *      opt_idxs_cnt );
 
-/* fd_banks_prune_one_dead_bank will try to prune one bank that was
-   marked as dead.  It will not prune a dead bank that has a non-zero
-   reference count.  Returns 0 if nothing was pruned, 1 if a bank was
-   pruned but no accdb/txncache cancellation is needed, or 2 if a bank
-   was pruned and cancellation is needed.  Whenever a bank is pruned
-   (returns 1 or 2), cancel->bank_idx is populated if cancel is
+/* fd_banks_prune_one_bank will try to prune one bank that was
+   marked as dead or prunable.  It will not prune a bank that has a
+   non-zero reference count.  Returns 0 if nothing was pruned, 1 if a
+   bank was pruned but no accdb/txncache cancellation is needed, or 2 if
+   a bank was pruned and cancellation is needed.  Whenever a bank is
+   pruned (returns 1 or 2), cancel->bank_idx is populated if cancel is
    non-NULL.  The remaining cancel fields are only populated if
    available. */
 
 int
-fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
-                              fd_banks_prune_cancel_info_t * cancel );
+fd_banks_prune_one_bank( fd_banks_t *                   banks,
+                         fd_banks_prune_cancel_info_t * cancel );
 
 /* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
    should be done when the bank is no longer being updated: it should be
@@ -756,27 +746,43 @@ fd_banks_new_bank( fd_banks_t * banks,
                    uchar        is_leader );
 
 
-/* fd_banks_get_replay_frontier returns the frontier set of bank indices
-   in the banks tree.  The frontier is defined as any non-leader bank
-   which has no children and is initialized or replayable but not dead
-   or frozen.  The caller is expected to have enough memory to store the
-   bank indices for the frontier.  The bank indices are written to
-   frontier_indices_out in no particular order.  The number of banks in
-   the frontier is written to the frontier_cnt_out pointer. */
+/* fd_banks_get_evictable selects banks according to the current
+   fd_banks eviction policy, marks them prunable, and queues them for
+   pruning.  A bank can be evictable as long as it is not dead or
+   inactive.  The caller is expected to have enough memory to store the
+   bank indices for the evictable set.  The bank indices are written to
+   evictable_idxs_out in no particular order.  The number of banks in
+   the evictable set is written to the evictable_cnt_out pointer.
+
+   TODO: In practice this will return some subtree of banks from the
+   banks tree. */
 
 void
-fd_banks_get_replay_frontier( fd_banks_t * banks,
-                              ulong *      frontier_indices_out,
-                              ulong *      frontier_cnt_out );
+fd_banks_get_evictable( fd_banks_t * banks,
+                        ulong *      evictable_idxs_out,
+                        ulong *      evictable_cnt_out );
 
-/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise.  Banks
-   can be full in two cases:
-   1. All banks in the bank pool have been allocated.
-   2. All cost tracker pool elements have been allocated.  This happens
-      from wide forking across blocks. */
+/* fd_banks_can_start_bank returns 1 if banks has capacity to clone and
+   prepare a child bank.  Epoch-boundary fork pools are checked only when
+   is_epoch_boundary is set. */
 
 int
-fd_banks_is_full( fd_banks_t * banks );
+fd_banks_can_start_bank( fd_banks_t * banks,
+                         int          is_epoch_boundary );
+
+
+/* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
+   be used with banks that have no children and should only be used in
+   testing and fuzzing.  WARNING: This should NOT be used in production.
+
+   This function will memset all non-CoW fields to 0.
+
+   For all CoW fields, we will reset the indices to its parent. */
+
+void
+fd_banks_clear_bank( fd_banks_t * banks,
+                     fd_bank_t *  bank,
+                     ulong        max_vote_accounts );
 
 FD_PROTOTYPES_END
 

@@ -215,6 +215,9 @@ fd_vote_stakes_genesis_fini( fd_vote_stakes_t * vote_stakes );
 ushort
 fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes );
 
+int
+fd_vote_stakes_can_add_child( fd_vote_stakes_t * vote_stakes );
+
 /* fd_vote_stakes_advance_root will move the root fork to the new
    candidate root fork.  If the root_idx is equal to the root, this
    function is a no-op.  However, if the root is different, all other
@@ -223,6 +226,14 @@ fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes );
 void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
                              ushort             root_idx );
+
+/* fd_vote_stakes_purge_child removes a non-root child fork from the
+   structure.  If fork_idx is equal to the root, this function is a
+   no-op. */
+
+void
+fd_vote_stakes_purge_child( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx );
 
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise

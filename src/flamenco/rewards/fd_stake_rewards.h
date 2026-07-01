@@ -96,6 +96,13 @@ fd_stake_rewards_join( void * shmem );
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
 
+/* fd_stake_rewards_purge removes/frees all per-fork state for a given
+   fork.  Shared index entries are retained until the next epoch reset. */
+
+void
+fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
+                        uchar                fork_idx );
+
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
    calculation or recalculation.  It returns a fork index. */

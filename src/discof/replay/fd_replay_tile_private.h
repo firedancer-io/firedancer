@@ -76,8 +76,8 @@ struct fd_replay_tile {
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;
-  ulong           frontier_indices[ FD_BANKS_MAX_BANKS ];
-  ulong           frontier_cnt;
+  ulong           evictable_idxs[ FD_BANKS_MAX_BANKS ];
+  ulong           evictable_cnt;
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -101,6 +101,8 @@ struct fd_replay_tile {
   ulong            reasm_seed;
   fd_reasm_t     * reasm;
   fd_reasm_fec_t * reasm_evicted; /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
+  ulong            drop_ref_bank_idxs[ FD_BANKS_MAX_BANKS ];
+  ulong            drop_ref_bank_idx_cnt;
 
   fd_sched_t * sched;
   ulong        in_cnt;

@@ -70,6 +70,7 @@
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
+#define REPLAY_SIG_DROP_BANK_REF  (9)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -184,6 +185,15 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
+/* Only rpc needs to consume this message since tower holds refcnts
+   transiently and will drop them without a further trigger from the
+   replay tile and the resolv tile holds onto a bank reference based on
+   the root, which will never be forced to drop its bank reference. */
+struct fd_replay_drop_bank_ref {
+  ulong bank_idx;
+};
+typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
+
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
@@ -192,7 +202,8 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t          reasm_evicted;
+  fd_replay_fec_evicted_t     reasm_evicted;
+  fd_replay_drop_bank_ref_t   drop_bank_ref;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

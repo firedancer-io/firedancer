@@ -705,6 +705,23 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         ctx->finalized_idx = msg->bank_idx;
         break;
       }
+      case REPLAY_SIG_DROP_BANK_REF: {
+        fd_replay_drop_bank_ref_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( ctx->processed_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->processed_idx = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->confirmed_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->confirmed_idx = ULONG_MAX;
+          ctx->cluster_confirmed_slot = ULONG_MAX;
+        }
+        if( FD_UNLIKELY( ctx->finalized_idx==msg->bank_idx ) ) {
+          fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->finalized_idx = ULONG_MAX;
+        }
+        break;
+      }
       default: {
         break;
       }

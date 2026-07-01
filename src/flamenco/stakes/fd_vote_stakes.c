@@ -346,6 +346,14 @@ fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes ) {
   return idx;
 }
 
+int
+fd_vote_stakes_can_add_child( fd_vote_stakes_t * vote_stakes ) {
+  fd_rwlock_read( &vote_stakes->lock );
+  int can_add = !!fork_pool_free( get_fork_pool( vote_stakes ) );
+  fd_rwlock_unread( &vote_stakes->lock );
+  return can_add;
+}
+
 void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
                              ushort             root_idx ) {
@@ -393,6 +401,46 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 
   fork_dlist_idx_push_head( fork_dlist, root_idx, fork_pool );
   vote_stakes->root_idx = root_idx;
+
+  fd_rwlock_unwrite( &vote_stakes->lock );
+}
+
+void
+fd_vote_stakes_purge_child( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx ) {
+  fd_rwlock_write( &vote_stakes->lock );
+
+  if( FD_UNLIKELY( fork_idx==vote_stakes->root_idx ) ) {
+    fd_rwlock_unwrite( &vote_stakes->lock );
+    return;
+  }
+
+  fork_t *       fork_pool  = get_fork_pool( vote_stakes );
+  fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
+
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_t *       index_map       = get_index_map( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+
+  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
+  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
+  for( stakes_map_iter_t iter = stakes_map_iter_init( stakes_map, stakes_pool );
+       !stakes_map_iter_done( iter, stakes_map, stakes_pool );
+       iter = stakes_map_iter_next( iter, stakes_map, stakes_pool ) ) {
+    stake_t *     stake = stakes_map_iter_ele( iter, stakes_map, stakes_pool );
+    index_ele_t * ele   = index_pool_ele( index_pool, stake->idx );
+    ele->refcnt--;
+
+    if( FD_UNLIKELY( ele->refcnt==0U ) ) {
+      FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
+      FD_TEST( index_map_multi_ele_remove_fast( index_map_multi, ele, index_pool ) );
+      index_pool_ele_release( index_pool, ele );
+    }
+  }
+  fork_dlist_idx_remove( fork_dlist, fork_idx, fork_pool );
+  fork_pool_idx_release( fork_pool, fork_idx );
+  stakes_map_reset( get_stakes_map( vote_stakes, fork_idx ) );
+  stakes_pool_reset( get_stakes_pool( vote_stakes, fork_idx ) );
 
   fd_rwlock_unwrite( &vote_stakes->lock );
 }

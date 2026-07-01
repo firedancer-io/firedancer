@@ -319,7 +319,7 @@ test_bank_dead_eviction( void * mem ) {
 
   fd_banks_prune_cancel_info_t cancel[ 1 ];
 
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: isolated dead bank that gets pruned. */
@@ -329,7 +329,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( bank_D );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
 
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   fd_banks_mark_bank_frozen( bank_D );
 
@@ -342,7 +342,7 @@ test_bank_dead_eviction( void * mem ) {
   ulong bank_D_slot = bank_D->f.slot;
   ulong bank_D_seq  = bank_D->bank_seq;
   ulong bank_D_idx  = bank_D->idx;
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel )==2 );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel )==2 );
   FD_TEST( cancel->slot    ==bank_D_slot );
   FD_TEST( cancel->bank_seq==bank_D_seq  );
   FD_TEST( cancel->bank_idx==bank_D_idx  );
@@ -356,7 +356,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   fd_banks_mark_bank_frozen( bank_N );
   fd_banks_mark_bank_dead( banks, bank_N->idx, NULL, NULL );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, NULL )==2 );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL )==2 );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: multiple isolated dead banks get pruned at once. */
@@ -365,7 +365,7 @@ test_bank_dead_eviction( void * mem ) {
   bank_C = fd_banks_clone_from_parent( banks, bank_C->idx );
   FD_TEST( bank_C );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   fd_banks_mark_bank_frozen( bank_C );
 
@@ -374,7 +374,7 @@ test_bank_dead_eviction( void * mem ) {
   bank_R = fd_banks_clone_from_parent( banks, bank_R->idx );
   FD_TEST( bank_R );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
   fd_bank_t * bank_Y = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
@@ -382,7 +382,7 @@ test_bank_dead_eviction( void * mem ) {
   bank_Y = fd_banks_clone_from_parent( banks, bank_Y->idx );
   FD_TEST( bank_Y );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
 
   fd_bank_t * bank_Z = fd_banks_new_bank( banks, bank_C->idx, 0L, 0 );
@@ -390,14 +390,14 @@ test_bank_dead_eviction( void * mem ) {
   bank_Z = fd_banks_clone_from_parent( banks, bank_Z->idx );
   FD_TEST( bank_Z );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
 
   fd_banks_mark_bank_dead( banks, bank_Y->idx, NULL, NULL );
   fd_banks_mark_bank_dead( banks, bank_Z->idx, NULL, NULL );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
   /* Case: dead banks that are siblings of non pruned banks. Make sure
@@ -427,11 +427,11 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( dead_bank_idxs[1]==bank_I->idx );
   FD_TEST( dead_bank_idxs[2]==bank_J->idx );
   FD_TEST( bank_G->sibling_idx==bank_W->idx );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
   FD_TEST( bank_G->sibling_idx==ULONG_MAX );
 
@@ -448,7 +448,7 @@ test_bank_dead_eviction( void * mem ) {
 
   fd_banks_mark_bank_dead( banks, bank_W->idx, NULL, NULL );
   FD_TEST( bank_G->sibling_idx==bank_W->idx );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
   FD_TEST( bank_G->sibling_idx!=ULONG_MAX );
   FD_TEST( bank_G->sibling_idx==bank_I->idx );
@@ -472,7 +472,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_bank_query( banks, bank_I->idx ) );
   FD_TEST( !fd_banks_bank_query( banks, bank_Z->idx ) );
 
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
 
   /* Case: don't prune dead banks if there is an outstanding reference
      to them. */
@@ -486,12 +486,12 @@ test_bank_dead_eviction( void * mem ) {
 
   bank_D->refcnt = 1UL;
   fd_banks_mark_bank_dead( banks, bank_D->idx, NULL, NULL );
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );  /* W pruned */
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );  /* W pruned */
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
-  FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) ); /* D blocked by refcnt */
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) ); /* D blocked by refcnt */
 
   bank_D->refcnt = 0UL;
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
   /* Case: dead bank is the left-most child of the parent. */
@@ -507,7 +507,7 @@ test_bank_dead_eviction( void * mem ) {
 
 
 static void
-test_bank_frontier( void * mem ) {
+test_bank_evictable( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 8UL, 2048UL, 2048UL, 0, 8888UL ) );
 
   /*     A
@@ -563,21 +563,17 @@ test_bank_frontier( void * mem ) {
   bank_J = fd_banks_clone_from_parent( banks, bank_J->idx );
   FD_TEST( bank_J );
 
-  ulong frontier_indices[32];
-  ulong frontier_cnt = 0UL;
+  ulong evictable_idxs[32];
+  ulong evictable_cnt = 0UL;
 
-  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
-  FD_TEST( frontier_cnt==5UL );
+  fd_banks_get_evictable( banks, evictable_idxs, &evictable_cnt );
+  FD_TEST( evictable_cnt==5UL );
 
-  fd_banks_mark_bank_dead( banks, bank_I->idx, NULL, NULL );
-
-  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
-  FD_TEST( frontier_cnt==4UL );
-
-  fd_banks_mark_bank_frozen( bank_J );
-
-  fd_banks_get_replay_frontier( banks, frontier_indices, &frontier_cnt );
-  FD_TEST( frontier_cnt==3UL );
+  FD_TEST( bank_C->state==FD_BANK_STATE_PRUNABLE );
+  FD_TEST( bank_E->state==FD_BANK_STATE_PRUNABLE );
+  FD_TEST( bank_H->state==FD_BANK_STATE_PRUNABLE );
+  FD_TEST( bank_I->state==FD_BANK_STATE_PRUNABLE );
+  FD_TEST( bank_J->state==FD_BANK_STATE_PRUNABLE );
 }
 
 static void
@@ -1176,7 +1172,7 @@ main( int argc, char ** argv ) {
 
   test_bank_dead_eviction( mem );
 
-  test_bank_frontier( mem );
+  test_bank_evictable( mem );
 
   test_bank_stake_delegations_dynamic_sizing( mem );
 
