@@ -1473,7 +1473,7 @@ fd_pack_insert_bundle_cancel( fd_pack_t          * pack,
 
 /* Explained below */
 #define BUNDLE_L_PRIME 37896771UL
-#define BUNDLE_N       312671UL
+#define BUNDLE_N       309415UL
 #define RC_TO_REL_BUNDLE_IDX( r, c ) (BUNDLE_N - ((ulong)(r) * 1UL<<32)/((ulong)(c) * BUNDLE_L_PRIME))
 
 int
@@ -1626,7 +1626,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      are both uints, and the comparison is done by cross-multiplication
      as ulongs.  We actually use the c_i value for testing if
      transactions fit, etc.  so let's assume that's fixed, and we know
-     it's in the range [1020, 1,556,782].
+     it's in the range [1020, 1,573,166].
 
      This means, if c_0, c_1, ... c_4 are the CU costs of the
      transactions in the first bundle, we require r_0/c_0 > r_1/c_1 >
@@ -1695,10 +1695,10 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
 
      Thus, we'd like to make N as big as possible, avoiding overflow.
      r_0, ..., r_4 are all uints, and taking the bounds from above,
-     given that for any i, i' c_i/c_{i'} < 1527, we have
-               r_i < 1 + 1556782 * Lj + 8*1527.
+     given that for any i, i' c_i/c_{i'} <= 1573166/1020 < 1543, we have
+               r_i < 1 + 1573166 * Lj + 8*1543.
      To avoid overflow, we assert the right-hand side is < 2^32, which
-     implies N <= 312671.
+     implies N <= 309415.
 
      We want to use a fixed point representation for L so that the
      entire computation can be done with integer arithmetic.  We can do
@@ -1706,14 +1706,16 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      we compute ceil( c_4*Lj ) as floor( (c_4 * L' * j + 2^s - 1)/2^s ),
      so c_4 * L' * j + 2^s should fit in a ulong.  With j<=N, this gives
      s<=32, so we set s=32, which means L' = 37896771 >= 9/1020 * 2^32.
-     Note that 1 + 1556782 * L' * N + 8*1527 + 2^32 is approximately
-     2^63.999993.
+     Note that 1 + 1573166 * L' * N + 8*1543 + 2^32 is approximately
+     2^63.999995.
 
      Note that this is all checked by a proof of the code translated
      into Z3.  Unfortunately CBMC was too slow to prove this code
      directly. */
+     FD_STATIC_ASSERT( FD_PACK_MIN_TXN_COST==   1020UL, adjust_constants );
+     FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST==1573166UL, adjust_constants );
 #define BUNDLE_L_PRIME 37896771UL
-#define BUNDLE_N       312671UL
+#define BUNDLE_N       309415UL
 
   if( FD_UNLIKELY( pack->relative_bundle_idx>BUNDLE_N ) ) {
     FD_LOG_WARNING(( "Too many bundles inserted without allowing pending bundles to go empty. "

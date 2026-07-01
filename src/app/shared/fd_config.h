@@ -7,11 +7,11 @@
 
 #include <net/if.h>
 
-#define NAME_SZ                          (256UL)
-#define AFFINITY_SZ                      (256UL)
-#define CONFIGURE_STAGE_COUNT            ( 12UL)
-#define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
-#define IP4_PORT_STR_MAX                 ( 22UL)
+#define NAME_SZ                     (256UL)
+#define AFFINITY_SZ                 (256UL)
+#define CONFIGURE_STAGE_COUNT       ( 14UL)
+#define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
+#define IP4_PORT_STR_MAX            ( 22UL)
 
 struct fd_configh {
   char dynamic_port_range[ 32 ];
@@ -154,6 +154,7 @@ struct fd_configf {
     uint max_incremental_snapshots_to_keep;
     uint max_retry_abort;
     uint min_download_speed_mibs;
+    ulong wait_for_peers_timeout_seconds;
   } snapshots;
 
   struct {

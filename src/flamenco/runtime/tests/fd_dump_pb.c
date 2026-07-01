@@ -1125,18 +1125,16 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
 
   /* Basic result fields */
   txn_result->executed                  = txn_out->err.is_committable;
-  txn_result->sanitization_error        = !txn_out->err.is_committable;
   txn_result->modified_accounts_count   = 0;
   txn_result->rollback_accounts_count   = 0;
-  txn_result->is_ok                     = !exec_res;
-  txn_result->status                    = (uint32_t) -exec_res;
+  txn_result->txn_error                 = (uint32_t) -exec_res;
   txn_result->instruction_error         = 0;
   txn_result->instruction_error_index   = 0;
   txn_result->custom_error              = 0;
   txn_result->has_fee_details           = false;
   txn_result->loaded_accounts_data_size = txn_out->details.loaded_accounts_data_size;
 
-  if( txn_result->sanitization_error ) {
+  if( !txn_out->err.is_committable ) {
     if( txn_out->err.is_fees_only ) {
       txn_result->has_fee_details                = true;
       txn_result->fee_details.prioritization_fee = txn_out->details.priority_fee;

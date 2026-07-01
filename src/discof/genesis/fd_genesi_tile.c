@@ -4,6 +4,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 #include "../../ballet/bzip2/bzlib.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_hashes.h"
@@ -612,5 +613,6 @@ fd_topo_run_tile_t fd_tile_genesi = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = sizeof(fd_event_accdb_partition_added_t),
   .run                      = stem_run,
 };

@@ -60,9 +60,73 @@ typedef struct fd_event_slot_confirmed fd_event_slot_confirmed_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_SLOT_CONFIRMED_BUF_MAX (221UL)
 
+/* A single accounts-database partition finished compacting. Compaction scans one partition, relocates its still-live account records forward into the next storage tier, and reclaims the partition. Emitted once per partition per compaction pass by the accdb tile. Partitions are large (e.g. 32 GiB) so this is a rare, coarse-grained event rather than a hot-path counter. */
+struct fd_event_accdb_compaction_completed {
+  ulong partition_idx;      /* Index of the partition that was compacted, identifying its slot in the accdb partition pool. */
+  uchar src_layer;          /* Storage tier the partition was compacted from. Layer 0 is the hot tier that takes live execution writes; higher layers are progressively colder. Records are promoted one tier per compaction. */
+  uchar dest_layer;         /* Storage tier the surviving live records were relocated into, normally src_layer+1, clamped at the coldest tier. */
+  ulong bytes_scanned;      /* Total bytes of account records walked in the partition this pass, live and dead combined. Equals the partition's written extent at the time compaction started. */
+  ulong bytes_freed;        /* Dead bytes in the partition that triggered compaction: space held by account records that had been superseded by newer versions. This is the space compaction reclaims. */
+  ulong accounts_relocated; /* Number of still-live account records copied forward into dest_layer this pass. */
+  ulong bytes_relocated;    /* Total bytes of live account records copied forward into dest_layer this pass. Compare to bytes_scanned for the live fraction of the partition. */
+  ulong dead_records;       /* Number of records skipped because no live index entry referenced them, i.e. records that were already superseded. Together with accounts_relocated this accounts for every record scanned. */
+  ulong start_time;         /* Wall-clock time at which this compaction pass began, in nanoseconds since the Unix epoch. */
+  ulong end_time;           /* Wall-clock time at which this compaction pass completed, in nanoseconds since the Unix epoch. Subtract start_time for the pass duration. */
+};
+typedef struct fd_event_accdb_compaction_completed fd_event_accdb_compaction_completed_t;
+
+/* Worst-case encoded size of a accdb_compaction_completed event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX (237UL)
+
+/* The accounts database grew its backing file by one partition. The accounts DB is a single file divided into fixed-size partitions; when a write head runs off the end of the allocated file, a new partition is fallocated and the file grows. Emitted once per grow by the accdb tile. Partitions are large (e.g. 32 GiB) so grows are infrequent and each one is a meaningful step in the database's on-disk footprint. */
+struct fd_event_accdb_partition_added {
+  ulong partition_idx;        /* Index of the newly allocated partition. Equals old_partition_max, i.e. it is appended at the end of the previously allocated range. */
+  ulong prior_partition_idx;  /* Index of the partition the write head rotated off of to trigger this grow, i.e. the partition that just filled up. UINT64_MAX when there was no prior write head (the very first partition allocated on this layer). */
+  uchar layer;                /* Storage tier whose write head triggered the grow. Layer 0 is the hot tier fed by live execution writes; higher layers are colder compaction-destination tiers. A layer-0 grow means live ingest outran reclamation; a higher-layer grow means compaction is staging more cold data. */
+  ulong old_partition_max;    /* Number of allocated partitions before this grow. */
+  ulong new_partition_max;    /* Number of allocated partitions after this grow, always old_partition_max+1. */
+  ulong partition_sz;         /* Size of a single partition in bytes; the increment by which the backing file grows. */
+  ulong disk_allocated_bytes; /* Total fallocated size of the accounts database file in bytes after this grow, equal to new_partition_max times partition_sz. Tracks the database's on-disk footprint over time. */
+};
+typedef struct fd_event_accdb_partition_added fd_event_accdb_partition_added_t;
+
+/* Worst-case encoded size of a accdb_partition_added event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (197UL)
+
+/* How the equivocation was detected. */
+#define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY (1) /* A second, different block for the slot finished replaying locally. */
+#define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH (2) /* Votes confirmed a block id for the slot that differs from the one this validator replayed. */
+#define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF      (3) /* A duplicate-shred proof showed the slot equivocates; the conflicting block id is not known, so sibling_block_id is zero. */
+
+/* Two different blocks (different block ids) were observed for the same slot. Emitted once when the validator first detects the equivocation, after both blocks are known. */
+struct fd_event_block_equivocated {
+  ulong bank_seq;                 /* Sequence number of this validator's replayed block, joining to block_completed; zero if there is no local replayed bank (forward-confirmed or shred-proof detection). */
+  ulong slot;                     /* The slot that equivocates (has more than one block). */
+  ulong parent_slot;              /* The slot number of the parent block. */
+  ulong epoch;                    /* The epoch this slot belongs to. */
+  uchar block_id[ 32UL ];         /* Identifier of the block this validator replayed for the slot. */
+  uchar sibling_block_id[ 32UL ]; /* Identifier of the conflicting block for the same slot; zero if not known (shred-proof detection). */
+  uchar bank_hash[ 32UL ];        /* This validator's bank hash for the block it replayed; zero if the block was not replayed locally. */
+  uchar block_hash[ 32UL ];       /* Last microblock header hash of the block this validator replayed; zero if not replayed locally. */
+  int   is_leader;                /* Whether this validator produced the equivocating block it replayed. */
+  int   our_block_voted;          /* Whether this validator had voted for its replayed block when the equivocation was detected. */
+  int   our_block_confirmed;      /* Whether this validator's replayed block had been duplicate confirmed when the equivocation was detected. */
+  ulong block_stake;              /* Stake in lamports voted on the block this validator replayed at detection; zero if none/unknown. Typically small, as an equivocating block usually did not win confirmation. */
+  ulong sibling_stake;            /* Stake in lamports on the conflicting (typically confirmed) block at detection; zero if not known. */
+  ulong total_stake;              /* Total cluster stake in lamports at detection; the denominator for the stake fields. Zero if not known. */
+  int   detection;                /* How the equivocation was detected. */
+};
+typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
+
+/* Worst-case encoded size of a block_equivocated event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX (398UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ))
+#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ))
 
 FD_PROTOTYPES_BEGIN
 
@@ -85,6 +149,36 @@ fd_event_slot_confirmed_serialize( fd_circq_t *                      circq,
                                    long                              timestamp_nanos,
                                    ulong                             link_seq,
                                    fd_event_slot_confirmed_t const * msg );
+
+/* Serialize a accdb_compaction_completed event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_accdb_compaction_completed_serialize( fd_circq_t *                                  circq,
+                                               fd_event_client_t *                           client,
+                                               long                                          timestamp_nanos,
+                                               ulong                                         link_seq,
+                                               fd_event_accdb_compaction_completed_t const * msg );
+
+/* Serialize a accdb_partition_added event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_accdb_partition_added_serialize( fd_circq_t *                             circq,
+                                          fd_event_client_t *                      client,
+                                          long                                     timestamp_nanos,
+                                          ulong                                    link_seq,
+                                          fd_event_accdb_partition_added_t const * msg );
+
+/* Serialize a block_equivocated event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_block_equivocated_serialize( fd_circq_t *                         circq,
+                                      fd_event_client_t *                  client,
+                                      long                                 timestamp_nanos,
+                                      ulong                                link_seq,
+                                      fd_event_block_equivocated_t const * msg );
 
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
@@ -109,6 +203,27 @@ fd_event_report_signed_vote( fd_event_signed_vote_t const * msg ) {
 static inline void
 fd_event_report_slot_confirmed( fd_event_slot_confirmed_t const * msg ) {
   fd_event_report_( 4UL, msg, sizeof(fd_event_slot_confirmed_t) );
+}
+
+/* Report a accdb_compaction_completed event (AccdbCompactionCompleted, id 5) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_accdb_compaction_completed( fd_event_accdb_compaction_completed_t const * msg ) {
+  fd_event_report_( 5UL, msg, sizeof(fd_event_accdb_compaction_completed_t) );
+}
+
+/* Report a accdb_partition_added event (AccdbPartitionAdded, id 6) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_accdb_partition_added( fd_event_accdb_partition_added_t const * msg ) {
+  fd_event_report_( 6UL, msg, sizeof(fd_event_accdb_partition_added_t) );
+}
+
+/* Report a block_equivocated event (BlockEquivocated, id 7) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_block_equivocated( fd_event_block_equivocated_t const * msg ) {
+  fd_event_report_( 7UL, msg, sizeof(fd_event_block_equivocated_t) );
 }
 
 FD_PROTOTYPES_END

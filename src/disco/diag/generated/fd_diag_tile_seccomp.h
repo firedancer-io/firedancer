@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_diag_tile_instr_cnt = 45;
+static const uint sock_filter_policy_fd_diag_tile_instr_cnt = 48;
 
-static void populate_sock_filter_policy_fd_diag_tile( ulong out_cnt, struct sock_filter out[ static 45 ], uint logfile_fd ) {
-  FD_TEST( out_cnt >= 45 );
-  struct sock_filter filter[45] = {
+static void populate_sock_filter_policy_fd_diag_tile( ulong out_cnt, struct sock_filter out[ static 48 ], uint logfile_fd ) {
+  FD_TEST( out_cnt >= 48 );
+  struct sock_filter filter[48] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 6 ),
@@ -44,13 +44,13 @@ static void populate_sock_filter_policy_fd_diag_tile( ulong out_cnt, struct sock
     /* check write */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 6, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 11, 0 ),
     /* check lseek */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_lseek, /* check_lseek */ 13, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_lseek, /* check_lseek */ 14, 0 ),
     /* check read */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 23, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 25, 0 ),
     /* check clock_nanosleep */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 27, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 30, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -60,8 +60,10 @@ static void populate_sock_filter_policy_fd_diag_tile( ulong out_cnt, struct sock
 //  check_write:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 2, /* or_eq_next_lo_1 */ 0 ),
-//  or_eq_next_lo_1:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 3, /* or_1 */ 0 ),
+//  or_1:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -78,8 +80,10 @@ static void populate_sock_filter_policy_fd_diag_tile( ulong out_cnt, struct sock
 //  check_lseek:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* lseek_KILL */ 7, /* or_eq_next_lo_3 */ 0 ),
-//  or_eq_next_lo_3:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* lseek_KILL */ 8, /* or_3 */ 0 ),
+//  or_3:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* lseek_KILL */ 6, /* and_2 */ 0 ),
 //  and_2:
     /* arg 1 high 32 bits */
@@ -100,8 +104,10 @@ static void populate_sock_filter_policy_fd_diag_tile( ulong out_cnt, struct sock
 //  check_read:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* read_KILL */ 1, /* or_eq_next_lo_6 */ 0 ),
-//  or_eq_next_lo_6:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* read_KILL */ 2, /* or_6 */ 0 ),
+//  or_6:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* read_KILL */ 0, /* read_ALLOW */ 1 ),
 //  read_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),

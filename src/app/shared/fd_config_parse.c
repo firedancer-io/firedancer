@@ -114,6 +114,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
   CFG_POP      ( uint,   snapshots.max_retry_abort                           );
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
+  CFG_POP      ( ulong,  snapshots.wait_for_peers_timeout_seconds            );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );

@@ -49,8 +49,7 @@ struct fd_snapct_out_link {
 };
 typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 
-#define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT         (90L*1000L*1000L*1000L) /* 1.5 minutes */
-#define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (30L*1000L*1000L*1000L) /* 30 seconds */
+#define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT (90L*1000L*1000L*1000L) /* 1.5 minutes */
 
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
@@ -699,7 +698,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         init_load( ctx, stem, 1, 1 );
         break;
       }
-      ctx->deadline_nanos = now+FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
+      ctx->deadline_nanos = now+ctx->config.wait_for_peers_timeout_nanos;
       ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS;
       break;
     }
@@ -738,7 +737,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         if( !ctx->gossip_enabled ) {
           FD_LOG_ERR(( "no peers are available and discovery of new peers via gossip is disabled. aborting." ));
         }
-        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
+        ctx->deadline_nanos = now + ctx->config.wait_for_peers_timeout_nanos;
         ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS;
         break;
       }
@@ -839,7 +838,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         if( !ctx->gossip_enabled ) {
           FD_LOG_ERR(( "no incremental snapshot peers are available and discovery of new peers via gossip is disabled. aborting." ));
         }
-        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
+        ctx->deadline_nanos = now + ctx->config.wait_for_peers_timeout_nanos;
         ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL;
         break;
       }
@@ -1934,7 +1933,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->state          = FD_SNAPCT_STATE_INIT;
   ctx->malformed      = 0;
   ctx->load_complete  = 0;
-  ctx->deadline_nanos = fd_log_wallclock() + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
+  FD_CHECK_ERR( ctx->config.wait_for_peers_timeout_nanos>0L, "snapct wait_for_peers_timeout_nanos must be positive" );
+  ctx->deadline_nanos = fd_log_wallclock() + ctx->config.wait_for_peers_timeout_nanos;
   ctx->flush_ack      = 0;
   ctx->flush_ack_cnt  = 0;
   ctx->peer.addr.l    = 0UL;

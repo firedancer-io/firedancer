@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_shredb.h"
 
 #include <errno.h>
@@ -87,8 +88,9 @@ fd_shredb_new( void       * shmem,
   }
 
   ulong initial_shreds = 128UL;
-  if( FD_UNLIKELY( ftruncate( fd, (off_t)(initial_shreds * sizeof(fd_shredb_entry_t)) ) ) ) {
-    FD_LOG_WARNING(( "ftruncate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ulong initial_sz     = initial_shreds * sizeof(fd_shredb_entry_t);
+  if( FD_UNLIKELY( fallocate( fd, 0, 0, (off_t)initial_sz ) ) ) {
+    FD_LOG_WARNING(( "fallocate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     close( fd );
     return NULL;
   }
@@ -99,6 +101,9 @@ fd_shredb_new( void       * shmem,
     FD_LOG_WARNING(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     close( fd );
     return NULL;
+  }
+  if( FD_UNLIKELY( madvise( mapped, initial_sz, MADV_POPULATE_WRITE ) ) ) {
+    FD_LOG_WARNING(( "madvise(MADV_POPULATE_WRITE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   store->max_shreds  = max_shreds;
@@ -201,12 +206,10 @@ fd_shredb_ring( fd_shredb_t * store ) {
 
 void
 fd_shredb_insert( fd_shredb_t      * store,
-                  fd_shred_t const * shred,
-                  ulong              shred_sz ) {
+                  fd_shred_t const * shred ) {
+  ulong shred_sz  = fd_shred_sz( shred );
   ulong slot      = shred->slot;
   uint  shred_idx = shred->idx;
-
-  FD_LOG_DEBUG(( "inserting shred into store (slot=%lu, shred_idx=%u)", slot, shred_idx ));
 
   ulong key = fd_shredb_key_pack( slot, shred_idx );
   if( fd_shredb_shred_map_query( store->shred_map, key, NULL ) ) return;
@@ -215,9 +218,16 @@ fd_shredb_insert( fd_shredb_t      * store,
      file capacity.  Double the file size each time (superlinear growth)
      until we hit max_shreds, after which the ring simply evicts. */
   if( FD_UNLIKELY( store->write_head>=store->file_shreds ) ) {
+    ulong old_file_sz     = store->file_shreds * sizeof(fd_shredb_entry_t);
     ulong new_file_shreds = fd_ulong_min( store->file_shreds * 2UL, store->max_shreds );
-    if( FD_UNLIKELY( ftruncate( store->fd, (off_t)(new_file_shreds * sizeof(fd_shredb_entry_t)) ) ) ) {
-      FD_LOG_ERR(( "ftruncate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    ulong new_file_sz     = new_file_shreds * sizeof(fd_shredb_entry_t);
+    if( FD_UNLIKELY( fallocate( store->fd, 0, (off_t)old_file_sz, (off_t)(new_file_sz - old_file_sz) ) ) ) {
+      FD_LOG_ERR(( "fallocate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    uchar * extend_ptr = (uchar *)store->mapped + old_file_sz;
+    ulong   extend_sz  = new_file_sz - old_file_sz;
+    if( FD_UNLIKELY( madvise( extend_ptr, extend_sz, MADV_POPULATE_WRITE ) ) ) {
+      FD_LOG_WARNING(( "madvise(MADV_POPULATE_WRITE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     store->file_shreds = new_file_shreds;
   }

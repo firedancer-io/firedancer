@@ -107,6 +107,10 @@ build_valid_2phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ph1.p_memsz  = bytecode_sz;
   set_phdr( buf, 1, &ph1 );
 
+  /* Distinct content so the load copy can be verified byte-for-byte. */
+  for( ulong i=0UL; i<rodata_sz;   i++ ) buf[ phdr_end+i             ] = (uchar)( 0xA0UL+i );
+  for( ulong i=0UL; i<bytecode_sz; i++ ) buf[ phdr_end+rodata_sz+i   ] = (uchar)( 0xB0UL+i );
+
   return phdr_end + rodata_sz + bytecode_sz;
 }
 
@@ -148,6 +152,9 @@ build_valid_1phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ph0.p_filesz = bytecode_sz;
   ph0.p_memsz  = bytecode_sz;
   set_phdr( buf, 0, &ph0 );
+
+  /* Distinct content so the load copy can be verified byte-for-byte. */
+  for( ulong i=0UL; i<bytecode_sz; i++ ) buf[ phdr_end+i ] = (uchar)( 0xC0UL+i );
 
   return phdr_end + bytecode_sz;
 }
@@ -296,6 +303,13 @@ test_load_2phdr( void ) {
   FD_TEST( prog->rodata_sz  == 8UL );
   FD_TEST( prog->entry_pc   == 0UL );
   FD_TEST( prog->calldests  == NULL );
+
+  /* rodata and text were copied (single memcpy) to the right offsets. */
+  FD_TEST( (uchar *)prog->text == (uchar *)prog->rodata + prog->rodata_sz );
+  uchar const * ro = prog->rodata;
+  uchar const * tx = (uchar const *)prog->text;
+  for( ulong i=0UL; i<8UL; i++ ) FD_TEST( ro[i] == (uchar)( 0xA0UL+i ) );
+  for( ulong i=0UL; i<8UL; i++ ) FD_TEST( tx[i] == (uchar)( 0xB0UL+i ) );
   fd_scratch_pop();
 }
 
@@ -310,6 +324,11 @@ test_load_1phdr_skip_rodata( void ) {
   FD_TEST( prog->rodata_sz == 0UL );
   FD_TEST( prog->entry_pc  == 0UL );
   FD_TEST( prog->calldests == NULL );
+
+  /* No rodata: text starts at rodata and holds the bytecode bytes. */
+  FD_TEST( (uchar *)prog->text == (uchar *)prog->rodata );
+  uchar const * tx = (uchar const *)prog->text;
+  for( ulong i=0UL; i<8UL; i++ ) FD_TEST( tx[i] == (uchar)( 0xC0UL+i ) );
   fd_scratch_pop();
 }
 

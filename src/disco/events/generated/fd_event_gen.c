@@ -83,6 +83,119 @@ fd_event_slot_confirmed_serialize( fd_circq_t *                      circq,
 }
 
 void
+fd_event_accdb_compaction_completed_serialize( fd_circq_t *                                  circq,
+                                               fd_event_client_t *                           client,
+                                               long                                          timestamp_nanos,
+                                               ulong                                         link_seq,
+                                               fd_event_accdb_compaction_completed_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_ACCDB_COMPACTION_COMPLETED_BUF_MAX );
+
+  FD_TEST( circq->cursor_push_seq );
+  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  fd_pb_push_uint64( encoder, 2U, event_id );
+  fd_pb_push_uint64( encoder, 3U, link_seq );
+  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  fd_pb_submsg_open( encoder, 5U ); /* Event */
+  fd_pb_submsg_open( encoder, 5U ); /* AccdbCompactionCompleted */
+  if( msg->partition_idx ) fd_pb_push_uint64( encoder, 1U, (ulong)msg->partition_idx );
+  if( msg->src_layer ) fd_pb_push_uint32( encoder, 2U, (uint)msg->src_layer );
+  if( msg->dest_layer ) fd_pb_push_uint32( encoder, 3U, (uint)msg->dest_layer );
+  if( msg->bytes_scanned ) fd_pb_push_uint64( encoder, 4U, (ulong)msg->bytes_scanned );
+  if( msg->bytes_freed ) fd_pb_push_uint64( encoder, 5U, (ulong)msg->bytes_freed );
+  if( msg->accounts_relocated ) fd_pb_push_uint64( encoder, 6U, (ulong)msg->accounts_relocated );
+  if( msg->bytes_relocated ) fd_pb_push_uint64( encoder, 7U, (ulong)msg->bytes_relocated );
+  if( msg->dead_records ) fd_pb_push_uint64( encoder, 8U, (ulong)msg->dead_records );
+  if( msg->start_time ) fd_pb_push_uint64( encoder, 9U, (ulong)msg->start_time );
+  if( msg->end_time ) fd_pb_push_uint64( encoder, 10U, (ulong)msg->end_time );
+  fd_pb_submsg_close( encoder );
+  fd_pb_submsg_close( encoder );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_accdb_partition_added_serialize( fd_circq_t *                             circq,
+                                          fd_event_client_t *                      client,
+                                          long                                     timestamp_nanos,
+                                          ulong                                    link_seq,
+                                          fd_event_accdb_partition_added_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX );
+
+  FD_TEST( circq->cursor_push_seq );
+  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  fd_pb_push_uint64( encoder, 2U, event_id );
+  fd_pb_push_uint64( encoder, 3U, link_seq );
+  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  fd_pb_submsg_open( encoder, 5U ); /* Event */
+  fd_pb_submsg_open( encoder, 6U ); /* AccdbPartitionAdded */
+  if( msg->partition_idx ) fd_pb_push_uint64( encoder, 1U, (ulong)msg->partition_idx );
+  if( msg->prior_partition_idx ) fd_pb_push_uint64( encoder, 2U, (ulong)msg->prior_partition_idx );
+  if( msg->layer ) fd_pb_push_uint32( encoder, 3U, (uint)msg->layer );
+  if( msg->old_partition_max ) fd_pb_push_uint64( encoder, 4U, (ulong)msg->old_partition_max );
+  if( msg->new_partition_max ) fd_pb_push_uint64( encoder, 5U, (ulong)msg->new_partition_max );
+  if( msg->partition_sz ) fd_pb_push_uint64( encoder, 6U, (ulong)msg->partition_sz );
+  if( msg->disk_allocated_bytes ) fd_pb_push_uint64( encoder, 7U, (ulong)msg->disk_allocated_bytes );
+  fd_pb_submsg_close( encoder );
+  fd_pb_submsg_close( encoder );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
+fd_event_block_equivocated_serialize( fd_circq_t *                         circq,
+                                      fd_event_client_t *                  client,
+                                      long                                 timestamp_nanos,
+                                      ulong                                link_seq,
+                                      fd_event_block_equivocated_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX );
+
+  FD_TEST( circq->cursor_push_seq );
+  fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  fd_pb_push_uint64( encoder, 2U, event_id );
+  fd_pb_push_uint64( encoder, 3U, link_seq );
+  fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  fd_pb_submsg_open( encoder, 5U ); /* Event */
+  fd_pb_submsg_open( encoder, 7U ); /* BlockEquivocated */
+  if( msg->bank_seq ) fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->parent_slot ) fd_pb_push_uint64( encoder, 3U, (ulong)msg->parent_slot );
+  if( msg->epoch ) fd_pb_push_uint64( encoder, 4U, (ulong)msg->epoch );
+  fd_pb_push_bytes ( encoder, 5U, msg->block_id, 32UL );
+  fd_pb_push_bytes ( encoder, 6U, msg->sibling_block_id, 32UL );
+  fd_pb_push_bytes ( encoder, 7U, msg->bank_hash, 32UL );
+  fd_pb_push_bytes ( encoder, 8U, msg->block_hash, 32UL );
+  if( msg->is_leader ) fd_pb_push_bool  ( encoder, 9U, msg->is_leader );
+  if( msg->our_block_voted ) fd_pb_push_bool  ( encoder, 10U, msg->our_block_voted );
+  if( msg->our_block_confirmed ) fd_pb_push_bool  ( encoder, 11U, msg->our_block_confirmed );
+  if( msg->block_stake ) fd_pb_push_uint64( encoder, 12U, (ulong)msg->block_stake );
+  if( msg->sibling_stake ) fd_pb_push_uint64( encoder, 13U, (ulong)msg->sibling_stake );
+  if( msg->total_stake ) fd_pb_push_uint64( encoder, 14U, (ulong)msg->total_stake );
+  if( msg->detection ) fd_pb_push_int32 ( encoder, 15U, msg->detection );
+  fd_pb_submsg_close( encoder );
+  fd_pb_submsg_close( encoder );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -98,6 +211,18 @@ fd_event_serialize_by_type( ulong               type,
   case 4UL:
     FD_TEST( ev_sz==sizeof(fd_event_slot_confirmed_t) );
     fd_event_slot_confirmed_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_slot_confirmed_t const *)ev );
+    break;
+  case 5UL:
+    FD_TEST( ev_sz==sizeof(fd_event_accdb_compaction_completed_t) );
+    fd_event_accdb_compaction_completed_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_accdb_compaction_completed_t const *)ev );
+    break;
+  case 6UL:
+    FD_TEST( ev_sz==sizeof(fd_event_accdb_partition_added_t) );
+    fd_event_accdb_partition_added_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_accdb_partition_added_t const *)ev );
+    break;
+  case 7UL:
+    FD_TEST( ev_sz==sizeof(fd_event_block_equivocated_t) );
+    fd_event_block_equivocated_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_block_equivocated_t const *)ev );
     break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }

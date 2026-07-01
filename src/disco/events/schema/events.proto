@@ -32,6 +32,14 @@ enum SlotConfirmedLevel {
   SLOT_CONFIRMED_LEVEL_ROOTED = 7;  // The block or a descendant reached maximum lockout and can never be rolled back. The strongest level, equivalent to Solana's 'finalized' commitment.
 }
 
+// How the equivocation was detected.
+enum BlockEquivocatedDetection {
+  BLOCK_EQUIVOCATED_DETECTION_UNSPECIFIED = 0;
+  BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY = 1;  // A second, different block for the slot finished replaying locally.
+  BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH = 2;  // Votes confirmed a block id for the slot that differs from the one this validator replayed.
+  BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF = 3;  // A duplicate-shred proof showed the slot equivocates; the conflicting block id is not known, so sibling_block_id is zero.
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -116,6 +124,82 @@ message SlotConfirmed {
   bool forward = 8;
 }
 
+// A single accounts-database partition finished compacting. Compaction scans one partition, relocates its still-live account records forward into the next storage tier, and reclaims the partition. Emitted once per partition per compaction pass by the accdb tile. Partitions are large (e.g. 32 GiB) so this is a rare, coarse-grained event rather than a hot-path counter.
+message AccdbCompactionCompleted {
+  // Index of the partition that was compacted, identifying its slot in the accdb partition pool.
+  uint64 partition_idx = 1;
+  // Storage tier the partition was compacted from. Layer 0 is the hot tier that takes live execution writes; higher layers are progressively colder. Records are promoted one tier per compaction.
+  uint32 src_layer = 2;
+  // Storage tier the surviving live records were relocated into, normally src_layer+1, clamped at the coldest tier.
+  uint32 dest_layer = 3;
+  // Total bytes of account records walked in the partition this pass, live and dead combined. Equals the partition's written extent at the time compaction started.
+  uint64 bytes_scanned = 4;
+  // Dead bytes in the partition that triggered compaction: space held by account records that had been superseded by newer versions. This is the space compaction reclaims.
+  uint64 bytes_freed = 5;
+  // Number of still-live account records copied forward into dest_layer this pass.
+  uint64 accounts_relocated = 6;
+  // Total bytes of live account records copied forward into dest_layer this pass. Compare to bytes_scanned for the live fraction of the partition.
+  uint64 bytes_relocated = 7;
+  // Number of records skipped because no live index entry referenced them, i.e. records that were already superseded. Together with accounts_relocated this accounts for every record scanned.
+  uint64 dead_records = 8;
+  // Wall-clock time at which this compaction pass began, in nanoseconds since the Unix epoch.
+  uint64 start_time = 9;
+  // Wall-clock time at which this compaction pass completed, in nanoseconds since the Unix epoch. Subtract start_time for the pass duration.
+  uint64 end_time = 10;
+}
+
+// The accounts database grew its backing file by one partition. The accounts DB is a single file divided into fixed-size partitions; when a write head runs off the end of the allocated file, a new partition is fallocated and the file grows. Emitted once per grow by the accdb tile. Partitions are large (e.g. 32 GiB) so grows are infrequent and each one is a meaningful step in the database's on-disk footprint.
+message AccdbPartitionAdded {
+  // Index of the newly allocated partition. Equals old_partition_max, i.e. it is appended at the end of the previously allocated range.
+  uint64 partition_idx = 1;
+  // Index of the partition the write head rotated off of to trigger this grow, i.e. the partition that just filled up. UINT64_MAX when there was no prior write head (the very first partition allocated on this layer).
+  uint64 prior_partition_idx = 2;
+  // Storage tier whose write head triggered the grow. Layer 0 is the hot tier fed by live execution writes; higher layers are colder compaction-destination tiers. A layer-0 grow means live ingest outran reclamation; a higher-layer grow means compaction is staging more cold data.
+  uint32 layer = 3;
+  // Number of allocated partitions before this grow.
+  uint64 old_partition_max = 4;
+  // Number of allocated partitions after this grow, always old_partition_max+1.
+  uint64 new_partition_max = 5;
+  // Size of a single partition in bytes; the increment by which the backing file grows.
+  uint64 partition_sz = 6;
+  // Total fallocated size of the accounts database file in bytes after this grow, equal to new_partition_max times partition_sz. Tracks the database's on-disk footprint over time.
+  uint64 disk_allocated_bytes = 7;
+}
+
+// Two different blocks (different block ids) were observed for the same slot. Emitted once when the validator first detects the equivocation, after both blocks are known.
+message BlockEquivocated {
+  // Sequence number of this validator's replayed block, joining to block_completed; zero if there is no local replayed bank (forward-confirmed or shred-proof detection).
+  uint64 bank_seq = 1;
+  // The slot that equivocates (has more than one block).
+  uint64 slot = 2;
+  // The slot number of the parent block.
+  uint64 parent_slot = 3;
+  // The epoch this slot belongs to.
+  uint64 epoch = 4;
+  // Identifier of the block this validator replayed for the slot.
+  bytes block_id = 5;
+  // Identifier of the conflicting block for the same slot; zero if not known (shred-proof detection).
+  bytes sibling_block_id = 6;
+  // This validator's bank hash for the block it replayed; zero if the block was not replayed locally.
+  bytes bank_hash = 7;
+  // Last microblock header hash of the block this validator replayed; zero if not replayed locally.
+  bytes block_hash = 8;
+  // Whether this validator produced the equivocating block it replayed.
+  bool is_leader = 9;
+  // Whether this validator had voted for its replayed block when the equivocation was detected.
+  bool our_block_voted = 10;
+  // Whether this validator's replayed block had been duplicate confirmed when the equivocation was detected.
+  bool our_block_confirmed = 11;
+  // Stake in lamports voted on the block this validator replayed at detection; zero if none/unknown. Typically small, as an equivocating block usually did not win confirmation.
+  uint64 block_stake = 12;
+  // Stake in lamports on the conflicting (typically confirmed) block at detection; zero if not known.
+  uint64 sibling_stake = 13;
+  // Total cluster stake in lamports at detection; the denominator for the stake fields. Zero if not known.
+  uint64 total_stake = 14;
+  // How the equivocation was detected.
+  BlockEquivocatedDetection detection = 15;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -123,5 +207,8 @@ message Event {
     Shred shred = 2;
     SignedVote signed_vote = 3;
     SlotConfirmed slot_confirmed = 4;
+    AccdbCompactionCompleted accdb_compaction_completed = 5;
+    AccdbPartitionAdded accdb_partition_added = 6;
+    BlockEquivocated block_equivocated = 7;
   }
 }

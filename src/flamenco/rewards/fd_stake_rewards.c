@@ -76,8 +76,8 @@ struct fd_stake_rewards {
   ulong       epoch;
 
   /* Temporary storage for the current stake reward being computed. */
-  fd_hash_t parent_blockhash;
-  uint      iter_curr_fork_idx;
+  fd_siphash13_t primed_hasher[ 1 ];
+  uint           iter_curr_fork_idx;
 };
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
@@ -227,7 +227,8 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
 
-  stake_rewards->parent_blockhash = *parent_blockhash;
+  fd_siphash13_init( stake_rewards->primed_hasher, 0UL, 0UL );
+  fd_siphash13_append( stake_rewards->primed_hasher, parent_blockhash->hash, sizeof(fd_hash_t) );
 
   stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
   stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
@@ -268,11 +269,10 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
   /* We have an invariant that there can never be more than 8192 entries
      in a partition. */
-  fd_siphash13_t   sip[1] = {0};
-  fd_siphash13_t * hasher = fd_siphash13_init( sip, 0UL, 0UL );
-  hasher = fd_siphash13_append( hasher, stake_rewards->parent_blockhash.hash, sizeof(fd_hash_t) );
-  fd_siphash13_append( hasher, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
-  ulong hash64 = fd_siphash13_fini( hasher );
+  fd_siphash13_t sip[ 1 ];
+  *sip = *stake_rewards->primed_hasher;
+  fd_siphash13_append( sip, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
+  ulong hash64 = fd_siphash13_fini( sip );
 
   ulong partition_index = (ulong)((uint128)stake_rewards->fork_info[fork_idx].partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 

@@ -398,6 +398,11 @@ telemetry = true
     # download and retry downloading the snapshot from a different peer.
     min_download_speed_mibs = 10
 
+    # Maximum time to wait for a snapshot peer to become available
+    # before aborting startup.  Applies when waiting for either full or
+    # incremental snapshot peers.
+    wait_for_peers_timeout_seconds = 30
+
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
     # gossip peers that advertise RPC server addresses, or from external
@@ -633,12 +638,6 @@ telemetry = true
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.
-
-    # max_fork_width specifies the maximum number of forks that will
-    # play through the same slot.  Specifically, the maximum number
-    # of forks that will compute the epoch boundary.  If the number
-    # of forks that play through the epoch boundary is greater than
-    # max_fork_width, the client will crash.
     max_fork_width = 32
 
     # The program cache pre-loads frequently executed programs for

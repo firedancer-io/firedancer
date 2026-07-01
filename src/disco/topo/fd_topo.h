@@ -610,6 +610,7 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
+      long wait_for_peers_timeout_nanos;
 
       uint target_uid;
       uint target_gid;
@@ -625,6 +626,7 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong accdb_obj_id;
       ulong txncache_obj_id;
+      ulong banks_obj_id;
     } snapin;
 
     struct {

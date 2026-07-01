@@ -306,7 +306,7 @@ fd_keyguard_payload_matches_event( uchar const * data,
     "                                "  /* 32 spaces */
     "Firedancer event challenge-response";
 
-  if( sz!=132UL ) return 0;
+  if( sz!=sizeof(sign_prefix)+217UL ) return 0;
   if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
   if( 0!=memcmp( data, sign_prefix, sizeof(sign_prefix) ) ) return 0;
   return 1;

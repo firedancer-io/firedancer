@@ -266,9 +266,10 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
       fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
+      fd_pb_push_uint64( encoder, 3U, seq ); /* link_seq */
+      fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 5U ); /* Event */
       fd_pb_submsg_open( encoder, 2U ); /* Shred */
       fd_pb_push_bytes( encoder, 1U, &ip_addr, 4UL );
       fd_pb_push_uint32( encoder, 2U, source_port );
@@ -309,9 +310,10 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
       fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
+      fd_pb_push_uint64( encoder, 3U, seq ); /* link_seq */
+      fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 5U ); /* Event */
       fd_pb_submsg_open( encoder, 1U ); /* Txn */
       fd_pb_push_bytes( encoder, 1U, &txnm->source_ipv4, 4UL );
       fd_pb_push_uint32( encoder, 2U, 0U ); /* TODO: source port .. */

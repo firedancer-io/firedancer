@@ -558,6 +558,9 @@ fd_progcache_pull( fd_progcache_t *           cache,
     found_rec = fd_progcache_peek( cache, fork_id, prog_addr, env->feature_slot, info->deploy_slot );
     if( FD_LIKELY( found_rec ) ) {
       cache->metrics->hit_cnt++;
+      /* Mark the record as recently accessed for CLOCK replacement */
+      fd_prog_clock_touch( cache->join->clock.bits,
+                           (ulong)( found_rec - cache->join->rec.pool->ele ) );
       break;
     }
     if( attempt==0 ) insert_params( insert, prog_addr, env, prog_ro, info );

@@ -156,12 +156,6 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
     return 0;
   }
 
-  /* TxnResult -> sanitization_error */
-  if( expected->sanitization_error != actual->sanitization_error ) {
-    FD_LOG_WARNING(( "Sanitization error mismatch: expected=%d actual=%d", expected->sanitization_error, actual->sanitization_error ));
-    return 0;
-  }
-
   /* TxnResult -> modified_accounts */
   if( !_diff_accounts( expected->modified_accounts, expected->modified_accounts_count, actual->modified_accounts, actual->modified_accounts_count ) ) {
     return 0;
@@ -172,15 +166,9 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
     return 0;
   }
 
-  /* TxnResult -> is_ok */
-  if( expected->is_ok != actual->is_ok ) {
-    FD_LOG_WARNING(( "Is ok mismatch: expected=%d actual=%d", expected->is_ok, actual->is_ok ));
-    return 0;
-  }
-
-  /* TxnResult -> status */
-  if( expected->status != actual->status ) {
-    FD_LOG_WARNING(( "Status mismatch: expected=%u actual=%u", expected->status, actual->status ));
+  /* TxnResult -> txn_error */
+  if( expected->txn_error != actual->txn_error ) {
+    FD_LOG_WARNING(( "Txn error mismatch: expected=%u actual=%u", expected->txn_error, actual->txn_error ));
     return 0;
   }
 

@@ -65,7 +65,7 @@ jobs:
         run: |
           sudo killall firedancer-dev || true
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/submodule-init
 

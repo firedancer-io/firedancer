@@ -16,6 +16,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
+extern fd_topo_obj_callbacks_t fd_obj_cb_node_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
@@ -35,6 +36,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
+  &fd_obj_cb_node_info,
   &fd_obj_cb_tile,
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
@@ -58,6 +60,8 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
+  &fd_cfg_stage_irq_balance,
+  &fd_cfg_stage_irq_affinity,
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
   &fd_cfg_stage_snapshots,

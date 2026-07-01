@@ -2475,7 +2475,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
   } else {
     /* publish new skipped slots  */
     fd_gui_slot_t * s = fd_gui_get_slot( gui, gui->summary.slot_completed );
-    while( s && s->slot>=prev_slot_completed ) {
+    while( s && s->slot>prev_slot_completed ) {
       fd_gui_slot_t * p = fd_gui_get_slot( gui, s->parent_slot );
       if( FD_UNLIKELY( !p ) ) break;
       for( ulong slot=p->slot+1; slot<s->slot; slot++ ) {

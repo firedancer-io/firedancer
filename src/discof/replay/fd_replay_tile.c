@@ -35,6 +35,8 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
 /* Replay concepts:
@@ -330,7 +332,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
 
   ctx->metrics.slots_total++;
-  ctx->metrics.transactions_total = bank->f.txn_count;
+  ctx->metrics.transactions_total = bank->f.parent_txn_count + bank->f.txn_count;
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
@@ -345,7 +347,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-  slot_info->transaction_count     = bank->f.txn_count;
+  slot_info->transaction_count     = bank->f.parent_txn_count + bank->f.txn_count;
 
   fd_inflation_t inflation = bank->f.inflation;
   slot_info->inflation.foundation      = inflation.foundation;
@@ -577,6 +579,11 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   FD_LOG_DEBUG(( "keyswitch: switching identity" ));
 
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+
+  fd_node_info_write_begin( ctx->node_info );
+  ctx->node_info->info.identity = *ctx->identity_pubkey;
+  fd_node_info_write_end  ( ctx->node_info );
+
   fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
 
   /* The next leader slot will be incorrect now that the identity has
@@ -690,6 +697,10 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
   }
+
+  char const * one_offs[ 16UL ];
+  for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
+  fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
 
   fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
   fd_runtime_update_leaders( bank, ctx->runtime_stack );
@@ -971,8 +982,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   FD_TEST( meta->bootstrap && meta->has_lthash );
   FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( bank );
+  bank->f.slot = 0UL;
+  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
   static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
@@ -1110,8 +1123,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        possible solution is to get the block id of the snapshot slot
        from repair. */
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
-
-    fd_features_restore( bank, ctx->accdb );
 
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
@@ -2209,6 +2220,73 @@ maybe_verify_genesis_timestamp( fd_replay_tile_t * ctx ) {
 }
 
 static void
+update_metric_identity_balance( fd_replay_tile_t *  ctx,
+                                fd_accdb_fork_id_t  fork_id,
+                                fd_pubkey_t const * identity ) {
+  ulong identity_balance = fd_accdb_lamports( ctx->accdb, fork_id, identity->uc );
+  FD_MGAUGE_SET( REPLAY, IDENTITY_BALANCE_LAMPORTS, identity_balance );
+}
+
+static void
+update_metric_epoch_credits( fd_replay_tile_t *  ctx,
+                             fd_bank_t const *   bank,
+                             fd_accdb_fork_id_t  fork_id,
+                             fd_pubkey_t const * vote_key ) {
+  ulong epoch_credits = 0UL;
+  fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, vote_key->uc );
+  if( FD_LIKELY( ro.lamports ) ) {
+    fd_vote_state_versioned_t vsv[1];
+    if( FD_LIKELY( fd_vote_state_versioned_deserialize( vsv, ro.data, ro.data_len ) ) ) {
+      fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( vsv );
+      if( !deq_fd_vote_epoch_credits_t_empty( ec ) ) {
+        fd_vote_epoch_credits_t const * last_ec = deq_fd_vote_epoch_credits_t_peek_tail_const( ec );
+        if( last_ec->epoch==bank->f.epoch ) {
+          epoch_credits = last_ec->credits;
+        }
+      }
+    }
+  }
+  fd_accdb_unread_one( ctx->accdb, &ro );
+
+  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS, epoch_credits );
+}
+
+static void
+update_metric_active_stake( fd_bank_t const *   bank,
+                            fd_pubkey_t const * vote_key ) {
+  ulong my_active_stake  = 0UL;
+  ulong tot_active_stake = bank->f.total_epoch_stake;
+
+  ulong stake = 0UL;
+  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+    fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
+    fd_top_votes_query( top_votes, vote_key, NULL, &stake, NULL, NULL, NULL, NULL );
+  } else {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, vote_key, &stake, NULL, NULL );
+  }
+  my_active_stake = stake;
+
+  FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS,         my_active_stake  );
+  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, tot_active_stake );
+}
+
+static void
+update_metric_balances( fd_replay_tile_t * ctx,
+                        fd_bank_t *        bank ) {
+  fd_accdb_fork_id_t fork_id = bank->accdb_fork_id;
+  fd_node_info_t node_info[1]; fd_node_info_read( node_info, ctx->node_info );
+  if( !fd_pubkey_check_zero( &node_info->identity ) ) {
+    update_metric_identity_balance( ctx, fork_id, &node_info->identity );
+  }
+
+  if( !fd_pubkey_check_zero( &node_info->vote_account ) ) {
+    update_metric_epoch_credits( ctx, bank, fork_id, &node_info->vote_account );
+    update_metric_active_stake (      bank,          &node_info->vote_account );
+  }
+}
+
+static void
 process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_stem_context_t *               stem,
                                     fd_tower_slot_confirmed_t const * msg ) {
@@ -2241,6 +2319,8 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  update_metric_balances( ctx, bank );
 }
 
 static inline int
@@ -2269,6 +2349,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       ctx->has_genesis_timestamp = 1;
       ctx->genesis_timestamp = meta->creation_time_seconds;
       *ctx->genesis_hash = meta->genesis_hash;
+      fd_node_info_write_begin( ctx->node_info );
+      ctx->node_info->info.genesis_hash = *ctx->genesis_hash;
+      fd_node_info_write_end( ctx->node_info );
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );
       } else {
@@ -2474,14 +2557,17 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
+  ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX );
+  FD_TEST( node_info_obj_id!=ULONG_MAX );
+  ctx->node_info = fd_node_info_box_join( fd_topo_obj_laddr( topo, node_info_obj_id ) );
+  FD_TEST( ctx->node_info );
+  fd_node_info_write_begin( ctx->node_info );
+  ctx->node_info->info.identity = *ctx->identity_pubkey;
+  fd_node_info_write_end( ctx->node_info );
+
   FD_MGAUGE_SET( REPLAY, BANK_LIVE_MAX, fd_banks_pool_max_cnt( ctx->banks ) );
 
   ctx->frontier_cnt = 0UL;
-
-  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
-  FD_TEST( bank );
-  bank->f.slot = 0UL;
-  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
@@ -2507,13 +2593,11 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  fd_features_t * features = &bank->f.features;
-  fd_features_enable_cleaned_up( features );
-
-  char const * one_off_features[ 16UL ];
-  FD_TEST( tile->replay.enable_features_cnt<=sizeof(one_off_features)/sizeof(one_off_features[0]) );
-  for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) one_off_features[ i ] = tile->replay.enable_features[i];
-  fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
+  FD_TEST( tile->replay.enable_features_cnt<=sizeof(ctx->enable_features)/sizeof(ctx->enable_features[0]) );
+  ctx->enable_features_cnt = tile->replay.enable_features_cnt;
+  for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) {
+    fd_memcpy( ctx->enable_features[ i ], tile->replay.enable_features[ i ], FD_BASE58_ENCODED_32_SZ );
+  }
 
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );

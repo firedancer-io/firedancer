@@ -229,6 +229,8 @@ configure_stage_help( char const * name ) {
   if( !strcmp( name, "ethtool-channels" ) ) return "set the NIC channel (queue) count";
   if( !strcmp( name, "ethtool-offloads" ) ) return "set the required NIC offload settings";
   if( !strcmp( name, "ethtool-loopback" ) ) return "disable an incompatible offload on the loopback interface";
+  if( !strcmp( name, "irq-affinity"     ) ) return "remove Firedancer tile CPUs from /proc/irq CPU affinity masks";
+  if( !strcmp( name, "irq-balance"      ) ) return "remove Firedancer tile CPUs from irqbalance daemon";
   if( !strcmp( name, "snapshots"        ) ) return "prepare the snapshot download directory";
   if( !strcmp( name, "kill"             ) ) return "kill any running validator";
   if( !strcmp( name, "keys"             ) ) return "generate dev identity/vote keypairs";

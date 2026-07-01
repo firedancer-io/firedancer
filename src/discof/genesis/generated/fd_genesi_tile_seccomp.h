@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_genesi_tile_instr_cnt = 101;
+static const uint sock_filter_policy_fd_genesi_tile_instr_cnt = 114;
 
-static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct sock_filter out[ static 101 ], uint logfile_fd, uint in_genesis_fd, uint out_genesis_fd, uint out_dir_fd, uint accounts_fd ) {
-  FD_TEST( out_cnt >= 101 );
-  struct sock_filter filter[101] = {
+static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct sock_filter out[ static 114 ], uint logfile_fd, uint in_genesis_fd, uint out_genesis_fd, uint out_dir_fd, uint accounts_fd ) {
+  FD_TEST( out_cnt >= 114 );
+  struct sock_filter filter[114] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 14 ),
@@ -44,29 +44,29 @@ static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct so
     /* check write */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 14, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 19, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 21, 0 ),
     /* check fstat */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, /* check_fstat */ 22, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, /* check_fstat */ 24, 0 ),
     /* check close */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* check_close */ 25, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* check_close */ 27, 0 ),
     /* check read */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 31, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 36, 0 ),
     /* check exit */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 34, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 39, 0 ),
     /* check pwritev2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwritev2, /* check_pwritev2 */ 37, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwritev2, /* check_pwritev2 */ 42, 0 ),
     /* check preadv2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 40, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 45, 0 ),
     /* check fallocate */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fallocate, /* check_fallocate */ 43, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fallocate, /* check_fallocate */ 48, 0 ),
     /* allow ppoll */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ppoll, /* RET_ALLOW */ 4, 0 ),
     /* check sendto */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, /* check_sendto */ 47, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, /* check_sendto */ 52, 0 ),
     /* check recvfrom */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_recvfrom, /* check_recvfrom */ 62, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_recvfrom, /* check_recvfrom */ 71, 0 ),
     /* check renameat2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat2, /* check_renameat2 */ 79, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat2, /* check_renameat2 */ 92, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -76,10 +76,14 @@ static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct so
 //  check_write:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 3, /* or_eq_next_lo_1 */ 0 ),
-//  or_eq_next_lo_1:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* write_ALLOW */ 2, /* or_eq_next_lo_2 */ 0 ),
-//  or_eq_next_lo_2:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 5, /* or_1 */ 0 ),
+//  or_1:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* write_ALLOW */ 3, /* or_2 */ 0 ),
+//  or_2:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -104,12 +108,18 @@ static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct so
 //  check_close:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* close_KILL */ 3, /* or_eq_next_lo_3 */ 0 ),
-//  or_eq_next_lo_3:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_dir_fd)), /* close_KILL */ 2, /* or_eq_next_lo_4 */ 0 ),
-//  or_eq_next_lo_4:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* close_KILL */ 1, /* or_eq_next_lo_5 */ 0 ),
-//  or_eq_next_lo_5:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* close_KILL */ 6, /* or_3 */ 0 ),
+//  or_3:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_dir_fd)), /* close_KILL */ 4, /* or_4 */ 0 ),
+//  or_4:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* close_KILL */ 2, /* or_5 */ 0 ),
+//  or_5:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* close_KILL */ 0, /* close_ALLOW */ 1 ),
 //  close_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -162,14 +172,22 @@ static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct so
 //  check_sendto:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* sendto_KILL */ 12, /* or_eq_next_lo_8 */ 0 ),
-//  or_eq_next_lo_8:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(in_genesis_fd)), /* sendto_KILL */ 11, /* or_eq_next_lo_9 */ 0 ),
-//  or_eq_next_lo_9:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_dir_fd)), /* sendto_KILL */ 10, /* or_eq_next_lo_10 */ 0 ),
-//  or_eq_next_lo_10:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* sendto_KILL */ 9, /* or_eq_next_lo_11 */ 0 ),
-//  or_eq_next_lo_11:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* sendto_KILL */ 16, /* or_8 */ 0 ),
+//  or_8:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(in_genesis_fd)), /* sendto_KILL */ 14, /* or_9 */ 0 ),
+//  or_9:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_dir_fd)), /* sendto_KILL */ 12, /* or_10 */ 0 ),
+//  or_10:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* sendto_KILL */ 10, /* or_11 */ 0 ),
+//  or_11:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* sendto_KILL */ 8, /* and_7 */ 0 ),
 //  and_7:
     /* arg 3 low 32 bits */
@@ -194,14 +212,22 @@ static void populate_sock_filter_policy_fd_genesi_tile( ulong out_cnt, struct so
 //  check_recvfrom:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* recvfrom_KILL */ 14, /* or_eq_next_lo_16 */ 0 ),
-//  or_eq_next_lo_16:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(in_genesis_fd)), /* recvfrom_KILL */ 13, /* or_eq_next_lo_17 */ 0 ),
-//  or_eq_next_lo_17:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_dir_fd)), /* recvfrom_KILL */ 12, /* or_eq_next_lo_18 */ 0 ),
-//  or_eq_next_lo_18:
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* recvfrom_KILL */ 11, /* or_eq_next_lo_19 */ 0 ),
-//  or_eq_next_lo_19:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* recvfrom_KILL */ 18, /* or_16 */ 0 ),
+//  or_16:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(in_genesis_fd)), /* recvfrom_KILL */ 16, /* or_17 */ 0 ),
+//  or_17:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_dir_fd)), /* recvfrom_KILL */ 14, /* or_18 */ 0 ),
+//  or_18:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(out_genesis_fd)), /* recvfrom_KILL */ 12, /* or_19 */ 0 ),
+//  or_19:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* recvfrom_KILL */ 10, /* and_15 */ 0 ),
 //  and_15:
     /* arg 3 low 32 bits */

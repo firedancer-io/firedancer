@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_xdp_tile_instr_cnt = 56;
+static const uint sock_filter_policy_fd_xdp_tile_instr_cnt = 60;
 
-static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_filter out[ static 56 ], uint logfile_fd, uint xsk_fd, uint lo_xsk_fd ) {
-  FD_TEST( out_cnt >= 56 );
-  struct sock_filter filter[56] = {
+static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_filter out[ static 60 ], uint logfile_fd, uint xsk_fd, uint lo_xsk_fd ) {
+  FD_TEST( out_cnt >= 60 );
+  struct sock_filter filter[60] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 6 ),
@@ -44,13 +44,13 @@ static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_
     /* check write */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 6, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 11, 0 ),
     /* check sendto */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, /* check_sendto */ 13, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sendto, /* check_sendto */ 14, 0 ),
     /* check recvmsg */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_recvmsg, /* check_recvmsg */ 33, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_recvmsg, /* check_recvmsg */ 35, 0 ),
     /* check getsockopt */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getsockopt, /* check_getsockopt */ 39, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getsockopt, /* check_getsockopt */ 42, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -60,8 +60,10 @@ static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_
 //  check_write:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 2, /* or_eq_next_lo_1 */ 0 ),
-//  or_eq_next_lo_1:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 3, /* or_1 */ 0 ),
+//  or_1:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -78,8 +80,10 @@ static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_
 //  check_sendto:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(xsk_fd)), /* and_2 */ 1, /* or_eq_next_lo_3 */ 0 ),
-//  or_eq_next_lo_3:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(xsk_fd)), /* and_2 */ 2, /* or_3 */ 0 ),
+//  or_3:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(lo_xsk_fd)), /* and_2 */ 0, /* sendto_KILL */ 16 ),
 //  and_2:
     /* arg 1 high 32 bits */
@@ -120,8 +124,10 @@ static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_
 //  check_recvmsg:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(xsk_fd)), /* and_11 */ 1, /* or_eq_next_lo_12 */ 0 ),
-//  or_eq_next_lo_12:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(xsk_fd)), /* and_11 */ 2, /* or_12 */ 0 ),
+//  or_12:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(lo_xsk_fd)), /* and_11 */ 0, /* recvmsg_KILL */ 2 ),
 //  and_11:
     /* arg 2 low 32 bits */
@@ -134,8 +140,10 @@ static void populate_sock_filter_policy_fd_xdp_tile( ulong out_cnt, struct sock_
 //  check_getsockopt:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(xsk_fd)), /* and_13 */ 1, /* or_eq_next_lo_14 */ 0 ),
-//  or_eq_next_lo_14:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(xsk_fd)), /* and_13 */ 2, /* or_14 */ 0 ),
+//  or_14:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(lo_xsk_fd)), /* and_13 */ 0, /* getsockopt_KILL */ 4 ),
 //  and_13:
     /* arg 1 low 32 bits */

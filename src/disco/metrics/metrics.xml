@@ -1181,6 +1181,11 @@ EXAMPLES
 </enum>
 
 <tile name="replay">
+    <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot" />
+    <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
+    <gauge name="ClusterActiveStakeLamports" summary="Total cluster active stake at the optimistically confirmed slot" />
+    <gauge name="EpochCredits" summary="Our vote account epoch credits at the optimistically confirmed slot" />
+
     <counter name="StoreQueryAcquired" summary="Store slock acquires for query" />
     <counter name="StoreQueryReleased" summary="Store slock releases for query" />
     <histogram name="StoreQueryWaitSeconds" min="0.00000001" max="0.001" converter="seconds">

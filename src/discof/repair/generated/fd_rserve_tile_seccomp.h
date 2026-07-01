@@ -31,22 +31,24 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_rserve_tile_instr_cnt = 21;
+static const uint sock_filter_policy_fd_rserve_tile_instr_cnt = 27;
 
-static void populate_sock_filter_policy_fd_rserve_tile( ulong out_cnt, struct sock_filter out[ static 21 ], uint logfile_fd, uint shredb_fd ) {
-  FD_TEST( out_cnt >= 21 );
-  struct sock_filter filter[21] = {
+static void populate_sock_filter_policy_fd_rserve_tile( ulong out_cnt, struct sock_filter out[ static 27 ], uint logfile_fd, uint shredb_fd ) {
+  FD_TEST( out_cnt >= 27 );
+  struct sock_filter filter[27] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 4 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 5 ),
     /* load syscall number */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) )),
     /* check write */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 4, 0 ),
-    /* check ftruncate */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ftruncate, /* check_ftruncate */ 8, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 5, 0 ),
+    /* check fallocate */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fallocate, /* check_fallocate */ 10, 0 ),
+    /* check madvise */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_madvise, /* check_madvise */ 13, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 11, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 16, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -56,20 +58,30 @@ static void populate_sock_filter_policy_fd_rserve_tile( ulong out_cnt, struct so
 //  check_write:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 2, /* or_eq_next_lo_1 */ 0 ),
-//  or_eq_next_lo_1:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* write_ALLOW */ 3, /* or_1 */ 0 ),
+//  or_1:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(logfile_fd)), /* write_ALLOW */ 1, /* write_KILL */ 0 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  write_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
-//  check_ftruncate:
+//  check_fallocate:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(shredb_fd)), /* ftruncate_ALLOW */ 1, /* ftruncate_KILL */ 0 ),
-//  ftruncate_KILL:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(shredb_fd)), /* fallocate_ALLOW */ 1, /* fallocate_KILL */ 0 ),
+//  fallocate_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
-//  ftruncate_ALLOW:
+//  fallocate_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_madvise:
+    /* arg 2 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(MADV_POPULATE_WRITE), /* madvise_ALLOW */ 1, /* madvise_KILL */ 0 ),
+//  madvise_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  madvise_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
 //  check_fsync:
     /* arg 0 low 32 bits */

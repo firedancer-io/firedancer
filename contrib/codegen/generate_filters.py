@@ -11,9 +11,11 @@
 # files. This has the advantage of allowing the use of C constants, as long
 # as they are in scope.
 
+from __future__ import annotations
+
 import os
 import sys
-from collections import OrderedDict
+from typing import NoReturn, TextIO, TypeGuard, Union, Tuple
 
 # Arguments are passed to Linux syscalls through 64-bit registers. When
 # that syscall only uses the bottom 32-bits, like for an int, Linux ignores
@@ -32,49 +34,50 @@ from collections import OrderedDict
 # We keep this table of prototypes for syscalls in order to decide whether
 # we should emit a 32-bit or a 64-bit check for that argument.
 SYSCALL_ARGS = {
-    #                        arg0     arg1     arg2     arg3     arg4     arg5
-    "accept4": ("int", "long", "long", "int", None, None),
-    "bind": ("int", "long", "int", None, None, None),
-    "clock_nanosleep": ("int", "int", "long", "long", None, None),
-    "close": ("int", None, None, None, None, None),
-    "connect": ("int", "long", "int", None, None, None),
-    "copy_file_range": ("int", "long", "int", "long", "long", "int"),
-    "exit_group": ("int", None, None, None, None, None),
-    "exit": ("int", None, None, None, None, None),
-    "fallocate": ("int", "int", "long", "long", None, None),
-    "fcntl": ("int", "int", "long", None, None, None),
-    "fstat": ("int", "long", None, None, None, None),
-    "fsync": ("int", None, None, None, None, None),
-    "ftruncate": ("int", "long", None, None, None, None),
-    "getsockopt": ("int", "int", "int", "long", "long", None),
-    "ioctl": ("int", "long", "long", None, None, None),
-    "kill": ("int", "int", None, None, None, None),
-    "lseek": ("int", "long", "int", None, None, None),
-    "poll": ("long", "long", "int", None, None, None),
-    "ppoll": ("long", "long", "long", "long", None, None),
-    "pread64": ("int", "long", "long", "long", None, None),
-    "preadv2": ("int", "long", "int", "long", "long", "int"),
-    "pwrite64": ("int", "long", "long", "long", None, None),
-    "pwritev2": ("int", "long", "int", "long", "long", "int"),
-    "read": ("int", "long", "long", None, None, None),
-    "recvfrom": ("int", "long", "long", "int", "long", "long"),
-    "recvmmsg": ("int", "long", "int", "int", "long", None),
-    "recvmsg": ("int", "long", "int", None, None, None),
-    "renameat": ("int", "long", "int", "long", None, None),
-    "renameat2": ("int", "long", "int", "long", "int", None),
-    "sendmmsg": ("int", "long", "int", "int", None, None),
-    "sendmsg": ("int", "long", "int", None, None, None),
-    "sendto": ("int", "long", "long", "int", "long", "int"),
-    "setsockopt": ("int", "int", "int", "long", "int", None),
-    "shutdown": ("int", "int", None, None, None, None),
-    "socket": ("int", "int", "int", None, None, None),
-    "wait4": ("int", "long", "int", "long", None, None),
-    "write": ("int", "long", "long", None, None, None),
-    "writev": ("int", "long", "int", None, None, None),
+    #                      arg0    arg1     arg2    arg3    arg4     arg5
+    "accept4":         (  "int", "long",  "long",  "int",   None,    None  ),
+    "bind":            (  "int", "long",   "int",   None,   None,    None  ),
+    "clock_nanosleep": (  "int",  "int",  "long", "long",   None,    None  ),
+    "close":           (  "int",   None,    None,   None,   None,    None  ),
+    "connect":         (  "int", "long",   "int",   None,   None,    None  ),
+    "copy_file_range": (  "int", "long",   "int", "long", "long",   "int"  ),
+    "exit_group":      (  "int",   None,    None,   None,   None,    None  ),
+    "exit":            (  "int",   None,    None,   None,   None,    None  ),
+    "fallocate":       (  "int",  "int",  "long", "long",   None,    None  ),
+    "fcntl":           (  "int",  "int",  "long",   None,   None,    None  ),
+    "fstat":           (  "int", "long",    None,   None,   None,    None  ),
+    "fsync":           (  "int",   None,    None,   None,   None,    None  ),
+    "ftruncate":       (  "int", "long",    None,   None,   None,    None  ),
+    "getsockopt":      (  "int",  "int",   "int", "long", "long",    None  ),
+    "ioctl":           (  "int",  "int",  "long",   None,   None,    None  ),
+    "kill":            (  "int",  "int",    None,   None,   None,    None  ),
+    "lseek":           (  "int", "long",   "int",   None,   None,    None  ),
+    "madvise":         ( "long", "long",   "int",   None,   None,    None  ),
+    "poll":            ( "long",  "int",   "int",   None,   None,    None  ),
+    "ppoll":           ( "long",  "int",  "long", "long", "long",    None  ),
+    "pread64":         (  "int", "long",  "long", "long",   None,    None  ),
+    "preadv2":         (  "int", "long",   "int", "long", "long",   "int"  ),
+    "pwrite64":        (  "int", "long",  "long", "long",   None,    None  ),
+    "pwritev2":        (  "int", "long",   "int", "long", "long",   "int"  ),
+    "read":            (  "int", "long",  "long",   None,   None,    None  ),
+    "recvfrom":        (  "int", "long",  "long",  "int", "long",  "long"  ),
+    "recvmmsg":        (  "int", "long",   "int",  "int", "long",    None  ),
+    "recvmsg":         (  "int", "long",   "int",   None,   None,    None  ),
+    "renameat":        (  "int", "long",   "int", "long",   None,    None  ),
+    "renameat2":       (  "int", "long",   "int", "long",  "int",    None  ),
+    "sendmmsg":        (  "int", "long",   "int",  "int",   None,    None  ),
+    "sendmsg":         (  "int", "long",   "int",   None,   None,    None  ),
+    "sendto":          (  "int", "long",  "long",  "int", "long",   "int"  ),
+    "setsockopt":      (  "int",  "int",   "int", "long",  "int",    None  ),
+    "shutdown":        (  "int",  "int",    None,   None,   None,    None  ),
+    "socket":          (  "int",  "int",   "int",   None,   None,    None  ),
+    "wait4":           (  "int", "long",   "int", "long",   None,    None  ),
+    "write":           (  "int", "long",  "long",   None,   None,    None  ),
+    "writev":          (  "int", "long",  "long",   None,   None,    None  ),
 }
 
 
-def arg_is_32bit(syscall, n):
+def arg_is_32bit(syscall: str, n: int) -> bool:
     if syscall not in SYSCALL_ARGS:
         die(f"syscall '{syscall}' not in argument table")
     types = SYSCALL_ARGS[syscall]
@@ -90,12 +93,12 @@ class Symbol(str):
     pass
 
 
-def die(msg):
+def die(msg: str) -> NoReturn:
     print(msg, file=sys.stderr)
     sys.exit(1)
 
 
-def tokenize(expr):
+def tokenize(expr: str) -> list[str | Symbol]:
     out = []
     i = 0
     while i < len(expr):
@@ -132,7 +135,7 @@ def tokenize(expr):
     return out
 
 
-def parse_atom(tok):
+def parse_atom(tok: str | Symbol) -> Atom:
     if type(tok) is not Symbol:
         return tok
     try:
@@ -141,7 +144,12 @@ def parse_atom(tok):
         return tok
 
 
-def parse_tokens(tokens, i=0):
+Atom = Union[int, str, Symbol]
+Imm = Union[int, str, Symbol]
+Expr = Union[Atom, Tuple["Expr", ...]]
+
+
+def parse_tokens(tokens: list[str | Symbol], i: int = 0) -> tuple[Expr, int]:
     if i >= len(tokens):
         raise ValueError("unexpected end of expression")
     tok = tokens[i]
@@ -159,7 +167,7 @@ def parse_tokens(tokens, i=0):
     return parse_atom(tok), i + 1
 
 
-def parse_expr(expr):
+def parse_expr(expr: str) -> Expr:
     tokens = tokenize(expr)
     if not tokens:
         raise ValueError("empty expression")
@@ -169,12 +177,12 @@ def parse_expr(expr):
     return val
 
 
-def strip_comments(lines):
+def strip_comments(lines: list[str]) -> list[str]:
     return [line for line in lines if not line.lstrip().startswith("#")]
 
 
-def join_continuations(lines):
-    out = []
+def join_continuations(lines: list[str]) -> list[str]:
+    out : list[str] = []
     for line in lines:
         if line.startswith((" ", "\t")) and out:
             out[-1] += line
@@ -183,7 +191,7 @@ def join_continuations(lines):
     return out
 
 
-def policy_lines(raw_lines):
+def policy_lines(raw_lines: list[str]) -> list[str]:
     return [
         line.strip()
         for line in join_continuations(strip_comments(raw_lines))
@@ -191,7 +199,7 @@ def policy_lines(raw_lines):
     ]
 
 
-def split_policy_line(line, line_no):
+def split_policy_line(line: str, line_no: int) -> tuple[str, str | None]:
     parts = line.split(":", 1)
     if len(parts) == 1:
         return parts[0].strip(), None
@@ -200,30 +208,36 @@ def split_policy_line(line, line_no):
     die(f"malformed policy line {line_no}")
 
 
-def parse_signature(sigline):
+def parse_signature(sigline: str) -> set[str]:
     if sigline == "noarg":
-        return {}
-    params = {}
+        return set()
+    params: set[str] = set()
     for raw_param in sigline.split(","):
         raw_param = raw_param.strip()
         if not raw_param:
-            continue
+            die("empty parameter in signature")
         pieces = raw_param.split()
         if len(pieces) < 2:
-            continue
+            die(f"malformed parameter (missing name or type): '{raw_param}'")
         name = pieces[-1].strip("*")
+        if not name:
+            die(f"empty parameter name in: '{raw_param}'")
+        if name in params:
+            die(f"duplicate parameter name: '{name}'")
         ctype = " ".join(pieces[:-1])
-        if not ctype in ["uint"]:
+        if ctype not in ("uint",):
             die(f"invalid parameter type: {ctype}")
-        params[name] = ctype
+        params.add(name)
+    if not params:
+        die("signature has no parameters (use 'noarg' for parameterless policies)")
     return params
 
 
-def is_arg(expr):
-    return type(expr) is tuple and len(expr) == 2 and str(expr[0]) == "arg"
+def is_arg(expr: Expr) -> TypeGuard[tuple]:
+    return isinstance(expr, tuple) and len(expr) == 2 and str(expr[0]) == "arg"
 
 
-def arg_no(expr):
+def arg_no(expr: Expr) -> int:
     if not is_arg(expr):
         raise ValueError("expected (arg N)")
     n = expr[1]
@@ -233,13 +247,16 @@ def arg_no(expr):
 
 
 class ImmWords:
-    def __init__(self, lo, hi):
+    def __init__(self, lo: str, hi: str) -> None:
         self.lo = lo
         self.hi = hi
 
 
-def imm_words(expr, params):
+def imm_words(expr: Imm, params: set[str]) -> ImmWords:
+    assert isinstance(expr, (int, str, Symbol)), f"expected int, str, or Symbol, got {type(expr)}"
     if type(expr) is int:
+        if expr < 0:
+            die(f"negative immediate not supported: {expr}")
         if expr >= (1 << 32):
             die(f"imm expr too large: {expr}")
         return ImmWords(f"0x{expr:08x}U", "0x00000000U")
@@ -255,13 +272,13 @@ def imm_words(expr, params):
 
 
 class Stmt:
-    def __init__(self, text, comment=None):
+    def __init__(self, text: str, comment: str | None = None) -> None:
         self.text = text
         self.comment = comment
 
 
 class Jump:
-    def __init__(self, op, k, jt, jf, comment=None):
+    def __init__(self, op: str, k: str, jt: str | int, jf: str | int, comment: str | None = None) -> None:
         self.op = op
         self.k = k
         self.jt = jt
@@ -270,45 +287,47 @@ class Jump:
 
 
 class Label:
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         self.name = name
 
 
 class Program:
-    def __init__(self):
-        self.items = []
-        self.label_id = 0
+    def __init__(self) -> None:
+        self.items: list[Stmt | Jump | Label] = []
+        self.label_id: int = 0
 
-    def new_label(self, prefix="lbl"):
+    def new_label(self, prefix: str = "lbl") -> str:
         self.label_id += 1
         return f"{prefix}_{self.label_id}"
 
-    def label(self, name):
+    def label(self, name: str) -> None:
+        if any(isinstance(item, Label) and item.name == name for item in self.items):
+            raise ValueError(f"duplicate label '{name}'")
         self.items.append(Label(name))
 
-    def stmt(self, text, comment=None):
+    def stmt(self, text: str, comment: str | None = None) -> None:
         self.items.append(Stmt(text, comment))
 
-    def jump(self, op, k, jt, jf, comment=None):
+    def jump(self, op: str, k: str, jt: str | int, jf: str | int, comment: str | None = None) -> None:
         self.items.append(Jump(op, k, jt, jf, comment))
 
-    def ret(self, value, comment=None):
+    def ret(self, value: str, comment: str | None = None) -> None:
         self.stmt(f"BPF_STMT( BPF_RET | BPF_K, {value} )", comment)
 
-    def load_abs(self, expr, comment=None):
+    def load_abs(self, expr: str, comment: str | None = None) -> None:
         self.stmt(f"BPF_STMT( BPF_LD | BPF_W | BPF_ABS, {expr})", comment)
 
-    def load_arg_lo(self, n):
+    def load_arg_lo(self, n: int) -> None:
         self.load_abs(f"FD_SECCOMP_ARG_LO_OFFSET({n})", f"arg {n} low 32 bits")
 
-    def load_arg_hi(self, n):
+    def load_arg_hi(self, n: int) -> None:
         self.load_abs(f"FD_SECCOMP_ARG_HI_OFFSET({n})", f"arg {n} high 32 bits")
 
-    def instruction_count(self):
+    def instruction_count(self) -> int:
         return sum(1 for item in self.items if not isinstance(item, Label))
 
-    def render_target(self, target, pc, labels, max_offset=None):
-        if type(target) is int:
+    def render_target(self, target: str | int, pc: int, labels: dict[str, int], max_offset: int | None = None) -> str:
+        if isinstance(target, int):
             return str(target)
         if target not in labels:
             raise ValueError(f"unknown label {target}")
@@ -321,26 +340,29 @@ class Program:
             )
         return f"/* {target} */ {off}"
 
-    def render(self):
-        labels = {}
+    def render(self) -> list[str]:
+        labels: dict[str, int] = {}
         pc = 0
         for item in self.items:
             if isinstance(item, Label):
+                if item.name in labels:
+                    raise ValueError(f"duplicate label '{item.name}'")
                 labels[item.name] = pc
             else:
                 pc += 1
 
-        line_labels = {}
+        line_labels: dict[int, str] = {}
         for name, idx in labels.items():
-            line_labels.setdefault(idx, []).append(name)
+            assert idx not in line_labels, f"multiple labels at instruction {idx}: {line_labels[idx]}, {name}"
+            line_labels[idx] = name
 
         lines = []
         pc = 0
         for item in self.items:
             if isinstance(item, Label):
                 continue
-            for name in line_labels.get(pc, []):
-                lines.append(f"//  {name}:")
+            if pc in line_labels:
+                lines.append(f"//  {line_labels[pc]}:")
             if item.comment:
                 lines.append(f"    /* {item.comment} */")
             if isinstance(item, Stmt):
@@ -353,7 +375,7 @@ class Program:
         return lines
 
 
-def emit_arg_eq(prog, n, imm, label_t, label_f, params, syscall):
+def emit_arg_eq(prog: Program, n: int, imm: Imm, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
     words = imm_words(imm, params)
     if arg_is_32bit(syscall, n):
         prog.load_arg_lo(n)
@@ -367,7 +389,7 @@ def emit_arg_eq(prog, n, imm, label_t, label_f, params, syscall):
         prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.lo, label_t, label_f)
 
 
-def emit_arg_cmp(prog, op, n, imm, label_t, label_f, params, syscall):
+def emit_arg_cmp(prog: Program, op: str, n: int, imm: Imm, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
     if op == "eq":
         emit_arg_eq(prog, n, imm, label_t, label_f, params, syscall)
         return
@@ -395,28 +417,28 @@ def emit_arg_cmp(prog, op, n, imm, label_t, label_f, params, syscall):
     if op == "<":
         prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_f, mid)
         prog.label(mid)
-        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_t)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.hi, eq, label_t)
         prog.label(eq)
         prog.load_arg_lo(n)
         prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.lo, label_f, label_t)
     elif op == "<=":
         prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_f, mid)
         prog.label(mid)
-        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_t)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.hi, eq, label_t)
         prog.label(eq)
         prog.load_arg_lo(n)
         prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.lo, label_f, label_t)
     elif op == ">":
         prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_t, mid)
         prog.label(mid)
-        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_f)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.hi, eq, label_f)
         prog.label(eq)
         prog.load_arg_lo(n)
         prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.lo, label_t, label_f)
     elif op == ">=":
         prog.jump("BPF_JMP | BPF_JGT | BPF_K", words.hi, label_t, mid)
         prog.label(mid)
-        prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.hi, eq, label_f)
+        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.hi, eq, label_f)
         prog.label(eq)
         prog.load_arg_lo(n)
         prog.jump("BPF_JMP | BPF_JGE | BPF_K", words.lo, label_t, label_f)
@@ -424,78 +446,11 @@ def emit_arg_cmp(prog, op, n, imm, label_t, label_f, params, syscall):
         raise ValueError(f"unsupported comparison {op}")
 
 
-def invert_cmp(op):
+def invert_cmp(op: str) -> str:
     return {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "eq": "eq"}[op]
 
 
-def collect_or_eq_set(expr):
-    if type(expr) is not tuple or not expr or str(expr[0]) != "or":
-        return None
-    terms = []
-    for term in expr[1:]:
-        if (
-            type(term) is not tuple
-            or len(term) != 3
-            or str(term[0]) != "eq"
-            or not is_arg(term[1])
-        ):
-            return None
-        terms.append((arg_no(term[1]), term[2]))
-    if not terms:
-        return None
-    n = terms[0][0]
-    if any(term_n != n for term_n, _ in terms):
-        return None
-    return n, [imm for _, imm in terms]
-
-
-def emit_or_eq_set(prog, n, imms, label_t, label_f, params, syscall):
-    if arg_is_32bit(syscall, n):
-        prog.load_arg_lo(n)
-        for idx, imm in enumerate(imms):
-            words = imm_words(imm, params)
-            next_lo = (
-                label_f if idx == len(imms) - 1 else prog.new_label("or_eq_next_lo")
-            )
-            prog.jump("BPF_JMP | BPF_JEQ | BPF_K", words.lo, label_t, next_lo)
-            if idx != len(imms) - 1:
-                prog.label(next_lo)
-        return
-
-    groups = OrderedDict()
-    for imm in imms:
-        words = imm_words(imm, params)
-        groups.setdefault(words.hi, []).append(words.lo)
-
-    group_items = list(groups.items())
-    for idx, (hi, lows) in enumerate(group_items):
-        next_group = (
-            label_f if idx == len(group_items) - 1 else prog.new_label("or_eq_next_hi")
-        )
-        hi_match = prog.new_label("or_eq_hi")
-        prog.load_arg_hi(n)
-        prog.jump("BPF_JMP | BPF_JEQ | BPF_K", hi, hi_match, next_group)
-        prog.label(hi_match)
-        prog.load_arg_lo(n)
-        for low_idx, lo in enumerate(lows):
-            next_low = (
-                next_group
-                if low_idx == len(lows) - 1
-                else prog.new_label("or_eq_next_lo")
-            )
-            prog.jump("BPF_JMP | BPF_JEQ | BPF_K", lo, label_t, next_low)
-            if low_idx != len(lows) - 1:
-                prog.label(next_low)
-        if idx != len(group_items) - 1:
-            prog.label(next_group)
-
-
-def emit_expr(prog, expr, label_t, label_f, params, syscall):
-    eq_set = collect_or_eq_set(expr)
-    if eq_set is not None:
-        emit_or_eq_set(prog, eq_set[0], eq_set[1], label_t, label_f, params, syscall)
-        return
-
+def emit_expr(prog: Program, expr: tuple, label_t: str, label_f: str, params: set[str], syscall: str) -> None:
     if type(expr) is not tuple or not expr:
         raise ValueError(f"unsupported expression {expr}")
 
@@ -549,9 +504,9 @@ def emit_expr(prog, expr, label_t, label_f, params, syscall):
         raise ValueError(f"unknown operator {op}")
 
 
-def compile_policy(entries, params):
+def compile_policy(entries: list[tuple[int, tuple[str, str | None]]], params: set[str]) -> Program:
     prog = Program()
-    checked = []
+    checked : list[tuple] = []
     seen = set()
 
     prog.load_abs("( offsetof( struct seccomp_data, arch ) )", "validate architecture")
@@ -600,21 +555,21 @@ def compile_policy(entries, params):
     return prog
 
 
-def header_guard(rel_dst):
+def header_guard(rel_dst: str) -> str:
     child = rel_dst.replace("/", "_").replace(".", "_")
     return f"HEADER_fd_{child}"
 
 
-def util_include_path(rel_dst):
+def util_include_path(rel_dst: str) -> str:
     return os.path.join(*([".."] * rel_dst.count("/")), "src/util/fd_util_base.h")
 
 
-def write_lines(out, lines):
+def write_lines(out: TextIO, lines: list[str]) -> None:
     out.write("\n".join(lines))
     out.write("\n")
 
 
-def render_header(out, src_path, sigline, filter_name, prog):
+def render_header(out: TextIO, src_path: str, sigline: str, filter_name: str, prog: Program) -> None:
     dst_rel = os.path.join(
         os.path.dirname(src_path), "generated", filter_name + "_seccomp.h"
     )
@@ -693,13 +648,13 @@ def render_header(out, src_path, sigline, filter_name, prog):
     )
 
 
-def output_path(src_path, filter_name):
+def output_path(src_path: str, filter_name: str) -> str:
     return os.path.join(
         os.path.dirname(src_path), "generated", filter_name + "_seccomp.h"
     )
 
 
-def main(argv):
+def main(argv: list[str]) -> None:
     if len(argv) not in (2, 3):
         die(f"usage: {argv[0]} [--stdout] path/to/policy.seccomppolicy")
 

@@ -863,7 +863,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "event"      );
     fd_topob_wksp( topo, "event_sign" );
     fd_topob_wksp( topo, "sign_event" );
-    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 132UL, 1UL );
+    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 317UL, 1UL );
     fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL, 1UL );
     fd_topob_tile( topo, "event", "event", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -1046,12 +1046,22 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, rnonce_ss_obj->id, "rnonce_ss" ) );
   }
 
+  /* node_info holds various rarely-changing config that cannot be
+     represented as simple scalar metrics */
+  fd_topo_obj_t * node_info_obj = fd_topob_obj( topo, "node_info", "replay" );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL  ) ], node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
+
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.larger_max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  if( FD_LIKELY( snapshots_enabled ) ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) FD_LOG_ERR(( "max_live_slots must be >= 32 in order to support tower rooting" ));
@@ -1351,6 +1361,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
+    tile->snapct.wait_for_peers_timeout_nanos         = (long)( config->firedancer.snapshots.wait_for_peers_timeout_seconds * (ulong)1e9 );
     tile->snapct.target_uid                           = config->uid;
     tile->snapct.target_gid                           = config->gid;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
@@ -1406,6 +1417,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+    tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwr" ) ) ) {
     tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
