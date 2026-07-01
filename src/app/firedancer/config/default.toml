@@ -495,6 +495,12 @@ telemetry = true
             block_list = []
 
 [consensus]
+    # Whether to enable Alpenglow consensus.
+    #
+    # If set to true, the validator will use Alpenglow consensus.
+    # If set to false, the validator will use TowerBFT consensus.
+    alpenglow = true
+
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
     # out any shred traffic from validators that disagree with this

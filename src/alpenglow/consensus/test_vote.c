@@ -9,7 +9,7 @@ test_basic( void ) {
   fd_aggsig_pk_t pk; fd_aggsig_sk_to_pk( &pk, &sk );
   fd_hash_t h; memset( h.uc, 0, sizeof(fd_hash_t) ); /* genesis block hash */
 
-  fd_vote_t v;
+  fd_ag_vote_t v;
 
   fd_vote_new_notar( &v, 0UL, &h, &sk, 0UL );
   FD_TEST( v.discriminant==FD_VOTE_TYPE_NOTAR );
@@ -68,7 +68,7 @@ test_payload_distinct( void ) {
    correctly and the signature survives serialization intact. */
 
 static void
-check_wire( fd_vote_t const * v, fd_aggsig_pk_t const * pk ) {
+check_wire( fd_ag_vote_t const * v, fd_aggsig_pk_t const * pk ) {
   uchar out[ FD_VOTE_SERIALIZED_MAX ];
   ulong n = fd_vote_serialize( v, out, sizeof(out) );
   FD_TEST( n>0UL );
@@ -110,7 +110,7 @@ test_serialize( void ) {
   fd_aggsig_pk_t pk; fd_aggsig_sk_to_pk( &pk, &sk );
   fd_hash_t h; for( ulong i=0UL; i<32UL; i++ ) h.uc[i] = (uchar)(0xA0u+i);
 
-  fd_vote_t v;
+  fd_ag_vote_t v;
   fd_vote_new_notar         ( &v, 12345UL, &h, &sk, 7UL     ); check_wire( &v, &pk );
   fd_vote_new_notar_fallback( &v, 99UL,    &h, &sk, 65535UL ); check_wire( &v, &pk ); /* max u16 rank */
   fd_vote_new_skip          ( &v, 42UL,        &sk, 3UL     ); check_wire( &v, &pk );

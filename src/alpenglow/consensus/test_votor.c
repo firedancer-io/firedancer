@@ -98,7 +98,7 @@ count_votes_of_type( fd_votor_out_t const * out, uint vt ) {
   return n;
 }
 
-static fd_vote_t const *
+static fd_ag_vote_t const *
 first_vote_of_type( fd_votor_out_t const * out, uint vt ) {
   for( ulong i=0UL; i<out->msg_cnt; i++ ) {
     if( out->msgs[i].discriminant==FD_CONSENSUS_MESSAGE_VOTE &&
@@ -187,7 +187,7 @@ test_notar_and_final( fd_wksp_t * wksp ) {
 
   /* expect exactly one notar vote for slot */
   FD_TEST( count_votes_of_type( &out, FD_VOTE_TYPE_NOTAR )==1 );
-  fd_vote_t const * nv = first_vote_of_type( &out, FD_VOTE_TYPE_NOTAR );
+  fd_ag_vote_t const * nv = first_vote_of_type( &out, FD_VOTE_TYPE_NOTAR );
   FD_TEST( nv && fd_vote_slot( nv )==slot );
 
   /* build a notar cert from that vote and feed CertCreated -> expect final */
@@ -201,7 +201,7 @@ test_notar_and_final( fd_wksp_t * wksp ) {
   fd_votor_handle_pool_event( v, &cc, &out );
 
   FD_TEST( count_votes_of_type( &out, FD_VOTE_TYPE_FINAL )==1 );
-  fd_vote_t const * fv = first_vote_of_type( &out, FD_VOTE_TYPE_FINAL );
+  fd_ag_vote_t const * fv = first_vote_of_type( &out, FD_VOTE_TYPE_FINAL );
   FD_TEST( fv && fd_vote_slot( fv )==slot );
   /* the cert itself is re-broadcast */
   int rebroadcast = 0;
@@ -283,7 +283,7 @@ test_safe_to_notar( fd_wksp_t * wksp ) {
   fd_votor_handle_pool_event( v, &e, &out );
 
   FD_TEST( count_votes_of_type( &out, FD_VOTE_TYPE_NOTAR_FALLBACK )==1 );
-  fd_vote_t const * nf = first_vote_of_type( &out, FD_VOTE_TYPE_NOTAR_FALLBACK );
+  fd_ag_vote_t const * nf = first_vote_of_type( &out, FD_VOTE_TYPE_NOTAR_FALLBACK );
   FD_TEST( nf && fd_vote_slot( nf )==slot );
   fd_hash_t const * bh = fd_vote_block_hash( nf );
   FD_TEST( bh && !memcmp( bh->uc, hash.uc, sizeof(fd_hash_t) ) );
@@ -314,7 +314,7 @@ test_safe_to_skip( fd_wksp_t * wksp ) {
   fd_votor_handle_pool_event( v, &e, &out );
 
   FD_TEST( count_votes_of_type( &out, FD_VOTE_TYPE_SKIP_FALLBACK )==1 );
-  fd_vote_t const * sf = first_vote_of_type( &out, FD_VOTE_TYPE_SKIP_FALLBACK );
+  fd_ag_vote_t const * sf = first_vote_of_type( &out, FD_VOTE_TYPE_SKIP_FALLBACK );
   FD_TEST( sf && fd_vote_slot( sf )==slot );
 
   fd_votor_delete( fd_votor_leave( v ) );

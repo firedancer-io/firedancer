@@ -200,7 +200,7 @@ test_finalization( fd_wksp_t * wksp ) {
   /* Gossip notar votes from validators 1..TEST_NV for the same block.  With
      unit stake this drives notar / fast-final cert thresholds. */
   for( ulong v=1UL; v<TEST_NV; v++ ) {
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_vote_new_notar( &vote, slot, &h1, &test_sk[ v ], (ushort)v );
     //ingest_vote( ctx, &vote );
     maybe_publish_finalized( ctx );
@@ -209,7 +209,7 @@ test_finalization( fd_wksp_t * wksp ) {
   /* Gossip final votes from validators 1..TEST_NV (we already final-voted via
      the CertCreated cascade when the notar cert appeared). */
   for( ulong v=1UL; v<TEST_NV; v++ ) {
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_vote_new_final( &vote, slot, &test_sk[ v ], (ushort)v );
     //ingest_vote( ctx, &vote );
     maybe_publish_finalized( ctx );

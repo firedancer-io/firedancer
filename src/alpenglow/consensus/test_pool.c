@@ -100,7 +100,7 @@ teardown_pool( fd_pool_t * pool ) {
 static void
 add_notar_votes( fd_pool_t * pool, ulong slot, fd_hash_t const * hash, ulong lo, ulong hi ) {
   for( ulong v=lo; v<hi; v++ ) {
-    fd_vote_t vote; fd_vote_new_notar( &vote, slot, hash, &g_sk[v], (ushort)v );
+    fd_ag_vote_t vote; fd_vote_new_notar( &vote, slot, hash, &g_sk[v], (ushort)v );
     fd_pool_out_t out = fresh_out();
     FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_SUCCESS );
   }
@@ -109,7 +109,7 @@ add_notar_votes( fd_pool_t * pool, ulong slot, fd_hash_t const * hash, ulong lo,
 static void
 add_notar_fallback_votes( fd_pool_t * pool, ulong slot, fd_hash_t const * hash, ulong lo, ulong hi ) {
   for( ulong v=lo; v<hi; v++ ) {
-    fd_vote_t vote; fd_vote_new_notar_fallback( &vote, slot, hash, &g_sk[v], (ushort)v );
+    fd_ag_vote_t vote; fd_vote_new_notar_fallback( &vote, slot, hash, &g_sk[v], (ushort)v );
     fd_pool_out_t out = fresh_out();
     FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_SUCCESS );
   }
@@ -118,7 +118,7 @@ add_notar_fallback_votes( fd_pool_t * pool, ulong slot, fd_hash_t const * hash, 
 static void
 add_skip_votes( fd_pool_t * pool, ulong slot, ulong lo, ulong hi ) {
   for( ulong v=lo; v<hi; v++ ) {
-    fd_vote_t vote; fd_vote_new_skip( &vote, slot, &g_sk[v], (ushort)v );
+    fd_ag_vote_t vote; fd_vote_new_skip( &vote, slot, &g_sk[v], (ushort)v );
     fd_pool_out_t out = fresh_out();
     FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_SUCCESS );
   }
@@ -127,7 +127,7 @@ add_skip_votes( fd_pool_t * pool, ulong slot, ulong lo, ulong hi ) {
 static void
 add_final_votes( fd_pool_t * pool, ulong slot, ulong lo, ulong hi ) {
   for( ulong v=lo; v<hi; v++ ) {
-    fd_vote_t vote; fd_vote_new_final( &vote, slot, &g_sk[v], (ushort)v );
+    fd_ag_vote_t vote; fd_vote_new_final( &vote, slot, &g_sk[v], (ushort)v );
     fd_pool_out_t out = fresh_out();
     FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_SUCCESS );
   }
@@ -158,7 +158,7 @@ test_handle_invalid_votes( fd_wksp_t * wksp ) {
      manufacture an invalid signature).  The wrong-key negative is deferred to
      the real-BLS step, mirroring the cert test's note. */
   fd_hash_t gh = genesis_hash();
-  fd_vote_t vote; fd_vote_new_notar( &vote, 0UL, &gh, &g_sk[0], 0UL );
+  fd_ag_vote_t vote; fd_vote_new_notar( &vote, 0UL, &gh, &g_sk[0], 0UL );
   fd_pool_out_t out = fresh_out();
   FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_SUCCESS );
 
@@ -491,11 +491,11 @@ test_duplicate_votes( fd_wksp_t * wksp ) {
   fd_hash_t gh = genesis_hash();
   ulong slot = 0UL;
 
-  fd_vote_t v1; fd_vote_new_notar( &v1, slot, &gh, &g_sk[0], 0UL );
+  fd_ag_vote_t v1; fd_vote_new_notar( &v1, slot, &gh, &g_sk[0], 0UL );
   fd_pool_out_t out = fresh_out();
   FD_TEST( fd_pool_add_vote( pool, &v1, &out, NULL )==FD_POOL_SUCCESS );
 
-  fd_vote_t v2; fd_vote_new_skip( &v2, slot, &g_sk[1], 1UL );
+  fd_ag_vote_t v2; fd_vote_new_skip( &v2, slot, &g_sk[1], 1UL );
   out = fresh_out();
   FD_TEST( fd_pool_add_vote( pool, &v2, &out, NULL )==FD_POOL_SUCCESS );
 
@@ -547,11 +547,11 @@ test_unknown_signer_votes( fd_wksp_t * wksp ) {
   ulong slot = 0UL;
 
   /* signer index == validator_cnt is out-of-bounds */
-  fd_vote_t v1; fd_vote_new_notar( &v1, slot, &gh, &g_sk[0], NV );
+  fd_ag_vote_t v1; fd_vote_new_notar( &v1, slot, &gh, &g_sk[0], NV );
   fd_pool_out_t out = fresh_out();
   FD_TEST( fd_pool_add_vote( pool, &v1, &out, NULL )==FD_POOL_ERR_UNKNOWN_SIGNER );
 
-  fd_vote_t v2; fd_vote_new_skip( &v2, slot, &g_sk[0], USHORT_MAX );
+  fd_ag_vote_t v2; fd_vote_new_skip( &v2, slot, &g_sk[0], USHORT_MAX );
   out = fresh_out();
   FD_TEST( fd_pool_add_vote( pool, &v2, &out, NULL )==FD_POOL_ERR_UNKNOWN_SIGNER );
 
@@ -573,7 +573,7 @@ test_out_of_bounds_votes( fd_wksp_t * wksp ) {
   /* dismiss old votes */
   for( ulong s=0UL; s<3UL*SLOTS_PER_WINDOW-1UL; s++ ) {
     for( ulong v=0UL; v<11UL; v++ ) {
-      fd_vote_t vote; fd_vote_new_final( &vote, s, &g_sk[v], (ushort)v );
+      fd_ag_vote_t vote; fd_vote_new_final( &vote, s, &g_sk[v], (ushort)v );
       fd_pool_out_t out = fresh_out();
       FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_ERR_SLOT_OUT_OF_BOUNDS );
     }
@@ -582,7 +582,7 @@ test_out_of_bounds_votes( fd_wksp_t * wksp ) {
   /* dismiss far-in-the-future vote */
   ulong future = 5UL*SLOTS_PER_EPOCH;
   for( ulong v=0UL; v<11UL; v++ ) {
-    fd_vote_t vote; fd_vote_new_final( &vote, future, &g_sk[v], (ushort)v );
+    fd_ag_vote_t vote; fd_vote_new_final( &vote, future, &g_sk[v], (ushort)v );
     fd_pool_out_t out = fresh_out();
     FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_ERR_SLOT_OUT_OF_BOUNDS );
   }
@@ -685,7 +685,7 @@ test_standstill_recovery( fd_wksp_t * wksp ) {
 
   fd_pool_out_t out = fresh_out();
   fd_cert_t certs[ 16 ]; ulong certs_cnt = 0UL;
-  fd_vote_t votes[ 16 ]; ulong votes_cnt = 0UL;
+  fd_ag_vote_t votes[ 16 ]; ulong votes_cnt = 0UL;
   fd_pool_recover_from_standstill( pool, &out, certs, &certs_cnt, 16UL, votes, &votes_cnt, 16UL );
 
   /* find the standstill event */
@@ -731,7 +731,7 @@ test_parent_ready_upon_finalization( fd_wksp_t * wksp ) {
   fd_pool_out_t out = fresh_out();
   /* all nodes notarize block2 -> 3 certs (notar-fallback + notar + fast-final) */
   for( ulong v=0UL; v<11UL; v++ ) {
-    fd_vote_t vote; fd_vote_new_notar( &vote, block2.slot, &block2.hash, &g_sk[v], (ushort)v );
+    fd_ag_vote_t vote; fd_vote_new_notar( &vote, block2.slot, &block2.hash, &g_sk[v], (ushort)v );
     FD_TEST( fd_pool_add_vote( pool, &vote, &out, NULL )==FD_POOL_SUCCESS );
   }
 

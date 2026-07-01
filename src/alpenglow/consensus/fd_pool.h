@@ -40,7 +40,7 @@
    parent_ready_tracker, slot_state). */
 
 #include "../fd_alpenglow_base.h"  /* Slot/Stake/ValidatorIndex, fd_block_id_t */
-#include "fd_vote.h"               /* fd_vote_t + concrete vote types          */
+#include "fd_vote.h"               /* fd_ag_vote_t + concrete vote types          */
 #include "fd_cert.h"               /* fd_cert_t + concrete cert types          */
 #include "fd_epoch_info.h"         /* fd_epoch_info_t / fd_validator_info_t    */
 #include "pool/fd_slot_state.h"    /* fd_slashable_offence_t (Slashable detail) */
@@ -171,7 +171,7 @@ fd_pool_add_cert( fd_pool_t *                       pool,
 
 int
 fd_pool_add_vote( fd_pool_t *                       pool,
-                  fd_vote_t const *                 vote,
+                  fd_ag_vote_t const *              vote,
                   fd_validator_epoch_info_t const * epoch_info,
                   fd_pool_out_t *                   out,
                   fd_slashable_offence_t *          out_offence );
@@ -203,7 +203,7 @@ void
 fd_pool_recover_from_standstill( fd_pool_t *     pool,
                                  fd_pool_out_t * out,
                                  fd_cert_t *     certs, ulong * certs_cnt, ulong certs_max,
-                                 fd_vote_t *     votes, ulong * votes_cnt, ulong votes_max );
+                                 fd_ag_vote_t *  votes, ulong * votes_cnt, ulong votes_max );
 
 /* Accessors (PoolImpl pub methods) */
 

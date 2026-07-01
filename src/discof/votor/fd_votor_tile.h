@@ -34,12 +34,20 @@
                               Echoes the replay_slot/replay_bank_idx back to
                               replay (so it can drop the bank refcount) and
                               tells replay/poh which fork to reset onto.
-   - FD_VOTOR_SIG_FINALIZED : a new (slow or fast) finalized root advanced. */
+   - FD_VOTOR_SIG_FINALIZED : consensus finalized a slot (a final / fast-final
+                              cert).  Cert-driven; fired as soon as finalization
+                              advances, independent of whether we have replayed
+                              the slot.  A notification, not a root command.
+   - FD_VOTOR_SIG_ROOTED    : the bank root advanced -- the highest slot that is
+                              BOTH finalized AND replayed (its bank is frozen).
+                              This is the "root your bank here" command for
+                              replay; it lags FINALIZED during catchup. */
 
 #define FD_VOTOR_SIG_VOTE      (0UL)
 #define FD_VOTOR_SIG_CERT      (1UL)
 #define FD_VOTOR_SIG_SLOT_DONE (2UL)
 #define FD_VOTOR_SIG_FINALIZED (3UL)
+#define FD_VOTOR_SIG_ROOTED    (4UL)
 
 /* fd_votor_slot_done_t is published once per completed replay slot.  It
    mirrors the relevant subset of fd_tower_slot_done_t: the replay slot and
@@ -54,20 +62,28 @@ struct fd_votor_slot_done {
 };
 typedef struct fd_votor_slot_done fd_votor_slot_done_t;
 
-/* fd_votor_finalized_t is published when a new slot becomes finalized
-   (slow-final or fast-final), advancing the consensus root. */
+/* fd_votor_finalized_t and fd_votor_rooted_t carry a (slot, block_id)
+   -- used for both FD_VOTOR_SIG_FINALIZED (consensus finalized the
+   slot) and FD_VOTOR_SIG_ROOTED (the bank root advanced to the slot).
+   Same shape; the sig distinguishes the meaning. */
 
 struct fd_votor_finalized {
   ulong     slot;
   fd_hash_t block_id;
 };
 typedef struct fd_votor_finalized fd_votor_finalized_t;
+struct fd_votor_rooted {
+  ulong     slot;
+  fd_hash_t block_id;
+};
+typedef struct fd_votor_rooted fd_votor_rooted_t;
 
 union fd_votor_msg {
-  fd_vote_t            vote;      /* FD_VOTOR_SIG_VOTE      */
+  fd_ag_vote_t         vote;      /* FD_VOTOR_SIG_VOTE      */
   fd_cert_t            cert;      /* FD_VOTOR_SIG_CERT      */
   fd_votor_slot_done_t slot_done; /* FD_VOTOR_SIG_SLOT_DONE */
   fd_votor_finalized_t finalized; /* FD_VOTOR_SIG_FINALIZED */
+  fd_votor_rooted_t    rooted;    /* FD_VOTOR_SIG_ROOTED    */
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 
@@ -87,7 +103,7 @@ typedef union fd_votor_msg fd_votor_msg_t;
 struct fd_votor_consensus_msg {
   uint discriminant; /* FD_VOTOR_CONSENSUS_MSG_{VOTE,CERT} */
   union {
-    fd_vote_t vote;
+    fd_ag_vote_t vote;
     fd_cert_t cert;
   } inner;
 };

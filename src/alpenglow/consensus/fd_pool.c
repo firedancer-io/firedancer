@@ -444,7 +444,7 @@ slotent_record_cert( slotent_t * e, fd_cert_t const * cert ) {
    (signer == own_id) so get_own_votes can re-broadcast it. */
 
 static void
-slotent_record_own_vote( slotent_t * e, fd_vote_t const * vote ) {
+slotent_record_own_vote( slotent_t * e, fd_ag_vote_t const * vote ) {
   sc_own_votes_t * v = &e->own_votes;
   switch( vote->discriminant ) {
   case FD_VOTE_TYPE_NOTAR:
@@ -652,7 +652,7 @@ fd_pool_add_cert( fd_pool_t *                       pool,
 
 int
 fd_pool_add_vote( fd_pool_t *                       pool,
-                  fd_vote_t const *                 vote,
+                  fd_ag_vote_t const *              vote,
                   fd_validator_epoch_info_t const * ei,
                   fd_pool_out_t *                   out,
                   fd_slashable_offence_t *          out_offence ) {
@@ -792,7 +792,7 @@ void
 fd_pool_recover_from_standstill( fd_pool_t *     pool,
                                  fd_pool_out_t * out,
                                  fd_cert_t *     certs, ulong * certs_cnt, ulong certs_max,
-                                 fd_vote_t *     votes, ulong * votes_cnt, ulong votes_max ) {
+                                 fd_ag_vote_t *  votes, ulong * votes_cnt, ulong votes_max ) {
   ulong slot = fd_pool_finalized_slot( pool );
   *certs_cnt = 0UL;
   *votes_cnt = 0UL;

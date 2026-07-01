@@ -402,6 +402,8 @@ struct fd_replay_tile {
 
   ulong                runtime_stack_seed;
   fd_runtime_stack_t * runtime_stack;
+
+  int is_alpenglow;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

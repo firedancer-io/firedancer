@@ -8,6 +8,7 @@
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
+#include "../votor/fd_votor_tile.h"
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
@@ -88,9 +89,9 @@
 #define IN_KIND_TXSEND     ( 8)
 #define IN_KIND_RPC        ( 9)
 #define IN_KIND_GOSSIP_OUT (10)
+#define IN_KIND_VOTOR      (11) /* Alpenglow rooting */
 
 #define DEBUG_LOGGING 0
-#define FD_ALPENGLOW_ENABLED 1
 
 /* The first bank that the replay tile produces either for genesis
    or the snapshot boot will always be at bank index 0. */
@@ -220,7 +221,8 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   fd_stake_weight_t * src_id_weights = next_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
   fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
-  /* Append one compressed BLS voting pubkey per staked voter, indexed
+  /* alpenglow:
+     Append one compressed BLS voting pubkey per staked voter, indexed
      1:1 with the vote stake weights, read from each voter's vote
      account.  The votor tile consumes these; other consumers ignore
      the trailing array */
@@ -296,7 +298,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  if( FD_UNLIKELY( FD_ALPENGLOW_ENABLED ) ) bank->f.tick_height = bank->f.max_tick_height - 1UL;
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) bank->f.tick_height = bank->f.max_tick_height - 1UL;
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
@@ -332,11 +334,14 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   ulong slot = bank->f.slot;
 
+  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
+
   /* HACKY: hacky way of checking if we should send a null parent block
      id */
   fd_hash_t parent_block_id = {0};
   if( FD_LIKELY( !is_initial ) ) {
-    parent_block_id = fd_banks_bank_query( ctx->banks, bank->parent_idx )->block_id;
+    parent_block_id = ctx->is_alpenglow ? fd_banks_bank_query( ctx->banks, bank->parent_idx )->block_id
+                                        : ctx->block_id_arr[ bank->parent_idx ].latest_mr;
   }
 
   fd_hash_t const * bank_hash  = &bank->f.bank_hash;
@@ -361,7 +366,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
   slot_info->block_height          = bank->f.block_height;
   slot_info->parent_slot           = bank->f.parent_slot;
-  slot_info->block_id              = bank->block_id;
+  slot_info->block_id              = ctx->is_alpenglow ? bank->block_id : block_id_ele->latest_mr;
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
@@ -394,7 +399,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
-  bank->refcnt++; /* tower_tile */
+  if( !ctx->is_alpenglow ) bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
@@ -1560,8 +1565,8 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_mr      = reasm_fec->key;
   }
 
-  /* Accumulate this FEC set's merkle root as the next leaf of the
-     block's double merkle tree. */
+  /* alpenglow: accumulate this FEC set's merkle root as the next leaf
+     of the block's double merkle tree. */
   {
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     fd_bmtree_node_t leaf[1];
@@ -2396,8 +2401,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      break; // not processing tower messages now
-
       if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
         process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
       } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
@@ -2415,6 +2418,12 @@ returnable_frag( fd_replay_tile_t *  ctx,
           .root_slot       = ULONG_MAX
         };
         process_tower_slot_done( ctx, stem, &ignored, seq );
+      }
+      break;
+    }
+    case IN_KIND_VOTOR: {
+      if( sig==FD_VOTOR_SIG_ROOTED ) {
+      } else if( sig==FD_VOTOR_SIG_SLOT_DONE ) {
       }
       break;
     }
@@ -2715,7 +2724,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "execrp_replay" ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
-    else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( !strcmp( link->name, "tower_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_TOWER; ctx->is_alpenglow = 0; }
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
@@ -2723,6 +2732,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( !strcmp( link->name, "votor_out"     ) ) { ctx->in_kind[ i ] = IN_KIND_VOTOR; ctx->is_alpenglow = 1; }
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
