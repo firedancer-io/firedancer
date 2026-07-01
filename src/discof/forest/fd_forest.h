@@ -708,6 +708,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
 #define SHRED_SRC_TURBINE   0
 #define SHRED_SRC_REPAIR    1
 #define SHRED_SRC_RECOVERED 2
+#define SHRED_SRC_LEADER    3
 
 /* fd_forest_shred_insert inserts a new shred into the forest. Assumes
    slot is already in forest, and should typically be preceded by a

@@ -1118,7 +1118,6 @@ after_frag( fd_shred_ctx_t *    ctx,
       for( int i=0; i<32; i++ ) {
         if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
           fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
-          FD_LOG_DEBUG(( "was missing: index=%u, slot=%lu, shred_idx=%u", missing->idx%32, missing->slot, missing->idx ));
 
           ulong sig = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | SHRED_SIG_SRC_RECONSTRUCTED;
 

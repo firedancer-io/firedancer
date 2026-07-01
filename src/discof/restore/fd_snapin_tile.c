@@ -19,6 +19,7 @@
 #include "../../flamenco/features/fd_feature_snoop.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../disco/events/generated/fd_event_gen.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
@@ -1527,6 +1528,7 @@ fd_topo_run_tile_t fd_tile_snapin = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = sizeof(fd_event_accdb_partition_added_t),
   .run                      = stem_run,
 };
 

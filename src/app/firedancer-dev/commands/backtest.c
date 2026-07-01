@@ -74,6 +74,10 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 1, 0 );
 
+  fd_topo_obj_t * node_info_obj = fd_topob_obj( topo, "node_info", "replay" );
+  fd_topob_tile_uses( topo, replay_tile, node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
+
   fd_topob_wksp( topo, "accdb" )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
   fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", cpu_idx++, 0, 0, 0 );
 

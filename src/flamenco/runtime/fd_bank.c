@@ -584,6 +584,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->f.tick_height              = parent_bank->f.max_tick_height;
   child_bank->f.parent_slot              = parent_bank->f.slot;
   child_bank->f.parent_signature_cnt     = parent_bank->f.signature_count;
+  child_bank->f.parent_txn_count         = parent_bank->f.parent_txn_count + parent_bank->f.txn_count;
   child_bank->f.prev_bank_hash           = parent_bank->f.bank_hash;
   child_bank->f.execution_fees           = 0UL;
   child_bank->f.priority_fees            = 0UL;

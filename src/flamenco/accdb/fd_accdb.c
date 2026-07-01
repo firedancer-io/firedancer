@@ -11,6 +11,8 @@
 #endif
 #include "../../util/racesan/fd_racesan_target.h"
 
+#include "../../disco/events/generated/fd_event_gen.h"
+
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
 #if FD_HAS_RACESAN
@@ -226,13 +228,10 @@ fd_accdb_new( void *              ljoin,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_shmem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),        max_accounts*sizeof(fd_accdb_accmeta_t)             );
-  void * _txn_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, txn_pool_align(),               txn_pool_footprint()                                    );
   void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
@@ -250,10 +249,10 @@ fd_accdb_new( void *              ljoin,
   accdb->snapshot_loading = 0;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map = _acc_map;
-  FD_TEST( txn_pool_join( accdb->txn_pool, _txn_pool_shmem, _txn_pool_ele, txn_max ) );
+  FD_TEST( txn_pool_join( accdb->txn_pool, shmem->txn_pool, _txn_pool_ele, txn_max ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
   accdb->partition_pool = partition_pool_join( _partition_pool );
   FD_TEST( accdb->partition_pool );
@@ -264,7 +263,7 @@ fd_accdb_new( void *              ljoin,
   accdb->deferred_free_dlist = deferred_free_dlist_join( _deferred_free_dlist );
   FD_TEST( accdb->deferred_free_dlist );
 
-  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, _fork_pool_shmem, _fork_pool_ele, max_live_slots ) );
+  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, shmem->fork_pool, _fork_pool_ele, max_live_slots ) );
   accdb->fork_pool = _local_fork_pool;
   for( ulong i=0UL; i<max_live_slots; i++ ) {
     fd_accdb_fork_t * fork = &accdb->fork_pool[ i ];
@@ -582,13 +581,10 @@ fd_accdb_join_readonly( void *             ljoin,
      offsets — they do not write to shmem. */
   FD_SCRATCH_ALLOC_INIT( l, shmem );
                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_shmem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                 );
-                             FD_SCRATCH_ALLOC_APPEND( l, txn_pool_align(),               txn_pool_footprint()                                    );
                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
                              FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -603,7 +599,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
-  FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
   accdb->acc_map  = _acc_map;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
@@ -615,7 +611,7 @@ fd_accdb_join_readonly( void *             ljoin,
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) accdb->compaction_dlist[ k ] = NULL;
   accdb->deferred_free_dlist = NULL;
 
-  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, _fork_pool_shmem, _fork_pool_ele, max_live_slots ) );
+  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, shmem->fork_pool, _fork_pool_ele, max_live_slots ) );
   accdb->fork_pool = _local_fork_pool;
   for( ulong i=0UL; i<max_live_slots; i++ ) {
     fd_accdb_fork_t * fork = &accdb->fork_pool[ i ];
@@ -1595,7 +1591,19 @@ change_partition( fd_accdb_t *           accdb,
     for(;;) {
       ulong cur = accdb->shmem->partition_max;
       if( FD_LIKELY( new_partition_idx+1UL<=cur ) ) break;
-      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->partition_max, cur, new_partition_idx+1UL )==cur ) ) break;
+      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->shmem->partition_max, cur, new_partition_idx+1UL )==cur ) ) {
+        fd_event_accdb_partition_added_t ev = {
+          .partition_idx        = new_partition_idx,
+          .prior_partition_idx  = had_partition ? partition_idx_before : ULONG_MAX,
+          .layer                = layer,
+          .old_partition_max    = cur,
+          .new_partition_max    = new_partition_idx+1UL,
+          .partition_sz         = accdb->shmem->partition_sz,
+          .disk_allocated_bytes = (new_partition_idx+1UL)*accdb->shmem->partition_sz,
+        };
+        fd_event_report_accdb_partition_added( &ev );
+        break;
+      }
     }
     accdb->shmem->shmetrics->disk_allocated_bytes = accdb->shmem->partition_max*accdb->shmem->partition_sz;
   }
@@ -1735,7 +1743,12 @@ background_compact( fd_accdb_t * accdb,
 
   *charge_busy = 1;
 
-  /* Mark the head partition as actively compacting. */
+  if( FD_UNLIKELY( !compact->compacting_now ) ) {
+    compact->compaction_start_wallclock    = fd_log_wallclock();
+    compact->compaction_accounts_relocated = 0UL;
+    compact->compaction_bytes_relocated    = 0UL;
+    compact->compaction_dead_records       = 0UL;
+  }
   FD_VOLATILE( compact->queued )         = 0;
   FD_VOLATILE( compact->compacting_now ) = 1;
 
@@ -1778,6 +1791,7 @@ background_compact( fd_accdb_t * accdb,
   if( FD_UNLIKELY( !accmeta ) ) {
     /* Dead record — the index entry was already removed, so this
        on-disk extent is garbage.  Nothing to relocate. */
+    compact->compaction_dead_records++;
   } else {
     ulong dest_layer  = fd_ulong_min( src_layer+1UL, FD_ACCDB_COMPACTION_LAYER_CNT-1UL );
     ulong dest_offset = allocate_next_compaction_write( accdb, record_sz, dest_layer );
@@ -1798,6 +1812,8 @@ background_compact( fd_accdb_t * accdb,
 
     accdb->shmem->shmetrics->accounts_relocated++;
     accdb->shmem->shmetrics->accounts_relocated_bytes += bytes_copied;
+    compact->compaction_accounts_relocated++;
+    compact->compaction_bytes_relocated += bytes_copied;
 
     /* Ensure the data is on disk before publishing the new offset,
        so concurrent acquire threads do not preadv2 from a location
@@ -1835,6 +1851,20 @@ background_compact( fd_accdb_t * accdb,
 
   if( FD_UNLIKELY( compact->compaction_offset>=compact->write_offset ) ) {
     FD_LOG_NOTICE(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
+
+    fd_event_accdb_compaction_completed_t ev = {
+      .partition_idx      = partition_pool_idx( accdb->partition_pool, compact ),
+      .src_layer          = (uchar)src_layer,
+      .dest_layer         = (uchar)fd_ulong_min( src_layer+1UL, FD_ACCDB_COMPACTION_LAYER_CNT-1UL ),
+      .bytes_scanned      = compact->write_offset,
+      .bytes_freed        = compact->bytes_freed,
+      .accounts_relocated = compact->compaction_accounts_relocated,
+      .bytes_relocated    = compact->compaction_bytes_relocated,
+      .dead_records       = compact->compaction_dead_records,
+      .start_time         = (ulong)compact->compaction_start_wallclock,
+      .end_time           = (ulong)fd_log_wallclock(),
+    };
+    fd_event_report_accdb_compaction_completed( &ev );
 
     /* Ensure the new acc->offset_fork stores above are visible to other
        cores before the source partition is moved to the deferred-free

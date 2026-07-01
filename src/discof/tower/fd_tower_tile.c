@@ -14,6 +14,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../discof/replay/fd_replay_tile.h"
@@ -526,6 +527,58 @@ report_slot_confirmed( ulong             bank_seq,
   fd_event_report_slot_confirmed( &ev );
 }
 
+struct block_equivocated_args {
+  ulong             slot;
+  ulong             parent_slot;
+  ulong             epoch;
+  fd_hash_t const * block_id;          /* our replayed block (or the just-replayed block) */
+  fd_hash_t const * sibling_block_id;  /* conflicting block; NULL if unknown (shred proof) */
+  fd_hash_t const * bank_hash;         /* our block's bank hash; NULL if not replayed locally */
+  fd_hash_t const * block_hash;        /* our block's last microblock hash; NULL if not replayed locally */
+  ulong             bank_seq;          /* our replayed bank seq; 0 if no local bank */
+  int               is_leader;
+  int               our_block_voted;
+  int               our_block_confirmed;
+  ulong             block_stake;       /* stake voted on our replayed block; 0 if none/unknown */
+  ulong             sibling_stake;     /* stake on the conflicting block; 0 if unknown */
+  ulong             total_stake;       /* 0 if unknown */
+  int               detection;
+};
+typedef struct block_equivocated_args block_equivocated_args_t;
+
+static ulong
+votes_stake( fd_tower_tile_t * ctx, ulong slot, fd_hash_t const * block_id ) {
+  fd_votes_blk_t * vb = fd_votes_query( ctx->votes, slot, block_id );
+  return vb ? vb->stake : 0UL;
+}
+
+static int
+our_block_confirmed( fd_tower_blk_t const * blk ) {
+  return blk && blk->confirmed && 0==memcmp( &blk->replayed_block_id, &blk->confirmed_block_id, sizeof(fd_hash_t) );
+}
+
+static void
+report_block_equivocated( block_equivocated_args_t const * a ) {
+  fd_event_block_equivocated_t ev = {
+    .slot                = a->slot,
+    .parent_slot         = a->parent_slot,
+    .epoch               = a->epoch,
+    .bank_seq            = a->bank_seq,
+    .is_leader           = a->is_leader,
+    .our_block_voted     = a->our_block_voted,
+    .our_block_confirmed = a->our_block_confirmed,
+    .block_stake         = a->block_stake,
+    .sibling_stake       = a->sibling_stake,
+    .total_stake         = a->total_stake,
+    .detection           = a->detection,
+  };
+  fd_memcpy( ev.block_id, a->block_id->uc, sizeof(fd_hash_t) );
+  if( FD_LIKELY( a->sibling_block_id ) ) fd_memcpy( ev.sibling_block_id, a->sibling_block_id->uc, sizeof(fd_hash_t) );
+  if( FD_LIKELY( a->bank_hash        ) ) fd_memcpy( ev.bank_hash,        a->bank_hash->uc,        sizeof(fd_hash_t) );
+  if( FD_LIKELY( a->block_hash       ) ) fd_memcpy( ev.block_hash,       a->block_hash->uc,       sizeof(fd_hash_t) );
+  fd_event_report_block_equivocated( &ev );
+}
+
 static void
 publish_slot_confirmed( fd_tower_tile_t * ctx,
                         ulong             slot,
@@ -565,6 +618,14 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
         FD_BASE58_ENCODE_32_BYTES( tower_blk->replayed_block_id.uc, eqvoc_blk_id );
         FD_LOG_DEBUG(( "[%s] equivocation detected via forward-confirmed block id mismatch (replayed before confirmed). slot: %lu. block_id: %s", __func__, votes_blk->key.slot, eqvoc_blk_id ));
         fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+        report_block_equivocated( &(block_equivocated_args_t){
+          .slot = votes_blk->key.slot, .parent_slot = tower_blk->parent_slot, .epoch = tower_blk->epoch,
+          .block_id = &tower_blk->replayed_block_id, .sibling_block_id = &votes_blk->key.block_id,
+          .bank_hash = &tower_blk->bank_hash, .block_hash = &tower_blk->block_hash,
+          .is_leader = tower_blk->leader, .our_block_voted = tower_blk->voted, .our_block_confirmed = our_block_confirmed( tower_blk ),
+          .block_stake = votes_stake( ctx, votes_blk->key.slot, &tower_blk->replayed_block_id ),
+          .sibling_stake = votes_blk->stake, .total_stake = total_stake,
+          .detection = FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH } );
       }
       continue;
     }
@@ -611,6 +672,15 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
           FD_BASE58_ENCODE_32_BYTES( tower_anc->replayed_block_id.uc, eqvoc_blk_id );
           FD_LOG_DEBUG(( "[%s] equivocation detected via ancestor duplicate confirmation. slot: %lu. block_id: %s", __func__, ghost_anc->slot, eqvoc_blk_id ));
           fd_ghost_eqvoc( ctx->ghost, &tower_anc->replayed_block_id );
+          report_block_equivocated( &(block_equivocated_args_t){
+            .slot = ghost_anc->slot, .parent_slot = tower_anc->parent_slot, .epoch = tower_anc->epoch,
+            .block_id = &tower_anc->replayed_block_id, .sibling_block_id = &ghost_anc->id,
+            .bank_hash = &tower_anc->bank_hash, .block_hash = &tower_anc->block_hash,
+            .bank_seq = 0UL,
+            .is_leader = tower_anc->leader, .our_block_voted = tower_anc->voted, .our_block_confirmed = our_block_confirmed( tower_anc ),
+            .block_stake = votes_stake( ctx, ghost_anc->slot, &tower_anc->replayed_block_id ),
+            .sibling_stake = votes_anc->stake, .total_stake = total_stake,
+            .detection = FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH } );
         }
       }
 
@@ -725,6 +795,13 @@ publish_slot_duplicate( fd_tower_tile_t *                ctx,
     FD_BASE58_ENCODE_32_BYTES( tower_blk->replayed_block_id.uc, eqvoc_blk_id );
     FD_LOG_DEBUG(( "[%s] equivocation detected via duplicate shred proof. slot: %lu. block_id: %s", __func__, slot, eqvoc_blk_id ));
     fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+    report_block_equivocated( &(block_equivocated_args_t){
+      .slot = slot, .parent_slot = tower_blk->parent_slot, .epoch = tower_blk->epoch,
+      .block_id = &tower_blk->replayed_block_id, .sibling_block_id = NULL /* unknown */,
+      .bank_hash = &tower_blk->bank_hash, .block_hash = &tower_blk->block_hash,
+      .is_leader = tower_blk->leader, .our_block_voted = tower_blk->voted, .our_block_confirmed = our_block_confirmed( tower_blk ),
+      .block_stake = votes_stake( ctx, slot, &tower_blk->replayed_block_id ),
+      .detection = FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF } );
   }
 }
 
@@ -1213,6 +1290,16 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     FD_BASE58_ENCODE_32_BYTES( eqvoc_tower_blk->replayed_block_id.uc, eqvoc_blk_id );
     FD_LOG_DEBUG(( "[%s] equivocation detected via duplicate replay. slot: %lu. block_id: %s", __func__, slot_completed->slot, eqvoc_blk_id ));
     fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
+    report_block_equivocated( &(block_equivocated_args_t){
+      .slot = slot_completed->slot, .parent_slot = eqvoc_tower_blk->parent_slot, .epoch = eqvoc_tower_blk->epoch,
+      .block_id = &eqvoc_tower_blk->replayed_block_id, .sibling_block_id = &slot_completed->block_id,
+      .bank_hash = &eqvoc_tower_blk->bank_hash, .block_hash = &eqvoc_tower_blk->block_hash,
+      .bank_seq = 0UL, .is_leader = eqvoc_tower_blk->leader,
+      .our_block_voted = eqvoc_tower_blk->voted, .our_block_confirmed = our_block_confirmed( eqvoc_tower_blk ),
+      .block_stake   = votes_stake( ctx, slot_completed->slot, &eqvoc_tower_blk->replayed_block_id ),
+      .sibling_stake = votes_stake( ctx, slot_completed->slot, &slot_completed->block_id ),
+      .total_stake   = ghost_blk->total_stake,
+      .detection = FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY } );
 
     eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
     eqvoc_tower_blk->bank_hash         = slot_completed->bank_hash;
@@ -1271,6 +1358,15 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
         FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, eqvoc_blk_id );
         FD_LOG_DEBUG(( "[%s] equivocation detected via forward-confirmed block id mismatch (confirmed before replayed). slot: %lu. block_id: %s", __func__, slot_completed->slot, eqvoc_blk_id ));
         fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
+        report_block_equivocated( &(block_equivocated_args_t){
+          .slot = slot_completed->slot, .parent_slot = slot_completed->parent_slot, .epoch = slot_completed->epoch,
+          .block_id = &slot_completed->block_id, .sibling_block_id = &fwd_votes_blk->key.block_id,
+          .bank_hash = &slot_completed->bank_hash, .block_hash = &slot_completed->block_hash,
+          .bank_seq = slot_completed->bank_seq, .is_leader = slot_completed->is_leader,
+          .our_block_confirmed = 0,
+          .block_stake = votes_stake( ctx, slot_completed->slot, &slot_completed->block_id ),
+          .sibling_stake = fwd_votes_blk->stake,
+          .detection = FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_CONFIRM_MISMATCH } );
       }
 
     } else if( FD_UNLIKELY( fd_eqvoc_proof_verified( ctx->eqvoc, slot_completed->slot ) ) ) {
@@ -1281,6 +1377,13 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, eqvoc_blk_id );
       FD_LOG_DEBUG(( "[%s] equivocation detected via eqvoc shred proof before replay. slot: %lu. block_id: %s", __func__, slot_completed->slot, eqvoc_blk_id ));
       fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
+      report_block_equivocated( &(block_equivocated_args_t){
+        .slot = slot_completed->slot, .parent_slot = slot_completed->parent_slot, .epoch = slot_completed->epoch,
+        .block_id = &slot_completed->block_id, .sibling_block_id = NULL /* unknown */,
+        .bank_hash = &slot_completed->bank_hash, .block_hash = &slot_completed->block_hash,
+        .bank_seq = slot_completed->bank_seq, .is_leader = slot_completed->is_leader,
+        .block_stake = votes_stake( ctx, slot_completed->slot, &slot_completed->block_id ),
+        .detection = FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_SHRED_PROOF } );
     }
   }
 
@@ -1772,6 +1875,12 @@ privileged_init( fd_topo_t const *      topo,
     ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
   }
 
+  ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX ); FD_TEST( node_info_obj_id!=ULONG_MAX );
+  fd_node_info_box_t * node_info = fd_node_info_box_join( fd_topo_obj_laddr( topo, node_info_obj_id ) );  FD_TEST( node_info );
+  fd_node_info_write_begin( node_info );
+  node_info->info.vote_account = *ctx->vote_account;
+  fd_node_info_write_end( node_info );
+
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
     fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) );
@@ -1902,7 +2011,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_tower = {
   .name                     = "tower",
-  .max_event_sz             = sizeof(fd_event_slot_confirmed_t),
+  .max_event_sz             = sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_block_equivocated_t) ?
+                              sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_block_equivocated_t),
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

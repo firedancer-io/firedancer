@@ -991,6 +991,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">replay_&#8203;identity_&#8203;balance_&#8203;lamports</span> | gauge | Identity account balance at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Our vote account epoch credits at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquired</span> | counter | Store slock acquires for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;released</span> | counter | Store slock releases for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;wait_&#8203;seconds</span> | histogram | Time spent waiting to acquire the slock for query |

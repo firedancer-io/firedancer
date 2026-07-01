@@ -98,13 +98,10 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
-  l = FD_LAYOUT_APPEND( l, fork_pool_align(),        fork_pool_footprint()                                   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
   l = FD_LAYOUT_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
-  l = FD_LAYOUT_APPEND( l, acc_pool_align(),         acc_pool_footprint()                                    );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_accmeta_t), max_accounts*sizeof(fd_accdb_accmeta_t)              );
-  l = FD_LAYOUT_APPEND( l, txn_pool_align(),         txn_pool_footprint()                                    );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
   l = FD_LAYOUT_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
@@ -271,13 +268,10 @@ fd_accdb_shmem_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_accdb_shmem_t * accdb = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
-  void * _fork_pool_shmem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                             );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
   void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),     max_live_slots*descends_set_footprint( max_live_slots ) );
   void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            chain_cnt*sizeof(uint)                                  );
-  void * _acc_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),         acc_pool_footprint()                                    );
   void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t), max_accounts*sizeof(fd_accdb_accmeta_t)                     );
-  void * _txn_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, txn_pool_align(),         txn_pool_footprint()                                    );
   void * _txn_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),  txn_max*sizeof(fd_accdb_txn_t)                          );
   void * _partition_pool   = FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),   partition_pool_footprint( partition_cnt )               );
   void * _compaction_dlists[ FD_ACCDB_COMPACTION_LAYER_CNT ];
@@ -293,15 +287,15 @@ fd_accdb_shmem_new( void * shmem,
 
   fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );
 
-  FD_TEST( acc_pool_new( _acc_pool_shmem ) );
+  FD_TEST( acc_pool_new( accdb->acc_pool ) );
   acc_pool_t _acc_pool_join[1];
-  FD_TEST( acc_pool_join( _acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
+  FD_TEST( acc_pool_join( _acc_pool_join, accdb->acc_pool, _acc_pool_ele, max_accounts ) );
   acc_pool_reset( _acc_pool_join );
   acc_pool_leave( _acc_pool_join );
 
-  FD_TEST( fork_pool_new( _fork_pool_shmem ) );
+  FD_TEST( fork_pool_new( accdb->fork_pool ) );
   fork_pool_t _fork_pool_join[1];
-  FD_TEST( fork_pool_join( _fork_pool_join, _fork_pool_shmem, _fork_pool_ele, max_live_slots ) );
+  FD_TEST( fork_pool_join( _fork_pool_join, accdb->fork_pool, _fork_pool_ele, max_live_slots ) );
   fork_pool_reset( _fork_pool_join );
   fork_pool_leave( _fork_pool_join );
 
@@ -311,9 +305,9 @@ fd_accdb_shmem_new( void * shmem,
     FD_TEST( descends_set );
   }
 
-  FD_TEST( txn_pool_new( _txn_pool_shmem ) );
+  FD_TEST( txn_pool_new( accdb->txn_pool ) );
   txn_pool_t _txn_pool_join[1];
-  FD_TEST( txn_pool_join( _txn_pool_join, _txn_pool_shmem, _txn_pool_ele, txn_max ) );
+  FD_TEST( txn_pool_join( _txn_pool_join, accdb->txn_pool, _txn_pool_ele, txn_max ) );
   txn_pool_reset( _txn_pool_join );
   txn_pool_leave( _txn_pool_join );
 
