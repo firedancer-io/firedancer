@@ -332,7 +332,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
 
   ctx->metrics.slots_total++;
-  ctx->metrics.transactions_total = bank->f.txn_count;
+  ctx->metrics.transactions_total = bank->f.parent_txn_count + bank->f.txn_count;
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
@@ -347,7 +347,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-  slot_info->transaction_count     = bank->f.txn_count;
+  slot_info->transaction_count     = bank->f.parent_txn_count + bank->f.txn_count;
 
   fd_inflation_t inflation = bank->f.inflation;
   slot_info->inflation.foundation      = inflation.foundation;

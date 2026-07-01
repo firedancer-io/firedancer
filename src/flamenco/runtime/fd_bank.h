@@ -297,6 +297,7 @@ struct fd_bank {
     ulong                  parent_slot;
     ulong                  capitalization;
     ulong                  parent_signature_cnt;
+    ulong                  parent_txn_count; /* cumulative txn_count of all ancestors */
     ulong                  tick_height;
     ulong                  max_tick_height;
     ulong                  hashes_per_tick;
