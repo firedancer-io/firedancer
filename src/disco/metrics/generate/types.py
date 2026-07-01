@@ -12,6 +12,8 @@ class Tile(Enum):
     SNAPIN = 6
     SNAPWR = 7
 
+    ADMIN = 8
+
     NETLNK = 14
     NET = 15
     SOCK = 16

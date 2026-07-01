@@ -7,6 +7,8 @@
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 
+#include "../../discof/admin/fd_adminctl.h"
+
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
   if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
@@ -74,32 +76,33 @@ fd_topo_obj_callbacks_t fd_obj_cb_progcache = {
   .new       = progcache_new,
 };
 
-/* cnc: a tile admin message queue */
+/* adminctl: admin tile command channel */
 
 static ulong
-cnc_align( fd_topo_t const *     topo,
-           fd_topo_obj_t const * obj ) {
+adminctl_align( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
   (void)topo; (void)obj;
-  return fd_cnc_align();
+  return fd_adminctl_align();
 }
 
 static ulong
-cnc_footprint( fd_topo_t const *     topo,
-               fd_topo_obj_t const * obj ) {
-  return fd_cnc_footprint( VAL("app_sz") );
+adminctl_footprint( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_adminctl_footprint();
 }
 
 static void
-cnc_new( fd_topo_t const *     topo,
-         fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_cnc_new( fd_topo_obj_laddr( topo, obj->id ), VAL("app_sz"), VAL("type"), fd_log_wallclock() ) );
+adminctl_new( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_adminctl_new( fd_topo_obj_laddr( topo, obj->id ) ) );
 }
 
-fd_topo_obj_callbacks_t fd_obj_cb_cnc = {
-  .name      = "cnc",
-  .footprint = cnc_footprint,
-  .align     = cnc_align,
-  .new       = cnc_new,
+fd_topo_obj_callbacks_t fd_obj_cb_adminctl = {
+  .name      = "adminctl",
+  .footprint = adminctl_footprint,
+  .align     = adminctl_align,
+  .new       = adminctl_new,
 };
 
 static ulong
