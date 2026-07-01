@@ -261,3 +261,17 @@ fd_curve25519_affine_dbln( fd_ed25519_point_t *       r,
   fd_ed25519_point_dbln( r, a, n );
   return fd_curve25519_into_affine( r );
 }
+
+fd_ed25519_point_t *
+fd_ed25519_point_add_precomputed( fd_ed25519_point_t *       r,
+                                  fd_ed25519_point_t const * a,
+                                  fd_ed25519_point_t const * b ) {
+  return fd_ed25519_point_add_with_opts( r, a, b, 0, 1, 0 );
+}
+
+fd_ed25519_point_t *
+fd_ed25519_point_sub_precomputed( fd_ed25519_point_t *       r,
+                                  fd_ed25519_point_t const * a,
+                                  fd_ed25519_point_t const * b ) {
+  return fd_ed25519_point_sub_with_opts( r, a, b, 0, 1, 0 );
+}

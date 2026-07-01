@@ -1,6 +1,8 @@
 #include "fd_ed25519.h"
 #include "fd_curve25519.h"
 
+#include "fd_ed25519_heea.c"
+
 uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
                                 uchar const   private_key[ static 32 ],
@@ -209,24 +211,34 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
   //  3.  Check the group equation [8][S]B = [8]R + [8][k]A'.  It's
   //      sufficient, but not required, to instead check [S]B = R + [k]A'.
 
-  /* Compute R = [k](-A') + [S]B, with B base point.
-     Note: this is not the same as R = [-k]A' + [S]B, because the order
-     of A' is 8l (computing -k mod 8l would work). */
-  fd_ed25519_point_t Rcmp[1];
-  fd_ed25519_point_neg( Aprime, Aprime );
-  fd_ed25519_double_scalar_mul_base( Rcmp, k, Aprime, S );
+  /* Compute R = [k](-A') + [S]B, with B as the base point.
+     Note: this is not the same as R = [-k]A' + [S]B, as the order
+     of A' is 8l (computing -k mod 8l would work).
 
-  /* Compare R (computed) and R from signature.
-     Note: many implementations do this comparison by compressing Rcmd,
-     and compare it against the r buf as it appears in the signature.
-     This implicitly prevents non-canonical R.
-     However this also hides a field inv to compress Rcmp.
-     In our implementation we compare the points (see the comment
-     above on "Check public key and point r" for details). */
-  if( FD_LIKELY( fd_ed25519_point_eq_z1( Rcmp, R ) ) ) {
-    return FD_ED25519_SUCCESS;
-  }
-  return FD_ED25519_ERR_MSG;
+     We can speedup this verification by splitting k up into a
+     rho and tau, such that rho \equiv tau * k (mod l). In the case
+     when we instead find rho \equiv -tau * k (mod l), we can make
+     up for it by negating A' again.
+
+     We end up with the verification equation:
+      [-tau][S]B + [tau]R + [rho]A = 0 */
+  uchar rho[32];
+  uchar tau[32];
+  int flip_h = fd_ed25519_heea_decompose( rho, tau, k );
+
+  uchar tau_s[32];
+  uchar neg_tau_s[32];
+  fd_curve25519_scalar_mul( tau_s, tau, S );
+  fd_curve25519_scalar_neg( neg_tau_s, tau_s );
+
+  fd_ed25519_point_t A_signed[1];
+  if( flip_h ) fd_ed25519_point_neg( A_signed, Aprime );
+  else         fd_ed25519_point_set( A_signed, Aprime );
+
+  fd_ed25519_point_t check[1];
+  fd_ed25519_heea_triple_mul( check, tau, R, rho, A_signed, neg_tau_s );
+
+  return fd_ed25519_point_is_zero( check ) ? FD_ED25519_SUCCESS : FD_ED25519_ERR_MSG;
 }
 
 int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
@@ -299,7 +311,7 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
 
     fd_ed25519_point_neg( &Aprime[j], &Aprime[j] );
     fd_ed25519_double_scalar_mul_base( res, &k[32*j], &Aprime[j], S );
-    if( FD_UNLIKELY( !fd_ed25519_point_eq_z1( res, &R[j] ) ) ) {
+    if( FD_UNLIKELY( !fd_ed25519_point_affine_eq( res, &R[j] ) ) ) {
       return FD_ED25519_ERR_MSG;
     }
 

@@ -151,15 +151,6 @@ fd_f25519_is_nonzero( fd_f25519_t const * a ) {
   return !fd_f25519_is_zero( a );
 }
 
-/* fd_f25519_sgn returns the sign of a (lsb). */
-FD_25519_INLINE int
-fd_f25519_sgn( fd_f25519_t const * a ) {
-  //TODO: make it faster (unless inlining already optimizes out unnecessary code)
-  uchar buf[32];
-  fd_f25519_tobytes( buf, a );
-  return buf[0] & 1;
-}
-
 /* fd_f25519_abs sets r = |a|. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_abs( fd_f25519_t *       r,

@@ -212,7 +212,7 @@ fd_curve25519_scalar_batch_inv( uchar       s     [ 32 ], /* sz scalars */
 void
 fd_curve25519_scalar_wnaf( short       slides[ 256 ], /* 256-entry */
                            uchar const n[ 32 ],       /* 32-byte, assumes valid scalar */
-                           int         bits );               /* range: [1:12], 1 = NAF */
+                           int         bits );        /* range: [1:12], 1 = NAF */
 
 FD_PROTOTYPES_END
 

@@ -277,7 +277,7 @@ fd_curve25519_scalar_muladd( uchar       s[ 32 ],
 void FD_FN_NO_ASAN
 fd_curve25519_scalar_wnaf( short       _t[ 256 ], /* 256-entry */
                            uchar const _vs[ 32 ], /* 32-byte, assumes valid scalar */
-                           int         bits ) {          /* range: [1:12], 1 = NAF */
+                           int         bits ) {   /* range: [1:12], 1 = NAF */
   short max = (short)((1 << bits) - 1);
   uchar const * _s = (uchar const *)_vs;
 
