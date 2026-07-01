@@ -223,7 +223,7 @@
   {"name":"snapshots_lt_hash","pubkey":"LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"reserve_minimal_cus_for_builtin_instructions","pubkey":"C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"raise_block_limits_to_50m","pubkey":"5oMCU3JPaFLr8Zr4ct7yFA7jdk6Mw1RmB8K4u9ZbS42z","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"raise_block_limits_to_60m","pubkey":"6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu"},
+  {"name":"raise_block_limits_to_60m","pubkey":"6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"raise_block_limits_to_100m","pubkey":"P1BCUMpAC7V2GRBRiJCNUgpMyWZhoqt3LKo712ePqsz"},
   {"name":"move_precompile_verification_to_svm","pubkey":"9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_transaction_loading_failure_fees","pubkey":"PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP","cleaned_up":1,"hardcode_for_fuzzing":1},
@@ -275,5 +275,9 @@
   {"name":"commission_rate_in_basis_points","pubkey":"Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj"},
   {"name":"loader_v3_minimum_extend_program_size","pubkey":"YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5"},
   {"name":"define_ltds_fee_only_semantics","pubkey":"LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD"},
-  {"name":"validate_chained_block_id_2","pubkey":"vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA"}
+  {"name":"validate_chained_block_id_2","pubkey":"vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA"},
+  {"name":"reduce_slot_time_to_350ms","pubkey":"iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ"},
+  {"name":"reduce_slot_time_to_300ms","pubkey":"iBRLL3k18HST852F1Mf3Lv83waTNQmmqvKDxvYGwQFL"},
+  {"name":"reduce_slot_time_to_250ms","pubkey":"iBRLMc81UjRa8fn8A6eE8bJTnRbgQoPTynM51akENCV"},
+  {"name":"reduce_slot_time_to_200ms","pubkey":"iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW"}
 ]

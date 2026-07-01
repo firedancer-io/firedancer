@@ -194,7 +194,6 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       RESOLVER_COMPLETE_DEPTH,
       RESOLVER_DONE_DEPTH,
       resolver_sets,
-      FD_SHRED_BLK_MAX,
       0UL ) );
   FD_TEST( resolver );
 
@@ -266,6 +265,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       resolver,
       shred,
       shred_msg->size,
+      FD_SHRED_BLK_MAX,
       0,
       dummy_leader_pubkey.uc,
       &out_fec_set,

@@ -559,6 +559,11 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
 
   fd_compute_and_apply_new_feature_activations( bank, accdb, runtime_stack, capture_ctx );
 
+  bank->f.slot_params = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
+                                                &bank->f.features,
+                                                &bank->f.epoch_schedule,
+                                                bank->f.slot );
+
   /* Update the cached warmup/cooldown rate epoch now that features may
      have changed (reduce_stake_warmup_cooldown may have just activated). */
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule,
@@ -742,7 +747,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   if( FD_LIKELY( bank->f.slot ) ) {
     fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
     FD_TEST( cost_tracker );
-    fd_cost_tracker_init( cost_tracker, &bank->f.features, bank->f.slot );
+    fd_cost_tracker_init( cost_tracker, &bank->f.features, &bank->f.slot_params, bank->f.slot );
   }
 
   fd_features_prepopulate_upcoming( bank, accdb );
@@ -1367,11 +1372,16 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   fee_rate_governor->burn_percent                  = genesis->fee_rate_governor.burn_percent;
 
   bank->f.max_tick_height = genesis->poh.ticks_per_slot * (bank->f.slot + 1);
-  bank->f.hashes_per_tick = genesis->poh.hashes_per_tick;
-  bank->f.ns_per_slot = (fd_w_u128_t) { .ud=target_tick_duration * genesis->poh.ticks_per_slot };
+
+  bank->f.slot_params                 = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.ns_per_slot     = (ulong)( target_tick_duration * genesis->poh.ticks_per_slot );
+  bank->f.slot_params.slots_per_year  = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
+  bank->f.slot_params.hashes_per_tick = genesis->poh.hashes_per_tick;
+  fd_bank_slot_params_set_default( bank, bank->f.slot_params );
+
   bank->f.ticks_per_slot = genesis->poh.ticks_per_slot;
   bank->f.genesis_creation_time = genesis->creation_time;
-  bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
+
   bank->f.signature_count = 0UL;
 
   /* Derive epoch stakes */
@@ -1470,7 +1480,7 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
                                   fd_accdb_t *         accdb,
                                   fd_capture_ctx_t *   capture_ctx,
                                   fd_runtime_stack_t * runtime_stack ) {
-  fd_sha256_hash_32_repeated( bank->f.poh.hash, bank->f.poh.hash, bank->f.hashes_per_tick * bank->f.ticks_per_slot );
+  fd_sha256_hash_32_repeated( bank->f.poh.hash, bank->f.poh.hash, bank->f.slot_params.hashes_per_tick * bank->f.ticks_per_slot );
 
   bank->f.execution_fees = 0UL;
   bank->f.priority_fees = 0UL;

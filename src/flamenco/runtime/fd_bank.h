@@ -11,6 +11,7 @@
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
 #include "fd_cost_tracker.h"
+#include "fd_slot_params.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
@@ -300,11 +301,8 @@ struct fd_bank {
     ulong                  parent_txn_count; /* cumulative txn_count of all ancestors */
     ulong                  tick_height;
     ulong                  max_tick_height;
-    ulong                  hashes_per_tick;
-    fd_w_u128_t            ns_per_slot;
     ulong                  ticks_per_slot;
     ulong                  genesis_creation_time;
-    double                 slots_per_year;
     fd_inflation_t         inflation;
     ulong                  cluster_type;
     ulong                  total_epoch_stake; /* total staked to active vote accounts */
@@ -334,6 +332,7 @@ struct fd_bank {
     ulong                  shred_cnt;
     ulong                  epoch;
     ulong                  identity_vote_idx;
+    fd_slot_params_t       slot_params; /* parameters that need to change with the reduce_slot_time feature gates */
   } f;
 
   uchar top_votes_t_1_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
@@ -356,6 +355,13 @@ fd_bank_vote_stakes( fd_bank_t const * bank );
 
 fd_new_votes_t *
 fd_bank_new_votes( fd_bank_t const * bank );
+
+fd_slot_params_t const *
+fd_bank_slot_params_get_default( fd_bank_t const * bank );
+
+void
+fd_bank_slot_params_set_default( fd_bank_t const * bank,
+                                 fd_slot_params_t  slot_params );
 
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
@@ -392,6 +398,11 @@ struct fd_banks {
   ulong max_vote_accounts;  /* Maximum number of vote accounts */
   ulong root_idx;           /* root idx */
   ulong bank_seq;           /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
+
+  /* The default slot parameters used if no reduce_slot_time feature
+     gates are active. These depend on genesis, and typically vary for
+     local/test clusters. */
+  fd_slot_params_t slot_params_default;
 
   ulong pool_offset;        /* offset of pool from banks */
 

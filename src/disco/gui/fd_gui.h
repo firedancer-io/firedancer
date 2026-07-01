@@ -977,6 +977,7 @@ struct fd_gui {
 
       ulong start_slot;
       ulong end_slot;
+      ulong target_slot_duration_nanos; /* slot duration the feature gates target for this epoch (SIMD-525) */
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];

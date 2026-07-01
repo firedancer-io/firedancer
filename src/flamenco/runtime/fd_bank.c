@@ -110,6 +110,19 @@ fd_bank_vote_stakes( fd_bank_t const * bank ) {
   return fd_banks_get_vote_stakes( banks_data );
 }
 
+fd_slot_params_t const *
+fd_bank_slot_params_get_default( fd_bank_t const * bank ) {
+  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  return &banks_data->slot_params_default;
+}
+
+void
+fd_bank_slot_params_set_default( fd_bank_t const * bank,
+                                 fd_slot_params_t  slot_params ) {
+  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  banks_data->slot_params_default = slot_params;
+}
+
 fd_new_votes_t *
 fd_bank_new_votes( fd_bank_t const * bank ) {
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
@@ -597,6 +610,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->f.failed_txn_count         = 0UL;
   child_bank->f.nonvote_failed_txn_count = 0UL;
   child_bank->f.identity_vote_idx        = ULONG_MAX;
+  child_bank->f.slot_params              = parent_bank->f.slot_params;
 
   child_bank->state = FD_BANK_STATE_REPLAYABLE;
 

@@ -739,7 +739,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->capitalization = parent_bank->f.capitalization;
 
   /* BlockBank -> ns_per_slot */
-  fd_w_u128_t ns_per_slot = bank->f.ns_per_slot;
+  fd_w_u128_t ns_per_slot = { .ud = bank->f.slot_params.ns_per_slot };
   fd_memcpy( block_bank->ns_per_slot, &ns_per_slot.ud, sizeof(uint128) );
 
   /* BlockBank -> inflation */

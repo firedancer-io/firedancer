@@ -154,7 +154,6 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ulong                     max_shred_idx,
                      ulong                     seed );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
@@ -171,6 +170,7 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version );
+
 
 /* fd_fec_resolver_set_bypass_verify configures whether Merkle proof and
    leader signature verification are bypassed in add_shred.  This is
@@ -223,8 +223,12 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    into its own storage.  resolver is a local join of an FEC resolver.
    shred is a pointer to the new shred that should be added.  The shred
    must have passed the shred parsing validation.  shred_sz is the size
-   of the shred in bytes.  If is_repair is non-zero, some validity
-   checks will be omitted, as detailed below.  leader_pubkey must be a
+   of the shred in bytes.  max_shred_idx is the exclusive upper bound for
+   shred indices in shred->slot (it changes with the reduce_slot_time
+   feature gates, SIMD-525): the FEC resolver rejects any shred with an
+   index >= max_shred_idx, or that is part of an FEC set whose highest
+   shred index would reach the bound.  If is_repair is non-zero, some
+   validity checks will be omitted, as detailed below.  leader_pubkey must be a
    pointer to the first byte of the public identity key of the validator
    that was leader during slot shred->slot.
 
@@ -299,6 +303,7 @@ int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,
                            ulong                       shred_sz,
+                           ulong                       max_shred_idx,
                            int                         is_repair,
                            uchar const               * leader_pubkey,
                            fd_fec_set_t const      * * out_fec_set,

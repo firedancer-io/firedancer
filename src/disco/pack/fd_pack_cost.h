@@ -193,7 +193,7 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
    anticipated value while the lower bound should be the current active
    limit. For Frankendancer, the actual value used for consensus will be
    retrieved from Agave at runtime. */
-#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
+#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (30000000UL)
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
 

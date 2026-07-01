@@ -207,6 +207,10 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( schedule, epoch );
+  epoch_info_msg->ns_per_slot       = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
+                                                              features,
+                                                              schedule,
+                                                              epoch_info_msg->start_slot ).ns_per_slot;
   epoch_info_msg->excluded_id_stake = next_epoch ? runtime_stack->epoch_weights.next_id_weights_excluded : runtime_stack->epoch_weights.id_weights_excluded;
 
   fd_vote_stake_weight_t * stake_weights = fd_type_pun( epoch_info_msg + 1 );
@@ -277,7 +281,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
+  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -856,7 +860,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
-  msg->hashcnt_per_tick    = bank->f.hashes_per_tick;
+  msg->hashcnt_per_tick    = bank->f.slot_params.hashes_per_tick;
   msg->tick_duration_ns    = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
   msg->bundle->config[0]   = config[0];
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
@@ -875,9 +879,11 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
-  msg->limits.slot_max_cost = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
-  msg->limits.slot_max_vote_cost = cost_tracker->vote_cost_limit;
-  msg->limits.slot_max_write_cost_per_acct = cost_tracker->account_cost_limit;
+  msg->limits.slot_max_cost                     = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
+  msg->limits.slot_max_vote_cost                = cost_tracker->vote_cost_limit;
+  msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
+  msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
+  msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
 
   if( FD_UNLIKELY( msg->ticks_per_slot+msg->total_skipped_ticks>USHORT_MAX ) ) {
     /* There can be at most USHORT_MAX skipped ticks, because the
@@ -914,6 +920,54 @@ process_poh_message( fd_replay_tile_t *                 ctx,
   ctx->recv_poh = 1;
 }
 
+/* Determine the default slot params to use for slots where no
+   reduce_slot_time feature gate is in effect. This is important for
+   the inflation calculations, which use the slot times for
+   historical slots as input. Therefore we need the same semantics
+   as Agave, even after the reduce_slot_time feature gates are active.
+
+   TODO: We do not yet support test clusters where a slot time
+   reduction is in effect and the genesis slot params are not 400ms.
+   To suppport these clusters we need to plumb through the genesis
+   config values during snapshot load. */
+static fd_slot_params_t
+restore_default_slot_params( fd_bank_t const * bank ) {
+
+  /* A reduction is effective if the effective ns_per_slot is less than
+     the 400ms value.
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L332-L350 */
+  int reduction_effective = fd_slot_params_at_slot( &FD_SLOT_PARAMS_400MS,
+                                                    &bank->f.features,
+                                                    &bank->f.epoch_schedule,
+                                                    bank->f.slot ).ns_per_slot < FD_SLOT_PARAMS_400MS.ns_per_slot;
+
+  /* In order to behave correctly in real networks, if a reduction is
+     effective then we use the 400ms slot params as the default. */
+  if( reduction_effective ) {
+    return FD_SLOT_PARAMS_400MS;
+  }
+
+  /* If a reduction is not effective, then we can rely on the slot
+     times having remained constant throughout the lifetime of the
+     cluster, and can use the slot params from the manifest. Note that
+     in test clusters these may differ from the 400ms values. */
+  return bank->f.slot_params;
+}
+
+/* TODO: potentially adjust this based on shorter slot times? A
+   consistent 50ms headroom is what Anza uses, so to be consistent we
+   have used the same.
+
+   We need to look at some data to pick a good value for this. */
+#define FD_REPLAY_LEADER_SLOT_HEADROOM_NS (50.0*1e6)
+
+static inline void
+set_slot_duration( fd_replay_tile_t * ctx, fd_bank_t const *  bank ) {
+  double duration          = (double)bank->f.slot_params.ns_per_slot - FD_REPLAY_LEADER_SLOT_HEADROOM_NS;
+  ctx->slot_duration_nanos = duration>0.0 ? duration : 0.0;
+  ctx->slot_duration_ticks = ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
+}
+
 static void
 publish_reset( fd_replay_tile_t *  ctx,
                fd_stem_context_t * stem,
@@ -928,7 +982,7 @@ publish_reset( fd_replay_tile_t *  ctx,
   reset->bank_idx         = bank->idx;
   reset->timestamp        = fd_log_wallclock();
   reset->completed_slot   = bank->f.slot;
-  reset->hashcnt_per_tick = bank->f.hashes_per_tick;
+  reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
   reset->ticks_per_slot   = bank->f.ticks_per_slot;
   reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
   fd_memcpy( reset->completed_block_id, ctx->reset_block_id.uc, sizeof(fd_hash_t) );
@@ -1000,6 +1054,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
   init_after_snapshot( ctx, stem );
+  set_slot_duration( ctx, bank );
 
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, 0UL );
@@ -1122,6 +1177,23 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        possible solution is to get the block id of the snapshot slot
        from repair. */
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
+
+    /* Set slot params based on the feature gates in the snapshot,
+       and assert that these are consistent with the values from the
+       manifest. These assertions match Agave:
+       https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
+    fd_slot_params_t manifest_params = bank->f.slot_params;
+    fd_bank_slot_params_set_default( bank, restore_default_slot_params( bank ) );
+    bank->f.slot_params = fd_slot_params_at_slot( fd_bank_slot_params_get_default( bank ),
+                                                  &bank->f.features,
+                                                  &bank->f.epoch_schedule,
+                                                  bank->f.slot );
+    FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
+    FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
+    if( FD_LIKELY( manifest_params.hashes_per_tick ) ) {
+      FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
+    }
+    set_slot_duration( ctx, bank );
 
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
@@ -2050,6 +2122,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
   ctx->reset_bank = bank;
+  set_slot_duration( ctx, bank );
 
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -2057,7 +2130,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     reset->bank_idx = bank->idx;
     reset->timestamp = ctx->reset_timestamp_nanos;
     reset->completed_slot = ctx->reset_slot;
-    reset->hashcnt_per_tick = bank->f.hashes_per_tick;
+    reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
     reset->ticks_per_slot = bank->f.ticks_per_slot;
     reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
 
@@ -2678,8 +2751,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
-  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
-  ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->leader_bank = NULL;
 
   ctx->block_id_len = tile->replay.max_live_slots;
