@@ -1,8 +1,6 @@
 #include "fd_sysvar_epoch_rewards.h"
 #include "fd_sysvar.h"
-#include "fd_sysvar_rent.h"
 #include "../fd_system_ids.h"
-#include "../fd_accdb_svm.h"
 
 static int
 validate( fd_sysvar_epoch_rewards_t const * epoch_rewards ) {
@@ -67,30 +65,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
   FD_TEST( epoch_rewards->total_rewards>=epoch_rewards->distributed_rewards );
 
   epoch_rewards->active = 0;
-
-  /* Unlike fd_sysvar_account_update (which only mints lamports up to the
-     rent-exempt minimum and never burns), deactivation must force the
-     balance back *down* to the current rent-exempt minimum, burning any
-     excess lamports and decreasing capitalization.  Agave does this by
-     deliberately NOT inheriting the previous balance
-     (RENT_UNADJUSTED_INITIAL_BALANCE=1 as the base) so that
-     adjust_sysvar_balance_for_rent() resolves to exactly the rent-exempt
-     minimum.  This matters when the rent-exempt minimum shrank during the
-     reward cycle (e.g. SIMD-0437 rent reduction activating at the same
-     epoch boundary): the sysvar was funded to the old, higher minimum and
-     must be reduced to the new one.
-     https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L111-L136 */
-  ulong rent_exempt_min = fd_ulong_max(
-      fd_rent_exempt_minimum_balance( &bank->f.rent, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ), 1UL );
-
-  fd_accdb_svm_update_t update[1];
-  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_epoch_rewards_id, 1 );
-  fd_memcpy( acc.owner, fd_sysvar_owner_id.uc, 32UL );
-  acc.executable = 0;
-  fd_memcpy( acc.data, epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  acc.data_len   = FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ;
-  acc.lamports   = rent_exempt_min;
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  write_epoch_rewards( bank, accdb, capture_ctx, epoch_rewards );
 }
 
 /* Create EpochRewards sysvar with calculated rewards
