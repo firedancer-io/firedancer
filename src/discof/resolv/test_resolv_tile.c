@@ -320,7 +320,7 @@ FD_UNIT_TEST( resolv_blockhash_known ) {
 FD_UNIT_TEST( resolv_blockhash_expired ) {
   test_env_t env[1];
   test_env_create( env );
-  env->ctx->completed_block_height = 300UL;
+  env->ctx->root_block_height = 300UL;
 
   fd_hash_t hash = { .ul = { 0xbeadUL } };
   test_add_blockhash( env, &hash, 100UL );
