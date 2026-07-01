@@ -62,6 +62,7 @@ agave_boot( config_t const * config ) {
   ADD( "--log", "-" );
 
   /* net */
+  ADD1( "--no-xdp" );
   if( FD_UNLIKELY( strcmp( config->frankendancer.dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->frankendancer.dynamic_port_range );
 
