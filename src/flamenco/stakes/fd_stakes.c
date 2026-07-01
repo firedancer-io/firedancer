@@ -921,6 +921,8 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                       stake_state->stake.stake.delegation.activation_epoch,
                                       stake_state->stake.stake.delegation.deactivation_epoch,
                                       stake_state->stake.stake.credits_observed,
+                                      acc->lamports,
+                                      (uint)acc->data_len,
                                       fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
 
   } else {
