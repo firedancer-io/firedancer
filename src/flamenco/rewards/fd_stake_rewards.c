@@ -2,8 +2,6 @@
 #include "fd_rewards_base.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
 
-#define MAX_SUPPORTED_FORKS (128UL)
-
 #define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
 
 struct index_key {
@@ -68,7 +66,7 @@ struct fd_stake_rewards {
   ulong       magic;
   uint        total_ele_used;
   ulong       max_stake_accounts;
-  fork_info_t fork_info[MAX_SUPPORTED_FORKS];
+  fork_info_t fork_info[FD_STAKE_REWARDS_MAX_FORK_WIDTH];
   ulong       fork_pool_offset;
   ulong       index_pool_offset;
   ulong       index_map_offset;
@@ -140,6 +138,10 @@ fd_stake_rewards_new( void * shmem,
   }
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_stake_rewards_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( max_fork_width>FD_STAKE_REWARDS_MAX_FORK_WIDTH ) ) {
+    FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }
 
@@ -225,7 +227,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
     stake_rewards->total_ele_used = 0UL;
   }
 
-  uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
+  if( FD_UNLIKELY( !fork_pool_free( fork_pool ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: stake rewards fork pool is full" ));
+  }
+
+  ulong fork_idx = fork_pool_idx_acquire( fork_pool );
 
   fd_siphash13_init( stake_rewards->primed_hasher, 0UL, 0UL );
   fd_siphash13_append( stake_rewards->primed_hasher, parent_blockhash->hash, sizeof(fd_hash_t) );
@@ -237,7 +243,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
   memset( stake_rewards->fork_info[fork_idx].partition_idxs_head, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_head) );
   memset( stake_rewards->fork_info[fork_idx].partition_idxs_tail, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_tail) );
 
-  return fork_idx;
+  return (uchar)fork_idx;
 }
 
 void
