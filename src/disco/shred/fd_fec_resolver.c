@@ -242,28 +242,6 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   fd_fec_resolver_sign_fn * signer;
   void                    * sign_ctx;
 
-  /* max_shred_idx is the exclusive upper bound for shred
-     indicies. We need to reject any shred with an
-     index >= current_max_shred_idx, but we also want to reject anything
-     that is part of an FEC set whose highest shred index would reach
-     the bound.
-
-     Because this bound can change with feature gates, for example the
-     reduce_slot_time feature gates, we store the bound for the previous,
-     current, and next regimes, along with the slots at which the current
-     and next bounds take effect. This lets us apply, to each shred, the
-     limit effective at that shreds slot.
-
-     For a given shred slot, the max_shred_idx for that shred is:
-       slot >= next_max_shred_idx_start_slot    -> next_max_shred_idx
-       slot >= current_max_shred_idx_start_slot -> current_max_shred_idx
-       otherwise                                -> prev_max_shred_idx */
-  ulong prev_max_shred_idx;
-  ulong current_max_shred_idx;
-  ulong next_max_shred_idx;
-  ulong current_max_shred_idx_start_slot;
-  ulong next_max_shred_idx_start_slot;
-
   /* slot_old: slot_old is the lowest slot for which shreds will be
      accepted.  That is any shred with slot<slot_old is rejected by
      add_shred with INGORED.  slot_old can only increase. */
@@ -332,7 +310,6 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ulong                     max_shred_idx,
                      ulong                     seed ) {
   if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
   if( FD_UNLIKELY( (depth>UINT_MAX) | (partial_depth>UINT_MAX) | (complete_depth>UINT_MAX)         ) ) return NULL;
@@ -396,11 +373,6 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->free_list_cnt                           = depth+partial_depth;
   resolver->signer                                  = signer;
   resolver->sign_ctx                                = sign_ctx;
-  resolver->prev_max_shred_idx                      = max_shred_idx;
-  resolver->current_max_shred_idx                   = max_shred_idx;
-  resolver->next_max_shred_idx                      = max_shred_idx;
-  resolver->current_max_shred_idx_start_slot        = 0UL;
-  resolver->next_max_shred_idx_start_slot           = ULONG_MAX;
   resolver->slot_old                                = 0UL;
   resolver->seed                                    = seed3;
   resolver->discard_unexpected_data_complete_shreds = ULONG_MAX;
@@ -446,20 +418,6 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version ) {
   resolver->expected_shred_version = expected_shred_version;
-}
-
-void
-fd_fec_resolver_set_shred_limits( fd_fec_resolver_t * resolver,
-                                  ulong               prev_max_shred_idx,
-                                  ulong               current_max_shred_idx,
-                                  ulong               current_max_shred_idx_start_slot,
-                                  ulong               next_max_shred_idx,
-                                  ulong               next_max_shred_idx_start_slot ) {
-  resolver->prev_max_shred_idx               = prev_max_shred_idx;
-  resolver->current_max_shred_idx            = current_max_shred_idx;
-  resolver->current_max_shred_idx_start_slot = current_max_shred_idx_start_slot;
-  resolver->next_max_shred_idx               = next_max_shred_idx;
-  resolver->next_max_shred_idx_start_slot    = next_max_shred_idx_start_slot;
 }
 
 void
@@ -532,6 +490,7 @@ int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,
                            ulong                       shred_sz,
+                           ulong                       max_shred_idx,
                            int                         is_repair,
                            uchar const               * leader_pubkey,
                            fd_fec_set_t const      * * out_fec_set,
@@ -560,10 +519,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* Is this shred for a slot we've already rooted or otherwise don't
      care about? */
   if( FD_UNLIKELY( shred->slot<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
-
-  ulong max_shred_idx = resolver->current_max_shred_idx;
-  if( FD_UNLIKELY( shred->slot< resolver->current_max_shred_idx_start_slot ) ) max_shred_idx = resolver->prev_max_shred_idx;
-  if( FD_UNLIKELY( shred->slot>=resolver->next_max_shred_idx_start_slot    ) ) max_shred_idx = resolver->next_max_shred_idx;
 
   /* Do a bunch of quick validity checks */
   if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version  ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
