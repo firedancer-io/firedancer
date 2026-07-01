@@ -369,7 +369,7 @@ fd_banks_new( void * shmem,
   banks_data->stake_rewards_offset = (ulong)stake_rewards - (ulong)banks_data;
 
 
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, max_vote_accounts, fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ), max_fork_width, seed ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, max_vote_accounts, expected_vote_accounts, max_fork_width, seed ) );
   if( FD_UNLIKELY( !vote_stakes ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes" ));
     return NULL;
@@ -1181,7 +1181,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
   }
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
-  fd_vote_stakes_new( vote_stakes, max_vote_accounts, max_vote_accounts, banks->max_fork_width, 999UL );
+  ulong expected_vote_accounts  = fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
+  fd_vote_stakes_new( vote_stakes, max_vote_accounts, expected_vote_accounts, banks->max_fork_width, 999UL );
 }
 
 void
