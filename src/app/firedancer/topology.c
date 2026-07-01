@@ -1550,6 +1550,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
     tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;
     tile->quic.retry                          = config->tiles.quic.retry;
+    tile->quic.alpenglow_ip_addr              = config->net.ip_addr;
+    tile->quic.alpenglow_listen_port          = config->tiles.alpenglow.listen_port;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

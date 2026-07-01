@@ -272,6 +272,8 @@ struct fd_topo_tile {
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];
+      uint   alpenglow_ip_addr;     /* votor tile: our IPv4 (network order), src for the broadcast client */
+      ushort alpenglow_listen_port; /* votor tile: alpenglow UDP port (shared by the server + client)      */
     } quic;
 
     struct {

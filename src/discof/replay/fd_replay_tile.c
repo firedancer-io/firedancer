@@ -368,7 +368,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->transaction_count     = bank->f.txn_count;
   FD_BASE58_ENCODE_32_BYTES( bank->block_id.uc, block_id_ho_b58 );
   FD_BASE58_ENCODE_32_BYTES( parent_block_id.uc, parent_block_id_ho_b58 );
-  FD_LOG_NOTICE(("publish_slot_completed: slot=%lu parent_slot=%lu block_id=%s parent_block_id=%s", slot, slot_info->parent_slot, block_id_ho_b58, parent_block_id_ho_b58 ));
+  // FD_LOG_NOTICE(("publish_slot_completed: slot=%lu parent_slot=%lu block_id=%s parent_block_id=%s", slot, slot_info->parent_slot, block_id_ho_b58, parent_block_id_ho_b58 ));
 
   fd_inflation_t inflation = bank->f.inflation;
   slot_info->inflation.foundation      = inflation.foundation;

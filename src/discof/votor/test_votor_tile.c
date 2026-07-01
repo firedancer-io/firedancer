@@ -1,6 +1,6 @@
 /* test_votor_tile drives the Votor tile's consensus core (fd_votor +
    fd_pool) the same way the alpenglow consensus tests do, but THROUGH the
-   tile's drive functions (votor_slot_completed / ingest_consensus_msg) rather
+   tile's drive functions (votor_slot_completed / ingest_vote) rather
    than against the core directly.
 
    Per project convention we set up REAL fd_pool / fd_votor structures via the
@@ -204,21 +204,19 @@ test_finalization( fd_wksp_t * wksp ) {
   /* Gossip notar votes from validators 1..TEST_NV for the same block.  With
      unit stake this drives notar / fast-final cert thresholds. */
   for( ulong v=1UL; v<TEST_NV; v++ ) {
-    fd_votor_consensus_msg_t m;
-    memset( &m, 0, sizeof(m) );
-    m.discriminant = FD_VOTOR_CONSENSUS_MSG_VOTE;
-    fd_vote_new_notar( &m.inner.vote, slot, &h1, &test_sk[ v ], (ushort)v );
-    ingest_consensus_msg( ctx, &m );
+    fd_vote_t vote;
+    fd_vote_new_notar( &vote, slot, &h1, &test_sk[ v ], (ushort)v );
+    ingest_vote( ctx, &vote );
+    maybe_publish_finalized( ctx );
   }
 
   /* Gossip final votes from validators 1..TEST_NV (we already final-voted via
      the CertCreated cascade when the notar cert appeared). */
   for( ulong v=1UL; v<TEST_NV; v++ ) {
-    fd_votor_consensus_msg_t m;
-    memset( &m, 0, sizeof(m) );
-    m.discriminant = FD_VOTOR_CONSENSUS_MSG_VOTE;
-    fd_vote_new_final( &m.inner.vote, slot, &test_sk[ v ], (ushort)v );
-    ingest_consensus_msg( ctx, &m );
+    fd_vote_t vote;
+    fd_vote_new_final( &vote, slot, &test_sk[ v ], (ushort)v );
+    ingest_vote( ctx, &vote );
+    maybe_publish_finalized( ctx );
   }
 
   /* The pool should now have finalized slot 1 (fast-final on unanimous notar,

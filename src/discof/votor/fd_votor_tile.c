@@ -20,6 +20,7 @@
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/stakes/fd_stake_weight.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
@@ -45,11 +46,13 @@
       invalid block: drive the votor InvalidBlock path so the slot gets
       skipped.
 
-   3. Alpenglow ConsensusMessages (GOSSIP link).  Votes and certs received
-      from other validators.  Decoded into fd_vote_t / fd_cert_t and fed into
-      the pool via fd_pool_add_vote / fd_pool_add_cert.  (See the .h: FD
-      gossip does not carry Alpenglow messages yet, so this is a staged
-      ingest path with a fixed wire layout.)
+   3. Gossip ContactInfo updates (GOSSIP link).  fd_gossip_update_message_t
+      records used to build the peer connection table (pubkey -> alpenglow
+      QUIC socket), keyed by gossip identity pubkey and backed by a pool +
+      map_chain.  As routable peers are learned, an outbound QUIC client
+      connection is established to broadcast our votes/certs to them.
+      (Inbound votes/certs from other validators arrive over QUIC on the
+      net_alpenglow link, not here — see votor_handle_consensus_msg.)
 
    4. Auxiliary frags: epoch stakes (EPOCH link, used to rebuild the
       validator set / stakes the pool and votor run against) and shred
@@ -118,6 +121,36 @@ typedef struct publish publish_t;
 #define DEQUE_T    publish_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+/* peer_t is one entry in the peer connection table: an Alpenglow
+   participant we have learned a routable alpenglow QUIC socket for from a
+   gossip ContactInfo update, keyed by its gossip identity pubkey.  As entries
+   are learned the tile establishes an outbound QUIC client connection to it,
+   over which our votes/certs are broadcast.  Backed by a pool + map_chain
+   owned by the tile (cf. tower_tile's epoch_vtr_map). */
+
+struct peer {
+  fd_pubkey_t      pubkey;         /* map key: gossip node identity pubkey       */
+  uint             ip4;            /* alpenglow socket IPv4 addr (network order)  */
+  ushort           port;           /* alpenglow socket UDP port (host order)      */
+  fd_quic_conn_t * conn;           /* live outbound client conn, or NULL          */
+  long             last_connected; /* wallclock (ns) of the last connect attempt  */
+  ulong            next;           /* reserved for fd_pool / fd_map_chain         */
+};
+typedef struct peer peer_t;
+
+#define POOL_NAME peer_pool
+#define POOL_T    peer_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               peer_map
+#define MAP_ELE_T              peer_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_pubkey_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_pubkey_t)))
+#define MAP_NEXT               next
+#include "../../util/tmpl/fd_map_chain.c"
+
 struct in_ctx {
   int         mcache_only;
   fd_wksp_t * mem;
@@ -168,6 +201,21 @@ struct fd_votor_tile {
   int                 have_schedule;
 
   publish_t * publishes; /* deque of msgs queued for publishing */
+
+  /* Peer connection table: Alpenglow participants we have learned a routable
+     alpenglow QUIC socket for (from gossip ContactInfo updates), keyed by
+     gossip identity pubkey.  As entries are learned we open an outbound QUIC
+     client connection over which votes/certs are broadcast.  peer_by_idx maps
+     a gossip contact-info table index back to the occupying pubkey so that
+     ContactInfo *remove* events (which carry only the index) can be resolved.
+     Backed by a pool + map_chain owned by the tile (cf. tower's epoch_vtr_map). */
+
+  peer_t *     peer_pool;      /* fd_pool handle (element-pointer typed)                          */
+  peer_map_t * peer_map;
+  fd_pubkey_t * peer_by_idx;   /* [FD_CONTACT_INFO_TABLE_SIZE]; all-zero == empty slot           */
+  fd_quic_t *  quic_client;    /* client-role fd_quic for outbound broadcast (NULL when QUIC off) */
+  uint         src_ip_addr;    /* our IPv4 (network order); src for client connects              */
+  ushort       alpenglow_port; /* alpenglow UDP port, shared by client (src) and server (listen)  */
 
   /* static structures.  These are scratch out-buffers drained within a
      single drive; they are members (not stack) only to avoid large stack
@@ -223,11 +271,11 @@ struct fd_votor_tile {
      ephemeral TLS identity that receives Alpenglow ConsensusMessages on
      the dedicated alpenglow port.  The tile-level frag callbacks
      (before/during/after_frag) drive the QUIC machinery; the
-     quic_stream_rx callback hands each whole ConsensusMessage to the
+     quic_server_stream_rx callback hands each whole ConsensusMessage to the
      consensus helper votor_handle_consensus_msg.  NULL when the tile is
      run without QUIC config (e.g. the unit test). */
 
-  fd_quic_t *        quic;
+  fd_quic_t *        quic_server;
   fd_aio_t           quic_tx_aio[1];
   uchar              tls_priv_key[ ED25519_PRIV_KEY_SZ ];
   uchar              tls_pub_key [ ED25519_PUB_KEY_SZ  ];
@@ -694,29 +742,121 @@ votor_slot_dead( fd_votor_tile_t *               ctx,
   drain_votor_out( ctx, &out );
 }
 
-/* ingest_consensus_msg decodes an Alpenglow ConsensusMessage from the GOSSIP
-   link and feeds it into the pool. */
+/* peer_table_remove drops the peer occupying gossip contact-info slot idx (if
+   any), closing its connection and freeing its pool element. */
 
 static void
-ingest_consensus_msg( fd_votor_tile_t *                ctx,
-                      fd_votor_consensus_msg_t const * msg ) {
-  if( msg->discriminant==FD_VOTOR_CONSENSUS_MSG_VOTE ) {
-    ctx->metrics.votes_ingested++;
-    ingest_vote( ctx, &msg->inner.vote );
-    maybe_publish_finalized( ctx );
-  } else if( msg->discriminant==FD_VOTOR_CONSENSUS_MSG_CERT ) {
-    ctx->metrics.certs_ingested++;
-    //ingest_cert( ctx, &msg->inner.cert );
-    //maybe_publish_finalized( ctx );
-  } else {
-    //FD_LOG_WARNING(( "unexpected consensus message discriminant %u", msg->discriminant ));
+peer_table_remove( fd_votor_tile_t * ctx,
+                   ulong             idx ) {
+  if( FD_UNLIKELY( idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) return;
+  fd_pubkey_t zero; fd_memset( &zero, 0, sizeof(fd_pubkey_t) );
+  fd_pubkey_t key = ctx->peer_by_idx[ idx ];
+  if( FD_LIKELY( fd_pubkey_eq( &key, &zero ) ) ) return; /* empty slot */
+  peer_t * peer = peer_map_ele_query( ctx->peer_map, &key, NULL, ctx->peer_pool );
+  if( FD_LIKELY( peer ) ) {
+    if( FD_UNLIKELY( peer->conn ) ) {
+      fd_quic_conn_set_context( peer->conn, NULL ); /* a deferred conn_final must not touch the freed peer */
+      fd_quic_conn_close( peer->conn, 0U );
+    }
+    peer_map_ele_remove( ctx->peer_map, &key, NULL, ctx->peer_pool );
+    peer_pool_ele_release( ctx->peer_pool, peer );
   }
+  memset( &ctx->peer_by_idx[ idx ], 0, sizeof(fd_pubkey_t) );
+}
+
+/* handle_contact_info_remove handles a gossip ContactInfo *remove* update,
+   which carries only the contact-info table index. */
+
+static void
+handle_contact_info_remove( fd_votor_tile_t *                  ctx,
+                            fd_gossip_update_message_t const * msg ) {
+  peer_table_remove( ctx, msg->contact_info_remove->idx );
+}
+
+/* handle_contact_info_update upserts the peer identified by a gossip
+   ContactInfo update (origin pubkey + its advertised alpenglow QUIC socket)
+   into the connection table and, if it is new, opens an outbound client
+   connection to it.  Peers that do not advertise an alpenglow socket are
+   ignored — only Alpenglow participants run one, so this naturally bounds the
+   table to the participant set. */
+
+static void
+handle_contact_info_update( fd_votor_tile_t *                  ctx,
+                            fd_gossip_update_message_t const * msg ) {
+  ulong idx = msg->contact_info->idx;
+  if( FD_UNLIKELY( idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) return;
+
+  fd_pubkey_t zero; fd_memset( &zero, 0, sizeof(fd_pubkey_t) );
+  fd_pubkey_t key = FD_LOAD( fd_pubkey_t, msg->origin );
+
+  /* The advertised alpenglow socket (IPv4 only). */
+  fd_gossip_socket_t const * sock = &msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ];
+  uint   ip4  = sock->is_ipv6 ? 0U : sock->ip4;
+  ushort port = fd_ushort_bswap( sock->port );
+
+  /* If gossip reused this index for a different identity, drop the prior one. */
+  fd_pubkey_t prev = ctx->peer_by_idx[ idx ];
+  if( FD_UNLIKELY( !fd_pubkey_eq( &prev, &zero ) && !fd_pubkey_eq( &prev, &key ) ) ) peer_table_remove( ctx, idx );
+
+  /* Only track peers that advertise a routable alpenglow socket. */
+  if( FD_UNLIKELY( !ip4 || !port ) ) return;
+
+  peer_t * peer = peer_map_ele_query( ctx->peer_map, &key, NULL, ctx->peer_pool );
+  if( FD_UNLIKELY( !peer ) ) {
+    if( FD_UNLIKELY( !peer_pool_free( ctx->peer_pool ) ) ) {
+      FD_LOG_WARNING(( "votor peer connection table full (%lu); dropping peer", VTR_MAX ));
+      return;
+    }
+    peer = peer_pool_ele_acquire( ctx->peer_pool );
+    peer->pubkey         = key;
+    peer->ip4            = 0U;
+    peer->port           = 0;
+    peer->conn           = NULL;
+    peer->last_connected = 0L;
+    peer_map_ele_insert( ctx->peer_map, peer, ctx->peer_pool );
+    ctx->peer_by_idx[ idx ] = key;
+  }
+
+  /* Update the endpoint; drop any stale conn if it moved. */
+  if( FD_UNLIKELY( peer->ip4!=ip4 || peer->port!=port ) ) {
+    if( FD_UNLIKELY( peer->conn ) ) {
+      fd_quic_conn_set_context( peer->conn, NULL );
+      fd_quic_conn_close( peer->conn, 0U );
+      peer->conn = NULL;
+    }
+    peer->ip4  = ip4;
+    peer->port = port;
+  }
+
+  /* DEBUG (bring-up): only dial one specific peer, and log its contact info as
+     it arrives over gossip.  TODO: remove. */
+  FD_BASE58_ENCODE_32_BYTES( peer->pubkey.uc, peer_b58 );
+  if( strcmp( peer_b58, "8hxz3oFNhR7AgHuaqW85t56N27vaJ38Gmb8EBgf5bRa3" ) ) return;
+
+  /* Open an outbound QUIC client connection so we can broadcast to this peer.
+     The client shares the alpenglow UDP port with the server (peers reply to
+     it; the net tile routes replies onto net_alpenglow, fed to both instances,
+     QUIC demuxing by connection id).  The peer is stashed as the conn's user
+     context so quic_client_conn_final can clear peer->conn in O(1).  Reconnects
+     are throttled (>=2s between attempts) so a peer whose connection keeps
+     failing to establish is not hammered. */
+  if( FD_UNLIKELY( !ctx->quic_client ) ) return;                          /* QUIC disabled (unit test) */
+  if( FD_LIKELY  (  peer->conn        ) ) return;                          /* already connected         */
+  if( FD_UNLIKELY( peer->last_connected + (long)2e9 > ctx->now ) ) return; /* reconnect throttle        */
+  fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client,
+                                           peer->ip4,        peer->port,           /* dst */
+                                           ctx->src_ip_addr, ctx->alpenglow_port,  /* src */
+                                           ctx->now );
+  peer->last_connected = ctx->now;
+  if( FD_UNLIKELY( !conn ) ) return; /* out of conn / handshake slots; retried on the next update */
+  fd_quic_conn_set_context( conn, peer );
+  peer->conn = conn;
 }
 
 /* votor_handle_consensus_msg is the consensus-core entrypoint for an
    Alpenglow ConsensusMessage received over the network (QUIC).  This is
    the clean seam between the tile's QUIC/networking callbacks and the
-   consensus logic: the quic_stream_rx callback calls it with the raw
+   consensus logic: the quic_server_stream_rx callback calls it with the raw
    on-wire bytes of one reassembled ConsensusMessage.
 
    Bring-up: do NOT process the message yet, just log its discriminant.
@@ -742,7 +882,7 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
     if( vote->discriminant==FD_VOTE_TYPE_NOTAR || vote->discriminant==FD_VOTE_TYPE_NOTAR_FALLBACK ) {
       fd_hash_t const * dmr = fd_vote_block_hash( vote );
       FD_BASE58_ENCODE_32_BYTES( dmr->uc, dmr_str );
-      //FD_LOG_NOTICE(( "received vote for block %s, slot %lu from signer %u", dmr_str, fd_vote_slot( vote ), (uint)fd_vote_signer( vote ) ));
+      // FD_LOG_NOTICE(( "received vote for block %s, slot %lu from signer %u", dmr_str, fd_vote_slot( vote ), (uint)fd_vote_signer( vote ) ));
     }
     break;
   }
@@ -897,7 +1037,7 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
 
 /* QUIC ingress is enabled when the tile carries QUIC config (set by the
    topology).  The unit test constructs a tile without QUIC config, in
-   which case the tile runs consensus only (ctx->quic stays NULL). */
+   which case the tile runs consensus only (ctx->quic_server stays NULL). */
 
 FD_FN_PURE static inline int
 votor_quic_enabled( fd_topo_tile_t const * tile ) {
@@ -905,16 +1045,37 @@ votor_quic_enabled( fd_topo_tile_t const * tile ) {
 }
 
 static inline fd_quic_limits_t
-quic_limits( fd_topo_tile_t const * tile ) {
-  fd_quic_limits_t limits = {
+quic_server_limits( fd_topo_tile_t const * tile ) {
+  fd_quic_limits_t server_limits = {
     .conn_cnt                    = tile->quic.max_concurrent_connections,
     .handshake_cnt               = tile->quic.max_concurrent_handshakes,
     .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
     .inflight_frame_cnt          = 64UL * tile->quic.max_concurrent_connections,
     .min_inflight_frame_cnt_conn = 32UL
   };
-  if( FD_UNLIKELY( !fd_quic_footprint( &limits ) ) ) FD_LOG_ERR(( "Invalid QUIC limits in config" ));
-  return limits;
+  if( FD_UNLIKELY( !fd_quic_footprint( &server_limits ) ) ) FD_LOG_ERR(( "Invalid QUIC limits in config" ));
+  return server_limits;
+}
+
+/* quic_client_limits sizes the outbound (broadcast) QUIC client instance for
+   one persistent connection per Alpenglow participant (VTR_MAX), each carrying
+   short-lived unidirectional streams (one ConsensusMessage per stream). */
+
+static inline fd_quic_limits_t
+quic_client_limits( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  fd_quic_limits_t client_limits = {
+    .conn_cnt                    = fd_ulong_pow2_up( VTR_MAX ),
+    .handshake_cnt               = 256UL,
+    .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
+    .inflight_frame_cnt          = 16UL * fd_ulong_pow2_up( VTR_MAX ),
+    .min_inflight_frame_cnt_conn = 4UL,
+    .stream_id_cnt               = 16UL,
+    .stream_pool_cnt             = 4096UL,
+    .tx_buf_sz                   = 2048UL  /* >= max serialized ConsensusMessage */
+  };
+  if( FD_UNLIKELY( !fd_quic_footprint( &client_limits ) ) ) FD_LOG_ERR(( "Invalid votor client QUIC limits" ));
+  return client_limits;
 }
 
 FD_FN_CONST static inline ulong
@@ -938,9 +1099,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ )
     l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),   fd_epoch_info_footprint( VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, publishes_align(),         publishes_footprint( pub_max )                           );
+  l = FD_LAYOUT_APPEND( l, peer_pool_align(),   peer_pool_footprint( VTR_MAX )                                       );
+  l = FD_LAYOUT_APPEND( l, peer_map_align(),    peer_map_footprint( peer_map_chain_cnt_est( VTR_MAX ) )        );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_pubkey_t),      sizeof(fd_pubkey_t)*FD_CONTACT_INFO_TABLE_SIZE                             );
   if( votor_quic_enabled( tile ) ) {
-    fd_quic_limits_t limits = quic_limits( tile );
-    l = FD_LAYOUT_APPEND( l, fd_quic_align(),         fd_quic_footprint( &limits )                             );
+    fd_quic_limits_t server_limits = quic_server_limits( tile );
+    l = FD_LAYOUT_APPEND( l, fd_quic_align(),         fd_quic_footprint( &server_limits )                             );
+    fd_quic_limits_t client_limits = quic_client_limits( tile );
+    l = FD_LAYOUT_APPEND( l, fd_quic_align(),         fd_quic_footprint( &client_limits )                            );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -973,10 +1139,16 @@ init_choreo( void                 * scratch,
   for( ulong i=0UL; i<VTR_EPOCH_WINDOW; i++ )
     epoch_mem[i]        = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(),    fd_epoch_info_footprint( VTR_MAX )                       );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                           );
-  void  * quic_mem      = NULL;
+  void  * peer_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),  peer_pool_footprint( VTR_MAX )                                );
+  void  * peer_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),   peer_map_footprint( peer_map_chain_cnt_est( VTR_MAX ) ) );
+  void  * peer_by_idx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pubkey_t),     sizeof(fd_pubkey_t)*FD_CONTACT_INFO_TABLE_SIZE                       );
+  void  * quic_server_mem        = NULL;
+  void  * quic_client_mem = NULL;
   if( votor_quic_enabled( tile ) ) {
-    fd_quic_limits_t limits = quic_limits( tile );
-    quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+    fd_quic_limits_t server_limits = quic_server_limits( tile );
+    quic_server_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &server_limits ) );
+    fd_quic_limits_t client_limits = quic_client_limits( tile );
+    quic_client_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &client_limits ) );
   }
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -1024,14 +1196,26 @@ init_choreo( void                 * scratch,
 
   ctx->publishes = publishes_join( publishes_new( publishes, pub_max ) );
 
-  /* QUIC server memory is formatted here; the connection config, ephemeral
-     TLS identity, TX aio and net links are wired in unprivileged_init
-     (which has the topology).  NULL when QUIC is disabled (unit test). */
-  ctx->quic = NULL;
-  if( quic_mem ) {
-    fd_quic_limits_t limits = quic_limits( tile );
-    ctx->quic = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
-    FD_TEST( ctx->quic );
+  ctx->peer_pool   = peer_pool_join( peer_pool_new( peer_pool_mem, VTR_MAX ) );
+  ctx->peer_map    = peer_map_join ( peer_map_new ( peer_map_mem, peer_map_chain_cnt_est( VTR_MAX ), ctx->seed ) );
+  ctx->peer_by_idx = peer_by_idx;
+  memset( ctx->peer_by_idx, 0, sizeof(fd_pubkey_t)*FD_CONTACT_INFO_TABLE_SIZE );
+  FD_TEST( ctx->peer_pool );
+  FD_TEST( ctx->peer_map  );
+
+  /* QUIC server + client memory is formatted here; the connection config,
+     ephemeral TLS identity, TX aio and net links are wired in
+     unprivileged_init (which has the topology).  NULL when QUIC is disabled
+     (unit test). */
+  ctx->quic_server        = NULL;
+  ctx->quic_client = NULL;
+  if( quic_server_mem ) {
+    fd_quic_limits_t server_limits = quic_server_limits( tile );
+    ctx->quic_server = fd_quic_join( fd_quic_new( quic_server_mem, &server_limits ) );
+    FD_TEST( ctx->quic_server );
+    fd_quic_limits_t client_limits = quic_client_limits( tile );
+    ctx->quic_client = fd_quic_join( fd_quic_new( quic_client_mem, &client_limits ) );
+    FD_TEST( ctx->quic_client );
   }
 
   FD_TEST( ctx->pool );
@@ -1052,11 +1236,74 @@ init_choreo( void                 * scratch,
   return ctx;
 }
 
-/* ---- QUIC ingress (tile-level networking callbacks) -------------------
+/* quic_server_conn_new fires when an inbound client finishes its handshake
+   with our server -- i.e. a peer has established a link over which it will
+   broadcast its votes/certs to us.  fd_tls requires the client to present a
+   raw-pubkey ed25519 cert (chain length 1) and a valid CertificateVerify, so
+   on a completed handshake hs.srv.client_pubkey holds the cryptographically
+   verified peer identity; it should match the peer's node_pubkey in the
+   validator set. */
 
-   These callbacks handle the QUIC/networking machinery only; the consensus
-   logic lives in helpers (votor_handle_consensus_msg and the ingest_*
-   functions above).  Modeled on the TPU QUIC tile (fd_quic_tile.c). */
+static void
+quic_server_conn_new( fd_quic_conn_t * conn,
+                      void *           quic_ctx ) {
+  (void)quic_ctx;
+  fd_quic_tls_hs_t const * hs = conn->tls_hs;
+  if( FD_UNLIKELY( !hs ) ) return; /* no handshake state (should not happen on conn_new) */
+  FD_BASE58_ENCODE_32_BYTES( hs->hs.srv.client_pubkey, pubkey_str );
+  FD_LOG_NOTICE(( "votor accepted connection from quic client %s at " FD_IP4_ADDR_FMT ":%u",
+                  pubkey_str, FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ), (uint)conn->peer[0].udp_port ));
+}
+
+static void
+quic_server_conn_final( fd_quic_conn_t * conn,
+                        void *           quic_ctx ) {
+  (void)conn; (void)quic_ctx;
+}
+
+/* quic_client_conn_final clears the owning peer's conn pointer when an outbound
+   client connection dies, so handle_contact_info_update re-dials it on the next
+   ContactInfo update.  The peer is the conn's user context (set when the conn is
+   opened); NULL once the peer has been removed (peer_table_remove nulls it
+   first), in which case this is a no-op. */
+
+static void
+quic_client_conn_final( fd_quic_conn_t * conn,
+                        void *           quic_ctx ) {
+  (void)quic_ctx;
+  peer_t * peer = fd_quic_conn_get_context( conn );
+  if( FD_LIKELY( peer ) ) peer->conn = NULL;
+}
+
+/* quic_client_conn_hs_complete fires when an outbound client connection we
+   dialed in handle_contact_info_update finishes its handshake -- i.e. the
+   broadcast link to this peer is now live.  The peer is the conn's user
+   context (NULL once it has been removed, in which case this is a no-op). */
+
+static void
+quic_client_conn_hs_complete( fd_quic_conn_t * conn,
+                              void *           quic_ctx ) {
+  (void)quic_ctx;
+  peer_t * peer = fd_quic_conn_get_context( conn );
+  if( FD_UNLIKELY( !peer ) ) return;
+  FD_BASE58_ENCODE_32_BYTES( peer->pubkey.uc, pubkey_str );
+  FD_LOG_NOTICE(( "votor established connection with quic server %s at " FD_IP4_ADDR_FMT ":%u",
+                  pubkey_str, FD_IP4_ADDR_FMT_ARGS( peer->ip4 ), (uint)peer->port ));
+}
+
+static int
+quic_server_stream_rx( fd_quic_conn_t * conn,
+                ulong            stream_id,
+                ulong            offset,
+                uchar const *    data,
+                ulong            data_sz,
+                int              fin ) {
+  (void)stream_id;
+  fd_votor_tile_t * ctx = conn->quic->cb.quic_ctx;
+  if( FD_UNLIKELY( !(offset==0UL && fin) ) ) return FD_QUIC_SUCCESS; /* fragmented: drop (TODO reassemble) */
+  votor_handle_consensus_msg( ctx, data, data_sz );
+  return FD_QUIC_SUCCESS;
+}
 
 static int
 quic_tx_aio_send( void *                    _ctx,
@@ -1095,38 +1342,16 @@ quic_tls_cv_sign( void *      signer_ctx,
   fd_sha512_leave( sha512 );
 }
 
-static void
-quic_conn_final( fd_quic_conn_t * conn,
-                 void *           quic_ctx ) {
-  (void)conn; (void)quic_ctx;
-}
-
-/* quic_stream_rx fires for each received QUIC stream payload (one whole
-   ConsensusMessage on the bring-up fast path) and hands it to the
-   consensus core.  Multi-fragment reassembly is a TODO. */
-
-static int
-quic_stream_rx( fd_quic_conn_t * conn,
-                ulong            stream_id,
-                ulong            offset,
-                uchar const *    data,
-                ulong            data_sz,
-                int              fin ) {
-  (void)stream_id;
-  fd_votor_tile_t * ctx = conn->quic->cb.quic_ctx;
-  if( FD_UNLIKELY( !(offset==0UL && fin) ) ) return FD_QUIC_SUCCESS; /* fragmented: drop (TODO reassemble) */
-  votor_handle_consensus_msg( ctx, data, data_sz );
-  return FD_QUIC_SUCCESS;
-}
-
 static inline void
 before_credit( fd_votor_tile_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   ctx->stem = stem;
-  if( FD_LIKELY( ctx->quic ) ) {
+  if( FD_LIKELY( ctx->quic_server ) ) {
     ctx->now = fd_log_wallclock();
-    *charge_busy = fd_quic_service( ctx->quic, ctx->now );
+    int busy = fd_quic_service( ctx->quic_server, ctx->now );
+    busy    |= fd_quic_service( ctx->quic_client, ctx->now );
+    *charge_busy = busy;
   }
 }
 
@@ -1253,12 +1478,18 @@ returnable_frag( fd_votor_tile_t *   ctx,
 
   /* Network frames (net_alpenglow) are addressed by UMEM frame index, not
      by the normal dcache [chunk0,wmark] range, and were already copied into
-     ctx->net_buf in during_frag.  Feed the QUIC server; quic_stream_rx then
-     drives the consensus core.  Handled before the dcache bounds check
-     below, which does not apply to net frames. */
+     ctx->net_buf in during_frag.  Feed BOTH QUIC instances (server +
+     broadcast client): QUIC demuxes by connection id, so the server matches
+     inbound votes/certs (quic_server_stream_rx drives the consensus core) and the
+     client matches its own handshake replies.  Handled before the dcache
+     bounds check below, which does not apply to net frames. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) ) {
-    if( FD_LIKELY( ctx->quic && sz>=sizeof(fd_eth_hdr_t) ) )
-      fd_quic_process_packet( ctx->quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), ctx->now );
+    if( FD_LIKELY( ctx->quic_server && sz>=sizeof(fd_eth_hdr_t) ) ) {
+      uchar * l3    = ctx->net_buf + sizeof(fd_eth_hdr_t);
+      ulong   l3_sz = sz - sizeof(fd_eth_hdr_t);
+      fd_quic_process_packet( ctx->quic_server,        l3, l3_sz, ctx->now );
+      fd_quic_process_packet( ctx->quic_client, l3, l3_sz, ctx->now );
+    }
     return 0;
   }
 
@@ -1281,9 +1512,9 @@ returnable_frag( fd_votor_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_GOSSIP: {
-    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; } /* don't backpressure gossip on boot */
-    fd_votor_consensus_msg_t const * msg = (fd_votor_consensus_msg_t const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    ingest_consensus_msg( ctx, msg );
+    fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    if(      sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO        ) handle_contact_info_update( ctx, msg );
+    else if( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) handle_contact_info_remove( ctx, msg );
     return 0;
   }
   case IN_KIND_EPOCH: {
@@ -1390,7 +1621,7 @@ unprivileged_init( fd_topo_t const *      topo,
   /* QUIC ingress setup: ephemeral TLS identity, server config, TX aio (→
      net), and the votor_net out link.  init_choreo already formatted the
      fd_quic when QUIC is enabled. */
-  if( FD_LIKELY( ctx->quic ) ) {
+  if( FD_LIKELY( ctx->quic_server ) ) {
     if( FD_UNLIKELY( tile->out_cnt<2UL || strcmp( topo->links[ tile->out_link_id[ OUT_IDX_NET ] ].name, "votor_net" ) ) )
       FD_LOG_ERR(( "votor tile (with QUIC) requires a votor_net output link" ));
 
@@ -1406,25 +1637,49 @@ unprivileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( tile->quic.ack_delay_millis==0 ) ) FD_LOG_ERR(( "Invalid `ack_delay_millis`" ));
     if( FD_UNLIKELY( tile->quic.ack_delay_millis>=tile->quic.idle_timeout_millis ) ) FD_LOG_ERR(( "Invalid `ack_delay_millis`" ));
 
-    ctx->quic->config.role                       = FD_QUIC_ROLE_SERVER;
-    ctx->quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;
-    ctx->quic->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
-    ctx->quic->config.initial_rx_max_stream_data = 2048UL;
-    ctx->quic->config.retry                      = tile->quic.retry;
-    fd_memcpy( ctx->quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
-    ctx->quic->config.sign     = quic_tls_cv_sign;
-    ctx->quic->config.sign_ctx = ctx;
-    ctx->quic->cb.conn_final   = quic_conn_final;
-    ctx->quic->cb.stream_rx    = quic_stream_rx;
-    ctx->quic->cb.quic_ctx     = ctx;
-    fd_quic_set_aio_net_tx( ctx->quic, tx_aio );
-    if( FD_UNLIKELY( !fd_quic_init( ctx->quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
+    ctx->quic_server->config.role                       = FD_QUIC_ROLE_SERVER;
+    ctx->quic_server->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;
+    ctx->quic_server->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
+    ctx->quic_server->config.initial_rx_max_stream_data = 2048UL;
+    ctx->quic_server->config.retry                      = tile->quic.retry;
+    fd_memcpy( ctx->quic_server->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
+    ctx->quic_server->config.sign     = quic_tls_cv_sign;
+    ctx->quic_server->config.sign_ctx = ctx;
+    ctx->quic_server->cb.conn_new     = quic_server_conn_new;
+    ctx->quic_server->cb.conn_final   = quic_server_conn_final;
+    ctx->quic_server->cb.stream_rx    = quic_server_stream_rx;
+    ctx->quic_server->cb.quic_ctx     = ctx;
+    fd_quic_set_aio_net_tx( ctx->quic_server, tx_aio );
+    if( FD_UNLIKELY( !fd_quic_init( ctx->quic_server ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
     fd_topo_link_t const * net_out = &topo->links[ tile->out_link_id[ OUT_IDX_NET ] ];
     ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
     ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
     ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
     ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+    /* Outbound broadcast client (peer connection table).  Shares the ephemeral
+       TLS identity, the TX aio (→ net) and the alpenglow UDP port with the
+       server; peers reply to that port, the net tile routes the replies onto
+       net_alpenglow, and the inbound path feeds BOTH instances (QUIC demuxes by
+       connection id). */
+    ctx->src_ip_addr    = tile->quic.alpenglow_ip_addr;
+    ctx->alpenglow_port = tile->quic.alpenglow_listen_port;
+    if( FD_UNLIKELY( !ctx->alpenglow_port ) ) FD_LOG_ERR(( "votor tile (with QUIC) requires a non-zero alpenglow listen port" ));
+
+    ctx->quic_client->config.role                       = FD_QUIC_ROLE_CLIENT;
+    ctx->quic_client->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;
+    ctx->quic_client->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
+    ctx->quic_client->config.initial_rx_max_stream_data = 2048UL;
+    ctx->quic_client->config.retry                      = tile->quic.retry;
+    fd_memcpy( ctx->quic_client->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
+    ctx->quic_client->config.sign       = quic_tls_cv_sign;
+    ctx->quic_client->config.sign_ctx   = ctx;
+    ctx->quic_client->cb.conn_final     = quic_client_conn_final;
+    ctx->quic_client->cb.conn_hs_complete = quic_client_conn_hs_complete;
+    ctx->quic_client->cb.quic_ctx       = ctx;
+    fd_quic_set_aio_net_tx( ctx->quic_client, tx_aio );
+    if( FD_UNLIKELY( !fd_quic_init( ctx->quic_client ) ) ) FD_LOG_ERR(( "fd_quic_init (client) failed" ));
   }
 }
 
@@ -1461,9 +1716,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
