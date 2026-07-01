@@ -64,8 +64,6 @@ deps-bundle.tar.zst
 /book/.vitepress/cache
 /book/.vitepress/dist
 /book/node_modules
-/book/bun.lock
-/book/bun.lockb
 
 # Custom config
 /*.toml

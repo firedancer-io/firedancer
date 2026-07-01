@@ -23,25 +23,24 @@ jobs:
   build:
     timeout-minutes: 30
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./book
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Not needed if lastUpdated is not enabled
-      # - uses: pnpm/action-setup@v2 # Uncomment this if you're using pnpm
-      - uses: oven-sh/setup-bun@v2 # Uncomment this if you're using Bun
-      # - name: Setup Node
-      #   uses: actions/setup-node@v3
-      #   with:
-      #     node-version: 18
-      #     cache: npm # or pnpm / yarn
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: latest
       - name: Setup Pages
         uses: actions/configure-pages@v6
       - name: Install dependencies
-        run: bun install --cwd ./book # or pnpm install / yarn install / bun install
+        run: npm install
       - name: Build with VitePress
-        run: |
-          bun run --cwd ./book build # or pnpm docs:build / yarn docs:build / bun run docs:build
+        run: npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
