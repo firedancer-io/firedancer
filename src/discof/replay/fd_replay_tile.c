@@ -9,7 +9,7 @@
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../resolv/fd_resolv_tile.h"
-#include "../restore/utils/fd_ssload.h"
+#include "../restore/utils/fd_ssmsg.h"
 
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
@@ -1188,18 +1188,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
         FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-      /* Malformed manifests are rejected recoverably by snapin via
-         fd_ssload_manifest_validate.  If recover fails here, then the
-         bank is partially mutated, and we must abort. */
-      if( FD_UNLIKELY( fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
-                                          ctx->banks,
-                                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
-                                          ctx->blockhash_seed ) ) ) {
-        FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
-      }
-
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      /* hard_fork_cnt already validated by fd_ssload_recover. */
       ctx->hard_fork_cnt = manifest->hard_fork_cnt;
       for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
         ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
@@ -2508,7 +2497,6 @@ privileged_init( fd_topo_t const *      topo,
   }
 
   FD_TEST( fd_rng_secure( &ctx->rng_seed,           sizeof(ctx->rng_seed) ) );
-  FD_TEST( fd_rng_secure( &ctx->blockhash_seed,     sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->reasm_seed,         sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,  sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,  sizeof(ulong) )         );

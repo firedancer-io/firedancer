@@ -60,8 +60,16 @@ main( int     argc,
 
   long ts = -fd_log_wallclock();
 
-  int result = fd_ssmanifest_parser_consume( parser, buffer, size );
-  if( FD_UNLIKELY( result==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
+  uchar const * mbuf = buffer;
+  ulong         mrem = size;
+  for(;;) {
+    fd_ssmanifest_parser_advance_result_t mres[1];
+    int result = fd_ssmanifest_parser_consume( parser, mbuf, mrem, mres );
+    if( FD_UNLIKELY( result==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
+    if( result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN || result==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) break;
+    mbuf += mres->consumed;
+    mrem -= mres->consumed;
+  }
   int fini_result = fd_ssmanifest_parser_fini( parser );
   if( FD_UNLIKELY( fini_result!=FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_fini failed (%d)", fini_result ));
 
@@ -79,7 +87,8 @@ main( int     argc,
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, (uint)fd_log_wallclock(), 0UL ) );
   uchar garbage[16];
   for( ulong i=0UL; i<sizeof(garbage); i++ ) garbage[i] = (uchar)fd_rng_uint( rng );
-  int reentry_result = fd_ssmanifest_parser_consume( parser, garbage, sizeof(garbage) );
+  fd_ssmanifest_parser_advance_result_t reentry_res[1];
+  int reentry_result = fd_ssmanifest_parser_consume( parser, garbage, sizeof(garbage), reentry_res );
   FD_TEST( reentry_result==FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
 
   long elapsed = fd_log_wallclock() + ts;

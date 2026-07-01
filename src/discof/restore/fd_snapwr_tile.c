@@ -215,15 +215,22 @@ handle_data_frag( fd_snapwr_tile_t *  ctx,
         break;
         case FD_SSPARSE_ADVANCE_MANIFEST:
         case FD_SSPARSE_ADVANCE_MANIFEST_DONE: {
-          int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
-                                                result->manifest.data,
-                                                result->manifest.data_sz );
-        if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
-          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
-          transition_malformed( ctx, stem );
-          return 0;
-        }
-        break;
+          uchar const * mbuf = result->manifest.data;
+          ulong         mrem = result->manifest.data_sz;
+          for(;;) {
+            fd_ssmanifest_parser_advance_result_t mres[1];
+            int pres = fd_ssmanifest_parser_consume( ctx->manifest_parser, mbuf, mrem, mres );
+            if( FD_UNLIKELY( pres==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+              FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
+              transition_malformed( ctx, stem );
+              return 0;
+            }
+            if( FD_LIKELY( pres==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN ||
+                           pres==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) break;
+            mbuf += mres->consumed;
+            mrem -= mres->consumed;
+          }
+          break;
       }
       case FD_SSPARSE_ADVANCE_STATUS_CACHE:
         break;

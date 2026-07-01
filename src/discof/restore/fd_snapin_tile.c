@@ -82,6 +82,7 @@ struct fd_snapin_tile {
   uint full      : 1;       /* loading a full snapshot? */
 
   ulong seed;
+  ulong blockhash_seed; /* seed for the boot bank's blockhash queue, used by fd_ssload_recover */
   long boot_timestamp;
 
   fd_accdb_t *    accdb;
@@ -89,6 +90,14 @@ struct fd_snapin_tile {
 
   fd_banks_t * banks;
   fd_bank_t *  bank;
+
+  struct {
+    int   ready;
+    ulong epoch;
+    ulong t_1_idx;
+    ulong t_2_idx;
+    int   has_t_2;
+  } records_ctx;
 
   fd_feature_snoop_t feature_snoop[1];
   struct {
@@ -772,6 +781,12 @@ process_manifest( fd_snapin_tile_t *  ctx,
   manifest->accdb_fork_id = ctx->accdb_root_fork_id.val;
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
+  if( FD_UNLIKELY( fd_ssload_recover_apply( manifest, ctx->bank, ctx->blockhash_seed ) ) ) {
+    FD_LOG_WARNING(( "snapshot manifest recovery failed" ));
+    transition_malformed( ctx, stem );
+    return;
+  }
+
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
@@ -931,6 +946,53 @@ process_account_data( fd_snapin_tile_t *            ctx,
 }
 
 static int
+apply_manifest_record( fd_snapin_tile_t *                            ctx,
+                       int                                          rec_kind,
+                       fd_ssmanifest_parser_advance_result_t const * res ) {
+  switch( rec_kind ) {
+
+  case FD_SSMANIFEST_PARSER_ADVANCE_DELEGATION:
+    fd_ssload_apply_delegation( ctx->banks, res->delegation );
+    return 0;
+
+  case FD_SSMANIFEST_PARSER_ADVANCE_VOTE_ACCOUNT:
+    fd_ssload_apply_vote_account( ctx->bank, res->vote_account );
+    return 0;
+
+  case FD_SSMANIFEST_PARSER_ADVANCE_VOTE_STAKES: {
+    if( FD_UNLIKELY( !ctx->records_ctx.ready ) ) {
+      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->manifest_out.mem, ctx->manifest_out.chunk );
+      fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+        .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+        .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+        .warmup                      = manifest->epoch_schedule_params.warmup,
+        .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+        .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+      };
+      ulong epoch                 = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+      ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+      ulong epoch_stakes_base     = epoch>0UL ? epoch-1UL : 0UL;
+      ulong t_1_idx               = leader_schedule_epoch - epoch_stakes_base;
+      ctx->records_ctx.epoch   = epoch;
+      ctx->records_ctx.t_1_idx = t_1_idx;
+      ctx->records_ctx.has_t_2 = (t_1_idx>0UL);
+      ctx->records_ctx.t_2_idx = ctx->records_ctx.has_t_2 ? t_1_idx-1UL : 0UL;
+      ctx->records_ctx.ready   = 1;
+    }
+    return fd_ssload_apply_vote_stakes( ctx->bank,
+                                        ctx->records_ctx.epoch,
+                                        res->vote_stakes.epoch_idx,
+                                        ctx->records_ctx.t_1_idx,
+                                        ctx->records_ctx.t_2_idx,
+                                        ctx->records_ctx.has_t_2,
+                                        res->vote_stakes.vs );
+  }
+
+  default: return 0;
+  }
+}
+
+static int
 handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               chunk,
                   ulong               sz,
@@ -975,13 +1037,27 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           transition_malformed( ctx, stem );
           return 0;
         }
-        int parser_res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
-                                                       result->manifest.data,
-                                                       result->manifest.data_sz );
-        if( FD_UNLIKELY( parser_res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
-          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
-          transition_malformed( ctx, stem );
-          return 0;
+
+        uchar const * mbuf = result->manifest.data;
+        ulong         mrem = result->manifest.data_sz;
+        int           parser_res;
+        for(;;) {
+          fd_ssmanifest_parser_advance_result_t mres[1];
+          parser_res = fd_ssmanifest_parser_consume( ctx->manifest_parser, mbuf, mrem, mres );
+          if( FD_UNLIKELY( parser_res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+            FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
+            transition_malformed( ctx, stem );
+            return 0;
+          }
+          if( FD_LIKELY( parser_res==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN ||
+                         parser_res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) break;
+          if( FD_UNLIKELY( apply_manifest_record( ctx, parser_res, mres ) ) ) {
+            FD_LOG_WARNING(( "error applying snapshot manifest record" ));
+            transition_malformed( ctx, stem );
+            return 0;
+          }
+          mbuf += mres->consumed;
+          mrem -= mres->consumed;
         }
         if( res==FD_SSPARSE_ADVANCE_MANIFEST_DONE ) {
           if( FD_UNLIKELY( fd_ssmanifest_parser_fini( ctx->manifest_parser )!=FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
@@ -1164,6 +1240,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
+
+      fd_ssload_records_reset( ctx->banks, ctx->bank );
+      ctx->records_ctx.ready = 0;
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -1391,6 +1470,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
+  FD_TEST( fd_rng_secure( &ctx->blockhash_seed, 8UL ) );
 }
 
 static inline fd_snapin_out_link_t
