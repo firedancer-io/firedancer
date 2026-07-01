@@ -1,6 +1,7 @@
 #include "watch.h"
 #include "generated/watch_seccomp.h"
 
+#include "../../../../discof/backup/fd_backup.h"
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../discof/gossip/fd_gossip_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -91,6 +92,20 @@ fmt_bytes( char * buf,
   else if( FD_LIKELY( 8L*bytes<1000000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Kbit", (double)(8L*bytes)/1000.0 ) );
   else if( FD_LIKELY( 8L*bytes<1000000000L ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Mbit", (double)(8L*bytes)/1000000.0 ) );
   else FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f Gbit", (double)(8L*bytes)/1000000000.0 ) );
+
+  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
+  return buf;
+}
+
+static char *
+fmt_size( char * buf,
+          ulong  buf_sz,
+          ulong  bytes ) {
+  char * tmp = fd_alloca_check( 1UL, buf_sz );
+  if(      FD_LIKELY( bytes<(1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%lu B",    bytes ) );
+  else if( FD_LIKELY( bytes<(1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f KiB", (double)bytes/(double)(1UL<<10) ) );
+  else if( FD_LIKELY( bytes<(1UL<<30) ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f MiB", (double)bytes/(double)(1UL<<20) ) );
+  else                                    FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f GiB", (double)bytes/(double)(1UL<<30) ) );
 
   FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
   return buf;
@@ -225,6 +240,13 @@ static ulong snapshot_acc_idx = 0UL;
 static ulong snapshot_acc_samples[ 100UL ];
 static ulong snapshot_wr_idx = 0UL;
 static ulong snapshot_wr_samples[ 100UL ];
+/* Backup */
+static ulong backup_acc_idx = 0UL;
+static ulong backup_acc_samples[ 100UL ];
+static ulong backup_read_idx = 0UL;
+static ulong backup_read_samples[ 100UL ];
+static ulong backup_comp_idx = 0UL;
+static ulong backup_comp_samples[ 100UL ];
 /* Event */
 static ulong events_sent_samples_idx = 0UL;
 static ulong events_sent_samples[ 100UL ];
@@ -474,6 +496,71 @@ write_snapshots( config_t const * config,
     100.0-snapdc_idle_pct-snapdc_backp_pct,
     100.0-snapin_idle_pct-snapin_backp_pct,
     100.0-snapwr_idle_pct-snapwr_backp_pct );
+}
+
+static uint
+write_backup( config_t const * config,
+              ulong const *    cur_tile ) {
+  ulong snapmk_idx = fd_topo_find_tile( &config->topo, "snapmk", 0UL );
+  if( FD_UNLIKELY( snapmk_idx==ULONG_MAX ) ) return 0U;
+
+  ulong snapmk_off = snapmk_idx*FD_METRICS_TOTAL_SZ;
+  ulong state = cur_tile[ snapmk_off+MIDX( GAUGE, SNAPMK, STATE ) ];
+  if( FD_LIKELY( state<SNAPMK_STATE_START || state>=SNAPMK_STATE_DONE ) ) return 0U;
+
+  ulong accounts_packed = 0UL;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "snapzp" ) ) ) continue;
+    accounts_packed += cur_tile[ i*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, SNAPZP, ACCOUNTS_COMPRESSED ) ];
+  }
+
+  ulong acc_sum = 0UL;
+  ulong num_acc_samples = fd_ulong_min( backup_acc_idx, sizeof(backup_acc_samples)/sizeof(backup_acc_samples[0]) );
+  for( ulong i=0UL; i<num_acc_samples; i++ ) acc_sum += backup_acc_samples[ i ];
+  double accounts_per_second = 0.0;
+  if( FD_LIKELY( num_acc_samples ) ) accounts_per_second = 100.0*(double)acc_sum/(double)num_acc_samples;
+
+  ulong read_sum = 0UL;
+  ulong num_read_samples = fd_ulong_min( backup_read_idx, sizeof(backup_read_samples)/sizeof(backup_read_samples[0]) );
+  for( ulong i=0UL; i<num_read_samples; i++ ) read_sum += backup_read_samples[ i ];
+  double read_megabytes_per_second = 0.0;
+  if( FD_LIKELY( num_read_samples ) ) read_megabytes_per_second = 100.0*(double)read_sum/(double)num_read_samples/1e6;
+
+  ulong comp_sum = 0UL;
+  ulong num_comp_samples = fd_ulong_min( backup_comp_idx, sizeof(backup_comp_samples)/sizeof(backup_comp_samples[0]) );
+  for( ulong i=0UL; i<num_comp_samples; i++ ) comp_sum += backup_comp_samples[ i ];
+  double comp_megabytes_per_second = 0.0;
+  if( FD_LIKELY( num_comp_samples ) ) comp_megabytes_per_second = 100.0*(double)comp_sum/(double)num_comp_samples/1e6;
+
+  double progress = 0.0;
+  ulong snaprd_idx = fd_topo_find_tile( &config->topo, "snaprd", 0UL );
+  int have_snaprd = snaprd_idx!=ULONG_MAX;
+  if( FD_LIKELY( have_snaprd ) ) {
+    ulong snaprd_off = snaprd_idx*FD_METRICS_TOTAL_SZ;
+    ulong progress_bytes = cur_tile[ snaprd_off+MIDX( GAUGE, SNAPRD, EXPORT_PROGRESS_BYTES ) ];
+    ulong total_bytes    = cur_tile[ snaprd_off+MIDX( GAUGE, SNAPRD, EXPORT_TOTAL_BYTES    ) ];
+    if( FD_LIKELY( total_bytes>0UL ) ) {
+      progress = 100.0 * (double)fd_ulong_min( progress_bytes, total_bytes ) / (double)total_bytes;
+    }
+  }
+
+  char * accounts_packed_str = COUNT( accounts_packed );
+  char * accounts_rate_str   = COUNTF( accounts_per_second );
+  char * account_size_str    = have_snaprd && acc_sum ? fmt_size( fd_alloca_check( 1UL, 64UL ), 64UL, read_sum / acc_sum ) : "         -";
+
+  PRINT( "📦 " BOLD BYELLOW "BACKUP......" RESET UNBOLD
+         " " BOLD "ACCOUNTS" UNBOLD " %s  %s /s"
+         " " BOLD "READ"     UNBOLD " %3.f MB/s"
+         " " BOLD "COMP"     UNBOLD " %3.f MB/s"
+         " " BOLD "ACCT SZ"  UNBOLD " %s"
+         " " BOLD "PCT"      UNBOLD " %.1f %%" CLEARLN "\n",
+    accounts_packed_str,
+    accounts_rate_str,
+    read_megabytes_per_second,
+    comp_megabytes_per_second,
+    account_size_str,
+    progress );
+  return 1U;
 }
 
 static long
@@ -1335,6 +1422,7 @@ write_summary( config_t const *           config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
+  lines_printed += write_backup( config, cur_tile );
   lines_printed += write_accdb( config, cur_tile, prev_tile );
   lines_printed += write_wfs( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
@@ -1457,6 +1545,15 @@ run( config_t const * config,
       snapshot_acc_idx++;
       snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = (ulong)diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
       snapshot_wr_idx++;
+
+      /* Backup */
+      backup_acc_samples[ backup_acc_idx%(sizeof(backup_acc_samples)/sizeof(backup_acc_samples[0])) ] = (ulong)diff_tile( config, "snapzp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPZP, ACCOUNTS_COMPRESSED ) );
+      backup_acc_idx++;
+      long backup_read_delta = diff_tile( config, "snaprd", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPRD, EXPORT_PROGRESS_BYTES ) );
+      backup_read_samples[ backup_read_idx%(sizeof(backup_read_samples)/sizeof(backup_read_samples[0])) ] = backup_read_delta>0L ? (ulong)backup_read_delta : 0UL;
+      backup_read_idx++;
+      backup_comp_samples[ backup_comp_idx%(sizeof(backup_comp_samples)/sizeof(backup_comp_samples[0])) ] = (ulong)diff_tile( config, "snapzp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) );
+      backup_comp_idx++;
 
       /* Events */
       events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, SENT ) );

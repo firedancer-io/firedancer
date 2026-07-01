@@ -87,7 +87,7 @@ collect_publish( fd_snapmk_accparse_t * parse,
     out[ out_cnt ] = (out_frag_t) {
       .meta    = *meta,
       .sig     = meta->sig,
-      .sz      = (ulong)meta->sz + 1UL,
+      .sz      = (ulong)meta->tspub,
       .acc_idx = parse->pub_acc_idx,
       .snap_sz = parse->pub_snap_sz,
       .size    = parse->pub_size,
@@ -189,7 +189,7 @@ FD_UNIT_TEST( split ) {
   out_cnt = feed_frag( parse, stream, off_b, off_e-off_b, out, out_cnt );
   FD_TEST( out_cnt==3UL );
   FD_TEST( out[2].som && out[2].eom );
-  FD_TEST( out[2].sz==1UL ); /* zero-data control fragment */
+  FD_TEST( out[2].sz==0UL ); /* zero-data control fragment */
   FD_TEST( out[2].sig==0UL );
   FD_TEST( out[2].acc_idx==2U );
   FD_TEST( visited_set_test( visited, 2UL ) );
@@ -208,7 +208,8 @@ FD_UNIT_TEST( split ) {
   FD_TEST( out_cnt==5UL );
   FD_TEST( !out[4].som && !out[4].eom );
   FD_TEST( out[4].sz==FD_BACKUP_RD_MTU );
-  FD_TEST( out[4].meta.sz==USHORT_MAX );
+  FD_TEST( out[4].meta.sz==0U );
+  FD_TEST( out[4].meta.tspub==FD_BACKUP_RD_MTU );
 
   ulong final_off = off_e+sizeof(fd_accdb_disk_meta_t)+10UL+FD_BACKUP_RD_MTU;
   out_cnt = feed_frag( parse, stream, final_off, end-final_off, out, out_cnt );
@@ -323,6 +324,259 @@ FD_UNIT_TEST( state ) {
 
   FD_TEST( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK );
   FD_TEST( !charge_busy );
+}
+
+/* flow_control uses consumer fseqs, not stale stem credits, for flush
+   barriers. */
+FD_UNIT_TEST( flow_control ) {
+  static fd_snapmk_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapmk_t) );
+  ctx->zp_cnt = 2UL;
+
+  ulong cons_seq[ 2 ] = { 200UL, 500UL };
+  ctx->zp_cons_fseq[ 0 ] = &cons_seq[ 0 ];
+  ctx->zp_cons_fseq[ 1 ] = &cons_seq[ 1 ];
+  ctx->out_catchup_seq[ 0 ] = 200UL;
+  ctx->out_catchup_seq[ 1 ] = 500UL;
+  ctx->out_flush_seq  [ 0 ] = 201UL;
+  ctx->out_flush_seq  [ 1 ] = 501UL;
+
+  ulong seqs    [ 2 ] = { 200UL, 500UL };
+  ulong depths  [ 2 ] = { 1024UL, 1024UL };
+  ulong cr_avail[ 2 ] = { 0UL, 7UL }; /* deliberately stale */
+  ulong min_cr_avail = 0UL;
+
+  fd_stem_context_t stem[1];
+  memset( stem, 0, sizeof(fd_stem_context_t) );
+  stem->seqs         = seqs;
+  stem->depths       = depths;
+  stem->cr_avail     = cr_avail;
+  stem->min_cr_avail = &min_cr_avail;
+
+  int charge_busy = 0;
+  int is_backpressured = 1;
+  ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH1;
+  check_credit( ctx, stem, &charge_busy, &is_backpressured );
+  FD_TEST( !is_backpressured );
+  FD_TEST( cr_avail[ 0 ]==1024UL );
+  FD_TEST( cr_avail[ 1 ]==1024UL );
+
+  cons_seq[ 1 ] = 499UL;
+  is_backpressured = 0;
+  check_credit( ctx, stem, &charge_busy, &is_backpressured );
+  FD_TEST( is_backpressured );
+
+  cons_seq[ 0 ] = 201UL;
+  cons_seq[ 1 ] = 500UL;
+  is_backpressured = 0;
+  ctx->state = SNAPMK_STATE_ACCOUNTS_DRAIN;
+  check_credit( ctx, stem, &charge_busy, &is_backpressured );
+  FD_TEST( is_backpressured );
+
+  cons_seq[ 1 ] = 501UL;
+  is_backpressured = 1;
+  check_credit( ctx, stem, &charge_busy, &is_backpressured );
+  FD_TEST( !is_backpressured );
+}
+
+/* batch stages wholly-contained accounts and resolves their indices in
+   bulk, applying the same keep predicate as the streaming path. */
+FD_UNIT_TEST( batch ) {
+  uint map[ MAP_CNT ];
+  fd_accdb_accmeta_t pool[ POOL_CNT ];
+  for( ulong i=0UL; i<MAP_CNT; i++ ) map[ i ] = UINT_MAX;
+  memset( pool, 0, sizeof(pool) );
+  for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
+
+  ulong seed = 0x1234UL;
+  ulong mask = MAP_CNT-1UL;
+  uint  root_gen = 7U;
+
+  fd_pubkey_t pk_a, pk_b, pk_c, pk_d, owner_a, owner_b, owner_c, owner_d;
+  fill_key( &pk_a, 0x10 ); fill_key( &owner_a, 0x90 );
+  fill_key( &pk_b, 0x20 ); fill_key( &owner_b, 0xa0 );
+  fill_key( &pk_c, 0x30 ); fill_key( &owner_c, 0xb0 );
+  fill_key( &pk_d, 0x40 ); fill_key( &owner_d, 0xc0 );
+
+  uchar stream[ 1024UL ];
+  ulong off_a = 0UL;
+  ulong off_b = append_record( stream, off_a, &pk_a, &owner_a, FD_ACCDB_SIZE_PACK( 5U, 1 ), 0x01 );
+  ulong off_c = append_record( stream, off_b, &pk_b, &owner_b, FD_ACCDB_SIZE_PACK( 0U, 0 ), 0x11 );
+  ulong off_d = append_record( stream, off_c, &pk_c, &owner_c, FD_ACCDB_SIZE_PACK( 4U, 0 ), 0x21 );
+  ulong end   = append_record( stream, off_d, &pk_d, &owner_d, FD_ACCDB_SIZE_PACK( 3U, 0 ), 0x31 );
+
+  insert_acc( map, pool, seed, mask, 1U, &pk_a, 5U,          off_a      );
+  insert_acc( map, pool, seed, mask, 2U, &pk_b, 5U,          off_b      );
+  insert_acc( map, pool, seed, mask, 3U, &pk_c, root_gen+1U, off_c      ); /* skipped: too new */
+  insert_acc( map, pool, seed, mask, 4U, &pk_d, 5U,          off_d+1UL  ); /* skipped: stale offset */
+
+  fd_snapmk_accparse_t parse[1];
+  visited_set_t * visited = new_visited_set( POOL_CNT );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_insert( parse, stream, end, 0x100000UL, 0UL );
+
+  fd_backup_disk_batch_msg_t batch[1];
+  ulong base_gaddr = 0UL;
+  ulong n = fd_snapmk_accparse_publish_batch( parse, batch, &base_gaddr );
+  FD_TEST( n==4UL );
+  FD_TEST( base_gaddr==0x100000UL );
+
+  FD_TEST( batch->acc_idx[ 0 ]==1U       );
+  FD_TEST( batch->acc_idx[ 1 ]==2U       );
+  FD_TEST( batch->acc_idx[ 2 ]==UINT_MAX );
+  FD_TEST( batch->acc_idx[ 3 ]==UINT_MAX );
+
+  FD_TEST( batch->frag_off[ 0 ]==(uint)off_a );
+  FD_TEST( batch->frag_off[ 1 ]==(uint)off_b );
+  FD_TEST( batch->frag_off[ 2 ]==(uint)off_c );
+  FD_TEST( batch->frag_off[ 3 ]==(uint)off_d );
+
+  FD_TEST( !memcmp( batch->pubkey[ 0 ].uc, pk_a.uc, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( batch->pubkey[ 1 ].uc, pk_b.uc, sizeof(fd_pubkey_t) ) );
+
+  FD_TEST(  visited_set_test( visited, 1UL ) );
+  FD_TEST(  visited_set_test( visited, 2UL ) );
+  FD_TEST( !visited_set_test( visited, 3UL ) );
+  FD_TEST( !visited_set_test( visited, 4UL ) );
+
+  /* fully consumed: no more batches */
+  FD_TEST( fd_snapmk_accparse_publish_batch( parse, batch, &base_gaddr )==0UL );
+}
+
+FD_UNIT_TEST( batch_large_frag_offset ) {
+  uint map[ MAP_CNT ];
+  fd_accdb_accmeta_t pool[ POOL_CNT ];
+  for( ulong i=0UL; i<MAP_CNT; i++ ) map[ i ] = UINT_MAX;
+  memset( pool, 0, sizeof(pool) );
+  for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
+
+  ulong seed = 4321UL;
+  ulong mask = MAP_CNT-1UL;
+  uint  root_gen = 7U;
+
+  fd_pubkey_t pk_a, owner_a;
+  fill_key( &pk_a, 0xa1 );
+  fill_key( &owner_a, 0xb1 );
+
+  static uchar stream[ 80000UL ];
+  memset( stream, 0, sizeof(stream) );
+  ulong off_a = 70000UL;
+  ulong end   = append_record( stream, off_a, &pk_a, &owner_a, FD_ACCDB_SIZE_PACK( 5U, 0 ), 0x01 );
+  insert_acc( map, pool, seed, mask, 1U, &pk_a, root_gen, off_a );
+
+  fd_snapmk_accparse_t parse[1];
+  visited_set_t * visited = new_visited_set( POOL_CNT );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_insert( parse, stream+off_a, end-off_a, 0x100000UL+off_a, off_a );
+  parse->frag_base_gaddr = 0x100000UL;
+
+  fd_backup_disk_batch_msg_t batch[1];
+  ulong base_gaddr = 0UL;
+  ulong n = fd_snapmk_accparse_publish_batch( parse, batch, &base_gaddr );
+  FD_TEST( n==1UL );
+  FD_TEST( base_gaddr==0x100000UL );
+  FD_TEST( batch->acc_idx [ 0 ]==1U );
+  FD_TEST( batch->frag_off[ 0 ]==(uint)off_a );
+}
+
+/* batch_straddle stops the batch at the account whose data crosses the
+   frag boundary and leaves it for the streaming single-account path. */
+FD_UNIT_TEST( batch_straddle ) {
+  uint map[ MAP_CNT ];
+  fd_accdb_accmeta_t pool[ POOL_CNT ];
+  for( ulong i=0UL; i<MAP_CNT; i++ ) map[ i ] = UINT_MAX;
+  memset( pool, 0, sizeof(pool) );
+  for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
+
+  ulong seed = 0x1234UL;
+  ulong mask = MAP_CNT-1UL;
+  uint  root_gen = 7U;
+
+  fd_pubkey_t pk_a, pk_b, pk_c, owner_a, owner_b, owner_c;
+  fill_key( &pk_a, 0x10 ); fill_key( &owner_a, 0x90 );
+  fill_key( &pk_b, 0x20 ); fill_key( &owner_b, 0xa0 );
+  fill_key( &pk_c, 0x30 ); fill_key( &owner_c, 0xb0 );
+
+  uchar stream[ 1024UL ];
+  ulong off_a = 0UL;
+  ulong off_b = append_record( stream, off_a, &pk_a, &owner_a, FD_ACCDB_SIZE_PACK( 5U, 0 ), 0x01 );
+  ulong off_c = append_record( stream, off_b, &pk_b, &owner_b, FD_ACCDB_SIZE_PACK( 0U, 0 ), 0x11 );
+  ulong end   = append_record( stream, off_c, &pk_c, &owner_c, FD_ACCDB_SIZE_PACK( 100U, 0 ), 0x21 );
+
+  insert_acc( map, pool, seed, mask, 1U, &pk_a, 5U, off_a );
+  insert_acc( map, pool, seed, mask, 2U, &pk_b, 5U, off_b );
+  insert_acc( map, pool, seed, mask, 3U, &pk_c, 5U, off_c );
+
+  fd_snapmk_accparse_t parse[1];
+  visited_set_t * visited = new_visited_set( POOL_CNT );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+
+  /* frag only covers acc_c's meta + 40 of its 100 data bytes */
+  ulong frag_sz = off_c + sizeof(fd_accdb_disk_meta_t) + 40UL;
+  FD_TEST( frag_sz < end );
+  fd_snapmk_accparse_insert( parse, stream, frag_sz, 0x100000UL, 0UL );
+
+  fd_backup_disk_batch_msg_t batch[1];
+  ulong base_gaddr = 0UL;
+  ulong n = fd_snapmk_accparse_publish_batch( parse, batch, &base_gaddr );
+  FD_TEST( n==2UL );
+  FD_TEST( batch->acc_idx[ 0 ]==1U );
+  FD_TEST( batch->acc_idx[ 1 ]==2U );
+
+  /* the straddling acc_c is handled by the streaming path */
+  fd_frag_meta_t meta[1];
+  FD_TEST( fd_snapmk_accparse_publish( parse, meta ) );
+  FD_TEST(  fd_frag_meta_ctl_som( meta->ctl ) );
+  FD_TEST( !fd_frag_meta_ctl_eom( meta->ctl ) );
+  FD_TEST( (ulong)meta->tspub==40UL );
+  FD_TEST( parse->pub_acc_idx==3U );
+}
+
+/* release exercises the snaprd shadow-ring watermark, in particular the
+   caught-up (no-floor) deadlock guard. */
+FD_UNIT_TEST( release ) {
+  static fd_snapmk_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapmk_t) );
+  ctx->zp_cnt = 2UL;
+
+  ulong shadow0[ 8 ], shadow1[ 8 ];
+  ctx->rd_shadow[ 0 ] = shadow0; ctx->zp_depth[ 0 ] = 8UL;
+  ctx->rd_shadow[ 1 ] = shadow1; ctx->zp_depth[ 1 ] = 8UL;
+
+  ulong relfseq = 0UL;
+  ctx->snaprd_release_fseq = &relfseq;
+  ctx->snaprd_release_seq  = ULONG_MAX;
+  ctx->snaprd_parse_seq    = 10UL;
+
+  ulong cons0 = 0UL, cons1 = 0UL;
+  ctx->zp_cons_fseq[ 0 ] = &cons0;
+  ctx->zp_cons_fseq[ 1 ] = &cons1;
+
+  ulong seqs[ 2 ] = { 0UL, 0UL };
+  fd_stem_context_t stem[1];
+  memset( stem, 0, sizeof(fd_stem_context_t) );
+  stem->seqs = seqs;
+
+  /* both tiles caught up -> release clamps to parse cursor */
+  snapmk_update_release( ctx, stem );
+  FD_TEST( relfseq==10UL );
+
+  /* tile 0 lags: oldest unconsumed frag (cons=1) references snaprd seq 4 */
+  seqs[ 0 ] = 3UL; cons0 = 1UL; shadow0[ 1 ] = 4UL;
+  seqs[ 1 ] = 2UL; cons1 = 2UL; /* tile 1 caught up */
+  snapmk_update_release( ctx, stem );
+  FD_TEST( relfseq==4UL );
+
+  /* tile 1 now also lags referencing an older seq 2 -> min wins */
+  cons1 = 0UL; shadow1[ 0 ] = 2UL;
+  snapmk_update_release( ctx, stem );
+  FD_TEST( relfseq==2UL );
+
+  /* both caught up again: watermark jumps forward to the parse cursor
+     instead of staying pinned (the deadlock guard) */
+  cons0 = 3UL; cons1 = 2UL;
+  snapmk_update_release( ctx, stem );
+  FD_TEST( relfseq==10UL );
 }
 
 int

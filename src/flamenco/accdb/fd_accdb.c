@@ -674,16 +674,24 @@ submit_cmd( fd_accdb_t * accdb,
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id ) {
-  /* fork_pool_acquire is not NULL-checked: replay gates attaches on
-     fd_banks_is_full, and wait_cmd ensures the prior advance_root has
-     fully run on T2, so live + deferred forks <= max_live_slots. */
+  /* replay gates attaches on fd_banks_is_full, and wait_cmd ensures the
+     prior advance_root has fully run on T2, so
+     live + deferred forks <= max_live_slots. */
   wait_cmd( accdb );
 
   fd_accdb_fork_shmem_t * acquired = fork_pool_acquire( accdb->fork_shmem_pool );
+  if( FD_UNLIKELY( !acquired ) ) FD_LOG_ERR(( "fork_pool_acquire failed (this is a replay tile bug)" ));
+
   ulong idx = fork_pool_idx( accdb->fork_shmem_pool, acquired );
 
   fd_accdb_fork_t * fork = &accdb->fork_pool[ idx ];
   fd_accdb_fork_id_t fork_id = { .val = (ushort)idx };
+
+  if( FD_UNLIKELY( parent_fork_id.val!=USHORT_MAX &&
+                   parent_fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_attach_child: invalid parent fork id %u (capacity %lu)",
+                  (uint)parent_fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
+  }
 
   fork->shmem->child_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
