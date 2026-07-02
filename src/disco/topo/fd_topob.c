@@ -400,6 +400,9 @@ static char const * POST_START[] = {
   "poh",    /* FIREDANCER only */
   "execrp", /* FIREDANCER only */
   "txsend", /* FIREDANCER only */
+  "snapmk", /* FIREDANCER ONLY */
+  "snapzp", /* FIREDANCER ONLY */
+  "snaprd", /* FIREDANCER ONLY */
   NULL
 };
 

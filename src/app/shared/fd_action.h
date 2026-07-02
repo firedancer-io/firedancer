@@ -167,6 +167,10 @@ union fdctl_args {
   } snapshot_load;
 
   struct {
+    int cont;
+  } snapshot_create;
+
+  struct {
     ulong max_entries;
     ulong max_contact;
     int   compact_mode;

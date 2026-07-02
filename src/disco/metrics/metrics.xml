@@ -644,7 +644,6 @@ EXAMPLES
     <counter name="PktNoKey" enum="QuicEncryptionLevel" summary="Packets that failed decryption due to missing key" />
     <counter name="PktNoConn" enum="QuicPktHandle" summary="Packets with an unknown connection ID" />
     <counter name="PktSrcInvalid" summary="Packets dropped due to a wrong source IP" />
-    <counter name="PktTxAllocFailed" summary="Packet transmit jobs dropped due to allocation failure" />
     <counter name="PktNetHeaderInvalid" summary="Packets dropped due to weird IP or UDP header" />
     <counter name="PktHeaderInvalid" summary="Packets dropped due to weird QUIC header" />
     <counter name="PktUndersize" summary="QUIC packets dropped due to being too small" />
@@ -899,9 +898,6 @@ EXAMPLES
     <histogram name="CuPct" min="0" max="100">
         <summary>Percent of the total block cost limit used for each block pack produced</summary>
     </histogram>
-
-    <counter name="TxnDeleteMissed" summary="Attempts to delete a transaction that wasn't found" />
-    <counter name="TxnDeleteHit" summary="Attempts to delete a transaction that was found and deleted" />
 </tile>
 
 <!-- Frankendancer transaction result -->
@@ -1337,9 +1333,6 @@ EXAMPLES
     <histogram name="ResponseLatencyNanos" min="10000000" max="1000000000">
       <summary>Time it took to receive a repair request response, in nanoseconds</summary>
     </histogram>
-    <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
-      <summary>Duration of signing a message</summary>
-    </histogram>
     <counter name="BlockEvicted" summary="Blocks evicted from the forest" />
     <counter name="BlockInsertFailed" summary="Blocks we failed to insert into the forest due to failed eviction" />
     <gauge name="SlotLastEvicted"          summary="Most recent slot evicted from forest" />
@@ -1380,7 +1373,6 @@ EXAMPLES
     <counter name="TotalPktCount" summary="How many network packets we have sent, including pings, responses, etc" />
     <counter name="SentResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages are we sending" />
     <counter name="SentResponseBytes" summary="Total payload bytes sent in response packets" />
-    <counter name="SentPingBackCount" summary="How many ping-back packets we sent to nodes not yet in the ping cache" />
 
     <counter name="MissedResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages could we not fulfill" />
     <counter name="FailedSigverify" summary="How many times we failed to verify the signature of a request" />
@@ -1455,7 +1447,6 @@ EXAMPLES
 </enum>
 
 <tile name="gossip">
-    <gauge name="PingTrackerCapacity" summary="Peer tracking capacity of the ping tracker" />
     <gauge name="PingTracked" enum="PingTrackedType" summary="Peers being tracked for ping/pong" />
     <counter name="PingTrackerPongResult" enum="PongResponse" summary="Result of processing a pong response to a ping" />
     <counter name="PingTrackerEvicted" summary="Peers evicted from the ping tracker to make space for new peers" />
@@ -1630,6 +1621,44 @@ EXAMPLES
     <gauge name="IncrementalBytesRead" summary="Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="BytesWritten" summary="Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads." />
     <gauge name="AccountsWritten" summary="Number of accounts written to the accounts database on disk. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
+<tile name="snapmk">
+    <gauge name="State" summary="0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail" />
+    <counter name="SnapshotsCreated" summary="Number of snapshots created (includes in-progress)" />
+    <counter name="AccountsSeen" summary="Accounts examined while building snapshots" />
+    <counter name="DataReadBytes" summary="Account database bytes read while building snapshots" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing" />
+    <counter name="DiskBatchesEmitted" summary="Number of multi-account disk batch fragments emitted to zp" />
+    <counter name="DiskAccountsSingle" summary="Number of disk accounts emitted via the single-account (straddle/large) path" />
+    <gauge name="SnapshotAccountsSeen" summary="Accounts examined while building the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotDataReadBytes" summary="Account database bytes read while building the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotUncompressedDataWrittenBytes" summary="Uncompressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotCompressedDataWrittenBytes" summary="Compressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnaprdInflightFrags" summary="Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth)" />
+</tile>
+
+<tile name="snapzp">
+    <counter name="AccountsCompressed" summary="Number of accounts processed" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
+    <counter name="DiskBatches" summary="Number of multi-account disk batch fragments processed" />
+    <counter name="DiskBatchAccounts" summary="Number of disk accounts processed via the batch path" />
+    <gauge name="SnapshotAccountsPacked" summary="Accounts packed into the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotUncompressedDataWrittenBytes" summary="Uncompressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotCompressedDataWrittenBytes" summary="Compressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes" />
+</tile>
+
+<tile name="snaprd">
+    <gauge name="State" summary="0=idle, 1=read, 2=done" />
+    <counter name="BytesRead" summary="Number of bytes read from the account database file" />
+    <gauge name="ExportProgressBytes" summary="Account database read progress in bytes of the current snapshot creation job" />
+    <gauge name="ExportTotalBytes" summary="Total bytes to be read from account database for the current snapshot creation job" />
 </tile>
 
 <tile name="metric">
@@ -1859,8 +1888,6 @@ EXAMPLES
 
     <counter name="FragIgnored" summary="replay_slot_completed frags we ignored" />
     <gauge name="SlotLastIgnored" summary="Most recent ignored replay_slot_completed frag" />
-    <counter name="FragEqvocDetected" summary="replay_slot_completed frags we detect as equivocations" />
-    <gauge name="SlotLastEqvoc" summary="Most recent equivocating replay_slot_completed frag" />
 
     <!-- Tower slot metadata -->
 

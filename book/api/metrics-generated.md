@@ -151,6 +151,62 @@
 
 </div>
 
+## Snapmk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapmk_&#8203;state</span> | gauge | 0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail |
+| <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span> | counter | Number of snapshots created (includes in-progress) |
+| <span class="metrics-name">snapmk_&#8203;accounts_&#8203;seen</span> | counter | Accounts examined while building snapshots |
+| <span class="metrics-name">snapmk_&#8203;data_&#8203;read_&#8203;bytes</span> | counter | Account database bytes read while building snapshots |
+| <span class="metrics-name">snapmk_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
+| <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing |
+| <span class="metrics-name">snapmk_&#8203;disk_&#8203;batches_&#8203;emitted</span> | counter | Number of multi-account disk batch fragments emitted to zp |
+| <span class="metrics-name">snapmk_&#8203;disk_&#8203;accounts_&#8203;single</span> | counter | Number of disk accounts emitted via the single-account (straddle/large) path |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;accounts_&#8203;seen</span> | gauge | Accounts examined while building the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;data_&#8203;read_&#8203;bytes</span> | gauge | Account database bytes read while building the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;uncompressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Uncompressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;compressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Compressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snaprd_&#8203;inflight_&#8203;frags</span> | gauge | Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth) |
+
+</div>
+
+## Snapzp Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapzp_&#8203;accounts_&#8203;compressed</span> | counter | Number of accounts processed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
+| <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
+| <span class="metrics-name">snapzp_&#8203;disk_&#8203;batches</span> | counter | Number of multi-account disk batch fragments processed |
+| <span class="metrics-name">snapzp_&#8203;disk_&#8203;batch_&#8203;accounts</span> | counter | Number of disk accounts processed via the batch path |
+| <span class="metrics-name">snapzp_&#8203;snapshot_&#8203;accounts_&#8203;packed</span> | gauge | Accounts packed into the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapzp_&#8203;snapshot_&#8203;uncompressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Uncompressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapzp_&#8203;snapshot_&#8203;compressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Compressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes |
+
+</div>
+
+## Snaprd Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | 0=idle, 1=read, 2=done |
+| <span class="metrics-name">snaprd_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database file |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database read progress in bytes of the current snapshot creation job |
+| <span class="metrics-name">snaprd_&#8203;export_&#8203;total_&#8203;bytes</span> | gauge | Total bytes to be read from account database for the current snapshot creation job |
+
+</div>
+
 ## Netlnk Tile
 
 <div class="metrics">
@@ -524,8 +580,6 @@
 | <span class="metrics-name">pack_&#8203;cu_&#8203;rebated_&#8203;per_&#8203;block</span> | histogram | Compute units rebated for each block pack produced. Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses |
 | <span class="metrics-name">pack_&#8203;cu_&#8203;net_&#8203;per_&#8203;block</span> | histogram | Net cost units (scheduled - rebated) in each block pack produced |
 | <span class="metrics-name">pack_&#8203;cu_&#8203;pct</span> | histogram | Percent of the total block cost limit used for each block pack produced |
-| <span class="metrics-name">pack_&#8203;txn_&#8203;delete_&#8203;missed</span> | counter | Attempts to delete a transaction that wasn't found |
-| <span class="metrics-name">pack_&#8203;txn_&#8203;delete_&#8203;hit</span> | counter | Attempts to delete a transaction that was found and deleted |
 
 </div>
 
@@ -773,7 +827,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;capacity</span> | gauge | Peer tracking capacity of the ping tracker |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracked</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">unpinged</span>"} | gauge | Peers being tracked for ping/pong (Peer is known but has not been pinged yet) |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracked</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">invalid</span>"} | gauge | Peers being tracked for ping/pong (Peer was pinged but has not yet responded, or responded with an invalid pong) |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracked</span><br/>{ping_&#8203;tracked_&#8203;type="<span class="metrics-enum">valid</span>"} | gauge | Peers being tracked for ping/pong (Peer was pinged and is currently valid) |
@@ -922,7 +975,6 @@
 | <span class="metrics-name">repair_&#8203;ping_&#8203;signature_&#8203;failed</span> | counter | Pings whose signature we failed to verify |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;duration_&#8203;seconds</span> | histogram | Time it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time it took to receive a repair request response, in nanoseconds |
-| <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 | <span class="metrics-name">repair_&#8203;block_&#8203;evicted</span> | counter | Blocks evicted from the forest |
 | <span class="metrics-name">repair_&#8203;block_&#8203;insert_&#8203;failed</span> | counter | Blocks we failed to insert into the forest due to failed eviction |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;last_&#8203;evicted</span> | gauge | Most recent slot evicted from forest |
@@ -955,7 +1007,6 @@
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">highest_&#8203;window</span>"} | counter | What types of response messages are we sending (Highest Window) |
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | What types of response messages are we sending (Orphan) |
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;bytes</span> | counter | Total payload bytes sent in response packets |
-| <span class="metrics-name">rserve_&#8203;sent_&#8203;ping_&#8203;back_&#8203;count</span> | counter | How many ping-back packets we sent to nodes not yet in the ping cache |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">ping</span>"} | counter | What types of response messages could we not fulfill (Ping) |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">window</span>"} | counter | What types of response messages could we not fulfill (Window) |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">highest_&#8203;window</span>"} | counter | What types of response messages could we not fulfill (Highest Window) |
@@ -1330,8 +1381,6 @@
 |--------|------|-------------|
 | <span class="metrics-name">tower_&#8203;frag_&#8203;ignored</span> | counter | replay_slot_completed frags we ignored |
 | <span class="metrics-name">tower_&#8203;slot_&#8203;last_&#8203;ignored</span> | gauge | Most recent ignored replay_slot_completed frag |
-| <span class="metrics-name">tower_&#8203;frag_&#8203;eqvoc_&#8203;detected</span> | counter | replay_slot_completed frags we detect as equivocations |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;last_&#8203;eqvoc</span> | gauge | Most recent equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Most recently replayed slot, ULONG_MAX if nothing replayed yet. Not monotonically increasing |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Highest voted slot in the local tower, ULONG_MAX if haven't voted. Monotonically increasing |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing |
@@ -1482,7 +1531,6 @@
 | <span class="metrics-name">txsend_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">handshake</span>"} | counter | Packets with an unknown connection ID (Handshake) |
 | <span class="metrics-name">txsend_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">one_&#8203;rtt</span>"} | counter | Packets with an unknown connection ID (1-RTT) |
 | <span class="metrics-name">txsend_&#8203;pkt_&#8203;src_&#8203;invalid</span> | counter | Packets dropped due to a wrong source IP |
-| <span class="metrics-name">txsend_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;failed</span> | counter | Packet transmit jobs dropped due to allocation failure |
 | <span class="metrics-name">txsend_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid</span> | counter | Packets dropped due to weird IP or UDP header |
 | <span class="metrics-name">txsend_&#8203;pkt_&#8203;header_&#8203;invalid</span> | counter | Packets dropped due to weird QUIC header |
 | <span class="metrics-name">txsend_&#8203;pkt_&#8203;undersize</span> | counter | QUIC packets dropped due to being too small |

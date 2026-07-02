@@ -21,6 +21,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_accdb;
+extern fd_topo_obj_callbacks_t fd_obj_cb_visited_set;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
@@ -40,6 +41,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
   &fd_obj_cb_accdb,
+  &fd_obj_cb_visited_set,
   &fd_obj_cb_banks,
   &fd_obj_cb_progcache,
   &fd_obj_cb_rnonce_ss,
@@ -97,6 +99,9 @@ extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
 extern fd_topo_run_tile_t fd_tile_snapwr;
+extern fd_topo_run_tile_t fd_tile_snapmk;
+extern fd_topo_run_tile_t fd_tile_snapzp;
+extern fd_topo_run_tile_t fd_tile_snaprd;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -134,6 +139,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_genesi,
   &fd_tile_ipecho,
   &fd_tile_solcap,
+  &fd_tile_snapmk,
+  &fd_tile_snapzp,
+  &fd_tile_snaprd,
   NULL,
 };
 
@@ -153,6 +161,7 @@ extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_set_identity;
 extern action_t fd_action_monitor_gossip;
+extern action_t fd_action_snapshot_create;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -171,6 +180,7 @@ action_t * ACTIONS[] = {
   &fd_action_watch,
   &fd_action_monitor_gossip,
   &fd_action_set_identity,
+  &fd_action_snapshot_create,
   NULL,
 };
 

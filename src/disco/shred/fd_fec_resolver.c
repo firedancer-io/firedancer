@@ -665,11 +665,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         *out_spilled->merkle_root = victim_ctx->root;
       }
 
-      fd_fec_set_t * set = victim_ctx->set;
-
-      /* TODO: remove this log */
-      FD_LOG_INFO(( "Spilled from fec_resolver in-progress map %lu %u, data_shreds_rcvd %x, parity_shreds_rcvd %x", victim_ctx->slot, victim_ctx->fec_set_idx, set->data_shred_rcvd, set->parity_shred_rcvd  ));
-
       /* Remove from treap and map, then add to free_list */
       ctx_treap_ele_remove   ( ctx_treap, victim_ctx, ctx_pool );
       ctx_map_ele_remove_fast( ctx_map,   victim_ctx, ctx_pool );

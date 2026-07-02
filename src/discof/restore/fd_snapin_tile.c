@@ -641,7 +641,15 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[ i ];
     fd_hash_t key;
     fd_memcpy( key.uc, entry->blockhash, 32UL );
-    if( FD_UNLIKELY( !blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool ) ) ) continue;
+    fd_blockhash_entry_t const * blockhash_entry = blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool );
+    if( FD_UNLIKELY( !blockhash_entry ) ) continue;
+
+    ulong chain_idx = (ulong)(blockhash_entry - blockhash_pool);
+    if( FD_UNLIKELY( !chain_idx || chain_idx>=chain_len ) ) {
+      FD_BASE58_ENCODE_32_BYTES( entry->blockhash, blockhash_b58 );
+      FD_LOG_WARNING(( "corrupt snapshot: txncache entry in slot %lu references blockhash %s outside the snapin txncache fork ancestry", entry->slot, blockhash_b58 ));
+      return 1;
+    }
 
     insert_cnt++;
     fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, entry->blockhash, entry->txnhash );
