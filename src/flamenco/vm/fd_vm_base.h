@@ -93,7 +93,7 @@
 #define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS             (2)
 
 /* EbpfError
-   https://github.com/solana-labs/rbpf/blob/v0.8.5/src/error.rs#L17 */
+   https://github.com/anza-xyz/sbpf/blob/main/src/error.rs#L20-L78 */
 
 #define FD_VM_ERR_EBPF_ELF_ERROR                                  (-1)
 #define FD_VM_ERR_EBPF_FUNCTION_ALREADY_REGISTERED                (-2)
@@ -105,16 +105,15 @@
 #define FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT                  (-8)
 #define FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS                  (-9)
 #define FD_VM_ERR_EBPF_JIT_NOT_COMPILED                           (-10)
-#define FD_VM_ERR_EBPF_INVALID_VIRTUAL_ADDRESS                    (-11)
-#define FD_VM_ERR_EBPF_INVALID_MEMORY_REGION                      (-12)
-#define FD_VM_ERR_EBPF_ACCESS_VIOLATION                           (-13)
-#define FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION                     (-14)
-#define FD_VM_ERR_EBPF_INVALID_INSTRUCTION                        (-15)
-#define FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION                    (-16)
-#define FD_VM_ERR_EBPF_EXHAUSTED_TEXT_SEGMENT                     (-17)
-#define FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED                     (-18)
-#define FD_VM_ERR_EBPF_VERIFIER_ERROR                             (-19)
-#define FD_VM_ERR_EBPF_SYSCALL_ERROR                              (-20)
+#define FD_VM_ERR_EBPF_INVALID_MEMORY_REGION                      (-11)
+#define FD_VM_ERR_EBPF_ACCESS_VIOLATION                           (-12)
+#define FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION                     (-13)
+#define FD_VM_ERR_EBPF_INVALID_INSTRUCTION                        (-14)
+#define FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION                    (-15)
+#define FD_VM_ERR_EBPF_EXHAUSTED_TEXT_SEGMENT                     (-16)
+#define FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED                     (-17)
+#define FD_VM_ERR_EBPF_VERIFIER_ERROR                             (-18)
+#define FD_VM_ERR_EBPF_SYSCALL_ERROR                              (-19)
 
 
 FD_PROTOTYPES_BEGIN
