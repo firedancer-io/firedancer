@@ -343,6 +343,22 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     return 1;
   }
 
+  case FD_KEYGUARD_ROLE_VOTOR: {
+    (void)authority;
+    static char const server_prefix[ 98 ] =
+      "                                "
+      "                                "
+      "TLS 1.3, server CertificateVerify";
+    int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
+                 ( fd_memeq( fd_tls13_cli_sign_prefix, data, sizeof(fd_tls13_cli_sign_prefix) ) ||
+                   fd_memeq( server_prefix,            data, sizeof(server_prefix)            ) );
+    if( FD_UNLIKELY( !tls_ok ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    return 1;
+  }
+
   case FD_KEYGUARD_ROLE_GOSSIP: {
     int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
                     fd_keyguard_authorize_ping( authority, data, sz, sign_type );

@@ -10,6 +10,8 @@
 #include "../../alpenglow/crypto/fd_aggsig.h"
 #include "../../alpenglow/fd_alpenglow_base.h"
 #include "../../ballet/bls/fd_bls12_381.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -27,9 +29,7 @@
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_private.h"
 
-#include <errno.h>
 #include <unistd.h>
-#include <sys/random.h>
 
 /* The Votor tile drives the Alpenglow consensus core.  It broadly processes
    four classes of frags:
@@ -71,13 +71,10 @@
 #define IN_KIND_EPOCH  (2)
 #define IN_KIND_IPECHO (3)
 #define IN_KIND_VOTOR  (4)
+#define IN_KIND_SIGN   (5)
 
 #define OUT_IDX     0 /* votor_out: consensus output (votes/certs/slot_done/finalized) */
 #define OUT_IDX_NET 1 /* votor_net: QUIC TX frames back to the net tile               */
-
-/* QUIC TLS identity key sizes (ephemeral, like the TPU QUIC tile). */
-#define ED25519_PRIV_KEY_SZ (32)
-#define ED25519_PUB_KEY_SZ  (32)
 
 /* One net_alpenglow input link per net tile. */
 #define FD_VOTOR_NET_IN_MAX (32UL)
@@ -189,6 +186,7 @@ struct fd_votor_tile {
 
   fd_wksp_t *      wksp; /* workspace */
   fd_keyswitch_t * identity_keyswitch;
+  fd_keyguard_client_t keyguard_client[1];
 
   fd_votor_t *      votor;      /* the voting state machine             */
   fd_pool_t *       pool;       /* the cert/vote integrator             */
@@ -267,8 +265,8 @@ struct fd_votor_tile {
   ulong       out_chunk;
   ulong       out_seq;
 
-  /* QUIC ingress (folded-in alpin tile): an fd_quic server with an
-     ephemeral TLS identity that receives Alpenglow ConsensusMessages on
+  /* QUIC ingress (folded-in alpin tile): an fd_quic server using the
+     validator identity key receives Alpenglow ConsensusMessages on
      the dedicated alpenglow port.  The tile-level frag callbacks
      (before/during/after_frag) drive the QUIC machinery; the
      quic_server_stream_rx callback hands each whole ConsensusMessage to the
@@ -277,9 +275,6 @@ struct fd_votor_tile {
 
   fd_quic_t *        quic_server;
   fd_aio_t           quic_tx_aio[1];
-  uchar              tls_priv_key[ ED25519_PRIV_KEY_SZ ];
-  uchar              tls_pub_key [ ED25519_PUB_KEY_SZ  ];
-  fd_sha512_t        quic_sha512[1];
   long               now;
   fd_stem_context_t * stem;
   uchar              net_buf[ FD_NET_MTU ];
@@ -1207,7 +1202,7 @@ init_choreo( void                 * scratch,
   FD_TEST( ctx->peer_map  );
 
   /* QUIC server + client memory is formatted here; the connection config,
-     ephemeral TLS identity, TX aio and net links are wired in
+     validator identity key, TX aio and net links are wired in
      unprivileged_init (which has the topology).  NULL when QUIC is disabled
      (unit test). */
   ctx->quic_server        = NULL;
@@ -1340,9 +1335,7 @@ quic_tls_cv_sign( void *      signer_ctx,
                   uchar       signature[ static 64 ],
                   uchar const payload[ static 130 ] ) {
   fd_votor_tile_t * ctx = signer_ctx;
-  fd_sha512_t * sha512 = fd_sha512_join( ctx->quic_sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
-  fd_sha512_leave( sha512 );
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static inline void
@@ -1405,6 +1398,10 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
+    if( FD_LIKELY( ctx->quic_server ) ) {
+      fd_quic_set_identity_public_key( ctx->quic_server, ctx->identity_keyswitch->bytes );
+      fd_quic_set_identity_public_key( ctx->quic_client, ctx->identity_keyswitch->bytes );
+    }
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->halt_signing = 1;
     ctx->identity_keyswitch->result = ctx->out_seq;
@@ -1589,6 +1586,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->wksp );
   FD_TEST( ctx->identity_keyswitch );
 
+  ulong sign_in_idx = ULONG_MAX;
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link      = &topo->links[ tile->in_link_id[ i ] ];
@@ -1599,6 +1597,10 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "net_alpenglow" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_votor"    ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_SIGN;
+      sign_in_idx = i;
+    }
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_VOTOR ) ) {
@@ -1621,18 +1623,29 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_chunk  = ctx->out_chunk0;
   ctx->out_seq    = 0UL;
 
-  /* QUIC ingress setup: ephemeral TLS identity, server config, TX aio (→
+  /* QUIC ingress setup: validator identity, server config, TX aio (→
      net), and the votor_net out link.  init_choreo already formatted the
      fd_quic when QUIC is enabled. */
   if( FD_LIKELY( ctx->quic_server ) ) {
     if( FD_UNLIKELY( tile->out_cnt<2UL || strcmp( topo->links[ tile->out_link_id[ OUT_IDX_NET ] ].name, "votor_net" ) ) )
       FD_LOG_ERR(( "votor tile (with QUIC) requires a votor_net output link" ));
 
-    if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) )
-      FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( ctx->quic_sha512 ) );
-    fd_ed25519_public_from_private( ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
-    fd_sha512_leave( sha512 );
+    if( FD_UNLIKELY( sign_in_idx==ULONG_MAX ) )
+      FD_LOG_ERR(( "votor tile (with QUIC) requires a sign_votor input link" ));
+    ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_sign", tile->kind_id );
+    if( FD_UNLIKELY( sign_out_idx==ULONG_MAX ) )
+      FD_LOG_ERR(( "votor tile (with QUIC) requires a votor_sign output link" ));
+    fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_idx  ] ];
+    fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+    if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new(
+          ctx->keyguard_client,
+          sign_out->mcache,
+          sign_out->dcache,
+          sign_in->mcache,
+          sign_in->dcache,
+          sign_out->mtu ) ) ) ) {
+      FD_LOG_ERR(( "fd_keyguard_client_new failed" ));
+    }
 
     fd_aio_t * tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_tx_aio_send ) );
     if( FD_UNLIKELY( !tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
@@ -1645,7 +1658,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->quic_server->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
     ctx->quic_server->config.initial_rx_max_stream_data = 2048UL;
     ctx->quic_server->config.retry                      = tile->quic.retry;
-    fd_memcpy( ctx->quic_server->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
+    fd_memcpy( ctx->quic_server->config.identity_public_key, ctx->identity_key->uc, sizeof(fd_pubkey_t) );
     ctx->quic_server->config.sign     = quic_tls_cv_sign;
     ctx->quic_server->config.sign_ctx = ctx;
     ctx->quic_server->cb.conn_new     = quic_server_conn_new;
@@ -1661,8 +1674,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
     ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-    /* Outbound broadcast client (peer connection table).  Shares the ephemeral
-       TLS identity, the TX aio (→ net) and the alpenglow UDP port with the
+    /* Outbound broadcast client (peer connection table).  Shares the validator
+       identity, the TX aio (→ net) and the alpenglow UDP port with the
        server; peers reply to that port, the net tile routes the replies onto
        net_alpenglow, and the inbound path feeds BOTH instances (QUIC demuxes by
        connection id). */
@@ -1675,7 +1688,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->quic_client->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
     ctx->quic_client->config.initial_rx_max_stream_data = 2048UL;
     ctx->quic_client->config.retry                      = tile->quic.retry;
-    fd_memcpy( ctx->quic_client->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
+    fd_memcpy( ctx->quic_client->config.identity_public_key, ctx->identity_key->uc, sizeof(fd_pubkey_t) );
     ctx->quic_client->config.sign       = quic_tls_cv_sign;
     ctx->quic_client->config.sign_ctx   = ctx;
     ctx->quic_client->cb.conn_final     = quic_client_conn_final;
