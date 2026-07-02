@@ -674,6 +674,7 @@ struct fd_gui {
     int          is_full_client;
     char const * version;
     char const * cluster;
+    char         accounts_database_path[ PATH_MAX ];
 
     char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
     ushort expected_shred_version;
@@ -1063,6 +1064,7 @@ fd_gui_new( void *                   shmem,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
+            char const *             accounts_database_path,
             fd_topo_t const *        topo,
             fd_accdb_shmem_t const * accdb_shmem,
             long                     now );

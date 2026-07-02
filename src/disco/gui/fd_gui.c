@@ -76,6 +76,7 @@ fd_gui_new( void *                   shmem,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
+            char const *             accounts_database_path,
             fd_topo_t const *        topo,
             fd_accdb_shmem_t const * accdb_shmem,
             long                     now ) {
@@ -149,6 +150,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.is_full_client                = is_full_client;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
+  fd_cstr_ncpy( gui->summary.accounts_database_path, accounts_database_path, sizeof(gui->summary.accounts_database_path) );
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
   gui->summary.expected_shred_version        = expected_shred_version;
   gui->summary.wfs_enabled          = 0;

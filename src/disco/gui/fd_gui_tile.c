@@ -696,7 +696,7 @@ unprivileged_init( fd_topo_t const *      topo,
     accdb_shmem = fd_accdb_shmem_join( accdb_shmem_raw );
     FD_TEST( accdb_shmem );
   }
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, fd_version_cstr, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, tile->gui.accounts_database_path, ctx->topo, accdb_shmem, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );

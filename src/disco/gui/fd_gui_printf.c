@@ -2517,6 +2517,8 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         default: FD_LOG_ERR(( "unknown phase %d", gui->summary.boot_progress.phase ));
       }
 
+      jsonp_string( gui->http, "accounts_database_path", gui->summary.accounts_database_path );
+
       jsonp_double( gui->http, "joining_gossip_elapsed_seconds", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1e9 );
 
 #define HANDLE_SNAPSHOT_STATE(snapshot_type, snapshot_type_upper) { \

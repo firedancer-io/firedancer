@@ -1657,6 +1657,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
+    fd_cstr_ncpy( tile->gui.accounts_database_path, config->paths.accounts, sizeof(tile->gui.accounts_database_path) );
     tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
     tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
     tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;

@@ -524,6 +524,7 @@ Some interesting transitions are,
 	"key": "boot_progress",
     "value": {
         "phase": "waiting_for_supermajority",
+        "accounts_database_path": "/path/to/accounts.db",
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -570,6 +571,7 @@ Some interesting transitions are,
 | Field                                                                 | Type            | Description |
 |-----------------------------------------------------------------------|-----------------|-------------|
 | phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
+| accounts_database_path                                                | `string`        | Absolute path to the on-disk accounts database file that this validator loads accounts into |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
