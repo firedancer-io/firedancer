@@ -177,6 +177,10 @@ struct fd_configf {
     struct {
       char affinity[ AFFINITY_SZ ];
     } forktest;
+
+    struct {
+      char ssl_key_log_file[ PATH_MAX ];
+    } votor;
   } development;
 
   struct {

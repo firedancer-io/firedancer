@@ -2005,6 +2005,13 @@ telemetry = true
         # See [layout.affinity]
         affinity = "auto"
 
+    # Development and diagnostic only options for the votor tile.
+    [development.votor]
+        # Log TLS encryption keys to decrypt Alpenglow QUIC traffic to
+        # this file path in NSS SSLKEYLOGFILE format.  An empty string
+        # (the default) disables key logging.
+        ssl_key_log_file = ""
+
     # Tuning for the accounts database.  These options are for advanced
     # users and should not be changed in production.
     [development.accdb]

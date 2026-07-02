@@ -1,10 +1,8 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
 #
-# Unlike the Tower tile, the Votor tile needs no files: Alpenglow votes are
-# BLS consensus messages, not on-chain vote-account txns, so there is no
-# tower checkpoint / restore file to read or write.
-unsigned int logfile_fd
+# keylog_fd: The optional TLS key log file used to debug Votor QUIC traffic.
+uint logfile_fd, uint keylog_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -14,7 +12,8 @@ unsigned int logfile_fd
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) logfile_fd))
+           (eq (arg 0) logfile_fd)
+           (eq (arg 0) keylog_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #

@@ -1569,6 +1569,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->quic.retry                          = 0;
     tile->quic.alpenglow_ip_addr              = config->net.ip_addr;
     tile->quic.alpenglow_listen_port          = config->tiles.alpenglow.listen_port;
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->firedancer.development.votor.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

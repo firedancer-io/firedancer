@@ -129,6 +129,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( cstr,   development.forktest.affinity                       );
 
+  CFG_POP      ( cstr,   development.votor.ssl_key_log_file                  );
+
   return config;
 }
 

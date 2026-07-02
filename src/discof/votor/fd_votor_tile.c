@@ -24,11 +24,14 @@
 #include "../../flamenco/stakes/fd_stake_weight.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../util/io/fd_io.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_private.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 /* The Votor tile drives the Alpenglow consensus core.  It broadly processes
@@ -107,6 +110,7 @@ FD_STATIC_ASSERT( sizeof(fd_votor_msg_t)<=1024UL, votor_out_mtu );
    slot completion to guard against a runaway loop. */
 
 #define FIXPOINT_MAX (4096UL)
+#define FD_VOTOR_KEYLOG_FLUSH_INTERVAL_NS ((long)100e6)
 
 struct publish {
   ulong          sig;
@@ -279,6 +283,12 @@ struct fd_votor_tile {
   fd_stem_context_t * stem;
   uchar              net_buf[ FD_NET_MTU ];
   fd_net_rx_bounds_t net_in_bounds[ FD_VOTOR_NET_IN_MAX ];
+
+  /* TLS key log file (development only) */
+  long                     keylog_next_flush;
+  int                      keylog_fd;
+  fd_io_buffered_ostream_t keylog_stream;
+  char                     keylog_buf[ 4096 ];
 
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;
@@ -1338,6 +1348,31 @@ quic_tls_cv_sign( void *      signer_ctx,
   fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
+static void
+quic_tls_keylog( void *       _ctx,
+                 char const * line ) {
+  fd_votor_tile_t *          ctx = _ctx;
+  fd_io_buffered_ostream_t * os  = &ctx->keylog_stream;
+
+  ulong line_sz = strlen( line )+1UL;
+  ulong peek_sz = fd_io_buffered_ostream_peek_sz( os );
+  if( FD_UNLIKELY( peek_sz<line_sz ) ) {
+    int err = fd_io_buffered_ostream_flush( os );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "fd_io_buffered_ostream_flush(keylog) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    peek_sz = fd_io_buffered_ostream_peek_sz( os );
+  }
+  if( FD_UNLIKELY( peek_sz<line_sz ) ) {
+    FD_LOG_ERR(( "keylog buffer too small (buf_sz=%lu, line_sz=%lu)", peek_sz, line_sz ));
+  }
+
+  char * cur = fd_io_buffered_ostream_peek( os );
+  cur = fd_cstr_append_text( cur, line, strlen( line ) );
+  cur = fd_cstr_append_char( cur, '\n' );
+  fd_io_buffered_ostream_seek( os, line_sz );
+}
+
 static inline void
 before_credit( fd_votor_tile_t *   ctx,
                fd_stem_context_t * stem,
@@ -1383,6 +1418,17 @@ during_frag( fd_votor_tile_t * ctx,
 
 static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
+
+  if( FD_UNLIKELY( ctx->keylog_stream.wbuf ) ) {
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now > ctx->keylog_next_flush ) ) {
+      int err = fd_io_buffered_ostream_flush( &ctx->keylog_stream );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_ERR(( "fd_io_buffered_ostream_flush(keylog) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+      ctx->keylog_next_flush = now + FD_VOTOR_KEYLOG_FLUSH_INTERVAL_NS;
+    }
+  }
 
   /* Identity keyswitch state machine (copied from Tower).  Alpenglow uses a
      single fixed BLS voting key, so there is no separate authorized-voter
@@ -1544,6 +1590,19 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
+  /* TLS key log file (development only) */
+  ctx->keylog_fd = -1;
+  ctx->keylog_next_flush = 0L;
+  memset( &ctx->keylog_stream, 0, sizeof(ctx->keylog_stream) );
+  if( FD_UNLIKELY( strcmp( tile->quic.key_log_path, "" ) ) ) {
+    ctx->keylog_fd = open( tile->quic.key_log_path, O_WRONLY|O_CREAT|O_APPEND, 0644 );
+    if( FD_UNLIKELY( ctx->keylog_fd<0 ) )
+      FD_LOG_ERR(( "open(%s, O_WRONLY|O_CREAT|O_APPEND, 0644) failed (%i-%s)",
+                   tile->quic.key_log_path, errno, fd_io_strerror( errno ) ));
+    fd_io_buffered_ostream_init( &ctx->keylog_stream, ctx->keylog_fd, ctx->keylog_buf, sizeof(ctx->keylog_buf) );
+    FD_LOG_WARNING(( "Logging Votor QUIC encryption keys to %s", tile->quic.key_log_path ));
+  }
+
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 
   if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
@@ -1665,6 +1724,10 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->quic_server->cb.conn_final   = quic_server_conn_final;
     ctx->quic_server->cb.stream_rx    = quic_server_stream_rx;
     ctx->quic_server->cb.quic_ctx     = ctx;
+    if( FD_UNLIKELY( ctx->keylog_fd>=0 ) ) {
+      ctx->quic_server->cb.tls_keylog = quic_tls_keylog;
+      ctx->keylog_next_flush = fd_log_wallclock() + FD_VOTOR_KEYLOG_FLUSH_INTERVAL_NS;
+    }
     fd_quic_set_aio_net_tx( ctx->quic_server, tx_aio );
     if( FD_UNLIKELY( !fd_quic_init( ctx->quic_server ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
@@ -1694,6 +1757,10 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->quic_client->cb.conn_final     = quic_client_conn_final;
     ctx->quic_client->cb.conn_hs_complete = quic_client_conn_hs_complete;
     ctx->quic_client->cb.quic_ctx       = ctx;
+    if( FD_UNLIKELY( ctx->keylog_fd>=0 ) ) {
+      ctx->quic_client->cb.tls_keylog = quic_tls_keylog;
+      ctx->keylog_next_flush = fd_log_wallclock() + FD_VOTOR_KEYLOG_FLUSH_INTERVAL_NS;
+    }
     fd_quic_set_aio_net_tx( ctx->quic_client, tx_aio );
     if( FD_UNLIKELY( !fd_quic_init( ctx->quic_client ) ) ) FD_LOG_ERR(( "fd_quic_init (client) failed" ));
   }
@@ -1704,8 +1771,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo; (void)tile;
-  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  fd_votor_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_votor_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->keylog_fd );
   return sock_filter_policy_fd_votor_tile_instr_cnt;
 }
 
@@ -1714,13 +1781,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_votor_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_UNLIKELY( ctx->keylog_fd>=0 ) )
+    out_fds[ out_cnt++ ] = ctx->keylog_fd;
   return out_cnt;
 }
 
