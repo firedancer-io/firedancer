@@ -57,9 +57,9 @@
 
    64us chosen based on napibusy configuration tested and
    shown in https://lwn.net/Articles/997491/ Linux patch
-   cover letter. Chosen over fullbusy since for Firedancer
-   the values of fullbusy are unnecessarily high and cause
-   significant SSH latency.*/
+   cover letter.  Chosen over fullbusy since for Firedancer
+   the values of fullbusy are unnecessarily high and could
+   cause some extra latency to regular non-Firedancer traffic.*/
 #define PREFBUSY_TIME_BUDGET_MICROS (64L)
 
 /* PREFBUSY_RX_BUDGET is the NAPI RX processing budget (max num RX
@@ -67,16 +67,18 @@
    XSK rings per poll).
 
    Default RX budget used by NIC drivers is 64, therefore
-   it is safest to use 64 in prefbusy polling. Also reduces
+   it is safest to use 64 in prefbusy polling.  Also reduces
    TX starvation risks as the TX budget set by the NIC driver
    is also generally 64. */
 #define PREFBUSY_RX_BUDGET (64L)
 
-/* Min time between each prefbusy poll (further protects against livelocks).
+/* Min time between each prefbusy poll.  Necessary to avoid a no RX
+   scenario livelocking TX with overly frequent sendto calls, given
+   prefbusy polls whenever the RX queue is empty.
 
    Value chosen based on experimentation on ixgbe, mlx5 and i40e as well
-   as on varying CPUs and clock speeds. Too low -> lower max TX
-   throughput when RX is low. Too high -> lower max RX and TX throughput. */
+   as on varying CPUs and clock speeds.  Too low -> lower max TX
+   throughput when RX is very low.  Too high -> lower max RX and TX throughput. */
 #define PREFBUSY_MIN_INTERVAL_NS (5e3) /* 5us */
 
 /* Max time since last prefbusy poll before a prefbusy poll is
@@ -139,7 +141,7 @@ struct fd_net_flusher {
 
   /* When the most recent prefbusy poll was. */
   long prefbusy_last_poll_ticks;
-  /* Min time between each prefbusy poll (further protects against livelocks). */
+  /* Min time between each prefbusy poll. */
   long prefbusy_min_interval_ticks;
   /* Max time since last prefbusy poll before a prefbusy poll is
      forced (has been read that polling can sometimes resolve a stall). */
@@ -1168,10 +1170,6 @@ net_rx_event( fd_net_ctx_t * ctx,
   fill_ring->cached_prod = fill_prod+1U;
 }
 
-/* before_credit_softirq is called every loop iteration if net tile
-   is in softirq polling mode (fallback if prefbusy polling mode
-   is not enabled). */
-
 static void
 before_credit_softirq( fd_net_ctx_t *      ctx,
                        int *               charge_busy,
@@ -1211,10 +1209,6 @@ net_prefbusy_poll_flush( fd_net_flusher_t * flusher,
                          long               now ) {
   flusher->prefbusy_last_poll_ticks = now;
 }
-
-/* before_credit_prefbusy is called every loop iteration if net
-   tile is in preferred busy (often referred to as "prefbusy" in
-   Firedancer) polling mode. */
 
 static void
 before_credit_prefbusy( fd_net_ctx_t *      ctx,

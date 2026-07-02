@@ -203,8 +203,7 @@ fd_xsk_setup_umem( fd_xsk_t *              xsk,
   return 0;
 }
 
-/* fd_xsk_setup_poll: Setup preferred busy polling if the user has
-   set that to be their preferred polling method */
+/* fd_xsk_setup_poll: Setup preferred busy polling */
 
 static void
 fd_xsk_setup_poll( fd_xsk_t *              xsk,
@@ -217,15 +216,15 @@ fd_xsk_setup_poll( fd_xsk_t *              xsk,
   int prefbusy_poll = 1;
   if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &prefbusy_poll, sizeof(int) ) ) ) {
     int err = errno;
-    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_PREFER_BUSY_POLL,1) failed (%i-%s)", err, fd_io_strerror( err ) ));
+    FD_LOG_WARNING(( "failed to enable XDP prefbusy polling: setsockopt(xsk_fd,SOL_SOCKET,SO_PREFER_BUSY_POLL,1) failed (%i-%s)", err, fd_io_strerror( err ) ));
     if( err==EINVAL ) {
-      FD_LOG_WARNING(( "Hint: Does your kernel support preferred busy polling? SO_PREFER_BUSY_POLL is available from Linux 5.11 onwards" ));
+      FD_LOG_NOTICE(( "Hint: Does your kernel support preferred busy polling? SO_PREFER_BUSY_POLL is available from Linux 5.11 onwards" ));
     }
     return;
   }
 
   if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL, &params->prefbusy_time_budget_micros, sizeof(int) ) ) ) {
-    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL,%i) failed (%i-%s)",
+    FD_LOG_WARNING(( "failed to enable XDP prefbusy polling: setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL,%i) failed (%i-%s)",
                      params->prefbusy_time_budget_micros, errno, fd_io_strerror( errno ) ));
     return;
   }
@@ -240,12 +239,12 @@ fd_xsk_setup_poll( fd_xsk_t *              xsk,
 
   int sk_flags = fcntl( xsk->xsk_fd, F_GETFL, 0 );
   if( FD_UNLIKELY( -1==sk_flags ) ) {
-    FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_GETFL, 0) failed (%i-%s)",
+    FD_LOG_WARNING(( "failed to enable XDP prefbusy polling: fcntl(xsk->xsk_fd, F_GETFL, 0) failed (%i-%s)",
                      errno, fd_io_strerror( errno ) ));
     return;
   }
   if( FD_UNLIKELY( -1==fcntl( xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK ) ) ) {
-    FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK) failed (%i-%s)",
+    FD_LOG_WARNING(( "failed to enable XDP prefbusy polling: fcntl(xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK) failed (%i-%s)",
                      errno, fd_io_strerror( errno ) ));
     return;
   }

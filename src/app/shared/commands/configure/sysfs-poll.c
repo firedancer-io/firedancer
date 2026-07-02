@@ -10,14 +10,15 @@
 
 #include <string.h> /* strcmp */
 #include <unistd.h> /* access */
+#include <errno.h>
 #include <linux/capability.h>
 
 /* Values for NAPI_DEFER_HARD_IRQS and GRO_FLUSH_TIMEOUT
    chosen based on napibusy configuration tested and shown
    in https://lwn.net/Articles/997491/ Linux patch cover letter.
    Chosen over fullbusy since for Firedancer the values of
-   fullbusy are unnecessarily high and cause significant SSH
-   latency. */
+   fullbusy are unnecessarily high and could cause some extra
+   latency to regular non-Firedancer traffic. */
 #define NAPI_DEFER_HARD_IRQS 100U
 #define GRO_FLUSH_TIMEOUT    200000U
 
@@ -44,7 +45,7 @@ sysfs_net_set( char const * device,
   fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/%s", device, setting );
   FD_LOG_NOTICE(( "RUN: `echo \"%lu\" > %s`", value, path ));
   if( FD_UNLIKELY( -1==fd_file_util_write_uint( path, (uint)value ) ) ) {
-    FD_LOG_ERR(( "could not write to `%s`, 'prefbusy' poll mode may not be supported for this network configuration, consider switching back 'poll_mode' within your config to 'softirq' mode.", path));
+    FD_LOG_ERR(( "could not write to `%s` (%i-%s), 'prefbusy' poll mode may not be supported for this network configuration, consider switching back 'poll_mode' within your config to 'softirq' mode.", path, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -70,14 +71,14 @@ check( config_t const * config,
   uint value;
   fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/%s", config->net.interface, setting_napi_defer_hard_irqs );
   if( fd_file_util_read_uint( path, &value )
-      || value != ( NAPI_DEFER_HARD_IRQS ) ) {
-    NOT_CONFIGURED("Setting napi_defer_hard_irqs failed.");
+      || value != NAPI_DEFER_HARD_IRQS ) {
+    NOT_CONFIGURED( "Setting napi_defer_hard_irqs failed." );
   }
 
   fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/%s", config->net.interface, setting_gro_flush_timeout );
   if( fd_file_util_read_uint( path, &value )
-      || value != ( GRO_FLUSH_TIMEOUT ) ) {
-    NOT_CONFIGURED("Setting gro_flush_timeout failed.");
+      || value != GRO_FLUSH_TIMEOUT ) {
+    NOT_CONFIGURED( "Setting gro_flush_timeout failed." );
   }
 
   CONFIGURE_OK();
