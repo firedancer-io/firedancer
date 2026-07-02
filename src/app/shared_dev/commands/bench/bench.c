@@ -7,7 +7,6 @@
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../disco/net/fd_net_tile.h"
-#include "../../../../util/tile/fd_tile_private.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -66,7 +65,7 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( affinity, parsed_tile_to_cpu, 0 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
