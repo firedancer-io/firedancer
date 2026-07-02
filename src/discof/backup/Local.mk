@@ -1,5 +1,5 @@
 $(call add-objs,fd_snapmk_tile fd_snapzp_tile fd_snaprd_tile,fd_discof)
-$(call add-objs,fd_backup_cache fd_backup_disk,fd_discof)
+$(call add-objs,fd_backup_cache,fd_discof)
 $(call add-objs,fd_ssmanifest_writer fd_txncache_writer,fd_discof)
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
