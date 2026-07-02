@@ -433,7 +433,6 @@ votor_test_topo( config_t * config,
   fd_topo_obj_callbacks_t * callbacks[ 64 ];
   votest_callbacks( callbacks, sizeof(callbacks)/sizeof(callbacks[ 0 ]) );
   fd_topob_finish( topo, callbacks );
-  fd_topo_print_log( 1, topo );
 }
 
 static void
