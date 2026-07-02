@@ -1016,6 +1016,22 @@ EXAMPLES
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />
 
+    <!-- extensive program cache metrics.  Useful for development, will be
+        cut down with time -->
+    <counter name="ProgcacheLookup" summary="Program cache lookups" />
+    <counter name="ProgcacheHit" summary="Program cache hits" />
+    <counter name="ProgcacheMiss" summary="Program cache misses" />
+    <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory events (heap)" />
+    <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory events (descriptor table)" />
+    <counter name="ProgcacheFill" summary="Program cache insertions" />
+    <counter name="ProgcacheFillBytes" summary="Bytes inserted into program cache" />
+    <counter name="ProgcacheSpill" summary="Program cache spills (OOM fallback mechanism)" />
+    <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (OOM fallback mechanism)" />
+    <counter name="ProgcacheEviction" summary="Program cache evictions" />
+    <counter name="ProgcacheEvictionBytes" summary="Bytes evicted from program cache" />
+    <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent on program cache operations, in seconds" />
+    <counter name="ProgcacheLoadDurationSeconds" converter="seconds" summary="Time spent loading programs, in seconds" />
+
     <counter name="AccdbAccountAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountWritableAcquired" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />

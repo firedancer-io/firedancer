@@ -128,6 +128,21 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECLE, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
+  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
+  FD_MCNT_SET( EXECLE, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
+  FD_MCNT_SET( EXECLE, PROGCACHE_HIT,                    pm->hit_cnt        );
+  FD_MCNT_SET( EXECLE, PROGCACHE_MISS,                   pm->miss_cnt       );
+  FD_MCNT_SET( EXECLE, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_FILL,                   pm->fill_cnt       );
+  FD_MCNT_SET( EXECLE, PROGCACHE_FILL_BYTES,             pm->fill_tot_sz    );
+  FD_MCNT_SET( EXECLE, PROGCACHE_SPILL,                  pm->spill_cnt      );
+  FD_MCNT_SET( EXECLE, PROGCACHE_SPILL_BYTES,            pm->spill_tot_sz   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_EVICTION,               pm->evict_cnt      );
+  FD_MCNT_SET( EXECLE, PROGCACHE_EVICTION_BYTES,         pm->evict_tot_sz   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_DURATION_SECONDS,       pm->cum_pull_ticks );
+  FD_MCNT_SET( EXECLE, PROGCACHE_LOAD_DURATION_SECONDS,  pm->cum_load_ticks );
+
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }
 

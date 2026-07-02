@@ -575,6 +575,19 @@
 | <span class="metrics-name">execle_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM setup (CPI)) |
 | <span class="metrics-name">execle_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM commit (CPI)) |
 | <span class="metrics-name">execle_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM interpreter execution) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;lookup</span> | counter | Program cache lookups |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;hit</span> | counter | Program cache hits |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;miss</span> | counter | Program cache misses |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;oom_&#8203;heap</span> | counter | Program cache out-of-memory events (heap) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;oom_&#8203;desc</span> | counter | Program cache out-of-memory events (descriptor table) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;fill</span> | counter | Program cache insertions |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;fill_&#8203;bytes</span> | counter | Bytes inserted into program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;spill</span> | counter | Program cache spills (OOM fallback mechanism) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;spill_&#8203;bytes</span> | counter | Bytes spilled from program cache (OOM fallback mechanism) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction</span> | counter | Program cache evictions |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Bytes evicted from program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;duration_&#8203;seconds</span> | counter | Time spent on program cache operations, in seconds |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;load_&#8203;duration_&#8203;seconds</span> | counter | Time spent loading programs, in seconds |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;acquired</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size (0-128 B) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;acquired</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size (129-512 B) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;acquired</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size (513 B-2 KiB) |
