@@ -1626,12 +1626,18 @@ EXAMPLES
 <tile name="snapmk">
     <gauge name="State" summary="0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail" />
     <counter name="SnapshotsCreated" summary="Number of snapshots created (includes in-progress)" />
+    <counter name="AccountsSeen" summary="Accounts examined while building snapshots" />
+    <counter name="DataReadBytes" summary="Account database bytes read while building snapshots" />
     <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
     <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing" />
     <counter name="DiskBatchesEmitted" summary="Number of multi-account disk batch fragments emitted to zp" />
     <counter name="DiskAccountsSingle" summary="Number of disk accounts emitted via the single-account (straddle/large) path" />
+    <gauge name="SnapshotAccountsSeen" summary="Accounts examined while building the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotDataReadBytes" summary="Account database bytes read while building the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotUncompressedDataWrittenBytes" summary="Uncompressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotCompressedDataWrittenBytes" summary="Compressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes" />
     <gauge name="SnaprdInflightFrags" summary="Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth)" />
 </tile>
 
@@ -1643,6 +1649,9 @@ EXAMPLES
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
     <counter name="DiskBatches" summary="Number of multi-account disk batch fragments processed" />
     <counter name="DiskBatchAccounts" summary="Number of disk accounts processed via the batch path" />
+    <gauge name="SnapshotAccountsPacked" summary="Accounts packed into the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotUncompressedDataWrittenBytes" summary="Uncompressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes" />
+    <gauge name="SnapshotCompressedDataWrittenBytes" summary="Compressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes" />
 </tile>
 
 <tile name="snaprd">

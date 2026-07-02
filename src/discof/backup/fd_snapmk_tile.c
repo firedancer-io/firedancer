@@ -77,29 +77,17 @@ struct fd_snapmk_accparse {
   ulong                      acc_chain_mask;
   uint                       root_generation;
 
-  /* Prestaged disk batch (see fd_snapmk_accparse_prestage).  Staging
-     batch N+1 is decoupled from resolving batch N so that N+1's chain
-     head prefetches overlap N's chain walk.  ps_cnt!=0 iff a prestaged
-     batch is buffered; it is always consumed before the streaming
-     single-account path runs, so a prestaged batch never outlives the
-     snaprd frag it was staged from. */
+  /* Prestaged disk batch (see fd_snapmk_accparse_prestage).  ps_cnt!=0
+     iff a batch is buffered; always consumed before the streaming
+     single-account path runs, so it never outlives the snaprd frag it
+     was staged from. */
   uint        ps_cnt;
   ulong       ps_base_gaddr;
   uint        ps_head    [ FD_BACKUP_DISK_PARA ];
   uint        ps_frag_off[ FD_BACKUP_DISK_PARA ];
   ulong       ps_file_off[ FD_BACKUP_DISK_PARA ];
   fd_pubkey_t ps_pubkey  [ FD_BACKUP_DISK_PARA ];
-
-  /* Chain-walk occupancy stats (logged once per snapshot at disk phase
-     end).  walk_lanes[k] accumulates lanes still alive entering round
-     k of the keep_batch walk (k clamped to the last bucket), i.e. the
-     MLP the walk can actually expose at each depth.  walk_batches and
-     walk_accts give per-batch averages. */
-  #define FD_SNAPMK_WALK_DEPTH_MAX 8UL
-  ulong walk_lanes[ FD_SNAPMK_WALK_DEPTH_MAX ];
-  ulong walk_batches;
-  ulong walk_accts;
-
+  ulong       accounts_seen;
 };
 
 typedef struct fd_snapmk_accparse fd_snapmk_accparse_t;
@@ -200,26 +188,26 @@ struct fd_snapmk {
   uchar comp[ COMP_BUF_SZ ];
 
   struct {
+    ulong accounts_seen;
+    ulong data_read_bytes;
     ulong compress_ticks;
     ulong io_ticks;
     ulong bytes_compressed;
     ulong bytes_written;
     ulong disk_batches_emitted;
     ulong disk_accounts_single;
+
+    ulong accparse_accounts_seen;
+    struct {
+      ulong accounts_seen;
+      ulong data_read_bytes;
+      ulong bytes_compressed;
+      ulong bytes_written;
+    } snapshot;
   } metrics;
 };
 
 typedef struct fd_snapmk fd_snapmk_t;
-
-static void
-metrics_clear( fd_snapmk_t * ctx ) {
-  ctx->metrics.compress_ticks       = 0UL;
-  ctx->metrics.io_ticks             = 0UL;
-  ctx->metrics.bytes_compressed     = 0UL;
-  ctx->metrics.bytes_written        = 0UL;
-  ctx->metrics.disk_batches_emitted = 0UL;
-  ctx->metrics.disk_accounts_single = 0UL;
-}
 
 static inline void
 fd_snapmk_accparse_reset( fd_snapmk_accparse_t *     parse,
@@ -240,6 +228,54 @@ fd_snapmk_accparse_reset( fd_snapmk_accparse_t *     parse,
     .acc_chain_mask  = acc_chain_mask,
     .root_generation = (uint)root_generation
   };
+}
+
+static inline void
+metrics_snapshot_clear( fd_snapmk_t * ctx ) {
+  ctx->metrics.snapshot.accounts_seen    = 0UL;
+  ctx->metrics.snapshot.data_read_bytes  = 0UL;
+  ctx->metrics.snapshot.bytes_compressed = 0UL;
+  ctx->metrics.snapshot.bytes_written    = 0UL;
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_ACCOUNTS_SEEN,                    0UL );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_DATA_READ_BYTES,                 0UL );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_UNCOMPRESSED_DATA_WRITTEN_BYTES, 0UL );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_COMPRESSED_DATA_WRITTEN_BYTES,   0UL );
+}
+
+static inline void
+metrics_accounts_seen_add( fd_snapmk_t * ctx,
+                           ulong         cnt ) {
+  ctx->metrics.accounts_seen          += cnt;
+  ctx->metrics.snapshot.accounts_seen += cnt;
+}
+
+static inline void
+metrics_data_read_add( fd_snapmk_t * ctx,
+                       ulong         bytes ) {
+  ctx->metrics.data_read_bytes          += bytes;
+  ctx->metrics.snapshot.data_read_bytes += bytes;
+}
+
+static inline void
+metrics_raw_written_add( fd_snapmk_t * ctx,
+                         ulong         bytes ) {
+  ctx->metrics.bytes_compressed          += bytes;
+  ctx->metrics.snapshot.bytes_compressed += bytes;
+}
+
+static inline void
+metrics_compressed_written_add( fd_snapmk_t * ctx,
+                                ulong         bytes ) {
+  ctx->metrics.bytes_written          += bytes;
+  ctx->metrics.snapshot.bytes_written += bytes;
+}
+
+static inline void
+metrics_accparse_seen_sync( fd_snapmk_t * ctx ) {
+  ulong accounts_seen = ctx->accparse->accounts_seen;
+  ulong delta         = accounts_seen - ctx->metrics.accparse_accounts_seen;
+  ctx->metrics.accparse_accounts_seen = accounts_seen;
+  metrics_accounts_seen_add( ctx, delta );
 }
 
 static inline int
@@ -348,6 +384,7 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
         FD_LOG_CRIT(( "snapshot account record too large (%lu bytes)", snap_sz ));
       }
 
+      parse->accounts_seen++;
       parse->acc_active  = 1;
       parse->acc_off     = 0U;
       parse->acc_sz      = (uint)data_sz;
@@ -427,18 +464,8 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
 
 /* fd_snapmk_accparse_keep_batch resolves a batch of staged disk accounts
    to their in-memory account index, walking all hash chains in lockstep
-   (one chain hop per round) so the random acc_pool loads of a round
-   issue independently (the same memory-level-parallelism trick
-   filter_batch uses for cached accounts).
-
-   Lanes that hit or exhaust their chain drop out via branchless
-   compaction: every loop body is straight-line cmov/mask code
-   (unconditional store, conditional index bump), so per-round work
-   shrinks to the surviving lanes without data-dependent branches for
-   the predictor to eat.  A conditional continuation (branch over the
-   compaction stores + prefetch) was tried twice -- 2026-07-01, both
-   before and after the stream prefetch landed -- and measured slower
-   both times despite near-zero mispredict samples; don't retry it.
+   (one chain hop per round) so the acc_pool loads of a round issue
+   independently.
 
    The staged pubkey determines the hash bucket before this function is
    called.  Candidates must be rooted (generation<=root_generation) and be
@@ -461,12 +488,9 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
   uint matched[ FD_BACKUP_DISK_PARA ];
   for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) matched[ n ] = UINT_MAX;
 
-  /* lane[i]/cur[i] is the compacted live-lane list: lane index and the
-     chain node it sits on.  cur[i] is always a valid pool index for
-     i<active_cnt (checked before a lane is admitted / advanced), so the
-     gather pass loads unconditionally with no masking.  head[] was
-     loaded (and its pool lines prefetched) when the batch was
-     prestaged, a full batch resolve ago. */
+  /* lane[i]/cur[i]: compacted live-lane list, lane index and the chain
+     node it sits on.  head[] was loaded (and prefetched) when the
+     batch was prestaged, a full batch resolve ago. */
   uint  lane[ FD_BACKUP_DISK_PARA ];
   uint  cur [ FD_BACKUP_DISK_PARA ];
 
@@ -479,21 +503,11 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
     active_cnt += live;
   }
 
-  parse->walk_batches++;
-  parse->walk_accts += cnt;
-  ulong round = 0UL;
-
   while( active_cnt ) {
-    parse->walk_lanes[ fd_ulong_min( round++, FD_SNAPMK_WALK_DEPTH_MAX-1UL ) ] += active_cnt;
-    /* One chain hop for every live lane.  Lane i's node loads depend
-       only on cur[i] from the previous round, so the DRAM misses of a
-       round all issue independently.  hit is resolved in the same pass
-       (gen/off are already loaded), so the next-node prefetch fires the
-       moment a lane is known to continue -- and only then: most lanes
-       match on their first node, and an unconditional next prefetch
-       would waste a random DRAM line per account.  Lanes that hit or
-       exhaust their chain drop out via in-place branchless compaction
-       (writes trail reads, next_cnt<=i). */
+    /* One chain hop per live lane; hit/next are resolved in the same
+       pass, so the next-node prefetch only fires for lanes that
+       continue.  Lanes that hit or exhaust their chain drop out via
+       branchless compaction (next_cnt<=i). */
     ulong next_cnt = 0UL;
     for( ulong i=0UL; i<active_cnt; i++ ) {
       uint n    = lane[ i ];
@@ -526,14 +540,11 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
 }
 
 /* fd_snapmk_accparse_prestage stages the next batch of wholly-contained
-   accounts out of the current frag into the parser's prestage buffer:
-   record walk (pubkey copy, hash, acc_map line prefetch), then a head
-   pass that loads acc_map[hash] and prefetches each head's acc_pool
-   line.  Resolving the batch (the chain walk) happens one publish later
-   in fd_snapmk_accparse_publish_batch, so the head prefetches get a
-   full batch resolve of lead time instead of just the staging tail.
-   No-op if a prestaged batch is already buffered or the parser is not
-   at a clean account boundary. */
+   accounts out of the current frag: a record walk (pubkey copy, hash,
+   acc_map prefetch) followed by a head pass (acc_map[hash] lookup,
+   acc_pool prefetch).  The chain walk itself happens one publish later
+   in fd_snapmk_accparse_publish_batch.  No-op if a batch is already
+   staged or the parser is not at a clean account boundary. */
 
 static void
 fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
@@ -552,18 +563,9 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
   while( n<FD_BACKUP_DISK_PARA ) {
     if( parse->data_sz < meta_sz ) break; /* partial meta straddles frag end */
 
-    /* Keep a fixed sequential prefetch window ahead of the record
-       cursor.  The stream is consumed strictly front to back, so a
-       flat FD_SNAPMK_PF_LEAD-byte lead covers the next several records'
-       size loads and pubkey copies without having to walk the
-       (size-dependent, serial) record chain to find them.  pf_cursor
-       is a per-frag high-water mark, so each line is prefetched once
-       (clamped up to data: the streaming path consumes bytes without
-       advancing it, and re-prefetching consumed lines is waste).
-       Locality hint 2 (prefetcht1: fill L2, not L1) on purpose: at this
-       lead an NTA line could be evicted from L1 before its record is
-       reached, while an L2 hit already hides nearly all of the DRAM
-       latency without displacing the walk's L1 working set. */
+    /* Prefetch a fixed FD_SNAPMK_PF_LEAD-byte window ahead of the record
+       cursor.  pf_cursor is a per-frag high-water mark, so each line is
+       prefetched only once. */
     #define FD_SNAPMK_PF_LEAD 4096UL
     uchar const * pf_lim = parse->data + fd_ulong_min( parse->data_sz, FD_SNAPMK_PF_LEAD );
     uchar const * pf     = fd_ptr_if( parse->pf_cursor>parse->data, parse->pf_cursor, parse->data );
@@ -588,9 +590,8 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
     parse->src_off   += rec;
   }
 
-  /* Head pass: the acc_map lines were prefetched during the record walk
-     above, so these loads are near-hits; the acc_pool[head] prefetches
-     are the ones that need the long lead time. */
+  /* Head pass: acc_map lines were prefetched during the record walk
+     above; prefetch the acc_pool[head] lines here. */
   ulong max_accounts = parse->max_accounts;
   for( ulong i=0UL; i<n; i++ ) {
     uint head = FD_VOLATILE_CONST( acc_map[ hash[ i ] ] );
@@ -601,6 +602,7 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
 
   parse->ps_cnt        = (uint)n;
   parse->ps_base_gaddr = parse->frag_base_gaddr;
+  parse->accounts_seen += n;
 }
 
 static ulong
@@ -612,9 +614,8 @@ fd_snapmk_accparse_publish_batch( fd_snapmk_accparse_t *       parse,
   ulong n = (ulong)parse->ps_cnt;
   if( !n ) return 0UL;
 
-  /* Move batch N out of the prestage buffer, then stage batch N+1
-     before resolving N: N+1's head loads and acc_pool prefetches issue
-     here and overlap N's entire chain walk below. */
+  /* Move batch N out of the prestage buffer, then stage N+1 before
+     resolving N so N+1's prefetches overlap N's chain walk below. */
   uint  head    [ FD_BACKUP_DISK_PARA ];
   ulong file_off[ FD_BACKUP_DISK_PARA ];
   memcpy( head,            parse->ps_head,     n*sizeof(uint)        );
@@ -842,11 +843,8 @@ update_flow_control( fd_snapmk_t *             ctx,
 }
 
 /* pick_out_rr returns the next ready zp out link in round-robin order,
-   or ULONG_MAX if none are ready.  find_lsb always returns the lowest
-   ready index, which starves higher-index zp tiles (an idle tile always
-   has full credit, so index 0 would win every time); rotating spreads
-   account/batch frags across all zp tiles for real parallelism and lets
-   the snaprd release watermark advance at the aggregate consume rate. */
+   or ULONG_MAX if none are ready.  Rotating (rather than always picking
+   the lowest ready index) avoids starving higher-index zp tiles. */
 
 static inline ulong
 pick_out_rr( fd_snapmk_t * ctx ) {
@@ -879,12 +877,11 @@ snapmk_stamp_shadow( fd_snapmk_t * ctx,
 }
 
 /* snapmk_update_release recomputes the snaprd release watermark from the
-   per-link shadow rings and the zp consumer fseqs, then publishes it to
-   the real snaprd consumer fseq (which snaprd's flow control waits on).
+   per-link shadow rings and zp consumer fseqs, then publishes it to the
+   real snaprd consumer fseq that snaprd's flow control waits on.
 
-   A zp tile that has consumed everything we published to it (caught up)
-   imposes no floor -- this is the deadlock guard: only tiles that still
-   have queued frags pin snaprd, and a tile with queued frags is
+   A zp tile caught up (consumed everything published to it) imposes no
+   floor -- this is the deadlock guard, since a tile with queued frags is
    guaranteed to drain.  The release is clamped to our own parse cursor so
    snaprd is never told to free a frag we have not parsed yet.
 
@@ -899,13 +896,11 @@ snapmk_update_release( fd_snapmk_t *             ctx,
     ulong cons = fd_fseq_query( ctx->zp_cons_fseq[ i ] );
     ulong pub  = stem->seqs[ i ];
     if( FD_UNLIKELY( !fd_seq_lt( cons, pub ) ) ) continue; /* caught up: no floor */
-    /* rd_shadow[cons] is always a stamped slot here: the cache->disk DRAIN
-       barrier leaves every tile caught up at disk-phase entry, and a slot
-       is stamped before its frag is published (so cons<pub implies the
-       oldest unconsumed frag, at seq cons, was already stamped).  Hence no
-       uninitialized read despite rd_shadow not being pre-zeroed -- and we
-       must NOT pre-zero it to a sentinel, since fd_seq_lt would treat a
-       large sentinel as an older seq and wrongly drag the watermark back. */
+    /* rd_shadow[cons] is always stamped here: DRAIN leaves every tile
+       caught up at disk-phase entry, and a slot is stamped before its
+       frag is published.  Must NOT pre-zero rd_shadow to a sentinel --
+       fd_seq_lt would treat a large sentinel as older and drag the
+       watermark back. */
     ulong floor = ctx->rd_shadow[ i ][ cons % ctx->zp_depth[ i ] ];
     if( fd_seq_lt( floor, release ) ) release = floor;
   }
@@ -971,18 +966,14 @@ check_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_ACCOUNTS_DISK:
     *is_backpressured = 0;
     if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK ) ) {
-      /* Advance the snaprd release watermark every loop iteration --
-         including the backpressured paths below -- so snaprd keeps
-         getting credit as the zp tiles drain.  This is what prevents the
-         lifetime tracker from deadlocking. */
+      /* Advance the release watermark every iteration, including
+         backpressured paths, so snaprd keeps getting credit as zp
+         drains -- avoids deadlocking the lifetime tracker. */
       snapmk_update_release( ctx, stem );
     }
-    /* Refresh cr_avail/out_ready every iteration.  The stem's own
-       housekeeping recomputes cr_avail from the consumer fseqs and can
-       drive a tile's credit to 0 without clearing our cached out_ready
-       bit; publishing to such a tile would trip the BURST assertion.
-       Recomputing here keeps out_ready consistent with cr_avail before
-       any publish in after_credit / returnable_frag. */
+    /* Refresh cr_avail/out_ready every iteration: stem housekeeping can
+       drive cr_avail to 0 without clearing our cached out_ready bit,
+       and publishing to such a tile trips the BURST assertion. */
     update_flow_control( ctx, stem );
     if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK && ctx->disk_out_idx<ctx->zp_cnt ) ) {
       if( FD_UNLIKELY( !stem->cr_avail[ ctx->disk_out_idx ] ) ) {
@@ -1039,7 +1030,7 @@ flush_buffer( fd_snapmk_t *     ctx,
   /* Compress chunk */
   long t0 = fd_tickcount();
   ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, directive );
-  ctx->metrics.bytes_compressed += ctx->raw_buf.pos;
+  metrics_raw_written_add( ctx, ctx->raw_buf.pos );
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
     FD_LOG_ERR(( "ZSTD_compressStream2 failed: %s", ZSTD_getErrorName( ret ) ));
   }
@@ -1073,7 +1064,7 @@ flush_buffer( fd_snapmk_t *     ctx,
     FD_LOG_ERR(( "fd_io_write did not write full buffer (expected %lu bytes, wrote %lu bytes)", comp_sz, comp_wr_ ));
   }
   long t2 = fd_tickcount();
-  ctx->metrics.bytes_written += comp_sz;
+  metrics_compressed_written_add( ctx, comp_sz );
   ctx->metrics.io_ticks += (ulong)( t2 - t1 );
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
@@ -1107,6 +1098,7 @@ align_stream( fd_snapmk_t * ctx ) {
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_io_write failed: %i-%s", err, fd_io_strerror( err ) ));
     }
+    metrics_compressed_written_add( ctx, pad_sz );
   }
   __atomic_store_n( ctx->zp_file_off, aoff, __ATOMIC_RELEASE );
 }
@@ -1241,6 +1233,13 @@ after_credit( fd_snapmk_t *       ctx,
       break;
     }
 
+    ulong cache_accounts_seen = 0UL;
+    for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
+      uint acc_idx = frag->acc_idx[ i ];
+      if( acc_idx==UINT_MAX ) continue;
+      cache_accounts_seen++;
+    }
+
     /* remove duplicates
        first pass (fast), ILP-friendly/vectorizable check */
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
@@ -1261,6 +1260,7 @@ after_credit( fd_snapmk_t *       ctx,
       }
       fd_backup_visited_insert( ctx->visited_set, (ulong)acc_idx );
     }
+    metrics_accounts_seen_add( ctx, cache_accounts_seen );
 
     ulong chunk;
     void * payload = alloc_zp_payload( ctx, (ulong)out_idx, sizeof(fd_backup_cache_msg_t), &chunk );
@@ -1396,7 +1396,7 @@ after_credit( fd_snapmk_t *       ctx,
 
     fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
     resume_accdb_compaction( ctx );
-    metrics_clear( ctx );
+    metrics_snapshot_clear( ctx );
     ctx->state = SNAPMK_STATE_IDLE;
     FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
     *charge_busy = 1;
@@ -1450,7 +1450,8 @@ snap_begin( fd_snapmk_t * ctx,
   ctx->raw_buf.pos   = 0UL;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
-  metrics_clear( ctx );
+  ctx->metrics.accparse_accounts_seen = 0UL;
+  metrics_snapshot_clear( ctx );
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
@@ -1540,6 +1541,7 @@ returnable_frag( fd_snapmk_t *       ctx,
                                  frag_sz,
                                  fd_wksp_gaddr_fast( ctx->snaprd_in_mem, data ),
                                  sig );
+      metrics_data_read_add( ctx, frag_sz );
     }
 
     for(;;) {
@@ -1569,6 +1571,7 @@ returnable_frag( fd_snapmk_t *       ctx,
       if( FD_LIKELY( ctx->disk_out_idx>=ctx->zp_cnt ) ) {
         ulong base_gaddr;
         ulong n = fd_snapmk_accparse_publish_batch( parse, ctx->disk_batch, &base_gaddr );
+        metrics_accparse_seen_sync( ctx );
         if( n ) {
           ctx->disk_batch_pending    = 1;
           ctx->disk_batch_base_gaddr = base_gaddr;
@@ -1588,6 +1591,7 @@ returnable_frag( fd_snapmk_t *       ctx,
 
       fd_frag_meta_t meta[1];
       if( FD_UNLIKELY( !fd_snapmk_accparse_publish( parse, meta ) ) ) {
+        metrics_accparse_seen_sync( ctx );
         parse->input_active = 0;
         /* A prestaged batch references the current frag's bytes and must
            be drained before this frag is released (publish_batch above
@@ -1602,22 +1606,13 @@ returnable_frag( fd_snapmk_t *       ctx,
           ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
           ctx->state             = SNAPMK_STATE_ACCOUNTS_FLUSH2;
           FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
-          if( FD_LIKELY( parse->walk_batches ) ) {
-            double b = (double)parse->walk_batches;
-            FD_LOG_NOTICE(( "disk chain walk stats: batches=%lu avg_batch=%.1f lanes/round"
-                            " [%.1f %.2f %.2f %.2f %.2f %.2f %.2f %.2f+]",
-                            parse->walk_batches, (double)parse->walk_accts/b,
-                            (double)parse->walk_lanes[0]/b, (double)parse->walk_lanes[1]/b,
-                            (double)parse->walk_lanes[2]/b, (double)parse->walk_lanes[3]/b,
-                            (double)parse->walk_lanes[4]/b, (double)parse->walk_lanes[5]/b,
-                            (double)parse->walk_lanes[6]/b, (double)parse->walk_lanes[7]/b ));
-          }
         }
         return 0;
       }
 
       int som = fd_frag_meta_ctl_som( meta->ctl );
       int eom = fd_frag_meta_ctl_eom( meta->ctl );
+      metrics_accparse_seen_sync( ctx );
       ulong out_chunk = 0UL;
       ulong out_sz    = 0UL;
       if( FD_UNLIKELY( som ) ) {
@@ -1651,12 +1646,18 @@ returnable_frag( fd_snapmk_t *       ctx,
 static void
 metrics_write( fd_snapmk_t * ctx ) {
   FD_MGAUGE_SET( SNAPMK, STATE,                       ctx->state                    );
+  FD_MCNT_SET(   SNAPMK, ACCOUNTS_SEEN,               ctx->metrics.accounts_seen    );
+  FD_MCNT_SET(   SNAPMK, DATA_READ_BYTES,             ctx->metrics.data_read_bytes  );
   FD_MCNT_SET(   SNAPMK, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed );
   FD_MCNT_SET(   SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
   FD_MCNT_SET(   SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_ticks         );
   FD_MCNT_SET(   SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
   FD_MCNT_SET(   SNAPMK, DISK_BATCHES_EMITTED,        ctx->metrics.disk_batches_emitted );
   FD_MCNT_SET(   SNAPMK, DISK_ACCOUNTS_SINGLE,        ctx->metrics.disk_accounts_single );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_ACCOUNTS_SEEN,                    ctx->metrics.snapshot.accounts_seen    );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_DATA_READ_BYTES,                 ctx->metrics.snapshot.data_read_bytes  );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_UNCOMPRESSED_DATA_WRITTEN_BYTES, ctx->metrics.snapshot.bytes_compressed );
+  FD_MGAUGE_SET( SNAPMK, SNAPSHOT_COMPRESSED_DATA_WRITTEN_BYTES,   ctx->metrics.snapshot.bytes_written    );
   ulong inflight_frags = ( ctx->snaprd_release_seq==ULONG_MAX ) ? 0UL
                        : fd_ulong_if( fd_seq_lt( ctx->snaprd_release_seq, ctx->snaprd_parse_seq ),
                                       ctx->snaprd_parse_seq - ctx->snaprd_release_seq, 0UL );
@@ -1675,15 +1676,12 @@ metrics_write( fd_snapmk_t * ctx ) {
 
 /* snapmk_run wraps stem_run1 so snapmk can take manual ownership of the
    flow control credit it returns to snaprd.  It is a copy of the
-   generated stem_run() preamble with one change: the in_fseq entry for
-   the snaprd_out link is redirected to ctx->stem_snaprd_fseq (a
-   throwaway), so the stem publishes its parse cursor there instead of to
-   the real fseq.  snapmk drives the real fseq (snaprd_release_fseq) to
-   the lagging release watermark itself, so snaprd never overwrites dcache
-   slots whose bytes are still referenced zero-copy by in-flight zp frags.
-   This avoids editing the shared fd_stem.c, and mutates no shared state:
-   the redirect lives only in this stack-local in_fseq[] array, while
-   snaprd discovers the real consumer fseq independently from the topo. */
+   generated stem_run() preamble with one change: the snaprd_out link's
+   in_fseq entry is redirected to ctx->stem_snaprd_fseq (a throwaway), so
+   the stem publishes its parse cursor there instead of the real fseq.
+   snapmk drives the real fseq (snaprd_release_fseq) to the lagging
+   release watermark itself (see snapmk_update_release), which avoids
+   editing the shared fd_stem.c. */
 
 static void
 snapmk_run( fd_topo_t *      topo,

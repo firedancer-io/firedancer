@@ -53,6 +53,11 @@ struct fd_snapzp {
     ulong compress_ticks;
     ulong disk_batches;
     ulong disk_batch_accounts;
+    struct {
+      ulong accounts_packed;
+      ulong bytes_compressed;
+      ulong bytes_written;
+    } snapshot;
   } metrics;
 };
 typedef struct fd_snapzp fd_snapzp_t;
@@ -64,15 +69,29 @@ typedef struct fd_snapzp fd_snapzp_t;
 #define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_HEAD+COMP_BOUND+8UL, 4096UL )
 
 static void
-metrics_clear( fd_snapzp_t * ctx ) {
-  /* FIXME dont reset counters */
-  ctx->metrics.accounts_compressed = 0UL;
-  ctx->metrics.bytes_compressed    = 0UL;
-  ctx->metrics.bytes_written       = 0UL;
-  ctx->metrics.io_blocked_ticks    = 0UL;
-  ctx->metrics.compress_ticks      = 0UL;
-  ctx->metrics.disk_batches        = 0UL;
-  ctx->metrics.disk_batch_accounts = 0UL;
+metrics_snapshot_clear( fd_snapzp_t * ctx ) {
+  ctx->metrics.snapshot.accounts_packed  = 0UL;
+  ctx->metrics.snapshot.bytes_compressed = 0UL;
+  ctx->metrics.snapshot.bytes_written    = 0UL;
+  FD_MGAUGE_SET( SNAPZP, SNAPSHOT_ACCOUNTS_PACKED,                 0UL );
+  FD_MGAUGE_SET( SNAPZP, SNAPSHOT_UNCOMPRESSED_DATA_WRITTEN_BYTES, 0UL );
+  FD_MGAUGE_SET( SNAPZP, SNAPSHOT_COMPRESSED_DATA_WRITTEN_BYTES,   0UL );
+}
+
+static inline void
+metrics_account_packed_add( fd_snapzp_t * ctx,
+                            ulong         bytes ) {
+  ctx->metrics.accounts_compressed          += 1UL;
+  ctx->metrics.bytes_compressed             += bytes;
+  ctx->metrics.snapshot.accounts_packed     += 1UL;
+  ctx->metrics.snapshot.bytes_compressed    += bytes;
+}
+
+static inline void
+metrics_compressed_written_add( fd_snapzp_t * ctx,
+                                ulong         bytes ) {
+  ctx->metrics.bytes_written          += bytes;
+  ctx->metrics.snapshot.bytes_written += bytes;
 }
 
 FD_FN_CONST static inline ulong
@@ -258,7 +277,7 @@ flush( fd_snapzp_t * ctx ) {
     FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
   }
   long t2 = fd_tickcount();
-  ctx->metrics.bytes_written    += comp_asz;
+  metrics_compressed_written_add( ctx, comp_asz );
   ctx->metrics.io_blocked_ticks += (ulong)( t2 - t1 );
 
   ctx->comp_buf.pos = 0UL;
@@ -298,7 +317,7 @@ process_start( fd_snapzp_t * ctx,
   ctx->raw_buf.size  = 0UL;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ-COMP_HEAD;
-  metrics_clear( ctx );
+  metrics_snapshot_clear( ctx );
 }
 
 static void
@@ -351,8 +370,7 @@ process_accounts_cached( fd_snapzp_t * ctx,
       FD_CHECK_ERR( err!=FD_BACKUP_CACHE_ERR_SPACE, "Zstandard buffer too small" );
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
-    ctx->metrics.bytes_compressed += buf->size - raw_buf_start;
-    ctx->metrics.accounts_compressed++;
+    metrics_account_packed_add( ctx, buf->size - raw_buf_start );
   }
 }
 
@@ -480,9 +498,8 @@ process_account_disk( fd_snapzp_t * ctx,
       fd_memset( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, 0, ctx->disk.data_pad );
       ctx->raw_buf.size += ctx->disk.data_pad;
     }
-    ctx->metrics.bytes_compressed += sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_SIZE_DATA( ctx->disk.size ), 8UL );
+    metrics_account_packed_add( ctx, sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_SIZE_DATA( ctx->disk.size ), 8UL ) );
     memset( &ctx->disk, 0, sizeof(ctx->disk) );
-    ctx->metrics.accounts_compressed++;
   }
 }
 
@@ -587,8 +604,7 @@ process_disk_batch( fd_snapzp_t * ctx,
       fd_memset( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, 0, data_pad );
       ctx->raw_buf.size += data_pad;
     }
-    ctx->metrics.bytes_compressed += rec_sz;
-    ctx->metrics.accounts_compressed++;
+    metrics_account_packed_add( ctx, rec_sz );
     ctx->metrics.disk_batch_accounts++;
   }
 }
@@ -640,7 +656,7 @@ returnable_frag( fd_snapzp_t *       ctx,
       }
       ctx->fd = -1;
     }
-    metrics_clear( ctx );
+    metrics_snapshot_clear( ctx );
     break;
   default:
     FD_LOG_CRIT(( "unknown backup instruction (orig=%lu, seq=%lu)", orig, seq ));
@@ -657,6 +673,9 @@ metrics_write( fd_snapzp_t * ctx ) {
   FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks      );
   FD_MCNT_SET( SNAPZP, DISK_BATCHES,                ctx->metrics.disk_batches        );
   FD_MCNT_SET( SNAPZP, DISK_BATCH_ACCOUNTS,         ctx->metrics.disk_batch_accounts );
+  FD_MGAUGE_SET( SNAPZP, SNAPSHOT_ACCOUNTS_PACKED,                 ctx->metrics.snapshot.accounts_packed  );
+  FD_MGAUGE_SET( SNAPZP, SNAPSHOT_UNCOMPRESSED_DATA_WRITTEN_BYTES, ctx->metrics.snapshot.bytes_compressed );
+  FD_MGAUGE_SET( SNAPZP, SNAPSHOT_COMPRESSED_DATA_WRITTEN_BYTES,   ctx->metrics.snapshot.bytes_written    );
 }
 
 #define STEM_BURST 1UL

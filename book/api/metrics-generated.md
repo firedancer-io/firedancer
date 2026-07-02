@@ -159,12 +159,18 @@
 |--------|------|-------------|
 | <span class="metrics-name">snapmk_&#8203;state</span> | gauge | 0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail |
 | <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span> | counter | Number of snapshots created (includes in-progress) |
+| <span class="metrics-name">snapmk_&#8203;accounts_&#8203;seen</span> | counter | Accounts examined while building snapshots |
+| <span class="metrics-name">snapmk_&#8203;data_&#8203;read_&#8203;bytes</span> | counter | Account database bytes read while building snapshots |
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
 | <span class="metrics-name">snapmk_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
 | <span class="metrics-name">snapmk_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
 | <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing |
 | <span class="metrics-name">snapmk_&#8203;disk_&#8203;batches_&#8203;emitted</span> | counter | Number of multi-account disk batch fragments emitted to zp |
 | <span class="metrics-name">snapmk_&#8203;disk_&#8203;accounts_&#8203;single</span> | counter | Number of disk accounts emitted via the single-account (straddle/large) path |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;accounts_&#8203;seen</span> | gauge | Accounts examined while building the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;data_&#8203;read_&#8203;bytes</span> | gauge | Account database bytes read while building the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;uncompressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Uncompressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapmk_&#8203;snapshot_&#8203;compressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Compressed non-account snapshot bytes written by snapmk for the current snapshot. Resets when snapshot creation completes |
 | <span class="metrics-name">snapmk_&#8203;snaprd_&#8203;inflight_&#8203;frags</span> | gauge | Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth) |
 
 </div>
@@ -182,6 +188,9 @@
 | <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
 | <span class="metrics-name">snapzp_&#8203;disk_&#8203;batches</span> | counter | Number of multi-account disk batch fragments processed |
 | <span class="metrics-name">snapzp_&#8203;disk_&#8203;batch_&#8203;accounts</span> | counter | Number of disk accounts processed via the batch path |
+| <span class="metrics-name">snapzp_&#8203;snapshot_&#8203;accounts_&#8203;packed</span> | gauge | Accounts packed into the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapzp_&#8203;snapshot_&#8203;uncompressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Uncompressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes |
+| <span class="metrics-name">snapzp_&#8203;snapshot_&#8203;compressed_&#8203;data_&#8203;written_&#8203;bytes</span> | gauge | Compressed account snapshot bytes written for the current snapshot. Resets when snapshot creation completes |
 
 </div>
 
