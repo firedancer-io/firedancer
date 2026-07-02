@@ -12,10 +12,13 @@ jobs:
       group: fd-public-repo
     env:
       CC: gcc
+      EXTRAS: ccache
     steps:
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/submodule-init
+
+      - uses: ./.github/actions/ccache
 
       - uses: ./.github/actions/deps
         with:

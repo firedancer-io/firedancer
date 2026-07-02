@@ -34,7 +34,7 @@ jobs:
       CC: clang
       CXX: clang++
       MACHINE: linux_clang_icelake
-      EXTRAS: llvm-cov
+      EXTRAS: llvm-cov ccache
       COMPILER: clang
       COMPILER_VERSION: 15.0.6
 
@@ -46,6 +46,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
           submodules: recursive
+
+      - uses: ./.github/actions/ccache
 
       - uses: ./.github/actions/deps
         with:

@@ -37,7 +37,7 @@ jobs:
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
-      EXTRAS: ${{ inputs.extras }}
+      EXTRAS: ${{ inputs.extras }} ccache
     steps:
       - name: cleanup
         if: always()
@@ -47,6 +47,8 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/submodule-init
+
+      - uses: ./.github/actions/ccache
 
       - uses: ./.github/actions/deps
         with:

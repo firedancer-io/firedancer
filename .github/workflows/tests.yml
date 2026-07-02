@@ -26,7 +26,7 @@ jobs:
           - test-case: linux_gcc_x86_64
             machine: linux_gcc_x86_64
             label: X64
-            extras: "rpath handholding"
+            extras: "rpath handholding ccache"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: gcc
@@ -35,7 +35,7 @@ jobs:
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
-            extras: "asan ubsan rpath handholding"
+            extras: "asan ubsan rpath handholding ccache"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: clang
@@ -44,7 +44,7 @@ jobs:
           - test-case: native
             machine: native
             label: 512G
-            extras: "rpath handholding"
+            extras: "rpath handholding ccache"
             deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: gcc
@@ -81,6 +81,9 @@ jobs:
 
       - uses: ./.github/actions/cpusonline
 
+      - uses: ./.github/actions/ccache
+        if: ${{ contains(matrix.extras, 'ccache') }}
+
       - uses: dtolnay/rust-toolchain@1.95.0
         if: ${{ contains(matrix.targets, 'fdctl') }}
 
@@ -99,6 +102,10 @@ jobs:
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           ./contrib/make-j ${{ matrix.targets }}
+
+      - name: ccache stats
+        if: ${{ contains(matrix.extras, 'ccache') }}
+        run: ccache -s
 
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}

@@ -1,0 +1,58 @@
+name: 'ccache'
+description: >
+  Installs a pinned ccache release, points it at a persistent per-runner
+  cache directory, and verifies the FD_IMPORT/.incbin staleness
+  protection (contrib/ccache/test-embed-canary.sh) before any build
+  runs.  Build steps opt in with EXTRAS=ccache
+  (config/extra/with-ccache.mk).
+inputs:
+  version:
+    description: 'ccache release version'
+    default: '4.13.6'
+  sha256:
+    description: 'sha256 of the linux-x86_64 musl-static .tar.xz release asset'
+    default: '156ec57c5198cc849d92834023d09910b83dc5504c6cf405d09e6ae7b208a3e5'
+  max-size:
+    description: 'cache size cap (per runner)'
+    default: '25G'
+runs:
+  using: composite
+  steps:
+    - name: Install ccache
+      shell: bash
+      run: |
+        set -euo pipefail
+        DEST="${RUNNER_TOOL_CACHE}/ccache/${{ inputs.version }}"
+        if [[ ! -x "${DEST}/ccache" ]]; then
+          mkdir -p "${DEST}"
+          curl -fsSL --retry 3 -o /tmp/ccache.tar.xz \
+            "https://github.com/ccache/ccache/releases/download/v${{ inputs.version }}/ccache-${{ inputs.version }}-linux-x86_64-musl-static.tar.xz"
+          echo "${{ inputs.sha256 }}  /tmp/ccache.tar.xz" | sha256sum -c -
+          tar -C "${DEST}" --strip-components=1 -xJf /tmp/ccache.tar.xz \
+            "ccache-${{ inputs.version }}-linux-x86_64-musl-static/ccache"
+          rm /tmp/ccache.tar.xz
+        fi
+        echo "${DEST}" >> "${GITHUB_PATH}"
+
+    - name: Configure ccache
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Persistent per-runner cache: self-hosted runners keep
+        # RUNNER_TOOL_CACHE across jobs (same mechanism the deps action
+        # relies on), so the cache is warm for every job on this runner.
+        CCACHE_DIR="${RUNNER_TOOL_CACHE}/ccache/cache"
+        mkdir -p "${CCACHE_DIR}"
+        echo "CCACHE_DIR=${CCACHE_DIR}" >> "${GITHUB_ENV}"
+        "${RUNNER_TOOL_CACHE}/ccache/${{ inputs.version }}/ccache" \
+          --set-config=max_size='${{ inputs.max-size }}'
+        "${RUNNER_TOOL_CACHE}/ccache/${{ inputs.version }}/ccache" -z >/dev/null
+
+    - name: Verify embed staleness protection
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Refuses the run if CCACHE_EXTRAFILES / sloppiness=incbin do
+        # not behave (ccache regression, config override): a stale
+        # FD_IMPORT embed is a wrong-binary bug, not a slow build.
+        ./contrib/ccache/test-embed-canary.sh "${CC:-gcc}"

@@ -181,9 +181,18 @@ jobs:
           fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
+      - uses: ./.github/actions/ccache
+
       - name: Run gcc builds
         run: |
+          # EXTRAS reaches every `make` build.sh spawns via the
+          # environment.  CCACHE_EXTRAFILES is precomputed once so the
+          # scanner does not rerun for each of build.sh's many make
+          # invocations (see config/extra/with-ccache.mk).
+          export EXTRAS="${EXTRAS:+$EXTRAS }ccache"
+          export CCACHE_EXTRAFILES="$(contrib/ccache/gen-extrafiles.sh)"
           contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
+          ccache -s
 
   build_clang:
     runs-on:
@@ -244,9 +253,14 @@ jobs:
           fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
+      - uses: ./.github/actions/ccache
+
       - name: Run clang builds
         run: |
+          export EXTRAS="${EXTRAS:+$EXTRAS }ccache"
+          export CCACHE_EXTRAFILES="$(contrib/ccache/gen-extrafiles.sh)"
           contrib/build.sh --no-rust --no-gcc ${{ env.BUILD_ARGS }}
+          ccache -s
 
   build_arm:
     runs-on:

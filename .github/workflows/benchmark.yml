@@ -28,11 +28,13 @@ jobs:
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
-      EXTRAS: ${{ inputs.extras }}
+      EXTRAS: ${{ inputs.extras }} ccache
 
     steps:
     - name: Checkout current commit
       uses: actions/checkout@v7
+
+    - uses: ./.github/actions/ccache
 
     - uses: ./.github/actions/deps
       with:
