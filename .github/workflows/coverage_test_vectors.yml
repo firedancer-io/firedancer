@@ -161,6 +161,7 @@ jobs:
               'flamenco/vm/syscall',
               'flamenco/runtime',
               'flamenco/runtime/program',
+              'flamenco/gossip',
               'ballet/bls',
               'ballet/bn254',
               'ballet/ed25519',
