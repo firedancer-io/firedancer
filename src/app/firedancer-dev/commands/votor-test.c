@@ -390,7 +390,6 @@ votor_test_topo( config_t * config,
 
   fd_topo_tile_t * votor = fd_topob_tile( topo, "votor", "votor", "metric_in", ULONG_MAX, 0, 1, 0 );
   votor->tower.max_live_slots = 1024UL;
-  votor->tower.skip_own_vote_ingest = 1;
   fd_cstr_ncpy( votor->tower.identity_key, config->paths.identity_key, sizeof(votor->tower.identity_key) );
   votor->quic.max_concurrent_connections = config->tiles.quic.max_concurrent_connections;
   votor->quic.max_concurrent_handshakes  = config->tiles.quic.max_concurrent_handshakes;
