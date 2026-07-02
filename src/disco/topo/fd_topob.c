@@ -1,11 +1,14 @@
 #include "fd_topob.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../util/tile/fd_tile_private.h" /* fd_tile_private_sibling_idx */
 #include "fd_cpu_topo.h"
 
 #define SET_NAME cpu_bv
 #define SET_MAX  FD_TILE_MAX
 #include "../../util/tmpl/fd_set.c"
+
+#include <ctype.h>
 
 fd_topo_t *
 fd_topob_new( void * mem,
@@ -468,6 +471,144 @@ fd_topob_tile_priority_type( char const * name ) {
   return FD_TOPOB_PRIORITY_FLOATING;
 }
 
+FD_STATIC_ASSERT( FD_TILE_MAX<65535, update_tile_to_cpu_type );
+
+ulong
+fd_topob_parse_affinity_cstr( char const * cstr,
+                              ushort *     tile_to_cpu,
+                              int          allow_repeats ) {
+  if( !cstr ) return 0UL;
+  ulong cnt = 0UL;
+
+  cpu_bv_t cpu_assigned[ cpu_bv_word_cnt ];
+  cpu_bv_new( cpu_assigned );
+
+  char const * p = cstr;
+  for(;;) {
+
+    while( fd_isspace( (int)p[0] ) ) p++;
+
+    if( p[0]=='f' ) {
+      p++;
+
+      ulong float_cnt;
+
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if     ( p[0]==','             ) float_cnt = 1UL, p++;
+      else if( p[0]=='\0'            ) float_cnt = 1UL;
+      else if( !fd_isdigit( (int)p[0] ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (malformed float count)" ));
+      else {
+        float_cnt = fd_cstr_to_ulong( p );
+        if( FD_UNLIKELY( !float_cnt ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad float count)" ));
+        p++; while( fd_isdigit( (int)p[0] ) ) p++;
+        while( fd_isspace( (int)p[0] ) ) p++;
+        if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad float count delimiter)" ));
+        if( p[0]==',' ) p++;
+      }
+
+      do {
+        if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_topob: too many affinity entries" ));
+        tile_to_cpu[ cnt++ ] = (ushort)65535;
+      } while( --float_cnt );
+
+      continue;
+    }
+
+    if( !fd_isdigit( (int)p[0] ) ) {
+      if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (range lo not a cpu)" ));
+      break;
+    }
+    ulong cpu0   = fd_cstr_to_ulong( p );
+    ulong cpu1   = cpu0;
+    ulong stride = 1UL;
+    p++; while( fd_isdigit( (int)p[0] ) ) p++;
+    while( fd_isspace( (int)p[0] ) ) p++;
+    if( p[0]=='-' ) {
+      p++;
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (range hi not a cpu)" ));
+      cpu1 = fd_cstr_to_ulong( p );
+      p++; while( fd_isdigit( (int)p[0] ) ) p++;
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if( p[0]=='/' || p[0]==':' ) {
+        p++;
+        while( fd_isspace( (int)p[0] ) ) p++;
+        if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (stride not an int)" ));
+        stride = fd_cstr_to_ulong( p );
+        p++; while( fd_isdigit( (int)p[0] ) ) p++;
+      }
+    }
+    else if( p[0]=='h' ) {
+      p++;
+      ulong sibling = fd_tile_private_sibling_idx( cpu0 );
+      cpu1 =   fd_ulong_if( sibling==ULONG_MAX, cpu0, sibling );
+      stride = fd_ulong_if( sibling==ULONG_MAX, 1,    sibling-cpu0 );
+    }
+    while( fd_isspace( (int)p[0] ) ) p++;
+    if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad range delimiter)" ));
+    if( p[0]==',' ) p++;
+    cpu1++;
+    if( FD_UNLIKELY( cpu1<=cpu0 ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (invalid range)"  ));
+    if( FD_UNLIKELY( !stride    ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (invalid stride)" ));
+
+    for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
+      if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_topob: too many affinity entries" ));
+      if( FD_UNLIKELY( !allow_repeats && cpu_bv_test( cpu_assigned, cpu ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (repeated cpu)" ));
+      tile_to_cpu[ cnt++ ] = (ushort)cpu;
+      cpu_bv_insert( cpu_assigned, cpu );
+    }
+  }
+
+  return cnt;
+}
+
+static int
+tile_name_in( char const *         name,
+              char const * const * names ) {
+  for( char const * const * p = names; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return 1;
+  }
+  return 0;
+}
+
+#define FD_TOPOB_LIVE_ALWAYS    (1)
+#define FD_TOPOB_LIVE_STARTUP   (2)
+#define FD_TOPOB_LIVE_POSTSTART (3)
+
+static int
+fd_topob_tile_live_phase( char const * name ) {
+  if( tile_name_in( name, STARTUP    ) ) return FD_TOPOB_LIVE_STARTUP;
+  if( tile_name_in( name, POST_START ) ) return FD_TOPOB_LIVE_POSTSTART;
+  return FD_TOPOB_LIVE_ALWAYS;
+}
+
+static int
+fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
+                              fd_topo_tile_t const * b ) {
+  int a_phase = fd_topob_tile_live_phase( a->name );
+  int b_phase = fd_topob_tile_live_phase( b->name );
+
+  return ( a_phase==FD_TOPOB_LIVE_STARTUP   && b_phase==FD_TOPOB_LIVE_POSTSTART ) ||
+         ( a_phase==FD_TOPOB_LIVE_POSTSTART && b_phase==FD_TOPOB_LIVE_STARTUP   );
+}
+
+void
+fd_topob_validate_cpu_overlaps( fd_topo_t const * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * a = &topo->tiles[ i ];
+    if( a->cpu_idx>=FD_TILE_MAX ) continue;
+
+    for( ulong j=i+1UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t const * b = &topo->tiles[ j ];
+      if( b->cpu_idx!=a->cpu_idx ) continue;
+      if( FD_LIKELY( fd_topob_cpu_overlap_allowed( a, b ) ) ) continue;
+
+      FD_LOG_ERR(( "tile `%s:%lu` and tile `%s:%lu` are both assigned to CPU %lu and may try to run at the same time",
+                   a->name, a->kind_id, b->name, b->kind_id, a->cpu_idx ));
+    }
+  }
+}
+
 static void
 auto_tile_cpu( fd_topo_tile_t * tile,
                fd_topo_cpus_t * cpus,
@@ -844,5 +985,6 @@ fd_topob_finish( fd_topo_t *                topo,
 
   initialize_numa_assignments( topo );
 
+  fd_topob_validate_cpu_overlaps( topo );
   validate( topo );
 }

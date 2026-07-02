@@ -15,6 +15,11 @@
 
 #include "fd_topob.h"
 #include "fd_cpu_topo.h"
+#include "../../util/tmpl/fd_unit_test.c"
+
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /* ---- Tile specification ------------------------------------------------ */
 
@@ -121,16 +126,12 @@ print_layout( fd_topo_t const * topo,
    expected[i] = NULL       →  cpu unassigned (blocked / unused)
    Entries beyond expected_len must also be unassigned. */
 static void
-run_test( char const *          test_name,
-          ulong                 physical_cores,
+run_test( ulong                 physical_cores,
           tile_spec_t const *   tiles,
           ulong const *         blocklist,      /* ULONG_MAX terminated */
           int                   reserve_agave,
           ulong                 expected_len,
           char const * const *  expected ) {
-
-  FD_LOG_NOTICE(( "=== %s (%lu phys × 2) ===", test_name, physical_cores ));
-
   /* Build CPU topology */
   fd_topo_cpus_t cpus[1];
   make_cpus( cpus, physical_cores );
@@ -171,7 +172,6 @@ run_test( char const *          test_name,
     print_layout( topo, cpu_cnt );
   }
   FD_TEST( ok );
-  FD_LOG_NOTICE(( "  PASS" ));
 }
 
 /* ======================================================================== */
@@ -217,7 +217,7 @@ static tile_spec_t const FRANKENDANCER_TILES[] = {
 /* Default "0h" blocklist for N physical cores:
    cores 0 and N are blocked.  Built per-test as a local array. */
 
-#define BLOCKLIST_0H( N ) { 0, (N), ULONG_MAX }
+#define BLOCKLIST_0H( N ) (ulong const[]){ 0, (N), ULONG_MAX }
 
 /* ======================================================================== */
 /*  Expected results                                                        */
@@ -448,42 +448,35 @@ static char const * const FD_32X2_EXTRA_BL[] = {
 
 /* --- Firedancer (no agave) ---------------------------------------------- */
 
-static void test_firedancer_24x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 24 );
-  run_test( "firedancer_24x2", 24, FIREDANCER_TILES, bl, 0, FD_24X2_LEN, FD_24X2 );
+FD_UNIT_TEST( test_firedancer_24x2 ) {
+  run_test( 24, FIREDANCER_TILES, BLOCKLIST_0H( 24 ), 0, FD_24X2_LEN, FD_24X2 );
 }
 
-static void test_firedancer_32x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 32 );
-  run_test( "firedancer_32x2", 32, FIREDANCER_TILES, bl, 0, FD_32X2_LEN, FD_32X2 );
+FD_UNIT_TEST( test_firedancer_32x2 ) {
+  run_test( 32, FIREDANCER_TILES, BLOCKLIST_0H( 32 ), 0, FD_32X2_LEN, FD_32X2 );
 }
 
-static void test_firedancer_48x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 48 );
-  run_test( "firedancer_48x2", 48, FIREDANCER_TILES, bl, 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+FD_UNIT_TEST( test_firedancer_48x2 ) {
+  run_test( 48, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
-static void test_firedancer_64x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 64 );
-  run_test( "firedancer_64x2", 64, FIREDANCER_TILES, bl, 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+FD_UNIT_TEST( test_firedancer_64x2 ) {
+  run_test( 64, FIREDANCER_TILES, BLOCKLIST_0H( 64 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
-static void test_firedancer_128x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 128 );
-  run_test( "firedancer_128x2", 128, FIREDANCER_TILES, bl, 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+FD_UNIT_TEST( test_firedancer_128x2 ) {
+  run_test( 128, FIREDANCER_TILES, BLOCKLIST_0H( 128 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
 }
 
 /* --- Frankendancer (with agave visible in expected arrays) -------------- */
 
-static void test_frankendancer_24x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 24 );
-  run_test( "frankendancer_24x2", 24, FRANKENDANCER_TILES, bl, 1,
+FD_UNIT_TEST( test_frankendancer_24x2 ) {
+  run_test( 24, FRANKENDANCER_TILES, BLOCKLIST_0H( 24 ), 1,
             FRANK_24X2_LEN, FRANK_24X2 );
 }
 
-static void test_frankendancer_32x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 32 );
-  run_test( "frankendancer_32x2", 32, FRANKENDANCER_TILES, bl, 1,
+FD_UNIT_TEST( test_frankendancer_32x2 ) {
+  run_test( 32, FRANKENDANCER_TILES, BLOCKLIST_0H( 32 ), 1,
             FRANK_32X2_LEN, FRANK_32X2 );
 }
 
@@ -491,51 +484,92 @@ static void test_frankendancer_32x2( void ) {
    from the shared tile prefix, then mark agave regions with AGAVE.
    Tiles on physical 1-21, agave on physical 22..N-1 and HT N+22..2N-1. */
 
-static void test_frankendancer_48x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 48 );
+FD_UNIT_TEST( test_frankendancer_48x2 ) {
   char const * expected[96] = {0};
   for( ulong i=0UL; i<FRANK_SKIP_HT_PREFIX_LEN; i++ ) expected[i] = FRANK_SKIP_HT_PREFIX[i];
   for( ulong i=22; i<48;  i++ ) expected[i] = "AGAVE";  /* phys agave  */
   for( ulong i=70; i<96;  i++ ) expected[i] = "AGAVE";  /* HT agave    */
-  run_test( "frankendancer_48x2", 48, FRANKENDANCER_TILES, bl, 1, 96, expected );
+  run_test( 48, FRANKENDANCER_TILES, BLOCKLIST_0H( 48 ), 1, 96, expected );
 }
 
-static void test_frankendancer_64x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 64 );
+FD_UNIT_TEST( test_frankendancer_64x2 ) {
   char const * expected[128] = {0};
   for( ulong i=0UL; i<FRANK_SKIP_HT_PREFIX_LEN; i++ ) expected[i] = FRANK_SKIP_HT_PREFIX[i];
   for( ulong i=22; i<64;   i++ ) expected[i] = "AGAVE";  /* phys agave */
   for( ulong i=86; i<128;  i++ ) expected[i] = "AGAVE";  /* HT agave   */
-  run_test( "frankendancer_64x2", 64, FRANKENDANCER_TILES, bl, 1, 128, expected );
+  run_test( 64, FRANKENDANCER_TILES, BLOCKLIST_0H( 64 ), 1, 128, expected );
 }
 
-static void test_frankendancer_128x2( void ) {
-  ulong bl[] = BLOCKLIST_0H( 128 );
+FD_UNIT_TEST( test_frankendancer_128x2 ) {
   char const * expected[256] = {0};
   for( ulong i=0UL; i<FRANK_SKIP_HT_PREFIX_LEN; i++ ) expected[i] = FRANK_SKIP_HT_PREFIX[i];
   for( ulong i=22;  i<128; i++ ) expected[i] = "AGAVE";  /* phys agave */
   for( ulong i=150; i<256; i++ ) expected[i] = "AGAVE";  /* HT agave   */
-  run_test( "frankendancer_128x2", 128, FRANKENDANCER_TILES, bl, 1, 256, expected );
+  run_test( 128, FRANKENDANCER_TILES, BLOCKLIST_0H( 128 ), 1, 256, expected );
 }
 
 /* --- Variations on 32×2 ------------------------------------------------ */
 
-static void test_firedancer_32x2_fewer_tiles( void ) {
-  ulong bl[] = BLOCKLIST_0H( 32 );
-  run_test( "firedancer_32x2_fewer_tiles", 32, FD_FEWER_TILES, bl, 0,
+FD_UNIT_TEST( test_firedancer_32x2_fewer_tiles ) {
+  run_test( 32, FD_FEWER_TILES, BLOCKLIST_0H( 32 ), 0,
             FD_32X2_FEWER_LEN, FD_32X2_FEWER );
 }
 
-static void test_frankendancer_32x2_more_bank( void ) {
-  ulong bl[] = BLOCKLIST_0H( 32 );
-  run_test( "frankendancer_32x2_more_bank", 32, FRANK_MORE_BANK, bl, 1,
+FD_UNIT_TEST( test_frankendancer_32x2_more_bank ) {
+  run_test( 32, FRANK_MORE_BANK, BLOCKLIST_0H( 32 ), 1,
             FRANK_32X2_MORE_BANK_LEN, FRANK_32X2_MORE_BANK );
 }
 
-static void test_firedancer_32x2_extra_blocklist( void ) {
-  ulong bl[] = { 0, 32, 5, 37, ULONG_MAX };
-  run_test( "firedancer_32x2_extra_blocklist", 32, FIREDANCER_TILES, bl, 0,
-            FD_32X2_EXTRA_BL_LEN, FD_32X2_EXTRA_BL );
+FD_UNIT_TEST( test_firedancer_32x2_extra_blocklist ) {
+  run_test( 32, FIREDANCER_TILES, (ulong[]){ 0, 32, 5, 37, ULONG_MAX },
+            0, FD_32X2_EXTRA_BL_LEN, FD_32X2_EXTRA_BL );
+}
+
+static fd_topo_tile_t *
+add_test_tile( fd_topo_t *  topo,
+               char const * name,
+               ulong        kind_id,
+               ulong        cpu_idx ) {
+  fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt++ ];
+  strncpy( tile->name, name, sizeof(tile->name) );
+  tile->kind_id = kind_id;
+  tile->cpu_idx = cpu_idx;
+  return tile;
+}
+
+FD_UNIT_TEST( test_cpu_overlap_permitted ) {
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+
+  add_test_tile( topo, "snapct", 0UL, 7UL );
+  add_test_tile( topo, "execle", 0UL, 7UL );
+
+  fd_topob_validate_cpu_overlaps( topo );
+}
+
+FD_UNIT_TEST( test_cpu_overlap_banned ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+
+  if( pid==0 ) {
+    fd_log_level_logfile_set( 6 );
+
+    static fd_topo_t _topo[1];
+    fd_topo_t * topo = _topo;
+    fd_memset( topo, 0, sizeof(*topo) );
+
+    add_test_tile( topo, "pack",  0UL, 9UL );
+    add_test_tile( topo, "shred", 0UL, 9UL );
+
+    fd_topob_validate_cpu_overlaps( topo );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( ( WIFEXITED( status ) && WEXITSTATUS( status )==1 ) ||
+           ( WIFSIGNALED( status ) && WTERMSIG( status )==SIGABRT ) );
 }
 
 /* ======================================================================== */
@@ -544,26 +578,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-
-  /* Firedancer */
-  test_firedancer_24x2();
-  test_firedancer_32x2();
-  test_firedancer_48x2();
-  test_firedancer_64x2();
-  test_firedancer_128x2();
-
-  /* Frankendancer */
-  test_frankendancer_24x2();
-  test_frankendancer_32x2();
-  test_frankendancer_48x2();
-  test_frankendancer_64x2();
-  test_frankendancer_128x2();
-
-  /* Variations on 32×2 */
-  test_firedancer_32x2_fewer_tiles();
-  test_frankendancer_32x2_more_bank();
-  test_firedancer_32x2_extra_blocklist();
-
+  fd_unit_tests( argc, argv );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
