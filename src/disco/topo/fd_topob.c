@@ -27,7 +27,7 @@ fd_topob_new( void * mem,
   FD_TEST( fd_pod_new( topo->props, sizeof(topo->props) ) );
 
   if( FD_UNLIKELY( strlen( app_name )>=sizeof(topo->app_name) ) ) FD_LOG_ERR(( "app_name too long: %s", app_name ));
-  strncpy( topo->app_name, app_name, sizeof(topo->app_name) );
+  fd_cstr_ncpy( topo->app_name, app_name, sizeof(topo->app_name) );
 
   topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
   topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;

@@ -262,8 +262,7 @@ fd_config_fill( fd_config_t * config,
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
-  strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
-  config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
+  fd_cstr_ncpy( config->hostname, utsname.nodename, sizeof(config->hostname) ); /* Just truncate the name if it's too long to fit */
 
   ulong cluster = FD_CLUSTER_UNKNOWN;
   if( FD_UNLIKELY( !config->is_firedancer ) ) {

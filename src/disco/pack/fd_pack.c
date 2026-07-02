@@ -1053,7 +1053,7 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
 
 /* These require txn, accts, and alt_adj to be defined as per usual */
 #define ACCT_IDX_TO_PTR( idx ) (__extension__( {                                               \
-      ulong __idx = (idx);                                                                     \
+      ulong __idx = (ulong)(idx);                                                              \
       fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
       }))
 #define ACCT_ITER_TO_PTR( iter ) (__extension__( {                                             \

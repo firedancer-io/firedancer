@@ -176,8 +176,7 @@ fd_event_client_new( void *                 shmem,
   client->server_fqdn_len = url->host_len;
 
   fd_memcpy( client->identity_pubkey, identity_pubkey, 32UL );
-  strncpy( client->client_version, client_version, sizeof( client->client_version ) );
-  client->client_version[ sizeof( client->client_version ) - 1UL ] = '\0';
+  fd_cstr_ncpy( client->client_version, client_version, sizeof( client->client_version ) );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->commit_hash ), commit_hash, fd_ulong_min( strlen( commit_hash ), sizeof( client->commit_hash )-1UL ) ) );
   fd_cstr_ncpy( client->action, action, sizeof( client->action ) );
 
