@@ -66,6 +66,11 @@ union fdctl_args {
   } forktest;
 
   struct {
+    char   target[ IP4_PORT_STR_MAX ];
+    ushort local_port;
+  } votor_test;
+
+  struct {
     char tile_name[ 7UL ];
     int  no_configure;
   } dev1;
