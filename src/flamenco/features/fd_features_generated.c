@@ -1616,7 +1616,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\x51\x2b\xe1\x3a\x96\x4f\x49\x50\xb7\xac\x06\xb0\x90\x4d\x04\xbb\xbf\x29\xc7\x0c\x01\xf6\x52\x11\x2b\x02\xfa\x13\x90\x98\x76"},
                                  /* RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph */
     .name                      = "vote_only_retransmitter_signed_fec_sets",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, mask_out_rent_epoch_in_vm_serialization)>>3,
     .id                        = {"\x06\x35\x10\xb8\x8d\xba\x0a\x21\x00\x8d\x28\x53\xaf\xe3\xa7\x61\x15\x06\x67\x97\x6d\x00\x38\x42\x50\xb5\x71\xf9\x6a\x30\x65\xf7"},
