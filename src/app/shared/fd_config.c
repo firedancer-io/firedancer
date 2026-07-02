@@ -504,6 +504,11 @@ void
 fd_config_validate( fd_config_t const * config ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     fd_config_validatef( &config->firedancer );
+    CFG_HAS_NON_ZERO( tiles.alpenglow.listen_port );
+    CFG_HAS_NON_ZERO( tiles.alpenglow.client_port );
+    if( FD_UNLIKELY( config->tiles.alpenglow.listen_port==config->tiles.alpenglow.client_port ) ) {
+      FD_LOG_ERR(( "`tiles.alpenglow.listen_port` and `tiles.alpenglow.client_port` must be distinct" ));
+    }
   } else {
     fd_config_validateh( &config->frankendancer );
   }

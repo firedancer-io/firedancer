@@ -1293,6 +1293,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.repair_serve_listen_port         = config->tiles.rserve.repair_serve_listen_port;
     tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
     tile->net.alpenglow_listen_port            = config->tiles.alpenglow.listen_port;
+    tile->net.alpenglow_client_listen_port     = config->tiles.alpenglow.client_port;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -1559,16 +1560,14 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
     tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
     tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;
-    /* Retry MUST be disabled here: votor runs its QUIC client and server on
-       the same alpenglow UDP port, and the mesh is symmetric (each pair of
-       nodes uses the same 4-tuple for both directions).  A Retry packet is
-       server-only; when our server answers an inbound Initial with a Retry,
-       the peer mis-attributes it to the connection on which WE are the client
-       and rejects the handshake ("client sent Retry").  Retry is only a
-       spoofing/DoS mitigation, unneeded in a known validator set. */
+    /* Retry MUST be disabled here: the votor mesh is symmetric, so peers can
+       both demand retry cookies from each other before either side commits
+       connection state.  Retry is only a spoofing/DoS mitigation, unneeded in
+       a known validator set. */
     tile->quic.retry                          = 0;
     tile->quic.alpenglow_ip_addr              = config->net.ip_addr;
     tile->quic.alpenglow_listen_port          = config->tiles.alpenglow.listen_port;
+    tile->quic.alpenglow_client_listen_port   = config->tiles.alpenglow.client_port;
     fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->firedancer.development.votor.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {

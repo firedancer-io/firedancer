@@ -1538,6 +1538,10 @@ telemetry = true
         # certificates.
         listen_port = 9011
 
+        # The local UDP source port the votor tile uses for outbound
+        # Alpenglow QUIC client connections.
+        client_port = 9012
+
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
     # used to send votes that our validator produces.

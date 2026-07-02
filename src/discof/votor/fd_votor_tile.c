@@ -27,6 +27,7 @@
 #include "../../util/io/fd_io.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../util/net/fd_udp.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_private.h"
 
@@ -217,7 +218,8 @@ struct fd_votor_tile {
   fd_pubkey_t * peer_by_idx;   /* [FD_CONTACT_INFO_TABLE_SIZE]; all-zero == empty slot           */
   fd_quic_t *  quic_client;    /* client-role fd_quic for outbound broadcast (NULL when QUIC off) */
   uint         src_ip_addr;    /* our IPv4 (network order); src for client connects              */
-  ushort       alpenglow_port; /* alpenglow UDP port, shared by client (src) and server (listen)  */
+  ushort       alpenglow_server_port;
+  ushort       alpenglow_client_port;
 
   /* static structures.  These are scratch out-buffers drained within a
      single drive; they are members (not stack) only to avoid large stack
@@ -839,9 +841,7 @@ handle_contact_info_update( fd_votor_tile_t *                  ctx,
   if( strcmp( peer_b58, "8hxz3oFNhR7AgHuaqW85t56N27vaJ38Gmb8EBgf5bRa3" ) ) return;
 
   /* Open an outbound QUIC client connection so we can broadcast to this peer.
-     The client shares the alpenglow UDP port with the server (peers reply to
-     it; the net tile routes replies onto net_alpenglow, fed to both instances,
-     QUIC demuxing by connection id).  The peer is stashed as the conn's user
+     The client uses its own alpenglow UDP source port.  The peer is stashed as the conn's user
      context so quic_client_conn_final can clear peer->conn in O(1).  Reconnects
      are throttled (>=2s between attempts) so a peer whose connection keeps
      failing to establish is not hammered. */
@@ -852,8 +852,8 @@ handle_contact_info_update( fd_votor_tile_t *                  ctx,
   FD_LOG_NOTICE(( "votor connecting to quic server %s at " FD_IP4_ADDR_FMT ":%u",
                   pubkey_str, FD_IP4_ADDR_FMT_ARGS( peer->ip4 ), (uint)peer->port ));
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client,
-                                           peer->ip4,        peer->port,           /* dst */
-                                           ctx->src_ip_addr, ctx->alpenglow_port,  /* src */
+                                           peer->ip4, peer->port, /* dst */
+                                           ctx->src_ip_addr, ctx->alpenglow_client_port,  /* src */
                                            ctx->now );
   peer->last_connected = ctx->now;
   if( FD_UNLIKELY( !conn ) ) return; /* out of conn / handshake slots; retried on the next update */
@@ -1301,16 +1301,28 @@ quic_client_conn_hs_complete( fd_quic_conn_t * conn,
 
 static int
 quic_server_stream_rx( fd_quic_conn_t * conn,
-                ulong            stream_id,
-                ulong            offset,
-                uchar const *    data,
-                ulong            data_sz,
-                int              fin ) {
+                       ulong            stream_id,
+                       ulong            offset,
+                       uchar const *    data,
+                       ulong            data_sz,
+                       int              fin ) {
   (void)stream_id;
   fd_votor_tile_t * ctx = conn->quic->cb.quic_ctx;
   if( FD_UNLIKELY( !(offset==0UL && fin) ) ) return FD_QUIC_SUCCESS; /* fragmented: drop (TODO reassemble) */
   votor_handle_consensus_msg( ctx, data, data_sz );
   return FD_QUIC_SUCCESS;
+}
+
+static ushort
+votor_packet_dst_port( uchar const * l3,
+                       ulong         l3_sz ) {
+  if( FD_UNLIKELY( l3_sz<sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) return 0;
+  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)fd_type_pun_const( l3 );
+  if( FD_UNLIKELY( FD_IP4_GET_VERSION( *ip4 )!=4 || ip4->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) return 0;
+  ulong ip4_hdr_sz = FD_IP4_GET_LEN( *ip4 );
+  if( FD_UNLIKELY( ip4_hdr_sz<sizeof(fd_ip4_hdr_t) || ip4_hdr_sz+sizeof(fd_udp_hdr_t)>l3_sz ) ) return 0;
+  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)fd_type_pun_const( l3 + ip4_hdr_sz );
+  return fd_ushort_bswap( udp->net_dport );
 }
 
 static int
@@ -1524,17 +1536,19 @@ returnable_frag( fd_votor_tile_t *   ctx,
 
   /* Network frames (net_alpenglow) are addressed by UMEM frame index, not
      by the normal dcache [chunk0,wmark] range, and were already copied into
-     ctx->net_buf in during_frag.  Feed BOTH QUIC instances (server +
-     broadcast client): QUIC demuxes by connection id, so the server matches
-     inbound votes/certs (quic_server_stream_rx drives the consensus core) and the
-     client matches its own handshake replies.  Handled before the dcache
-     bounds check below, which does not apply to net frames. */
+     ctx->net_buf in during_frag.  Dispatch by UDP destination port so a packet
+     is only processed by the owning QUIC instance; fd_quic mutates packets in
+     place while decrypting. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) ) {
-    if( FD_LIKELY( ctx->quic_server && sz>=sizeof(fd_eth_hdr_t) ) ) {
+    if( FD_LIKELY( ctx->quic_server && ctx->quic_client && sz>=sizeof(fd_eth_hdr_t) ) ) {
       uchar * l3    = ctx->net_buf + sizeof(fd_eth_hdr_t);
       ulong   l3_sz = sz - sizeof(fd_eth_hdr_t);
-      fd_quic_process_packet( ctx->quic_server,        l3, l3_sz, ctx->now );
-      fd_quic_process_packet( ctx->quic_client, l3, l3_sz, ctx->now );
+      ushort  dst_port = votor_packet_dst_port( l3, l3_sz );
+      if( FD_LIKELY( dst_port==ctx->alpenglow_server_port ) ) {
+        fd_quic_process_packet( ctx->quic_server, l3, l3_sz, ctx->now );
+      } else if( FD_LIKELY( dst_port==ctx->alpenglow_client_port ) ) {
+        fd_quic_process_packet( ctx->quic_client, l3, l3_sz, ctx->now );
+      }
     }
     return 0;
   }
@@ -1738,13 +1752,15 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->net_out_chunk  = ctx->net_out_chunk0;
 
     /* Outbound broadcast client (peer connection table).  Shares the validator
-       identity, the TX aio (→ net) and the alpenglow UDP port with the
-       server; peers reply to that port, the net tile routes the replies onto
-       net_alpenglow, and the inbound path feeds BOTH instances (QUIC demuxes by
-       connection id). */
-    ctx->src_ip_addr    = tile->quic.alpenglow_ip_addr;
-    ctx->alpenglow_port = tile->quic.alpenglow_listen_port;
-    if( FD_UNLIKELY( !ctx->alpenglow_port ) ) FD_LOG_ERR(( "votor tile (with QUIC) requires a non-zero alpenglow listen port" ));
+       identity and TX aio (-> net) with the server, but uses a distinct UDP
+       source port so inbound frames can be dispatched without feeding one
+       mutable packet buffer to both QUIC instances. */
+    ctx->src_ip_addr             = tile->quic.alpenglow_ip_addr;
+    ctx->alpenglow_server_port   = tile->quic.alpenglow_listen_port;
+    ctx->alpenglow_client_port   = tile->quic.alpenglow_client_listen_port;
+    if( FD_UNLIKELY( !ctx->alpenglow_server_port ) ) FD_LOG_ERR(( "votor tile (with QUIC) requires a non-zero alpenglow listen port" ));
+    if( FD_UNLIKELY( !ctx->alpenglow_client_port ) ) FD_LOG_ERR(( "votor tile (with QUIC) requires a non-zero alpenglow client port" ));
+    if( FD_UNLIKELY( ctx->alpenglow_server_port==ctx->alpenglow_client_port ) ) FD_LOG_ERR(( "votor tile requires distinct alpenglow listen and client ports" ));
 
     ctx->quic_client->config.role                       = FD_QUIC_ROLE_CLIENT;
     ctx->quic_client->config.idle_timeout               = tile->quic.idle_timeout_millis * (long)1e6;

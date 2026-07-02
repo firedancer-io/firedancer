@@ -398,16 +398,23 @@ votor_test_topo( config_t * config,
   votor->quic.ack_delay_millis           = config->tiles.quic.ack_delay_millis;
   votor->quic.retry                      = 0;
   votor->quic.alpenglow_ip_addr          = config->net.ip_addr;
-  votor->quic.alpenglow_listen_port      = local_port;
+  votor->quic.alpenglow_listen_port        = local_port;
+  votor->quic.alpenglow_client_listen_port = (ushort)( local_port+1U );
   fd_cstr_ncpy( votor->quic.key_log_path, config->firedancer.development.votor.ssl_key_log_file, sizeof(votor->quic.key_log_path) );
 
   fd_topo_tile_t * sign = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1, 0 );
   fd_cstr_ncpy( sign->sign.identity_key_path, config->paths.identity_key, sizeof(sign->sign.identity_key_path) );
 
   ulong sock_id = fd_topo_find_tile( topo, "sock", 0UL );
-  if( FD_LIKELY( sock_id!=ULONG_MAX ) ) topo->tiles[ sock_id ].sock.net.alpenglow_listen_port = local_port;
+  if( FD_LIKELY( sock_id!=ULONG_MAX ) ) {
+    topo->tiles[ sock_id ].sock.net.alpenglow_listen_port        = local_port;
+    topo->tiles[ sock_id ].sock.net.alpenglow_client_listen_port = (ushort)( local_port+1U );
+  }
   ulong net_id = fd_topo_find_tile( topo, "net", 0UL );
-  if( FD_LIKELY( net_id!=ULONG_MAX ) ) topo->tiles[ net_id ].net.alpenglow_listen_port = local_port;
+  if( FD_LIKELY( net_id!=ULONG_MAX ) ) {
+    topo->tiles[ net_id ].net.alpenglow_listen_port        = local_port;
+    topo->tiles[ net_id ].net.alpenglow_client_listen_port = (ushort)( local_port+1U );
+  }
 
   fd_topob_tile_out( topo, "votest", 0UL, "gossip_out",   0UL );
   fd_topob_tile_out( topo, "votest", 0UL, "replay_out",   0UL );

@@ -501,6 +501,7 @@ struct fd_config {
 
     struct {
       ushort listen_port;
+      ushort client_port;
     } alpenglow;
 
     struct {

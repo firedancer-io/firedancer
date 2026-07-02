@@ -212,6 +212,7 @@ typedef struct {
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
   ushort alpenglow_listen_port;
+  ushort alpenglow_client_listen_port;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
@@ -997,7 +998,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
     if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
     proto = DST_PROTO_RSERVE;
     out = ctx->rserve_out;
-  } else if( FD_UNLIKELY( udp_dstport==ctx->alpenglow_listen_port ) ) {
+  } else if( FD_UNLIKELY( udp_dstport==ctx->alpenglow_listen_port ||
+                          udp_dstport==ctx->alpenglow_client_listen_port ) ) {
     if( FD_UNLIKELY( !ctx->alpenglow_enabled ) ) return;
     proto = DST_PROTO_ALPENGLOW;
     out = ctx->alpenglow_out;
@@ -1007,7 +1009,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   } else {
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
-                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
+                  "%hu, %hu, %hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
                   "Please report this error to Firedancer maintainers.",
                   udp_dstport,
                   ctx->shred_listen_port,
@@ -1016,7 +1018,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
                   ctx->gossip_listen_port,
                   ctx->repair_client_listen_port,
                   ctx->repair_serve_listen_port,
-                  ctx->alpenglow_listen_port ));
+                  ctx->alpenglow_listen_port,
+                  ctx->alpenglow_client_listen_port ));
   }
 
   /* tile can decide how to partition based on src ip addr and src port */
@@ -1417,6 +1420,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
   ctx->txsend_src_port                = tile->net.txsend_src_port;
   ctx->alpenglow_listen_port          = tile->net.alpenglow_listen_port;
+  ctx->alpenglow_client_listen_port   = tile->net.alpenglow_client_listen_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
      are within in the data region of the workspace. */

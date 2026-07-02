@@ -112,6 +112,7 @@ struct fd_topo_net_tile {
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
   ushort alpenglow_listen_port;
+  ushort alpenglow_client_listen_port;
 };
 typedef struct fd_topo_net_tile fd_topo_net_tile_t;
 
@@ -272,8 +273,9 @@ struct fd_topo_tile {
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];
-      uint   alpenglow_ip_addr;     /* votor tile: our IPv4 (network order), src for the broadcast client */
-      ushort alpenglow_listen_port; /* votor tile: alpenglow UDP port (shared by the server + client)      */
+      uint   alpenglow_ip_addr;            /* votor tile: our IPv4 (network order), src for the broadcast client */
+      ushort alpenglow_listen_port;        /* votor tile: alpenglow server UDP port                           */
+      ushort alpenglow_client_listen_port; /* votor tile: alpenglow outbound client UDP source port            */
     } quic;
 
     struct {
