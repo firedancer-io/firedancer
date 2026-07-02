@@ -17,8 +17,6 @@ void
 fd_sysvar_last_restart_slot_init( fd_bank_t *        bank,
                                   fd_accdb_t *       accdb,
                                   fd_capture_ctx_t * capture_ctx ) {
-  if( !FD_FEATURE_ACTIVE_BANK( bank, last_restart_slot_sysvar ) ) return;
-
   fd_sysvar_last_restart_slot_write( bank, accdb, capture_ctx, 0UL );
 }
 
@@ -59,9 +57,6 @@ void
 fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
                                     fd_accdb_t *       accdb,
                                     fd_capture_ctx_t * capture_ctx ) {
-
-  /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
-  if( !FD_FEATURE_ACTIVE_BANK( bank, last_restart_slot_sysvar ) ) return;
 
   ulong last_restart_slot_want = fd_sysvar_last_restart_slot_derive( bank );
 
