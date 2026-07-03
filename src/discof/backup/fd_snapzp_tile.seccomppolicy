@@ -1,0 +1,35 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# pool_min_fd/pool_max_fd: The snapshot pool O_DIRECT file descriptor
+#         range [pool_min_fd,pool_max_fd].  The boot process opens one
+#         O_DIRECT write descriptor per managed snapshot file at the
+#         well known FD_BACKUP_POOL_DIO_FD numbers before the tile is
+#         spawned; the tile pwrites compressed account data through
+#         these and never opens files itself.
+uint logfile_fd, uint pool_min_fd, uint pool_max_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# snapshot: compressed account data is pwritten at block aligned
+# offsets into the snapshot pool file of the slot being produced.
+#
+# arg 0 is the file descriptor to write to.
+pwrite64: (and (>= (arg 0) pool_min_fd)
+               (<= (arg 0) pool_max_fd))
+
+# shutdown: exit is called on shutdown
+exit: (eq (arg 0) 0)

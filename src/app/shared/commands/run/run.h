@@ -26,6 +26,15 @@ initialize_stacks( config_t const * config );
 void
 initialize_accdb_fd( config_t const * config );
 
+/* initialize_snapshots_pool reconciles the snapshots directory into
+   the snapshot producer's managed file pool and opens the pool fds at
+   the well known FD_BACKUP_POOL_FD/FD_BACKUP_POOL_DIO_FD numbers (see
+   discof/backup/fd_backup_pool.h).  No-op unless the topology
+   contains a snapmk tile.  Returns the pool slot count. */
+
+ulong
+initialize_snapshots_pool( config_t const * config );
+
 void
 run_firedancer_init( config_t * config,
                      int        init_workspaces,

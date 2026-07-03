@@ -380,6 +380,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_snapdc = {
   .name                     = NAME,
   .populate_allowed_fds     = populate_allowed_fds,
@@ -389,5 +390,6 @@ fd_topo_run_tile_t fd_tile_snapdc = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif
 
 #undef NAME

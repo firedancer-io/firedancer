@@ -51,9 +51,13 @@
    frag byte count because fd_frag_meta_t::sz is only 16 bits wide. */
 #define FD_BACKUP_RD_MTU 262144UL
 
+/* fd_backup_start_msg_t (FD_BACKUP_ORIG_START) tells the zp tiles
+   which snapshot pool slot the next snapshot is written into.  The
+   tiles write through the preopened FD_BACKUP_POOL_DIO_FD( slot_idx )
+   file descriptor; file names are managed by snapmk alone. */
+
 struct fd_backup_start_msg {
-  ushort name_len;
-  char   name[ FD_BACKUP_NAME_MAX ];
+  uint slot_idx;
 };
 typedef struct fd_backup_start_msg fd_backup_start_msg_t;
 

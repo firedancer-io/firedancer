@@ -687,14 +687,16 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong max_accounts;
       ulong max_live_slots;
-      char  out_path[ PATH_MAX ];
+      uint  max_full_snapshots_to_keep;
+      uint  max_incremental_snapshots_to_keep;
+      char  snapshots_path[ PATH_MAX ];
     } snapmk;
 
     struct {
       ulong accdb_obj_id;
       ulong visited_set_obj_id;
       ulong zp_fseq_id;
-      char  out_path[ PATH_MAX ];
+      uint  pool_cnt; /* snapshot pool slot count */
     } snapzp;
 
     struct {

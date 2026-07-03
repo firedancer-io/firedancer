@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
+#include "../../../../discof/backup/fd_backup_pool.h"
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
@@ -277,6 +278,7 @@ main_pid_namespace( void * _args ) {
   }
 
   initialize_accdb_fd( config );
+  ulong snapshots_pool_cnt = initialize_snapshots_pool( config );
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
@@ -315,6 +317,13 @@ main_pid_namespace( void * _args ) {
          least privilege. */
       if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
 
+      /* snapmk and snapzp join the accdb shmem (account index and
+         cache) but never touch the on-disk accounts file directly:
+         snaprd reads it for them and forwards the bytes over a link.
+         Withhold the accounts.db fds to keep them at least privilege. */
+      if( FD_UNLIKELY( !strcmp( tile->name, "snapzp" ) ) ) tile_uses_accdb_ro = 0;
+      if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb    = 0;
+
       /* snapwr writes accdb pwrite()s without joining accdb shmem, so
          it needs the RW fd despite not appearing as an accdb obj user
          in the topology. */
@@ -328,6 +337,15 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       } else {
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
+      /* Snapshot pool fds: snapmk inherits the buffered descriptors,
+         the snapzp tiles the O_DIRECT ones, nobody else gets any. */
+      int tile_is_snapmk = !strcmp( tile->name, "snapmk" );
+      int tile_is_snapzp = !strcmp( tile->name, "snapzp" );
+      for( ulong j=0UL; j<snapshots_pool_cnt; j++ ) {
+        if( FD_UNLIKELY( -1==fcntl( FD_BACKUP_POOL_FD( j ),     F_SETFD, tile_is_snapmk ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( FD_BACKUP_POOL_DIO_FD( j ), F_SETFD, tile_is_snapzp ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
     }
 
@@ -362,6 +380,10 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong j=0UL; j<snapshots_pool_cnt; j++ ) {
+      if( FD_UNLIKELY( -1==close( FD_BACKUP_POOL_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( FD_BACKUP_POOL_DIO_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
@@ -825,6 +847,31 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+/* fd_backup_pool_boot lives in fd_discof, which Frankendancer binaries
+   do not link.  Weak reference: Frankendancer topologies never contain
+   a snapmk tile, so the call below is unreachable there; Firedancer
+   binaries pull in the strong definition via the snapmk tile. */
+
+__attribute__((weak)) void
+fd_backup_pool_boot( char const * snapshots_path,
+                     uint         max_full_snapshots_to_keep,
+                     uint         max_incremental_snapshots_to_keep,
+                     uint         uid,
+                     uint         gid );
+
+ulong
+initialize_snapshots_pool( config_t const * config ) {
+  if( FD_LIKELY( fd_topo_find_tile( &config->topo, "snapmk", 0UL )==ULONG_MAX ) ) return 0UL;
+  FD_TEST( fd_backup_pool_boot );
+  fd_backup_pool_boot( config->paths.snapshots,
+                       config->firedancer.snapshots.max_full_snapshots_to_keep,
+                       config->firedancer.snapshots.max_incremental_snapshots_to_keep,
+                       config->uid,
+                       config->gid );
+  return (ulong)config->firedancer.snapshots.max_full_snapshots_to_keep+
+         (ulong)config->firedancer.snapshots.max_incremental_snapshots_to_keep;
 }
 
 /* The boot sequence is a little bit involved...

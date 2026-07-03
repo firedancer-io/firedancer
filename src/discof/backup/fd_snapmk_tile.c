@@ -9,6 +9,7 @@
 
 #include "fd_backup.h"
 #include "fd_backup_cache.h"
+#include "fd_backup_pool.h"
 #include "fd_backup_visited.h"
 #include "fd_ssmanifest_writer.h"
 #include "fd_txncache_writer.h"
@@ -16,6 +17,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../tango/fseq/fd_fseq.h"
+
+#include "generated/fd_snapmk_tile_seccomp.h"
 
 #define FD_ZSTD_LEVEL 1
 #define RAW_BUF_SZ    (32UL<<20)
@@ -98,12 +101,20 @@ struct fd_snapmk {
   fd_backup_cache_t acc_cache[1];
   visited_set_t *   visited_set;
 
+  /* Snapshot pool.  The boot process opened one buffered write fd per
+     managed snapshot file at FD_BACKUP_POOL_FD( i ) before this tile
+     was spawned; they live for the lifetime of the tile.  pool[] holds
+     the current directory entry backing each slot, cur_slot_idx the
+     slot the in-progress snapshot is written into (UINT_MAX if idle)
+     and out_fd its buffered fd (-1 if idle, never closed). */
   int  out_fd;
   int  snap_dir_fd;
-  char out_path  [ PATH_MAX ];
   char snap_dir  [ PATH_MAX ];
   char final_name[ FD_BACKUP_NAME_MAX ];
-  char wip_name  [ FD_BACKUP_NAME_MAX ];
+  uint pool_cnt;
+  uint full_slot_cnt; /* slots [0,full_slot_cnt) hold full snapshots */
+  uint cur_slot_idx;
+  fd_backup_pool_slot_t pool[ FD_BACKUP_POOL_MAX ];
 
   ulong            zp_cnt; /* [0,zp_cnt] out links are to zp */
   ulong const *    zp_cons_fseq[ SNAPZP_TILE_MAX ];
@@ -662,9 +673,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_snapmk_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
   memset( ctx, 0, sizeof(fd_snapmk_t) );
 
-  fd_cstr_ncpy( ctx->snap_dir, tile->snapmk.out_path, PATH_MAX );
-  char * last_slash = strrchr( ctx->snap_dir, '/' );
-  if( FD_LIKELY( last_slash ) ) *last_slash = '\0';
+  fd_cstr_ncpy( ctx->snap_dir, tile->snapmk.snapshots_path, PATH_MAX );
 
   int dir_fd = open( ctx->snap_dir, O_RDONLY|O_DIRECTORY );
   if( FD_UNLIKELY( dir_fd<0 ) ) {
@@ -672,6 +681,11 @@ privileged_init( fd_topo_t const *      topo,
   }
   ctx->snap_dir_fd = dir_fd;
   ctx->out_fd      = -1;
+
+  ctx->full_slot_cnt = tile->snapmk.max_full_snapshots_to_keep;
+  ctx->pool_cnt      = tile->snapmk.max_full_snapshots_to_keep+tile->snapmk.max_incremental_snapshots_to_keep;
+  ctx->cur_slot_idx  = UINT_MAX;
+  fd_backup_pool_recover( ctx->snap_dir, ctx->pool_cnt, ctx->pool );
 }
 
 static ulong
@@ -680,14 +694,28 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL+(ulong)ctx->pool_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
-  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
+  for( uint i=0U; i<ctx->pool_cnt; i++ ) out_fds[ out_cnt++ ] = FD_BACKUP_POOL_FD( i ); /* snapshot pool */
   return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_snapmk_tile( out_cnt, out,
+                                              (uint)fd_log_private_logfile_fd(),
+                                              (uint)ctx->snap_dir_fd,
+                                              (uint)FD_BACKUP_POOL_FD( 0 ),
+                                              (uint)FD_BACKUP_POOL_FD( ctx->pool_cnt-1U ) );
+  return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
 static void
@@ -1137,10 +1165,7 @@ after_credit( fd_snapmk_t *       ctx,
       ulong chunk;
       fd_backup_start_msg_t * frag = alloc_zp_payload( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
-      ulong name_len = strlen( ctx->wip_name );
-      FD_TEST( name_len < FD_BACKUP_NAME_MAX );
-      frag->name_len = (ushort)name_len;
-      fd_memcpy( frag->name, ctx->wip_name, name_len+1UL );
+      frag->slot_idx = ctx->cur_slot_idx;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
       fd_stem_publish( stem, i, 0UL, chunk, sizeof(fd_backup_start_msg_t), ctl, 0UL, 0UL );
       ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
@@ -1354,23 +1379,29 @@ after_credit( fd_snapmk_t *       ctx,
     fd_memset( ctx->raw, 0, 1024UL );
     flush_buffer( ctx, ZSTD_e_end );
 
-    struct stat st;
-    if( FD_UNLIKELY( fstat( ctx->out_fd, &st ) ) ) {
-      FD_LOG_ERR(( "fstat failed: %s", fd_io_strerror( errno ) ));
+    /* The snapshot file is complete: publish it by renaming it from
+       its "snapshot<i>.partial" placeholder name to the final name.
+       The pool fd stays open forever (the sandbox forbids open). */
+    long file_sz = lseek( ctx->out_fd, 0L, SEEK_END );
+    if( FD_UNLIKELY( file_sz<0L ) ) {
+      FD_LOG_ERR(( "lseek failed: %s", fd_io_strerror( errno ) ));
     }
-    if( FD_UNLIKELY( close( ctx->out_fd ) ) ) {
-      FD_LOG_ERR(( "close(%s) failed: %s", ctx->out_path, fd_io_strerror( errno ) ));
+    fd_backup_pool_slot_t * pool_slot = &ctx->pool[ ctx->cur_slot_idx ];
+    if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, pool_slot->name, ctx->snap_dir_fd, ctx->final_name ) ) ) {
+      FD_LOG_ERR(( "renameat(%s, %s) failed: %s", pool_slot->name, ctx->final_name, fd_io_strerror( errno ) ));
     }
-    ctx->out_fd = -1;
-    if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, ctx->wip_name, ctx->snap_dir_fd, ctx->final_name ) ) ) {
-      FD_LOG_ERR(( "renameat(%s, %s) failed: %s", ctx->wip_name, ctx->final_name, fd_io_strerror( errno ) ));
-    }
+    fd_cstr_ncpy( pool_slot->name, ctx->final_name, sizeof(pool_slot->name) );
+    pool_slot->full_slot = ctx->bank->f.slot;
+    pool_slot->incr_slot = ULONG_MAX;
+    ctx->cur_slot_idx    = UINT_MAX;
+    ctx->out_fd          = -1;
+
     char final_path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( final_path, PATH_MAX, NULL, "%s/%s", ctx->snap_dir, ctx->final_name ) );
 
     FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%s, %.3f GB)",
                     (double)( fd_log_wallclock() - ctx->start_time )/1e9,
-                    final_path, (double)st.st_size/1e9 ));
+                    final_path, (double)file_sz/1e9 ));
 
     ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
     ctx->state = SNAPMK_STATE_DONE;
@@ -1407,19 +1438,49 @@ after_credit( fd_snapmk_t *       ctx,
   }
 }
 
+/* snap_acquire_slot picks the full-snapshot pool slot the next
+   snapshot is written into.  Prefers a free slot (one holding a
+   "snapshot<i>.partial" placeholder); if all full slots are occupied,
+   "deletes" the oldest full snapshot by truncating its file to zero
+   and renaming it back to its placeholder name.  The sandbox forbids
+   creating or unlinking files, so files only ever move between their
+   placeholder name and a snapshot name. */
+
+static uint
+snap_acquire_slot( fd_snapmk_t * ctx ) {
+  uint  slot_idx  = UINT_MAX;
+  ulong oldest    = ULONG_MAX;
+  for( uint i=0U; i<ctx->full_slot_cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->pool[ i ].full_slot==ULONG_MAX ) ) return i; /* free */
+    if( FD_LIKELY( ctx->pool[ i ].full_slot<oldest ) ) {
+      oldest   = ctx->pool[ i ].full_slot;
+      slot_idx = i;
+    }
+  }
+  FD_TEST( slot_idx!=UINT_MAX );
+
+  fd_backup_pool_slot_t * pool_slot = &ctx->pool[ slot_idx ];
+  FD_LOG_NOTICE(( "Evicting old snapshot %s", pool_slot->name ));
+  if( FD_UNLIKELY( ftruncate( FD_BACKUP_POOL_FD( slot_idx ), 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(%s) failed: %s", pool_slot->name, fd_io_strerror( errno ) ));
+  }
+  char partial_name[ FD_BACKUP_POOL_PARTIAL_NAME_MAX ];
+  fd_backup_pool_partial_name( partial_name, slot_idx );
+  if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, pool_slot->name, ctx->snap_dir_fd, partial_name ) ) ) {
+    FD_LOG_ERR(( "renameat(%s, %s) failed: %s", pool_slot->name, partial_name, fd_io_strerror( errno ) ));
+  }
+  fd_cstr_ncpy( pool_slot->name, partial_name, sizeof(pool_slot->name) );
+  pool_slot->full_slot = ULONG_MAX;
+  pool_slot->incr_slot = ULONG_MAX;
+  return slot_idx;
+}
+
 static void
 snap_begin( fd_snapmk_t * ctx,
             ulong         bank_idx ) {
   if( FD_UNLIKELY( ctx->state != SNAPMK_STATE_IDLE ) ) {
     FD_LOG_ERR(( "invariant violation: snapshot creation requested state is %u", ctx->state ));
     return;
-  }
-
-  if( FD_UNLIKELY( ctx->out_fd!=-1 ) ) {
-    if( FD_UNLIKELY( close( ctx->out_fd ) ) ) {
-      FD_LOG_ERR(( "close(%s) failed: %s", ctx->out_path, fd_io_strerror( errno ) ));
-    }
-    ctx->out_fd = -1;
   }
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
@@ -1432,15 +1493,18 @@ snap_begin( fd_snapmk_t * ctx,
   fd_base58_encode_32( snap_hash, NULL, encoded_hash );
   FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_BACKUP_NAME_MAX, NULL,
            "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
-  FD_TEST( fd_cstr_printf_check( ctx->wip_name, FD_BACKUP_NAME_MAX, NULL, "%s.wip", ctx->final_name ) );
-  FD_TEST( fd_cstr_printf_check( ctx->out_path, PATH_MAX, NULL, "%s/%s", ctx->snap_dir, ctx->wip_name ) );
 
-  if( FD_UNLIKELY( unlinkat( ctx->snap_dir_fd, ctx->wip_name, 0 ) && errno!=ENOENT ) ) {
-    FD_LOG_ERR(( "unlinkat(%s) failed: %s", ctx->wip_name, fd_io_strerror( errno ) ));
+  ctx->cur_slot_idx = snap_acquire_slot( ctx );
+  ctx->out_fd       = FD_BACKUP_POOL_FD( ctx->cur_slot_idx );
+
+  /* The pool fd persists across snapshots: reset its contents and file
+     offset (a placeholder is normally already empty, but a crashed or
+     failed prior attempt may have left bytes behind). */
+  if( FD_UNLIKELY( ftruncate( ctx->out_fd, 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(%s) failed: %s", ctx->pool[ ctx->cur_slot_idx ].name, fd_io_strerror( errno ) ));
   }
-  ctx->out_fd = openat( ctx->snap_dir_fd, ctx->wip_name, O_CREAT|O_EXCL|O_WRONLY, 0644 );
-  if( FD_UNLIKELY( ctx->out_fd<0 ) ) {
-    FD_LOG_ERR(( "openat(%s) failed: %s", ctx->wip_name, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( lseek( ctx->out_fd, 0L, SEEK_SET )<0L ) ) {
+    FD_LOG_ERR(( "lseek(%s) failed: %s", ctx->pool[ ctx->cur_slot_idx ].name, fd_io_strerror( errno ) ));
   }
 
   pause_accdb_compaction( ctx );
@@ -1747,12 +1811,13 @@ snapmk_run( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_snapmk = {
-  .name                 = "snapmk",
-  .populate_allowed_fds = populate_allowed_fds,
-  .scratch_align        = scratch_align,
-  .scratch_footprint    = scratch_footprint,
-  .privileged_init      = privileged_init,
-  .unprivileged_init    = unprivileged_init,
-  .run                  = snapmk_run,
-  .allow_renameat       = 1
+  .name                     = "snapmk",
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = snapmk_run,
+  .allow_renameat           = 1
 };

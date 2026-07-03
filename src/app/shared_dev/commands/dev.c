@@ -122,6 +122,7 @@ run_firedancer_threaded( config_t * config,
   }
 
   initialize_accdb_fd( config );
+  initialize_snapshots_pool( config );
 
   /* This is kind of a hack, but we have to join all the workspaces as
      read-write if we are running things threaded.  The reason is that

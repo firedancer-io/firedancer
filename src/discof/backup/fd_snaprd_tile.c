@@ -3,6 +3,9 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
+
+#include "generated/fd_snaprd_tile_seccomp.h"
+
 #include <errno.h>
 #include <unistd.h>
 
@@ -62,6 +65,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
   return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo; (void)tile;
+  populate_sock_filter_policy_fd_snaprd_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RO );
+  return sock_filter_policy_fd_snaprd_tile_instr_cnt;
 }
 
 FD_FN_CONST static inline ulong
@@ -248,11 +261,11 @@ metrics_write( fd_snaprd_t * ctx ) {
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snaprd = {
-  .name                 = "snaprd",
-  .populate_allowed_fds = populate_allowed_fds,
-  .scratch_align        = scratch_align,
-  .scratch_footprint    = scratch_footprint,
-  .unprivileged_init    = unprivileged_init,
-  .run                  = stem_run,
-  .allow_renameat       = 1
+  .name                     = "snaprd",
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

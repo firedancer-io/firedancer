@@ -1767,9 +1767,15 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
 
-  fd_ssarchive_remove_old_snapshots( tile->snapct.snapshots_path,
-                                     tile->snapct.max_full_snapshots_to_keep,
-                                     tile->snapct.max_incremental_snapshots_to_keep );
+  /* When the snapshot producer is enabled, snapshot retention is owned
+     by snapmk: the boot process already pruned the directory into the
+     producer's managed file pool (see fd_backup_pool_boot), and
+     removing files here would race pool fd setup. */
+  if( FD_LIKELY( fd_topo_find_tile( topo, "snapmk", 0UL )==ULONG_MAX ) ) {
+    fd_ssarchive_remove_old_snapshots( tile->snapct.snapshots_path,
+                                       tile->snapct.max_full_snapshots_to_keep,
+                                       tile->snapct.max_incremental_snapshots_to_keep );
+  }
 
   ulong full_slot = ULONG_MAX;
   ulong incremental_slot = ULONG_MAX;
