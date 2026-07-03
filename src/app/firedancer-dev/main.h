@@ -62,6 +62,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_irq_balance,
   &fd_cfg_stage_irq_affinity,
+  &fd_cfg_stage_sysfs_poll,
   &fd_cfg_stage_kworkers,
   &fd_cfg_stage_cpuset,
   &fd_cfg_stage_nohz_full,

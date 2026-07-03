@@ -70,15 +70,27 @@ check( config_t const * config,
   char path[ PATH_MAX ];
   uint value;
   fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/%s", config->net.interface, setting_napi_defer_hard_irqs );
-  if( fd_file_util_read_uint( path, &value )
-      || value != NAPI_DEFER_HARD_IRQS ) {
-    NOT_CONFIGURED( "Setting napi_defer_hard_irqs failed." );
+
+  /* Check NAPI_DEFER_HARD_IRQS value set correctly. */
+
+  if( FD_UNLIKELY( -1==fd_file_util_read_uint( path, &value ) ) ) {
+    FD_LOG_ERR(( "could not read `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 
+  if( FD_UNLIKELY( NAPI_DEFER_HARD_IRQS != value ) ) {
+    NOT_CONFIGURED( "kernel parameter `%s` is set to %u, not the expected value of %u.", path, value, NAPI_DEFER_HARD_IRQS );
+  }
+
+  /* Check GRO_FLUSH_TIMEOUT value set correctly. */
+
   fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/%s", config->net.interface, setting_gro_flush_timeout );
-  if( fd_file_util_read_uint( path, &value )
-      || value != GRO_FLUSH_TIMEOUT ) {
-    NOT_CONFIGURED( "Setting gro_flush_timeout failed." );
+
+  if( FD_UNLIKELY( -1==fd_file_util_read_uint( path, &value ) ) ) {
+    FD_LOG_ERR(( "could not read `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( GRO_FLUSH_TIMEOUT != value ) ) {
+    NOT_CONFIGURED( "kernel parameter `%s` is set to %u, not the expected value of %u.", path, value, GRO_FLUSH_TIMEOUT );
   }
 
   CONFIGURE_OK();
