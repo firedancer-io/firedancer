@@ -287,6 +287,7 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
   /* Detach records from txns without acquiring record locks */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
+  fd_rwlock_write( &cache->shmem->clock.lock );
 
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, &fork_id, UINT_MAX, cache->txn.pool );
@@ -310,6 +311,7 @@ fd_progcache_advance_root( fd_progcache_join_t *  cache,
 
   fd_progcache_txn_publish_one( cache, txn );
 
+  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
 
   fd_prog_reclaim_work( cache );
@@ -323,11 +325,15 @@ fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
   }
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
+  fd_rwlock_write( &cache->shmem->clock.lock );
+
   fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, &fork_id, NULL, cache->txn.pool );
   if( FD_UNLIKELY( !txn ) ) {
     FD_LOG_CRIT(( "fd_progcache_cancel failed: invalid fork_id %lu", fork_id ));
   }
   fd_progcache_cancel_tree( cache, txn );
+
+  fd_rwlock_unwrite( &cache->shmem->clock.lock );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
   fd_prog_reclaim_work( cache );
 }

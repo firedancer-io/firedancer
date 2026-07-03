@@ -163,6 +163,9 @@ The record descriptor itself is reclaimed according to these rules:
 Progcache uses the CLOCK cache replacement policy over hash map buckets.
 Any thread that inserts records also runs cache replacement.
 
+CLOCK eviction is suppressed while rooting or fork cancellation is in
+progress.
+
 ## Details
 
 ### Concurrency

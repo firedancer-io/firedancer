@@ -848,6 +848,85 @@ FD_UNIT_TEST( publish_evict_stale ) {
   test_progcache_shmem_delete( shmem );
 }
 
+FD_UNIT_TEST( evict_reclaim_reuse ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  /* Populate key1 */
+  fd_progcache_rec_t * rec_old;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec_old = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    FD_TEST( rec_old );
+    fd_progcache_rec_close( tmp, rec_old );
+    fd_progcache_leave( tmp, NULL );
+  }
+  ulong rec_idx = (ulong)( rec_old - admin->rec.pool->ele );
+
+  /* Clear the visited bit so the CLOCK hand picks this slot */
+  atomic_ulong * slot_p = fd_prog_cbits_slot( admin->clock.bits, rec_idx );
+  atomic_fetch_and_explicit( slot_p, ~( 1UL<<fd_prog_visited_bit( rec_idx ) ), memory_order_relaxed );
+
+  /* Remove the record from the map (as fork cancellation would),
+     deferring reclamation to admin's local reclaim list */
+  FD_TEST( fd_prog_delete_rec( admin, rec_old )>=0L );
+
+  shmem->clock.head = rec_idx;
+
+  /* Start an eviction scan; pause it right after it observed the stale
+     "exists" bit and its delete attempt failed, but before it writes
+     back to the cbits */
+  fd_racesan_async_t * e = fiber_evict( &g_fiber[ 0 ], shmem, 1UL, 0UL );
+  FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:post_load_bits", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( fd_racesan_async_step_until( e, "prog_clock_evict:post_delete",    STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Reclaim the old record, releasing its pool slot */
+  FD_TEST( fd_prog_reclaim_work( admin )==1UL );
+
+  /* Reuse the slot for a different program */
+  fd_progcache_rec_t * rec_new;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec_new = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    FD_TEST( rec_new );
+    fd_progcache_rec_close( tmp, rec_new );
+    fd_progcache_leave( tmp, NULL );
+  }
+  FD_TEST( rec_new==rec_old ); /* pool slot was reused */
+
+  /* Run the eviction scan to completion.  It must leave the new
+     record's cbits alone. */
+  for(;;) {
+    int ret = fd_racesan_async_step( e );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fiber_delete( &g_fiber[ 0 ] );
+
+  /* The new record must still be marked existing (evictable) */
+  ulong slot_val = atomic_load_explicit( slot_p, memory_order_relaxed );
+  FD_TEST( fd_ulong_extract_bit( slot_val, fd_prog_exists_bit( rec_idx ) ) );
+  FD_TEST( !fd_progcache_verify( admin ) );
+
+  fd_progcache_cancel_fork( admin, xid1 );
+  FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
