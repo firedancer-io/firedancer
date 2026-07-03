@@ -1149,6 +1149,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_gossvf = {
   .name                     = "gossvf",
   .populate_allowed_seccomp = populate_allowed_seccomp,
@@ -1159,3 +1160,4 @@ fd_topo_run_tile_t fd_tile_gossvf = {
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
+#endif
