@@ -1803,7 +1803,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapmk.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache",    ULONG_MAX ); FD_TEST( tile->snapmk.txncache_obj_id!=ULONG_MAX );
     tile->snapmk.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapmk.max_accounts    = config->firedancer.accounts.max_accounts;
-    FD_TEST( fd_cstr_printf_check( tile->snapmk.out_path, PATH_MAX, NULL, "%s/snapshot.tar.zst", config->paths.snapshots ) );
+    tile->snapmk.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
+    tile->snapmk.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+    fd_cstr_ncpy( tile->snapmk.snapshots_path, config->paths.snapshots, PATH_MAX );
 
     tile->snapmk.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     FD_TEST( tile->snapmk.accdb_obj_id!=ULONG_MAX );
@@ -1816,7 +1818,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snapzp.zp_fseq_id = fd_pod_query_ulong( config->topo.props, "snapzp.fseq", ULONG_MAX );
     FD_TEST( tile->snapzp.zp_fseq_id!=ULONG_MAX );
-    FD_TEST( fd_cstr_printf_check( tile->snapzp.out_path, PATH_MAX, NULL, "%s/snapshot.tar.zst", config->paths.snapshots ) );
+    tile->snapzp.pool_cnt = config->firedancer.snapshots.max_full_snapshots_to_keep+
+                            config->firedancer.snapshots.max_incremental_snapshots_to_keep;
 
     tile->snapzp.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     FD_TEST( tile->snapzp.accdb_obj_id!=ULONG_MAX );

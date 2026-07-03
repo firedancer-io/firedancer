@@ -424,6 +424,7 @@ snapshot_create_offline_cmd_fn( args_t *   args,
   configure_cmd_fn( &c_args, config );
 
   open_accdb_fds( config );
+  initialize_snapshots_pool( config );
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
