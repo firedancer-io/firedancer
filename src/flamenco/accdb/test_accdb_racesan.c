@@ -2140,6 +2140,201 @@ test_step14_orphan_no_hang( void ) {
   test_teardown( accdb, fd );
 }
 
+/* ------------------------------------------------------------------ */
+/* Stray-pin cases: cache_try_pin's transient pin vs line recycling    */
+/* ------------------------------------------------------------------ */
+
+/* A reader that loaded acc->cache_idx before an eviction can call
+   cache_try_pin on a line that has since been evicted, freed, and
+   recycled.  The pin CAS transiently bumps refcnt on a line the reader
+   no longer owns; the ABA recheck then fails and unpins.  Historically
+   the free-list pop (acquire_cache_line priority 1) and the
+   uncommitted-destination cleanup (release_inner) mutated refcnt with
+   plain stores, which wiped such a transient pin; the stray's later
+   decrement then dropped the new owner's refcnt to 0 (or underflowed it
+   to EVICT_SENTINEL), letting CLOCK steal a line still in use.
+   Observed in production as near-simultaneous handholding failures in
+   acquire STEP 4 (rc>0 && rc!=SENTINEL), STEP 14 (key mismatch on a
+   pinned line) and release STEP 2 (refcnt>0) across several exec tiles.
+
+   test_stray_pin_vs_freepop proves the free-list pop waits out the
+   stray pin instead of clobbering it:
+     1. P resident in class-0 line L; reader R suspends at
+        accdb_acquire:pre_try_pin having captured L from P's cache_idx.
+     2. Main evicts L (L -> free list, gen=UINT_MAX, refcnt=0).
+     3. R resumes to accdb_try_pin:post_cas: its CAS pinned the
+        free-listed L (refcnt 0->1); R now holds the stray pin.
+     4. Writer W (new account Q) pops L as its class-0 destination and
+        must WAIT at accdb_freepop:refcnt_wait (a plain refcnt=1 store
+        here would let R's later unpin zero out W's pin).
+     5. R resumes: ABA recheck fails (gen==UINT_MAX), unpins,
+        cold-loads P from disk, completes.
+     6. W resumes: its CAS 0->1 now succeeds; W commits Q into L.
+     7. Oracle: P and Q both read back intact. */
+static void
+test_stray_pin_vs_freepop( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_Q  [ 32 ] = { 'Q', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  write_acc( accdb, root0, key_P, 100UL, owner_P, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  /* R captures P's cache_idx, suspends before pinning. */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict L: P written back to disk, L pushed to the class-0 free
+     list. */
+  fd_accdb_debug_clock_evict_line( accdb, cls, idx );
+
+  /* R pins the free-listed line (stray pin), suspends before the ABA
+     recheck. */
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* W pops L as its class-0 destination and must wait for the stray
+     pin to drop.  A regression to the plain store never reaches this
+     hook (W runs to exit) and the FD_TEST fails. */
+  fd_racesan_async_t * w = fiber_release_write( &g_fiber[1], accdb, root0, key_Q, 400UL );
+  FD_TEST( fd_racesan_async_step_until( w, "accdb_freepop:refcnt_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* R: ABA recheck fails, unpin, cold-load P from disk, complete. */
+  for(;;) {
+    int rc = fd_racesan_async_step( ar );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* W: pop CAS now wins; Q commits into L. */
+  for(;;) {
+    int rc = fd_racesan_async_step( w );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* Oracle: both accounts intact. */
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==100UL );
+    fd_accdb_release( accdb, 1UL, a );
+
+    pks[0] = key_Q;
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==400UL );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
+/* test_stray_pin_vs_release_cleanup proves the uncommitted-destination
+   cleanup in release_inner waits out a stray pin on a destination line
+   instead of plain-storing refcnt=0 over it:
+     1. P resident in class-0 line L; reader R suspends at
+        accdb_acquire:pre_try_pin having captured L.
+     2. Main evicts L (free list).
+     3. Writer W (writable acquire of new account Q, never commits)
+        pops L as its class-0 destination (refcnt 0->1) and parks at
+        accdb_acquire:pre_step7_meta, mid-bracket.
+     4. R resumes to accdb_try_pin:post_cas: CAS 1->2, stray pin on
+        W's destination line.
+     5. W resumes into release (no commit): the destination cleanup
+        must WAIT at accdb_release:dest_refcnt_wait (a plain refcnt=0
+        store here would be underflowed to EVICT_SENTINEL by R's
+        later unpin).
+     6. R resumes: ABA recheck fails, unpins (2->1), completes.
+     7. W resumes: CAS 1->0 now wins, L is freed cleanly.
+     8. Oracle: P reads back intact. */
+static void
+test_stray_pin_vs_release_cleanup( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_Q  [ 32 ] = { 'Q', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  write_acc( accdb, root0, key_P, 100UL, owner_P, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  /* R captures P's cache_idx, suspends before pinning. */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict L to the free list. */
+  fd_accdb_debug_clock_evict_line( accdb, cls, idx );
+
+  /* W: writable acquire of Q pops L as its class-0 destination
+     (refcnt 0->1), parks mid-bracket before release. */
+  static read_fiber_t wf[1];
+  wf->accdb   = accdb;
+  wf->fork_id = root0;
+  wf->pubkey  = key_Q;
+  void * wf_stack = fd_racesan_stack_create( READ_FIBER_STACK_SZ );
+  fd_racesan_async_new( wf->async, wf_stack, READ_FIBER_STACK_SZ, read_fiber_exec, wf );
+  FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_acquire:pre_step7_meta", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* R pins W's destination line (stray pin: refcnt 1->2), suspends
+     before the ABA recheck. */
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* W: release without commit; the destination cleanup must wait for
+     the stray pin.  A regression to the plain store never reaches
+     this hook. */
+  FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_release:dest_refcnt_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* R: ABA recheck fails, unpin (2->1), cold-load P, complete. */
+  for(;;) {
+    int rc = fd_racesan_async_step( ar );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* W: cleanup CAS now wins (1->0), L freed cleanly. */
+  for(;;) {
+    int rc = fd_racesan_async_step( wf->async );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fd_racesan_async_delete( wf->async );
+  fd_racesan_stack_destroy( wf_stack, READ_FIBER_STACK_SZ );
+
+  /* Oracle: P intact. */
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==100UL );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -2171,6 +2366,8 @@ main( int     argc,
     TEST( test_tombstone_orphan_ebr_poison ),
     TEST( test_sentinel_unlink_no_poison ),
     TEST( test_step14_orphan_no_hang ),
+    TEST( test_stray_pin_vs_freepop ),
+    TEST( test_stray_pin_vs_release_cleanup ),
     {0}
   };
 # undef TEST

@@ -1442,7 +1442,10 @@ acquire_cache_line( fd_accdb_t * accdb,
      persisted==1, generation==UINT_MAX.  Cheapest path. */
   fd_accdb_cache_line_t * result = cache_free_pop( accdb, size_class );
   if( FD_LIKELY( result ) ) {
-    result->refcnt     = 1;
+    while( FD_UNLIKELY( FD_ATOMIC_CAS( &result->refcnt, 0U, 1U )!=0U ) ) {
+      fd_racesan_hook( "accdb_freepop:refcnt_wait" );
+      FD_SPIN_PAUSE();
+    }
     result->referenced = 0;
     *out_evicted_acc_idx = UINT_MAX;
     return result;
@@ -2951,8 +2954,11 @@ release_inner( fd_accdb_t * accdb,
            and corrupt its cache_idx/valid. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
         destination_cache_lines[ j ]->key.generation = UINT_MAX;
-        destination_cache_lines[ j ]->refcnt    = 0;
         destination_cache_lines[ j ]->persisted = 1;
+        while( FD_UNLIKELY( FD_ATOMIC_CAS( &destination_cache_lines[ j ]->refcnt, 1U, 0U )!=1U ) ) {
+          fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
+          FD_SPIN_PAUSE();
+        }
         cache_free_push( accdb, j, destination_cache_lines[ j ] );
       }
       continue;
@@ -3029,7 +3035,11 @@ release_inner( fd_accdb_t * accdb,
       fd_accdb_cache_line_t * target_cache_line;
       if( FD_LIKELY( original_size_class==new_size_class ) ) {
         if( FD_LIKELY( accs[ i ]._overwrite ) ) {
-          FD_TEST( FD_VOLATILE_CONST( original_cache_line->refcnt )==1U );
+          /* a reader holding a stale acc->cache_idx from this line's
+             previous life may hold a transient cache_try_pin pin, so
+             our own pin only bounds refcnt from below. */
+          uint ow_rc = FD_VOLATILE_CONST( original_cache_line->refcnt );
+          FD_TEST( ow_rc>0U && ow_rc!=FD_ACCDB_EVICT_SENTINEL );
           original_cache_line->key.generation = UINT_MAX;
           /* Keep refcnt>=1 through the reuse window so CLOCK cannot
              steal the line between invalidation and re-publish. The
@@ -3089,11 +3099,15 @@ release_inner( fd_accdb_t * accdb,
       } else {
         /* See note above (no-commit path): clear stale acc_idx/gen
            before pushing, otherwise CLOCK can pick this line and
-           stomp the prior owner's cache_idx/valid. */
+           stomp the prior owner's cache_idx/valid.  CAS on refcnt for
+           the same stray-pin reason as the no-commit path. */
         destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
         destination_cache_lines[ j ]->key.generation = UINT_MAX;
-        destination_cache_lines[ j ]->refcnt    = 0;
         destination_cache_lines[ j ]->persisted = 1;
+        while( FD_UNLIKELY( FD_ATOMIC_CAS( &destination_cache_lines[ j ]->refcnt, 1U, 0U )!=1U ) ) {
+          fd_racesan_hook( "accdb_release:dest_refcnt_wait" );
+          FD_SPIN_PAUSE();
+        }
         cache_free_push( accdb, j, destination_cache_lines[ j ] );
       }
     }
