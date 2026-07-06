@@ -132,7 +132,9 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    retains a write interest in these FEC sets and the shreds they point
    to until the resolver is deleted.  These FEC sets and the memory for
    the shreds they point to are the only values that will be returned in
-   the out_shred and out_fec_set output parameters of add_shred.
+   the out_shred and out_fec_set output parameters of add_shred. seed
+   is an arbitrary ulong used to seed various data structures.  It
+   should be set to a validator independent value.
 
    On success, the FEC resolver will be initialized with an expected
    shred version of 0, which causes it to reject all shreds, and a
