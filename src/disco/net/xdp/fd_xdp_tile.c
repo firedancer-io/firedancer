@@ -92,6 +92,13 @@
    with standard prefbusy runtime unless there is a serious problem. */
 #define PREFBUSY_STALL_TIMEOUT_NS (150e3) /* 150us */
 
+/* MAX_GRE_CNT is the maximum number of GRE tunnels the XDP tile will
+   monitor.  If a packet comes in with a source IP that doesn't match
+   the endpoint of one of the first MAX_GRE_CNT tunnels (in the order
+   the OS enumerates them), it will be dropped.  This is limited for
+   performance reasons. */
+#define MAX_GRE_CNT 4UL
+
 /* fd_net_in_ctx_t contains consumer information for an incoming tango
    link.  It is used as part of the TX path. */
 
@@ -286,9 +293,9 @@ typedef struct {
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
   /* Netdev table */
-  fd_netdev_tbl_join_t netdev_tbl;        /* local copy in scratch (hot path) */
-  fd_netdev_tbl_join_t netdev_shared;     /* shared table in netbase (seqlock protected) */
-  uint                 gre_tunnel_ip;     /* 0 means GRE disabled */
+  fd_netdev_tbl_join_t netdev_tbl;                 /* local copy in scratch (hot path) */
+  fd_netdev_tbl_join_t netdev_shared;              /* shared table in netbase (seqlock protected) */
+  uint                 gre_tunnel_ip[MAX_GRE_CNT]; /* 0 means unused */
 
   struct {
     ulong rx_pkt_cnt;
@@ -420,19 +427,24 @@ net_is_fatal_xdp_error( int err ) {
          err==EPERM;
 }
 
-/* net_gre_tunnel_ip returns the IP address of the GRE tunnel peer if an
-   untagged GRE tunnel exists, returns 0 otherwise. */
+/* net_gre_tunnel_ip fills ctx->gre_tunnel_ip.  The first gre_tunnel_cnt
+   entries will be populated with the IP address of the GRE tunnel peer
+   for the first gre_tunnel_cnt untagged GRE tunnels, and the rest of
+   the entries will be set to 0, where gre_tunnel_cnt = min(MAX_GRE_CNT,
+   the number of untagged GRE tunnels).  Returns gre_tunnel_cnt. */
 
-static uint
+static ulong
 net_gre_tunnel_ip( fd_net_ctx_t * ctx ) {
   fd_netdev_t * dev_tbl = ctx->netdev_tbl.dev_tbl;
   ushort        dev_cnt = ctx->netdev_tbl.hdr->dev_cnt;
 
-  for( ushort if_idx = 0; if_idx<dev_cnt; if_idx++ ) {
+  ulong gre_tunnel_cnt = 0UL;
+  memset( ctx->gre_tunnel_ip, '\0', MAX_GRE_CNT*sizeof(uint) );
+  for( ushort if_idx = 0; (if_idx<dev_cnt) & (gre_tunnel_cnt<MAX_GRE_CNT); if_idx++ ) {
     fd_netdev_t const * dev = dev_tbl+if_idx;
-    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) return dev->gre_dst_ip;
+    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) ctx->gre_tunnel_ip[ gre_tunnel_cnt++ ] = dev->gre_dst_ip;
   }
-  return 0U;
+  return gre_tunnel_cnt;
 }
 
 
@@ -528,7 +540,7 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
     fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
   }
-  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
+  net_gre_tunnel_ip( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -943,7 +955,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   int is_packet_gre = 0;
   /* Discard the GRE overhead (outer iphdr and gre hdr) */
   if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
-    if( FD_UNLIKELY( !ctx->gre_tunnel_ip ) ) {
+    if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) { /* if the first entry is 0, they all are */
       ctx->metrics.rx_gre_ignored_cnt++;
       return;
     }
@@ -955,7 +967,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
       return;
     }
 
-    if( FD_UNLIKELY( iphdr->saddr!=ctx->gre_tunnel_ip ) ) {
+    int found = 0;
+    for( ulong i=0UL; i<MAX_GRE_CNT; i++ ) found |= (iphdr->saddr==ctx->gre_tunnel_ip[i]);
+    if( FD_UNLIKELY( (!found) | (iphdr->saddr==0U) ) ) {
       ctx->metrics.rx_src_addr_invalid_cnt++;
       return;
     }
@@ -963,7 +977,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     ulong overhead = gre_iplen + sizeof(fd_gre_hdr_t);
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-      ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
+      ctx->metrics.rx_undersz_cnt++;  /* inner ip4 header invalid */
       return;
     }
 
