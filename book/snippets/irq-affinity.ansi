@@ -1,3 +1,3 @@
 $ sudo firedancer configure init irq-affinity
-[32mNOTICE [0m irq-affinity ... unconfigured ... 7 configurable IRQ affinity masks include Firedancer tile CPUs
+[32mNOTICE [0m irq-affinity ... unconfigured ... found IRQs overlapping with Firedancer tile CPUs (IRQs: 1,3,4,5,6,7,8,9,10,11,12,13,14,15,26,27,+187 more; tiles: net:0,net:1,gossvf:0,gossip:0,shred:0,repair:0,replay:0,execrp:0)
 [32mNOTICE [0m irq-affinity ... configuring

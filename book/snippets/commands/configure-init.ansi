@@ -13,16 +13,14 @@ $ fdctl configure init all
 [32mNOTICE [0m RUN: `echo "1" > /proc/sys/net/ipv4/conf/lo/accept_local`
 [93mWARNING[0m kernel parameter `/proc/sys/net/core/bpf_jit_enable` is too low (got 0 but expected at least 1). Proceeding but performance may be reduced.
 [93mWARNING[0m kernel parameter `/proc/sys/kernel/numa_balancing` is set to 1, not the expected value of 0. Proceeding but performance may be reduced.
-[32mNOTICE [0m hyperthreads ... unconfigured ... pack cpu 5 has hyperthread pair 37 which should be offline
-[32mNOTICE [0m hyperthreads ... configuring
-[32mNOTICE [0m RUN: `echo "0" > /sys/devices/system/cpu/cpu37/online`
-[32mNOTICE [0m RUN: `echo "0" > /sys/devices/system/cpu/cpu40/online`
-[32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
+[33mWARNING[0m pack cpu 5 has hyperthread pair cpu 37 which should be offline. Proceeding but performance may be reduced.
+[33mWARNING[0m poh cpu 9 has hyperthread pair cpu 40 which should be offline. Proceeding but performance may be reduced.
+[32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` missing ethtool-channels network configuration
 [32mNOTICE [0m ethtool-channels ... configuring
-[32mNOTICE [0m ethtool-channels ... RUN: `ethtool --set-channels ens3f0 combined 2`
-[32mNOTICE [0m ethtool-offloads ... unconfigured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
+[32mNOTICE [0m RUN: `ethtool --set-channels ens3f0 combined 2`
+[32mNOTICE [0m ethtool-offloads ... unconfigured ... device `ens3f0` has rx-udp-gro-forwarding enabled. Should be disabled
 [32mNOTICE [0m ethtool-offloads ... configuring
-[32mNOTICE [0m ethtool-offloads ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
+[32mNOTICE [0m RUN: `ethtool --features ens3f0 rx-udp-gro-forwarding off`
 [32mNOTICE [0m ethtool-loopback ... unconfigured ... device `lo` has tx-udp-segmentation enabled. Should be disabled
 [32mNOTICE [0m ethtool-loopback ... configuring
-[32mNOTICE [0m ethtool-loopback ... RUN: `ethtool --offload lo tx-udp-segmentation off`
+[32mNOTICE [0m RUN: `ethtool --features lo tx-udp-segmentation off`

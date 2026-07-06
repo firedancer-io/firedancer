@@ -216,7 +216,7 @@ XDP is incompatible with a feature of network devices called
 to work. GRE segmentation offload is also disabled.
 
 The command run by the stage is similar to running
-`ethtool --offload <device> <offload> off` but it also supports bonded
+`ethtool --features <device> <feature> off` but it also supports bonded
 devices. We can check that it worked:
 
 <<< @/snippets/ethtool-offloads.ansi
@@ -232,7 +232,7 @@ XDP is incompatible with localhost UDP traffic using a feature called
 `tx-udp-segmentation`. This feature must be disabled when connecting Agave
 clients to Firedancer over loopback, or when using Frankendancer.
 
-The command run by the stage is `ethtool --offload lo tx-udp-segmentation
+The command run by the stage is `ethtool --features lo tx-udp-segmentation
 off`. We can check that it worked:
 
 <<< @/snippets/ethtool-loopback.ansi
@@ -242,6 +242,63 @@ Firedancer. It has no dependencies on any other stage.
 
 Changing device settings with `ethtool-loopback` requires root privileges,
 and cannot be performed with capabilities.
+
+## irq-affinity
+By default, Linux dispatches device interrupts (IRQs) to arbitrary
+CPUs. Since socket based networking relies heavily on IRQs, heavy
+incoming traffic can starve a Firedancer tile of CPU time. Tiles
+cannot move out of the way, since they are pinned to one CPU each.
+
+The `irq-affinity` stage rewrites the affinity mask of every device
+interrupt in `/proc/irq/<N>/smp_affinity` to exclude the CPU cores
+used by Firedancer tiles, so interrupts are delivered to the
+remaining housekeeping CPUs instead.
+
+Some interrupts cannot be moved: the kernel manages the affinity of
+certain interrupts itself (for example NVMe queue interrupts) and
+rejects updates to them. There is no way to ask the kernel which
+interrupts are movable, so the stage attempts to reconfigure each one
+and skips those that are rejected. Such managed interrupts rarely
+fire on tile CPUs in practice, because they only handle I/O submitted
+from the CPUs they are bound to, and tiles submit little I/O. The
+per-tile interrupt counts in the monitoring output show any residual
+interrupt activity on tile CPUs.
+
+<<< @/snippets/irq-affinity.ansi
+
+The `init` mode requires root privileges. The `fini` mode re-admits
+tile CPUs into the interrupt affinity masks. Note the kernel does not
+move an already-placed interrupt when its mask is widened, so `fini`
+restores the masks but not necessarily the previous interrupt
+placement.
+
+If the `irqbalance` daemon is running (see below), it will fight this
+stage by periodically rewriting the affinity masks, so the
+`irq-balance` stage should be configured as well.
+
+## irq-balance
+The `irqbalance` daemon is a userspace service, enabled by default on
+many distributions, which periodically rewrites all interrupt
+affinity masks to spread interrupt load across CPUs, reacting to
+system load and thermal events. Left alone it will undo the work of
+the `irq-affinity` stage and route interrupts back onto Firedancer
+tile CPUs.
+
+The `irq-balance` stage connects to the daemon's control socket at
+`/run/irqbalance/` and instructs it to ban the tile CPUs from
+interrupt placement.
+
+<<< @/snippets/irq-balance.ansi
+
+This configuration is ephemeral: irqbalance forgets socket-applied
+settings when it restarts, so the stage must be re-run if the daemon
+restarts. For a permanent setting, place the banned CPU list in the
+irqbalance configuration file (`IRQBALANCE_BANNED_CPULIST` in
+`/etc/sysconfig/irqbalance` or `/etc/default/irqbalance`), or disable
+the daemon entirely on dedicated validator hosts.
+
+The stage does nothing if irqbalance is not running. The `init` mode
+requires root privileges.
 
 ::: tip NOTE
 
