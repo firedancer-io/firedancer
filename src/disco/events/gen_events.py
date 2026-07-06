@@ -25,6 +25,7 @@ class ClickHouseType(Enum):
     UInt16 = auto()
     UInt32 = auto()
     UInt64 = auto()
+    Int64 = auto()
     Pubkey = auto()
     Hash = auto()
     Signature = auto()
@@ -43,6 +44,7 @@ class ClickHouseType(Enum):
         "UInt16": "UInt16",
         "UInt32": "UInt32",
         "UInt64": "UInt64",
+        "Int64": "Int64",
         "Pubkey": "Pubkey",
         "Hash": "Hash",
         "Signature": "Signature",
@@ -62,6 +64,7 @@ class ClickHouseType(Enum):
         "UInt16": "uint32",
         "UInt32": "uint32",
         "UInt64": "uint64",
+        "Int64": "sint64",
         "Pubkey": "bytes",
         "Hash": "bytes",
         "Signature": "bytes",
@@ -219,6 +222,7 @@ _SCALAR_C = {
     ClickHouseType.UInt16:     ("ushort", "uint32"),
     ClickHouseType.UInt32:     ("uint",   "uint32"),
     ClickHouseType.UInt64:     ("ulong",  "uint64"),
+    ClickHouseType.Int64:      ("long",   "sint64"),
     ClickHouseType.DateTime64: ("ulong",  "uint64"),
     ClickHouseType.Bool:       ("int",    "bool"),
 }
@@ -261,8 +265,8 @@ def scalar_max_encoded_sz(f: Field) -> int:
         body = sum(scalar_max_encoded_sz(sf) for sf in f.fields.values())
         return _PB_TAG_MAX + _PB_LP_RESERVE + body
     suffix = _SCALAR_C[f.chtype][1]
-    if suffix == "bool":   return _PB_TAG_MAX + _PB_BOOL
-    if suffix == "uint64": return _PB_TAG_MAX + _PB_VARINT64
+    if suffix == "bool":                    return _PB_TAG_MAX + _PB_BOOL
+    if suffix in ("uint64", "sint64"):      return _PB_TAG_MAX + _PB_VARINT64
     return _PB_TAG_MAX + _PB_VARINT32    # uint32 (UInt8/UInt16)
 
 def field_max_encoded_sz(f: Field) -> int:

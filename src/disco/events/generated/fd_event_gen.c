@@ -248,20 +248,19 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
   if( msg->num_non_builtin_instrs ) fd_pb_push_uint64( encoder, 24U, (ulong)msg->num_non_builtin_instrs );
   if( msg->loaded_accounts_data_size ) fd_pb_push_uint64( encoder, 25U, (ulong)msg->loaded_accounts_data_size );
   if( msg->loaded_accounts_data_size_limit ) fd_pb_push_uint64( encoder, 26U, (ulong)msg->loaded_accounts_data_size_limit );
-  if( msg->accounts_resize_delta ) fd_pb_push_uint64( encoder, 27U, (ulong)msg->accounts_resize_delta );
-  if( msg->accounts_resize_is_negative ) fd_pb_push_bool  ( encoder, 28U, msg->accounts_resize_is_negative );
-  if( msg->execution_fee ) fd_pb_push_uint64( encoder, 29U, (ulong)msg->execution_fee );
-  if( msg->priority_fee ) fd_pb_push_uint64( encoder, 30U, (ulong)msg->priority_fee );
-  if( msg->tips ) fd_pb_push_uint64( encoder, 31U, (ulong)msg->tips );
-  if( msg->signature_count ) fd_pb_push_uint64( encoder, 32U, (ulong)msg->signature_count );
-  if( msg->cost_signature ) fd_pb_push_uint32( encoder, 33U, (uint)msg->cost_signature );
-  if( msg->cost_write_lock ) fd_pb_push_uint32( encoder, 34U, (uint)msg->cost_write_lock );
-  if( msg->cost_data_bytes ) fd_pb_push_uint32( encoder, 35U, (uint)msg->cost_data_bytes );
-  if( msg->cost_programs_execution ) fd_pb_push_uint32( encoder, 36U, (uint)msg->cost_programs_execution );
-  if( msg->cost_loaded_accounts_data_size ) fd_pb_push_uint32( encoder, 37U, (uint)msg->cost_loaded_accounts_data_size );
-  if( msg->cost_allocated_accounts_data_size ) fd_pb_push_uint64( encoder, 38U, (ulong)msg->cost_allocated_accounts_data_size );
+  if( msg->accounts_resize_delta ) fd_pb_push_sint64( encoder, 27U, msg->accounts_resize_delta );
+  if( msg->execution_fee ) fd_pb_push_uint64( encoder, 28U, (ulong)msg->execution_fee );
+  if( msg->priority_fee ) fd_pb_push_uint64( encoder, 29U, (ulong)msg->priority_fee );
+  if( msg->tips ) fd_pb_push_uint64( encoder, 30U, (ulong)msg->tips );
+  if( msg->signature_count ) fd_pb_push_uint64( encoder, 31U, (ulong)msg->signature_count );
+  if( msg->cost_signature ) fd_pb_push_uint32( encoder, 32U, (uint)msg->cost_signature );
+  if( msg->cost_write_lock ) fd_pb_push_uint32( encoder, 33U, (uint)msg->cost_write_lock );
+  if( msg->cost_data_bytes ) fd_pb_push_uint32( encoder, 34U, (uint)msg->cost_data_bytes );
+  if( msg->cost_programs_execution ) fd_pb_push_uint32( encoder, 35U, (uint)msg->cost_programs_execution );
+  if( msg->cost_loaded_accounts_data_size ) fd_pb_push_uint32( encoder, 36U, (uint)msg->cost_loaded_accounts_data_size );
+  if( msg->cost_allocated_accounts_data_size ) fd_pb_push_uint64( encoder, 37U, (ulong)msg->cost_allocated_accounts_data_size );
   for( ulong k=0UL; k<msg->account_diffs_cnt; k++ ) {
-    fd_pb_submsg_open( encoder, 39U );
+    fd_pb_submsg_open( encoder, 38U );
     fd_pb_push_bytes ( encoder, 1U, msg->account_diffs[ k ].pubkey, 32UL );
     fd_pb_push_bytes ( encoder, 2U, msg->account_diffs[ k ].owner, 32UL );
     fd_pb_push_bytes ( encoder, 3U, msg->account_diffs[ k ].prev_owner, 32UL );
@@ -277,13 +276,13 @@ fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
     fd_pb_submsg_close( encoder );
   }
   for( ulong k=0UL; k<msg->writable_accounts_cnt; k++ ) {
-    fd_pb_push_bytes ( encoder, 40U, msg->writable_accounts[ k ], 32UL );
+    fd_pb_push_bytes ( encoder, 39U, msg->writable_accounts[ k ], 32UL );
   }
   for( ulong k=0UL; k<msg->readonly_accounts_cnt; k++ ) {
-    fd_pb_push_bytes ( encoder, 41U, msg->readonly_accounts[ k ], 32UL );
+    fd_pb_push_bytes ( encoder, 40U, msg->readonly_accounts[ k ], 32UL );
   }
   for( ulong k=0UL; k<msg->program_ids_cnt; k++ ) {
-    fd_pb_push_bytes ( encoder, 42U, msg->program_ids[ k ], 32UL );
+    fd_pb_push_bytes ( encoder, 41U, msg->program_ids[ k ], 32UL );
   }
   fd_pb_submsg_close( encoder );
   fd_pb_submsg_close( encoder );

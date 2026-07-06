@@ -258,8 +258,7 @@ struct fd_event_runtime_txn {
   ulong                                num_non_builtin_instrs;            /* Number of BPF (non-builtin) program instructions */
   ulong                                loaded_accounts_data_size;         /* Total bytes of account data loaded for this transaction */
   ulong                                loaded_accounts_data_size_limit;   /* Configured loaded-accounts-data-size limit for this transaction */
-  ulong                                accounts_resize_delta;             /* Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign */
-  int                                  accounts_resize_is_negative;       /* True when the net delta is negative (writable account data net shrunk during execution) */
+  long                                 accounts_resize_delta;             /* Net delta in writable account data sizes during execution (negative when the writable account data net shrunk) */
   ulong                                execution_fee;                     /* Execution fee paid by the fee payer */
   ulong                                priority_fee;                      /* Priority fee paid by the fee payer */
   ulong                                tips;                              /* Tips paid during execution */
@@ -283,7 +282,7 @@ typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
 
 /* Worst-case encoded size of a runtime_txn event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23240UL)
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23234UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */

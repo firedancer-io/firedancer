@@ -380,38 +380,36 @@ message RuntimeTxn {
   uint64 loaded_accounts_data_size = 25;
   // Configured loaded-accounts-data-size limit for this transaction
   uint64 loaded_accounts_data_size_limit = 26;
-  // Absolute magnitude of net delta in writable account data sizes during execution; check accounts_resize_is_negative for sign
-  uint64 accounts_resize_delta = 27;
-  // True when the net delta is negative (writable account data net shrunk during execution)
-  bool accounts_resize_is_negative = 28;
+  // Net delta in writable account data sizes during execution (negative when the writable account data net shrunk)
+  sint64 accounts_resize_delta = 27;
   // Execution fee paid by the fee payer
-  uint64 execution_fee = 29;
+  uint64 execution_fee = 28;
   // Priority fee paid by the fee payer
-  uint64 priority_fee = 30;
+  uint64 priority_fee = 29;
   // Tips paid during execution
-  uint64 tips = 31;
+  uint64 tips = 30;
   // Number of signatures in the transaction
-  uint64 signature_count = 32;
+  uint64 signature_count = 31;
   // Cost-tracker signature cost
-  uint32 cost_signature = 33;
+  uint32 cost_signature = 32;
   // Cost-tracker write-lock cost
-  uint32 cost_write_lock = 34;
+  uint32 cost_write_lock = 33;
   // Cost-tracker data-bytes cost
-  uint32 cost_data_bytes = 35;
+  uint32 cost_data_bytes = 34;
   // Cost-tracker programs-execution cost
-  uint32 cost_programs_execution = 36;
+  uint32 cost_programs_execution = 35;
   // Cost-tracker loaded-accounts-data-size cost
-  uint32 cost_loaded_accounts_data_size = 37;
+  uint32 cost_loaded_accounts_data_size = 36;
   // Allocated accounts data size from the cost tracker
-  uint64 cost_allocated_accounts_data_size = 38;
+  uint64 cost_allocated_accounts_data_size = 37;
   // Per-account diffs for writable accounts that were modified
-  repeated RuntimeTxnAccountDiffs account_diffs = 39;
+  repeated RuntimeTxnAccountDiffs account_diffs = 38;
   // Every account the transaction locked as writable
-  repeated bytes writable_accounts = 40;
+  repeated bytes writable_accounts = 39;
   // Every account the transaction locked as readonly, in account-order
-  repeated bytes readonly_accounts = 41;
+  repeated bytes readonly_accounts = 40;
   // Distinct program pubkeys invoked at the top level of this transaction
-  repeated bytes program_ids = 42;
+  repeated bytes program_ids = 41;
 }
 
 // Combined event type

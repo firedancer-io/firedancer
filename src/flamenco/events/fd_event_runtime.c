@@ -51,9 +51,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.num_non_builtin_instrs          = cb->num_non_builtin_instrs;
   ev.loaded_accounts_data_size       = txn_out->details.loaded_accounts_data_size;
   ev.loaded_accounts_data_size_limit = cb->loaded_accounts_data_size_limit;
-  long resize_delta = txn_out->details.accounts_resize_delta;
-  ev.accounts_resize_is_negative     = resize_delta < 0L;
-  ev.accounts_resize_delta           = (ulong)( resize_delta < 0L ? -resize_delta : resize_delta );
+  ev.accounts_resize_delta           = txn_out->details.accounts_resize_delta;
 
   /* Fees */
   ev.execution_fee   = txn_out->details.execution_fee;
