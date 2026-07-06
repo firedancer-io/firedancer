@@ -270,9 +270,10 @@ typedef struct {
      each shred, the limit effective at that shreds slot.
 
      For a given shred slot, the max_shred_idx for that shred is:
-       slot >= next_max_shred_idx_start_slot    -> next_max_shred_idx
-       slot >= current_max_shred_idx_start_slot -> current_max_shred_idx
-       otherwise                                -> prev_max_shred_idx */
+      next_max_shred_idx_start_slot    <= slot                                    -> next_max_shred_idx
+      current_max_shred_idx_start_slot <= slot < next_max_shred_idx_start_slot    -> current_max_shred_idx
+                                          slot < current_max_shred_idx_start_slot -> prev_max_shred_idx
+  */
   ulong                          prev_max_shred_idx;
   ulong                          current_max_shred_idx;
   ulong                          next_max_shred_idx;
