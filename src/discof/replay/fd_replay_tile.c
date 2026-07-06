@@ -908,6 +908,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
     fd_accdb_unread_one( ctx->accdb, &tip_receiver_acc );
   }
 
+
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
   msg->slot_start_ns       = now_nanos;
