@@ -136,8 +136,8 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
       fd_memcpy( msg_out, msg, sz );
-      fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
-      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
+      fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, 0UL, 0UL, sz, 0UL );
+      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, sz, ctx->out.chunk0, ctx->out.wmark );
       forward_msg = 0; // we forward the control message in the `fd_ssctrl_init_t` message
       break;
     }
@@ -218,7 +218,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     FD_TEST( ctx->in.frag_pos<sz );
     ulong cpy = fd_ulong_min( sz-ctx->in.frag_pos, ctx->out.mtu );
     fd_memcpy( out, in, cpy );
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, cpy, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, 0UL, 0UL, cpy, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, cpy, ctx->out.chunk0, ctx->out.wmark );
 
     if( FD_LIKELY( ctx->full ) ) {
@@ -255,7 +255,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   }
 
   if( FD_LIKELY( out_produced ) ) {
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, out_produced, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out.chunk, 0UL, 0UL, out_produced, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, out_produced, ctx->out.chunk0, ctx->out.wmark );
   }
 
@@ -283,15 +283,15 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
-                 ulong               sz,
+                 ulong               sz     FD_PARAM_UNUSED,
                  ulong               ctl    FD_PARAM_UNUSED,
-                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tsorig,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, stem, chunk, sz );
-  else                                                handle_control_frag( ctx, stem, sig, chunk, sz );
+  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, stem, chunk, tsorig );
+  else                                                handle_control_frag( ctx, stem, sig, chunk, tsorig );
 
   return 0;
 }

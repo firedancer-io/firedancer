@@ -524,7 +524,7 @@ init_load( fd_snapct_tile_t *  ctx,
       }
     }
   }
-  fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, 0UL, 0UL, sizeof(fd_ssctrl_init_t), 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
   ctx->load_complete = 0;
@@ -1728,13 +1728,13 @@ returnable_frag( fd_snapct_tile_t *  ctx,
                  ulong               chunk,
                  ulong               sz,
                  ulong               ctl    FD_PARAM_UNUSED,
-                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tsorig,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     gossip_frag( ctx, sig, sz, chunk );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
-    snapld_frag( ctx, sig, sz, chunk, stem );
+    snapld_frag( ctx, sig, tsorig, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
     ctrl_ack_frag( ctx, sig );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));

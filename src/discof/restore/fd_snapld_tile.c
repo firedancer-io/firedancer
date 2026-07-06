@@ -303,7 +303,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         return; /* verbose return */
       }
     } else {
-      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, 0UL, 0UL, (ulong)result, 0UL );
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       *charge_busy = 1;
       return; /* verbose return */
@@ -340,11 +340,11 @@ after_credit( fd_snapld_tile_t *  ctx,
             break;
           }
           ctx->sent_meta = 1;
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, 0UL, 0UL, sizeof(fd_ssctrl_meta_t), 0UL );
           ctx->out_dc.chunk = next_chunk;
         }
         if( FD_LIKELY( data_len!=0UL ) ) {
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, 0UL, 0UL, data_len, 0UL );
           ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
           ctx->bytes_in_batch += data_len;
 
@@ -403,9 +403,9 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
-                 ulong               sz,
+                 ulong               sz     FD_PARAM_UNUSED,
                  ulong               ctl    FD_PARAM_UNUSED,
-                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tsorig,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
@@ -424,7 +424,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
+      FD_TEST( tsorig==sizeof(fd_ssctrl_init_t) && tsorig<=ctx->out_dc.mtu );
       fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
       ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->load_file = msg_in->file;
@@ -445,9 +445,9 @@ returnable_frag( fd_snapld_tile_t *  ctx,
         }
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
-      fd_memcpy( msg_out, msg_in, sz );
-      fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
-      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, ctx->out_dc.mtu, ctx->out_dc.chunk0, ctx->out_dc.wmark );
+      fd_memcpy( msg_out, msg_in, tsorig );
+      fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, 0UL, 0UL, tsorig, 0UL );
+      ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, tsorig, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       forward_msg = 0; // we are forwarding the control message in the `fd_sstrl_init_t` message
       break;
     }
