@@ -21,6 +21,11 @@ Firedancer-only configure stages for the full client:
    tile CPUs. If irqbalance is not running, this stage is a no-op.
  - `snapshots` Prepares the snapshot download directory.
 
+## `set-identity`
+The Firedancer binary supports the `set-identity` command documented in
+[`fdctl` command reference](/api/cli.md#set-identity), but removes
+configuration options `require-tower` and `force`.
+
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style

@@ -491,6 +491,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "poh_replay"    );
   }
 
+  fd_topob_wksp( topo, "adminctl"      )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
+
   fd_topob_wksp( topo, "progcache"     );
   fd_topob_wksp( topo, "fec_sets"      );
   fd_topob_wksp( topo, "txncache"      );
@@ -699,15 +701,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   }
 
-  /* Grant the admin tile access to every keyswitch object in the
-     topology for add authorized voters and set identity. */
   fd_topo_tile_t * admin_tile = fd_topob_tile( topo, "admin", "admin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-  fd_topo_obj_t * admin_ctl = fd_topob_obj_named( topo, "adminctl", "admin", "admin" );
-  fd_topob_tile_uses( topo, admin_tile, admin_ctl, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( topo->tiles[ i ].av_keyswitch_obj_id!=ULONG_MAX ) fd_topob_tile_uses( topo, admin_tile, &topo->objs[ topo->tiles[ i ].av_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-  }
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
@@ -1027,6 +1021,10 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
+  fd_topo_obj_t * admin_ctl = fd_topob_obj_named( topo, "adminctl", "adminctl", "admin" );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, admin_ctl->id, "adminctl" ) );
+  fd_topob_tile_uses( topo, admin_tile, admin_ctl, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
   /* There is a special fseq that sits between the pack, execle, and poh
      tiles to indicate when the execle/poh tiles are done processing a
      microblock.  Pack uses this to determine when to "unlock" accounts
@@ -1118,6 +1116,13 @@ fd_topo_initialize( config_t * config ) {
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bundle_status", 0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
+  }
+
+  /* Grant the admin tile access to every keyswitch object in the
+     topology for add authorized voters and set identity. */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( topo->tiles[ i ].id_keyswitch_obj_id!=ULONG_MAX ) fd_topob_tile_uses( topo, admin_tile, &topo->objs[ topo->tiles[ i ].id_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    if( topo->tiles[ i ].av_keyswitch_obj_id!=ULONG_MAX ) fd_topob_tile_uses( topo, admin_tile, &topo->objs[ topo->tiles[ i ].av_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */

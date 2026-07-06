@@ -5,6 +5,7 @@
 #include "../../../disco/keyguard/fd_keyload.h"
 #include "../../../discof/admin/fd_adminctl.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
+#include "../../../util/pod/fd_pod.h"
 
 #include <unistd.h>
 
@@ -47,8 +48,11 @@ add_authorized_voter( args_t *   args,
 
   /* Join the adminctl object.  Once joined, we can publish a request to
      the admin tile. */
-  fd_topo_obj_t const * admin_ctl_obj = fd_topo_find_obj( &config->topo, "adminctl", "admin", ULONG_MAX );
-  if( FD_UNLIKELY( !admin_ctl_obj ) ) FD_LOG_ERR(( "admin tile command endpoint not found" ));
+  ulong admin_ctl_obj_id = fd_pod_query_ulong( config->topo.props, "adminctl", ULONG_MAX );
+  if( FD_UNLIKELY( admin_ctl_obj_id==ULONG_MAX ) ) FD_LOG_ERR(( "Failed to add an authorized voter as the command could not communicate with the "
+                                                                "running Firedancer process.  It is possible you are running the command from an "
+                                                                "older or newer version of Firedancer that is no longer compatible." ));
+  fd_topo_obj_t const * admin_ctl_obj = &config->topo.objs[ admin_ctl_obj_id ];
 
   fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ admin_ctl_obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
