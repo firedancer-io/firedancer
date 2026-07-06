@@ -118,7 +118,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
   ulong l = FD_LAYOUT_INIT;
   l  = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),  sizeof(fd_stake_rewards_t) );
   l =  FD_LAYOUT_APPEND( l, fork_pool_align(),         fork_pool_footprint( max_fork_width ) );
-  l  = FD_LAYOUT_APPEND( l, alignof(index_ele_t),      sizeof(index_ele_t) * max_stake_accounts );
+  l  = FD_LAYOUT_APPEND( l, alignof(index_ele_t),      sizeof(index_ele_t) * max_stake_accounts * max_fork_width );
   l  = FD_LAYOUT_APPEND( l, index_map_align(),         index_map_footprint( map_chain_cnt ) );
   l  = FD_LAYOUT_APPEND( l, alignof(partition_ele_t),  max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
 
