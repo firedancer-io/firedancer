@@ -1368,8 +1368,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   fee_rate_governor->max_lamports_per_signature    = genesis->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = genesis->fee_rate_governor.burn_percent;
 
-  bank->f.max_tick_height = genesis->poh.ticks_per_slot * (bank->f.slot + 1);
-
+  bank->f.max_tick_height                  = genesis->poh.ticks_per_slot * (bank->f.slot + 1);
   bank->f.slot_params                      = FD_SLOT_PARAMS_400MS;
   bank->f.slot_params.ns_per_slot          = (ulong)( target_tick_duration * genesis->poh.ticks_per_slot );
   bank->f.slot_params.ns_per_slot_adjusted = fd_ulong_sat_sub( bank->f.slot_params.ns_per_slot, FD_TARGET_SLOT_ADJUSTMENT_NS );

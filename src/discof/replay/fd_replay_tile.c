@@ -742,8 +742,8 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      manifest. These assertions match Agave:
      https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
   fd_slot_params_t manifest_params = bank->f.slot_params;
-  bank->f.slot_params_default = restore_default_slot_params( bank );
-  bank->f.slot_params = fd_slot_params_at_slot( bank, bank->f.slot );
+  bank->f.slot_params_default      = restore_default_slot_params( bank );
+  bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
   FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
   FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
   if( FD_LIKELY( manifest_params.hashes_per_tick ) ) {
