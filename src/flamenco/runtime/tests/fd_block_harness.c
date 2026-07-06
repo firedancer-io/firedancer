@@ -576,7 +576,6 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
-      .vote_cost  = cost_tracker ? cost_tracker->vote_cost  : 0UL,
     };
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */

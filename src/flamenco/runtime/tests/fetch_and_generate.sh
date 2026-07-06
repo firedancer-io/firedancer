@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Set protosol version
-PROTO_VERSION="v9.1.0"
+PROTO_VERSION="v10.0.0"
 
 PYTHON=${PYTHON:-python3}
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
