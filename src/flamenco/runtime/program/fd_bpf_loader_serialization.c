@@ -512,10 +512,9 @@ fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
 
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L649-L654 */
+        /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/serialization.rs#L648-L652 */
         int can_data_be_resized_err = 0;
-        if( fd_borrowed_account_can_data_be_resized( &view_acc, post_len, &can_data_be_resized_err ) &&
-            fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
+        if( fd_borrowed_account_can_data_be_resized( &view_acc, post_len, &can_data_be_resized_err ) ) {
           int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, post_len );
           if( FD_UNLIKELY( set_data_err ) ) {
             return set_data_err;
@@ -523,7 +522,7 @@ fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
         } else {
           if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &view_acc )!=post_len ||
                            memcmp( fd_borrowed_account_get_data( &view_acc ), post_data, post_len ) ) ) {
-            return can_data_be_resized_err ? can_data_be_resized_err : can_data_be_changed_err;
+            return can_data_be_resized_err;
           }
         }
 
@@ -740,20 +739,19 @@ fd_bpf_loader_input_deserialize_for_abiv0( fd_exec_instr_ctx_t * ctx,
       ulong   pre_len   = pre_lens[i];
       uchar * post_data = input_cursor;
 
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L443-L453 */
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/serialization.rs#L446-L450 */
       int can_data_be_changed_err = 0;
       if( !virtual_address_space_adjustments ) {
         int can_data_be_resized_err = 0;
-        if( fd_borrowed_account_can_data_be_resized( &view_acc, pre_len, &can_data_be_resized_err ) &&
-            fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
+        if( fd_borrowed_account_can_data_be_resized( &view_acc, pre_len, &can_data_be_resized_err ) ) {
           int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, pre_len );
           if( FD_UNLIKELY( set_data_err ) ) {
             return set_data_err;
           }
         } else if( fd_borrowed_account_get_data_len( &view_acc ) != pre_len ||
-                     memcmp( post_data, fd_borrowed_account_get_data( &view_acc ), pre_len ) ) {
-            return can_data_be_resized_err ? can_data_be_resized_err : can_data_be_changed_err;
-          }
+                   memcmp( post_data, fd_borrowed_account_get_data( &view_acc ), pre_len ) ) {
+          return can_data_be_resized_err;
+        }
       } else if( !direct_mapping && fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
         /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L453-L459 */
         int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, pre_len );

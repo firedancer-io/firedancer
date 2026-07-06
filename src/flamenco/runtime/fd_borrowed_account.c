@@ -93,14 +93,9 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
                                          uchar const *           data,
                                          ulong                   data_sz ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L865 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L181-L184 */
   int err;
   if ( FD_UNLIKELY( !fd_borrowed_account_can_data_be_resized( borrowed_acct, data_sz, &err ) ) ) {
-    return err;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L866 */
-  if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( borrowed_acct, &err ) ) ) {
     return err;
   }
 
@@ -123,13 +118,8 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
                                      ulong                   new_len ) {
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L883 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L197-L204 */
   if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_resized( borrowed_acct, new_len, &err ) ) ) {
-    return err;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L884 */
-  if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_changed( borrowed_acct, &err ) ) ) {
     return err;
   }
 
@@ -210,31 +200,23 @@ int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,
                                          ulong                         new_length,
                                          int *                         err ) {
-
-  /* Only the owner can change the length of the data
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1095 */
-  if( FD_UNLIKELY( (borrowed_acct->acc->data_len!=new_length) &
-                   (!fd_borrowed_account_is_owned_by_current_program( borrowed_acct )) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
-    return 0;
-  }
-
   /* The new length can not exceed the maximum permitted length
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1099 */
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/transaction_accounts.rs#L319-L322 */
   if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
     return 0;
   }
 
   /* The resize can not exceed the per-transaction maximum
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/transaction_accounts.rs#L323-L329 */
   long length_delta              = fd_long_sat_sub( (long)new_length, (long)borrowed_acct->acc->data_len );
   long new_accounts_resize_delta = fd_long_sat_add( borrowed_acct->instr_ctx->txn_out->details.accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
+  if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
 
-  *err = FD_EXECUTOR_INSTR_SUCCESS;
-  return 1;
+  /* The account data can only be resized if it can be changed
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L351-L357 */
+  return fd_borrowed_account_can_data_be_changed( borrowed_acct, err );
 }

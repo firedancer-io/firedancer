@@ -1172,6 +1172,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
+      /* https://github.com/anza-xyz/agave/blob/645f638832e19269d7d1c8614bed3b3b9badb158/programs/bpf_loader/src/lib.rs#L234-L241 */
+      if( FD_UNLIKELY( !fd_borrowed_account_is_writable( &buffer ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Buffer account not writeable" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      if( FD_UNLIKELY( memcmp( program_id, fd_borrowed_account_get_owner( &buffer ), sizeof(fd_pubkey_t) ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Buffer account not owned by loader" );
+        return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      }
+
       fd_bpf_state_t buffer_state[1];
       err = fd_bpf_loader_program_get_state( buffer.acc, buffer_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
@@ -1505,6 +1516,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L750-L751 */
       fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
+
+      /* https://github.com/anza-xyz/agave/blob/645f638832e19269d7d1c8614bed3b3b9badb158/programs/bpf_loader/src/lib.rs#L407-L414 */
+      if( FD_UNLIKELY( !fd_borrowed_account_is_writable( &buffer ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Buffer account not writeable" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      }
+
+      if( FD_UNLIKELY( memcmp( program_id, fd_borrowed_account_get_owner( &buffer ), sizeof(fd_pubkey_t) ) ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Buffer account not owned by loader" );
+        return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      }
 
       fd_bpf_state_t buffer_state[1];
       err = fd_bpf_loader_program_get_state( buffer.acc, buffer_state );
