@@ -148,7 +148,7 @@ fd_stake_rewards_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
   void *               fork_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
-  void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(index_ele_t),     sizeof(index_ele_t) * max_stake_accounts );
+  void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(index_ele_t),     sizeof(index_ele_t) * max_stake_accounts * max_fork_width );
   void *               index_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),        index_map_footprint( map_chain_cnt ) );
   void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
 
