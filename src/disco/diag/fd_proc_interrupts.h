@@ -31,6 +31,23 @@ ulong
 fd_proc_interrupts_tlb( int   fd,
                         ulong per_cpu[ FD_TILE_MAX ] );
 
+/* fd_proc_stat_irq_ticks parses the per-CPU rows of /proc/stat and sums
+   the irq, softirq and steal fields (columns 6, 7 and 8 after the cpuN
+   token), which count clock ticks the CPU spent servicing hard IRQs,
+   soft IRQs, or stolen by a hypervisor.  None of these are charged to
+   the interrupted task's utime/stime (on kernels with
+   CONFIG_IRQ_TIME_ACCOUNTING, which is near-universal in distro
+   kernels; without it the counters undercount).  Assumes that fd is a
+   file descriptor of /proc/stat in procfs or a regular readable file.
+   Returns the number of CPUs found.  On return, per_cpu[i] contains
+   the summed tick count for CPU i.  Silently skips over most parse
+   errors.  If an unrecoverable parse error occurs, logs warning and
+   returns 0. */
+
+ulong
+fd_proc_stat_irq_ticks( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] );
+
 /* fd_proc_softirqs_sum parses the content of /proc/softirqs.  Sums up
    softirq counters by category.  Assumes that fd is a file descriptor
    of /proc/softirqs in procfs or a regular readable file.  Returns the

@@ -119,6 +119,44 @@ test_tlb_example( void ) {
   }
 }
 
+FD_IMPORT_BINARY( example_stat, "src/disco/diag/example_proc_stat.txt" );
+/* irq+softirq+steal: cpu0: 5157+95639+1, cpu1: 5914+17624+0,
+   cpu2: 4222+7044+3, cpu3: 3829+3563+0 */
+static ulong example_stat_irq_ticks[ 4 ] = { 100797, 23538, 11269, 7392 };
+
+static void
+test_stat_example( void ) {
+  int memfd = memfd_create( "fake_proc_stat", 0 );
+  FD_TEST( memfd>=0 );
+
+  ulong write_sz;
+  FD_TEST( 0==fd_io_write( memfd, example_stat, example_stat_sz, example_stat_sz, &write_sz ) );
+  FD_TEST( write_sz==example_stat_sz );
+  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
+
+  ulong cpu_cnt = fd_proc_stat_irq_ticks( memfd, per_cpu[0] );
+  FD_TEST( 0==close( memfd ) );
+
+  FD_TEST( cpu_cnt==4 );
+  for( ulong cpu=0; cpu<cpu_cnt; cpu++ ) {
+    FD_TEST( per_cpu[0][ cpu ]==example_stat_irq_ticks[ cpu ] );
+  }
+}
+
+static void
+test_stat_real( void ) {
+  int fd = open( "/proc/stat", O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    FD_LOG_WARNING(( "open(/proc/stat) failed (%i-%s), skipping test", errno, fd_io_strerror( errno ) ));
+    return;
+  }
+
+  ulong cpu_cnt = fd_proc_stat_irq_ticks( fd, per_cpu[0] );
+  FD_TEST( 0==close( fd ) );
+  FD_TEST( cpu_cnt>0UL );
+  FD_LOG_NOTICE(( "Found %lu CPUs in /proc/stat", cpu_cnt ));
+}
+
 static void
 test_softirqs_real( void ) {
   int fd = open( "/proc/softirqs", O_RDONLY );
@@ -171,6 +209,10 @@ main( int     argc,
   test_interrupts_example();
   havoc( rng );
   test_tlb_example();
+  havoc( rng );
+  test_stat_example();
+  havoc( rng );
+  test_stat_real();
   havoc( rng );
   test_softirqs_real();
   havoc( rng );

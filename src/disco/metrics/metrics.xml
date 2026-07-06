@@ -390,6 +390,7 @@ EXAMPLES
     <int value="1" name="Idle" label="Idle (task was not runnable)" />
     <int value="2" name="User" label="User (task was scheduled and executing in user mode)" />
     <int value="3" name="System" label="System (task was scheduled and executing in kernel mode)" />
+    <int value="4" name="Interrupt" label="Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" />
 </enum>
 
 <common>

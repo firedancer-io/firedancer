@@ -1215,6 +1215,7 @@ whatever regime was running when the tile got switched out.
     "idle",
     "user",
     "system",
+    "interrupt",
 ]
 ```
 
@@ -1223,7 +1224,11 @@ The regimes mean the following
 - wait: the time a tile's process spent waiting in the runqueue before being dispatched
 - user: the time a tile's process spent executing in user mode
 - system: the time a tile's process spent executing in kernel mode
-- idle: Any remaining wallclock time not accounted for by the other 3 regimes
+- interrupt: the time stolen from the tile's CPU by hardirq/softirq
+  handlers or a hypervisor. Only reported for fixed (pinned) tiles;
+  floating tiles report `0`. Requires a kernel with
+  `CONFIG_IRQ_TIME_ACCOUNTING` for accurate accounting
+- idle: Any remaining wallclock time not accounted for by the other 4 regimes
 
 The tile indices `i` appear in the same order here that they are
 reported when you first connect by the `summary.tiles` message.
@@ -1241,8 +1246,8 @@ reported when you first connect by the `summary.tiles` message.
             ...
         ],
         "sched_timers": [
-            [20.5, 29.5, 49.0, 1.0],
-            [10.5, 39.5, 39.0, 11.0],
+            [20.5, 29.5, 49.0, 1.0, 0.0],
+            [10.5, 39.5, 38.5, 11.0, 0.5],
             ...
         ],
         "in_backp": [

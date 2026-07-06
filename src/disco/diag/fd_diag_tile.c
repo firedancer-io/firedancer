@@ -43,8 +43,10 @@ struct fd_diag_tile {
   fd_cpuset_t cpu_has_tile[ fd_cpuset_word_cnt ];
   int         proc_interrupts_fd;
   int         proc_softirqs_fd;
+  int         proc_stat_fd;
   ulong       device_irq_baseline[ FD_TILE_MAX ];
   ulong       tlb_baseline[ FD_TILE_MAX ];
+  ulong       irq_ticks_baseline[ FD_TILE_MAX ];
   ulong       softirq_baseline[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ];
 
   ulong volatile * metrics    [ FD_TILE_MAX ];
@@ -415,6 +417,31 @@ irq_metrics( fd_diag_tile_t * ctx ) {
   }
 }
 
+/* interrupt_metrics reads per-CPU irq+softirq+steal tick counts from
+   /proc/stat and publishes them as the INTERRUPT CPU regime for
+   fixed tiles.  On kernels with CONFIG_IRQ_TIME_ACCOUNTING (near
+   universal), these buckets are disjoint from utime/stime so
+     idle = lifetime - user - system - wait - interrupt
+   is exact up to sampling granularity; without it, the irq columns
+   undercount and interrupt reads near zero (degrades gracefully). */
+
+static void
+interrupt_metrics( fd_diag_tile_t * ctx ) {
+  ulong cpu_ticks[ FD_TILE_MAX ];
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_stat_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong cpu_cnt = fd_proc_stat_irq_ticks( ctx->proc_stat_fd, cpu_ticks );
+  if( FD_UNLIKELY( !cpu_cnt ) ) return; /* parse fail */
+
+  for( ulong i=0UL; i<cpu_cnt; i++ ) {
+    ulong tile_id = ctx->cpu_to_tile[ i ];
+    if( tile_id!=USHORT_MAX ) {
+      /* CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns */
+      ulong since = fd_ulong_sat_sub( cpu_ticks[ i ], ctx->irq_ticks_baseline[ i ] );
+      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_INTERRUPT_OFF ] = since*10000000UL;
+    }
+  }
+}
+
 static void
 before_credit( fd_diag_tile_t *    ctx,
                fd_stem_context_t * stem,
@@ -440,6 +467,8 @@ before_credit( fd_diag_tile_t *    ctx,
   if( FD_UNLIKELY( -1==clock_gettime( CLOCK_BOOTTIME, &boottime ) ) ) FD_LOG_ERR(( "clock_gettime(CLOCK_BOOTTIME) failed (%i-%s)", errno, strerror( errno ) ));
   ulong now_since_boot_nanos = (ulong)boottime.tv_sec*1000000000UL + (ulong)boottime.tv_nsec;
 
+  interrupt_metrics( ctx ); /* before idle computation below, which subtracts it */
+
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( FD_UNLIKELY( -1==ctx->stat_fds[ i ] ) ) continue;
 
@@ -453,11 +482,12 @@ before_credit( fd_diag_tile_t *    ctx,
     }
 
     ulong task_lifetime_nanos = now_since_boot_nanos - ctx->starttime_nanos[ i ];
-    ulong user_nanos   = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_USER_OFF ];
-    ulong system_nanos = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_SYSTEM_OFF ];
-    ulong wait_nanos   = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_WAIT_OFF ];
-    ulong busy_nanos   = user_nanos+system_nanos+wait_nanos;
-    ulong idle_nanos   = (task_lifetime_nanos>busy_nanos) ? (task_lifetime_nanos-busy_nanos) : 0UL;
+    ulong user_nanos      = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_USER_OFF ];
+    ulong system_nanos    = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_SYSTEM_OFF ];
+    ulong wait_nanos      = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_WAIT_OFF ];
+    ulong interrupt_nanos = ctx->metrics[ i ][ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_INTERRUPT_OFF ];
+    ulong busy_nanos      = user_nanos+system_nanos+wait_nanos+interrupt_nanos;
+    ulong idle_nanos      = (task_lifetime_nanos>busy_nanos) ? (task_lifetime_nanos-busy_nanos) : 0UL;
 
     /* Counter can't go backwards in Prometheus else it thinks the
        application restarted.  Use max to ensure monotonicity. */
@@ -553,6 +583,9 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->proc_softirqs_fd = open( "/proc/softirqs", O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->proc_softirqs_fd   ) ) FD_LOG_ERR(( "open(/proc/softirqs) failed (%i-%s)",   errno, fd_io_strerror( errno ) ));
+
+  ctx->proc_stat_fd = open( "/proc/stat", O_RDONLY );
+  if( FD_UNLIKELY( -1==ctx->proc_stat_fd       ) ) FD_LOG_ERR(( "open(/proc/stat) failed (%i-%s)",       errno, fd_io_strerror( errno ) ));
 }
 
 /* Read starttime (field 22) from stat file. Returns 0 on success, 1 if
@@ -622,6 +655,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong tlb_cpu_cnt = fd_proc_interrupts_tlb( ctx->proc_interrupts_fd, ctx->tlb_baseline );
   if( FD_UNLIKELY( !tlb_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read TLB baseline from /proc/interrupts" ));
 
+  memset( ctx->irq_ticks_baseline, 0, sizeof( ctx->irq_ticks_baseline ) );
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_stat_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong stat_cpu_cnt = fd_proc_stat_irq_ticks( ctx->proc_stat_fd, ctx->irq_ticks_baseline );
+  if( FD_UNLIKELY( !stat_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read irq tick baseline from /proc/stat" ));
+
   /* Read starttime (field 22) once at init for idle time calculation.
      CLK_TCK is always 100, so 1 tick = 10ms = 10,000,000 ns. */
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
@@ -681,7 +719,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_diag_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL+2UL*ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+2UL*ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -689,6 +727,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->proc_interrupts_fd; /* /proc/interrupts */
   out_fds[ out_cnt++ ] = ctx->proc_softirqs_fd;   /* /proc/softirqs */
+  out_fds[ out_cnt++ ] = ctx->proc_stat_fd;       /* /proc/stat */
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( -1!=ctx->stat_fds[ i ] )  out_fds[ out_cnt++ ] = ctx->stat_fds[ i ];  /* /proc/<pid>/task/<tid>/stat */
     if( -1!=ctx->sched_fds[ i ] ) out_fds[ out_cnt++ ] = ctx->sched_fds[ i ]; /* /proc/<pid>/task/<tid>/sched */
