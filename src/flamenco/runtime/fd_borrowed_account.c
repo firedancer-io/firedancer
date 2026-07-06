@@ -210,15 +210,6 @@ int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,
                                          ulong                         new_length,
                                          int *                         err ) {
-
-  /* Only the owner can change the length of the data
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1095 */
-  if( FD_UNLIKELY( (borrowed_acct->acc->data_len!=new_length) &
-                   (!fd_borrowed_account_is_owned_by_current_program( borrowed_acct )) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
-    return 0;
-  }
-
   /* The new length can not exceed the maximum permitted length
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1099 */
   if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
