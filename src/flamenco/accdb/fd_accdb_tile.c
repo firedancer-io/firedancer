@@ -169,6 +169,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_accdb_compaction_completed_t) > sizeof(fd_event_accdb_partition_added_t) ?
+         sizeof(fd_event_accdb_compaction_completed_t) : sizeof(fd_event_accdb_partition_added_t);
+}
+
 fd_topo_run_tile_t fd_tile_accdb = {
   .name                     = "accdb",
   .populate_allowed_seccomp = populate_allowed_seccomp,
@@ -177,7 +183,6 @@ fd_topo_run_tile_t fd_tile_accdb = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .max_event_sz             = sizeof(fd_event_accdb_compaction_completed_t) > sizeof(fd_event_accdb_partition_added_t) ?
-                              sizeof(fd_event_accdb_compaction_completed_t) : sizeof(fd_event_accdb_partition_added_t),
+  .max_event_sz             = max_event_sz,
   .run                      = stem_run,
 };

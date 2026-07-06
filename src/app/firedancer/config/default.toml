@@ -1951,6 +1951,17 @@ telemetry = true
         # development purposes.
         report_transactions = false
 
+        # Whether to emit detailed post-execution account data for
+        # every dispatched transaction (committable or not).  Each
+        # event carries the txn result, compute/cost/fee metadata,
+        # and the post-state of every account the transaction
+        # modified, along with its writable and readonly account
+        # lock sets.  Primarily useful for development and debugging
+        # mismatches between validator clients.  This generates a
+        # very high volume of events and should only be used for
+        # debugging and development purposes.
+        report_transaction_diffs = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev

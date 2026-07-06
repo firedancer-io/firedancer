@@ -403,13 +403,13 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       txn_out->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
-        fd_runtime_cancel_txn( runtime, txn_out );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, txn_out, 0 );
         has_err = 1;
         continue;
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, txn_out );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, txn_out, 0 );
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         has_err = 1;

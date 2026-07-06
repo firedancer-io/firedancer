@@ -308,7 +308,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
-    fd_runtime_cancel_txn( runner->runtime, txn_out );
+    fd_runtime_cancel_txn( runner->runtime, NULL, NULL, txn_out, 0 );
     fd_solfuzz_txn_ctx_destroy( runner );
 
     *output = txn_result;

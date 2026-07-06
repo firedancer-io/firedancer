@@ -476,6 +476,7 @@ struct fd_topo_tile {
       int   dump_txn_to_pb;
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
+      int   report_transaction_diffs;
     } execrp;
 
     struct {
@@ -652,6 +653,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      int   report_transaction_diffs;
     } execle;
 
     struct {
@@ -737,8 +739,7 @@ typedef struct {
   ulong        rlimit_nproc;
   int          for_tpool;
 
-  ulong        max_event_sz;
-
+  ulong (*max_event_sz            )( fd_topo_tile_t const * tile );
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );
