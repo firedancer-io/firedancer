@@ -157,7 +157,7 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR      (30) /* Durable-nonce txn failed to advance its nonce account */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE              (31) /* Durable-nonce txn's recent_blockhash did not match the stored nonce */
 
-/* Instruction execution error; only meaningful when txn_err = instruction_error */
+/* Instruction execution error; success unless txn_err = instruction_error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_SUCCESS                            (1) /* instruction succeeded */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_GENERIC_ERR                        (2) /* The program instruction returned an error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ARG                        (3) /* The arguments provided to a program were invalid */
@@ -207,7 +207,7 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       (47) /* Max instruction trace length exceeded */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BUILTINS_MUST_CONSUME_CUS          (48) /* Builtin programs must consume compute units */
 
-/* Source kind of exec_err; only meaningful when txn_err = instruction_error */
+/* Source kind of exec_err; none unless txn_err = instruction_error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_NONE    (1) /* no instruction error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_EBPF    (2) /* eBPF VM error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_SYSCALL (3) /* Syscall error */
@@ -246,8 +246,8 @@ struct fd_event_runtime_txn {
   int                                  is_committable;                    /* True if the transaction was committable (landed on-chain) */
   int                                  is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
   int                                  txn_err;                           /* Transaction execution error */
-  int                                  exec_err;                          /* Instruction execution error; only meaningful when txn_err = instruction_error */
-  int                                  exec_err_kind;                     /* Source kind of exec_err; only meaningful when txn_err = instruction_error */
+  int                                  exec_err;                          /* Instruction execution error; success unless txn_err = instruction_error */
+  int                                  exec_err_kind;                     /* Source kind of exec_err; none unless txn_err = instruction_error */
   uint                                 exec_err_idx;                      /* Instruction index that failed (UINT_MAX if not applicable) */
   uint                                 custom_err;                        /* Custom error code returned by the program (UINT_MAX if not applicable) */
   ulong                                compute_unit_limit;                /* Compute unit limit requested by the transaction */

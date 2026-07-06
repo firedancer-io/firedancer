@@ -55,7 +55,7 @@
         },
         "exec_err": {
             "type": "LowCardinality(String)",
-            "description": "Instruction execution error; only meaningful when txn_err = instruction_error",
+            "description": "Instruction execution error; success unless txn_err = instruction_error",
             "variants": {
                 "success":                           { "description": "instruction succeeded" },
                 "generic_err":                       { "description": "The program instruction returned an error" },
@@ -109,7 +109,7 @@
         },
         "exec_err_kind": {
             "type": "LowCardinality(String)",
-            "description": "Source kind of exec_err; only meaningful when txn_err = instruction_error",
+            "description": "Source kind of exec_err; none unless txn_err = instruction_error",
             "variants": {
                 "none":   { "description": "no instruction error" },
                 "ebpf":   { "description": "eBPF VM error" },

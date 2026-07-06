@@ -33,11 +33,12 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.is_fees_only   = !!txn_out->err.is_fees_only;
 
   /* Errors */
-  ev.txn_err       = fd_event_txn_err_from_txn_err            ( txn_out->err.txn_err       );
-  ev.exec_err      = fd_event_exec_err_from_exec_err          ( txn_out->err.exec_err      );
-  ev.exec_err_kind = fd_event_exec_err_kind_from_exec_err_kind( txn_out->err.exec_err_kind );
-  ev.exec_err_idx  = txn_out->err.exec_err_idx;
-  ev.custom_err    = ( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR )
+  ev.txn_err       = fd_event_txn_err_from_txn_err( txn_out->err.txn_err );
+  int is_instr_err = ( txn_out->err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR );
+  ev.exec_err      = is_instr_err ? fd_event_exec_err_from_exec_err          ( txn_out->err.exec_err      ) : FD_EVENT_RUNTIME_TXN_EXEC_ERR_SUCCESS;
+  ev.exec_err_kind = is_instr_err ? fd_event_exec_err_kind_from_exec_err_kind( txn_out->err.exec_err_kind ) : FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_NONE;
+  ev.exec_err_idx  = is_instr_err ? txn_out->err.exec_err_idx : UINT_MAX;
+  ev.custom_err    = ( is_instr_err && txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR )
                        ? txn_out->err.custom_err : UINT_MAX;
 
   /* Compute budget */

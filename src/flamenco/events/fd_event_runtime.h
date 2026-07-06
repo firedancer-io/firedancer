@@ -47,7 +47,7 @@ fd_event_txn_err_from_txn_err( int err ) {
     case FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED:        return FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED;
     case FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR:      return FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
     case FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE:              return FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE;
-    default:                                                         return 0; /* UNSPECIFIED -> "__unknown" on consumer */
+    default:                                                         FD_LOG_ERR(( "unmapped runtime txn err %d", err ));
   }
 }
 
@@ -102,7 +102,7 @@ fd_event_exec_err_from_exec_err( int err ) {
     case FD_EXECUTOR_INSTR_ERR_MAX_ACCS_EXCEEDED:                  return FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_EXCEEDED;
     case FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED:       return FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
     case FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS:          return FD_EVENT_RUNTIME_TXN_EXEC_ERR_BUILTINS_MUST_CONSUME_CUS;
-    default:                                                       return 0;
+    default:                                                       FD_LOG_ERR(( "unmapped instruction exec err %d", err ));
   }
 }
 
@@ -113,7 +113,7 @@ fd_event_exec_err_kind_from_exec_err_kind( int kind ) {
     case FD_EXECUTOR_ERR_KIND_EBPF:    return FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_EBPF;
     case FD_EXECUTOR_ERR_KIND_SYSCALL: return FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_SYSCALL;
     case FD_EXECUTOR_ERR_KIND_INSTR:   return FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_INSTR;
-    default:                           return 0;
+    default:                           FD_LOG_ERR(( "unmapped exec err kind %d", kind ));
   }
 }
 
