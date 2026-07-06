@@ -182,6 +182,19 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # Note: The library arguments require customization of each target
 
+# Libraries whose objects dominate the parallel build's critical path
+# (biggest compile times in the tree: generated reedsol SIMD kernels and
+# bn254/ed25519/zksdk in ballet).  A parallel make spawns jobs in
+# prerequisite order, and these libs sit late in every exe's library
+# list (they must: static link order requires providers after
+# consumers).  Prepending them to the *prerequisite* list only (link
+# order is generated separately from $(3) below) makes their long
+# compiles start first instead of ~2s into the build, pulling several
+# seconds off the clean-build tail.  Only libs already present in an
+# exe's own library list are prepended, so no target builds anything it
+# would not have built anyway.
+SCHED_HOT_LIBS?=fd_reedsol fd_ballet
+
 # _make-exe usage:
 #
 #   $(1): Filename of exe
@@ -197,7 +210,7 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 .PHONY: $(1)
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
@@ -338,12 +351,14 @@ $(OBJDIR)/obj/%.check : src/%.c
 $(OBJDIR)/obj/%.check : src/%.cxx
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
+# ARFLAGS includes 's' (write the symbol index at creation), so no
+# separate $(RANLIB) pass is needed; archive creation sits on the
+# serial pre-link tail of the build.
 $(OBJDIR)/lib/%.a :
 	@echo -e "AR\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(RM) $@ && \
-$(AR) $(ARFLAGS) $@ $^ && \
-$(RANLIB)  $@
+$(AR) $(ARFLAGS) $@ $^
 
 $(OBJDIR)/include/firedancer/% : src/%
 	$(Q)$(MKDIR) $(dir $@) && \
