@@ -18,28 +18,14 @@
       to the stake accounts involved.
 
   The protocol level guarantees is just that there can be up to 43200
-  rewards slots.  There is no gap on the number of stake rewards paid
+  rewards slots.  There is no limit on the number of stake rewards paid
   out per slot.
 
-  A naive approach with a worst case number of stake accounts (assume
-  ~200M) and a reasonable amount of forks across the epoch boundary
-  (assume 32) would require an element of size 48 (pubkey, lamports, and
-  credits observed).  So we would need a structure of size: 48 bytes *
-  200M accounts * 32 forks = 307GB of memory.  This also doesn't involve
-  any data to keep track of pool/map overhead.
-
-  Instead we use the property that across forks almost every single
-  stake account will have the same rewards.  So we can use a shared
-  index of (pubkey, stake, credit) entries to store the rewards for all
-  forks.
-
-  For each fork, we will need to keep track of what elements are in
-  each partition.  But each partition can be of unequal size so we use
-  a singly linked list to store the elements in each partition.  Each
-  partition member will just contain a linked-list pointer and an index
-  into the aforementioned index pool.  When stake rewards are being paid
-  out, the iterator will iterate through the linked list and dereference
-  the index pool to get the pubkey and associated rewards.
+  Each fork can have a distinct worst-case set of stake rewards.  For
+  each fork, we keep track of what elements are in each partition.  The
+  partitions can be of unequal size, so each partition is represented as
+  a singly linked list.  Each partition member stores the stake account,
+  lamports, credits observed, and the linked-list pointer directly.
 
   As a note, the structure is also only partially fork-aware.  It safely
   assumes that the epoch boundary of a second epoch will not happen
@@ -65,14 +51,11 @@ ulong
 fd_stake_rewards_align( void );
 
 /* fd_stake_rewards_footprint is used to get the footprint for the stake
-   rewards structure given the max number of stake accounts, the max
-   number of forks, and the expected number of stake accounts.  The
-   expected number of stake accounts is used to internally size out the
-   map chain for the index. */
+   rewards structure given the max number of stake accounts and the max
+   number of forks. */
 
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
-                            ulong expected_stake_accs,
                             ulong max_fork_width );
 
 /* fd_stake_rewards_new creates a new stake rewards structure. */
@@ -80,9 +63,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  expected_stake_accs,
-                      ulong  max_fork_width,
-                      ulong  seed );
+                      ulong  max_fork_width );
 
 /* fd_stake_rewards_join joins the caller to the stake rewards
    structure. */
@@ -108,7 +89,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt );
 
 /* fd_stake_rewards_insert inserts a new stake reward for a given
-   fork.  It adds it to the index and hashes it into the approporiate
+   fork.  It hashes the reward into the appropriate
    partition. */
 
 void
