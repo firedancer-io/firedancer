@@ -29,6 +29,7 @@ struct fd_netdev {
   char   name[16];       /* cstr interface name (max 15 length) */
   uchar  oper_status;    /* one of FD_OPER_STATUS_{...} */
   ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
+  uint   glob_ip4_addr;  /* first IPv4 address with scope global (0 if none) */
   uint   gre_dst_ip;
   uint   gre_src_ip;
 };

@@ -154,6 +154,7 @@ fd_netdev_tbl_copy( fd_netdev_tbl_join_t *       dst,
 #include <errno.h>
 #include <stdio.h>
 #include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
 
 #define WRAP_PRINT(file,str) if( FD_UNLIKELY( fputs( (str), (file) )<0 ) ) return errno
 #define WRAP_PRINTF(file,...) if( FD_UNLIKELY( fprintf( (file), __VA_ARGS__ )<0 ) ) return errno
@@ -175,6 +176,11 @@ fd_netdev_tbl_fprintf( fd_netdev_tbl_join_t const * tbl,
     WRAP_PRINTF( file,
         "\n    link " FD_ETH_MAC_FMT "\n",
         FD_ETH_MAC_FMT_ARGS( dev->mac_addr ) );
+    if( dev->glob_ip4_addr ) {
+      WRAP_PRINTF( file,
+          "    inet " FD_IP4_ADDR_FMT " scope global\n",
+          FD_IP4_ADDR_FMT_ARGS( dev->glob_ip4_addr ) );
+    }
     if( dev->slave_tbl_idx>=0 && tbl->bond_tbl[ dev->slave_tbl_idx ].slave_cnt ) {
       fd_netdev_bond_t * bond = &tbl->bond_tbl[ dev->slave_tbl_idx ];
       WRAP_PRINTF( file, "    slaves (%u):", bond->slave_cnt );

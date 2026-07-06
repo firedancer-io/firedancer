@@ -149,10 +149,10 @@ privileged_init( fd_topo_t const *      topo,
   } sa;
   sa.sanl = (struct sockaddr_nl) {
     .nl_family = AF_NETLINK,
-    .nl_groups = RTMGRP_LINK | RTMGRP_NEIGH | RTMGRP_IPV4_ROUTE
+    .nl_groups = RTMGRP_LINK | RTMGRP_NEIGH | RTMGRP_IPV4_ROUTE | RTMGRP_IPV4_IFADDR
   };
   if( FD_UNLIKELY( 0!=bind( ctx->nl_monitor->fd, &sa.sa, sizeof(struct sockaddr_nl) ) ) ) {
-    FD_LOG_ERR(( "bind(sock,RT_NETLINK,RTMGRP_{LINK,NEIGH,IPV4_ROUTE}) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "bind(sock,RT_NETLINK,RTMGRP_{LINK,NEIGH,IPV4_ROUTE,IPV4_IFADDR}) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   float const max_probes_per_second =   3.f;
@@ -248,6 +248,8 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
   switch( nlh->nlmsg_type ) {
   case RTM_NEWLINK:
   case RTM_DELLINK:
+  case RTM_NEWADDR:
+  case RTM_DELADDR:
     ctx->action |= FD_NET_TILE_ACTION_LINK_UPDATE;
     ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_LINK_IDX ]++;
     break;
