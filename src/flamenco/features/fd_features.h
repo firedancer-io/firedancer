@@ -151,6 +151,18 @@ fd_features_get( fd_features_t const *   features,
   return features->f[ id->index ];
 }
 
+/* fd_features_get_activation_slot_from_offset returns the
+   activation slot of the feature at byte offset `offset` within
+   fd_features_t.
+
+   Returns ULONG_MAX if the feature is not scheduled for activation. */
+
+static inline ulong
+fd_features_get_activation_slot_from_offset( fd_features_t const * features,
+                                             ulong                 offset ) {
+  return features->f[ offset>>3 ];
+}
+
 /* fd_feature_id_query queries a feature ID given the first 8 bytes of
    the feature address (little-endian order).  Returns pointer to ID in
    `ids` array on success, or NULL on failure. */

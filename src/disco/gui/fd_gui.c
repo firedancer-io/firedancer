@@ -2024,11 +2024,12 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   ulong idx = epoch_info->epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
 
-  gui->epoch.epochs[ idx ].epoch            = epoch_info->epoch;
-  gui->epoch.epochs[ idx ].start_slot       = epoch_info->start_slot;
-  gui->epoch.epochs[ idx ].end_slot         = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
-  gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+  gui->epoch.epochs[ idx ].epoch                      = epoch_info->epoch;
+  gui->epoch.epochs[ idx ].start_slot                 = epoch_info->start_slot;
+  gui->epoch.epochs[ idx ].end_slot                   = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].target_slot_duration_nanos = epoch_info->ns_per_slot;
+  gui->epoch.epochs[ idx ].my_total_slots             = 0UL;
+  gui->epoch.epochs[ idx ].my_skipped_slots           = 0UL;
 
   memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
   memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );

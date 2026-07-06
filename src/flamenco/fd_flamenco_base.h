@@ -99,6 +99,12 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 union fd_features;
 typedef union fd_features fd_features_t;
 
+struct fd_epoch_schedule;
+typedef struct fd_epoch_schedule fd_epoch_schedule_t;
+
+struct fd_slot_params;
+typedef struct fd_slot_params fd_slot_params_t;
+
 struct fd_progcache;
 typedef struct fd_progcache fd_progcache_t;
 

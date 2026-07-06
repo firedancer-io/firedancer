@@ -1559,7 +1559,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x56\x29\xfd\x5b\x06\x1d\x78\x49\xfc\x80\x45\xef\xbe\x42\x3f\xbc\x45\x8b\x26\xf1\x43\x04\xd8\x27\x0e\xfb\xba\x13\x22\x82\x30\xc6"},
                                  /* 6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu */
     .name                      = "raise_block_limits_to_60m",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, raise_block_limits_to_100m)>>3,
     .id                        = {"\x05\xa2\xfa\x02\xbf\x06\x9b\xb5\xcf\xeb\xc7\x5c\x1d\xc9\x2a\x8b\x6c\x88\x83\x7e\xad\x76\x0e\x05\x45\xf5\xa8\x63\x63\x9c\xe7\xad"},
@@ -1897,6 +1898,30 @@ fd_feature_id_t const ids[] = {
     .name                      = "validate_chained_block_id_2",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_350ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x30\xfb\x5b\x03\xde\x02\x4b\x47\xef\x92\xd3\xfe\xa0\x57\x5e\x9a\x1e\x5f\xd9\xd6\xcb\x6d\x19\x4b\x0f\x80\x49\x3c\xa6"},
+                                 /* iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ */
+    .name                      = "reduce_slot_time_to_350ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_300ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x36\x88\x99\x6a\x91\x79\x8d\x6b\xfb\x98\x23\x05\x98\x9b\x58\x21\x93\x36\xc0\x9d\x1c\xd4\x30\x18\xff\x7d\x39\x38\xfb"},
+                                 /* iBRLL3k18HST852F1Mf3Lv83waTNQmmqvKDxvYGwQFL */
+    .name                      = "reduce_slot_time_to_300ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_250ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x37\x20\x1a\xa1\x50\x65\x89\xb6\x6b\xd4\x52\x0e\xa9\xbb\xff\xf2\x1c\xeb\x4d\x1a\x8f\x07\x53\xaa\x97\xae\x36\xc5\xe6"},
+                                 /* iBRLMc81UjRa8fn8A6eE8bJTnRbgQoPTynM51akENCV */
+    .name                      = "reduce_slot_time_to_250ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_200ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x3f\x83\xc7\xc8\x2b\x9e\x34\xe0\xfa\x90\x4f\xc3\xd3\x31\x94\xe8\x34\x59\x8f\x0c\xe6\xb7\xf2\x29\x10\xb5\x0d\x71\xd7"},
+                                 /* iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW */
+    .name                      = "reduce_slot_time_to_200ms",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2190,6 +2215,10 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_274 0xbe56a012b91e1808UL, .val = &ids[274]
 #define MAP_PERFECT_275 0x902a0ec624adfb04UL, .val = &ids[275]
 #define MAP_PERFECT_276 0x944290a2683bbc0dUL, .val = &ids[276]
+#define MAP_PERFECT_277 0xde035bfb30988c0aUL, .val = &ids[277]
+#define MAP_PERFECT_278 0x916a998836988c0aUL, .val = &ids[278]
+#define MAP_PERFECT_279 0x50a11a2037988c0aUL, .val = &ids[279]
+#define MAP_PERFECT_280 0x2bc8c7833f988c0aUL, .val = &ids[280]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2477,4 +2506,8 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points      
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_minimum_extend_program_size                   )>>3==274UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, define_ltds_fee_only_semantics                          )>>3==275UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id_2                             )>>3==276UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_350ms                               )>>3==277UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_300ms                               )>>3==278UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_250ms                               )>>3==279UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_200ms                               )>>3==280UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

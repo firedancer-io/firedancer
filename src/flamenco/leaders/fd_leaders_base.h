@@ -46,14 +46,15 @@ fd_stake_weight_msg_id_weights( fd_stake_weight_msg_t const * stake_weight_msg )
 
 /* Firedancer only */
 struct fd_epoch_info_msg_t {
-  ulong                  epoch;             /* Epoch for which the info is valid */
-  ulong                  staked_vote_cnt;   /* Number of staked nodes */
-  ulong                  staked_id_cnt;     /* Number of staked nodes */
-  ulong                  start_slot;        /* Start slot of the epoch */
-  ulong                  slot_cnt;          /* Number of slots in the epoch */
-  ulong                  excluded_id_stake; /* Total stake that is excluded for shred dests */
-  fd_epoch_schedule_t    epoch_schedule;    /* Epoch schedule */
-  fd_features_t          features;          /* Feature activation slots */
+  ulong               epoch;             /* Epoch for which the info is valid */
+  ulong               staked_vote_cnt;   /* Number of staked nodes */
+  ulong               staked_id_cnt;     /* Number of staked nodes */
+  ulong               start_slot;        /* Start slot of the epoch */
+  ulong               slot_cnt;          /* Number of slots in the epoch */
+  ulong               ns_per_slot;       /* Slot time duration */
+  ulong               excluded_id_stake; /* Total stake that is excluded for shred dests */
+  fd_epoch_schedule_t epoch_schedule;    /* Epoch schedule */
+  fd_features_t       features;          /* Feature activation slots */
 };
 typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 

@@ -985,10 +985,13 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
       max_allocated_data_per_block             max_cost_per_block
 
      0       <=allocated_data      <=20 * 1024^2
-     48*10^6 <= max_cost_per_block < 2^32
+     30*10^6 <= max_cost_per_block < 2^32
      1020    <= cost_estimate      < 1.6 * 10^6
-     max_allocated_data_per_block = 100 * 1000^2
+     50*10^6 <= max_allocated_data_per_block <= 100 * 1000^2
+                (changes with the slot time duration)
      So the numerator (<2^57) and denominator (<2^48) can't overflow.
+     Both cost_estimate and max_allocated_data_per_block non-zero,
+     so the denominator is never zero.
      1 <= divisor <= 1 + (max_cost_per_block * .000206)
      */
   ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);

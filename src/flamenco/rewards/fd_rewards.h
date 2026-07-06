@@ -92,7 +92,8 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
 uint
 fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
                                                ulong                       slot,
-                                               ulong                       total_stake_accounts );
+                                               ulong                       total_stake_accounts,
+                                               ulong                       stake_account_stores_per_block );
 
 struct fd_commission_split {
   ulong voter_portion;

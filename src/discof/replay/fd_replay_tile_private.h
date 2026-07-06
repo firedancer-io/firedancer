@@ -323,13 +323,12 @@ struct fd_replay_tile {
   int         recv_poh;
   ulong       next_leader_slot;
   long        next_leader_tickcount;
+  double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
   fd_bank_t * reset_bank;
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
-  double      slot_duration_nanos;
-  double      slot_duration_ticks;
   fd_bank_t * leader_bank;
 
   fd_pubkey_t      identity_pubkey[1];

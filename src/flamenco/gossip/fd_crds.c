@@ -648,6 +648,8 @@ expire( fd_crds_t *         crds,
         long                now,
         fd_stem_context_t * stem,
         int *               charge_busy ){
+  /* Gossip's slot time does not change with the reduce_slot_time
+     feature gates. */
   static const long SLOT_DURATION_NANOS            = 400L*1000L*1000L;
   static const long STAKED_EXPIRE_DURATION_NANOS   = 432000L*SLOT_DURATION_NANOS;
   static const long UNSTAKED_EXPIRE_DURATION_NANOS = 15L*1000L*1000L*1000L;

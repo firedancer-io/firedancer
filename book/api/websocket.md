@@ -1805,6 +1805,7 @@ once they are confirmed (the prior epoch has fully rooted).
     "end_time_nanos": "1719910299914232",
     "start_slot": 274752000,
     "end_slot": 275183999,
+    "target_slot_duration_nanos": 400000000,
     "excluded_stake_lamports": "0",
     "staked_pubkeys": [
         "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
@@ -1839,6 +1840,7 @@ once they are confirmed (the prior epoch has fully rooted).
 | end_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
+| target_slot_duration_nanos | `number` | The slot duration, in nanoseconds, for the epoch. This is `400000000` (400ms) unless a `reduce_slot_time` feature gate is in effect, in which case it will be one of `350000000`, `300000000`, `250000000` or `200000000` |
 | excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But it is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch

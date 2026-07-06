@@ -207,6 +207,7 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( schedule, epoch );
+  epoch_info_msg->ns_per_slot       = fd_slot_params_at_slot( bank, epoch_info_msg->start_slot ).ns_per_slot;
   epoch_info_msg->excluded_id_stake = next_epoch ? runtime_stack->epoch_weights.next_id_weights_excluded : runtime_stack->epoch_weights.id_weights_excluded;
 
   fd_vote_stake_weight_t * stake_weights = fd_type_pun( epoch_info_msg + 1 );
@@ -277,7 +278,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
   }
   bank->f.max_tick_height = max_tick_height;
-  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
+  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -591,8 +592,12 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
      reset slot returned by tower. */
   ulong min_leader_slot = fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
-  if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
-    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+  if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX && ctx->is_booted && ctx->reset_bank ) ) {
+    /* If we are booted, we have a reset_bank, so use it to set
+       next_leader_tickcount. If we are not booted, then we don't need
+       to set next_leader_tickcount as it will be set when we boot. */
+    double slot_duration_ticks = (double)ctx->reset_bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
   } else {
     ctx->next_leader_tickcount = LONG_MAX;
   }
@@ -686,6 +691,36 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+/* Determine the default slot params to use for slots where no
+   reduce_slot_time feature gate is in effect. This is important for
+   the inflation calculations, which use the slot times for
+   historical slots as input. Therefore we need the same semantics
+   as Agave, even after the reduce_slot_time feature gates are
+   active. */
+static fd_slot_params_t
+restore_default_slot_params( fd_bank_t const * bank ) {
+
+  /* A reduction is effective if the effective ns_per_slot is less than
+     the 400ms value.
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L332-L350 */
+  int reduction_effective = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
+                                                   &bank->f.features,
+                                                   &bank->f.epoch_schedule,
+                                                   bank->f.slot ).ns_per_slot < FD_SLOT_PARAMS_400MS.ns_per_slot;
+
+  /* In order to behave correctly in real networks, if a reduction is
+     effective then we use the 400ms slot params as the default. */
+  if( reduction_effective ) {
+    return FD_SLOT_PARAMS_400MS;
+  }
+
+  /* If a reduction is not effective, then we can rely on the slot
+     times having remained constant throughout the lifetime of the
+     cluster, and can use the slot params from the manifest. Note that
+     in test clusters these may differ from the 400ms values. */
+  return bank->f.slot_params;
+}
+
 static void
 init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
@@ -701,6 +736,19 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   char const * one_offs[ 16UL ];
   for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
   fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
+
+  /* Set slot params based on the feature gates in the snapshot,
+     and assert that these are consistent with the values from the
+     manifest. These assertions match Agave:
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
+  fd_slot_params_t manifest_params = bank->f.slot_params;
+  bank->f.slot_params_default = restore_default_slot_params( bank );
+  bank->f.slot_params = fd_slot_params_at_slot( bank, bank->f.slot );
+  FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
+  FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
+  if( FD_LIKELY( manifest_params.hashes_per_tick ) ) {
+    FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
+  }
 
   fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
   fd_runtime_update_leaders( bank, ctx->runtime_stack );
@@ -761,13 +809,25 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   /* If a prior leader is still in the process of publishing their slot,
      delay ours to let them finish ... unless they are so delayed that
-     we risk getting skipped by the leader following us.  1.2 seconds
-     is a reasonable default here, although any value between 0 and 1.6
-     seconds could be considered reasonable.  This is arbitrary and
-     chosen due to intuition. */
-  if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*ctx->slot_duration_ticks) ) ) {
-    FD_TEST( ctx->reset_bank );
+     we risk getting skipped by the leader following us. 3*slot duration
+     is a reasonable default here, although any value within our leader
+     span could be considered reasonable.  This is arbitrary and chosen
+     due to intuition.
 
+     If we are becoming leader for a slot at an epoch boundary where a
+     slot time reduction is taking effect, we have a choice for the
+     grace period: give the previous leader maximal time to complete
+     their slot, or use a shorter grace period reflecting the new
+     shorter slot duration that the next leader after us will use to
+     time out our slot. We choose the latter to minimize the risk of
+     our slot getting skipped: a grace period based on the new shorter
+     slot duration at next_leader_slot. This only matters for epoch
+     boundaries where a slot time reduction is taking effect, so either
+     choice is defensible. */
+  FD_TEST( ctx->reset_bank );
+  ulong ns_per_slot_adjusted = fd_slot_params_at_slot( ctx->reset_bank, ctx->next_leader_slot ).ns_per_slot_adjusted;
+  double slot_duration_ticks = (double)ns_per_slot_adjusted*ctx->tick_per_ns;
+  if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*slot_duration_ticks) ) ) {
     /* TODO: Make the max_active_descendant calculation more efficient
        by caching it in the bank structure and updating it as banks are
        created and completed. */
@@ -790,8 +850,8 @@ try_become_leader( fd_replay_tile_t *  ctx,
          finished.
 
          Unless... we are past the deadline to start our slot by more
-         than 1.2 seconds, in which case we should probably start it to
-         avoid getting skipped by the leader behind us. */
+         than 3*(slot duration), in which case we should probably start
+         it to avoid getting skipped by the leader behind us. */
       return 0;
     }
   }
@@ -800,7 +860,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
      finished replaying the second to last slot of the prior
      leader (and that leader is not us), we should give the prior leader
      a little more time. */
-  if( FD_UNLIKELY( ctx->next_leader_slot==ctx->reset_slot+2UL && now<ctx->next_leader_tickcount+(long)(1.0*ctx->slot_duration_ticks) ) ) {
+  if( FD_UNLIKELY( ctx->next_leader_slot==ctx->reset_slot+2UL && now<ctx->next_leader_tickcount+(long)(1.0*slot_duration_ticks) ) ) {
 
     fd_pubkey_t const * reset_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->reset_slot );
     if( FD_UNLIKELY( reset_leader && !fd_memeq( reset_leader, ctx->identity_pubkey, 32UL ) ) ) return 0;
@@ -848,16 +908,15 @@ try_become_leader( fd_replay_tile_t *  ctx,
     fd_accdb_unread_one( ctx->accdb, &tip_receiver_acc );
   }
 
-
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
   msg->slot_start_ns       = now_nanos;
-  msg->slot_end_ns         = now_nanos+(long)ctx->slot_duration_nanos;
+  msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
-  msg->hashcnt_per_tick    = bank->f.hashes_per_tick;
-  msg->tick_duration_ns    = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
+  msg->hashcnt_per_tick    = bank->f.slot_params.hashes_per_tick;
+  msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
   msg->bundle->config[0]   = config[0];
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
   memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
@@ -875,9 +934,11 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
-  msg->limits.slot_max_cost = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
-  msg->limits.slot_max_vote_cost = cost_tracker->vote_cost_limit;
-  msg->limits.slot_max_write_cost_per_acct = cost_tracker->account_cost_limit;
+  msg->limits.slot_max_cost                     = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
+  msg->limits.slot_max_vote_cost                = cost_tracker->vote_cost_limit;
+  msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
+  msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
+  msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
 
   if( FD_UNLIKELY( msg->ticks_per_slot+msg->total_skipped_ticks>USHORT_MAX ) ) {
     /* There can be at most USHORT_MAX skipped ticks, because the
@@ -928,9 +989,9 @@ publish_reset( fd_replay_tile_t *  ctx,
   reset->bank_idx         = bank->idx;
   reset->timestamp        = fd_log_wallclock();
   reset->completed_slot   = bank->f.slot;
-  reset->hashcnt_per_tick = bank->f.hashes_per_tick;
+  reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
   reset->ticks_per_slot   = bank->f.ticks_per_slot;
-  reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+  reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
   fd_memcpy( reset->completed_block_id, ctx->reset_block_id.uc, sizeof(fd_hash_t) );
   fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
 
@@ -1018,7 +1079,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
-    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+    double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
   } else {
     ctx->next_leader_tickcount = LONG_MAX;
   }
@@ -1138,11 +1200,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_block_id        = manifest_block_id;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
-    if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
-      ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
-    } else {
-      ctx->next_leader_tickcount = LONG_MAX;
-    }
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
@@ -1157,6 +1214,13 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx, stem );
+
+    if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
+      double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+      ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
+    } else {
+      ctx->next_leader_tickcount = LONG_MAX;
+    }
 
     fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     cost_tracker_snap( bank, slot_info );
@@ -2028,13 +2092,6 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
-  ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
-  if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
-    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
-  } else {
-    ctx->next_leader_tickcount = LONG_MAX;
-  }
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
@@ -2051,15 +2108,24 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
   ctx->reset_bank = bank;
 
+  ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
+    double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
+  } else {
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
+
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
-    reset->bank_idx = bank->idx;
-    reset->timestamp = ctx->reset_timestamp_nanos;
-    reset->completed_slot = ctx->reset_slot;
-    reset->hashcnt_per_tick = bank->f.hashes_per_tick;
-    reset->ticks_per_slot = bank->f.ticks_per_slot;
-    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+    reset->bank_idx         = bank->idx;
+    reset->timestamp        = ctx->reset_timestamp_nanos;
+    reset->completed_slot   = ctx->reset_slot;
+    reset->hashcnt_per_tick = bank->f.slot_params.hashes_per_tick;
+    reset->ticks_per_slot   = bank->f.ticks_per_slot;
+    reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
 
     fd_memcpy( reset->completed_block_id, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
 
@@ -2434,7 +2500,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
          original value was computed at boot time (in boot_genesis or
          on_snapshot_message). */
       if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
-        ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+        double slot_duration_ticks = (double)ctx->reset_bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+        ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
       } else {
         ctx->next_leader_tickcount = LONG_MAX;
       }
@@ -2641,6 +2708,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->is_booted = 0;
 
+  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
+
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
   FD_TEST( fd_rng_new( ctx->rng, ctx->rng_seed, 0UL ) );
@@ -2678,8 +2747,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
-  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
-  ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->leader_bank = NULL;
 
   ctx->block_id_len = tile->replay.max_live_slots;

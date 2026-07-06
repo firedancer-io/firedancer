@@ -9,6 +9,8 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include <stdlib.h>
 
+#define TEST_STAKE_ACCOUNT_STORES_PER_BLOCK (4096UL)
+
 static ulong
 read_lamports( fd_svm_mini_t *     mini,
                fd_accdb_fork_id_t  fork_id,
@@ -1307,8 +1309,8 @@ test_get_reward_distribution_num_blocks_cap( void ) {
     .first_normal_slot  = 0UL,
   };
 
-  ulong total_stake_accounts = STAKE_ACCOUNT_STORES_PER_BLOCK * 200UL;
-  uint  num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, total_stake_accounts );
+  ulong total_stake_accounts = TEST_STAKE_ACCOUNT_STORES_PER_BLOCK * 200UL;
+  uint  num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, total_stake_accounts, TEST_STAKE_ACCOUNT_STORES_PER_BLOCK );
   uint  cap = (uint)( schedule.slots_per_epoch / MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH );
 
   FD_TEST( num_blocks == cap );
@@ -1325,8 +1327,8 @@ test_get_reward_distribution_num_blocks_normal( void ) {
     .first_normal_slot  = 0UL,
   };
 
-  ulong total_stake_accounts = STAKE_ACCOUNT_STORES_PER_BLOCK * 2UL + 1UL;
-  uint  num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, total_stake_accounts );
+  ulong total_stake_accounts = TEST_STAKE_ACCOUNT_STORES_PER_BLOCK * 2UL + 1UL;
+  uint  num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, total_stake_accounts, TEST_STAKE_ACCOUNT_STORES_PER_BLOCK );
 
   FD_TEST( num_blocks == 3U );
 
@@ -1343,7 +1345,7 @@ test_get_reward_distribution_num_blocks_warmup( void ) {
     .first_normal_slot           = 32UL,
   };
 
-  uint num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, 123456UL );
+  uint num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, 123456UL, TEST_STAKE_ACCOUNT_STORES_PER_BLOCK );
 
   FD_TEST( num_blocks == 1U );
 
@@ -1359,7 +1361,7 @@ test_get_reward_distribution_num_blocks_none( void ) {
     .first_normal_slot  = 0UL,
   };
 
-  uint num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, 0UL );
+  uint num_blocks = fd_rewards_get_reward_distribution_num_blocks( &schedule, 0UL, 0UL, TEST_STAKE_ACCOUNT_STORES_PER_BLOCK );
 
   FD_TEST( num_blocks == 1U );
 

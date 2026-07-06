@@ -1093,6 +1093,10 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   leader->limits.slot_max_cost                = ctx->limits.slot_max_cost;
   leader->limits.slot_max_vote_cost           = ctx->limits.slot_max_vote_cost;
   leader->limits.slot_max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
+  /* FIXME(frankendancer): source these properly from Agave.
+     For now we just hardcode the current values. */
+  leader->limits.slot_max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
+  leader->limits.slot_max_data_shreds              = FD_SHRED_BLK_MAX;
 
   memcpy( leader->bundle->last_blockhash,     ctx->reset_hash,    32UL );
   memcpy( leader->bundle->tip_receiver_owner, tip_receiver_owner, 32UL );
