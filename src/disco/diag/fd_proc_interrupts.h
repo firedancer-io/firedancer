@@ -31,6 +31,15 @@ ulong
 fd_proc_interrupts_tlb( int   fd,
                         ulong per_cpu[ FD_TILE_MAX ] );
 
+/* fd_proc_interrupts_loc parses the LOC (local timer interrupt) row in
+   /proc/interrupts.  Returns the number of CPUs found.  On return,
+   per_cpu[i] contains the LOC counter for CPU i, or 0 if the row was
+   not found. */
+
+ulong
+fd_proc_interrupts_loc( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] );
+
 /* fd_proc_stat_irq_ticks parses the per-CPU rows of /proc/stat and sums
    the irq, softirq and steal fields (columns 6, 7 and 8 after the cpuN
    token), which count clock ticks the CPU spent servicing hard IRQs,

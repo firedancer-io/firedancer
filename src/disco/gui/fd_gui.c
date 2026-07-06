@@ -516,7 +516,8 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
     cur[ i ].minflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MINOR ) ];
     cur[ i ].majflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MAJOR ) ];
     cur[ i ].last_cpu  = (ushort)tile_metrics[ MIDX( GAUGE, TILE, LAST_CPU ) ];
-    cur[ i ].interrupts = tile_metrics[ MIDX( COUNTER, TILE, IRQ_PREEMPTED ) ];
+    cur[ i ].interrupts  = tile_metrics[ MIDX( COUNTER, TILE, IRQ_PREEMPTED ) ];
+    cur[ i ].timer_ticks = tile_metrics[ MIDX( COUNTER, TILE, TIMER_TICK ) ];
   }
 }
 

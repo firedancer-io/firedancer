@@ -38,6 +38,18 @@ static ulong example_interrupts_tlb[ 64 ] = {
   509296, 515971, 513184, 460867, 458396, 452900, 541493, 507204
 };
 
+static ulong example_interrupts_loc[ 64 ] = {
+/*    CPU0      CPU1      CPU2      CPU3      CPU4      CPU5      CPU6      CPU7 */
+   8665634, 10273230, 10306539, 10387349, 12755236, 12837474, 12399759, 12468875,
+  13092863, 12729181,        0, 12353932, 12424011, 12399033, 12026548,  9345233,
+  10113500,  9909110, 10511759,  9680326,  8967820,  9508970,  8423284,  7599709,
+  11032886, 11063731, 11244335,  9844565, 11085978, 11798690, 11730087, 11094392,
+  10834214, 10936815, 11201979, 10750659, 12547104, 12220599, 14080282, 11537447,
+   6308273, 11334406, 11182907,  6847796, 10979036, 11335386,  7300027,  7465489,
+   9449545,  8833596,  8777901,  8767575,  6719556,  8185969,  6923522,  8253835,
+   9802880,  9523619, 10525355,  9401369, 10351068, 10294530, 10098728,  9815495
+};
+
 FD_IMPORT_BINARY( example_softirqs, "src/disco/diag/example_proc_softirqs.txt" );
 static ulong example_softirqs_counters[ 3 ][ 64 ] = {
 /*    CPU0     CPU1     CPU2     CPU3     CPU4     CPU5     CPU6     CPU7 */
@@ -158,6 +170,25 @@ test_stat_real( void ) {
 }
 
 static void
+test_loc_example( void ) {
+  int memfd = memfd_create( "fake_proc_interrupts", 0 );
+  FD_TEST( memfd>=0 );
+
+  ulong write_sz;
+  FD_TEST( 0==fd_io_write( memfd, example_interrupts, example_interrupts_sz, example_interrupts_sz, &write_sz ) );
+  FD_TEST( write_sz==example_interrupts_sz );
+  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
+
+  ulong cpu_cnt = fd_proc_interrupts_loc( memfd, per_cpu[0] );
+  FD_TEST( 0==close( memfd ) );
+
+  FD_TEST( cpu_cnt==64 );
+  for( ulong cpu=0; cpu<cpu_cnt; cpu++ ) {
+    FD_TEST( per_cpu[0][ cpu ]==example_interrupts_loc[ cpu ] );
+  }
+}
+
+static void
 test_softirqs_real( void ) {
   int fd = open( "/proc/softirqs", O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -209,6 +240,8 @@ main( int     argc,
   test_interrupts_example();
   havoc( rng );
   test_tlb_example();
+  havoc( rng );
+  test_loc_example();
   havoc( rng );
   test_stat_example();
   havoc( rng );

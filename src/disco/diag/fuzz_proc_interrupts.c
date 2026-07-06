@@ -41,6 +41,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
   (void)fd_proc_interrupts_tlb( memfd, per_cpu[0] );
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
+  (void)fd_proc_interrupts_loc( memfd, per_cpu[0] );
+  FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
   (void)fd_proc_stat_irq_ticks( memfd, per_cpu[0] );
   FD_TEST( 0==lseek( memfd, 0, SEEK_SET ) );
   (void)fd_proc_softirqs_sum( memfd, per_cpu );

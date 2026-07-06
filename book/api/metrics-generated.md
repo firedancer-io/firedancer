@@ -50,6 +50,7 @@
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">interrupt</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)) |
 | <span class="metrics-name">tile_&#8203;irq_&#8203;preempted</span> | counter | Times the tile was interrupted by an IRQ (fixed tiles only) |
 | <span class="metrics-name">tile_&#8203;tlb_&#8203;shootdown</span> | counter | TLB shootdowns observed on the tile CPU (fixed tiles only) |
+| <span class="metrics-name">tile_&#8203;timer_&#8203;tick</span> | counter | Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only) |
 
 </div>
 

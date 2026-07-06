@@ -222,9 +222,16 @@ failed:
   return 0UL;
 }
 
-ulong
-fd_proc_interrupts_tlb( int   fd,
-                        ulong per_cpu[ FD_TILE_MAX ] ) {
+/* proc_interrupts_named_row parses a single named row (e.g. "TLB:" or
+   "LOC:") in /proc/interrupts.  Returns the number of CPUs found.  On
+   return, per_cpu[i] contains the counter for CPU i, or 0 if the row
+   was not found. */
+
+static ulong
+proc_interrupts_named_row( int          fd,
+                           char const * row_prefix,
+                           ulong        row_prefix_len,
+                           ulong        per_cpu[ FD_TILE_MAX ] ) {
   fd_io_buffered_istream_t is[1];
   char buf[ 4096 ];
   fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
@@ -247,7 +254,7 @@ fd_proc_interrupts_tlb( int   fd,
 
     char const * prefix     = fd_io_buffered_istream_peek   ( is );
     ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
-    if( FD_UNLIKELY( prefix_max>=4UL && fd_memeq( prefix, "TLB:", 4UL ) ) ) {
+    if( FD_UNLIKELY( prefix_max>=row_prefix_len && fd_memeq( prefix, row_prefix, row_prefix_len ) ) ) {
       err = read_until( is, 0UL, skip_token );
       if( FD_UNLIKELY( err!=0 ) ) goto failed;
 
@@ -275,6 +282,18 @@ failed:
     FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
   }
   return 0UL;
+}
+
+ulong
+fd_proc_interrupts_tlb( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  return proc_interrupts_named_row( fd, "TLB:", 4UL, per_cpu );
+}
+
+ulong
+fd_proc_interrupts_loc( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  return proc_interrupts_named_row( fd, "LOC:", 4UL, per_cpu );
 }
 
 ulong

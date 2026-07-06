@@ -409,6 +409,7 @@ EXAMPLES
     <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime, in nanoseconds" />
     <counter name="IrqPreempted" summary="Times the tile was interrupted by an IRQ (fixed tiles only)" />
     <counter name="TlbShootdown" summary="TLB shootdowns observed on the tile CPU (fixed tiles only)" />
+    <counter name="TimerTick" summary="Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only)" />
 </common>
 
 <tile name="net">

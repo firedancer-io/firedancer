@@ -46,6 +46,7 @@ struct fd_diag_tile {
   int         proc_stat_fd;
   ulong       device_irq_baseline[ FD_TILE_MAX ];
   ulong       tlb_baseline[ FD_TILE_MAX ];
+  ulong       loc_baseline[ FD_TILE_MAX ];
   ulong       irq_ticks_baseline[ FD_TILE_MAX ];
   ulong       softirq_baseline[ FD_METRICS_ENUM_SOFTIRQ_CNT ][ FD_TILE_MAX ];
 
@@ -415,6 +416,19 @@ irq_metrics( fd_diag_tile_t * ctx ) {
       ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_TLB_SHOOTDOWN_OFF ] = since;
     }
   }
+
+  ulong * cpu_loc = ctx->irq_cnt[ 0 ]; /* re-use as scratch memory */
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong loc_cpu_cnt = fd_proc_interrupts_loc( ctx->proc_interrupts_fd, cpu_loc );
+  if( FD_UNLIKELY( !loc_cpu_cnt ) ) return; /* parse fail */
+
+  for( ulong i=0UL; i<loc_cpu_cnt; i++ ) {
+    ulong tile_id = ctx->cpu_to_tile[ i ];
+    if( tile_id!=USHORT_MAX ) {
+      ulong since = fd_ulong_sat_sub( cpu_loc[ i ], ctx->loc_baseline[ i ] );
+      ctx->metrics[ tile_id ][ FD_METRICS_COUNTER_TILE_TIMER_TICK_OFF ] = since;
+    }
+  }
 }
 
 /* interrupt_metrics reads per-CPU irq+softirq+steal tick counts from
@@ -654,6 +668,11 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
   ulong tlb_cpu_cnt = fd_proc_interrupts_tlb( ctx->proc_interrupts_fd, ctx->tlb_baseline );
   if( FD_UNLIKELY( !tlb_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read TLB baseline from /proc/interrupts" ));
+
+  memset( ctx->loc_baseline, 0, sizeof( ctx->loc_baseline ) );
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong loc_cpu_cnt = fd_proc_interrupts_loc( ctx->proc_interrupts_fd, ctx->loc_baseline );
+  if( FD_UNLIKELY( !loc_cpu_cnt ) ) FD_LOG_WARNING(( "failed to read LOC baseline from /proc/interrupts" ));
 
   memset( ctx->irq_ticks_baseline, 0, sizeof( ctx->irq_ticks_baseline ) );
   if( FD_UNLIKELY( -1==lseek( ctx->proc_stat_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
