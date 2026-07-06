@@ -382,11 +382,11 @@ message RuntimeTxn {
   uint64 loaded_accounts_data_size_limit = 26;
   // Net delta in writable account data sizes during execution (negative when the writable account data net shrunk)
   sint64 accounts_resize_delta = 27;
-  // Execution fee paid by the fee payer
+  // Execution (base) fee charged to the fee payer, pre-burn (50% is burned at settlement)
   uint64 execution_fee = 28;
-  // Priority fee paid by the fee payer
+  // Priority fee charged to the fee payer, pre-burn (priority fees are not burned)
   uint64 priority_fee = 29;
-  // Tips paid during execution
+  // Gross tips credited to tip accounts by this transaction, before the block-level tip commission
   uint64 tips = 30;
   // Number of signatures in the transaction
   uint64 signature_count = 31;

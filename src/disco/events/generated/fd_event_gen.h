@@ -259,9 +259,9 @@ struct fd_event_runtime_txn {
   ulong                                loaded_accounts_data_size;         /* Total bytes of account data loaded for this transaction */
   ulong                                loaded_accounts_data_size_limit;   /* Configured loaded-accounts-data-size limit for this transaction */
   long                                 accounts_resize_delta;             /* Net delta in writable account data sizes during execution (negative when the writable account data net shrunk) */
-  ulong                                execution_fee;                     /* Execution fee paid by the fee payer */
-  ulong                                priority_fee;                      /* Priority fee paid by the fee payer */
-  ulong                                tips;                              /* Tips paid during execution */
+  ulong                                execution_fee;                     /* Execution (base) fee charged to the fee payer, pre-burn (50% is burned at settlement) */
+  ulong                                priority_fee;                      /* Priority fee charged to the fee payer, pre-burn (priority fees are not burned) */
+  ulong                                tips;                              /* Gross tips credited to tip accounts by this transaction, before the block-level tip commission */
   ulong                                signature_count;                   /* Number of signatures in the transaction */
   uint                                 cost_signature;                    /* Cost-tracker signature cost */
   uint                                 cost_write_lock;                   /* Cost-tracker write-lock cost */
