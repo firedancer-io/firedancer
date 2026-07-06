@@ -771,10 +771,12 @@ fdctl_check_configure( config_t const * config ) {
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `%s configure init sysctl` "
                  "to set kernel parameters correctly.", check.message, FD_BINARY_NAME ));
 
-  check = fd_cfg_stage_hyperthreads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
-  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `%s configure init hyperthreads` "
-                 "to configure hyperthreading correctly.", check.message, FD_BINARY_NAME ));
+  /* hyperthreads, nohz-full and rcu-nocbs are check-only stages: they
+     emit warnings themselves and always return OK, so there is no
+     result to act on (and no init to point the operator at). */
+  (void)fd_cfg_stage_hyperthreads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+  (void)fd_cfg_stage_nohz_full.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+  (void)fd_cfg_stage_rcu_nocbs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
 }
 
 void

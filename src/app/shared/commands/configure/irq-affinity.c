@@ -104,6 +104,7 @@
 
 #define _DEFAULT_SOURCE
 #include "configure.h"
+#include "fd_cpu_isolation.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include <fcntl.h>
 #include <sys/types.h>
@@ -176,72 +177,12 @@ tile_list_sample( char *            buf,
 }
 
 static int
-hex_digit( char c ) {
-  if( FD_LIKELY( (c>='0') & (c<='9') ) ) return c-'0';
-  if( FD_LIKELY( (c>='a') & (c<='f') ) ) return 10+c-'a';
-  if( FD_LIKELY( (c>='A') & (c<='F') ) ) return 10+c-'A';
-  return -1;
-}
-
-static int
 irq_dirent_is_irq( char const * name ) {
   if( FD_UNLIKELY( !name[0] ) ) return 0;
   for( char const * p=name; *p; p++ ) {
     if( FD_UNLIKELY( !isdigit( (uchar)*p ) ) ) return 0;
   }
   return 1;
-}
-
-static int
-cpuset_from_smp_affinity( fd_cpuset_t * cpuset,
-                          char const *  affinity ) {
-  fd_cpuset_new( cpuset );
-
-  char const * end = affinity;
-  while( *end && !isspace( (uchar)*end ) ) end++;
-
-  ulong cpu_idx = 0UL;
-  for( char const * p=end; p>affinity; ) {
-    p--;
-    if( FD_UNLIKELY( *p==',' ) ) continue;
-
-    int digit = hex_digit( *p );
-    if( FD_UNLIKELY( digit<0 ) ) return 0;
-
-    for( ulong bit=0UL; bit<4UL; bit++ ) {
-      if( FD_UNLIKELY( cpu_idx>=FD_TILE_MAX ) ) return 1;
-      if( FD_UNLIKELY( digit & (1<<bit) ) ) fd_cpuset_insert( cpuset, cpu_idx );
-      cpu_idx++;
-    }
-  }
-
-  return 1;
-}
-
-static char *
-cpuset_to_smp_affinity( char *               affinity,
-                        fd_cpuset_t const * cpuset ) {
-  ulong cpu_cnt   = fd_ulong_max( fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX ), 1UL );
-  ulong word_cnt  = fd_ulong_max( (cpu_cnt+31UL)/32UL, 1UL );
-  char * p = affinity;
-
-  for( ulong word_rem=word_cnt; word_rem; word_rem-- ) {
-    ulong word_idx = word_rem-1UL;
-    if( FD_UNLIKELY( word_idx!=word_cnt-1UL ) ) p = fd_cstr_append_char( p, ',' );
-
-    for( ulong nib_rem=8UL; nib_rem; nib_rem-- ) {
-      ulong nib_idx = nib_rem-1UL;
-      int digit = 0;
-      for( ulong bit=0UL; bit<4UL; bit++ ) {
-        ulong cpu_idx = word_idx*32UL + nib_idx*4UL + bit;
-        if( FD_LIKELY( cpu_idx<FD_TILE_MAX && fd_cpuset_test( cpuset, cpu_idx ) ) ) digit |= (int)(1UL<<bit);
-      }
-      p = fd_cstr_append_char( p, "0123456789abcdef"[ digit ] );
-    }
-  }
-
-  fd_cstr_fini( p );
-  return affinity;
 }
 
 static int
@@ -263,7 +204,7 @@ read_irq_smp_affinity( char const * irq,
   }
 
   affinity[ affinity_len ] = '\0';
-  return cpuset_from_smp_affinity( cpuset, affinity );
+  return fd_cpu_isolation_parse_mask( cpuset, affinity );
 }
 
 static int
@@ -274,7 +215,7 @@ write_irq_smp_affinity( char const *        irq,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/proc/irq/%s/smp_affinity", irq ) );
 
   char affinity[ SMP_AFFINITY_STR_LEN+64UL ];
-  cpuset_to_smp_affinity( affinity, cpuset );
+  fd_cpu_isolation_format_mask( affinity, sizeof(affinity), cpuset );
   ulong affinity_len = strlen( affinity );
 
   int fd = open( path, O_WRONLY );
@@ -295,14 +236,6 @@ write_irq_smp_affinity( char const *        irq,
   return ok;
 }
 
-static fd_cpuset_t *
-all_host_cpus( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
-  fd_cpuset_new( cpuset );
-  ulong cpu_cnt = fd_ulong_min( fd_shmem_cpu_cnt(), FD_TILE_MAX );
-  for( ulong cpu_idx=0UL; cpu_idx<cpu_cnt; cpu_idx++ ) fd_cpuset_insert( cpuset, cpu_idx );
-  return cpuset;
-}
-
 static void
 update_irq_smp_affinities( fd_cpuset_t const * add_cpus,
                            fd_cpuset_t const * remove_cpus ) {
@@ -313,7 +246,7 @@ update_irq_smp_affinities( fd_cpuset_t const * add_cpus,
   }
 
   FD_CPUSET_DECL( fallback );
-  if( FD_LIKELY( remove_cpus ) ) fd_cpuset_subtract( fallback, all_host_cpus( fallback ), remove_cpus );
+  if( FD_LIKELY( remove_cpus ) ) fd_cpuset_subtract( fallback, fd_cpu_isolation_host_cpus( fallback ), remove_cpus );
 
   struct dirent * entry;
   while( (entry = readdir( dir )) ) {
@@ -396,7 +329,7 @@ init( config_t const * config ) {
   topo_banned_cpus( banned, &config->topo );
 
   FD_CPUSET_DECL( allowed );
-  fd_cpuset_subtract( allowed, all_host_cpus( allowed ), banned );
+  fd_cpuset_subtract( allowed, fd_cpu_isolation_host_cpus( allowed ), banned );
 
   if( FD_UNLIKELY( !fd_cpuset_cnt( allowed ) ) ) {
     FD_LOG_ERR(( "all host CPUs are assigned to Firedancer tiles; cannot reserve any CPU for device interrupts" ));
@@ -424,7 +357,7 @@ check( config_t const * config,
   topo_banned_cpus( banned, &config->topo );
 
   FD_CPUSET_DECL( allowed );
-  fd_cpuset_subtract( allowed, all_host_cpus( allowed ), banned );
+  fd_cpuset_subtract( allowed, fd_cpu_isolation_host_cpus( allowed ), banned );
 
   DIR * dir = opendir( "/proc/irq" );
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "opendir(/proc/irq) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

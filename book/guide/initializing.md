@@ -243,6 +243,19 @@ Firedancer. It has no dependencies on any other stage.
 Changing device settings with `ethtool-loopback` requires root privileges,
 and cannot be performed with capabilities.
 
+::: tip NOTE
+
+When starting Firedancer, two read-only checks run automatically:
+`nohz-full` and `rcu-nocbs`. These verify the kernel `nohz_full=` and
+`rcu_nocbs=` boot parameters cover the tile CPUs, which eliminates
+periodic timer tick interrupts and RCU callback processing on those
+cores. Since boot parameters cannot be changed at runtime, these
+checks only print a suggested kernel command line and never fail.
+They can also be run manually with `configure check nohz-full
+rcu-nocbs`.
+
+:::
+
 ## snapshots
 When starting up, validators must load a snapshot to catch up to the
 current state of the blockchain. Snapshots are downloaded from other
