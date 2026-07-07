@@ -1,5 +1,9 @@
 #include "fd_tango.h"
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 FD_STATIC_ASSERT( FD_CHUNK_LG_SZ    ==6,                     unit_test );
 FD_STATIC_ASSERT( FD_CHUNK_ALIGN    ==(1UL<<FD_CHUNK_LG_SZ), unit_test );
 FD_STATIC_ASSERT( FD_CHUNK_FOOTPRINT==FD_CHUNK_ALIGN,        unit_test );

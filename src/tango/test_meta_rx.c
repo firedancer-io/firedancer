@@ -1,5 +1,9 @@
 #include "fd_tango.h"
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
 static uchar fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));

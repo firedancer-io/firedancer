@@ -7,7 +7,7 @@
 #include "../../util/tmpl/fd_map.h"
 
 #if FD_HAS_X86
-#include <immintrin.h>
+#include <emmintrin.h>
 #endif
 
 union __attribute__((aligned(16))) fd_neigh4_entry {

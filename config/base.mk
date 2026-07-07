@@ -14,7 +14,7 @@ LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar
-ARFLAGS:=rc
+ARFLAGS:=rcs
 RANLIB:=ranlib
 CP:=cp -p
 RM:=rm -f
@@ -60,6 +60,15 @@ CC_MAJOR_VERSION:=$(shell $(CC) -dumpversion | cut -f1 -d.)
 
 # Default _FORTIFY_SOURCE level
 FORTIFY_SOURCE?=2
+
+# Prefer LLD when available
+ifeq ($(CROSS),)
+ifneq ($(shell command -v ld.lld 2>/dev/null),)
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 9 2>/dev/null && echo ok),ok)
+LDFLAGS+=-fuse-ld=lld
+endif
+endif
+endif
 
 ifneq ($(CROSS),)
 include config/cross/$(CROSS).mk

@@ -1,8 +1,8 @@
 /* Note: This file is auto generated. */
 #include "../fd_reedsol_fft.h"
 
-FD_FN_UNSANITIZED void
-fd_reedsol_fft_64_128( gf_t * _in00,
+void
+fd_reedsol_ifft_64_64( gf_t * _in00,
                        gf_t * _in01,
                        gf_t * _in02,
                        gf_t * _in03,
@@ -131,7 +131,7 @@ fd_reedsol_fft_64_128( gf_t * _in00,
   gf_t in62 = *_in62;
   gf_t in63 = *_in63;
 
-  FD_REEDSOL_GENERATE_FFT( 64, 128, in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63 );
+  FD_REEDSOL_GENERATE_IFFT( 64, 64, in00, in01, in02, in03, in04, in05, in06, in07, in08, in09, in10, in11, in12, in13, in14, in15, in16, in17, in18, in19, in20, in21, in22, in23, in24, in25, in26, in27, in28, in29, in30, in31, in32, in33, in34, in35, in36, in37, in38, in39, in40, in41, in42, in43, in44, in45, in46, in47, in48, in49, in50, in51, in52, in53, in54, in55, in56, in57, in58, in59, in60, in61, in62, in63 );
   *_in00 = in00;
   *_in01 = in01;
   *_in02 = in02;

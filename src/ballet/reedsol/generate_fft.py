@@ -273,6 +273,9 @@ for N in (256, 128, 64):
 
             print("}", file=outf)
 
+        with open(f'wrapped_impl/fd_reedsol_ifft_impl_{N}_{shift}.c', "wt") as outf:
+            print('/* Note: This file is auto generated. */', file=outf)
+            print('#include "../fd_reedsol_fft.h"', file=outf)
             print('\nvoid', file=outf)
             fn_name = f"fd_reedsol_ifft_{N}_{shift}( "
             print(fn_name + "gf_t * _in00,", file=outf)

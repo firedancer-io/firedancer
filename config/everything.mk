@@ -182,6 +182,10 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 # Note: The library arguments require customization of each target
 
+# Libs with the slowest compiles; prepended to exe prerequisites (link
+# order unaffected) so parallel make starts them first
+SCHED_HOT_LIBS?=fd_reedsol fd_disco fd_ballet fd_discof fd_flamenco fd_quic
+
 # _make-exe usage:
 #
 #   $(1): Filename of exe
@@ -197,7 +201,7 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 .PHONY: $(1)
 $(1): $(OBJDIR)/$(5)/$(1)
 
-$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(5)/$(1): $(foreach lib,$(filter $(SCHED_HOT_LIBS),$(3)),$(OBJDIR)/lib/lib$(lib).a) $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	@echo -e "LD\t$$(notdir $$@) ($(5))"
 	$(Q)$(MKDIR) $$(dir $$@) && \
 $$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $$(LDFLAGS) -o $$@
@@ -342,8 +346,7 @@ $(OBJDIR)/lib/%.a :
 	@echo -e "AR\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
 $(RM) $@ && \
-$(AR) $(ARFLAGS) $@ $^ && \
-$(RANLIB)  $@
+$(AR) $(ARFLAGS) $@ $^
 
 $(OBJDIR)/include/firedancer/% : src/%
 	$(Q)$(MKDIR) $(dir $@) && \

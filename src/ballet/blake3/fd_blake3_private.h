@@ -2,6 +2,9 @@
 #define HEADER_fd_src_ballet_blake3_fd_blake3_private_h
 
 #include "fd_blake3.h"
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
 
 /* Set FD_BLAKE3_TRACING to 1 to dump out a high-level trace of BLAKE3
    operations to the debug log.  This is useful during debugging or

@@ -7,8 +7,12 @@
 
 #include <math.h> /* FIXME: HMMM */
 #include "../log/fd_log.h"
+
 #if FD_HAS_AVX
-#include "../simd/fd_avx.h"
+/* GCC generic vectors rather than fd_avx.h to keep this widely included
+   header off the intrinsics headers */
+typedef long fd_histf_v4l_t   __attribute__((__vector_size__(32),__may_alias__));
+typedef long fd_histf_v4l_u_t __attribute__((__vector_size__(32),__may_alias__,__aligned__(8)));
 #endif
 
 #define FD_HISTF_BUCKET_CNT 16UL
@@ -133,23 +137,24 @@ fd_histf_sample( fd_histf_t * hist,
   hist->sum += value;
   long shifted_v = (long)(value - (1UL<<63));
 #if FD_HAS_AVX
-  wl_t x = wl_bcast( shifted_v );
+  fd_histf_v4l_t x = { shifted_v, shifted_v, shifted_v, shifted_v };
   /* !(x-2^63 < left_edge[i]) & (x-2^63 < left_edge[i+1])  <=>
-     left_edge[i] <= x-2^63 < left_edge[i+1] */
-  wc_t select0 = wc_andnot( wl_lt( x, wl_ld ( hist->left_edge      ) ),
-                            wl_lt( x, wl_ldu( hist->left_edge+ 1UL ) ) );
-  wc_t select1 = wc_andnot( wl_lt( x, wl_ld ( hist->left_edge+ 4UL ) ),
-                            wl_lt( x, wl_ldu( hist->left_edge+ 5UL ) ) );
-  wc_t select2 = wc_andnot( wl_lt( x, wl_ld ( hist->left_edge+ 8UL ) ),
-                            wl_lt( x, wl_ldu( hist->left_edge+ 9UL ) ) );
-  wc_t select3 = wc_andnot( wl_lt( x, wl_ld ( hist->left_edge+12UL ) ),
-                            wl_lt( x, wl_ldu( hist->left_edge+13UL ) ) );
+     left_edge[i] <= x-2^63 < left_edge[i+1].  Vector compares yield
+     0/-1 lanes. */
+  fd_histf_v4l_t select0 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge      ) )
+                          & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 1UL ) );
+  fd_histf_v4l_t select1 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+ 4UL ) )
+                          & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 5UL ) );
+  fd_histf_v4l_t select2 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+ 8UL ) )
+                          & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 9UL ) );
+  fd_histf_v4l_t select3 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+12UL ) )
+                          & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+13UL ) );
   /* In exactly one of these, we have a -1 (aka ULONG_MAX).  We'll
      subtract that from the counts, effectively adding 1. */
-  wv_st( hist->counts,       wv_sub( wv_ld( hist->counts      ), wc_to_wv_raw( select0 ) ) );
-  wv_st( hist->counts+ 4UL,  wv_sub( wv_ld( hist->counts+ 4UL ), wc_to_wv_raw( select1 ) ) );
-  wv_st( hist->counts+ 8UL,  wv_sub( wv_ld( hist->counts+ 8UL ), wc_to_wv_raw( select2 ) ) );
-  wv_st( hist->counts+12UL,  wv_sub( wv_ld( hist->counts+12UL ), wc_to_wv_raw( select3 ) ) );
+  *(fd_histf_v4l_t *)(hist->counts      ) -= select0;
+  *(fd_histf_v4l_t *)(hist->counts+ 4UL ) -= select1;
+  *(fd_histf_v4l_t *)(hist->counts+ 8UL ) -= select2;
+  *(fd_histf_v4l_t *)(hist->counts+12UL ) -= select3;
 #else
   for( ulong i=0UL; i<16UL; i++ ) hist->counts[ i ] += (ulong)( (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]) );
 #endif

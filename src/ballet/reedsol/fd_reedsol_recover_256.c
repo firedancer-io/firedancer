@@ -427,7 +427,7 @@ fd_reedsol_private_recover_var_256( ulong           shred_sz,
 
     fd_reedsol_ifft_256_0( ALL_VARS_REF );
 
-    FD_REEDSOL_GENERATE_FDERIV( 256, ALL_VARS );
+    fd_reedsol_fderiv_256( ALL_VARS_REF );
 
     fd_reedsol_fft_256_0( ALL_VARS_REF );
 

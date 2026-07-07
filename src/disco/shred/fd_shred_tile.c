@@ -1,5 +1,9 @@
 #include "../tiles.h"
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 #include "generated/fd_shred_tile_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_shredder.h"
