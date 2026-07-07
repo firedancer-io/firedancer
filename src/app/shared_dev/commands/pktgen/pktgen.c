@@ -19,6 +19,8 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 pktgen_topo( config_t * config ) {
+  ulong net_tile_cnt = config->layout.net_tile_count;
+
   char const * affinity = config->development.pktgen.affinity;
   int is_auto_affinity = !strcmp( affinity, "auto" );
 
@@ -29,6 +31,7 @@ pktgen_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
+  ulong required_tile_cnt = 3UL+net_tile_cnt;
   if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( affinity, parsed_tile_to_cpu, 0 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
@@ -41,8 +44,8 @@ pktgen_topo( config_t * config ) {
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
   if( FD_LIKELY( !is_auto_affinity ) ) {
-    if( FD_UNLIKELY( affinity_tile_cnt!=4UL ) )
-      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly three CPUs" ));
+    if( FD_UNLIKELY( affinity_tile_cnt!=required_tile_cnt ) )
+      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly %lu CPUs", required_tile_cnt ));
   }
 
   /* Reset topology from scratch */
@@ -52,7 +55,7 @@ pktgen_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
+  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, 0, tile_to_cpu );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   fd_topob_wksp( topo, "pktgen" );
@@ -62,13 +65,17 @@ pktgen_topo( config_t * config ) {
   }
   fd_topob_link( topo, "pktgen_out", "pktgen", 32768UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_out", 0UL );
-  fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    fd_topob_tile_in( topo, "net", i, "metric_in", "pktgen_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  /* Create dummy RX link */
-  fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
-  fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /* Create dummy RX link */
+    fd_topos_net_rx_link( topo, "net_quic", i, config->net.ingress_buffer_size );
+    fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  fd_topos_net_tile_finish( topo, 0UL );
+    fd_topos_net_tile_finish( topo, i );
+  }
+
+
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
@@ -87,11 +94,117 @@ pktgen_cmd_args( int *    pargc,
    share state */
 extern uint fd_pktgen_active;
 
+/* fd_net_stats stores the stats for a single net tile. */
+
+struct fd_net_stats {
+  double busy_r;
+  double rx_ok_pps;
+  double rx_bps;
+  double rx_drop_pps;
+  double tx_ok_pps;
+  double tx_bps;
+
+  ulong  rx_bufs_idle;
+  ulong  rx_bufs_busy;
+  ulong  tx_bufs_idle;
+  ulong  tx_bufs_busy;
+};
+typedef struct fd_net_stats fd_net_stats_t;
+
+/* fd_net_metrics_last stores recent key metrics for a single net
+   tile, used to calculate the next net_stats. */
+
+struct fd_net_metrics_last {
+  long  ts;
+  ulong cum_idle;
+  ulong cum_tick;
+  ulong rx_ok;
+  ulong rx_byte;
+  ulong rx_drop;
+  ulong tx_ok;
+  ulong tx_byte;
+};
+typedef struct fd_net_metrics_last fd_net_metrics_last_t;
+
+/* get_net_stats computes and returns per net tile stats. */
+
+static fd_net_stats_t const *
+get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
+               ulong                  net_tile_cnt ) {
+
+  static fd_net_stats_t        net_stats       [ FD_TOPO_MAX_TILES ];
+  static fd_net_metrics_last_t net_metrics_last[ FD_TOPO_MAX_TILES ];
+
+  long now = fd_log_wallclock();
+
+  for( ulong kind_id=0UL; kind_id<net_tile_cnt; kind_id++ ) {
+    ulong volatile const *  metrics = net_metrics      [ kind_id ];
+    fd_net_metrics_last_t * last    = &net_metrics_last[ kind_id ];
+    fd_net_stats_t *        stats   = &net_stats       [ kind_id ];
+
+    stats->rx_bufs_idle = metrics[ MIDX( GAUGE, NET, RX_BUFFER_IDLE ) ];
+    stats->rx_bufs_busy = metrics[ MIDX( GAUGE, NET, RX_BUFFER_BUSY ) ];
+    stats->tx_bufs_idle = metrics[ MIDX( GAUGE, NET, TX_BUFFER_IDLE ) ];
+    stats->tx_bufs_busy = metrics[ MIDX( GAUGE, NET, TX_BUFFER_BUSY ) ];
+
+    if( FD_UNLIKELY( last->ts==0L ) ) last->ts = now;
+
+    long dt = now-last->ts;
+    if( dt<=(long)10e6 ) continue;
+
+    ulong cum_idle_now  = metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG        ) ];
+    ulong cum_tick_now  = cum_idle_now;
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING    ) ];
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING   ) ];
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING ) ];
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG         ) ];
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_PREFRAG        ) ];
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG      ) ];
+    /* */ cum_tick_now += metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG       ) ];
+    ulong rx_ok_now     = metrics[ MIDX( COUNTER, NET, PKT_RX                    ) ];
+    ulong rx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES              ) ];
+    ulong rx_drop_now   = metrics[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL     ) ];
+    /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE       ) ];
+    /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED      ) ];
+    /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR ) ];
+    /* */ rx_drop_now  += metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL          ) ];
+    ulong tx_ok_now     = metrics[ MIDX( COUNTER, NET, PKT_TX_COMPLETED          ) ];
+    ulong tx_byte_now   = metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES              ) ];
+
+    ulong cum_idle_delta = cum_idle_now-last->cum_idle;
+    ulong cum_tick_delta = cum_tick_now-last->cum_tick;
+    ulong rx_ok_delta    = rx_ok_now   -last->rx_ok;
+    ulong rx_byte_delta  = rx_byte_now -last->rx_byte;
+    ulong rx_drop_delta  = rx_drop_now -last->rx_drop;
+    ulong tx_ok_delta    = tx_ok_now   -last->tx_ok;
+    ulong tx_byte_delta  = tx_byte_now -last->tx_byte;
+
+    stats->busy_r      = 1.0 - ( (double)cum_idle_delta / (double)cum_tick_delta );
+    stats->rx_ok_pps   = 1e9*( (double)rx_ok_delta  /(double)dt );
+    stats->rx_bps      = 8e9*( (double)rx_byte_delta/(double)dt );
+    stats->rx_drop_pps = 1e9*( (double)rx_drop_delta/(double)dt );
+    stats->tx_ok_pps   = 1e9*( (double)tx_ok_delta  /(double)dt );
+    stats->tx_bps      = 8e9*( (double)tx_byte_delta/(double)dt );
+
+    last->ts       = now;
+    last->cum_idle = cum_idle_now;
+    last->cum_tick = cum_tick_now;
+    last->rx_ok    = rx_ok_now;
+    last->rx_byte  = rx_byte_now;
+    last->rx_drop  = rx_drop_now;
+    last->tx_ok    = tx_ok_now;
+    last->tx_byte  = tx_byte_now;
+  }
+
+  return net_stats;
+}
+
 /* render_status prints statistics at the top of the screen.
    Should be called at a low rate (~500ms). */
 
 static void
-render_status( ulong volatile const * net_metrics ) {
+render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
+               ulong                  net_tile_cnt ) {
   fputs( "\0337"      /* save cursor position */
          "\033[H"     /* move cursor to (0,0) */
          "\033[2K\n", /* create an empty line to avoid spamming look back buffer */
@@ -99,87 +212,48 @@ render_status( ulong volatile const * net_metrics ) {
   printf( "\033[2K" "[Firedancer pktgen] mode=%s\n",
           FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv" );
 
-  /* Render packet per second rates */
-  static long   ts_last       = -1L;
-  static ulong  cum_idle_last = 0UL;
-  static ulong  cum_tick_last = 0UL;
-  static ulong  rx_ok_last    = 0UL;
-  static ulong  rx_byte_last  = 0UL;
-  static ulong  rx_drop_last  = 0UL;
-  static ulong  tx_ok_last    = 0UL;
-  static ulong  tx_byte_last  = 0UL;
+  fd_net_stats_t const * stats = get_net_stats( net_metrics, net_tile_cnt );
 
-  static double busy_r       = 0.0;
-  static double rx_ok_pps    = 0.0;
-  static double rx_bps       = 0.0;
-  static double rx_drop_pps  = 0.0;
-  static double tx_ok_pps    = 0.0;
-  static double tx_bps       = 0.0;
-
-  if( FD_UNLIKELY( ts_last==-1 ) ) ts_last = fd_log_wallclock();
-  long now = fd_log_wallclock();
-  long dt  = now-ts_last;
-  if( dt>(long)10e6 ) {
-    ulong cum_idle_now  = net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG  ) ];
-    ulong cum_tick_now  = cum_idle_now;
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_HOUSEKEEPING    ) ];
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_HOUSEKEEPING   ) ];
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_HOUSEKEEPING ) ];
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG         ) ];
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_PREFRAG        ) ];
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG      ) ];
-    /* */ cum_tick_now += net_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG       ) ];
-    ulong rx_ok_now     = net_metrics[ MIDX( COUNTER, NET, PKT_RX                    ) ];
-    ulong rx_byte_now   = net_metrics[ MIDX( COUNTER, NET, PKT_RX_BYTES              ) ];
-    ulong rx_drop_now   = net_metrics[ MIDX( COUNTER, NET, PKT_RX_FILL_RING_FULL       ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, PKT_RX_BACKPRESSURE       ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_OTHER_DROPPED      ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCRIPTOR ) ];
-    /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL          ) ];
-    ulong tx_ok_now     = net_metrics[ MIDX( COUNTER, NET, PKT_TX_COMPLETED          ) ];
-    ulong tx_byte_now   = net_metrics[ MIDX( COUNTER, NET, PKT_TX_BYTES              ) ];
-
-    ulong cum_idle_delta = cum_idle_now-cum_idle_last;
-    ulong cum_tick_delta = cum_tick_now-cum_tick_last;
-    ulong rx_ok_delta    = rx_ok_now   -rx_ok_last;
-    ulong rx_byte_delta  = rx_byte_now -rx_byte_last;
-    ulong rx_drop_delta  = rx_drop_now -rx_drop_last;
-    ulong tx_ok_delta    = tx_ok_now   -tx_ok_last;
-    ulong tx_byte_delta  = tx_byte_now -tx_byte_last;
-
-    busy_r               = 1.0 - ( (double)cum_idle_delta / (double)cum_tick_delta );
-    rx_ok_pps            = 1e9*( (double)rx_ok_delta  /(double)dt );
-    rx_bps               = 8e9*( (double)rx_byte_delta/(double)dt );
-    rx_drop_pps          = 1e9*( (double)rx_drop_delta/(double)dt );
-    tx_ok_pps            = 1e9*( (double)tx_ok_delta  /(double)dt );
-    tx_bps               = 8e9*( (double)tx_byte_delta/(double)dt );
-
-    ts_last              = now;
-    cum_idle_last        = cum_idle_now;
-    cum_tick_last        = cum_tick_now;
-    rx_ok_last           = rx_ok_now;
-    rx_byte_last         = rx_byte_now;
-    rx_drop_last         = rx_drop_now;
-    tx_ok_last           = tx_ok_now;
-    tx_byte_last         = tx_byte_now;
+  fd_net_stats_t summary = {0};
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    summary.busy_r       += stats[ i ].busy_r;
+    summary.rx_ok_pps    += stats[ i ].rx_ok_pps;
+    summary.rx_bps       += stats[ i ].rx_bps;
+    summary.rx_drop_pps  += stats[ i ].rx_drop_pps;
+    summary.tx_ok_pps    += stats[ i ].tx_ok_pps;
+    summary.tx_bps       += stats[ i ].tx_bps;
+    summary.rx_bufs_idle += stats[ i ].rx_bufs_idle;
+    summary.rx_bufs_busy += stats[ i ].rx_bufs_busy;
+    summary.tx_bufs_idle += stats[ i ].tx_bufs_idle;
+    summary.tx_bufs_busy += stats[ i ].tx_bufs_busy;
   }
+  summary.busy_r /= (double)net_tile_cnt;
 
-  ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_BUFFER_IDLE ) ];
-  ulong rx_busy = net_metrics[ MIDX( GAUGE, NET, RX_BUFFER_BUSY ) ];
-  ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_BUFFER_IDLE ) ];
-  ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUFFER_BUSY ) ];
+  printf( "\033[2K" "Overall stats:\n" );
+
+  /* Render packet per second rates */
   printf( "\033[2K" "  Net busy: %.2f%%\n"
           "\033[2K" "  RX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX drop: %10.3e pps\n"
           "\033[2K" "  TX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX bufs: %6lu idle %6lu busy\n"
           "\033[2K" "  TX bufs: %6lu idle %6lu busy\n",
-          100.*busy_r,
-          rx_ok_pps,   rx_bps,
-          rx_drop_pps,
-          tx_ok_pps,   tx_bps,
-          rx_idle,     rx_busy,
-          tx_idle,     tx_busy );
+          100.*summary.busy_r,
+          summary.rx_ok_pps,    summary.rx_bps,
+          summary.rx_drop_pps,
+          summary.tx_ok_pps,    summary.tx_bps,
+          summary.rx_bufs_idle, summary.rx_bufs_busy,
+          summary.tx_bufs_idle, summary.tx_bufs_busy );
+
+  printf( "\033[2K" "Individual net tiles:\n" );
+
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    printf( "\033[2K" "  net:%-3lu busy %6.2f%% | RX(ok) %10.3e pps | TX(ok) %10.3e pps\n",
+            i,
+            100.*stats[ i ].busy_r,
+            stats[ i ].rx_ok_pps,
+            stats[ i ].tx_ok_pps );
+  }
 
   fputs( "\0338", stdout ); /* restore cursor position */
   fflush( stdout );
@@ -191,12 +265,22 @@ void
 pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                config_t * config ) {
   pktgen_topo( config );
-  fd_topo_t *      topo        = &config->topo;
-  fd_topo_tile_t * net_tile    = &topo->tiles[ fd_topo_find_tile( topo, "net",    0UL ) ];
-  fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
+  fd_topo_t *      topo         = &config->topo;
+  ulong            net_tile_cnt = config->layout.net_tile_count;
+  if( FD_UNLIKELY( net_tile_cnt>FD_TOPO_MAX_TILES ) ) {
+    FD_LOG_ERR(( "more net tiles (%lu) than max num tiles allowed (%lu)", net_tile_cnt, FD_TOPO_MAX_TILES ));
+  }
+
+  fd_topo_tile_t * metric_tile  = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
+
+  fd_topo_tile_t       * net_tiles  [ FD_TOPO_MAX_TILES ];
+  ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ];
 
   ushort const listen_port = 9000;
-  net_tile->net.legacy_transaction_listen_port = listen_port;
+  for( ulong kind_id=0UL; kind_id<net_tile_cnt; kind_id++ ) {
+    net_tiles[ kind_id ] = &topo->tiles[ fd_topo_find_tile( topo, "net", kind_id ) ];
+    net_tiles[ kind_id ]->net.legacy_transaction_listen_port = listen_port;
+  }
 
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
@@ -221,7 +305,9 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
 
-  ulong volatile const * net_metrics = fd_metrics_tile( net_tile->metrics );
+  for( ulong kind_id=0UL; kind_id<net_tile_cnt; kind_id++ ) {
+    net_metrics[ kind_id ] = fd_metrics_tile( net_tiles[ kind_id ]->metrics );
+  }
 
   /* Don't attempt to render TTY */
   if( !isatty( STDOUT_FILENO ) ) {
@@ -246,7 +332,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   puts( "" );
   char input[ 256 ] = {0};
   for(;;) {
-    render_status( net_metrics );
+    render_status( net_metrics, net_tile_cnt );
     fputs( "pktgen> ", stdout );
     fflush( stdout );
 
@@ -254,7 +340,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
       struct pollfd fds[1] = {{ .fd=STDIN_FILENO, .events=POLLIN }};
       int poll_res = poll( fds, 1, 500 );
       if( poll_res==0 ) {
-        render_status( net_metrics );
+        render_status( net_metrics, net_tile_cnt );
         continue;
       } else if( poll_res>0 ) {
         break;
