@@ -59,6 +59,7 @@
    the FEC. */
 
 #include "../poh/fd_poh_tile.h"
+#include "../../alpenglow/consensus/fd_cert.h"
 #include "../../disco/tiles.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -70,6 +71,7 @@
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
+#define REPLAY_SIG_FINAL_CERT     (9)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -184,6 +186,15 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
+/* fd_replay_final_cert carries the finalization cert parsed out of an
+   Alpenglow block footer, already verified by replay.  cert_cnt is 1
+   (FastFinal) or 2 (Final + Notar, slow finalization). */
+struct fd_replay_final_cert {
+  ulong     slot;     /* the block whose footer carried the cert */
+  ulong     cert_cnt;
+  fd_cert_t certs[ 2 ];
+};
+typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
@@ -192,7 +203,8 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t          reasm_evicted;
+  fd_replay_fec_evicted_t     reasm_evicted;
+  fd_replay_final_cert_t      final_cert;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

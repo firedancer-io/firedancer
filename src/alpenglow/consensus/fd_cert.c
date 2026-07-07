@@ -1,5 +1,9 @@
 #include "fd_cert.h"
 
+#if FD_HAS_BLST
+#include "../../ballet/bls/fd_bls12_381.h"
+#endif
+
 /* Aggregate helpers: build an fd_aggsig over a set of concrete votes via
    init + add (equivalent to AggregateSignature::new), reading sig+signer
    directly from each vote so no large temporary arrays are needed.  nbits is
@@ -252,7 +256,7 @@ de_base2_bitmap( fd_aggsig_t * agg,
                      ulong         b_sz ) {
   if( FD_UNLIKELY( b_sz<3UL    ) ) return FD_CERT_DE_ERR_TRUNCATED;
   if( FD_UNLIKELY( b[0]!=0     ) ) return FD_CERT_DE_ERR_UNSUPPORTED; /* 1==Base3 (mixed) */
-  ulong nbits      = (ulong)( (uint)b[1] | ((uint)b[2]<<8) );
+  ulong nbits      = (ulong)FD_LOAD( ushort, b+1UL );
   if( FD_UNLIKELY( nbits>FD_AGGSIG_MAX_SIGNERS ) ) return FD_CERT_DE_ERR_MALFORMED;
   ulong payload_sz = (nbits+7UL)/8UL;
   if( FD_UNLIKELY( b_sz<3UL+payload_sz ) ) return FD_CERT_DE_ERR_TRUNCATED;
@@ -279,7 +283,7 @@ de_base3_bitmap( fd_aggsig_t * base,
                  ulong         b_sz ) {
   if( FD_UNLIKELY( b_sz<3UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
   if( FD_UNLIKELY( b[0]!=1   ) ) return FD_CERT_DE_ERR_MALFORMED; /* not Base3 */
-  ulong nbits   = (ulong)( (uint)b[1] | ((uint)b[2]<<8) );
+  ulong nbits   = (ulong)FD_LOAD( ushort, b+1UL );
   if( FD_UNLIKELY( nbits>FD_AGGSIG_MAX_SIGNERS ) ) return FD_CERT_DE_ERR_MALFORMED;
   ulong nchunks = (nbits+4UL)/5UL; /* ceil(nbits/5) */
   if( FD_UNLIKELY( b_sz<3UL+nchunks ) ) return FD_CERT_DE_ERR_TRUNCATED;
@@ -401,5 +405,96 @@ fd_cert_de( fd_cert_t *   out,
     return FD_CERT_DE_ERR_MALFORMED;
   }
 
+  return FD_CERT_DE_SUCCESS;
+}
+
+/* de_footer_aggregate parses one footer VotesAggregate (96B compressed G2
+   signature + length-prefixed base2 bitmap) at in[0,in_sz) into agg.
+   The signature bytes remain compressed. */
+
+static int
+de_footer_aggregate( fd_aggsig_t * agg,
+                     uchar const * in,
+                     ulong         in_sz,
+                     ulong *       consumed ) {
+  ulong off = FD_AGGSIG_SIG_COMPRESSED_SZ+2UL;
+  if( FD_UNLIKELY( in_sz<off ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uchar const * csig   = in;
+  ulong         bm_len = (ulong)FD_LOAD( ushort, in+FD_AGGSIG_SIG_COMPRESSED_SZ );
+  if( FD_UNLIKELY( in_sz<off+bm_len ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  int err = de_base2_bitmap( agg, in+off, bm_len ); /* rejects base3 as unsupported */
+  if( FD_UNLIKELY( err ) ) return err;
+  fd_memcpy( agg->sig, csig, FD_AGGSIG_SIG_COMPRESSED_SZ ); /* after init zeroed it */
+  *consumed = off+bm_len;
+  return FD_CERT_DE_SUCCESS;
+}
+
+int
+fd_block_final_cert_de( fd_cert_t     out[ 2 ],
+                        ulong *       out_cert_cnt,
+                        uchar const * in,
+                        ulong         in_sz ) {
+  ulong off = 0UL;
+
+  if( FD_UNLIKELY( in_sz<8UL+sizeof(fd_hash_t) ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  ulong     slot = FD_LOAD( ulong, in ); off += 8UL;
+  fd_hash_t block_hash;
+  fd_memcpy( block_hash.uc, in+off, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+
+  fd_aggsig_t final_agg[1];
+  ulong       consumed;
+  int err = de_footer_aggregate( final_agg, in+off, in_sz-off, &consumed );
+  if( FD_UNLIKELY( err ) ) return err;
+  off += consumed;
+
+  if( FD_UNLIKELY( in_sz<off+1UL ) ) return FD_CERT_DE_ERR_TRUNCATED;
+  uchar has_notar = in[ off++ ];
+  if( FD_UNLIKELY( has_notar>1 ) ) return FD_CERT_DE_ERR_MALFORMED;
+
+  fd_memset( out, 0, 2UL*sizeof(fd_cert_t) );
+  if( has_notar ) {
+    /* Slow finalization: Finalize cert over the slot + Notarize cert over the
+       block (ValidatedBlockFinalizationCertKind::Finalize). */
+    fd_aggsig_t notar_agg[1];
+    err = de_footer_aggregate( notar_agg, in+off, in_sz-off, &consumed );
+    if( FD_UNLIKELY( err ) ) return err;
+    out[0].discriminant         = FD_CERT_TYPE_FINAL;
+    out[0].inner.final_.slot    = slot;
+    out[0].inner.final_.agg_sig = *final_agg;
+    out[1].discriminant           = FD_CERT_TYPE_NOTAR;
+    out[1].inner.notar.slot       = slot;
+    out[1].inner.notar.block_hash = block_hash;
+    out[1].inner.notar.agg_sig    = *notar_agg;
+    *out_cert_cnt = 2UL;
+  } else {
+    /* Fast finalization: a single FinalizeFast cert. */
+    out[0].discriminant              = FD_CERT_TYPE_FAST_FINAL;
+    out[0].inner.fast_final.slot       = slot;
+    out[0].inner.fast_final.block_hash = block_hash;
+    out[0].inner.fast_final.agg_sig    = *final_agg;
+    *out_cert_cnt = 1UL;
+  }
+  return FD_CERT_DE_SUCCESS;
+}
+
+int
+fd_block_final_cert_decompress( fd_cert_t * certs,
+                                ulong       cert_cnt ) {
+#if FD_HAS_BLST
+  for( ulong i=0UL; i<cert_cnt; i++ ) {
+    fd_aggsig_t * agg;
+    switch( certs[ i ].discriminant ) {
+    case FD_CERT_TYPE_FINAL:      agg = &certs[ i ].inner.final_.agg_sig;     break;
+    case FD_CERT_TYPE_FAST_FINAL: agg = &certs[ i ].inner.fast_final.agg_sig; break;
+    case FD_CERT_TYPE_NOTAR:      agg = &certs[ i ].inner.notar.agg_sig;      break;
+    default: return FD_CERT_DE_ERR_MALFORMED;
+    }
+    uchar csig[ FD_AGGSIG_SIG_COMPRESSED_SZ ];
+    fd_memcpy( csig, agg->sig, FD_AGGSIG_SIG_COMPRESSED_SZ );
+    if( FD_UNLIKELY( fd_bls12_381_g2_decompress_syscall( agg->sig, csig, 1 /* big endian */ ) ) ) return FD_CERT_DE_ERR_MALFORMED;
+  }
+#else
+  (void)certs; (void)cert_cnt;
+#endif
   return FD_CERT_DE_SUCCESS;
 }

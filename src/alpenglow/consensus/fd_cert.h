@@ -163,6 +163,33 @@ int fd_cert_check_sig( fd_cert_t const * c, fd_epoch_info_t const * epoch_info )
 
 int fd_cert_de( fd_cert_t * out, uchar const * in, ulong in_sz );
 
+/* fd_block_final_cert_de deserializes a finalization cert as carried in
+   a block footer (agave entry/src/block_component.rs):
+
+     slot (8) | block_id (32) | final_aggregate | has_notar (1) | [notar_aggregate]
+
+   where an aggregate is: compressed G2 sig (96) | bitmap len (u16) | bitmap.
+
+     notar aggregate present (slow finalization) -> out[0]=Final, out[1]=Notar
+     notar aggregate absent  (fast finalization) -> out[0]=FastFinal
+
+   Unlike the network cert encoding, the footer aggregates carry a
+   COMPRESSED signature. It is caller responsibility to call
+   fd_block_final_cert_decompress.  Trailing bytes after the cert are
+   ignored.  Returns FD_CERT_DE_SUCCESS and sets *out_cert_cnt to 1 or
+   2, or returns a negative FD_CERT_DE_ERR_*; out is valid only on
+   success. */
+
+int fd_block_final_cert_de( fd_cert_t out[ 2 ], ulong * out_cert_cnt, uchar const * in, ulong in_sz );
+
+/* fd_block_final_cert_decompress decompresses in place the compressed G2
+   aggregate signatures of certs[0,cert_cnt) as produced by
+   fd_block_final_cert_de.  Returns FD_CERT_DE_SUCCESS, or
+   FD_CERT_DE_ERR_MALFORMED if a signature is not a valid compressed G2
+   point (certs are then partially decompressed and must be discarded). */
+
+int fd_block_final_cert_decompress( fd_cert_t * certs, ulong cert_cnt );
+
 static inline const char * fd_cert_type_to_string( uint type ) {
   switch( type ) {
     case FD_CERT_TYPE_FINAL:          return "Final";

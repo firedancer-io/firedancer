@@ -33,10 +33,12 @@
 #define SET_MAX  2048
 #include "../../util/tmpl/fd_set.c"
 
-#define FD_AGGSIG_SECKEY_SZ   (32UL) /* BLS secret key                       */
-#define FD_AGGSIG_PUBKEY_SZ   (96UL)  /* uncompressed G1 public key (min_sig)   */
-#define FD_AGGSIG_SIG_SZ      (192UL) /* uncompressed G2 signature (min_sig)  */
-#define FD_AGGSIG_MAX_SIGNERS (2048UL)
+#define FD_AGGSIG_SECKEY_SZ            (32UL)  /* BLS secret key                       */
+#define FD_AGGSIG_PUBKEY_SZ            (96UL)  /* uncompressed G1 public key (min_sig) */
+#define FD_AGGSIG_PUBKEY_COMPRESSED_SZ (48UL)  /* compressed G1 public key             */
+#define FD_AGGSIG_SIG_SZ               (192UL) /* uncompressed G2 signature (min_sig)  */
+#define FD_AGGSIG_SIG_COMPRESSED_SZ    (96UL)  /* compressed G2 signature              */
+#define FD_AGGSIG_MAX_SIGNERS          (2048UL)
 
 struct fd_aggsig_sk { uchar v[ FD_AGGSIG_SECKEY_SZ ]; };
 typedef struct fd_aggsig_sk fd_aggsig_sk_t;

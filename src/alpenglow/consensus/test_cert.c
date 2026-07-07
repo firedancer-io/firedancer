@@ -216,6 +216,76 @@ test_thresholds( void ) {
   free( em );
 }
 
+/* put_aggregate writes one footer VotesAggregate: a compressed point at
+   infinity as the signature (decompresses under real BLS without needing a
+   compression helper here) + a base2 bitmap with the first signer_cnt of
+   nbits ranks set.  Returns the encoded size. */
+
+static ulong
+put_aggregate( uchar * p, ulong nbits, ulong signer_cnt ) {
+  memset( p, 0, FD_AGGSIG_SIG_COMPRESSED_SZ );
+  p[0] = 0xc0; /* compressed (0x80) + infinity (0x40) flags */
+  ulong payload = (nbits+7UL)/8UL;
+  ulong bm_len  = 3UL+payload;
+  p[ FD_AGGSIG_SIG_COMPRESSED_SZ     ] = (uchar)( bm_len     & 0xffUL );
+  p[ FD_AGGSIG_SIG_COMPRESSED_SZ+1UL ] = (uchar)( (bm_len>>8) & 0xffUL );
+  uchar * b = p+FD_AGGSIG_SIG_COMPRESSED_SZ+2UL;
+  b[0] = 0; /* base2 */
+  b[1] = (uchar)( nbits & 0xffUL ); b[2] = (uchar)( nbits>>8 );
+  memset( b+3UL, 0, payload );
+  for( ulong i=0UL; i<signer_cnt; i++ ) b[ 3UL+(i>>3) ] = (uchar)( b[ 3UL+(i>>3) ] | (1U<<(i&7UL)) );
+  return FD_AGGSIG_SIG_COMPRESSED_SZ+2UL+bm_len;
+}
+
+static void
+test_footer_de( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; fd_epoch_info_t * e = make_epoch( n, &em );
+  fd_hash_t h; memset( h.uc, 0x42, sizeof(fd_hash_t) );
+
+  /* slow finalization: final aggregate + notar aggregate, 7/11 signers */
+  uchar buf[ 1024 ];
+  ulong off = 0UL;
+  FD_STORE( ulong, buf, 7UL ); off += 8UL;
+  memcpy( buf+off, h.uc, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+  off += put_aggregate( buf+off, n, 7UL );
+  buf[ off++ ] = 1; /* has notar aggregate */
+  off += put_aggregate( buf+off, n, 7UL );
+
+  fd_cert_t certs[ 2 ]; ulong cert_cnt;
+  FD_TEST( fd_block_final_cert_de( certs, &cert_cnt, buf, off )==FD_CERT_DE_SUCCESS );
+  FD_TEST( fd_block_final_cert_decompress( certs, cert_cnt )==FD_CERT_DE_SUCCESS );
+  FD_TEST( cert_cnt==2UL );
+  FD_TEST( certs[0].discriminant==FD_CERT_TYPE_FINAL && certs[0].inner.final_.slot==7UL );
+  FD_TEST( certs[1].discriminant==FD_CERT_TYPE_NOTAR && certs[1].inner.notar.slot==7UL );
+  FD_TEST( !memcmp( certs[1].inner.notar.block_hash.uc, h.uc, sizeof(fd_hash_t) ) );
+  for( ulong i=0UL; i<7UL; i++ ) { FD_TEST( fd_cert_is_signer( &certs[0], i ) ); FD_TEST( fd_cert_is_signer( &certs[1], i ) ); }
+  FD_TEST( !fd_cert_is_signer( &certs[0], 7UL ) );
+  FD_TEST( fd_cert_check_threshold( &certs[0], e ) ); /* 7/11 meets 60% */
+  FD_TEST( fd_cert_check_threshold( &certs[1], e ) );
+
+  /* trailing bytes (the reward certs follow in a real footer) are ignored */
+  buf[ off ] = 0xaa;
+  FD_TEST( fd_block_final_cert_de( certs, &cert_cnt, buf, off+1UL )==FD_CERT_DE_SUCCESS );
+
+  /* truncated */
+  FD_TEST( fd_block_final_cert_de( certs, &cert_cnt, buf, off-1UL )==FD_CERT_DE_ERR_TRUNCATED );
+
+  /* fast finalization: single aggregate, 9/11 signers */
+  ulong off2 = 8UL+sizeof(fd_hash_t);
+  off2 += put_aggregate( buf+off2, n, 9UL );
+  buf[ off2++ ] = 0; /* no notar aggregate */
+  FD_TEST( fd_block_final_cert_de( certs, &cert_cnt, buf, off2 )==FD_CERT_DE_SUCCESS );
+  FD_TEST( fd_block_final_cert_decompress( certs, cert_cnt )==FD_CERT_DE_SUCCESS );
+  FD_TEST( cert_cnt==1UL );
+  FD_TEST( certs[0].discriminant==FD_CERT_TYPE_FAST_FINAL && certs[0].inner.fast_final.slot==7UL );
+  FD_TEST( !memcmp( certs[0].inner.fast_final.block_hash.uc, h.uc, sizeof(fd_hash_t) ) );
+  FD_TEST( fd_cert_check_threshold( &certs[0], e ) ); /* 9/11 meets 80% */
+
+  free( em );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -224,6 +294,7 @@ main( int     argc,
   test_mixed();
   test_failures();
   test_thresholds();
+  test_footer_de();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

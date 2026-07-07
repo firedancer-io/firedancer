@@ -939,19 +939,7 @@ votor_handle_consensus_msg( fd_votor_tile_t * ctx,
   } default: break; }
 }
 
-/* Rank-ordering key for the voter sort: stake descending, tie-broken by
-   the compressed BLS pubkey ascending.  bls points into the epoch
-   message's pubkey array, which is stable for the duration of the sort. */
-
-struct vtr_rank { ulong stake; uchar const * bls; ushort src; };
-typedef struct vtr_rank vtr_rank_t;
-
-#define SORT_NAME        vtr_rank_sort
-#define SORT_KEY_T       vtr_rank_t
-#define SORT_BEFORE(a,b) ( (a).stake>(b).stake ||                          \
-                           ( (a).stake==(b).stake &&                       \
-                             memcmp( (a).bls, (b).bls, FD_EPOCH_INFO_BLS_PUBKEY_SZ )<0 ) )
-#include "../../util/tmpl/fd_sort.c"
+FD_STATIC_ASSERT( FD_EPOCH_INFO_BLS_PUBKEY_SZ==FD_AGGSIG_PUBKEY_COMPRESSED_SZ, bls_pubkey_sz );
 
 /* update_epoch_vtrs rebuilds the active epoch's validator set from an EPOCH
    msg (the staked validator set + stakes).  The pool and votor are rebuilt
@@ -963,75 +951,41 @@ update_epoch_vtrs( fd_votor_tile_t *              ctx,
                    fd_vote_stake_weight_t const * stakes,
                    ulong                          stake_cnt ) {
 
-  ulong         in_cnt      = fd_ulong_min( stake_cnt, VTR_MAX );
   uchar const * bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( msg );
 
-  /* Keep only vote accounts with non-zero stake and a decodable BLS
-     voting key, then order by stake descending, tie-broken by the
-     COMPRESSED BLS pubkey ascending; rank == position in that order.
-
-     This ordering is intentionally votor-local.  It must NOT reuse the
-     stake-weight sort (vote-key tie-break) that drives the leader
-     schedule -- changing that sort would alter the cluster-wide leader
-     schedule consumed by the shred / tower / replay / etc. tiles.
-     TODO: Agave also drops duplicate BLS / node pubkeys; not handled
-     here. Also missing check proof of possession. */
-
-  vtr_rank_t rank[ VTR_MAX ]; /* surviving validators, pre-sort */
-  ulong      m = 0UL;
-  for( ulong i=0UL; i<in_cnt; i++ ) {
-    if( FD_UNLIKELY( stakes[i].stake==0UL ) ) continue;
-    fd_aggsig_pk_t probe;
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( probe.v,
-                                                         bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ,
-                                                         1 ) ) ) continue; /* no / invalid BLS key */
-    rank[m].stake = stakes[i].stake;
-    rank[m].bls   = bls_pubkeys + i*FD_EPOCH_INFO_BLS_PUBKEY_SZ;
-    rank[m].src   = (ushort)i;
-    m++;
-  }
-  vtr_rank_sort_inplace( rank, m );
-
-  ulong cnt = m;
+  /* Rank the staked voters: drop zero-stake / bad-BLS voters, order by
+     stake descending tie-broken by the compressed BLS pubkey (see
+     fd_epoch_info_rank).
+     TODO think we can just put this directly into epoch_info */
+  ulong cnt = fd_epoch_info_rank( ctx->validators, VTR_MAX, stakes, stake_cnt, bls_pubkeys );
   if( FD_UNLIKELY( !cnt ) ) {
     FD_LOG_WARNING(( "epoch %lu has no ranked validators; skipping", msg->epoch ));
     return;
   }
 
-  /* Copy into validator_info TODO think we can just put this directly into epoch_info */
+  /* Locate our own rank. */
   ushort own_id      = 0;
   int    have_own_id = 0;
-  for( ushort r=0UL; r<cnt; r++ ) {
-    ushort                src = rank[r].src;
-    fd_validator_info_t * vi  = &ctx->validators[ r ];
-    memset( vi, 0, sizeof(fd_validator_info_t) );
-    vi->id     = r;
-    vi->stake  = stakes[src].stake;
-    vi->pubkey = stakes[src].id_key;
-    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vi->voting_pubkey.v,
-                                                         bls_pubkeys + (ulong)src*FD_EPOCH_INFO_BLS_PUBKEY_SZ,
-                                                         1 /* big endian */ ) ) ) {
-      FD_LOG_CRIT(( "BLS voting pubkey for source %u failed to decompress after the filter", (uint)src ));
-    }
-    if( FD_UNLIKELY( !memcmp( stakes[src].id_key.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) ) ) ) {
-      own_id      = r;
-      have_own_id = 1;
-      /* voting_key is the real BLS secret derived once in privileged_init (do
-         NOT overwrite it here).  Sanity check: the pubkey it derives to must
-         equal the on-chain registered BLS pubkey for our vote account (just
-         decompressed into vi->voting_pubkey).  A mismatch means our votes will
-         silently fail signature verification, so shout about it. */
-      fd_aggsig_pk_t derived[1];
-      fd_aggsig_sk_to_pk( derived, ctx->voting_key );
-      if( FD_UNLIKELY( memcmp( derived->v, vi->voting_pubkey.v, FD_AGGSIG_PUBKEY_SZ ) ) ) {
-        FD_LOG_WARNING(( "BLS KEY MISMATCH: derived voting pubkey != on-chain registered key "
-                         "(epoch %lu, rank %u) -- our votes will NOT verify; check the "
-                         "authorized-voter keypair matches the vote account's BLS registration",
-                         msg->epoch, (uint)r ));
-      } else {
-        FD_LOG_NOTICE(( "BLS voting key OK: derived pubkey matches on-chain registration (epoch %lu, rank %u)",
-                        msg->epoch, (uint)r ));
-      }
+  for( ulong r=0UL; r<cnt; r++ ) {
+    fd_validator_info_t const * vi = &ctx->validators[ r ];
+    if( FD_LIKELY( memcmp( vi->pubkey.uc, ctx->identity_key->uc, sizeof(fd_pubkey_t) ) ) ) continue;
+    own_id      = (ushort)r;
+    have_own_id = 1;
+    /* voting_key is the real BLS secret derived once in privileged_init (do
+       NOT overwrite it here).  Sanity check: the pubkey it derives to must
+       equal the on-chain registered BLS pubkey for our vote account (just
+       decompressed into vi->voting_pubkey).  A mismatch means our votes will
+       silently fail signature verification. TODO remove */
+    fd_aggsig_pk_t derived[1];
+    fd_aggsig_sk_to_pk( derived, ctx->voting_key );
+    if( FD_UNLIKELY( memcmp( derived->v, vi->voting_pubkey.v, FD_AGGSIG_PUBKEY_SZ ) ) ) {
+      FD_LOG_WARNING(( "BLS KEY MISMATCH: derived voting pubkey != on-chain registered key "
+                       "(epoch %lu, rank %lu) -- our votes will NOT verify; check the "
+                       "authorized-voter keypair matches the vote account's BLS registration",
+                       msg->epoch, r ));
+    } else {
+      FD_LOG_NOTICE(( "BLS voting key OK: derived pubkey matches on-chain registration (epoch %lu, rank %lu)",
+                      msg->epoch, r ));
     }
   }
 
@@ -1578,6 +1532,23 @@ returnable_frag( fd_votor_tile_t *   ctx,
     case REPLAY_SIG_SLOT_DEAD:;
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       votor_slot_dead( ctx, slot_dead );
+      break;
+    case REPLAY_SIG_FINAL_CERT:;
+      /* replay */
+      if( FD_UNLIKELY( !ctx->have_schedule ) ) break;
+      fd_replay_final_cert_t * final_cert = (fd_replay_final_cert_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      for( ulong i=0UL; i<final_cert->cert_cnt; i++ ) {
+        fd_cert_t * cert = &final_cert->certs[ i ];
+        ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, fd_cert_slot( cert ), NULL );
+        fd_validator_epoch_info_t const * ei = epoch_info_vtrs( ctx, cert_epoch );
+        if( FD_UNLIKELY( !ei ) ) FD_LOG_CRIT(( "no validator epoch info for epoch %lu", cert_epoch ));
+        int err = ingest_cert( ctx, cert, ei );
+        if( err != FD_POOL_SUCCESS && err != FD_POOL_ERR_DUPLICATE ) {
+          FD_LOG_CRIT(( "ingest_cert failed for cert %lu: %d. first unpruned slot: %lu, slot: %lu, finalized slot: %lu", i, err, fd_pool_first_unpruned_slot( ctx->pool ), fd_cert_slot( cert ), fd_pool_finalized_slot( ctx->pool ) ));
+        }
+        FD_TEST( FD_POOL_SUCCESS==err || FD_POOL_ERR_DUPLICATE==err ); // must succeed because this is from replay tile
+      }
+      maybe_publish_finalized( ctx );
       break;
     default:
       break;

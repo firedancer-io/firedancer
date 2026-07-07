@@ -46,6 +46,11 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 
+/* max size of an Alpenglow footer cert: slot (8) + block_id (32) + two
+   agg certs (96B compressed BLS sig + 2B bitmap length + up to 259B
+   base2 bitmap for 2048 signers) + 1 option byte. */
+#define FD_SCHED_MAX_FINAL_CERT_SZ         (8UL+32UL+2UL*(96UL+2UL+259UL)+1UL) /* 755 */
+
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
 #define FD_SCHED_OK          (0)
@@ -174,6 +179,11 @@ struct fd_sched_block {
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
   uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
+
+  /* Alpenglow footer cert: raw cert bytes copied out of the footer.
+     TODO: lifetime/availability?  */
+  uint                final_cert_sz;                      /* 0 if the footer carries no finalization cert */
+  uchar               final_cert[ FD_SCHED_MAX_FINAL_CERT_SZ ];
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -1789,6 +1799,15 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
   return block->shred_cnt;
 }
 
+uchar const *
+fd_sched_get_final_cert( fd_sched_t * sched, ulong bank_idx, ulong * sz ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  *sz = (ulong)block->final_cert_sz;
+  return block->final_cert_sz ? block->final_cert : NULL;
+}
+
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
@@ -1903,6 +1922,8 @@ add_block( fd_sched_t * sched,
   block->max_tick_height              = ULONG_MAX;
   block->hashes_per_tick              = ULONG_MAX;
   block->inconsistent_hashes_per_tick = 0;
+
+  block->final_cert_sz = 0U;
 
   block->mblks_rem        = 0UL;
   block->txns_rem         = 0UL;
@@ -2048,6 +2069,61 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
 
 /* CHECK that it is safe to read at least n more bytes. */
 #define CHECK_LEFT( n ) CHECK( (n)<=(block->fec_buf_sz-block->fec_buf_soff) )
+
+/* parse_footer_final_cert walks an footer block marker payload and
+   copies the raw finalization cert bytes, if present, into
+   block->final_cert.
+   payload points at the footer version byte (the LengthPrefixed inner
+   value); payload_sz is the number of bytes available in the parse
+   buffer.
+   Layout BlockFooterV1:
+
+     version (1) | bank_hash (32) | producer_time_nanos (8) | ua_len (1) |
+     user agent (ua_len) | has_final_cert (1) | [BlockFinalizationCert] | ...
+
+   where BlockFinalizationCert is:
+
+     slot (8) | block_id (32) | final_aggregate | has_notar (1) | [notar_aggregate]
+     aggregate: compressed BLS sig (96) | bitmap len (u16 LE) | bitmap
+
+   A footer that is truncated in the parse buffer (footers spanning FEC
+   sets are dropped with the rest of the trailing bytes) or malformed is
+   logged and ignored. up to caller to verify/handle badly formed
+   footers.*/
+static void
+parse_footer_final_cert( fd_sched_block_t * block, uchar const * payload, ulong payload_sz ) {
+  if( FD_UNLIKELY( payload[ 0 ]!=1 ) ) return; /* unknown footer version */
+  ulong off = 1UL+32UL+8UL+1UL; /* version + bank_hash + producer_time_nanos + ua_len */
+  if( FD_UNLIKELY( payload_sz<off ) ) goto truncated;
+  off += (ulong)payload[ off-1UL ]; /* skip user agent */
+  if( FD_UNLIKELY( payload_sz<off+1UL ) ) goto truncated;
+  if( payload[ off++ ]!=1 ) return; /* footer carries no finalization cert */
+
+  ulong cert_off = off;
+  off += 8UL+32UL; /* slot + block_id */
+  for( int aggregate=0; aggregate<2; aggregate++ ) {
+    if( FD_UNLIKELY( payload_sz<off+96UL+2UL ) ) goto truncated;
+    off += 96UL+2UL+(ulong)FD_LOAD( ushort, payload+off+96UL );
+    if( FD_UNLIKELY( payload_sz<off ) ) goto truncated;
+    if( aggregate==0 ) {
+      if( FD_UNLIKELY( payload_sz<off+1UL ) ) goto truncated;
+      if( !payload[ off++ ] ) break; /* fast finalization, no notar aggregate */
+    }
+  }
+
+  ulong cert_sz = off-cert_off;
+  if( FD_UNLIKELY( cert_sz>FD_SCHED_MAX_FINAL_CERT_SZ ) ) {
+    FD_LOG_WARNING(( "alpenglow block footer finalization cert too large: slot %lu, %lu bytes", block->slot, cert_sz ));
+    return;
+  }
+  fd_memcpy( block->final_cert, payload+cert_off, cert_sz );
+  block->final_cert_sz = (uint)cert_sz;
+  FD_LOG_INFO(( "alpenglow block footer finalization cert: slot %lu, %lu bytes", block->slot, cert_sz ));
+  return;
+
+truncated:
+  FD_LOG_WARNING(( "alpenglow block footer truncated in parse buffer: slot %lu, payload_sz %lu", block->slot, payload_sz ));
+}
 
 /* Consume as much as possible from the buffer.  By the end of this
    function, there could be residual data left over in the buffer.  That
@@ -2251,9 +2327,8 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         } else if( m->variant==FOOTER &&
                    block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+
                                       offsetof( fd_block_footer_t, v1 )+sizeof(fd_hash_t) ) {
-          FD_BASE58_ENCODE_32_BYTES( m->data.footer.v1.bank_hash.hash, bh_str );
-          FD_LOG_INFO(( "alpenglow block footer: slot %lu, bank_hash %s",
-                          block->slot, bh_str ));
+          ulong payload_sz = fd_ulong_min( (ulong)block->fec_buf_sz-offsetof( fd_block_marker_t, data ), (ulong)m->length );
+          parse_footer_final_cert( block, block->fec_buf+offsetof( fd_block_marker_t, data ), payload_sz );
         } else if( m->variant==UPDATE_PARENT &&
                    block->fec_buf_sz>=offsetof( fd_block_marker_t, data )+sizeof(fd_update_parent_t) ) {
           FD_BASE58_ENCODE_32_BYTES( m->data.update_parent.new_parent_block_id.hash, pbid_str );

@@ -16,6 +16,7 @@
 
 #include "../fd_alpenglow_base.h"
 #include "../crypto/fd_aggsig.h"
+#include "../../flamenco/stakes/fd_stake_weight.h" /* fd_vote_stake_weight_t */
 
 /* fd_validator_info_t mirrors the consensus-relevant fields of ValidatorInfo. */
 
@@ -64,6 +65,29 @@ void * fd_epoch_info_new( void *                      mem,
 /* fd_epoch_info_join returns a typed handle to a formatted epoch info. */
 
 fd_epoch_info_t * fd_epoch_info_join( void * mem );
+
+/* fd_epoch_info_rank builds the canonical Alpenglow validator ranking
+   from staked voters: drop zero-stake voters and voters with a missing
+   / undecodable compressed BLS voting pubkey, then order by stake
+   descending, tie-broken by the COMPRESSED BLS pubkey ascending; rank
+   == position in that order.  TODO: Agave also drops duplicate BLS /
+   node pubkeys and checks proof of possession; not handled here.
+
+   This ordering is intentionally distinct from the stake-weight sort
+   that drives the leader schedule.
+
+   stakes and bls_pubkeys are indexed 1:1: voter i's 48-byte compressed
+   BLS voting pubkey is at bls_pubkeys +
+   i*FD_AGGSIG_PUBKEY_COMPRESSED_SZ. Writes up to out_max surviving
+   validators into out (id == rank, voting_pubkey decompressed) and
+   returns the count. */
+
+ulong
+fd_epoch_info_rank( fd_validator_info_t *          out,
+                    ulong                          out_max,
+                    fd_vote_stake_weight_t const * stakes,
+                    ulong                          stake_cnt,
+                    uchar const *                  bls_pubkeys );
 
 /* fd_epoch_info_validators returns the contiguous validator array. */
 

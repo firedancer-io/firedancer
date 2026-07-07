@@ -45,3 +45,66 @@ fd_epoch_info_join( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) { FD_LOG_WARNING(( "NULL mem" )); return NULL; }
   return (fd_epoch_info_t *)mem;
 }
+
+#if FD_HAS_BLST
+#include "../../ballet/bls/fd_bls12_381.h"
+#endif
+
+/* Rank-ordering key: stake descending, tie-broken by the compressed BLS
+   pubkey ascending.  bls points into the caller's pubkey array, which is
+   stable for the duration of the sort. */
+
+struct ei_rank { ulong stake; uchar const * bls; ulong src; };
+typedef struct ei_rank ei_rank_t;
+
+#define SORT_NAME        ei_rank_sort
+#define SORT_KEY_T       ei_rank_t
+#define SORT_BEFORE(a,b) ( (a).stake>(b).stake ||                                            \
+                           ( (a).stake==(b).stake &&                                         \
+                             memcmp( (a).bls, (b).bls, FD_AGGSIG_PUBKEY_COMPRESSED_SZ )<0 ) )
+#include "../../util/tmpl/fd_sort.c"
+
+ulong
+fd_epoch_info_rank( fd_validator_info_t *          out,
+                    ulong                          out_max,
+                    fd_vote_stake_weight_t const * stakes,
+                    ulong                          stake_cnt,
+                    uchar const *                  bls_pubkeys ) {
+  ei_rank_t rank[ FD_AGGSIG_MAX_SIGNERS ]; /* surviving validators, pre-sort */
+  ulong     in_cnt = fd_ulong_min( stake_cnt, FD_AGGSIG_MAX_SIGNERS );
+  ulong     m      = 0UL;
+  for( ulong i=0UL; i<in_cnt; i++ ) {
+    if( FD_UNLIKELY( stakes[i].stake==0UL ) ) continue;
+    uchar const * bls = bls_pubkeys + i*FD_AGGSIG_PUBKEY_COMPRESSED_SZ;
+#if FD_HAS_BLST
+    fd_aggsig_pk_t probe;
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( probe.v, bls, 1 ) ) ) continue; /* no / invalid BLS key */
+#endif
+    rank[m].stake = stakes[i].stake;
+    rank[m].bls   = bls;
+    rank[m].src   = i;
+    m++;
+  }
+  ei_rank_sort_inplace( rank, m );
+
+  ulong cnt = fd_ulong_min( m, out_max );
+  for( ulong r=0UL; r<cnt; r++ ) {
+    ulong                 src = rank[r].src;
+    fd_validator_info_t * vi  = out + r;
+    memset( vi, 0, sizeof(fd_validator_info_t) );
+    vi->id     = r;
+    vi->stake  = stakes[src].stake;
+    vi->pubkey = stakes[src].id_key;
+#if FD_HAS_BLST
+    if( FD_UNLIKELY( fd_bls12_381_g1_decompress_syscall( vi->voting_pubkey.v,
+                                                         bls_pubkeys + src*FD_AGGSIG_PUBKEY_COMPRESSED_SZ,
+                                                         1 /* big endian */ ) ) ) {
+      FD_LOG_CRIT(( "BLS voting pubkey for source %lu failed to decompress after the filter", src ));
+    }
+#else
+    fd_memcpy( vi->voting_pubkey.v, bls_pubkeys + src*FD_AGGSIG_PUBKEY_COMPRESSED_SZ,
+               FD_AGGSIG_PUBKEY_COMPRESSED_SZ ); /* stub builds do not verify signatures */
+#endif
+  }
+  return cnt;
+}

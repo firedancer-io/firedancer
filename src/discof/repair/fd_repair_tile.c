@@ -131,6 +131,7 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
+#include "../votor/fd_votor_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -1036,7 +1037,14 @@ after_frag( ctx_t *             ctx,
       break;
     }
     case IN_KIND_VOTOR: {
-
+      switch( sig ) {
+        case FD_VOTOR_SIG_ROOTED: {
+          fd_votor_rooted_t const * rooted = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
+          if( FD_LIKELY( rooted->slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, rooted->slot );
+          break;
+        }
+        default: return;
+      }
       break;
     }
     case IN_KIND_SHRED: {

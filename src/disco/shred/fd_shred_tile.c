@@ -17,10 +17,12 @@
 #include "../fd_disco.h"
 #include "../net/fd_net_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
+#include "../../ballet/base58/fd_base58.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../discof/tower/fd_tower_slot_rooted.h"
+#include "../../discof/votor/fd_votor_tile.h"
 
 /* The shred tile handles shreds from two data sources: shreds generated
    from microblocks from the leader pipeline, and shreds retransmitted
@@ -414,6 +416,9 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTED ) ) {
     return sig!=FD_TOWER_SIG_SLOT_ROOTED; /* only care about slot_confirmed messages */
   }
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
+    return sig!=FD_VOTOR_SIG_ROOTED; /* only care about rooted messages */
+  }
   return 0;
 }
 
@@ -479,6 +484,15 @@ during_frag( fd_shred_ctx_t * ctx,
        to) followed by the rooted slot. */
     ulong const * replay_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     ctx->new_root = replay_msg[ 1 ];
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_votor_rooted_t) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    fd_votor_rooted_t const * rooteda = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    ctx->new_root = rooteda->slot;
     return;
   }
 
@@ -900,7 +914,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_ROOTED) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH) ) ) {
+  if( FD_UNLIKELY( (ctx->in_kind[ in_idx ]==IN_KIND_ROOTED) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH) | (ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA) ) ) {
     if( FD_LIKELY( (ctx->new_root > 0UL) & (ctx->new_root<ULONG_MAX) ) ) fd_fec_resolver_advance_slot_old( ctx->resolver, ctx->new_root );
     return;
   }
@@ -936,9 +950,6 @@ after_frag( fd_shred_ctx_t *    ctx,
     return;
   }
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
-    return;
-  }
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
     return;
   }
 

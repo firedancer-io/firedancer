@@ -6,6 +6,7 @@
 
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
+#include "../../alpenglow/consensus/fd_cert.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../votor/fd_votor_tile.h"
@@ -102,6 +103,18 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
   return (ulong)(ele - ele_arr);
 }
 
+/* resolve_block_id_ele translates a consensus block id to its
+   fd_block_id_ele.  In alpenglow the id is a double merkle root, so we
+   look it up in block_id_dm_map; otherwise it is the block's last-FEC
+   merkle root, keyed in block_id_map.  Centralizes the branch so every
+   consensus lookup uses the correct index. */
+static inline fd_block_id_ele_t *
+resolve_block_id_ele( fd_replay_tile_t * ctx, fd_hash_t const * block_id ) {
+  return ctx->is_alpenglow
+    ? fd_dmr_map_ele_query     ( ctx->dmr_map,      block_id, NULL, ctx->block_id_arr )
+    : fd_block_id_map_ele_query( ctx->block_id_map, block_id, NULL, ctx->block_id_arr );
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -115,6 +128,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_dmr_map_align(),           fd_dmr_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
@@ -122,6 +136,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),      fd_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+  }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -190,6 +207,34 @@ metrics_write( fd_replay_tile_t * ctx ) {
 
 FD_STATIC_ASSERT( FD_EPOCH_INFO_BLS_PUBKEY_SZ==FD_BLS_PUBKEY_COMPRESSED_SZ, bls_pubkey_sz );
 
+/* update_cert_epoch_vtrs builds the ranked Alpenglow validator set for
+   the epoch described by an outgoing epoch msg and stores it in the
+   epoch_vtrs ring, so footer finalization certs can be verified against
+   the validator set of their own epoch.  This is the same ranking the
+   votor tile builds from the very same msg on the receiving end
+   (update_epoch_vtrs). TODO consider building the set first and sending
+   to votor tile so it doesnt need to do the same work. */
+
+static void
+update_cert_epoch_vtrs( fd_replay_tile_t *          ctx,
+                        fd_epoch_info_msg_t const * msg ) {
+  fd_vote_stake_weight_t const * stakes      = fd_epoch_info_msg_stake_weights( msg );
+  uchar const *                  bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( msg );
+
+  ulong cnt = fd_epoch_info_rank( ctx->epoch_vtrs_scratch, FD_EPOCH_INFO_MAX_VOTERS, stakes, msg->staked_vote_cnt, bls_pubkeys );
+  if( FD_UNLIKELY( !cnt ) ) {
+    FD_LOG_WARNING(( "epoch %lu has no ranked validators; certs of this epoch will not verify", msg->epoch ));
+    return;
+  }
+
+  fd_replay_epoch_vtrs_t * s = &ctx->epoch_vtrs[ msg->epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  /* Don't let a stale (older) re-publish evict a newer epoch sharing this
+     ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
+  if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
+  s->epoch = msg->epoch;
+  s->info  = fd_epoch_info_join( fd_epoch_info_new( s->mem, ctx->epoch_vtrs_scratch, cnt ) );
+}
+
 static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -246,6 +291,8 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) update_cert_epoch_vtrs( ctx, epoch_info_msg );
 }
 
 /**********************************************************************/
@@ -485,6 +532,41 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+/* verify_footer_final_cert decodes and verifies the finalization cert
+   the sched parsed out of the block's footer, if any.  Returns 1 and
+   fills out_certs / out_cert_cnt (1 for a FastFinal cert, 2 for Final +
+   Notar) if the footer carried a cert that verified; returns 0 if the
+   footer carried none. */
+
+FD_WARN_UNUSED static int
+verify_footer_final_cert( fd_replay_tile_t * ctx,
+                          fd_bank_t *        bank,
+                          fd_cert_t          out_certs[ 2 ],
+                          ulong *            out_cert_cnt ) {
+  ulong         cert_sz;
+  uchar const * cert_bytes = fd_sched_get_final_cert( ctx->sched, bank->idx, &cert_sz );
+  if( FD_LIKELY( !cert_bytes ) ) return 0;
+
+  int err = fd_block_final_cert_de( out_certs, out_cert_cnt, cert_bytes, cert_sz );
+  if( FD_UNLIKELY( err!=FD_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to deserialize footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
+
+  err = fd_block_final_cert_decompress( out_certs, *out_cert_cnt );
+  if( FD_UNLIKELY( err!=FD_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to decompress footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
+
+  ulong cert_slot  = fd_cert_slot( &out_certs[0] );
+  ulong cert_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, cert_slot, NULL );
+  fd_replay_epoch_vtrs_t const * s = &ctx->epoch_vtrs[ cert_epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
+  if( FD_UNLIKELY( s->epoch!=cert_epoch ) ) FD_LOG_CRIT(( "slot %lu: no validator set for epoch %lu; cannot verify footer finalization cert for slot %lu", bank->f.slot, cert_epoch, cert_slot ));
+
+  for( ulong i=0UL; i<*out_cert_cnt; i++ ) {
+    fd_cert_t const * cert = &out_certs[ i ];
+    if( FD_UNLIKELY( !fd_cert_check_threshold( cert, s->info ) ) ) FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed the stake threshold. TODO: mark bank dead here instead of crit", bank->f.slot, fd_cert_type_to_string( cert->discriminant ), cert_slot ));
+    if( FD_UNLIKELY( !fd_cert_check_sig( cert, s->info ) ) )       FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed signature verification. TODO: mark bank dead here instead of crit", bank->f.slot, fd_cert_type_to_string( cert->discriminant ), cert_slot ));
+  }
+  FD_LOG_INFO(( "slot %lu: footer cert verified (%s finalization of slot %lu)", bank->f.slot, *out_cert_cnt==2UL ? "slow" : "fast", cert_slot ));
+  return 1;
+}
+
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
@@ -497,6 +579,17 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* Set shred count in bank. */
   bank->f.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->idx );
+
+  /* Verify the finalization cert embedded in the block footer, if any,
+     and forward it to the votor tile's consensus pool. */
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    if( FD_UNLIKELY( verify_footer_final_cert( ctx, bank, msg->certs, &msg->cert_cnt ) ) ) {
+      msg->slot = bank->f.slot;
+      fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_FINAL_CERT, ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    }
+  }
 
   ulong execution_fees_pre_settle = bank->f.execution_fees;
   ulong priority_fees_pre_settle  = bank->f.priority_fees;
@@ -549,7 +642,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   /* Make sure that we are not already leader. */
   FD_TEST( ctx->leader_bank==NULL );
 
-  fd_block_id_ele_t * parent_ele = fd_block_id_map_ele_query( ctx->block_id_map, parent_block_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * parent_ele = resolve_block_id_ele( ctx, parent_block_id );
   if( FD_UNLIKELY( !parent_ele ) ) {
     FD_BASE58_ENCODE_32_BYTES( parent_block_id->key, parent_block_id_b58 );
     FD_LOG_CRIT(( "invariant violation: parent bank index not found for merkle root %s", parent_block_id_b58 ));
@@ -1056,6 +1149,11 @@ boot_genesis( fd_replay_tile_t *        ctx,
   bank->block_id = initial_block_id;
 
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+  if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+    block_id_ele->block_id      = initial_block_id;
+    block_id_ele->block_id_seen = 1;
+    FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+  }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
@@ -1174,6 +1272,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     block_id_ele->block_id_seen  = 1;
     block_id_ele->latest_fec_idx = 0U;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+    if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+      block_id_ele->block_id = manifest_block_id;
+      FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+    }
 
     /* Seed the snapshot bank's block id (the snapshot slot's double
        merkle root, carried in the manifest) so it can serve as
@@ -1546,6 +1648,13 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr )==block_id_ele ) ) {
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) );
     }
+    /* Mirror the eviction in the alpenglow double-merkle index.  Only
+       completed blocks (block_id_seen) were ever inserted there. */
+    if( FD_UNLIKELY( ctx->is_alpenglow && block_id_ele->block_id_seen ) ) {
+      if( FD_LIKELY( fd_dmr_map_ele_query( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr )==block_id_ele ) ) {
+        FD_TEST( fd_dmr_map_ele_remove( ctx->dmr_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
+      }
+    }
     block_id_ele->block_id_seen  = 0;
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
@@ -1588,6 +1697,14 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     fd_bank_t * bank  = fd_banks_bank_query( ctx->banks, reasm_fec->bank_idx );
     uchar * double_mr = finish_double_merkle( ctx, reasm_fec );
     memcpy( bank->block_id.uc, double_mr, sizeof(fd_hash_t) );
+
+    /* alpenglow: index the completed block by its double merkle root so
+       consensus lookups (which speak double merkle) resolve.  Must run
+       after finish_double_merkle since that is when block_id exists. */
+    if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
+      block_id_ele->block_id = bank->block_id;
+      FD_TEST( fd_dmr_map_ele_insert( ctx->dmr_map, block_id_ele, ctx->block_id_arr ) );
+    }
   }
 
   /* For leader FECs, don't insert the FEC into the scheduler. */
@@ -1741,7 +1858,7 @@ try_advance_published_root( fd_replay_tile_t * ctx ) {
 
   if( FD_LIKELY( ctx->consensus_root_bank_idx==ctx->published_root_bank_idx ) ) return 0;
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &ctx->consensus_root );
   if( FD_UNLIKELY( !block_id_ele ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->consensus_root.key, consensus_root_b58 );
     FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", consensus_root_b58 ));
@@ -2117,7 +2234,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     ctx->next_leader_tickcount = LONG_MAX;
   }
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->reset_block_id );
   if( FD_UNLIKELY( !block_id_ele ) ) {
     FD_BASE58_ENCODE_32_BYTES( msg->reset_block_id.key, reset_block_id_b58 );
     FD_LOG_CRIT(( "invariant violation: block id ele doesn't exist for reset block id: %s, slot: %lu", reset_block_id_b58, msg->reset_slot ));
@@ -2170,7 +2287,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
 
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
-    fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
+    fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->root_block_id );
     FD_TEST( block_id_ele );
     ctx->consensus_root_slot     = msg->root_slot;
     ctx->consensus_root          = msg->root_block_id;
@@ -2190,6 +2307,22 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   }
 
   FD_MGAUGE_SET( REPLAY, ROOT_DISTANCE, distance );
+}
+
+static void
+process_votor_rooted( fd_replay_tile_t * ctx, fd_stem_context_t * stem, fd_votor_rooted_t const * rooted ) {
+
+  FD_TEST( rooted->slot>=ctx->consensus_root_slot );
+  FD_BASE58_ENCODE_32_BYTES( rooted->block_id.key, block_id_b58 );
+  FD_LOG_INFO(( "votor_rooted(slot=%lu, block_id=%s)", rooted->slot, block_id_b58 ));
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &rooted->block_id );
+  FD_TEST( block_id_ele );
+  ctx->consensus_root_slot     = rooted->slot;
+  ctx->consensus_root          = rooted->block_id;
+  ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
+
+  publish_root_advanced( ctx, stem );
+  fd_sched_root_notify( ctx->sched, ctx->consensus_root_bank_idx );
 }
 
 static void
@@ -2304,7 +2437,7 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_stem_context_t *               stem,
                                     fd_tower_slot_confirmed_t const * msg ) {
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->block_id, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = resolve_block_id_ele( ctx, &msg->block_id );
   if( FD_UNLIKELY( !block_id_ele ) ) {
     FD_BASE58_ENCODE_32_BYTES( msg->block_id.key, block_id_b58 );
     FD_LOG_WARNING(( "missing bank for confirmed block_id: %s level %d", block_id_b58, msg->level ));
@@ -2423,7 +2556,13 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_VOTOR: {
       if( sig==FD_VOTOR_SIG_ROOTED ) {
+        fd_votor_rooted_t const * rooted = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        process_votor_rooted( ctx, stem, rooted );
       } else if( sig==FD_VOTOR_SIG_SLOT_DONE ) {
+        /* TODO what is the reset slot fr.... */
+        fd_votor_slot_done_t const * slot_done = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        ctx->reset_slot = slot_done->reset_slot;
+        ctx->reset_block_id = slot_done->reset_block_id;
       }
       break;
     }
@@ -2543,6 +2682,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
+  void * dmr_map_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_dmr_map_align(),          fd_dmr_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
@@ -2550,6 +2690,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
+    ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
+    ctx->epoch_vtrs[ i ].info  = NULL;
+    ctx->epoch_vtrs[ i ].mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(), fd_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+  }
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -2699,6 +2844,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->block_id_len = tile->replay.max_live_slots;
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
+  ctx->dmr_map      = fd_dmr_map_join( fd_dmr_map_new( dmr_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
 
@@ -2836,10 +2982,10 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* counting carefully, after_credit can generate at most 7 frags and
+/* counting carefully, after_credit can generate at most 8 frags and
    returnable_frag boot_genesis can also generate at most 7 frags, so 14
    is a conservative bound. */
-#define STEM_BURST (14UL)
+#define STEM_BURST (15UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent
