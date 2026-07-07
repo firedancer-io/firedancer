@@ -1798,13 +1798,13 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
 
   ele = fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3_0c, &mr_2c );
   FD_TEST( ele );
-  FD_TEST( ele->parent_slot == 1 ); /* parent_slot unchanged */
+  FD_TEST( ele->parent_slot == 2 ); /* parent_slot changes on shred in fec 0 */
   FD_TEST( fd_hash_eq( &ele->merkle_roots[0].mr, &mr_3_0c ) );
 
   /* shred in the last FEC set doesn't do anything because we still don't know complete_idx */
   FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 94, 64, 0, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c ) );
   FD_TEST( ele->lowest_verified_fec == UINT_MAX );
-  FD_TEST( ele->parent_slot == 1 );
+  FD_TEST( ele->parent_slot == 2 );
 
   FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 95, 64, 1, 0, SHRED_SRC_REPAIR, &mr_3_2c, &mr_3_1c ) );
   FD_TEST( ele->lowest_verified_fec == 2 );
