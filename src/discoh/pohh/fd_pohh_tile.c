@@ -1252,7 +1252,8 @@ next_leader_slot( fd_pohh_tile_t * ctx ) {
 
 extern int
 fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
-                               int           require_tower );
+                               int           require_tower,
+                               int           require_vote_history );
 
 static inline int FD_FN_SENSITIVE
 maybe_change_identity( fd_pohh_tile_t * ctx,
@@ -1270,7 +1271,8 @@ maybe_change_identity( fd_pohh_tile_t * ctx,
   if( FD_UNLIKELY( is_leader ) ) return 0;
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, fd_keyswitch_param_query( ctx->keyswitch )==1 );
+    ulong param = fd_keyswitch_param_query( ctx->keyswitch );
+    int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, (int)(param & 1UL), (int)((param>>1) & 1UL) );
     fd_memzero_explicit( ctx->keyswitch->bytes, 32UL );
     FD_COMPILER_MFENCE();
     if( FD_UNLIKELY( failed==-1 ) ) {

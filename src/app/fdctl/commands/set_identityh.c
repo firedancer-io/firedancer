@@ -149,6 +149,7 @@ poll_keyswitch( fd_topo_t *   topo,
                 uchar const * keypair,
                 int *         has_error,
                 int           require_tower,
+                int           require_vote_history,
                 int           force_lock ) {
   switch( *state ) {
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
@@ -171,7 +172,7 @@ poll_keyswitch( fd_topo_t *   topo,
     case FD_SET_IDENTITY_STATE_LOCKED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
       memcpy( poh->bytes, keypair, 64UL );
-      poh->param = !!require_tower;
+      poh->param = (ulong)!!require_tower | ((ulong)!!require_vote_history<<1);
       FD_COMPILER_MFENCE();
       poh->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -326,8 +327,9 @@ void
 set_identityh_cmd_args( int *    pargc,
                        char *** pargv,
                        args_t * args) {
-  args->set_identity.require_tower = fd_env_strip_cmdline_contains( pargc, pargv, "--require-tower" );
-  args->set_identity.force         = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
+  args->set_identity.require_tower        = fd_env_strip_cmdline_contains( pargc, pargv, "--require-tower" );
+  args->set_identity.require_vote_history = !fd_env_strip_cmdline_contains( pargc, pargv, "--do-not-require-vote-history" );
+  args->set_identity.force                = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
 
   if( FD_UNLIKELY( *pargc<1 ) ) goto err;
 
@@ -347,7 +349,7 @@ set_identityh_cmd_args( int *    pargc,
   return;
 
 err:
-  FD_LOG_ERR(( "Usage: %s set-identity <keypair> [--require-tower] [--force]", FD_BINARY_NAME ));
+  FD_LOG_ERR(( "Usage: %s set-identity <keypair> [--require-tower] [--do-not-require-vote-history] [--force]", FD_BINARY_NAME ));
 }
 
 static void FD_FN_SENSITIVE
@@ -372,7 +374,7 @@ set_identity( args_t *   args,
   ulong state = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong halted_seq = 0UL;
   for(;;) {
-    poll_keyswitch( &config->topo, &state, &halted_seq, args->set_identity.keypair, &has_error, args->set_identity.require_tower, args->set_identity.force );
+    poll_keyswitch( &config->topo, &state, &halted_seq, args->set_identity.keypair, &has_error, args->set_identity.require_tower, args->set_identity.require_vote_history, args->set_identity.force );
     if( FD_UNLIKELY( FD_SET_IDENTITY_STATE_UNLOCKED==state ) ) break;
   }
 
@@ -405,6 +407,13 @@ set_identityh_args_help( fd_action_help_t * help ) {
                                                      "recently voting elsewhere, to avoid voting on a fork it already voted\n"
                                                      "against (which can get the validator slashed or stuck).  Leave unset\n"
                                                      "for ordinary identity changes, where the default is safe" );
+  fd_action_help_arg( help, "--do-not-require-vote-history", NULL,
+                                                     "Advanced: allow the switch even if the new identity's vote history\n"
+                                                     "(its record of past Alpenglow votes) cannot be loaded.  By default,\n"
+                                                     "if the vote account has prior Alpenglow votes, the switch fails\n"
+                                                     "unless the vote history file is present, to avoid voting against\n"
+                                                     "past votes (which can get the validator slashed).  Has no effect\n"
+                                                     "before Alpenglow" );
 }
 
 action_t fd_action_set_identityh = {
