@@ -275,6 +275,7 @@ struct fd_gui_tile_timers {
   ulong  minflt;
   ulong  majflt;
   ulong  interrupts;
+  ulong  tlb_shootdowns;
   ulong  timer_ticks;
 };
 

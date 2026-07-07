@@ -956,6 +956,11 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
       jsonp_ulong( gui->http, NULL, cur[ gui->summary.tile[ i ] ].interrupts );
     }
   jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "tlb_shootdowns" );
+    for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+      jsonp_ulong( gui->http, NULL, cur[ gui->summary.tile[ i ] ].tlb_shootdowns );
+    }
+  jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "timer_ticks" );
     for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
       jsonp_ulong( gui->http, NULL, cur[ gui->summary.tile[ i ] ].timer_ticks );

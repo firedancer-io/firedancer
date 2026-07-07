@@ -1295,10 +1295,20 @@ reported when you first connect by the `summary.tiles` message.
             5821,
             ...
         ],
+        "tlb_shootdowns": [
+            0,
+            42,
+            ...
+        ],
         "priority": [
             "normal",
             "critical",
             ...
+        ],
+        "timer_ticks": [
+          1234,
+          0,
+          ...
         ]
     }
 }
@@ -1320,6 +1330,7 @@ reported when you first connect by the `summary.tiles` message.
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
 | interrupts   | `number[]`           | `interrupts[i]` is the number of device IRQs handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
+| tlb_shootdowns | `number[]`         | `tlb_shootdowns[i]` is the number of TLB shootdowns handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
 | timer_ticks  | `number[]`           | `timer_ticks[i]` is the number of local timer interrupts (LOC) handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0`. Near-zero on `nohz_full` CPUs running a single task |
 | priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
