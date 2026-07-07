@@ -17,6 +17,12 @@ device.
   used by Firedancer (via `/proc/irq`).
 * **irq-balance** Prevents the irqbalance daemon from routing IRQs to
   CPU cores used by Firedancer (via `/run/irqbalance`).
+* **kworkers** Prevents unbound kernel workqueue workers from running
+  on CPU cores used by Firedancer (via
+  `/sys/devices/virtual/workqueue/cpumask`).
+* **cpuset** Creates an isolated cgroup cpuset partition over the CPU
+  cores used by Firedancer, so no other process can be scheduled onto
+  them (via `/sys/fs/cgroup`).
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
@@ -36,9 +42,9 @@ where `mode` is one of:
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
 `bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
-`irq-affinity`, `irq-balance`, and `snapshots` and these stages are
-described below. You can also use the stage `all` which will configure
-everything.
+`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, and `snapshots`
+and these stages are described below. You can also use the stage `all`
+which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -300,14 +306,85 @@ the daemon entirely on dedicated validator hosts.
 The stage does nothing if irqbalance is not running. The `init` mode
 requires root privileges.
 
+## kworkers
+The Linux kernel defers certain work (dirty page writeback, filesystem
+maintenance, various driver bottom halves) to worker threads called
+kworkers. Workers servicing "unbound" workqueues may be scheduled onto
+any CPU allowed by a global mask, which by default includes all CPUs.
+A burst of deferred kernel work can therefore preempt a Firedancer tile
+for milliseconds at a time.
+
+The `kworkers` stage removes tile CPUs from the unbound workqueue mask
+at `/sys/devices/virtual/workqueue/cpumask`, so deferred kernel work
+runs on the remaining housekeeping CPUs instead.
+
+Per-CPU (bound) kworkers are unaffected: they only run work generated
+on their own CPU, which the `irq-affinity` and `cpuset` stages
+minimize. Note that changing the mask only affects newly queued work,
+so the system converges after `init` rather than becoming instantly
+silent.
+
+<<< @/snippets/kworkers.ansi
+
+The `init` mode requires root privileges. The `fini` mode restores the
+mask to all host CPUs, which is the kernel default (if the operator
+had customized the mask before `init`, that customization is not
+restored). The stage is skipped on kernels that do not expose the
+workqueue mask.
+
+## cpuset
+The `cpuset` stage creates a cgroup v2 cpuset partition in "isolated"
+mode over the Firedancer tile CPUs, at `/sys/fs/cgroup/<name>` where
+`<name>` is the instance [name] from the configuration. An isolated
+partition removes its CPUs from the kernel scheduler's load balancing
+domains entirely: no other process on the system can be scheduled
+onto, or even set affinity to, the isolated CPUs. It is the strongest
+available protection against other software stealing CPU time from
+the validator, and is the runtime-configurable equivalent of the
+`isolcpus=` kernel boot parameter (which the kernel has deprecated in
+favor of this mechanism).
+
+In addition to the tile CPUs, the partition includes the unused
+hyperthread siblings of the performance-sensitive `pack` and `poh`
+tiles (see the `hyperthreads` stage). An isolated, unused sibling
+stays permanently idle in a deep sleep state, which relinquishes the
+physical core's shared resources comparably to taking the CPU offline.
+With the partition in place, the `hyperthreads` stage warnings about
+online siblings are suppressed.
+
+<<< @/snippets/cpuset.ansi
+
+When Firedancer starts, the tile launcher automatically joins tile
+processes into the cgroup before pinning them to their CPUs; no
+further operator action is needed. Note this means that once the
+partition exists, only Firedancer versions that are aware of it can
+pin tiles to those CPUs — if you observe `sched_setaffinity` EINVAL
+failures from other tooling, remove the partition with `fini`.
+
+The stage requires cgroup v2 (the unified hierarchy, standard on
+modern distributions) with the cpuset controller, and a kernel
+supporting isolated partitions (5.15 or later). It is skipped when
+cgroup v2 is unavailable. If the cgroup exists but covers the wrong
+CPUs (for example after changing `[layout.affinity]`), starting
+Firedancer fails with instructions to re-run `init`.
+
+The `init` mode requires root privileges. The `fini` mode downgrades
+the partition and removes the cgroup, returning the CPUs to the
+system.
+
 ::: tip NOTE
 
-When starting Firedancer, two read-only checks run automatically:
-`nohz-full` and `rcu-nocbs`. These verify the kernel `nohz_full=` and
-`rcu_nocbs=` boot parameters cover the tile CPUs, which eliminates
-periodic timer tick interrupts and RCU callback processing on those
-cores. Since boot parameters cannot be changed at runtime, these
-checks only print a suggested kernel command line and never fail.
+The `kworkers` and `cpuset` stages are optional hardening: Firedancer
+runs correctly without them, and they are recommended for production
+validator deployments to reduce scheduling jitter on tile CPUs.
+
+When starting Firedancer, two additional read-only checks run
+alongside these stages: `nohz-full` and `rcu-nocbs`. These verify the
+kernel `nohz_full=` and `rcu_nocbs=` boot parameters cover the tile
+CPUs, which eliminates periodic timer tick interrupts and RCU callback
+processing on those cores. Since boot parameters cannot be changed at
+runtime, these checks only print a suggested kernel command line and
+never fail.
 They can also be run manually with `configure check nohz-full
 rcu-nocbs`.
 

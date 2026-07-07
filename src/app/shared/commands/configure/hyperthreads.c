@@ -2,7 +2,39 @@
 
 #define NAME "hyperthreads"
 
+#include "fd_cpu_isolation.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+static int
+sibling_isolated_idle( config_t const * config,
+                       ulong            cpu_idx ) {
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cpuset.cpus", config->name ) );
+
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    if( FD_LIKELY( errno==ENOENT ) ) return 0; /* cpuset stage not configured */
+    FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+
+  char list[ FD_CPU_ISOLATION_LIST_MAX ];
+  long list_len = read( fd, list, sizeof(list)-1UL );
+  if( FD_UNLIKELY( list_len<0L ) ) FD_LOG_ERR(( "read(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  list[ list_len ] = '\0';
+
+  FD_CPUSET_DECL( partition );
+  if( FD_UNLIKELY( !fd_cpu_isolation_parse_list( partition, list ) ) )
+    FD_LOG_ERR(( "failed to parse `%s` (\"%s\")", path, list ));
+
+  if( FD_LIKELY( cpu_idx>=FD_TILE_MAX || !fd_cpuset_test( partition, cpu_idx ) ) ) return 0;
+
+  return 1;
+}
 
 static ulong
 determine_ht_pair( config_t const *       config,
@@ -65,12 +97,19 @@ check( config_t const * config,
     }
   }
 
+  /* An online-but-unused sibling inside this instance's isolated
+     cpuset partition is permanently idle, which is about as good as
+     offline for SMT purposes: no warning needed. */
+  if( FD_UNLIKELY( pack_pair_online && sibling_isolated_idle( config, pack_pair ) ) ) pack_pair_online = 0;
+  if( FD_UNLIKELY( pohh_pair_online && sibling_isolated_idle( config, pohh_pair ) ) ) pohh_pair_online = 0;
+  if( FD_UNLIKELY( poh_pair_online  && sibling_isolated_idle( config, poh_pair  ) ) ) poh_pair_online  = 0;
+
   if( FD_UNLIKELY( pack_pair_used ) )        FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
-  else if( FD_UNLIKELY( pack_pair_online ) ) FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
+  else if( FD_UNLIKELY( pack_pair_online ) ) FD_LOG_WARNING(( "pack cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", config->topo.tiles[ pack_tile_idx ].cpu_idx, pack_pair ));
   if( FD_UNLIKELY( pohh_pair_used  ) )       FD_LOG_WARNING(( "pohh cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ pohh_tile_idx ].cpu_idx, pohh_pair ));
-  else if( FD_UNLIKELY( pohh_pair_online ) ) FD_LOG_WARNING(( "pohh cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ pohh_tile_idx ].cpu_idx, pohh_pair ));
+  else if( FD_UNLIKELY( pohh_pair_online ) ) FD_LOG_WARNING(( "pohh cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", config->topo.tiles[ pohh_tile_idx ].cpu_idx, pohh_pair ));
   if( FD_UNLIKELY( poh_pair_used  ) )        FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which is used by another tile. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
-  else if( FD_UNLIKELY( poh_pair_online ) )  FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which should be offline. Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
+  else if( FD_UNLIKELY( poh_pair_online ) )  FD_LOG_WARNING(( "poh cpu %lu has hyperthread pair cpu %lu which should be offline or in the isolated cpuset partition (`configure init cpuset`). Proceeding but performance may be reduced.", config->topo.tiles[ poh_tile_idx ].cpu_idx, poh_pair ));
 
   CONFIGURE_OK();
 }

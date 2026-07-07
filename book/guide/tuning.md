@@ -244,3 +244,33 @@ Now we can run one more time and see a reasonably good value for the TPS
 throughput of Firedancer on this machine.
 
 <<< @/snippets/bench/bench7.ansi
+
+## CPU isolation
+Because tiles take permanent ownership of their CPU cores, anything
+else the kernel runs on those cores — other processes, deferred kernel
+work, interrupt handlers, or the periodic scheduler tick — directly
+steals time from the validator and adds latency jitter. Several
+[configure stages](/guide/initializing.md) reduce this interference and
+are recommended for production deployments:
+
+ * **irq-affinity** and **irq-balance** steer device interrupts away
+from tile CPUs.
+ * **kworkers** steers deferred kernel work (writeback, filesystem
+maintenance) away from tile CPUs.
+ * **cpuset** places tile CPUs in an isolated cgroup partition so no
+other process can be scheduled onto them at all.
+
+Additionally, two kernel boot parameters remove the last sources of
+interruption. These cannot be set at runtime, and Firedancer will
+suggest them with the correct CPU list for your configuration when it
+starts:
+
+ * `nohz_full=<tile cpus>` stops the periodic scheduler tick (typically
+250 interruptions per second per core) on CPUs running a single task.
+ * `rcu_nocbs=<tile cpus>` moves RCU callback processing onto
+housekeeping cores.
+
+The effect of interference on each tile is observable in the
+[monitoring](/guide/monitoring.md) output: context switches, interrupt
+counts, and the time stolen by interrupt handlers are reported per
+tile.

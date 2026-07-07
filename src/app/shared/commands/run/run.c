@@ -163,16 +163,85 @@ execve_agave( int config_memfd,
   return 0;
 }
 
+static int
+cgroup_procs_write( char const * path ) {
+  int fd = open( path, O_WRONLY );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    if( FD_LIKELY( errno==ENOENT ) ) return 0;
+    FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+
+  char pid[ 32 ];
+  ulong pid_len;
+  FD_TEST( fd_cstr_printf_check( pid, sizeof(pid), &pid_len, "%ld", (long)getpid() ) );
+  if( FD_UNLIKELY( write( fd, pid, pid_len )!=(long)pid_len ) )
+    FD_LOG_ERR(( "write(%s,\"%s\") failed (%i-%s)", path, pid, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  return 1;
+}
+
+static int
+join_isolation_cgroup( char const * name,
+                       char         out_original[ static PATH_MAX ] ) {
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cgroup.procs", name ) );
+
+  /* The cpuset stage not being configured (no cgroup) is the common
+     case and must be decided FIRST: on cgroup v1-only or hybrid
+     hosts /proc/self/cgroup does not have the v2 format, and
+     validating it before knowing the stage is even in use would
+     turn every tile launch on such hosts into a fatal error. */
+  if( FD_UNLIKELY( access( path, F_OK ) ) ) return 0;
+
+  /* Remember where we came from.  The v2 entry in /proc/self/cgroup
+     is the line "0::<path>"; on a pure v2 hierarchy it is the only
+     line, but on hybrid systems v1 controller lines precede it, so
+     search rather than assume. */
+  char buf[ 4096 ];
+  int fd = open( "/proc/self/cgroup", O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  long n = read( fd, buf, sizeof(buf)-1UL );
+  if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "read(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  buf[ n ] = '\0';
+
+  char * line = buf;
+  while( line && strncmp( line, "0::", 3UL ) ) {
+    line = strchr( line, '\n' );
+    if( FD_LIKELY( line ) ) line++;
+  }
+  if( FD_UNLIKELY( !line || !line[ 0 ] ) )
+    FD_LOG_ERR(( "no cgroup v2 entry in /proc/self/cgroup while the cpuset isolation cgroup `/sys/fs/cgroup/%s` "
+                 "exists. Remove it with `%s configure fini cpuset`", name, FD_BINARY_NAME ));
+  char * nl = strchr( line, '\n' ); if( FD_LIKELY( nl ) ) *nl = '\0';
+  FD_TEST( fd_cstr_printf_check( out_original, PATH_MAX, NULL,
+                                 "/sys/fs/cgroup%s/cgroup.procs", line+3UL ) );
+
+  return cgroup_procs_write( path );
+}
+
+static void
+leave_isolation_cgroup( char const * original ) {
+  if( FD_UNLIKELY( !cgroup_procs_write( original ) ) )
+    FD_LOG_ERR(( "could not return to original cgroup `%s`", original ));
+}
+
 static pid_t
-execve_tile( fd_topo_tile_t const * tile,
+execve_tile( char const *           name,
+             fd_topo_tile_t const * tile,
              fd_cpuset_t const *    floating_cpu_set,
              int                    floating_priority,
              int                    config_memfd,
              int                    pipefd ) {
   FD_CPUSET_DECL( cpu_set );
+  int  joined_cgroup = 0;
+  char original_cgroup[ PATH_MAX ];
   if( FD_LIKELY( tile->cpu_idx!=ULONG_MAX ) ) {
-    /* set the thread affinity before we clone the new process to ensure
-        kernel first touch happens on the desired thread. */
+    /* Join the cpuset isolation cgroup (if configured) and set the
+       thread affinity before we clone the new process, to ensure
+       kernel first touch happens on the desired thread.  The child
+       inherits both. */
+    joined_cgroup = join_isolation_cgroup( name, original_cgroup );
     fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
@@ -206,6 +275,7 @@ execve_tile( fd_topo_tile_t const * tile,
     char const * args[ 9 ] = { _current_executable_path, "run1", tile->name, kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
     if( FD_UNLIKELY( -1==execve( _current_executable_path, (char **)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
+    if( FD_UNLIKELY( joined_cgroup ) ) leave_isolation_cgroup( original_cgroup );
     if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;
   }
@@ -334,7 +404,7 @@ main_pid_namespace( void * _args ) {
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-    child_pids[ child_cnt ] = execve_tile( tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
+    child_pids[ child_cnt ] = execve_tile( config->name, tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
     child_idxs[ child_cnt ] = i;
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], tile->name, 32 );
@@ -777,6 +847,30 @@ fdctl_check_configure( config_t const * config ) {
   (void)fd_cfg_stage_hyperthreads.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   (void)fd_cfg_stage_nohz_full.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
   (void)fd_cfg_stage_rcu_nocbs.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+
+  /* kworkers and cpuset are optional (but recommended) hardening: an
+     unconfigured stage only warns.  A PARTIALLY_CONFIGURED cpuset is
+     fatal however: the isolation cgroup exists but covers the wrong
+     CPUs (e.g. stale from a previous [layout.affinity]), and the tile
+     launcher would join it and then fail to pin with a confusing
+     EINVAL.  Fail up front with the fix instead. */
+  if( FD_UNLIKELY( fd_cfg_stage_kworkers.enabled( config ) ) ) {
+    check = fd_cfg_stage_kworkers.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_WARNING(( "Kernel workqueues may steal CPU time from Firedancer tiles: %s. For lower jitter, run "
+                       "`%s configure init kworkers`.", check.message, FD_BINARY_NAME ));
+  }
+
+  if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {
+    check = fd_cfg_stage_cpuset.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )
+      FD_LOG_ERR(( "The CPU isolation cgroup exists but does not match the topology: %s. Tiles would fail to pin "
+                   "to their CPUs. Run `%s configure init cpuset` to fix it, or `%s configure fini cpuset` to "
+                   "remove it.", check.message, FD_BINARY_NAME, FD_BINARY_NAME ));
+    else if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_WARNING(( "Firedancer tile CPUs are not isolated from other processes: %s. For lower jitter, run "
+                       "`%s configure init cpuset`.", check.message, FD_BINARY_NAME ));
+  }
 }
 
 void

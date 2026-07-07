@@ -1,5 +1,7 @@
 #include "fd_cpu_isolation.h"
 
+#include "../../../../disco/topo/fd_cpu_topo.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -90,6 +92,37 @@ fd_cpu_isolation_format_list( char *              buf,
   }
   *p = '\0';
   return buf;
+}
+
+/* Tiles whose per-core throughput is sensitive enough to SMT resource
+   sharing that their hyperthread sibling should be kept quiet.  Keep
+   in sync with the hyperthreads configure stage. */
+
+static char const * const smt_sensitive_tiles[] = { "pack", "pohh", "poh", NULL };
+
+fd_cpuset_t *
+fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
+                                 fd_topo_t const * topo ) {
+  fd_cpu_isolation_tile_cpus( cpuset, topo );
+
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
+  for( char const * const * name=smt_sensitive_tiles; *name; name++ ) {
+    ulong tile_idx = fd_topo_find_tile( topo, *name, 0UL );
+    if( FD_LIKELY( tile_idx==ULONG_MAX ) ) continue;
+
+    ulong cpu_idx = topo->tiles[ tile_idx ].cpu_idx;
+    if( FD_UNLIKELY( cpu_idx>=fd_ulong_min( cpus->cpu_cnt, FD_TILE_MAX ) ) ) continue;
+
+    ulong sibling = cpus->cpu[ cpu_idx ].sibling;
+    if( FD_UNLIKELY( sibling==ULONG_MAX || sibling>=FD_TILE_MAX ) ) continue;      /* no sibling */
+    if( FD_UNLIKELY( !cpus->cpu[ sibling ].online ) ) continue;                    /* offline is even better */
+    if( FD_UNLIKELY( fd_cpuset_test( cpuset, sibling ) ) ) continue;               /* used by another tile */
+
+    fd_cpuset_insert( cpuset, sibling );
+  }
+  return cpuset;
 }
 
 int

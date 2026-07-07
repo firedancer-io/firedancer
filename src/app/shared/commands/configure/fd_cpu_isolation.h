@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_app_shared_commands_configure_fd_cpu_isolation_h
 #define HEADER_fd_src_app_shared_commands_configure_fd_cpu_isolation_h
 
-/* Shared helpers for the CPU isolation configure stages (nohz-full,
-   rcu-nocbs, and future CPU isolation stages).  These stages all reason about the
+/* Shared helpers for the CPU isolation configure stages (kworkers,
+   cpuset, nohz-full, rcu-nocbs).  These stages all reason about the
    same thing: the set of CPUs hosting fixed (pinned) Firedancer tiles,
    and kernel interfaces that take CPU sets either as range lists
    ("0-3,7,9-11") or as comma-grouped hex masks ("0000000f,ffffff00"). */
@@ -58,6 +58,21 @@ char *
 fd_cpu_isolation_format_list( char *              buf,
                               ulong               buf_sz,
                               fd_cpuset_t const * cpuset );
+
+/* fd_cpu_isolation_partition_cpus fills cpuset with the CPUs that the
+   cpuset stage places in the isolated partition: all fixed tile CPUs,
+   plus the otherwise-unused hyperthread siblings of the tiles that are
+   sensitive to SMT resource sharing (pack, poh, pohh; the same set the
+   hyperthreads stage checks).  Isolating an unused sibling leaves it
+   permanently idle in a deep sleep state, which relinquishes the
+   physical core's shared execution resources about as well as taking
+   the CPU offline, while keeping it available for future use.
+   Siblings used by another tile, offline, or nonexistent are not
+   added.  Returns cpuset. */
+
+fd_cpuset_t *
+fd_cpu_isolation_partition_cpus( fd_cpuset_t       cpuset[ static fd_cpuset_word_cnt ],
+                                 fd_topo_t const * topo );
 
 /* fd_cpu_isolation_parse_mask parses a comma-grouped hex CPU mask like
    "0000000f,ffffff00\n" (e.g. contents of

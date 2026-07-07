@@ -34,6 +34,8 @@ $(call add-objs,commands/configure/sysctl,fdctl_shared)
 $(call add-objs,commands/configure/sysfs-poll,fdctl_shared)
 $(call add-objs,commands/configure/snapshots,fdctl_shared)
 $(call add-objs,commands/configure/fd_cpu_isolation,fdctl_shared)
+$(call add-objs,commands/configure/kworkers,fdctl_shared)
+$(call add-objs,commands/configure/cpuset,fdctl_shared)
 $(call add-objs,commands/configure/nohz-full,fdctl_shared)
 $(call add-objs,commands/configure/rcu-nocbs,fdctl_shared)
 ifdef FD_HAS_ALLOCA
