@@ -11,6 +11,52 @@
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 
+/* inline fd_hash and specialize for 32 bytes */
+static inline ulong
+fd_hash_32( ulong        seed,
+            void const * buf ) {
+#define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
+#define C1 (11400714785074694791UL)
+#define C2 (14029467366897019727UL)
+#define C3 ( 1609587929392839161UL)
+#define C4 ( 9650029242287828579UL)
+  uchar const * p    = ((uchar const *)buf);
+
+  ulong w = seed + (C1+C2);
+  ulong x = seed + C2;
+  ulong y = seed;
+  ulong z = seed - C1;
+
+  w += FD_LOAD( ulong, p    )*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
+  x += FD_LOAD( ulong, p+ 8 )*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
+  y += FD_LOAD( ulong, p+16 )*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
+  z += FD_LOAD( ulong, p+24 )*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
+
+  ulong h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
+
+  w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = h*C1 + C4;
+  x *= C2; x = ROTATE_LEFT( x, 31 ); x *= C1; h ^= x; h = h*C1 + C4;
+  y *= C2; y = ROTATE_LEFT( y, 31 ); y *= C1; h ^= y; h = h*C1 + C4;
+  z *= C2; z = ROTATE_LEFT( z, 31 ); z *= C1; h ^= z; h = h*C1 + C4;
+
+  h += 32UL;
+
+  /* Final avalanche */
+  h ^= h >> 33;
+  h *= C2;
+  h ^= h >> 29;
+  h *= C3;
+  h ^= h >> 32;
+
+#undef C4
+#undef C3
+#undef C2
+#undef C1
+#undef ROTATE_LEFT
+
+  return h;
+}
+
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 typedef struct {
@@ -348,7 +394,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -364,7 +410,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -448,7 +494,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* PENALTY_TREAP_THRESHOLD: How many references to an account do we
