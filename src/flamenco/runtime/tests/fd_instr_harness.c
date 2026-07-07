@@ -129,24 +129,54 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load accounts from input */
 
+  /* Mimic Agave's mock_compile_message: put the program + referenced
+     instruction accounts in the first txn slots, the rest after. */
+  uchar account_in_message[ MAX_TX_ACCOUNT_LOCKS ] = {0};
+  uint  input_txn_idx     [ MAX_TX_ACCOUNT_LOCKS ];
+
+  for( ulong i=0UL; i<test_ctx->instr_accounts_count; i++ ) {
+    uint index = test_ctx->instr_accounts[ i ].index;
+    if( FD_UNLIKELY( index>=test_ctx->accounts_count ) ) {
+      FD_LOG_ERR(( "invariant violation: instruction account index out of range (%u >= %u)",
+                   index, test_ctx->accounts_count ));
+    }
+    account_in_message[ index ] = 1;
+  }
+
+  ulong program_idx = ULONG_MAX;
+  for( ulong i=0UL; i<test_ctx->accounts_count; i++ ) {
+    if( !memcmp( test_ctx->accounts[ i ].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+      account_in_message[ i ] = 1;
+      program_idx = i;
+      break;
+    }
+  }
+
+  /* Ensure the program id is in the set of accounts */
+  FD_TEST( program_idx!=ULONG_MAX );
+
+  /* Message accounts take the low slots; the rest fill the tail. */
+  uint message_account_cnt = 0U;
+  uint tail_txn_idx        = test_ctx->accounts_count;
+  for( ulong i=0UL; i<test_ctx->accounts_count; i++ ) {
+    input_txn_idx[ i ] = account_in_message[ i ] ? message_account_cnt++ : --tail_txn_idx;
+  }
+
+  info->program_id      = (uchar)input_txn_idx[ program_idx ];
   txn_out->accounts.cnt = test_ctx->accounts_count;
 
-  int has_program_id = 0;
-
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
+    ulong txn_idx = input_txn_idx[j];
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
-
-    memcpy( &txn_out->accounts.keys[j], test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    runtime->accounts.refcnt[j] = 0UL;
 
     uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
     uchar * data_buf = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
-    if( test_ctx->accounts[j].data && dlen ) {
+    if( dlen ) {
       fd_memcpy( data_buf, test_ctx->accounts[j].data->bytes, dlen );
     }
 
     /* Initialize entry with in-memory account data (no DB backing) */
-    fd_acc_t * acc = txn_out->accounts.account[j];
+    fd_acc_t * acc = txn_out->accounts.account[txn_idx];
     memcpy( acc->pubkey, acc_key->key, 32 );
     memcpy( acc->owner, test_ctx->accounts[j].owner, 32 );
     acc->lamports   = test_ctx->accounts[j].lamports;
@@ -154,18 +184,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     acc->data_len   = dlen;
     acc->data       = data_buf;
     acc->_writable  = 1;
-    txn_out->accounts.is_writable[j] = 1U;
     acc->commit     = 0;
-    txn_out->accounts.keys[j] = *acc_key;
 
-    if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
-      has_program_id   = 1;
-      info->program_id = (uchar)j;
-    }
+    txn_out->accounts.is_writable[txn_idx] = 1U;
+    runtime->accounts.refcnt[txn_idx] = 0UL;
+    txn_out->accounts.keys[txn_idx] = *acc_key;
   }
-
-  /* Ensure the program id is in the set of accounts */
-  FD_TEST( has_program_id );
 
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
@@ -193,7 +217,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       fd_acc_t * pd_ent = NULL;
       for( ulong j=0UL; j<test_ctx->accounts_count; j++ ) {
         if( !memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
-          pd_ent = txn_out->accounts.account[j];
+          pd_ent = txn_out->accounts.account[ input_txn_idx[j] ];
           break;
         }
       }
@@ -279,7 +303,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   int   bpf_upgradeable_present = !memcmp( test_ctx->program_id, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) );
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
-    if( FD_UNLIKELY( index >= test_ctx->accounts_count ) ) continue;
 
     instr_is_writable[index] = (uchar)( instr_is_writable[index] | test_ctx->instr_accounts[j].is_writable );
     instr_is_signer[index]   = (uchar)( instr_is_signer[index]   | test_ctx->instr_accounts[j].is_signer );
@@ -291,10 +314,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
-    if( index >= test_ctx->accounts_count ) {
-      FD_LOG_ERR(( "invariant violation: instruction account index out of range (%u > %u)",
-                   index, test_ctx->instr_accounts_count ));
-    }
 
     /* A program account is demoted to read-only unless the upgradeable
        loader is present. */
@@ -306,7 +325,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     /* Setup instruction accounts */
     fd_instr_info_setup_instr_account( info,
                                        acc_idx_seen,
-                                       (ushort)index,
+                                       (ushort)input_txn_idx[index],
                                        (ushort)j,
                                        (ushort)j,
                                        is_writable,
@@ -322,6 +341,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_log_collector_init( ctx->runtime->log.log_collector, 0 );
   fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
+
+  /* Narrow execution to those accounts; the rest stay loaded. */
+  txn_out->accounts.cnt = message_account_cnt;
 }
 
 void
@@ -341,6 +363,16 @@ fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
   /* Compact the progcache allocator so empty superblocks are returned
      to the workspace.  Required for the leak check to pass. */
   fd_alloc_compact( runner->progcache->join->alloc );
+}
+
+/* Txn index for addr; searches all input accounts, not just cnt.
+   Returns ULONG_MAX if not found. */
+static ulong
+instr_harness_idx_of( fd_txn_out_t const * txn_out, ulong cnt, uchar const * addr ) {
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( !memcmp( txn_out->accounts.keys[i].key, addr, sizeof(fd_pubkey_t) ) ) return i;
+  }
+  return ULONG_MAX;
 }
 
 ulong
@@ -374,7 +406,9 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
       }
     }
     if( !referenced && input->accounts[j].data ) {
-      fd_memcpy( ctx->txn_out->accounts.account[j]->data, input->accounts[j].data->bytes, input->accounts[j].data->size );
+      ulong txn_idx = instr_harness_idx_of( ctx->txn_out, input->accounts_count, input->accounts[j].address );
+      if( txn_idx==ULONG_MAX ) continue;
+      fd_memcpy( ctx->txn_out->accounts.account[txn_idx]->data, input->accounts[j].data->bytes, input->accounts[j].data->size );
     }
   }
 
@@ -406,7 +440,8 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Allocate space for captured accounts */
-  ulong modified_acct_cnt = ctx->txn_out->accounts.cnt;
+  /* All input accounts stay loaded past cnt; report the full set. */
+  ulong modified_acct_cnt = input->accounts_count;
 
   fd_exec_test_acct_state_t * modified_accts =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
@@ -420,9 +455,12 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Capture borrowed accounts */
 
-  for( ulong j=0UL; j < ctx->txn_out->accounts.cnt; j++ ) {
-    fd_pubkey_t * acc_key = &ctx->txn_out->accounts.keys[j];
-    fd_acc_t * acc = ctx->txn_out->accounts.account[j];
+  for( ulong j=0UL; j < input->accounts_count; j++ ) {
+    /* Emit in input order; the tx set is reordered/narrowed. */
+    ulong txn_idx = instr_harness_idx_of( ctx->txn_out, input->accounts_count, input->accounts[j].address );
+    if( txn_idx==ULONG_MAX ) continue;
+    fd_pubkey_t * acc_key = &ctx->txn_out->accounts.keys[txn_idx];
+    fd_acc_t * acc = ctx->txn_out->accounts.account[txn_idx];
     if( !acc->data ) {
       continue;
     }
