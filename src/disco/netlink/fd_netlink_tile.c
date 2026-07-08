@@ -2,6 +2,7 @@
 #include "../topo/fd_topo.h"
 #include "../topo/fd_topob.h"
 #include "../metrics/fd_metrics.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/ip/fd_fib4_netlink.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
 #include "../../waltz/neigh/fd_neigh4_netlink.h"
@@ -12,6 +13,8 @@
 #include <errno.h>
 #include <net/if.h>
 #include <netinet/in.h> /* MSG_DONTWAIT */
+#include <sys/epoll.h>
+#include <time.h> /* CLOCK_REALTIME (seccomp policy) */
 #include <sys/socket.h> /* SOL_{...} */
 #include <sys/random.h> /* getrandom */
 #include <sys/time.h> /* struct timeval */
@@ -97,7 +100,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd );
+  /* If not a waker client, pass an invalid fd so the epoll rules can
+     never match. */
+  uint epoll_inner_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ), -1 );
+  uint epoll_outer_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_OUTER_FD,                           -1 );
+
+  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd, epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_netlink_instr_cnt;
 }
 
@@ -109,7 +117,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt too low (%lu)", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt too low (%lu)", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -118,6 +126,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->nl_monitor->fd;
   out_fds[ out_cnt++ ] = ctx->nl_req->fd;
   out_fds[ out_cnt++ ] = ctx->prober->sock_fd;
+  if( FD_LIKELY( tile->waker_client_idx!=ULONG_MAX ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 
@@ -165,6 +177,16 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( 0!=setsockopt( ctx->nl_monitor->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval) ) ) ) {
     FD_LOG_ERR(( "setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  ctx->waker_client_idx = tile->waker_client_idx;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    /* Register the monitor socket in the waker inner epoll set (see
+       fd_waker.h).  nl_req stays out: its reads are synchronous
+       request/response dumps initiated by this tile. */
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = ctx->nl_monitor->fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_ADD, ctx->nl_monitor->fd, &ev ) ) )
+      FD_LOG_ERR(( "epoll_ctl(ADD,nl_monitor) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static void
@@ -173,6 +195,12 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_netlink_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
+
+  ctx->waker_fseq = NULL;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+  }
 
   FD_TEST( tile->netlink.netdev_tbl_obj_id );
   FD_TEST( tile->netlink.neigh4_obj_id     );
@@ -309,6 +337,18 @@ static void
 before_credit( fd_netlink_tile_ctx_t * ctx,
                fd_stem_context_t *     stem FD_PARAM_UNUSED,
                int *                   charge_busy ) {
+
+  if( FD_LIKELY( ctx->waker_fseq ) ) {
+    /* Wake protocol (fd_waker.h): only read the monitor socket when
+       the waker raised our readiness word.  Clear FIRST, drain to
+       empty (monitor updates are small and rare), rearm LAST. */
+    if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+      fd_fseq_update( ctx->waker_fseq, 0UL );
+      while( netlink_monitor_read( ctx, MSG_DONTWAIT ) ) *charge_busy = 1;
+      fd_waker_client_rearm( ctx->waker_client_idx );
+    }
+    return;
+  }
 
   for(;;) {
     /* Clear socket buffer */

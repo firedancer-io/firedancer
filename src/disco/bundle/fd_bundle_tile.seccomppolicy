@@ -4,7 +4,16 @@
 # keylog_fd: Log HTTPS session keys to file (development option)
 #
 # etc_hosts_fd, etc_resolv_conf: Used to resolve DNS records.
-uint logfile_fd, uint keylog_fd, uint etc_hosts_fd, uint etc_resolv_conf
+# epoll_inner_fd: The tile's inner epoll fd, inherited from the boot
+#                 process at a fixed number when the tile is a waker
+#                 client (see fd_waker.h).  The TCP socket is
+#                 registered here.  UINT_MAX when not a waker client,
+#                 so no epoll rule can match.
+#
+# epoll_outer_fd: The waker's outer epoll fd, which the tile may only
+#                 touch to rearm its own inner fd entry after a drain.
+#                 UINT_MAX when not a waker client.
+uint logfile_fd, uint keylog_fd, uint etc_hosts_fd, uint etc_resolv_conf, uint epoll_inner_fd, uint epoll_outer_fd
 
 # bundle: Read from TCP connection (HTTPS)
 #
@@ -128,3 +137,14 @@ lseek: (and (or (eq (arg 0) etc_resolv_conf)
 # bundle: yield to scheduler to save power
 sched_yield
 clock_nanosleep
+
+# waker: register the TCP socket in the tile's inner epoll set on
+# (re)connect, and rearm the tile's entry in the waker's outer epoll
+# set after servicing
+#
+# arg 0 is the epoll fd being modified.  The tile may modify its own
+# inner set freely, and may only touch its own inner fd's entry in the
+# outer set.
+epoll_ctl: (or (eq (arg 0) epoll_inner_fd)
+               (and (eq (arg 0) epoll_outer_fd)
+                    (eq (arg 2) epoll_inner_fd)))

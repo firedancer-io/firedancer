@@ -1,5 +1,6 @@
 #include "fd_prometheus.h"
 #include "fd_metrics.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -7,6 +8,7 @@
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 
 #include "generated/fd_metric_tile_seccomp.h"
 
@@ -27,6 +29,13 @@ typedef struct {
   fd_topo_t const * topo;
 
   fd_http_server_t * metrics_server;
+
+  /* If waker_client_idx!=ULONG_MAX the tile is a waker client: the
+     server runs in epoll mode on the inherited inner epoll fd, fd
+     servicing is gated on the waker readiness fseq, and pacing (the
+     old 1ms blocking ppoll) becomes a nanosleep.  See fd_waker.h. */
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   long boot_ts;
 } fd_metric_ctx_t;
@@ -51,7 +60,18 @@ before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1 ); /* 1ms */
+  if( FD_LIKELY( ctx->waker_fseq ) ) {
+    /* Wake protocol (fd_waker.h): clear FIRST, drain, rearm LAST.
+       Drain-to-empty is safe here: the tile has no in-links, so
+       nothing is backpressured by fd servicing. */
+    if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+      fd_fseq_update( ctx->waker_fseq, 0UL );
+      while( fd_http_server_epoll_poll( ctx->metrics_server ) ) *charge_busy = 1;
+      fd_waker_client_rearm( ctx->waker_client_idx );
+    }
+  } else {
+    *charge_busy = fd_http_server_poll( ctx->metrics_server, 1 ); /* 1ms */
+  }
 }
 
 static fd_http_server_response_t
@@ -110,6 +130,10 @@ privileged_init( fd_topo_t const *      topo,
   };
   ctx->metrics_server = fd_http_server_join( fd_http_server_new( _metrics, METRICS_PARAMS, metrics_callbacks, ctx ) );
   fd_http_server_listen( ctx->metrics_server, tile->metric.prometheus_listen_addr, tile->metric.prometheus_listen_port );
+
+  ctx->waker_client_idx = tile->waker_client_idx;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) )
+    fd_http_server_epoll_set( ctx->metrics_server, FD_WAKER_INNER_FD( ctx->waker_client_idx ) );
 }
 
 static void
@@ -122,6 +146,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->topo = topo;
   ctx->boot_ts = fd_log_wallclock();
+
+  ctx->waker_fseq = NULL;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -139,7 +169,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
-  populate_sock_filter_policy_fd_metric_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ) );
+  /* If not a waker client, pass an invalid fd so the epoll rules can
+     never match. */
+  uint epoll_inner_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ), -1 );
+  uint epoll_outer_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_OUTER_FD,                           -1 );
+
+  populate_sock_filter_policy_fd_metric_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ), epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_metric_tile_instr_cnt;
 }
 
@@ -152,13 +187,17 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->metrics_server ); /* metrics listen socket */
+  if( FD_LIKELY( tile->waker_client_idx!=ULONG_MAX ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 

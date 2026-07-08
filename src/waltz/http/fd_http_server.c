@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <errno.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 #include <poll.h>
 #include <stdlib.h>
@@ -175,6 +176,7 @@ fd_http_server_new( void *                     shmem,
   http->evict_conn_id         = 0UL;
   http->evict_ws_conn_id      = 0UL;
   http->poll_conn_idx         = 0UL;
+  http->epoll_fd              = -1;
   http->max_conns             = params.max_connection_cnt;
   http->max_ws_conns          = params.max_ws_connection_cnt;
   http->max_request_len       = params.max_request_len;
@@ -321,9 +323,15 @@ fd_http_server_listen( fd_http_server_t * http,
 
   http->socket_fd = sockfd;
   http->pollfds[ http->max_conns+http->max_ws_conns ].fd = http->socket_fd;
+  if( FD_UNLIKELY( -1!=http->epoll_fd ) ) {
+    struct epoll_event ev = { .events = EPOLLIN, .data.u64 = http->max_conns+http->max_ws_conns };
+    if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, sockfd, &ev ) ) )
+      FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   return http;
 }
+
 
 static void
 close_conn( fd_http_server_t * http,
@@ -358,6 +366,96 @@ close_conn( fd_http_server_t * http,
 
   if( FD_LIKELY( conn_idx<http->max_conns ) ) http->metrics.connection_cnt--;
   else                                        http->metrics.ws_connection_cnt--;
+}
+
+/* In epoll mode (epoll_fd!=-1), fds are registered in the epoll set as
+   they are created and deregistered implicitly by close(2) (the server
+   holds the only reference to each fd).  Entries are level-triggered
+   EPOLLIN; EPOLLOUT is armed only while the connection has pending
+   output, else idle-but-writable sockets would keep the set
+   permanently ready.  pollfds[ i ].events shadows the kernel interest
+   set so redundant epoll_ctl calls are elided; poll mode never
+   modifies .events so the two modes do not interfere. */
+
+static void
+epoll_conn_add( fd_http_server_t * http,
+                ulong              conn_idx ) {
+  if( FD_LIKELY( -1==http->epoll_fd ) ) return;
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = conn_idx };
+  if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, http->pollfds[ conn_idx ].fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  http->pollfds[ conn_idx ].events = POLLIN;
+}
+
+static void
+epoll_conn_arm( fd_http_server_t * http,
+                ulong              conn_idx,
+                short              events ) { /* POLLIN or POLLIN|POLLOUT */
+  if( FD_LIKELY( -1==http->epoll_fd ) ) return;
+  if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) return;
+  if( FD_LIKELY( http->pollfds[ conn_idx ].events==events ) ) return;
+  struct epoll_event ev = {
+    .events   = EPOLLIN | ((events & POLLOUT) ? EPOLLOUT : 0U),
+    .data.u64 = conn_idx,
+  };
+  if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_MOD, http->pollfds[ conn_idx ].fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(MOD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  http->pollfds[ conn_idx ].events = events;
+}
+
+/* Rebind an already registered fd to a new connection index (websocket
+   upgrade migrates the fd from an HTTP slot to a websocket slot). */
+
+static void
+epoll_conn_move( fd_http_server_t * http,
+                 ulong              conn_idx ) {
+  if( FD_LIKELY( -1==http->epoll_fd ) ) return;
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = conn_idx };
+  if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_MOD, http->pollfds[ conn_idx ].fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(MOD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  http->pollfds[ conn_idx ].events = POLLIN;
+}
+
+/* Sync EPOLLOUT interest with whether the connection has pending
+   output: an HTTP connection writing a response, or a websocket
+   connection with queued frames or a pending pong. */
+
+static void
+epoll_update_out( fd_http_server_t * http,
+                  ulong              conn_idx ) {
+  if( FD_LIKELY( -1==http->epoll_fd ) ) return;
+  if( FD_UNLIKELY( conn_idx>=http->max_conns+http->max_ws_conns ) ) return; /* listener */
+  if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) return;
+
+  int pending;
+  if( FD_LIKELY( conn_idx<http->max_conns ) ) {
+    pending = http->conns[ conn_idx ].state!=FD_HTTP_SERVER_CONNECTION_STATE_READING;
+  } else {
+    struct fd_http_server_ws_connection * conn = &http->ws_conns[ conn_idx-http->max_conns ];
+    pending = conn->send_frame_cnt || conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_NONE;
+  }
+  epoll_conn_arm( http, conn_idx, pending ? (POLLIN|POLLOUT) : POLLIN );
+}
+
+void
+fd_http_server_epoll_set( fd_http_server_t * http,
+                          int                epoll_fd ) {
+  FD_TEST( -1==http->epoll_fd );
+  http->epoll_fd = epoll_fd;
+
+  /* Register fds that already exist (e.g. the listen socket when
+     listen ran before epoll mode was enabled). */
+  ulong listener_idx = http->max_conns+http->max_ws_conns;
+  if( FD_UNLIKELY( -1!=http->pollfds[ listener_idx ].fd ) ) {
+    struct epoll_event ev = { .events = EPOLLIN, .data.u64 = listener_idx };
+    if( FD_UNLIKELY( -1==epoll_ctl( http->epoll_fd, EPOLL_CTL_ADD, http->pollfds[ listener_idx ].fd, &ev ) ) )
+      FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  for( ulong i=0UL; i<listener_idx; i++ ) {
+    if( FD_LIKELY( -1==http->pollfds[ i ].fd ) ) continue;
+    epoll_conn_add( http, i );
+    epoll_update_out( http, i );
+  }
 }
 
 void
@@ -425,6 +523,7 @@ accept_conns( fd_http_server_t * http ) {
     ulong conn_id = conn_pool_idx_acquire( http->conns );
 
     http->pollfds[ conn_id ].fd = fd;
+    epoll_conn_add( http, conn_id );
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
@@ -1009,6 +1108,7 @@ write_conn_http( fd_http_server_t * http,
 
           ulong ws_conn_id = ws_conn_pool_idx_acquire( http->ws_conns );
           http->pollfds[ http->max_conns+ws_conn_id ].fd = fd;
+          epoll_conn_move( http, http->max_conns+ws_conn_id );
 
           http->ws_conns[ ws_conn_id ].pong_state               = FD_HTTP_SERVER_PONG_STATE_NONE;
           http->ws_conns[ ws_conn_id ].send_frame_cnt           = 0UL;
@@ -1221,6 +1321,35 @@ fd_http_server_poll( fd_http_server_t * http,
   return 1;
 }
 
+int
+fd_http_server_epoll_poll( fd_http_server_t * http ) {
+  FD_TEST( -1!=http->epoll_fd );
+
+  struct epoll_event evs[ 64 ];
+  int nfds = epoll_pwait( http->epoll_fd, evs, 64, 0, NULL ); /* pwait: narrower to seccomp than epoll_wait */
+  if( FD_UNLIKELY( -1==nfds ) ) {
+    if( FD_LIKELY( errno==EINTR ) ) return 0;
+    FD_LOG_ERR(( "epoll_pwait failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_LIKELY( !nfds ) ) return 0;
+
+  ulong listener_idx = http->max_conns+http->max_ws_conns;
+  for( int i=0; i<nfds; i++ ) {
+    ulong conn_idx = evs[ i ].data.u64;
+    if( FD_UNLIKELY( conn_idx==listener_idx ) ) {
+      accept_conns( http );
+      continue;
+    }
+    if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) continue; /* closed while servicing an earlier event */
+    if( FD_LIKELY(   evs[ i ].events & (EPOLLIN|EPOLLHUP|EPOLLERR) ) ) read_conn(  http, conn_idx );
+    if( FD_UNLIKELY( -1==http->pollfds[ conn_idx ].fd ) ) continue;
+    if( FD_LIKELY(   evs[ i ].events & EPOLLOUT             ) ) write_conn( http, conn_idx );
+    epoll_update_out( http, conn_idx );
+  }
+
+  return 1;
+}
+
 static void
 fd_http_server_evict_until( fd_http_server_t * http,
                             ulong              off ) {
@@ -1382,6 +1511,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
   if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
     ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
   }
+  epoll_update_out( http, http->max_conns+ws_conn_id );
 
   http->stage_off += http->stage_len+http->stage_comp_len;
   http->stage_len = 0;
@@ -1422,6 +1552,7 @@ fd_http_server_ws_broadcast( fd_http_server_t * http ) {
     if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
       ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
     }
+    epoll_update_out( http, http->max_conns+i );
   }
 
   http->stage_off += http->stage_len+http->stage_comp_len;

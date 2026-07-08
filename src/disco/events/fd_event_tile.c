@@ -11,6 +11,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -71,6 +72,15 @@ struct fd_event_tile {
   fd_keyswitch_t * keyswitch;
 
   ulong idle_cnt;
+
+  /* If waker_fseq is set the tile is a waker client: the client's TCP
+     socket lives in the inherited inner epoll set and rx servicing is
+     gated on the readiness fseq; the time-driven parts of the client
+     (reconnect, deadlines, tx retry, SSL-buffered rx) run on a 1ms
+     cadence.  See fd_waker.h. */
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+  long    next_poll_deadline;
 
   ulong boot_id;
   ulong machine_id;
@@ -174,7 +184,23 @@ before_credit( fd_event_tile_t *   ctx,
   if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
   ctx->idle_cnt = 0UL;
 
-  fd_event_client_poll( ctx->client, charge_busy );
+  if( FD_LIKELY( ctx->waker_fseq ) ) {
+    /* Waker mode: rx is gated on the readiness fseq (clear FIRST,
+       service, rearm LAST; leftover socket data re-fires via the
+       rearm).  The time-driven parts of the poll (reconnect, auth
+       deadline, tx, and any rx bytes buffered inside OpenSSL after a
+       partial drain) run on a 1ms cadence. */
+    int  fired = fd_fseq_query( ctx->waker_fseq )==1UL;
+    long now   = fd_log_wallclock();
+    if( FD_UNLIKELY( fired | ( now>=ctx->next_poll_deadline ) ) ) {
+      if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
+      fd_event_client_poll( ctx->client, charge_busy );
+      if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
+      ctx->next_poll_deadline = now + (long)1e6;
+    }
+  } else {
+    fd_event_client_poll( ctx->client, charge_busy );
+  }
 }
 
 static void
@@ -509,6 +535,15 @@ unprivileged_init( fd_topo_t const *      topo,
                                                            ssl_ctx_ptr ) );
   FD_TEST( ctx->client );
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  ctx->waker_fseq       = NULL;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+    fd_event_client_epoll_set( ctx->client, FD_WAKER_INNER_FD( ctx->waker_client_idx ) );
+  }
+  ctx->next_poll_deadline = 0L;
+
   ctx->topo = topo;
   fd_memset( ctx->tile_shutdown_rendered, 0, sizeof(ctx->tile_shutdown_rendered) );
 
@@ -564,11 +599,18 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_event_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  /* If not a waker client, pass an invalid fd so the epoll rules can
+     never match. */
+  uint epoll_inner_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ), -1 );
+  uint epoll_outer_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_OUTER_FD,                           -1 );
+
   populate_sock_filter_policy_fd_event_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->netdb_fds->etc_hosts,
-      (uint)ctx->netdb_fds->etc_resolv_conf );
+      (uint)ctx->netdb_fds->etc_resolv_conf,
+      epoll_inner_fd,
+      epoll_outer_fd );
   return sock_filter_policy_fd_event_tile_instr_cnt;
 }
 
@@ -579,7 +621,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_event_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -588,6 +630,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->netdb_fds->etc_hosts >= 0 ) )
     out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_hosts;
   out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
+  if( FD_LIKELY( tile->waker_client_idx!=ULONG_MAX ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 

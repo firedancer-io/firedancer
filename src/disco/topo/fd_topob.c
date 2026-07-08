@@ -177,6 +177,8 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->out_cnt             = 0UL;
   tile->event_link_id       = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
+  tile->waker_client_idx    = ULONG_MAX;
+  tile->waker_fseq_obj_id   = ULONG_MAX;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
   tile->tile_obj_id = tile_obj->id;
@@ -377,6 +379,7 @@ static char const * FLOATING[] = {
   "netlnk",
   "metric",
   "diag",
+  "waker",
   "bencho",
   "genesi", /* FIREDANCER ONLY */
   "ipecho", /* FIREDANCER ONLY */

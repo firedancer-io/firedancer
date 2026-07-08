@@ -451,6 +451,27 @@ int
 fd_http_server_poll( fd_http_server_t * http,
                      int                poll_timeout );
 
+/* fd_http_server_epoll_set switches the server into epoll mode: all
+   server fds (listen socket and connections, present and future) are
+   registered in the provided epoll set, level-triggered, with EPOLLOUT
+   armed only while a connection has pending output.  The server does
+   not take ownership of epoll_fd.  Must be called at most once.  In
+   epoll mode the caller drives the server with
+   fd_http_server_epoll_poll instead of fd_http_server_poll. */
+
+void
+fd_http_server_epoll_set( fd_http_server_t * http,
+                          int                epoll_fd );
+
+/* fd_http_server_epoll_poll is fd_http_server_poll for a server in
+   epoll mode: a non-blocking epoll_wait on the registered set,
+   servicing only ready connections.  Returns 1 if there was any work
+   to do on the HTTP server, or 0 otherwise.  Call repeatedly until it
+   returns 0 to drain the set. */
+
+int
+fd_http_server_epoll_poll( fd_http_server_t * http );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_http_fd_http_server_h */

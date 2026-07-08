@@ -135,6 +135,12 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
 
   ulong poll_conn_idx; /* Next connection index to service in chunked polling */
 
+  int epoll_fd; /* If not -1, the server is in epoll mode: fds are registered in this epoll
+                   set (EPOLLIN level-triggered; EPOLLOUT armed only while output is pending)
+                   and fd_http_server_epoll_poll replaces fd_http_server_poll.  pollfds[ i ].fd
+                   remains the fd registry and pollfds[ i ].events shadows the kernel interest
+                   set to elide redundant epoll_ctl calls. */
+
   void * callback_ctx;
   fd_http_server_callbacks_t callbacks;
 

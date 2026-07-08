@@ -92,6 +92,7 @@ extern configure_stage_t fd_cfg_stage_kworkers;
 extern configure_stage_t fd_cfg_stage_cpuset;
 extern configure_stage_t fd_cfg_stage_nohz_full;
 extern configure_stage_t fd_cfg_stage_rcu_nocbs;
+extern configure_stage_t fd_cfg_stage_console;
 
 extern configure_stage_t * STAGES[];
 

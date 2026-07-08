@@ -88,6 +88,17 @@ void
 fd_event_client_poll( fd_event_client_t * client,
                       int *               charge_busy );
 
+/* fd_event_client_epoll_set makes the client register its TCP socket
+   (present and future, across reconnects) in the provided epoll set,
+   EPOLLIN level-triggered.  The client does not take ownership of
+   epoll_fd and never waits on it; the caller discovers readiness (see
+   fd_waker.h) and drives the client with fd_event_client_poll as
+   usual.  Must be called at most once, before the first poll. */
+
+void
+fd_event_client_epoll_set( fd_event_client_t * client,
+                           int                 epoll_fd );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_events_fd_event_client_h */

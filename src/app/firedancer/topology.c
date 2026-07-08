@@ -16,6 +16,7 @@
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
+#include "../../disco/waker/fd_waker.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -418,6 +419,7 @@ fd_topo_initialize( config_t * config ) {
   /*             topo, name */
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "diag"   );
+  fd_topob_wksp( topo, "waker"  );
   fd_topob_wksp( topo, "genesi" );
   fd_topob_wksp( topo, "ipecho" );
   fd_topob_wksp( topo, "gossvf" );
@@ -649,6 +651,7 @@ fd_topo_initialize( config_t * config ) {
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
   /**/                 fd_topob_tile( topo, "diag",    "diag",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
+  /**/                 fd_topob_tile( topo, "waker",   "waker",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
     /**/               fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0,                 0 )->allow_shutdown = 1;
@@ -1230,6 +1233,26 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.resolv.%lu", i ) );
   }
 
+  /* Waker clients.  Each tile whose implementation has been converted
+     to waker-gated fd servicing (fd_waker_tile_is_client) gets a
+     client index (its slot in the fixed inherited fd range, see
+     fd_waker.h) and a readiness fseq (waker RW, client RW).  The fseqs
+     live in their own workspace so clients do not gain RW access to
+     the waker tile's memory. */
+  ulong waker_client_cnt = 0UL;
+  fd_topo_tile_t * waker_tile = &topo->tiles[ fd_topo_find_tile( topo, "waker", 0UL ) ];
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * client = &topo->tiles[ i ];
+    if( FD_LIKELY( !fd_waker_tile_is_client( client->name ) ) ) continue;
+    if( FD_UNLIKELY( !waker_client_cnt ) ) fd_topob_wksp( topo, "waker_ready" );
+    fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "waker_ready" );
+    fd_topob_tile_uses( topo, client,     fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, waker_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    client->waker_client_idx  = waker_client_cnt++;
+    client->waker_fseq_obj_id = fseq_obj->id;
+  }
+  FD_TEST( waker_client_cnt<=FD_WAKER_CLIENT_MAX );
+
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -1646,6 +1669,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
     tile->diag.is_voting = strcmp( config->paths.vote_account, "" );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "waker" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
 

@@ -5,11 +5,13 @@
 #include "../genesis/genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/waker/fd_waker.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <poll.h>
+#include <time.h>
 
 #include "generated/fd_ipecho_tile_seccomp.h"
 
@@ -20,6 +22,15 @@ struct fd_ipecho_tile_ctx {
 
   fd_ipecho_server_t * server;
   fd_ipecho_client_t * client;
+
+  /* If waker_client_idx!=ULONG_MAX the tile is a waker client: the
+     server runs in epoll mode on the inherited inner epoll fd and
+     server fd servicing is gated on the waker readiness fseq.  The
+     boot-time client (entrypoint shred version retrieval) is not
+     converted: it is short-lived and spins by design.  See
+     fd_waker.h. */
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
 
   uint   bind_address;
   ushort bind_port;
@@ -95,14 +106,27 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  /* 1ms timeout is sufficient here. Large timeouts (e.g. 10ms) can
-     cause housekeeping tasks to run very infrequently (> 0.05Hz) since
-     they incur a prolonged context switch every single iteration of the
-     STEM loop. */
-  int timeout = ctx->retrieving ? 0 : 1;
+  if( FD_UNLIKELY( ctx->retrieving ) ) {
+    poll_client( ctx, stem, charge_busy );
+    return;
+  }
 
-  if( FD_UNLIKELY( ctx->retrieving ) ) poll_client( ctx, stem, charge_busy );
-  else                                 fd_ipecho_server_poll( ctx->server, charge_busy, timeout );
+  if( FD_LIKELY( ctx->waker_fseq ) ) {
+    /* Wake protocol (fd_waker.h): clear FIRST, drain, rearm LAST.
+       Drain-to-empty is safe: requests are 21 bytes and responses
+       27, so per-connection work is tightly bounded. */
+    if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+      fd_fseq_update( ctx->waker_fseq, 0UL );
+      while( fd_ipecho_server_epoll_poll( ctx->server, charge_busy ) ) {}
+      fd_waker_client_rearm( ctx->waker_client_idx );
+    }
+  } else {
+    /* 1ms timeout is sufficient here. Large timeouts (e.g. 10ms) can
+       cause housekeeping tasks to run very infrequently (> 0.05Hz)
+       since they incur a prolonged context switch every single
+       iteration of the STEM loop. */
+    fd_ipecho_server_poll( ctx->server, charge_busy, 1 );
+  }
 }
 
 static inline int
@@ -160,6 +184,10 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->server );
   fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->expected_shred_version );
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) )
+    fd_ipecho_server_epoll_set( ctx->server, FD_WAKER_INNER_FD( ctx->waker_client_idx ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -174,6 +202,12 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )       );
 
   FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, tile->ipecho.expected_shred_version );
+
+  ctx->waker_fseq = NULL;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+  }
 
   /* In some topologies (e.g. firedancer-dev gossip), the ipecho tile
      has no input links. Guard against dereferencing a missing
@@ -208,9 +242,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   (void)topo;
-  (void)tile;
 
-  populate_sock_filter_policy_fd_ipecho_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  /* If not a waker client, pass an invalid fd so the epoll rules can
+     never match. */
+  uint epoll_inner_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ), -1 );
+  uint epoll_outer_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_OUTER_FD,                           -1 );
+
+  populate_sock_filter_policy_fd_ipecho_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_ipecho_tile_instr_cnt;
 }
 
@@ -224,7 +262,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL+tile->ipecho.entrypoints_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+tile->ipecho.entrypoints_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -239,6 +277,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
   /* The server's socket. */
   out_fds[ out_cnt++ ] = fd_ipecho_server_sockfd( ctx->server );
+
+  if( FD_LIKELY( tile->waker_client_idx!=ULONG_MAX ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 

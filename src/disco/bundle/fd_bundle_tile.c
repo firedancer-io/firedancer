@@ -5,6 +5,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
+#include "../waker/fd_waker.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
 
@@ -250,7 +251,24 @@ before_credit( fd_bundle_tile_t *  ctx,
   }
 
   if( pending_txn_empty( ctx->pending_txns ) ) {
-    fd_bundle_client_step( ctx, charge_busy );
+    if( FD_LIKELY( ctx->waker_fseq ) ) {
+      /* Waker mode: rx is gated on the readiness fseq (clear FIRST,
+         service, rearm LAST; leftover socket data re-fires via the
+         rearm).  The time-driven parts of the step (connect
+         completion, keepalive, deadlines, reconnect backoff, tx
+         retry, and any rx bytes buffered inside OpenSSL after a
+         partial drain) run on a 1ms cadence. */
+      int  fired = fd_fseq_query( ctx->waker_fseq )==1UL;
+      long now   = fd_bundle_now();
+      if( FD_UNLIKELY( fired | ( now>=ctx->next_step_deadline ) ) ) {
+        if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
+        fd_bundle_client_step( ctx, charge_busy );
+        if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
+        ctx->next_step_deadline = now + (long)1e6;
+      }
+    } else {
+      fd_bundle_client_step( ctx, charge_busy );
+    }
   }
 }
 
@@ -426,6 +444,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->grpc_client_mem = grpc_mem;
   ctx->grpc_buf_max    = tile->bundle.buf_sz;
   ctx->tcp_sock        = -1;
+  ctx->waker_client_idx = tile->waker_client_idx; /* waker_fseq joined in unprivileged_init */
   ctx->pending_txns    = pending_txn_join( pending_txn_new( deque_mem, pending_max ) );
 
   fd_bundle_auther_init( &ctx->auther );
@@ -513,6 +532,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+  }
+
   ulong verify_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_verif", tile->kind_id );
   if( FD_UNLIKELY( verify_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_verif link" ));
   ctx->verify_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ verify_out_idx ] ], verify_out_idx );
@@ -582,12 +606,19 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  /* If not a waker client, pass an invalid fd so the epoll rules can
+     never match. */
+  uint epoll_inner_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ), -1 );
+  uint epoll_outer_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_OUTER_FD,                           -1 );
+
   populate_sock_filter_policy_fd_bundle_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->keylog_fd,
       (uint)ctx->netdb_fds->etc_hosts,
-      (uint)ctx->netdb_fds->etc_resolv_conf
+      (uint)ctx->netdb_fds->etc_resolv_conf,
+      epoll_inner_fd,
+      epoll_outer_fd
   );
   return sock_filter_policy_fd_bundle_tile_instr_cnt;
 }
@@ -599,7 +630,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -610,6 +641,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
   if( FD_UNLIKELY( ctx->keylog_fd>=0 ) )
     out_fds[ out_cnt++ ] = ctx->keylog_fd;
+  if( FD_LIKELY( tile->waker_client_idx!=ULONG_MAX ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                           /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx ); /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 

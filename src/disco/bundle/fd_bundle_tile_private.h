@@ -124,6 +124,17 @@ struct fd_bundle_tile {
   uint defer_reset : 1;
   long cached_ts;
 
+  /* If waker_fseq is set the tile is a waker client: the TCP socket
+     is registered in the inherited inner epoll set on creation and rx
+     servicing is gated on the readiness fseq; the time-driven parts
+     of the client state machine (connect completion, keepalive,
+     deadlines, reconnect) run on a 1ms cadence instead of every loop
+     iteration.  Zeroed ctx (tests) means not enrolled.  See
+     fd_waker.h. */
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+  long    next_step_deadline;
+
   /* Keepalive via HTTP/2 PINGs (randomized) */
   long              keepalive_interval;
   fd_keepalive_t    keepalive[1];

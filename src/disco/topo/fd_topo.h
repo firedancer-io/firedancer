@@ -134,6 +134,12 @@ struct fd_topo_tile {
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
 
+  ulong waker_client_idx;       /* If not ULONG_MAX, this tile owns kernel fds and is a client of the waker tile.  It inherits the inner epoll
+                                   fd FD_WAKER_INNER_FD( waker_client_idx ) (and the outer epoll fd, for rearming), registers its sockets in
+                                   the inner set, and gates fd servicing on its waker readiness fseq.  See src/disco/waker/fd_waker.h. */
+  ulong waker_fseq_obj_id;      /* If waker_client_idx is not ULONG_MAX, the fseq object holding this tile's waker readiness word (waker RW,
+                                   client RW).  Otherwise ULONG_MAX. */
+
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ FD_TOPO_MAX_TILE_IN_LINKS ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
   int   in_link_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */

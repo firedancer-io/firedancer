@@ -4,6 +4,7 @@
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
 #include "fd_bundle_tile.h"
+#include "../waker/fd_waker.h"
 #include "proto/block_engine.pb.h"
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
@@ -19,6 +20,7 @@
 #include <errno.h>
 #include <unistd.h> /* close */
 #include <poll.h> /* poll */
+#include <sys/epoll.h>
 #include <sys/socket.h> /* socket */
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -116,6 +118,16 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
     FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->tcp_sock = tcp_sock;
+
+  /* Register in the waker inner epoll set (EPOLLIN level-triggered;
+     close(2) in fd_bundle_client_reset deregisters implicitly).  No
+     EPOLLOUT: tx is self-initiated and retried on the 1ms step
+     cadence, and connect completion is polled there too. */
+  if( FD_UNLIKELY( ctx->waker_fseq ) ) {
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = tcp_sock };
+    if( FD_UNLIKELY( -1==epoll_ctl( FD_WAKER_INNER_FD( ctx->waker_client_idx ), EPOLL_CTL_ADD, tcp_sock, &ev ) ) )
+      FD_LOG_ERR(( "epoll_ctl(ADD,tcp_sock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   if( FD_UNLIKELY( 0!=setsockopt( tcp_sock, SOL_SOCKET, SO_RCVBUF, &ctx->so_rcvbuf, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", ctx->so_rcvbuf, errno, fd_io_strerror( errno ) ));

@@ -14,6 +14,7 @@
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
+#include "../../../../disco/waker/fd_waker.h"
 
 #include "../configure/configure.h"
 
@@ -348,6 +349,15 @@ main_pid_namespace( void * _args ) {
 
   initialize_accdb_fd( config );
 
+  ulong waker_client_cnt = 0UL;
+  if( FD_LIKELY( config->is_firedancer ) ) {
+    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+      ulong idx = config->topo.tiles[ i ].waker_client_idx;
+      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
+    }
+    fd_waker_install( waker_client_cnt );
+  }
+
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
@@ -399,6 +409,19 @@ main_pid_namespace( void * _args ) {
       } else {
         if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
+
+      /* Waker epoll fds.  The waker tile inherits the outer epfd (to
+         wait on) and every inner epfd (so they stay open even if a
+         client dies).  A client tile inherits the outer epfd (to rearm
+         its own entry, seccomp restricted to epoll_ctl) and its own
+         inner epfd.  All other tiles inherit none. */
+      int is_waker = !strcmp( tile->name, "waker" );
+      int outer_entitled = is_waker || tile->waker_client_idx!=ULONG_MAX;
+      if( FD_UNLIKELY( -1==fcntl( FD_WAKER_OUTER_FD, F_SETFD, outer_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      for( ulong j=0UL; j<waker_client_cnt; j++ ) {
+        int inner_entitled = is_waker || tile->waker_client_idx==j;
+        if( FD_UNLIKELY( -1==fcntl( FD_WAKER_INNER_FD( j ), F_SETFD, inner_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
     }
 
     int pipefd[ 2 ];
@@ -432,6 +455,10 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_ACCDB_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_WAKER_OUTER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong j=0UL; j<waker_client_cnt; j++ ) {
+      if( FD_UNLIKELY( -1==close( FD_WAKER_INNER_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];

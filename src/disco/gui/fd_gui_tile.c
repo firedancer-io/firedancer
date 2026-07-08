@@ -24,6 +24,7 @@
 #include "../../discof/replay/fd_execrp.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/waker/fd_waker.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
@@ -126,6 +127,13 @@ typedef struct {
 
   long next_poll_deadline;
 
+  /* If waker_client_idx!=ULONG_MAX the tile is a waker client: the
+     server runs in epoll mode on the inherited inner epoll fd and fd
+     servicing is gated on the waker readiness fseq instead of the
+     poll deadline.  See fd_waker.h. */
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
 
@@ -208,10 +216,25 @@ before_credit( fd_gui_ctx_t *      ctx,
   ctx->idle_cnt = 0UL;
 
   int charge_busy_server = 0;
-  long now = fd_tickcount();
-  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
-    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
+  if( FD_LIKELY( ctx->waker_fseq ) ) {
+    /* Wake protocol (fd_waker.h): only service fds when the waker
+       raised our readiness word.  Clear FIRST, service a bounded
+       amount, rearm LAST.  The drain is deliberately bounded (gui is
+       a reliable consumer of hot links; unbounded fd work here would
+       backpressure replay): EPOLL_CTL_MOD re-polls the inner set
+       immediately, so leftover or raced readiness re-fires the outer
+       set and servicing resumes next iteration. */
+    if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+      fd_fseq_update( ctx->waker_fseq, 0UL );
+      charge_busy_server = fd_http_server_epoll_poll( ctx->gui_server );
+      fd_waker_client_rearm( ctx->waker_client_idx );
+    }
+  } else {
+    long now = fd_tickcount();
+    if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+      charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
+      ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
+    }
   }
 
   int charge_poll = 0;
@@ -642,6 +665,10 @@ privileged_init( fd_topo_t const *      topo,
   ctx->gui_server = fd_http_server_join( fd_http_server_new( _gui, http_param, gui_callbacks, ctx ) );
   fd_http_server_listen( ctx->gui_server, tile->gui.listen_addr, tile->gui.listen_port );
 
+  ctx->waker_client_idx = tile->waker_client_idx;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) )
+    fd_http_server_epoll_set( ctx->gui_server, FD_WAKER_INNER_FD( ctx->waker_client_idx ) );
+
   FD_LOG_NOTICE(( "gui server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port ));
 
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
@@ -701,6 +728,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+
+  ctx->waker_fseq = NULL;
+  if( FD_LIKELY( ctx->waker_client_idx!=ULONG_MAX ) ) {
+    ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
+    FD_TEST( ctx->waker_fseq );
+  }
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -763,7 +796,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
 
-  populate_sock_filter_policy_fd_gui_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->gui_server ) );
+  /* If not a waker client, pass an invalid fd so the epoll rules can
+     never match. */
+  uint epoll_inner_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_INNER_FD( tile->waker_client_idx ), -1 );
+  uint epoll_outer_fd = (uint)fd_int_if( tile->waker_client_idx!=ULONG_MAX, FD_WAKER_OUTER_FD,                           -1 );
+
+  populate_sock_filter_policy_fd_gui_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->gui_server ), epoll_inner_fd, epoll_outer_fd );
   return sock_filter_policy_fd_gui_tile_instr_cnt;
 }
 
@@ -776,13 +814,17 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->gui_server ); /* gui listen socket */
+  if( FD_LIKELY( tile->waker_client_idx!=ULONG_MAX ) ) {
+    out_fds[ out_cnt++ ] = FD_WAKER_OUTER_FD;                             /* waker outer epoll fd (rearm) */
+    out_fds[ out_cnt++ ] = FD_WAKER_INNER_FD( tile->waker_client_idx );   /* waker inner epoll fd */
+  }
   return out_cnt;
 }
 

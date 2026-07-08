@@ -21,6 +21,7 @@
 #include <netinet/tcp.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -84,6 +85,9 @@ struct fd_event_client {
 
   int so_sndbuf;
   int sockfd;
+
+  int epoll_fd; /* If not -1, sockfd is registered in this epoll set (EPOLLIN level-triggered) while
+                   open; close(2) in disconnect deregisters implicitly.  See fd_waker.h. */
 
   int    use_tls;
 #if FD_HAS_OPENSSL
@@ -191,6 +195,7 @@ fd_event_client_new( void *                 shmem,
 
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
+  client->epoll_fd = -1;
   client->use_tls = use_tls;
 #if FD_HAS_OPENSSL
   client->ssl_ctx = (SSL_CTX *)ssl_ctx;
@@ -255,6 +260,14 @@ fd_event_client_metrics( fd_event_client_t const * client ) {
 ulong
 fd_event_client_state( fd_event_client_t const * client ) {
   return client->state;
+}
+
+void
+fd_event_client_epoll_set( fd_event_client_t * client,
+                           int                 epoll_fd ) {
+  FD_TEST( -1==client->epoll_fd );
+  client->epoll_fd = epoll_fd;
+  FD_TEST( -1==client->sockfd ); /* set before the first connect */
 }
 
 ulong
@@ -397,6 +410,16 @@ reconnect( fd_event_client_t * client,
 
   client->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==client->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Register in the waker inner epoll set (EPOLLIN level-triggered;
+     close(2) in disconnect deregisters implicitly).  No EPOLLOUT: tx
+     is self-initiated and retried on the tile's periodic step, and
+     connect completion is discovered there too. */
+  if( FD_UNLIKELY( -1!=client->epoll_fd ) ) {
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = client->sockfd };
+    if( FD_UNLIKELY( -1==epoll_ctl( client->epoll_fd, EPOLL_CTL_ADD, client->sockfd, &ev ) ) )
+      FD_LOG_ERR(( "epoll_ctl(ADD,sockfd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   struct sockaddr_in addr;
   fd_memset( &addr, 0, sizeof( addr ) );

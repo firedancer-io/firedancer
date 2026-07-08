@@ -4,7 +4,17 @@
 # nl_mon_fd: An rtnetlink socket used to monitor updates
 # nl_req_fd: An rtnetlink socket used for request-reply
 # arp_probe_fd: A UDP socket used to indirectly generate ARP probes
-uint logfile_fd, uint nl_mon_fd, uint nl_req_fd, uint arp_probe_fd
+#
+# epoll_inner_fd: The tile's inner epoll fd, inherited from the boot
+#                 process at a fixed number when the tile is a waker
+#                 client (see fd_waker.h).  nl_mon_fd is registered
+#                 here.  UINT_MAX when not a waker client, so no epoll
+#                 rule can match.
+#
+# epoll_outer_fd: The waker's outer epoll fd, which the tile may only
+#                 touch to rearm its own inner fd entry after a drain.
+#                 UINT_MAX when not a waker client.
+uint logfile_fd, uint nl_mon_fd, uint nl_req_fd, uint arp_probe_fd, uint epoll_inner_fd, uint epoll_outer_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -49,3 +59,18 @@ recvfrom: (and (or (eq (arg 0) nl_mon_fd)
                    (eq (arg 3) MSG_DONTWAIT))
                (eq (arg 4) 0)
                (eq (arg 5) 0))
+
+# waker: rearm the tile's entry in the waker's outer epoll set after
+# draining the monitor socket
+#
+# arg 0 is the epoll fd being modified.  The tile registers nl_mon_fd
+# in its inner set at boot (pre-sandbox), so at runtime it only needs
+# to touch its own inner fd's entry in the outer set.
+epoll_ctl: (and (eq (arg 0) epoll_outer_fd)
+                (eq (arg 2) epoll_inner_fd))
+
+# waker: reduce CPU usage by sleeping when idle (replaces the blocking
+# 2ms SO_RCVTIMEO read used in non-waker mode)
+clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
+                      (eq (arg 1) 0)
+                      (eq (arg 3) 0))

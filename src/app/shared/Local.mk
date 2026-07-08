@@ -38,6 +38,7 @@ $(call add-objs,commands/configure/kworkers,fdctl_shared)
 $(call add-objs,commands/configure/cpuset,fdctl_shared)
 $(call add-objs,commands/configure/nohz-full,fdctl_shared)
 $(call add-objs,commands/configure/rcu-nocbs,fdctl_shared)
+$(call add-objs,commands/configure/console,fdctl_shared)
 ifdef FD_HAS_ALLOCA
 $(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
 $(call add-objs,commands/watch/watch,fdctl_shared)

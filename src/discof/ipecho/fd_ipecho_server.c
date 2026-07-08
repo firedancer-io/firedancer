@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -45,6 +46,10 @@ typedef struct fd_ipecho_server_connection fd_ipecho_server_connection_t;
 
 struct fd_ipecho_server {
   int sockfd;
+
+  int epoll_fd; /* If not -1, the server is in epoll mode (see fd_http_server_private.h for the scheme):
+                   fds are registered in this epoll set, EPOLLIN level-triggered, EPOLLOUT armed only
+                   while a response is pending, and pollfds[ i ].events shadows the interest set. */
 
   ushort shred_version;
 
@@ -94,7 +99,8 @@ fd_ipecho_server_new( void * shmem,
   server->pool = conn_pool_join( conn_pool_new( pool, max_connection_cnt ) );
   FD_TEST( server->pool );
 
-  server->sockfd = -1;
+  server->sockfd   = -1;
+  server->epoll_fd = -1;
 
   for( ulong i=0UL; i<max_connection_cnt; i++ ) {
     server->pollfds[ i ].fd = -1;
@@ -192,10 +198,14 @@ fd_ipecho_server_close_conns( fd_ipecho_server_t * server ) {
   server->evict_idx               = 0UL;
 }
 
+static void
+epoll_maybe_add_listener( fd_ipecho_server_t * server );
+
 void
 fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
                                     ushort               shred_version ) {
   server->shred_version = shred_version;
+  epoll_maybe_add_listener( server );
 }
 
 static inline int
@@ -235,6 +245,62 @@ close_conn( fd_ipecho_server_t * server,
   else                                  server->metrics->connections_closed_error++;
 }
 
+/* Epoll mode helpers, same scheme as fd_http_server: EPOLLIN level-
+   triggered, EPOLLOUT armed only while a response is pending, close(2)
+   deregisters implicitly, pollfds[ i ].events shadows the kernel
+   interest set. */
+
+static void
+epoll_conn_add( fd_ipecho_server_t * server,
+                ulong                conn_idx ) {
+  if( FD_LIKELY( -1==server->epoll_fd ) ) return;
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = conn_idx };
+  if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_ADD, server->pollfds[ conn_idx ].fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  server->pollfds[ conn_idx ].events = POLLIN;
+}
+
+static void
+epoll_update_out( fd_ipecho_server_t * server,
+                  ulong                conn_idx ) {
+  if( FD_LIKELY( -1==server->epoll_fd ) ) return;
+  if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) return;
+  short events = server->pool[ conn_idx ].state==STATE_WRITING ? (POLLIN|POLLOUT) : POLLIN;
+  if( FD_LIKELY( server->pollfds[ conn_idx ].events==events ) ) return;
+  struct epoll_event ev = {
+    .events   = EPOLLIN | ((events & POLLOUT) ? EPOLLOUT : 0U),
+    .data.u64 = conn_idx,
+  };
+  if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_MOD, server->pollfds[ conn_idx ].fd, &ev ) ) )
+    FD_LOG_ERR(( "epoll_ctl(MOD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  server->pollfds[ conn_idx ].events = events;
+}
+
+/* The listen socket is only registered once the shred version is
+   known: before that the server refuses to accept, and a registered
+   listener with a pending connection would wake-storm the waker
+   through the rearm cycle. */
+
+static void
+epoll_maybe_add_listener( fd_ipecho_server_t * server ) {
+  if( FD_LIKELY( -1==server->epoll_fd ) ) return;
+  if( FD_UNLIKELY( -1==server->sockfd ) ) return;
+  if( FD_UNLIKELY( server->shred_version==0U ) ) return;
+  struct epoll_event ev = { .events = EPOLLIN, .data.u64 = server->max_connection_cnt };
+  if( FD_UNLIKELY( -1==epoll_ctl( server->epoll_fd, EPOLL_CTL_ADD, server->sockfd, &ev ) ) ) {
+    if( FD_LIKELY( errno==EEXIST ) ) return;
+    FD_LOG_ERR(( "epoll_ctl(ADD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+fd_ipecho_server_epoll_set( fd_ipecho_server_t * server,
+                            int                  epoll_fd ) {
+  FD_TEST( -1==server->epoll_fd );
+  server->epoll_fd = epoll_fd;
+  epoll_maybe_add_listener( server );
+}
+
 static void
 accept_conns( fd_ipecho_server_t * server ) {
   for(;;) {
@@ -255,6 +321,7 @@ accept_conns( fd_ipecho_server_t * server ) {
     ulong conn_id = conn_pool_idx_acquire( server->pool );
 
     server->pollfds[ conn_id ].fd = fd;
+    epoll_conn_add( server, conn_id );
     server->pool[ conn_id ].ipv4                   = addr.sin_addr.s_addr;
     server->pool[ conn_id ].state                  = STATE_READING;
     server->pool[ conn_id ].request_bytes_read     = 0UL;
@@ -374,6 +441,39 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
       /* No need to handle POLLHUP, read() will return 0 soon enough. */
     }
   }
+}
+
+int
+fd_ipecho_server_epoll_poll( fd_ipecho_server_t * server,
+                             int *                charge_busy ) {
+  FD_TEST( -1!=server->epoll_fd );
+
+  if( FD_UNLIKELY( server->shred_version==0U ) ) return 0; /* listener not registered yet */
+
+  struct epoll_event evs[ 64 ];
+  int nfds = epoll_pwait( server->epoll_fd, evs, 64, 0, NULL ); /* pwait: narrower to seccomp than epoll_wait */
+  if( FD_UNLIKELY( -1==nfds ) ) {
+    if( FD_LIKELY( errno==EINTR ) ) return 0;
+    FD_LOG_ERR(( "epoll_pwait failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_LIKELY( !nfds ) ) return 0;
+
+  *charge_busy = 1;
+  for( int i=0; i<nfds; i++ ) {
+    ulong conn_idx = evs[ i ].data.u64;
+    if( FD_UNLIKELY( conn_idx==server->max_connection_cnt ) ) {
+      accept_conns( server );
+      continue;
+    }
+    if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) continue; /* closed while servicing an earlier event */
+    if( FD_LIKELY(   evs[ i ].events & (EPOLLIN|EPOLLHUP|EPOLLERR) ) ) read_conn(  server, conn_idx );
+    if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) continue;
+    if( FD_LIKELY(   evs[ i ].events & EPOLLOUT             ) ) write_conn( server, conn_idx );
+    if( FD_UNLIKELY( -1==server->pollfds[ conn_idx ].fd ) ) continue;
+    epoll_update_out( server, conn_idx );
+  }
+
+  return 1;
 }
 
 fd_ipecho_server_metrics_t *

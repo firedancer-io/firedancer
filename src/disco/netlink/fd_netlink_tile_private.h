@@ -42,6 +42,14 @@ struct fd_netlink_tile_ctx {
   uint             neigh4_ifidx;
   long             idle_cnt;
 
+  /* If waker_fseq is set the tile is a waker client: nl_monitor is
+     registered in the inherited inner epoll set and monitor reads are
+     gated on the readiness fseq; the 128-idle blocking-read yield
+     becomes a nanosleep.  nl_req (synchronous request/response dumps)
+     is unchanged.  See fd_waker.h. */
+  ulong   waker_client_idx;
+  ulong * waker_fseq;
+
   /* Neighbor table prober */
   fd_neigh4_prober_t prober[1];
 

@@ -55,6 +55,29 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms );
 
+/* fd_ipecho_server_epoll_set switches the server into epoll mode: all
+   server fds (present and future) are registered in the provided
+   epoll set, level-triggered, with EPOLLOUT armed only while a
+   response is pending.  The listen socket is registered once the
+   shred version is known (the server refuses connections before
+   then).  The server does not take ownership of epoll_fd.  Must be
+   called at most once.  In epoll mode the caller drives the server
+   with fd_ipecho_server_epoll_poll instead of fd_ipecho_server_poll. */
+
+void
+fd_ipecho_server_epoll_set( fd_ipecho_server_t * server,
+                            int                  epoll_fd );
+
+/* fd_ipecho_server_epoll_poll is fd_ipecho_server_poll for a server
+   in epoll mode: a non-blocking epoll_wait on the registered set,
+   servicing only ready connections.  Returns 1 if there was any work
+   to do, 0 otherwise.  Call repeatedly until it returns 0 to drain
+   the set. */
+
+int
+fd_ipecho_server_epoll_poll( fd_ipecho_server_t * server,
+                             int *                charge_busy );
+
 fd_ipecho_server_metrics_t *
 fd_ipecho_server_metrics( fd_ipecho_server_t * server );
 

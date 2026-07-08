@@ -6,6 +6,7 @@
 #include "../../shared/commands/watch/watch.h"
 #include "../../../discof/genesis/genesis_hash.h"
 #include "../../../disco/net/fd_net_tile.h"
+#include "../../../disco/waker/fd_waker.h"
 
 #include <stdio.h>
 #include <stdlib.h> /* setenv */
@@ -122,6 +123,15 @@ run_firedancer_threaded( config_t * config,
   }
 
   initialize_accdb_fd( config );
+
+  if( FD_LIKELY( config->is_firedancer ) ) {
+    ulong waker_client_cnt = 0UL;
+    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+      ulong idx = config->topo.tiles[ i ].waker_client_idx;
+      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
+    }
+    fd_waker_install( waker_client_cnt );
+  }
 
   /* This is kind of a hack, but we have to join all the workspaces as
      read-write if we are running things threaded.  The reason is that
