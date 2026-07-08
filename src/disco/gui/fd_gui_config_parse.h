@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 #define HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 
-#include "../../ballet/json/cJSON.h"
+#include "../../third_party/cjson/cJSON.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/master/account-decoder/src/validator_info.rs */

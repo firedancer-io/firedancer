@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_http_server_private.h"
 
-#include "picohttpparser.h"
+#include "../../third_party/picohttpparser/picohttpparser.h"
 #include "../../ballet/sha1/fd_sha1.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../util/net/fd_ip4.h"

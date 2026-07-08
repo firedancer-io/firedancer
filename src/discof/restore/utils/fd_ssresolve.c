@@ -1,7 +1,7 @@
 #include "fd_ssresolve.h"
 #include "fd_ssarchive.h"
 
-#include "../../../waltz/http/picohttpparser.h"
+#include "../../../third_party/picohttpparser/picohttpparser.h"
 #include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 

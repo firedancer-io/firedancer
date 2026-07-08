@@ -54,27 +54,30 @@ This section only lists vendored code that requires interaction with
 third-party repositories (e.g. pulling bug fixes). Other vendored code
 is omitted (see the [NOTICE] file above for a complete list).
 
+Vendored libraries live under `src/third_party/` (see the README
+there for the vendoring conventions).
+
 ### nanopb
 
-https://github.com/nanopb/nanopb
+https://github.com/nanopb/nanopb (`src/third_party/nanopb`)
 
 Protobuf encoding library. Written in C.
 
 ### picohttpparser
 
-https://github.com/h2o/picohttpparser
+https://github.com/h2o/picohttpparser (`src/third_party/picohttpparser`)
 
 HTTP/1.1 parser. Written in C.
 
 ### cJSON
 
-https://github.com/DaveGamble/cJSON
+https://github.com/DaveGamble/cJSON (`src/third_party/cjson`)
 
 JSON encoding library. Written in C.
 
 ### Fiat-Crypto
 
-https://github.com/mit-plv/fiat-crypto
+https://github.com/mit-plv/fiat-crypto (`src/third_party/fiat-crypto`)
 
 Cryptographic subroutines. Written in C.
 
@@ -87,7 +90,7 @@ Written in C.
 
 ### bzip2
 
-https://gitlab.com/bzip2/bzip2
+https://gitlab.com/bzip2/bzip2 (`src/third_party/bzip2`)
 
 Data compression library. Written in C.
 

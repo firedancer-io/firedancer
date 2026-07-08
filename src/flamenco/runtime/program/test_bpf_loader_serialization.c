@@ -4,8 +4,8 @@
 #include "../tests/fd_svm_mini.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../fd_flamenco_base.h"
-#include "../../../ballet/json/cJSON.h"
-#include "../../../ballet/json/cJSON_alloc.h"
+#include "../../../third_party/cjson/cJSON.h"
+#include "../../../third_party/cjson/cJSON_alloc.h"
 #include "../../../ballet/base64/fd_base64.h"
 #include <stdio.h>
 

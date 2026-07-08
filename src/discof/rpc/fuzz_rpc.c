@@ -20,7 +20,7 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../ballet/json/cJSON_alloc.h"
+#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"

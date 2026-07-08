@@ -8,7 +8,7 @@ PROTO_VERSION="v10.0.0"
 
 PYTHON=${PYTHON:-python3}
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)
+FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/third_party/nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
 if [ ! -e nanopb_venv ]; then "$PYTHON" -m venv nanopb_venv; fi

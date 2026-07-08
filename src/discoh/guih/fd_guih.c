@@ -8,7 +8,7 @@
 #include "../../disco/bundle/fd_bundle_tile.h"
 
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/json/cJSON.h"
+#include "../../third_party/cjson/cJSON.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"

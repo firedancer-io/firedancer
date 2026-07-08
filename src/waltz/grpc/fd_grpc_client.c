@@ -1,6 +1,6 @@
 #include "fd_grpc_client.h"
 #include "fd_grpc_client_private.h"
-#include "../../ballet/nanopb/pb_encode.h" /* pb_msgdesc_t */
+#include "../../third_party/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
 #include "../h2/fd_h2_rbuf_sock.h"
 #include "fd_grpc_codec.h"

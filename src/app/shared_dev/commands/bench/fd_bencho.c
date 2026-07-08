@@ -1,7 +1,7 @@
 #include "../../rpc_client/fd_rpc_client.h"
 #include "../../rpc_client/fd_rpc_client_private.h"
 #include "../../../../disco/topo/fd_topo.h"
-#include "../../../../ballet/json/cJSON_alloc.h"
+#include "../../../../third_party/cjson/cJSON_alloc.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #define FD_BENCHO_STATE_INIT  0UL
