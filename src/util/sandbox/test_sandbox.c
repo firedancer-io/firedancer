@@ -108,12 +108,14 @@ test_check_file_descriptors_inner( void ) {
   TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 4UL, allow_fds ), 1 );
   TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 5UL, allow_fds2 ), 0 );
 
-  int too_many_fds[ 257 ];
-  for( int i=0UL; i<257; i++) too_many_fds[ i ] = i;
-  for( int i=5UL; i<256; i++) FD_TEST(-1!=dup2( 3, i ));
-  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 256UL, too_many_fds ), 0 );
-  FD_TEST( -1!=dup2( 3, 256 ) );
-  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 257UL, too_many_fds ), 1 );
+  int many_fds[ 1028 ];
+  for( int i=0; i<1028; i++ ) many_fds[ i ] = i;
+  for( int i=5; i<1028; i++ ) FD_TEST( -1!=dup2( 3, i ) );
+  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( 1028UL, many_fds ), 0 );
+
+  int too_many_fds[ FD_SANDBOX_ALLOWED_FILE_DESCRIPTOR_MAX+1UL ];
+  for( ulong i=0UL; i<FD_SANDBOX_ALLOWED_FILE_DESCRIPTOR_MAX+1UL; i++ ) too_many_fds[ i ] = (int)i;
+  TEST_FORK_EXIT_CODE( fd_sandbox_private_check_exact_file_descriptors( FD_SANDBOX_ALLOWED_FILE_DESCRIPTOR_MAX+1UL, too_many_fds ), 1 );
 }
 
 void

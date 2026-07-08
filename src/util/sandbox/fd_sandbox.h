@@ -9,6 +9,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+#define FD_SANDBOX_ALLOWED_FILE_DESCRIPTOR_MAX (4096UL)
+
 /* fd_sandbox_requires_cap_sys_admin checks if the current environment
    requires CAP_SYS_ADMIN to fully establish the sandbox.  Ideally this
    is not required, but certain Linux distributions restrict

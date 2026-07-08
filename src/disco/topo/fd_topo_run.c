@@ -71,7 +71,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
     tile_run->privileged_init( topo, tile );
 
   ulong allow_fds_offset = 0UL;
-  int allow_fds[ 256 ] = { 0 };
+  int allow_fds[ FD_SANDBOX_ALLOWED_FILE_DESCRIPTOR_MAX ] = { 0 };
   if( FD_LIKELY( -1!=allow_fd ) ) {
     allow_fds_offset = 1UL;
     allow_fds[ 0 ] = allow_fd;
@@ -80,7 +80,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( FD_LIKELY( tile_run->populate_allowed_fds ) ) {
     allow_fds_cnt = tile_run->populate_allowed_fds( topo,
                                                     tile,
-                                                    (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
+                                                    FD_SANDBOX_ALLOWED_FILE_DESCRIPTOR_MAX-allow_fds_offset,
                                                     allow_fds+allow_fds_offset );
   }
 
