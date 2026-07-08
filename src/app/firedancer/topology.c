@@ -44,7 +44,7 @@ tile_max_event_sz( fd_topo_tile_t const * tile ) {
   return 0UL;
 }
 
-static void
+void
 wire_event_links( fd_topo_t * topo ) {
   fd_topob_wksp( topo, "event_in" );
 

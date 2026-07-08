@@ -380,6 +380,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
   FD_TEST( fd_rng_secure( &ctx->instance_id, 8UL ) );
 
+  FD_LOG_NOTICE(( "event instance_id=%lu", ctx->instance_id ));
+
 #define FD_EVENT_ID_SEED 0x812CAFEBABEFEEE0UL
 
   char _boot_id[ 36 ];
@@ -515,6 +517,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->idle_cnt = 0UL;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
+  int have_genesi = 0;
+  int have_ipecho = 0;
   ulong polled_in_idx = 0UL;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
@@ -529,8 +533,8 @@ unprivileged_init( fd_topo_t const *      topo,
       continue; /* only net_rx needs to be set in this case. */
     }
     else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ polled_in_idx ] = IN_KIND_DEDUP;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ polled_in_idx ] = IN_KIND_GENESI;
-    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ polled_in_idx ] = IN_KIND_IPECHO;
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) { ctx->in_kind[ polled_in_idx ] = IN_KIND_GENESI; have_genesi = 1; }
+    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) { ctx->in_kind[ polled_in_idx ] = IN_KIND_IPECHO; have_ipecho = 1; }
     else if( FD_LIKELY( link_is_event_report( topo, link->id ) ) ) {
       ctx->in_kind[ polled_in_idx ] = IN_KIND_EVENT;
       FD_TEST( link->mtu<=sizeof(ctx->event_buf) );
@@ -549,6 +553,15 @@ unprivileged_init( fd_topo_t const *      topo,
     polled_in_idx++;
   }
   ctx->in_cnt = polled_in_idx;
+
+  if( FD_UNLIKELY( !have_genesi ) ) {
+    fd_genesis_meta_t meta[1]; fd_memset( meta, 0, sizeof(meta) );
+    fd_memcpy( meta->genesis_hash.uc, tile->event.genesis_hash, 32UL );
+    fd_event_client_init_genesis( ctx->client, meta );
+  }
+  if( FD_UNLIKELY( !have_ipecho ) ) {
+    fd_event_client_init_shred_version( ctx->client, tile->event.shred_version );
+  }
 
   fd_clock_tile_init( ctx->clock );
 

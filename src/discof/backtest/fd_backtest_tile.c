@@ -98,6 +98,8 @@ struct fd_backt_tile {
 
   ulong pending_sz;
   uchar pending[ FD_SHRED_MAX_SZ ];
+
+  volatile ulong const * event_metrics;
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -388,6 +390,26 @@ returnable_frag( fd_backt_tile_t *   ctx,
           fd_backtest_src_destroy( ctx->src );
           ctx->src = NULL;
         }
+        if( FD_UNLIKELY( ctx->event_metrics ) ) {
+          /* Wait for the event tile to flush every event before exiting. */
+          volatile ulong const * m = ctx->event_metrics;
+          ulong sent  = m[ FD_METRICS_COUNTER_EVENT_SENT_OFF  ];
+          ulong acked = m[ FD_METRICS_COUNTER_EVENT_ACKED_OFF ];
+          FD_LOG_NOTICE(( "draining event queue before exit (depth=%lu)", m[ FD_METRICS_GAUGE_EVENT_QUEUE_DEPTH_OFF ] ));
+          long now           = fd_log_wallclock();
+          long last_activity = now;
+          long hard_deadline = now + (long)120e9;
+          for(;;) {
+            ulong sent_cnt = m[ FD_METRICS_COUNTER_EVENT_SENT_OFF  ];
+            ulong acked_cnt = m[ FD_METRICS_COUNTER_EVENT_ACKED_OFF ];
+            now = fd_log_wallclock();
+            if( sent!=sent_cnt || acked!=acked_cnt ) { sent = sent_cnt; acked = acked_cnt; last_activity = now; } /* still flushing */
+            if( FD_LIKELY( now-last_activity>(long)1e9 ) ) break; /* quiet for 1s -> done flushing */
+            if( FD_UNLIKELY( now>hard_deadline ) ) break;
+            FD_SPIN_PAUSE();
+          }
+          FD_LOG_NOTICE(( "event queue drained (%lu still unacked at exit)", m[ FD_METRICS_GAUGE_EVENT_QUEUE_DEPTH_OFF ] ));
+        }
         exit(0);
       }
 
@@ -450,6 +472,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reasm_ready = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
+
+  ctx->event_metrics = NULL;
+  ulong event_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+  if( FD_UNLIKELY( event_tile_idx!=ULONG_MAX && topo->tiles[ event_tile_idx ].metrics ) ) {
+    ctx->event_metrics = fd_metrics_tile( topo->tiles[ event_tile_idx ].metrics );
+  }
 
   ctx->end_slot = tile->backtest.end_slot ? tile->backtest.end_slot : ULONG_MAX;
   ctx->slot_cnt = 0UL;

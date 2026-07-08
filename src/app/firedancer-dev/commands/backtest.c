@@ -20,6 +20,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../discof/genesis/genesis_hash.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
@@ -57,6 +58,7 @@ backtest_topo( config_t * config ) {
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
+  int telemetry_enabled        = config->telemetry && strcmp( config->tiles.event.url, "" );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -145,6 +147,36 @@ backtest_topo( config_t * config ) {
   } else {
     fd_topob_wksp( topo, "genesi" );
     fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0, 0 )->allow_shutdown = 1;
+  }
+
+  /**********************************************************************/
+  /* Add the event + sign tiles to topo                                 */
+  /**********************************************************************/
+  if( FD_LIKELY( telemetry_enabled ) ) {
+    fd_topob_wksp( topo, "sign"       );
+    fd_topob_wksp( topo, "event"      );
+    fd_topob_wksp( topo, "event_sign" );
+    fd_topob_wksp( topo, "sign_event" );
+
+    fd_topob_tile( topo, "sign",  "sign",  "metric_in", cpu_idx++, 0, 1, 1 );
+    fd_topo_tile_t * event_tile = fd_topob_tile( topo, "event", "event", "metric_in", cpu_idx++, 0, 1, 0 );
+
+    ushort shred_version = 0;
+    uchar  genesis_hash[ 32 ] = {0};
+    if( FD_UNLIKELY( -1==read_genesis_bin( config->paths.genesis, &shred_version, genesis_hash ) ) ) {
+      FD_LOG_WARNING(( "could not read genesis `%s` for the event tile; genesis hash and shred version will be zero (%i-%s)",
+                       config->paths.genesis, errno, fd_io_strerror( errno ) ));
+    }
+    fd_memcpy( event_tile->event.genesis_hash, genesis_hash, 32UL );
+    event_tile->event.shred_version = shred_version;
+
+    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 317UL, 1UL );
+    fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL,  1UL );
+
+    fd_topob_tile_in ( topo, "sign",  0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_out( topo, "event", 0UL,              "event_sign", 0UL                                         );
+    fd_topob_tile_in ( topo, "event", 0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    fd_topob_tile_out( topo, "sign",  0UL,              "sign_event", 0UL                                         );
   }
 
   /**********************************************************************/
@@ -323,6 +355,8 @@ backtest_topo( config_t * config ) {
       }
     }
   }
+
+  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
 
   // fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
