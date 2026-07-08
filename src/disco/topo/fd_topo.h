@@ -569,7 +569,6 @@ struct fd_topo_tile {
       ulong rpc_epoch_obj_id;
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
-      ulong snapmk_epoch_obj_id;
     } accdb;
 
     struct {
@@ -681,7 +680,6 @@ struct fd_topo_tile {
     struct {
       ulong accdb_obj_id;
       ulong visited_set_obj_id;
-      ulong accdb_epoch_fseq_obj_id;
       ulong banks_obj_id;
       ulong zp_fseq_id;
       ulong txncache_obj_id;

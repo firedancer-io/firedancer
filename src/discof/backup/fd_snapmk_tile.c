@@ -119,7 +119,7 @@ struct fd_snapmk {
   ulong            zp_cnt; /* [0,zp_cnt] out links are to zp */
   ulong const *    zp_cons_fseq[ SNAPZP_TILE_MAX ];
   ulong volatile * zp_file_off;
-  ulong *          accdb_epoch_idx;
+  ulong *          accdb_snapshot_sync;
 
   /* snaprd input lifetime management.  snapmk takes manual ownership of
      the flow control credit it returns to snaprd so that snaprd does not
@@ -763,10 +763,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem_ro );
   ctx->accdb_shmem = accdb_shmem_ro;
-  ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_epoch_fseq_obj_id ) );
-  FD_TEST( epoch_fseq );
-  ctx->accdb_epoch_idx = epoch_fseq;
-  FD_VOLATILE( *ctx->accdb_epoch_idx ) = ULONG_MAX;
+  ctx->accdb_snapshot_sync = &accdb_shmem_ro->snapshot_sync;
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro );
   {
     FD_SCRATCH_ALLOC_INIT( l, accdb_shmem_ro );
@@ -936,43 +933,6 @@ snapmk_update_release( fd_snapmk_t *             ctx,
     __atomic_store_n( ctx->snaprd_release_fseq, release, __ATOMIC_RELEASE );
     ctx->snaprd_release_seq = release;
   }
-}
-
-static int
-accdb_compaction_paused( fd_snapmk_t * ctx,
-                         ulong         snapshot_epoch ) {
-  fd_accdb_shmem_t const * accdb = ctx->accdb_shmem;
-  fd_accdb_partition_t const * partition_pool =
-      (fd_accdb_partition_t const *)( (uchar const *)accdb + accdb->partition_pool_off );
-
-  ulong partition_max = FD_VOLATILE_CONST( accdb->partition_max );
-  for( ulong partition_idx=0UL; partition_idx<partition_max; partition_idx++ ) {
-    fd_accdb_partition_t const * partition = partition_pool_ele_const( partition_pool, partition_idx );
-
-    if( FD_UNLIKELY( FD_VOLATILE_CONST( partition->compacting_now ) ) ) return 0;
-    if( FD_UNLIKELY( FD_VOLATILE_CONST( partition->queued ) &&
-                     FD_VOLATILE_CONST( partition->compaction_ready_epoch )<snapshot_epoch ) ) return 0;
-  }
-
-  return 1;
-}
-
-static void
-pause_accdb_compaction( fd_snapmk_t * ctx ) {
-  ulong snapshot_epoch = FD_VOLATILE_CONST( ctx->accdb_shmem->epoch );
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *ctx->accdb_epoch_idx ) = snapshot_epoch;
-  FD_HW_MFENCE();
-
-  while( FD_UNLIKELY( !accdb_compaction_paused( ctx, snapshot_epoch ) ) ) FD_YIELD();
-}
-
-static void
-resume_accdb_compaction( fd_snapmk_t * ctx ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *ctx->accdb_epoch_idx ) = ULONG_MAX;
-  FD_COMPILER_MFENCE();
 }
 
 /* check_credit is called every run loop iteration */
@@ -1426,7 +1386,10 @@ after_credit( fd_snapmk_t *       ctx,
     if( ctx->out_flush_pending ) break;
 
     fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
-    resume_accdb_compaction( ctx );
+    /* resume accdb compaction */
+    while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
+    fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
+    while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
     metrics_snapshot_clear( ctx );
     ctx->state = SNAPMK_STATE_IDLE;
     FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
@@ -1507,7 +1470,10 @@ snap_begin( fd_snapmk_t * ctx,
     FD_LOG_ERR(( "lseek(%s) failed: %s", ctx->pool[ ctx->cur_slot_idx ].name, fd_io_strerror( errno ) ));
   }
 
-  pause_accdb_compaction( ctx );
+  /* pause accdb compaction */
+  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
+  fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
+  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
 
   *ctx->zp_file_off  = 0UL;
   ctx->raw_buf.size  = 0UL;

@@ -379,8 +379,9 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_acc_buf_max = txn_max;
   accdb->deferred_acc_epoch   = 0UL;
 
-  accdb->epoch      = 1UL;
-  accdb->joiner_cnt = 0UL;
+  accdb->epoch         = 1UL;
+  accdb->snapshot_sync = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
+  accdb->joiner_cnt    = 0UL;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) accdb->joiner_epochs[ i ].val = ULONG_MAX;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_class_init[ c ].val = 0UL;

@@ -367,6 +367,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
      preserve joiner_cnt and each tile's my_epoch_slot pointer so that
      tiles which joined during init keep their original slot indices. */
   shmem->epoch = 1UL;
+  shmem->snapshot_sync = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) shmem->joiner_epochs[ i ].val = ULONG_MAX;
 
   /* Deferred acc buffer. */

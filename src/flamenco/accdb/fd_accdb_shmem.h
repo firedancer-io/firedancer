@@ -26,6 +26,23 @@ struct fd_accdb_shmem_metrics {
 
 typedef struct fd_accdb_shmem_metrics fd_accdb_shmem_metrics_t;
 
+enum {
+  FD_ACCDB_SNAPSHOT_SYNC_IDLE      = 0UL,
+  FD_ACCDB_SNAPSHOT_SYNC_START     = 1UL,
+  FD_ACCDB_SNAPSHOT_SYNC_RUNNING   = 2UL,
+  FD_ACCDB_SNAPSHOT_SYNC_FINISHING = 3UL
+};
+
+static inline ulong
+fd_accdb_snapshot_sync_state( ulong const * sync ) {
+  return __atomic_load_n( sync, __ATOMIC_ACQUIRE ) & 3UL;
+}
+
+static inline void
+fd_accdb_snapshot_sync_advance( ulong * sync ) {
+  __atomic_fetch_add( sync, 1UL, __ATOMIC_RELEASE );
+}
+
 struct fd_accdb_metrics {
   ulong acquire_calls;
   ulong accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];

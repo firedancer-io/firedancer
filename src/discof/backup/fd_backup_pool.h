@@ -30,20 +30,22 @@
 /* FD_BACKUP_POOL_MAX bounds the number of managed snapshot files
    (max_full_snapshots_to_keep+max_incremental_snapshots_to_keep). */
 
-#define FD_BACKUP_POOL_MAX (16U)
+#define FD_BACKUP_POOL_MAX (1024U)
 
 /* Well-known file descriptor numbers for snapshot pool slot i.  Like
    FD_ACCDB_FD_{RW,RO}, the boot process dups the slot files to these
    fds before fork+exec so seccomp filters can pin syscalls to a fixed
-   fd range.  fds 123460+ are reserved by accdb and XDP.
+   fd range.  This range is deliberately away from accdb
+   (123460/123461) and XDP reservations.
 
    Slot i has two open file descriptions: FD_BACKUP_POOL_FD( i ) is a
    plain O_WRONLY description used by snapmk for sequential writes,
    and FD_BACKUP_POOL_DIO_FD( i ) is an O_WRONLY|O_DIRECT description
    shared by the snapzp tiles for block aligned pwrites. */
 
-#define FD_BACKUP_POOL_FD(     i ) (123400+(int)(i))
-#define FD_BACKUP_POOL_DIO_FD( i ) (123400+(int)FD_BACKUP_POOL_MAX+(int)(i))
+#define FD_BACKUP_POOL_FD_BASE (200000)
+#define FD_BACKUP_POOL_FD(     i ) (FD_BACKUP_POOL_FD_BASE+(int)(i))
+#define FD_BACKUP_POOL_DIO_FD( i ) (FD_BACKUP_POOL_FD_BASE+(int)FD_BACKUP_POOL_MAX+(int)(i))
 
 /* FD_BACKUP_POOL_PARTIAL_NAME_MAX is the max cstr size (null
    included) of a "snapshot<i>.partial" placeholder name. */

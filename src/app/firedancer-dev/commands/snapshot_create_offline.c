@@ -83,9 +83,6 @@ snapshot_create_offline_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, config->firedancer.accounts.max_accounts, "obj.%lu.max_accounts", visited_set->id ) );
   FD_TEST( fd_pod_insert_ulong( topo->props, "backup.visited_set", visited_set->id ) );
 
-  fd_topo_obj_t * accdb_epoch = fd_topob_obj( topo, "fseq", "metric_in" );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_epoch->id, "accdb_epoch.snapmk" ) );
-
   fd_topob_link( topo, "replay_out",    "replay_out",    8192UL, sizeof(fd_replay_message_t), 1UL )->permit_no_producers = 1;
   FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp", "snapmk_zp", 1024UL, sizeof(fd_backup_frag_t), 1UL );
   fd_topob_link( topo, "snapmk_replay", "snapmk_replay", 128UL,  0UL,              1UL )->permit_no_consumers = 1;
@@ -109,10 +106,8 @@ snapshot_create_offline_topo( config_t * config ) {
   fd_topob_tile_uses( topo, snapmk_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   fd_topob_tile_uses( topo, snapmk_tile, zp_fseq,      FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapmk_tile, visited_set,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, snapmk_tile, accdb_epoch,  FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snaprd_tile, accdb_obj,    FD_SHMEM_JOIN_MODE_READ_ONLY  );
   fd_topob_tile_uses( topo, accdb_tile,  accdb_obj,    FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, accdb_tile,  accdb_epoch,  FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(snapzp_tile_cnt) {
     fd_topo_tile_t * snapzp_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ];
     fd_topob_tile_uses( topo, snapzp_tile, accdb_obj,   FD_SHMEM_JOIN_MODE_READ_ONLY  );

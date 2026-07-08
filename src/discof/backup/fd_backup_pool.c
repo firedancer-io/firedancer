@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -17,12 +18,39 @@ struct pool_entry {
 
 typedef struct pool_entry pool_entry_t;
 
+struct pool_entry_vec {
+  pool_entry_t * entry;
+  ulong          cnt;
+  ulong          cap;
+};
+
+typedef struct pool_entry_vec pool_entry_vec_t;
+
 #define SORT_NAME  sort_pool_entries
 #define SORT_KEY_T pool_entry_t
 #define SORT_BEFORE(a,b) ( (a).slot>(b).slot )
 #include "../../util/tmpl/fd_sort.c"
 
-#define POOL_SCAN_MAX (512UL)
+static void
+pool_entry_vec_push( pool_entry_vec_t * vec,
+                     ulong              slot,
+                     char const *       name ) {
+  if( FD_UNLIKELY( vec->cnt==vec->cap ) ) {
+    ulong new_cap = vec->cap ? 2UL*vec->cap : (ulong)FD_BACKUP_POOL_MAX;
+    if( FD_UNLIKELY( new_cap<=vec->cap || new_cap>ULONG_MAX/sizeof(pool_entry_t) ) )
+      FD_LOG_ERR(( "too many snapshot files in snapshots directory" ));
+
+    pool_entry_t * new_entry = realloc( vec->entry, new_cap*sizeof(pool_entry_t) );
+    if( FD_UNLIKELY( !new_entry ) ) FD_LOG_ERR(( "realloc(snapshot pool entries) failed (out of memory)" ));
+
+    vec->entry = new_entry;
+    vec->cap   = new_cap;
+  }
+
+  vec->entry[ vec->cnt ].slot = slot;
+  fd_cstr_ncpy( vec->entry[ vec->cnt ].name, name, FD_BACKUP_NAME_MAX );
+  vec->cnt++;
+}
 
 char *
 fd_backup_pool_partial_name( char name[ static FD_BACKUP_POOL_PARTIAL_NAME_MAX ],
@@ -53,7 +81,7 @@ fd_backup_pool_boot( char const * snapshots_path,
                      uint         max_incremental_snapshots_to_keep,
                      uint         uid,
                      uint         gid ) {
-  uint pool_cnt = max_full_snapshots_to_keep+max_incremental_snapshots_to_keep;
+  ulong pool_cnt = (ulong)max_full_snapshots_to_keep+(ulong)max_incremental_snapshots_to_keep;
   if( FD_UNLIKELY( !max_full_snapshots_to_keep ) )
     FD_LOG_ERR(( "[snapshots.max_full_snapshots_to_keep] must be at least 1 when snapshot creation is enabled" ));
   if( FD_UNLIKELY( pool_cnt>FD_BACKUP_POOL_MAX ) )
@@ -66,10 +94,8 @@ fd_backup_pool_boot( char const * snapshots_path,
   /* Scan the directory: collect existing snapshots, unlink leftover
      producer artifacts.  Unrecognized files are left alone. */
 
-  pool_entry_t full_snapshots[ POOL_SCAN_MAX ];
-  pool_entry_t incremental_snapshots[ POOL_SCAN_MAX ];
-  ulong full_snapshots_cnt        = 0UL;
-  ulong incremental_snapshots_cnt = 0UL;
+  pool_entry_vec_t full_snapshots[1]        = {{0}};
+  pool_entry_vec_t incremental_snapshots[1] = {{0}};
 
   DIR * dir = opendir( snapshots_path );
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", snapshots_path, errno, fd_io_strerror( errno ) ));
@@ -94,31 +120,27 @@ fd_backup_pool_boot( char const * snapshots_path,
     if( FD_UNLIKELY( strlen( entry->d_name )>=FD_BACKUP_NAME_MAX ) ) continue;
 
     if( FD_LIKELY( entry_incremental_slot==ULONG_MAX ) ) {
-      if( FD_UNLIKELY( full_snapshots_cnt>=POOL_SCAN_MAX ) ) continue;
-      full_snapshots[ full_snapshots_cnt ].slot = entry_full_slot;
-      fd_cstr_ncpy( full_snapshots[ full_snapshots_cnt ].name, entry->d_name, FD_BACKUP_NAME_MAX );
-      full_snapshots_cnt++;
+      pool_entry_vec_push( full_snapshots, entry_full_slot, entry->d_name );
     } else {
-      if( FD_UNLIKELY( incremental_snapshots_cnt>=POOL_SCAN_MAX ) ) continue;
-      incremental_snapshots[ incremental_snapshots_cnt ].slot = entry_incremental_slot;
-      fd_cstr_ncpy( incremental_snapshots[ incremental_snapshots_cnt ].name, entry->d_name, FD_BACKUP_NAME_MAX );
-      incremental_snapshots_cnt++;
+      pool_entry_vec_push( incremental_snapshots, entry_incremental_slot, entry->d_name );
     }
   }
 
   if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  sort_pool_entries_inplace( full_snapshots, full_snapshots_cnt );
-  sort_pool_entries_inplace( incremental_snapshots, incremental_snapshots_cnt );
+  if( FD_LIKELY( full_snapshots->cnt ) )
+    sort_pool_entries_inplace( full_snapshots->entry, full_snapshots->cnt );
+  if( FD_LIKELY( incremental_snapshots->cnt ) )
+    sort_pool_entries_inplace( incremental_snapshots->entry, incremental_snapshots->cnt );
 
-  for( ulong i=max_full_snapshots_to_keep; i<full_snapshots_cnt; i++ ) {
-    if( FD_UNLIKELY( -1==unlinkat( dir_fd, full_snapshots[ i ].name, 0 ) ) )
-      FD_LOG_ERR(( "unlinkat(%s/%s) failed (%i-%s)", snapshots_path, full_snapshots[ i ].name, errno, fd_io_strerror( errno ) ));
+  for( ulong i=max_full_snapshots_to_keep; i<full_snapshots->cnt; i++ ) {
+    if( FD_UNLIKELY( -1==unlinkat( dir_fd, full_snapshots->entry[ i ].name, 0 ) ) )
+      FD_LOG_ERR(( "unlinkat(%s/%s) failed (%i-%s)", snapshots_path, full_snapshots->entry[ i ].name, errno, fd_io_strerror( errno ) ));
   }
-  for( ulong i=max_incremental_snapshots_to_keep; i<incremental_snapshots_cnt; i++ ) {
-    if( FD_UNLIKELY( -1==unlinkat( dir_fd, incremental_snapshots[ i ].name, 0 ) ) )
-      FD_LOG_ERR(( "unlinkat(%s/%s) failed (%i-%s)", snapshots_path, incremental_snapshots[ i ].name, errno, fd_io_strerror( errno ) ));
+  for( ulong i=max_incremental_snapshots_to_keep; i<incremental_snapshots->cnt; i++ ) {
+    if( FD_UNLIKELY( -1==unlinkat( dir_fd, incremental_snapshots->entry[ i ].name, 0 ) ) )
+      FD_LOG_ERR(( "unlinkat(%s/%s) failed (%i-%s)", snapshots_path, incremental_snapshots->entry[ i ].name, errno, fd_io_strerror( errno ) ));
   }
 
   /* Assign the kept snapshots to their slots (fulls in [0,max_full),
@@ -129,10 +151,10 @@ fd_backup_pool_boot( char const * snapshots_path,
     char partial_name[ FD_BACKUP_POOL_PARTIAL_NAME_MAX ];
     char const * name = NULL;
     if( FD_LIKELY( i<max_full_snapshots_to_keep ) ) {
-      if( i<full_snapshots_cnt ) name = full_snapshots[ i ].name;
+      if( i<full_snapshots->cnt ) name = full_snapshots->entry[ i ].name;
     } else {
       uint j = i-max_full_snapshots_to_keep;
-      if( j<incremental_snapshots_cnt ) name = incremental_snapshots[ j ].name;
+      if( j<incremental_snapshots->cnt ) name = incremental_snapshots->entry[ j ].name;
     }
 
     if( FD_UNLIKELY( !name ) ) {
@@ -154,6 +176,9 @@ fd_backup_pool_boot( char const * snapshots_path,
     if( FD_UNLIKELY( -1==dup2( dio_fd, FD_BACKUP_POOL_DIO_FD( i ) ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( dio_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  free( full_snapshots->entry );
+  free( incremental_snapshots->entry );
 
   if( FD_UNLIKELY( -1==close( dir_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
