@@ -32,6 +32,28 @@ union fd_shred_features_activation_private {
 };
 typedef union fd_shred_features_activation_private fd_shred_features_activation_t;
 
+/* fd_shred_slot_limits_t contains the shred slot limits for the
+   current epoch. These change with the reduce_slot_time feature gates.
+   See the documentation in fd_shred_tile.c for an explanation of how
+   each field is used. */
+struct fd_shred_slot_limits {
+   ulong prev_max_shred_idx;
+   ulong current_max_shred_idx;
+   ulong next_max_shred_idx;
+   ulong current_start_slot;
+   ulong next_start_slot;
+};
+typedef struct fd_shred_slot_limits fd_shred_slot_limits_t;
+
+/* fd_shred_epoch_msg_t contains the information that the shred tile
+   needs that changes at an epoch boundary: the feature set and the
+   shred slot limits. */
+struct fd_shred_epoch_msg {
+   fd_shred_features_activation_t features_activation;
+   fd_shred_slot_limits_t         slot_limits;
+};
+typedef struct fd_shred_epoch_msg fd_shred_epoch_msg_t;
+
 
 struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ulong  magic;
