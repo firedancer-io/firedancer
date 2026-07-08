@@ -13,15 +13,8 @@
    (Only runs tests matching the string 'bar') */
 
 #include "../log/fd_log.h"
+#include "fd_unit_test.h"
 #include <string.h>
-
-struct fd_unit_test {
-  char const * name;
-  void (* fn)( void );
-  struct fd_unit_test * next;
-};
-
-typedef struct fd_unit_test fd_unit_test_t;
 
 /* Linked list of known unit tests */
 static fd_unit_test_t * fd_unit_test_head = NULL;
@@ -45,12 +38,6 @@ match_test_name( char const * test_name,
   }
   return 0;
 }
-
-#define FD_UNIT_TEST( name )                                           \
-  static void name( void );                                            \
-  static fd_unit_test_t name##_test = { #name, name, NULL };           \
-  __attribute__((constructor)) static void register_##name( void ) { register_unit_test( &name##_test ); } \
-  static void name( void )
 
 static inline void
 fd_unit_tests( int     argc,

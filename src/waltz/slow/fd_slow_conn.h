@@ -3,7 +3,7 @@
 
 #include "fd_slow_base.h"
 #include "fd_slow_key.h"
-#include "../../util/fd_util_base.h"
+#include "fd_wheel.h"
 
 struct __attribute__((aligned(64))) fd_slow_conn {
   uchar tx_key_hp [ FD_SLOW_KEY_MAX ];
@@ -26,6 +26,9 @@ struct __attribute__((aligned(64))) fd_slow_conn {
   /* key rotation */
   uchar rx_key2_pkt[ FD_SLOW_KEY_MAX ];
   uchar rx_key2_iv [ FD_SLOW_IV_MAX  ];
+
+  fd_wheel_timer_t pto;   /* Probe Timeout */
+  fd_wheel_timer_t loss;  /* next loss timeout */
 };
 
 typedef struct fd_slow_conn fd_slow_conn_t;

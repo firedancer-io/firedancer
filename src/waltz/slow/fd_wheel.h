@@ -145,7 +145,7 @@ fd_wheel_insert( fd_wheel_t *       wheel,
                  fd_wheel_timer_t * timer );
 
 /* fd_wheel_remove removes the given timer from the wheel and returns
-   timer.  Moves ownership of the timer obejct to the caller.
+   timer.  Moves ownership of the timer object to the caller.
    U.B. if the timer is not currently in the wheel (e.g. because it
         was just removed, or was given to the caller during advance()). */
 
