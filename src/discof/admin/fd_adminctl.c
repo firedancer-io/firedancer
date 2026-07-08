@@ -243,7 +243,12 @@ fd_adminctl_publish( fd_adminctl_t * adminctl,
   slot->cmd        = cmd_id;
   slot->payload_sz = payload_sz;
 
-  FD_ATOMIC_CAS( &slot->state_pid_seq, state_pid_seq, fd_adminctl_state_update( state_pid_seq, FD_ADMINCTL_STATE_PUBLISHED ) );
+  if( FD_UNLIKELY( FD_ATOMIC_CAS( &slot->state_pid_seq,
+                                  state_pid_seq,
+                                  fd_adminctl_state_update( state_pid_seq, FD_ADMINCTL_STATE_PUBLISHED ) )!=state_pid_seq ) )
+    FD_LOG_ERR(( "The command process is in an unexpected and invalid state while sendind the "
+                 "the command to the running firedancer.  This is likely the result of a bug. "
+                 "Please report this to the firedancer team." ));
 }
 
 ulong
