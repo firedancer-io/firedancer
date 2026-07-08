@@ -13,9 +13,7 @@
 #include "../topo/fd_topo.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
-#include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/pb/fd_pb_encode.h"
-#include "../../tango/tempo/fd_tempo.h"
 
 #if FD_HAS_OPENSSL
 #include "../../util/alloc/fd_alloc.h"
@@ -257,8 +255,7 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
-        fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
+      long timestamp_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -301,8 +298,7 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
-        fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
+      long timestamp_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -346,7 +342,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_event_client_init_shred_version( ctx->client, (ushort)sig );
       break;
     case IN_KIND_EVENT: {
-      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock, fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
+      long timestamp_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
       fd_event_serialize_by_type( ctx->event_type, ctx->circq, ctx->client, timestamp_nanos, seq, ctx->event_buf, ctx->event_sz );
       break;
     }
