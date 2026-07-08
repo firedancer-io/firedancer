@@ -2,14 +2,12 @@ package main
 
 // #cgo CFLAGS: -I../../../build/native/gcc/include
 // #cgo LDFLAGS: -L../../../build/native/gcc/lib
-// #cgo LDFLAGS: -L../../../opt/lib
 // #cgo LDFLAGS: -lfd_quic
 // #cgo LDFLAGS: -lfd_waltz
 // #cgo LDFLAGS: -lfd_tls
 // #cgo LDFLAGS: -lfd_tango
 // #cgo LDFLAGS: -lfd_ballet
 // #cgo LDFLAGS: -lfd_util
-// #cgo LDFLAGS: -ls2nbignum
 // #cgo LDFLAGS: -lstdc++
 // #include <stdlib.h>
 // #include <stdio.h>

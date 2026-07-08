@@ -73,3 +73,4 @@ containing:
 | `fiat-crypto/` | https://github.com/mit-plv/fiat-crypto (generated output) | MIT/Apache-2.0/BSD-1-Clause |
 | `nanopb/` | https://github.com/nanopb/nanopb | zlib |
 | `picohttpparser/` | https://github.com/h2o/picohttpparser | MIT/Perl |
+| `s2n-bignum/` | https://github.com/awslabs/s2n-bignum | Apache-2.0/ISC/MIT-0 |

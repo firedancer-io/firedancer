@@ -30,7 +30,6 @@ endif
 
 else # CROSS=0
 
-include config/extra/with-s2nbignum.mk
 include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
 include config/extra/with-lz4.mk
@@ -38,6 +37,8 @@ include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
 
 endif
+
+include config/extra/with-s2nbignum.mk
 
 FD_ARCH_SUPPORTS_SANDBOX:=1
 

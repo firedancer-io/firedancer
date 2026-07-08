@@ -10,7 +10,7 @@
 #include "./fd_bn254_internal.h"
 #include "../../third_party/fiat-crypto/bn254_64.c"
 #if FD_HAS_S2NBIGNUM
-#include <s2n-bignum.h>
+#include "../../third_party/s2n-bignum/include/s2n-bignum.h"
 #endif
 #if FD_HAS_X86
 #if defined(__GNUC__) && !defined(__clang__)

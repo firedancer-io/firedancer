@@ -404,8 +404,8 @@ limitations under the License.
 
 =======================================================================
 
-Firedancer binaries include cryptographic subroutines from s2n-bignum.
-Imported ca 2024-Nov.
+'src/third_party/s2n-bignum' contains a subset of the s2n-bignum
+library (x86-64 and aarch64 assembly, commit cba3956c).
 
 https://github.com/awslabs/s2n-bignum/
 

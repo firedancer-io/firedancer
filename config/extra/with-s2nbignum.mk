@@ -1,7 +1,4 @@
-ifneq (,$(wildcard $(OPT)/lib/libs2nbignum.a))
+# Vendored in-tree (src/third_party/s2n-bignum)
 FD_HAS_S2NBIGNUM:=1
 CFLAGS+=-DFD_HAS_S2NBIGNUM=1
-LDFLAGS+=$(OPT)/lib/libs2nbignum.a
-else
-$(warning "s2n-bignum not installed, skipping")
-endif
+CPPFLAGS+=-isystem src/third_party/s2n-bignum/include

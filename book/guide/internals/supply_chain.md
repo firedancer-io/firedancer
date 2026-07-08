@@ -94,6 +94,13 @@ https://gitlab.com/bzip2/bzip2 (`src/third_party/bzip2`)
 
 Data compression library. Written in C.
 
+### s2n-bignum
+
+https://github.com/awslabs/s2n-bignum (`src/third_party/s2n-bignum`)
+
+Collection of cryptographic integer arithmetic routines by AWS Labs.
+Written in assembly language.  Pinned by commit SHA.
+
 ## External
 
 External dependencies are downloaded and installed when running
@@ -110,13 +117,6 @@ Firedancer executable.
 https://github.com/facebook/zstd
 
 Data compression library by Meta. Written in C.
-
-### s2n-bignum
-
-https://github.com/awslabs/s2n-bignum
-
-Collection of cryptographic integer arithmetic routines by AWS Labs.
-Written in assembly language.
 
 ### OpenSSL
 

@@ -438,6 +438,8 @@ install_lz4 () {
   echo "[+] Successfully installed lz4"
 }
 
+# Kept until the in-tree vendored s2n-bignum is on main: CI A/B jobs
+# (benchmark baseline) build older refs against this opt/ prefix.
 install_s2n () {
   cd "$PREFIX/git/s2n"
 
