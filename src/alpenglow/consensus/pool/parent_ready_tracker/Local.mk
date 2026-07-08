@@ -1,2 +1,2 @@
-$(call add-hdrs,fd_parent_ready_state.h)
-$(call add-objs,fd_parent_ready_state,fd_alpenglow)
+$(call add-hdrs,ag_parent_ready_state.h)
+$(call add-objs,ag_parent_ready_state,ag_alpenglow)

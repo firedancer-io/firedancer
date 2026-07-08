@@ -59,7 +59,7 @@
    the FEC. */
 
 #include "../poh/fd_poh_tile.h"
-#include "../../alpenglow/consensus/fd_cert.h"
+#include "../../alpenglow/consensus/ag_cert.h"
 #include "../../disco/tiles.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -192,7 +192,7 @@ typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 struct fd_replay_final_cert {
   ulong     slot;     /* the block whose footer carried the cert */
   ulong     cert_cnt;
-  fd_cert_t certs[ 2 ];
+  ag_cert_t certs[ 2 ];
 };
 typedef struct fd_replay_final_cert fd_replay_final_cert_t;
 

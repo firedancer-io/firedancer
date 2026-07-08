@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
 #include "fd_vote_tracker.h"
-#include "../../alpenglow/consensus/fd_epoch_info.h"
+#include "../../alpenglow/consensus/ag_epoch_info.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
@@ -105,8 +105,8 @@ fd_block_id_ele_tree( fd_block_id_ele_t * ele ) {
 
 struct fd_replay_epoch_vtrs {
   ulong             epoch; /* ULONG_MAX marks an empty entry */
-  fd_epoch_info_t * info;  /* ranked epoch info, joined in mem */
-  void *            mem;   /* fd_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) backing bytes */
+  ag_epoch_info_t * info;  /* ranked epoch info, joined in mem */
+  void *            mem;   /* ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) backing bytes */
 };
 typedef struct fd_replay_epoch_vtrs fd_replay_epoch_vtrs_t;
 
@@ -442,7 +442,7 @@ struct fd_replay_tile {
 
   /* alpenglow: ranked per-epoch validator sets for cert verification */
   fd_replay_epoch_vtrs_t epoch_vtrs[ FD_REPLAY_VTR_EPOCH_WINDOW ];
-  fd_validator_info_t    epoch_vtrs_scratch[ FD_EPOCH_INFO_MAX_VOTERS ];
+  ag_validator_info_t    epoch_vtrs_scratch[ FD_EPOCH_INFO_MAX_VOTERS ];
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

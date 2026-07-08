@@ -1,0 +1,139 @@
+#ifndef HEADER_fd_src_alpenglow_consensus_ag_pool_h
+#define HEADER_fd_src_alpenglow_consensus_ag_pool_h
+
+#include "../ag_alpenglow_base.h"
+#include "ag_vote.h"
+#include "ag_cert.h"
+#include "ag_epoch_info.h"
+#include "pool/ag_slot_state.h"
+
+#define AG_POOL_SUCCESS                    ( 0)
+
+/* AddVoteError (pool.rs). */
+
+#define AG_ADD_VOTE_ERR_SLOT_OUT_OF_BOUNDS (-1)
+#define AG_ADD_VOTE_ERR_UNKNOWN_SIGNER     (-2)
+#define AG_ADD_VOTE_ERR_INVALID_SIGNATURE  (-3)
+#define AG_ADD_VOTE_ERR_DUPLICATE          (-4)
+#define AG_ADD_VOTE_ERR_SLASHABLE          (-5)
+
+/* AddCertError (pool.rs). */
+
+#define AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS (-1)
+#define AG_ADD_CERT_ERR_THRESHOLD_NOT_MET  (-2)
+#define AG_ADD_CERT_ERR_INVALID_SIGNATURE  (-3)
+#define AG_ADD_CERT_ERR_DUPLICATE          (-4)
+
+/* ag_pool_event_t (Rust PoolEvent). */
+
+#define AG_POOL_VOTOR_EVENT_MAX (256UL)
+#define AG_POOL_REPAIR_MAX      (256UL)
+
+typedef struct ag_pool ag_pool_t;
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST ulong
+ag_pool_align( void );
+
+FD_FN_CONST ulong
+ag_pool_footprint( ulong slot_max,
+                   ulong validator_max,
+                   ulong blockid_max );
+
+void *
+ag_pool_new( void *                      mem,
+             ulong                       slot_max,
+             ulong                       validator_max,
+             ulong                       blockid_max,
+             ulong                       own_id,
+             ag_validator_info_t const * validators,
+             ulong                       validator_cnt,
+             ulong                       seed,
+             ulong                       root_slot,
+             fd_hash_t const *           root_block_hash );
+
+ag_pool_t * ag_pool_join  ( void *            mem );
+void *      ag_pool_leave ( ag_pool_t const * pool );
+void *      ag_pool_delete( void *            mem );
+
+int
+ag_pool_add_cert( ag_pool_t *             self,
+                  ag_cert_t const *       cert,
+                  ag_epoch_info_t const * epoch_info );
+
+int
+ag_pool_add_vote( ag_pool_t *       self,
+                  ag_vote_t const * vote );
+
+void
+ag_pool_add_block( ag_pool_t *           self,
+                   ag_block_id_t const * block_id,
+                   ag_block_id_t const * parent_id );
+
+void
+ag_pool_recover_from_standstill( ag_pool_t * self,
+                                 ag_cert_t * certs,
+                                 ulong *     certs_cnt,
+                                 ulong       certs_max,
+                                 ag_vote_t * votes,
+                                 ulong *     votes_cnt,
+                                 ulong       votes_max );
+
+FD_FN_CONST ag_pool_event_t const * ag_pool_votor_event_channel( ag_pool_t const * self );
+FD_FN_PURE  ulong                   ag_pool_votor_event_cnt    ( ag_pool_t const * self );
+FD_FN_CONST ag_block_id_t const *   ag_pool_repair_channel     ( ag_pool_t const * self );
+FD_FN_PURE  ulong                   ag_pool_repair_cnt         ( ag_pool_t const * self );
+
+void ag_pool_drain_channels( ag_pool_t * self );
+
+FD_FN_PURE ulong
+ag_pool_finalized_slot( ag_pool_t const * self );
+
+FD_FN_PURE ulong
+ag_pool_first_unpruned_slot( ag_pool_t const * self );
+
+ag_block_id_t const *
+ag_pool_parents_ready( ag_pool_t * self,
+                       ulong       slot,
+                       ulong *     cnt );
+
+/* ag_pool_wait_for_parent_ready mirrors Pool::wait_for_parent_ready's
+   ready-now query (the Rust oneshot half is votor-side plumbing). */
+
+int
+ag_pool_wait_for_parent_ready( ag_pool_t *     self,
+                               ulong           slot,
+                               ag_block_id_t * out_id );
+
+int
+ag_pool_is_parent_ready( ag_pool_t *           self,
+                         ulong                 slot,
+                         ag_block_id_t const * parent );
+
+FD_FN_PURE int
+ag_pool_has_notar_or_fallback_cert( ag_pool_t const * self,
+                                    ulong             slot );
+
+int
+ag_pool_get_notarized_block( ag_pool_t const * self,
+                             ulong             slot,
+                             fd_hash_t *       out_hash );
+
+FD_FN_PURE int
+ag_pool_has_final_cert( ag_pool_t const * self,
+                        ulong             slot );
+FD_FN_PURE int
+ag_pool_has_notar_cert( ag_pool_t const * self,
+                        ulong             slot );
+FD_FN_PURE int
+ag_pool_has_skip_cert( ag_pool_t const * self,
+                       ulong             slot );
+
+FD_FN_PURE int
+ag_pool_contains_slot( ag_pool_t const * self,
+                       ulong             slot );
+
+FD_PROTOTYPES_END
+
+#endif

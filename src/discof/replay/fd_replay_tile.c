@@ -6,7 +6,7 @@
 
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
-#include "../../alpenglow/consensus/fd_cert.h"
+#include "../../alpenglow/consensus/ag_cert.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../votor/fd_votor_tile.h"
@@ -137,7 +137,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
   for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
-    l = FD_LAYOUT_APPEND( l, fd_epoch_info_align(),      fd_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+    l = FD_LAYOUT_APPEND( l, ag_epoch_info_align(),      ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
   }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -221,7 +221,7 @@ update_cert_epoch_vtrs( fd_replay_tile_t *          ctx,
   fd_vote_stake_weight_t const * stakes      = fd_epoch_info_msg_stake_weights( msg );
   uchar const *                  bls_pubkeys = fd_epoch_info_msg_bls_pubkeys( msg );
 
-  ulong cnt = fd_epoch_info_rank( ctx->epoch_vtrs_scratch, FD_EPOCH_INFO_MAX_VOTERS, stakes, msg->staked_vote_cnt, bls_pubkeys );
+  ulong cnt = ag_epoch_info_rank( ctx->epoch_vtrs_scratch, FD_EPOCH_INFO_MAX_VOTERS, stakes, msg->staked_vote_cnt, bls_pubkeys );
   if( FD_UNLIKELY( !cnt ) ) {
     FD_LOG_WARNING(( "epoch %lu has no ranked validators; certs of this epoch will not verify", msg->epoch ));
     return;
@@ -232,7 +232,7 @@ update_cert_epoch_vtrs( fd_replay_tile_t *          ctx,
      ring slot.  Refresh (==) and normal advance (older occupant) proceed. */
   if( FD_UNLIKELY( s->epoch!=ULONG_MAX && s->epoch>msg->epoch ) ) return;
   s->epoch = msg->epoch;
-  s->info  = fd_epoch_info_join( fd_epoch_info_new( s->mem, ctx->epoch_vtrs_scratch, cnt ) );
+  s->info  = ag_epoch_info_join( ag_epoch_info_new( s->mem, ctx->epoch_vtrs_scratch, cnt ) );
 }
 
 static void
@@ -541,27 +541,27 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
 FD_WARN_UNUSED static int
 verify_footer_final_cert( fd_replay_tile_t * ctx,
                           fd_bank_t *        bank,
-                          fd_cert_t          out_certs[ 2 ],
+                          ag_cert_t          out_certs[ 2 ],
                           ulong *            out_cert_cnt ) {
   ulong         cert_sz;
   uchar const * cert_bytes = fd_sched_get_final_cert( ctx->sched, bank->idx, &cert_sz );
   if( FD_LIKELY( !cert_bytes ) ) return 0;
 
-  int err = fd_block_final_cert_de( out_certs, out_cert_cnt, cert_bytes, cert_sz );
-  if( FD_UNLIKELY( err!=FD_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to deserialize footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
+  int err = ag_block_final_cert_de( out_certs, out_cert_cnt, cert_bytes, cert_sz );
+  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to deserialize footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
 
-  err = fd_block_final_cert_decompress( out_certs, *out_cert_cnt );
-  if( FD_UNLIKELY( err!=FD_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to decompress footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
+  err = ag_block_final_cert_decompress( out_certs, *out_cert_cnt );
+  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to decompress footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
 
-  ulong cert_slot  = fd_cert_slot( &out_certs[0] );
+  ulong cert_slot  = ag_cert_slot( &out_certs[0] );
   ulong cert_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, cert_slot, NULL );
   fd_replay_epoch_vtrs_t const * s = &ctx->epoch_vtrs[ cert_epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
   if( FD_UNLIKELY( s->epoch!=cert_epoch ) ) FD_LOG_CRIT(( "slot %lu: no validator set for epoch %lu; cannot verify footer finalization cert for slot %lu", bank->f.slot, cert_epoch, cert_slot ));
 
   for( ulong i=0UL; i<*out_cert_cnt; i++ ) {
-    fd_cert_t const * cert = &out_certs[ i ];
-    if( FD_UNLIKELY( !fd_cert_check_threshold( cert, s->info ) ) ) FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed the stake threshold. TODO: mark bank dead here instead of crit", bank->f.slot, fd_cert_type_to_string( cert->discriminant ), cert_slot ));
-    if( FD_UNLIKELY( !fd_cert_check_sig( cert, s->info ) ) )       FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed signature verification. TODO: mark bank dead here instead of crit", bank->f.slot, fd_cert_type_to_string( cert->discriminant ), cert_slot ));
+    ag_cert_t const * cert = &out_certs[ i ];
+    if( FD_UNLIKELY( !ag_cert_check_threshold( cert, s->info ) ) ) FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed the stake threshold. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+    if( FD_UNLIKELY( !ag_cert_check_sig( cert, s->info ) ) )       FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed signature verification. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
   }
   FD_LOG_INFO(( "slot %lu: footer cert verified (%s finalization of slot %lu)", bank->f.slot, *out_cert_cnt==2UL ? "slow" : "fast", cert_slot ));
   return 1;
@@ -2693,7 +2693,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<FD_REPLAY_VTR_EPOCH_WINDOW; i++ ) {
     ctx->epoch_vtrs[ i ].epoch = ULONG_MAX;
     ctx->epoch_vtrs[ i ].info  = NULL;
-    ctx->epoch_vtrs[ i ].mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_info_align(), fd_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
+    ctx->epoch_vtrs[ i ].mem   = FD_SCRATCH_ALLOC_APPEND( l, ag_epoch_info_align(), ag_epoch_info_footprint( FD_EPOCH_INFO_MAX_VOTERS ) );
   }
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {

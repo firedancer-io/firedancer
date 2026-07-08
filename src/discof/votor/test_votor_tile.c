@@ -1,9 +1,10 @@
-/* test_votor_tile drives the Votor tile's consensus core (fd_votor +
-   fd_pool) the same way the alpenglow consensus tests do, but THROUGH the
-   tile's drive functions (votor_slot_completed / ingest_vote) rather
+/* test_votor_tile drives the Votor tile's consensus core (ag_votor +
+   ag_pool) the same way the alpenglow consensus tests do, but THROUGH the
+   tile's drive functions (handle_replay_message / ag_pool_add_vote +
+   handle_pool_event) rather
    than against the core directly.
 
-   Per project convention we set up REAL fd_pool / fd_votor structures via the
+   Per project convention we set up REAL ag_pool / ag_votor structures via the
    production init path (init_choreo + a real epoch validator set built by
    update_epoch_vtrs).  The only seam is UPDATE_EPOCH_VTRS, which we override
    so the test can install a deterministic validator set (with real BLS-stub
@@ -18,7 +19,7 @@
 
 #define TEST_NV (4UL)
 
-static fd_aggsig_sk_t test_sk[ TEST_NV ];
+static ag_aggsig_sk_t test_sk[ TEST_NV ];
 
 /* Install a TEST_NV-validator unit-stake set into the tile, rebuilding the
    pool and votor against it.  Mirrors update_epoch_vtrs but uses the test's
@@ -27,35 +28,38 @@ static fd_aggsig_sk_t test_sk[ TEST_NV ];
 
 void
 mock_update_epoch_vtrs( fd_votor_tile_t *              ctx,
-                        fd_epoch_info_msg_t const *    msg FD_PARAM_UNUSED,
+                        fd_epoch_info_msg_t const *    msg,
                         fd_vote_stake_weight_t const * stakes FD_PARAM_UNUSED,
                         ulong                          stake_cnt FD_PARAM_UNUSED ) {
 
   ulong cnt = TEST_NV;
+  ctx->validator_cnt = cnt;
+  ctx->epoch         = msg ? msg->epoch : 0UL;
+  ctx->own_id        = 0UL;
 
   for( ulong i=0UL; i<cnt; i++ ) {
-    memset( test_sk[ i ].v, (int)(i*7UL+1UL), FD_AGGSIG_SECKEY_SZ );
-    fd_validator_info_t * vi = &ctx->validators[ i ];
-    memset( vi, 0, sizeof(fd_validator_info_t) );
+    memset( test_sk[ i ].v, (int)(i*7UL+1UL), AG_AGGSIG_SECKEY_SZ );
+    ag_validator_info_t * vi = &ctx->validators[ i ];
+    memset( vi, 0, sizeof(ag_validator_info_t) );
     vi->id    = i;
     vi->stake = 1UL;
-    fd_aggsig_sk_to_pk( &vi->voting_pubkey, &test_sk[ i ] );
+    ag_aggsig_sk_to_pk( &vi->voting_pubkey, &test_sk[ i ] );
   }
   ctx->voting_key[ 0 ] = test_sk[ 0 ];
 
   /* Reuse the dimensions the scratch regions were allocated for. */
 
-  //fd_epoch_info_join( fd_epoch_info_new( ctx->epoch_mem, ctx->validators, cnt ) );
-  //ctx->epoch_info = fd_epoch_info_join( ctx->epoch_mem );
+  //ag_epoch_info_join( ag_epoch_info_new( ctx->epoch_mem, ctx->validators, cnt ) );
+  //ctx->epoch_info = ag_epoch_info_join( ctx->epoch_mem );
   //FD_TEST( ctx->epoch_info );
 
-  ctx->pool = fd_pool_join( fd_pool_new( fd_pool_leave( ctx->pool ),
-                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max, ctx->seed, 0UL, NULL ) );
+  ctx->pool = ag_pool_join( ag_pool_new( ag_pool_leave( ctx->pool ),
+                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max,
+                                         ctx->own_id, ctx->validators, cnt, ctx->seed, 0UL, NULL ) );
   FD_TEST( ctx->pool );
 
-  fd_votor_out_t out = fresh_votor_out( ctx );
-  ctx->votor = fd_votor_join( fd_votor_new( fd_votor_leave( ctx->votor ),
-                                            ctx->slot_max, ctx->voting_key, ctx->seed, &out ) );
+  ctx->votor = ag_votor_join( ag_votor_new( ag_votor_leave( ctx->votor ),
+                                            ctx->slot_max, (ushort)ctx->own_id, ctx->voting_key, ctx->seed ) );
   FD_TEST( ctx->votor );
 }
 
@@ -76,7 +80,7 @@ setup_ctx( fd_wksp_t * wksp ) {
 
   /* seed must be set before init_choreo (privileged_init does this in prod). */
   ((fd_votor_tile_t *)scratch)->seed = 42UL;
-  memset( ((fd_votor_tile_t *)scratch)->voting_key, 0, sizeof(fd_aggsig_sk_t) );
+  memset( ((fd_votor_tile_t *)scratch)->voting_key, 0, sizeof(ag_aggsig_sk_t) );
 
   fd_votor_tile_t * ctx = init_choreo( scratch, tile );
   FD_TEST( ctx );
@@ -113,7 +117,7 @@ complete_slot( fd_votor_tile_t * ctx,
   sc.block_id        = block_id;
   sc.parent_block_id = parent_block_id;
   sc.bank_idx        = slot; /* arbitrary */
-  votor_slot_completed( ctx, &sc, 0UL, NULL );
+  handle_replay_message( ctx, REPLAY_SIG_SLOT_COMPLETED, &sc, 0UL, NULL );
 }
 
 /* count queued publishes of a given sig. */
@@ -170,8 +174,8 @@ test_vote_emitted( fd_wksp_t * wksp ) {
        !publishes_iter_done( ctx->publishes, it );
        it = publishes_iter_next( ctx->publishes, it ) ) {
     publish_t const * p = publishes_iter_ele_const( ctx->publishes, it );
-    if( p->sig==FD_VOTOR_SIG_VOTE && p->msg.vote.discriminant==FD_VOTE_TYPE_NOTAR ) {
-      FD_TEST( fd_vote_slot( &p->msg.vote )==1UL );
+    if( p->sig==FD_VOTOR_SIG_VOTE && p->msg.vote.kind==AG_VOTE_TYPE_NOTAR ) {
+      FD_TEST( ag_vote_slot( &p->msg.vote )==1UL );
       found_vote = 1;
     }
   }
@@ -200,25 +204,29 @@ test_finalization( fd_wksp_t * wksp ) {
   /* Gossip notar votes from validators 1..TEST_NV for the same block.  With
      unit stake this drives notar / fast-final cert thresholds. */
   for( ulong v=1UL; v<TEST_NV; v++ ) {
-    fd_ag_vote_t vote;
-    fd_vote_new_notar( &vote, slot, &h1, &test_sk[ v ], (ushort)v );
-    //ingest_vote( ctx, &vote );
+    ag_vote_t vote;
+    ag_vote_new_notar( &vote, slot, &h1, &test_sk[ v ], (ushort)v );
+    FD_TEST( ag_pool_add_vote( ctx->pool, &vote )==AG_POOL_SUCCESS );
+    ulong event_cnt = pool_events_snapshot( ctx, 0UL );
+    for( ulong i=0UL; i<event_cnt; i++ ) handle_pool_event( ctx, &ctx->cascade_events[ 0UL ][ i ], 0UL );
     maybe_publish_finalized( ctx );
   }
 
   /* Gossip final votes from validators 1..TEST_NV (we already final-voted via
      the CertCreated cascade when the notar cert appeared). */
   for( ulong v=1UL; v<TEST_NV; v++ ) {
-    fd_ag_vote_t vote;
-    fd_vote_new_final( &vote, slot, &test_sk[ v ], (ushort)v );
-    //ingest_vote( ctx, &vote );
+    ag_vote_t vote;
+    ag_vote_new_final( &vote, slot, &test_sk[ v ], (ushort)v );
+    FD_TEST( ag_pool_add_vote( ctx->pool, &vote )==AG_POOL_SUCCESS );
+    ulong event_cnt = pool_events_snapshot( ctx, 0UL );
+    for( ulong i=0UL; i<event_cnt; i++ ) handle_pool_event( ctx, &ctx->cascade_events[ 0UL ][ i ], 0UL );
     maybe_publish_finalized( ctx );
   }
 
   /* The pool should now have finalized slot 1 (fast-final on unanimous notar,
      or slow-final on final votes).  Either way root advanced and a finalized
      frag was queued. */
-  FD_TEST( fd_pool_finalized_slot( ctx->pool )>=slot );
+  FD_TEST( ag_pool_finalized_slot( ctx->pool )>=slot );
   FD_TEST( ctx->root_slot>=slot );
   FD_TEST( count_pubs( ctx, FD_VOTOR_SIG_FINALIZED )>=1UL );
 
@@ -244,11 +252,11 @@ test_dead_slot( fd_wksp_t * wksp ) {
   memset( dead, 0, sizeof(dead) );
   dead->slot     = 2UL;
   dead->block_id = mk_hash( 0xC4 );
-  votor_slot_dead( ctx, dead );
+  handle_replay_message( ctx, REPLAY_SIG_SLOT_DEAD, dead, 0UL, NULL );
 
   /* dead slots before the root are ignored. */
   dead->slot = 0UL;
-  votor_slot_dead( ctx, dead );
+  handle_replay_message( ctx, REPLAY_SIG_SLOT_DEAD, dead, 0UL, NULL );
 
   FD_LOG_NOTICE(( "pass: test_dead_slot" ));
 }

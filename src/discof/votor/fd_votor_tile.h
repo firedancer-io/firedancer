@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_discof_votor_fd_votor_tile_h
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
-/* The Votor tile drives the Alpenglow consensus core (fd_votor + fd_pool)
+/* The Votor tile drives the Alpenglow consensus core (ag_votor + ag_pool)
    the same way the Tower tile drives TowerBFT (fd_tower + fd_ghost).  It is
    structurally a clone of fd_tower_tile.c: it consumes the same replay /
    gossip / epoch / ipecho frags, but instead of running the slot-based
@@ -17,11 +17,11 @@
 
    In general, like Tower, Votor uses "block_id" (slot, merkle-root hash) as
    the canonical identifier for a block.  In the Alpenglow core this is the
-   fd_block_id_t (a (Slot, BlockHash) pair). */
+   ag_block_id_t (a (Slot, BlockHash) pair). */
 
-#include "../../alpenglow/consensus/fd_vote.h"
-#include "../../alpenglow/consensus/fd_cert.h"
-#include "../../alpenglow/fd_alpenglow_base.h"
+#include "../../alpenglow/consensus/ag_vote.h"
+#include "../../alpenglow/consensus/ag_cert.h"
+#include "../../alpenglow/ag_alpenglow_base.h"
 #include "../../disco/topo/fd_topo.h"
 
 /* The out link votor_out carries one fd_votor_msg_t per frag, tagged with
@@ -79,8 +79,8 @@ struct fd_votor_rooted {
 typedef struct fd_votor_rooted fd_votor_rooted_t;
 
 union fd_votor_msg {
-  fd_ag_vote_t         vote;      /* FD_VOTOR_SIG_VOTE      */
-  fd_cert_t            cert;      /* FD_VOTOR_SIG_CERT      */
+  ag_vote_t            vote;      /* FD_VOTOR_SIG_VOTE      */
+  ag_cert_t            cert;      /* FD_VOTOR_SIG_CERT      */
   fd_votor_slot_done_t slot_done; /* FD_VOTOR_SIG_SLOT_DONE */
   fd_votor_finalized_t finalized; /* FD_VOTOR_SIG_FINALIZED */
   fd_votor_rooted_t    rooted;    /* FD_VOTOR_SIG_ROOTED    */
@@ -90,21 +90,21 @@ typedef union fd_votor_msg fd_votor_msg_t;
 /* fd_votor_consensus_msg_t is the staged wire layout for an Alpenglow
    ConsensusMessage carried over the GOSSIP in link.  FD gossip does not yet
    transport Alpenglow messages, so this is a fixed-layout placeholder for the
-   ingest path: a tagged union of one Vote or one Cert.  The discriminant
-   matches fd_consensus_message_t (FD_CONSENSUS_MESSAGE_{VOTE,CERT}).
+   ingest path: a tagged union of one Vote or one Cert.  The kind
+   matches ag_consensus_message_t (AG_CONSENSUS_MESSAGE_{VOTE,CERT}).
 
    TODO: once FD gossip carries Alpenglow messages natively, this should be
-   replaced by the real on-wire (de)serialization (fd_aggsig_deserialize for
+   replaced by the real on-wire (de)serialization (ag_aggsig_deserialize for
    the embedded signatures etc.). */
 
 #define FD_VOTOR_CONSENSUS_MSG_VOTE (0U)
 #define FD_VOTOR_CONSENSUS_MSG_CERT (1U)
 
 struct fd_votor_consensus_msg {
-  uint discriminant; /* FD_VOTOR_CONSENSUS_MSG_{VOTE,CERT} */
+  uint kind; /* FD_VOTOR_CONSENSUS_MSG_{VOTE,CERT} */
   union {
-    fd_ag_vote_t vote;
-    fd_cert_t cert;
+    ag_vote_t vote;
+    ag_cert_t cert;
   } inner;
 };
 typedef struct fd_votor_consensus_msg fd_votor_consensus_msg_t;
