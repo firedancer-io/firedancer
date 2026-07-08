@@ -1173,9 +1173,11 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
-  /* +1 for either snapin (snapshots enabled) or genesi (bootstrap), which
-     are mutually exclusive accdb writers. */
-  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt+1UL;
+  /* Count only accdb writers (fd_accdb_new).  3UL for accdb, replay and
+     tower; +1 for either snapin (snapshots enabled) or genesi (bootstrap),
+     which are mutually exclusive.  resolv/rpc/gui join read-only via
+     fd_accdb_join_readonly and do not consume a joiner slot. */
+  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+1UL;
   ulong partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
