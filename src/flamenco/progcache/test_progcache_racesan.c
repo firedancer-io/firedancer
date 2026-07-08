@@ -68,6 +68,12 @@ struct fiber {
       fd_progcache_fork_id_t fork_id;
     } cancel;
 
+    struct {
+      fd_progcache_join_t * cache;
+      fd_progcache_rec_t * rec;
+      long                 result;
+    } delete_rec;
+
   };
 
 };
@@ -183,6 +189,24 @@ fiber_cancel( fiber_t *              fiber,
   return fiber->async;
 }
 
+static void
+fiber_delete_rec_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  f->delete_rec.result = fd_prog_delete_rec( f->delete_rec.cache, f->delete_rec.rec );
+}
+
+static fd_racesan_async_t *
+fiber_delete_rec( fiber_t *            fiber,
+                  void *               shmem,
+                  fd_progcache_rec_t * rec ) {
+  FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
+  fiber->delete_rec.cache  = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
+  fiber->delete_rec.rec    = rec;
+  fiber->delete_rec.result = -2L;
+  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_delete_rec_exec, fiber );
+  return fiber->async;
+}
+
 /* Utils */
 
 static void
@@ -217,6 +241,19 @@ test_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
 static void
 test_progcache_reset( fd_progcache_join_t * join ) {
   fd_progcache_reset( join );
+}
+
+static fd_progcache_rec_t const *
+query_rec_exact( fd_progcache_join_t *  join,
+                 fd_progcache_fork_id_t fork_id,
+                 fd_pubkey_t const *    key ) {
+  fd_progcache_rec_key_t pair = { .xid = fork_id, .prog = *key };
+  fd_prog_recm_query_t query[1];
+  int query_err = fd_prog_recm_query_try( join->rec.map, &pair, NULL, query, 0 );
+  if( query_err==FD_MAP_ERR_KEY ) return NULL;
+  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) )
+    FD_LOG_CRIT(( "fd_prog_recm_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
+  return fd_prog_recm_query_ele_const( query );
 }
 
 /* TESTS **************************************************************/
@@ -923,6 +960,142 @@ FD_UNIT_TEST( evict_reclaim_reuse ) {
 
   fd_progcache_cancel_fork( admin, xid1 );
   FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+FD_UNIT_TEST( delete_reclaim_reuse_pair ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  fd_progcache_rec_t * rec_old;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec_old = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    FD_TEST( rec_old );
+    fd_progcache_rec_close( tmp, rec_old );
+    fd_progcache_leave( tmp, NULL );
+  }
+
+  fd_racesan_async_t * d = fiber_delete_rec( &g_fiber[ 0 ], shmem, rec_old );
+  FD_TEST( fd_racesan_async_step_until( d, "prog_delete_rec:post_txn_add", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  FD_TEST( fd_prog_delete_rec( admin, rec_old )>=0L );
+  FD_TEST( fd_prog_reclaim_work( admin )==1UL );
+
+  fd_progcache_rec_t * rec_new;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec_new = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    FD_TEST( rec_new );
+    fd_progcache_rec_close( tmp, rec_new );
+    fd_progcache_leave( tmp, NULL );
+  }
+  FD_TEST( rec_new==rec_old );
+  FD_TEST( query_rec_exact( admin, xid1, &key2 )==rec_new );
+
+  int done = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( d );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) {
+      done = 1;
+      break;
+    }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( done );
+  FD_TEST( g_fiber[ 0 ].delete_rec.result==-1L );
+  fiber_delete( &g_fiber[ 0 ] );
+
+  FD_TEST( query_rec_exact( admin, xid1, &key2 )==rec_new );
+  FD_TEST( !fd_progcache_verify( admin ) );
+
+  fd_progcache_cancel_fork( admin, xid1 );
+  FD_TEST( !fd_progcache_verify( admin ) );
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
+FD_UNIT_TEST( cancel_reclaim_reuse_next ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
+
+  fd_pubkey_t key1 = test_key( 1UL );
+  fd_pubkey_t key2 = test_key( 2UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
+
+  test_account_t acc1, acc2;
+  test_account_init( &acc1, &key1, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+  test_account_init( &acc2, &key2, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
+
+  fd_progcache_rec_t * rec1;
+  fd_progcache_rec_t * rec2;
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 1 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    rec1 = fd_progcache_pull( tmp, xid1, &key1, &load_env, acc1.entry );
+    FD_TEST( rec1 );
+    fd_progcache_rec_close( tmp, rec1 );
+    rec2 = fd_progcache_pull( tmp, xid1, &key2, &load_env, acc2.entry );
+    FD_TEST( rec2 );
+    fd_progcache_rec_close( tmp, rec2 );
+    fd_progcache_leave( tmp, NULL );
+  }
+
+  uint rec2_idx = (uint)( rec2 - admin->rec.pool->ele );
+  FD_TEST( rec2_idx!=0U );
+  FD_TEST( rec1->next_idx==rec2_idx );
+
+  FD_TEST( fd_prog_delete_rec( admin, rec1 )>=0L );
+
+  fd_racesan_async_t * c = fiber_cancel( &g_fiber[ 0 ], shmem, xid1 );
+  FD_TEST( fd_racesan_async_step_until( c, "prog_cancel_one:post_orphan", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  FD_TEST( fd_prog_reclaim_work( admin )==1UL );
+
+  fd_progcache_rec_t * rec_reuse = fd_prog_recp_acquire( admin->rec.pool );
+  FD_TEST( rec_reuse==rec1 );
+  memset( rec_reuse, 0, sizeof(fd_progcache_rec_t) );
+  rec_reuse->exists       = 1;
+  rec_reuse->txn_idx      = UINT_MAX;
+  rec_reuse->reclaim_next = UINT_MAX;
+  FD_TEST( rec_reuse->next_idx==0U );
+
+  int done = 0;
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    int ret = fd_racesan_async_step( c );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) {
+      done = 1;
+      break;
+    }
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( done );
+  fiber_delete( &g_fiber[ 0 ] );
+
+  rec_reuse->exists = 0;
+  fd_prog_recp_release( admin->rec.pool, rec_reuse );
+
+  FD_TEST( !query_rec_exact( admin, xid1, &key1 ) );
+  FD_TEST( !query_rec_exact( admin, xid1, &key2 ) );
+  FD_TEST( !fd_progcache_verify( admin ) );
+
   FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
   test_progcache_shmem_delete( shmem );
 }
