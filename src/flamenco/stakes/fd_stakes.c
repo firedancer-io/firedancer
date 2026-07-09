@@ -428,6 +428,8 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     ulong       stake_t_1        = stake_accum->stake;
     ushort      commission_t_1   = 0;
 
+    if( FD_UNLIKELY( !stake_t_1 ) ) continue;
+
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
     /* Agave's VAT filter also checks lamports against the VoteStateV4
        rent-exempt minimum. */
