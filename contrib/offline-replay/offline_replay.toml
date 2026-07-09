@@ -23,6 +23,7 @@
 [paths]
     snapshots = "{ledger}"
     accounts = "{ledger}/accounts.db"
+    genesis = "{ledger}/genesis.bin"
 [snapshots]
     incremental_snapshots = false
     max_full_snapshots_to_keep = 5
