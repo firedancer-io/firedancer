@@ -164,7 +164,7 @@ backtest_topo( config_t * config ) {
     ushort shred_version = 0;
     uchar  genesis_hash[ 32 ] = {0};
     if( FD_UNLIKELY( -1==read_genesis_bin( config->paths.genesis, &shred_version, genesis_hash ) ) ) {
-      FD_LOG_WARNING(( "could not read genesis `%s` for the event tile; genesis hash and shred version will be zero (%i-%s)",
+      FD_LOG_ERR(( "could not read genesis `%s` for the event tile; genesis hash and shred version will be zero (%i-%s)",
                        config->paths.genesis, errno, fd_io_strerror( errno ) ));
     }
     fd_memcpy( event_tile->event.genesis_hash, genesis_hash, 32UL );

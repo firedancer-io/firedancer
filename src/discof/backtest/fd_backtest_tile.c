@@ -1,6 +1,7 @@
 #include "fd_backtest_src.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/events/fd_event_client.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/repair/fd_repair_tile.h"
@@ -391,24 +392,16 @@ returnable_frag( fd_backt_tile_t *   ctx,
           ctx->src = NULL;
         }
         if( FD_UNLIKELY( ctx->event_metrics ) ) {
-          /* Wait for the event tile to flush every event before exiting. */
-          volatile ulong const * m = ctx->event_metrics;
-          ulong sent  = m[ FD_METRICS_COUNTER_EVENT_SENT_OFF  ];
-          ulong acked = m[ FD_METRICS_COUNTER_EVENT_ACKED_OFF ];
-          FD_LOG_NOTICE(( "draining event queue before exit (depth=%lu)", m[ FD_METRICS_GAUGE_EVENT_QUEUE_DEPTH_OFF ] ));
-          long now           = fd_log_wallclock();
-          long last_activity = now;
-          long hard_deadline = now + (long)120e9;
-          for(;;) {
-            ulong sent_cnt = m[ FD_METRICS_COUNTER_EVENT_SENT_OFF  ];
-            ulong acked_cnt = m[ FD_METRICS_COUNTER_EVENT_ACKED_OFF ];
-            now = fd_log_wallclock();
-            if( sent!=sent_cnt || acked!=acked_cnt ) { sent = sent_cnt; acked = acked_cnt; last_activity = now; } /* still flushing */
-            if( FD_LIKELY( now-last_activity>(long)1e9 ) ) break; /* quiet for 1s -> done flushing */
-            if( FD_UNLIKELY( now>hard_deadline ) ) break;
+          /* Wait for the event tile to drain its internal buffers before exiting the backtest run */
+          FD_LOG_NOTICE(( "draining %lu unsent events before exit", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+          long hard_deadline = fd_log_wallclock() + (long)120e9;
+          while( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ]>0UL ) {
+            if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) break;
+            if( FD_UNLIKELY( fd_log_wallclock()>hard_deadline ) ) break;
             FD_SPIN_PAUSE();
           }
-          FD_LOG_NOTICE(( "event queue drained (%lu still unacked at exit)", m[ FD_METRICS_GAUGE_EVENT_QUEUE_DEPTH_OFF ] ));
+          long grace_period = fd_log_wallclock() + (long)250e6;
+          while( fd_log_wallclock()<grace_period ) FD_SPIN_PAUSE();
         }
         exit(0);
       }

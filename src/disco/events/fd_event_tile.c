@@ -380,7 +380,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
   FD_TEST( fd_rng_secure( &ctx->instance_id, 8UL ) );
 
-  FD_LOG_NOTICE(( "event instance_id=%lu", ctx->instance_id ));
+  FD_LOG_INFO(( "event instance_id=%lu", ctx->instance_id ));
 
 #define FD_EVENT_ID_SEED 0x812CAFEBABEFEEE0UL
 
