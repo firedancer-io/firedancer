@@ -101,6 +101,13 @@ https://github.com/awslabs/s2n-bignum (`src/third_party/s2n-bignum`)
 Collection of cryptographic integer arithmetic routines by AWS Labs.
 Written in assembly language.  Pinned by commit SHA.
 
+### blst
+
+https://github.com/supranational/blst (`src/third_party/blst`)
+
+Cryptographic routines for the BLS12-381 curve by Supranational.
+Written in assembly language and C.
+
 ## External
 
 External dependencies are downloaded and installed when running
@@ -123,13 +130,6 @@ Data compression library by Meta. Written in C.
 https://github.com/openssl/openssl
 
 Widely used TLS library. Written in C.
-
-### blst
-
-https://github.com/supranational/blst
-
-Cryptographic routines for the BLS12-381 curve by Supranational.
-Written in assembly language and C.
 
 ---
 

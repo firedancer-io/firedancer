@@ -128,7 +128,6 @@ fetch () {
   mkdir -pv "$PREFIX/git"
 
   checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
-  checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "cba3956c"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
   checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   if [[ $DEVMODE == 1 ]]; then
@@ -389,28 +388,6 @@ install_lz4 () {
   echo "[+] Successfully installed lz4"
 }
 
-# Kept until the in-tree vendored s2n-bignum is on main: CI A/B jobs
-# (benchmark baseline) build older refs against this opt/ prefix.
-install_s2n () {
-  cd "$PREFIX/git/s2n"
-
-  echo "[+] Installing s2n-bignum to $PREFIX"
-  if [[ "$(uname -m)" == x86_64 ]]; then
-    if [[ "$(uname -s)" == Linux ]]; then
-      make -C x86 PREPROCESS="$CC -E -fcf-protection=return -I../include -DWINDOWS_ABI=0 \$(SYMBOL_HIDING) -xassembler-with-cpp -"
-    else
-      make -C x86
-    fi
-    cp x86/libs2nbignum.a "$PREFIX/lib"
-  elif [[ "$(uname -m)" == aarch64 ]]; then
-    make -C arm
-    cp arm/libs2nbignum.a "$PREFIX/lib"
-  fi
-
-  cp include/* "$PREFIX/include"
-  echo "[+] Successfully installed s2n-bignum"
-}
-
 install_blst () {
   cd "$PREFIX/git/blst"
 
@@ -571,7 +548,6 @@ install () {
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
   ( install_zstd      )
-  ( install_s2n       )
   ( install_openssl   )
   ( install_blst      )
   if [[ $DEVMODE == 1 ]]; then
