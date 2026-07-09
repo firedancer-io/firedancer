@@ -771,7 +771,7 @@ fd_shmem_private_halt( void ) {
 
   fd_shmem_private_cpu_online_cnt = 0;
   fd_memset( fd_shmem_private_cpu_idx, 0, FD_SHMEM_NUMA_MAX );
-  fd_memset( &fd_shmem_private_cpus,   0, 1 );
+  fd_memset( &fd_shmem_private_cpus,   0, sizeof(fd_shmem_private_cpus) );
 
   fd_shmem_private_base[0] = '\0';
   fd_shmem_private_base_len = 0UL;
