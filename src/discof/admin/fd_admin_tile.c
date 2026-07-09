@@ -9,11 +9,13 @@
 struct fd_admin_tile_ctx {
   fd_adminctl_t *  adminctl;
   ulong            replay_out_idx;
-  ulong            pending_snap_create_slot_idx;
   fd_keyswitch_t * tower_av_keyswitch;
   fd_keyswitch_t * sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
   ulong            sign_av_keyswitch_cnt;
   fd_sha512_t      sha512[ 1 ];
+
+  /* adminctl slot of snapshot-create command */
+  ulong snap_create_slot_idx;
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -34,8 +36,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
-  ctx->replay_out_idx               = ULONG_MAX;
-  ctx->pending_snap_create_slot_idx = ULONG_MAX;
+  ctx->replay_out_idx       = ULONG_MAX;
+  ctx->snap_create_slot_idx = ULONG_MAX;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
   FD_TEST( adminctl_obj );
@@ -271,17 +273,6 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
   fd_adminctl_complete( adminctl, slot_idx, result );
 }
 
-static ulong
-map_replay_admin_result( ulong err ) {
-  switch( err ) {
-  case REPLAY_ADMIN_SUCCESS:         return FD_ADMINCTL_RESULT_SUCCESS;
-  case REPLAY_ADMIN_ERR_BUSY:        return FD_SNAPSHOT_CREATE_RESULT_BUSY;
-  case REPLAY_ADMIN_ERR_UNSUPPORTED: return FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED;
-  case REPLAY_ADMIN_ERR_NOT_READY:   return FD_SNAPSHOT_CREATE_RESULT_NOT_READY;
-  default:                           return FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE;
-  }
-}
-
 static void
 snapshot_create( fd_admin_tile_ctx_t * ctx,
                  fd_stem_context_t *   stem,
@@ -302,36 +293,33 @@ snapshot_create( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->pending_snap_create_slot_idx!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( ctx->snap_create_slot_idx!=ULONG_MAX ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but another snapshot-create command is pending replay response" ));
     fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_BUSY );
     return;
   }
 
-  ulong ctl   = fd_frag_meta_ctl( REPLAY_ADMIN_CMD_SNAP_CREATE, 0, 0, 0 );
+  ulong ctl   = fd_frag_meta_ctl( FD_ADMINCTL_CMD_SNAP_CREATE, 0, 0, 0 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->replay_out_idx, 0UL, 0UL, 0UL, ctl, 0UL, tspub );
-  ctx->pending_snap_create_slot_idx = slot_idx;
+  ctx->snap_create_slot_idx = slot_idx;
 }
 
 static void
 snapshot_create_response( fd_admin_tile_ctx_t * ctx,
                           ulong                 sig,
                           ulong                 ctl ) {
-  if( FD_UNLIKELY( ctx->pending_snap_create_slot_idx==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "unexpected replay snapshot-create response with no pending adminctl command" ));
-    return;
-  }
+
 
   ulong result = FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE;
-  if( FD_LIKELY( fd_frag_meta_ctl_orig( ctl )==REPLAY_ADMIN_CMD_SNAP_CREATE ) ) {
-    result = map_replay_admin_result( sig );
+  if( FD_LIKELY( fd_frag_meta_ctl_orig( ctl )==FD_ADMINCTL_CMD_SNAP_CREATE ) ) {
+    result = sig;
   } else {
-    FD_LOG_WARNING(( "unexpected replay admin response orig %lu", fd_frag_meta_ctl_orig( ctl ) ));
+    FD_LOG_ERR(( "unexpected replay admin response orig %lu", fd_frag_meta_ctl_orig( ctl ) ));
   }
 
-  fd_adminctl_complete( ctx->adminctl, ctx->pending_snap_create_slot_idx, result );
-  ctx->pending_snap_create_slot_idx = ULONG_MAX;
+  fd_adminctl_complete( ctx->adminctl, ctx->snap_create_slot_idx, result );
+  ctx->snap_create_slot_idx = ULONG_MAX;
 }
 
 static inline void FD_FN_SENSITIVE
@@ -372,6 +360,10 @@ during_frag( fd_admin_tile_ctx_t * ctx,
              ulong                 chunk FD_PARAM_UNUSED,
              ulong                 sz FD_PARAM_UNUSED,
              ulong                 ctl ) {
+  if( FD_UNLIKELY( ctx->snap_create_slot_idx==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "unexpected replay snapshot-create response with no pending adminctl command" ));
+    return;
+  }
   snapshot_create_response( ctx, sig, ctl );
 }
 

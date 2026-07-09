@@ -16,6 +16,7 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../discof/admin/fd_adminctl.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
@@ -2412,19 +2413,19 @@ admin_snap_create( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( !ctx->supports_snap_create ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but current config cannot create snapshots. increase [layout.snapzp_tile_count]?" ));
-    admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_ERR_UNSUPPORTED );
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED );
     return;
   }
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but client has not yet started" ));
-    admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_ERR_NOT_READY );
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_NOT_READY );
     return;
   }
 
   if( FD_UNLIKELY( ctx->is_creating_snap ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
-    admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_ERR_BUSY );
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
     return;
   }
 
@@ -2435,7 +2436,7 @@ admin_snap_create( fd_replay_tile_t *  ctx,
   msg->bank_idx = ctx->published_root_bank_idx;
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_SUCCESS );
+  admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
   ctx->is_creating_snap = 1;
 }
 
@@ -2444,22 +2445,11 @@ admin_cmd( fd_replay_tile_t *  ctx,
            fd_stem_context_t * stem,
            ulong               orig ) {
   switch( orig ) {
-  case REPLAY_ADMIN_CMD_SNAP_CREATE:
+  case FD_ADMINCTL_CMD_SNAP_CREATE:
     admin_snap_create( ctx, stem );
     break;
   default:
     FD_LOG_CRIT(( "unrecognized admin cmd orig=%#lx", orig ));
-  }
-}
-
-FD_FN_CONST char const *
-fd_replay_admin_strerror( ulong err ) {
-  switch( err ) {
-  case REPLAY_ADMIN_SUCCESS:         return "success";
-  case REPLAY_ADMIN_ERR_UNSUPPORTED: return "unsupported command";
-  case REPLAY_ADMIN_ERR_BUSY:        return "busy";
-  case REPLAY_ADMIN_ERR_NOT_READY:   return "not ready";
-  default:                           return "?";
   }
 }
 
