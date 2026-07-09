@@ -2,14 +2,14 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include "../../tango/cnc/fd_cnc.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../tango/fseq/fd_fseq.h"
-#include "../../waltz/mib/fd_dbl_buf.h"
+#include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/node_info/fd_node_info.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -127,28 +127,28 @@ fd_topo_obj_callbacks_t fd_obj_cb_metrics = {
 };
 
 static ulong
-dbl_buf_footprint( fd_topo_t const *     topo,
-                   fd_topo_obj_t const * obj ) {
-  return fd_dbl_buf_footprint( VAL("mtu") );
+netdev_tbl_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return fd_netdev_tbl_footprint( VAL("dev_max"), VAL("bond_max") );
 }
 
-static ulong
-dbl_buf_align( fd_topo_t const *     topo FD_FN_UNUSED,
-               fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_dbl_buf_align();
+static inline ulong
+netdev_tbl_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_netdev_tbl_align();
 }
 
 static void
-dbl_buf_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_dbl_buf_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mtu"), 1UL ) );
+netdev_tbl_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_netdev_tbl_new( fd_topo_obj_laddr( topo, obj->id ), VAL("dev_max"), VAL("bond_max") ) );
 }
 
-fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf = {
-  .name      = "dbl_buf",
-  .footprint = dbl_buf_footprint,
-  .align     = dbl_buf_align,
-  .new       = dbl_buf_new,
+fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl = {
+  .name      = "netdev_tbl",
+  .footprint = netdev_tbl_footprint,
+  .align     = netdev_tbl_align,
+  .new       = netdev_tbl_new,
 };
 
 static ulong
@@ -218,7 +218,7 @@ keyswitch_align( fd_topo_t const *     topo FD_FN_UNUSED,
 
 static void
 keyswitch_new( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj ) {
+               fd_topo_obj_t const * obj ) {
   FD_TEST( fd_keyswitch_new( fd_topo_obj_laddr( topo, obj->id ), FD_KEYSWITCH_STATE_UNLOCKED ) );
 }
 
@@ -227,6 +227,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_keyswitch = {
   .footprint = keyswitch_footprint,
   .align     = keyswitch_align,
   .new       = keyswitch_new,
+};
+
+static ulong
+node_info_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return sizeof(fd_node_info_box_t);
+}
+
+static ulong
+node_info_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_node_info_box_t);
+}
+
+static void
+node_info_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_node_info_box_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_node_info = {
+  .name      = "node_info",
+  .footprint = node_info_footprint,
+  .align     = node_info_align,
+  .new       = node_info_new,
 };
 
 fd_topo_run_tile_t

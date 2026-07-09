@@ -1,6 +1,6 @@
 # GCC Containers
 
-These dockerfiles can be used to build containers with GCC 8, GCC 9 and GCC 10.
+These dockerfiles can be used to build containers with GCC 8, GCC 9, GCC 10 and GCC 12.
 
 ## Build the container
 
@@ -58,6 +58,26 @@ Compile desired targets:
 
 ```bash
 make -j all fdctl fddev
+```
+
+## GCC 12 AVX512 build example
+
+On machines with AVX512 support, build the GCC 12 Rocky 8 image:
+
+```bash
+podman build -t firedancer-gcc12:rocky8 -f contrib/containers/gcc-12.dockerfile .
+```
+
+Run the container and build with the Ice Lake GCC machine config:
+
+```bash
+podman run --rm -v "$PWD:/data/firedancer" firedancer-gcc12:rocky8 bash -lc '
+set -e
+cd /data/firedancer
+FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
+source "$HOME/.cargo/env"
+MACHINE=linux_gcc_icelake CC=gcc CXX=g++ make -j fddev fdctl
+'
 ```
 
 Exiting / Cleanup

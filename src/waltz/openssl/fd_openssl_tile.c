@@ -32,7 +32,12 @@ crypto_malloc( ulong        num,
                int          line ) {
   (void)file;
   (void)line;
-  void * result = fd_alloc_malloc( fd_ossl_alloc, 8UL, num + 8UL );
+  ulong alloc_sz;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( num, 8UL, &alloc_sz ) ) ) {
+    fd_ossl_alloc_errors++;
+    return NULL;
+  }
+  void * result = fd_alloc_malloc( fd_ossl_alloc, 8UL, alloc_sz );
   if( FD_UNLIKELY( !result ) ) {
     fd_ossl_alloc_errors++;
     return NULL;
@@ -66,7 +71,12 @@ crypto_realloc( void *       addr,
     return NULL;
   }
 
-  void * new = fd_alloc_malloc( fd_ossl_alloc, 8UL, num + 8UL );
+  ulong alloc_sz;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( num, 8UL, &alloc_sz ) ) ) {
+    fd_ossl_alloc_errors++;
+    return NULL;
+  }
+  void * new = fd_alloc_malloc( fd_ossl_alloc, 8UL, alloc_sz );
   if( FD_UNLIKELY( !new ) ) return NULL;
 
   ulong old_num = *(ulong*)( (uchar*)addr - 8UL );
@@ -112,8 +122,10 @@ fd_ossl_load_certs( SSL_CTX * ssl_ctx ) {
   }
 
   struct dirent * entry;
-  errno = 0; // clear old value since entry can be NULL when reaching end of directory.
-  while( (entry = readdir( dir )) ) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) continue;
 
     char cert_path[ PATH_MAX ];
@@ -126,10 +138,9 @@ fd_ossl_load_certs( SSL_CTX * ssl_ctx ) {
       /* Not all files in /etc/ssl/certs are valid certs, so ignore errors */
       continue;
     }
-    errno = 0;
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) {
+  if( FD_UNLIKELY( errno ) ) {
     FD_LOG_ERR(( "readdir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
   }
 

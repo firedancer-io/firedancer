@@ -40,8 +40,7 @@ int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz,
-                                 int         big_endian,
-                                 int         check_len );
+                                 int         big_endian );
 
 /* fd_bn254_g1_compress compresses a point in G1.
    Input in is a 64-byte big endian buffer representing the point (x, y),

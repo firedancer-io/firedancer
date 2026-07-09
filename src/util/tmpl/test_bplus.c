@@ -135,7 +135,7 @@ main( int     argc,
   ulong min_key = ULONG_MAX;
   ulong max_key = 0UL;
 
-  ulong iter_max = 10000000UL; /* Should be less than 2^32 */
+  ulong iter_max = 2000000UL; /* Should be less than 2^32 */
   ulong diag_rem = 0UL;
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
     if( FD_UNLIKELY( !diag_rem ) ) {

@@ -84,6 +84,7 @@ maybe_kill( config_t const * config,
   if( FD_UNLIKELY( !fp && errno==ENOENT ) ) return 0;
   else if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
+  int maybe_huge = 0;
   char line[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
@@ -94,6 +95,8 @@ maybe_kill( config_t const * config,
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       break;
     }
+
+    if( FD_UNLIKELY( strstr( line, "anon_hugepage" ) || strstr( line, "memfd:" ) ) ) maybe_huge = 1;
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
     FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
@@ -102,9 +105,14 @@ maybe_kill( config_t const * config,
 
   if( FD_UNLIKELY( killed ) ) return killed;
 
+  /* No hugepage mappings in maps -> cannot have anonymous hugepages, so
+     skip the expensive numa_maps read entirely. */
+  if( FD_LIKELY( !maybe_huge ) ) return 0;
+
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/numa_maps", pid ) );
   fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !fp && errno==ENOENT ) ) return 0;
+  else if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
@@ -148,7 +156,10 @@ init( config_t const * config ) {
   ulong wait_killed[ 1024 ] = { 0 };
 
   struct dirent * entry;
-  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_UNLIKELY( entry->d_name[0] == '.' ) ) continue;
     char * endptr;
     ulong pid = strtoul( entry->d_name, &endptr, 10 );
@@ -162,7 +173,7 @@ init( config_t const * config ) {
     }
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   long started = fd_log_wallclock();

@@ -5,7 +5,7 @@
 
 #include "../../util/fd_util_base.h"
 
-#if defined(__linux__) && defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
+#if defined(__linux__)
 
 #include <sys/syscall.h>
 #include <unistd.h>

@@ -5,7 +5,6 @@
 
 #if defined(__linux__) || defined(__FreeBSD__)
 
-#include <assert.h>
 #include <errno.h>
 #include <sys/random.h>
 
@@ -20,11 +19,12 @@ fd_rng_secure( void * d,
       FD_LOG_WARNING(( "getrandom(sz=%lu) failed (%d-%s)", sz, errno, fd_io_strerror( errno ) ));
       return NULL;
     }
-    assert( (ulong)res <= sz );
+    if( FD_UNLIKELY( (ulong)res > sz ) ) FD_LOG_CRIT(( "invalid getrandom() return value" ));
     sz -= (ulong)res;
+    out += (ulong)res;
   }
   return d;
-} 
+}
 
 #elif defined(__APPLE__)
 
@@ -50,8 +50,9 @@ FD_FN_SENSITIVE __attribute__((warn_unused_result))
 void *
 fd_rng_secure( void * d,
                ulong  sz ) {
+  (void)d; (void)sz;
   FD_LOG_WARNING(( "fd_rng_secure failed (not supported by this build)" ));
   return NULL;
-} 
+}
 
 #endif

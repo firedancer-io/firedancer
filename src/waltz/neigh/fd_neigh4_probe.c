@@ -42,7 +42,7 @@ fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
     .probe_delay = (long)( tick_per_ns * probe_delay_seconds * 1e9f ),
     .rate_limit  = (fd_token_bucket_t) {
       .ts      = fd_tickcount(),
-      .rate    = tick_per_ns * (max_probes_per_second / 1e9f),
+      .rate    = max_probes_per_second / (tick_per_ns * 1e9f),
       .burst   = (float)max_probe_burst,
       .balance = 0.f
     },

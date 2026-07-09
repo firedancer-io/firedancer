@@ -42,7 +42,7 @@ init( config_t const * config ) {
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
   uchar genesis_hash[ 32 ] = { 0 };
   ushort shred_version = 0;
-  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  int result = read_genesis_bin( genesis_path, &shred_version, genesis_hash );
   if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
 
@@ -75,14 +75,7 @@ init( config_t const * config ) {
   FD_TEST( fd_shredder_count_data_shreds  ( batch_sz, FD_SHRED_TYPE_MERKLE_DATA )<=34UL );
   FD_TEST( fd_shredder_count_parity_shreds( batch_sz, FD_SHRED_TYPE_MERKLE_CODE )<=34UL );
 
-  fd_shred34_t data, parity;
   fd_fec_set_t fec;
-  for( ulong i=0UL; i<34UL; i++ ) {
-    fec.data_shreds  [ i ] = data.pkts  [ i ].buffer;
-    fec.parity_shreds[ i ] = parity.pkts[ i ].buffer;
-  }
-  for( ulong i=34UL; i<FD_REEDSOL_DATA_SHREDS_MAX;   i++ ) fec.data_shreds  [ i ] = NULL;
-  for( ulong i=34UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ ) fec.parity_shreds[ i ] = NULL;
 
   fd_entry_batch_meta_t meta[ 1 ] = {{
     .parent_offset  = 0UL,
@@ -96,7 +89,7 @@ init( config_t const * config ) {
 
   uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 };
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
-  fd_shredder_next_fec_set( shredder, &fec, /* chained */ chained_merkle_root, NULL );
+  fd_shredder_next_fec_set( shredder, &fec, /* chained */ chained_merkle_root );
 
   /* Fork off a new process for inserting the shreds to the blockstore.
      RocksDB creates a dozen background workers, and doesn't close them
@@ -119,7 +112,7 @@ init( config_t const * config ) {
 
     umask( S_IRWXO | S_IRWXG );
 
-    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, fec.data_shred_cnt, (uchar const *)data.pkts, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
+    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, FD_FEC_SHRED_CNT, (uchar const *)fec.data_shreds, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
 
     fd_sys_util_exit_group( 0 );
   } else {
@@ -143,8 +136,10 @@ fini( config_t const * config,
   }
 
   struct dirent * entry;
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     /* genesis.bin managed by genesis stage*/
@@ -167,7 +162,7 @@ fini( config_t const * config,
     }
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
 
   return 1;
@@ -185,8 +180,10 @@ check( config_t const * config,
   }
 
   struct dirent * entry;
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     /* genesis.bin managed by genesis stage*/
@@ -203,10 +200,11 @@ check( config_t const * config,
     }
 
     has_non_genesis = 1;
+    errno = 0;
     break;
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( has_non_genesis ) ) {

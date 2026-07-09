@@ -1,9 +1,3 @@
-/* Do not compile this directly.  These test vectors were computed by
-   running the stock openssl-1.1.1g keccak256 binary on a RHEL8 box on a
-   number of randomly generated text strings (not including the
-   terminating '\0'). */
-
-
 struct fd_keccak256_test_vector {
   char const * msg;
   ulong        sz;

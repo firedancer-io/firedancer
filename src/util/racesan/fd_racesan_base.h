@@ -7,8 +7,6 @@
 #define FD_HAS_RACESAN 0
 #endif
 
-/* FIXME Check for FD_HAS_UCONTEXT */
-
 struct fd_racesan;
 typedef struct fd_racesan fd_racesan_t;
 

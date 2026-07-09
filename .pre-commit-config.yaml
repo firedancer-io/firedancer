@@ -3,4 +3,4 @@ repos:
     rev: v5.0.0
     hooks:
     -   id: trailing-whitespace
-        exclude: ^src/disco/gui/dist/|^src/flamenco/types/fixtures/
+        exclude: ^src/disco/gui/dist/|^src/flamenco/types/fixtures/|^src/third_party/

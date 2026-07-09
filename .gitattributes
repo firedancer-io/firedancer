@@ -1,5 +1,6 @@
 src/disco/gui/dist_*/**/* -diff linguist-generated=true
-contrib/test/test-vectors-fixtures/** -diff linguist-generated
 *.pb.h -diff linguist-generated=true
 *.pb.c -diff linguist-generated=true
 corpus/** -diff binary
+book/api/metrics-generated.md -diff linguist-generated=true
+src/disco/metrics/generated/** -diff linguist-generated=true

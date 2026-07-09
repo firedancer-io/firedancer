@@ -27,7 +27,8 @@
    dedup pubkeys into a lookup table and only store an index for each
    rotation. */
 
-#include "fd_leaders_base.h"
+#include "../fd_flamenco_base.h"
+#include "../stakes/fd_stake_weight.h"
 #include "../../ballet/wsample/fd_wsample.h"
 
 #define FD_ULONG_MAX(  a, b ) (__builtin_choose_expr( __builtin_constant_p( a ) & __builtin_constant_p( b ),        \
@@ -38,24 +39,20 @@
    of the fd_epoch_leaders_{align,footprint} functions. */
 
 #define FD_EPOCH_LEADERS_ALIGN (64UL)
-#define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                              \
-  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                              \
-    FD_LAYOUT_INIT,                                                                                  \
-      alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),          \
-      alignof(uint),               (                                                                 \
-        (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)          \
-        )                                                                                ),          \
-      FD_EPOCH_LEADERS_ALIGN                                                             )  +        \
-      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL),                                         \
+#define FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt ) (((pub_cnt)+1UL+63UL)/64UL)
+#define FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ) (FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt )*sizeof(ulong))
+#define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                                     \
+  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                                     \
+    FD_LAYOUT_INIT,                                                                                         \
+      alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),                 \
+      alignof(uint),               (                                                                        \
+        (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)                 \
+        )                                                                                ),                 \
+      FD_EPOCH_LEADERS_ALIGN                                                             )  +               \
+      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL) + FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ), \
                                        FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
-
-/* FD_EPOCH_LEADERS_MAX_FOOTPRINT is the maximum footprint of a leader
-   schedule object that the runtime can support given a constant
-   slots per epoch (432K) and a max number of vote accounts (40200). */
-
-#define FD_EPOCH_LEADERS_MAX_FOOTPRINT (FD_EPOCH_LEADERS_FOOTPRINT(FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_SLOTS_PER_EPOCH))
 
 /* fd_epoch_leaders_t contains the leader schedule of a Solana epoch. */
 
@@ -74,6 +71,11 @@ struct fd_epoch_leaders {
      the pub array.  For sched_cnt, refer to below. */
   uint *        sched;
   ulong         sched_cnt;
+
+  /* leader_bits stores whether pub[idx] appears at least once in sched.
+     Includes one extra index for the indeterminate leader at idx==pub_cnt. */
+  ulong *       leader_bits;
+  ulong         leader_bits_word_cnt;
 };
 typedef struct fd_epoch_leaders fd_epoch_leaders_t;
 
@@ -101,8 +103,6 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
    pub_cnt is the number of unique public keys in this schedule.
    `stakes` points to the first entry of pub_cnt entries of stake
    weights sorted by tuple (stake, pubkey) in descending order.
-   `vote_keyed_lsched` is either 0 or 1, when 1 the leader schedule
-   is computed by vote accounts (see SIMD-0180).
 
    If `stakes` does not include all staked nodes, e.g. in the case of an
    attack that swamps the network with fake validators, `stakes` should
@@ -119,8 +119,7 @@ fd_epoch_leaders_new( void  *                  shmem,
                       ulong                    slot_cnt,
                       ulong                    pub_cnt,
                       fd_vote_stake_weight_t * stakes, /* indexed [0, pub_cnt) */
-                      ulong                    excluded_stake,
-                      ulong                    vote_keyed_lsched );
+                      ulong                    excluded_stake );
 
 /* fd_epoch_leaders_join joins the caller to the leader schedule object.
    fd_epoch_leaders_leave undoes an existing join. */
@@ -161,6 +160,16 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
+}
+
+FD_FN_PURE static inline int
+fd_epoch_leaders_is_leader_idx( fd_epoch_leaders_t const * leaders,
+                                ulong                      idx ) {
+  if( FD_UNLIKELY( leaders==NULL ) ) return 0;
+  if( FD_UNLIKELY( idx>leaders->pub_cnt ) ) return 0;
+  ulong word_idx = idx>>6;
+  if( FD_UNLIKELY( word_idx>=leaders->leader_bits_word_cnt ) ) return 0;
+  return !!( leaders->leader_bits[ word_idx ] & (1UL<<(idx&63UL)) );
 }
 
 FD_PROTOTYPES_END

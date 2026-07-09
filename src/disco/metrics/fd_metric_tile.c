@@ -1,6 +1,6 @@
 #include "fd_prometheus.h"
 #include "fd_metrics.h"
-#include "../../waltz/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <sys/types.h>
@@ -9,8 +9,6 @@
 #include <string.h>
 
 #include "generated/fd_metric_tile_seccomp.h"
-#include "../../waltz/http/fd_http_server.h"
-#include "../../waltz/http/fd_http_server_private.h"
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN    8192
@@ -26,7 +24,7 @@ const fd_http_server_params_t METRICS_PARAMS = {
 };
 
 typedef struct {
-  fd_topo_t * topo;
+  fd_topo_t const * topo;
 
   fd_http_server_t * metrics_server;
 
@@ -91,15 +89,15 @@ static void
 metrics_write( fd_metric_ctx_t * ctx ) {
   FD_MGAUGE_SET( METRIC, BOOT_TIMESTAMP_NANOS, (ulong)ctx->boot_ts );
 
-  FD_MGAUGE_SET( METRIC, CONNECTION_COUNT, ctx->metrics_server->metrics.connection_cnt );
+  FD_MGAUGE_SET( METRIC, CONN_ACTIVE, ctx->metrics_server->metrics.connection_cnt );
 
   FD_MCNT_SET( METRIC, BYTES_WRITTEN, ctx->metrics_server->metrics.bytes_written );
   FD_MCNT_SET( METRIC, BYTES_READ,    ctx->metrics_server->metrics.bytes_read );
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -115,8 +113,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -125,7 +123,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->topo = topo;
   ctx->boot_ts = fd_log_wallclock();
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 

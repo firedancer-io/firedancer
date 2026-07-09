@@ -41,6 +41,12 @@ fd_lthash_is_zero( fd_lthash_value_t const * r ) {
   return 1;
 }
 
+static inline int
+fd_lthash_eq( fd_lthash_value_t const * a,
+              fd_lthash_value_t const * b ) {
+  return fd_memeq( a->bytes, b->bytes, FD_LTHASH_LEN_BYTES );
+}
+
 static inline fd_lthash_value_t *
 fd_lthash_add( fd_lthash_value_t * restrict       r,
                fd_lthash_value_t const * restrict a ) {
@@ -58,22 +64,6 @@ fd_lthash_sub( fd_lthash_value_t * restrict       r,
   }
   return r;
 }
-
-#define FD_LTHASH_ENC_32_BUF( _x, _y ) __extension__({                   \
-  if( FD_UNLIKELY( _x == NULL ) ) {                                      \
-    strcpy(_y, "<NULL>");                                                \
-  } else {                                                               \
-    uchar _blake3_hash[FD_HASH_FOOTPRINT];                               \
-    fd_blake3_hash(_x, FD_LTHASH_LEN_BYTES, _blake3_hash );              \
-    fd_base58_encode_32( _blake3_hash, NULL, _y );                       \
-  }                                                                      \
-})
-
-#define FD_LTHASH_ENC_32_ALLOCA( x ) __extension__({                     \
-  char *_out = (char *)fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );  \
-  FD_LTHASH_ENC_32_BUF(x, _out);                                         \
-  _out;                                                                  \
-})
 
 FD_PROTOTYPES_END
 

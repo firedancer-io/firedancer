@@ -2,10 +2,12 @@
 #include "fd_hpack.h"
 #include "fd_hpack_private.h"
 
+#if FD_HAS_HOSTED
 #include <unistd.h> /* fork */
 #include <stdlib.h> /* exit */
 #include <sys/wait.h> /* wait */
 #include <sys/syscall.h> /* syscall */
+#endif
 
 FD_STATIC_ASSERT( FD_H2_HDR_UNKNOWN==0, num );
 
@@ -76,8 +78,7 @@ check_hpack_idx( int          idx,
 # undef EXPECT_NAME
 }
 
-void
-test_h2_hdr_match( void ) {
+FD_UNIT_TEST( h2_hdr_match ) {
   fd_h2_hdr_matcher_t matcher[1];
   FD_TEST( fd_h2_hdr_matcher_init( matcher, 1UL )==matcher );
 

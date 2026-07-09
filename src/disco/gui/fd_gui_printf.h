@@ -19,11 +19,11 @@ void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_turbine_slot( fd_gui_t * gui );
 void fd_gui_printf_repair_slot( fd_gui_t * gui );
 void fd_gui_printf_slot_caught_up( fd_gui_t * gui );
-void fd_gui_printf_skipped_history( fd_gui_t * gui );
-void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui );
+void fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch_idx );
+void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch_idx );
 void fd_gui_printf_vote_latency_history( fd_gui_t * gui );
+void fd_gui_printf_late_votes_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
-void fd_gui_printf_startup_progress( fd_gui_t * gui );
 void fd_gui_printf_boot_progress( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
 void fd_gui_printf_tiles( fd_gui_t * gui );
@@ -65,33 +65,6 @@ fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t *  peers,
 
 void
 fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t *  peers );
-
-void
-fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
-                                   ulong const *       updated,
-                                   ulong               updated_cnt,
-                                   fd_pubkey_t const * removed,
-                                   ulong               removed_cnt,
-                                   ulong const *       added,
-                                   ulong               added_cnt );
-
-void
-fd_gui_printf_peers_vote_account_update( fd_gui_t *          gui,
-                                         ulong const *       updated,
-                                         ulong               updated_cnt,
-                                         fd_pubkey_t const * removed,
-                                         ulong               removed_cnt,
-                                         ulong const *       added,
-                                         ulong               added_cnt );
-
-void
-fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
-                                           ulong const *       updated,
-                                           ulong               updated_cnt,
-                                           fd_pubkey_t const * removed,
-                                           ulong               removed_cnt,
-                                           ulong const *       added,
-                                           ulong               added_cnt );
 
 void
 fd_gui_printf_peers_all( fd_gui_t * gui );
@@ -169,5 +142,27 @@ fd_gui_printf_peers_view_resize( fd_gui_peers_ctx_t *  peers, ulong sz );
 
 void
 fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers );
+
+void
+fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,
+                             ulong const *        idxs,
+                             ulong                cnt );
+
+void
+fd_gui_peers_printf_wfs_remove( fd_gui_peers_ctx_t * peers,
+                                ulong const *        idxs,
+                                ulong                cnt );
+
+void
+fd_gui_peers_printf_wfs_stakes( fd_gui_peers_ctx_t * peers );
+
+void
+fd_gui_printf_live_program_cache( fd_gui_t * gui );
+
+void
+fd_gui_printf_health( fd_gui_t * gui );
+
+void
+fd_gui_printf_accounts_stats( fd_gui_t * gui );
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_printf_h */

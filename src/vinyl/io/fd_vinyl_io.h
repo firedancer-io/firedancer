@@ -172,10 +172,9 @@ FD_FN_PURE static inline ulong fd_vinyl_io_dev_used( fd_vinyl_io_t const * io ) 
 /* fd_vinyl_io_read_imm does an immediate (blocking) read of
    [seq,seq+dst_sz) (cyclic) from io's bstream's past into dst.  Assumes
    there are no reads currently posted on io.  Retains no interest in
-   dst.  seq, dst and sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.
-   This is used mostly for sequential iterating over a bstream's past
-   (i.e. serial recovery and discovering partitions for parallel
-   recovery). */
+   dst.  seq and sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.  This
+   is used mostly for sequential iterating over a bstream's past (i.e.
+   serial recovery and discovering partitions for parallel recovery). */
 
 static inline void
 fd_vinyl_io_read_imm( fd_vinyl_io_t * io,
@@ -186,8 +185,8 @@ fd_vinyl_io_read_imm( fd_vinyl_io_t * io,
 }
 
 /* fd_vinyl_io_read starts the executing the read command rd.  That is,
-   start reading bstream bytes [seq,seq+sz) (cyclic) into dst.  seq, dst
-   and sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.  Further,
+   start reading bstream bytes [seq,seq+sz) (cyclic) into dst.  seq and
+   sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.  Further,
    [seq,seq+sz) should be in the bstream's past and the region to read
    should be stored contiguously in the underlying storage.
 
@@ -340,7 +339,7 @@ fd_vinyl_io_forget( fd_vinyl_io_t * io,
 /* fd_vinyl_io_rewind moves blocks [seq,seq_present) (cyclic) from the
    bstream's past to the bstream's future (updating seq_ancient and
    seq_past as necessary).  There should be no reads, copies or appends
-   in progress.  seq should at most seq_present (cylic) and
+   in progress.  seq should at most seq_present (cyclic) and
    FD_VINYL_BSTREAM_BLOCK_SZ aligned.  Cannot fail from the caller's
    perspective (will FD_LOG_CRIT if anything goes wrong).
 
@@ -389,7 +388,7 @@ fd_vinyl_io_fini( fd_vinyl_io_t * io );
 /* Helpers ************************************************************/
 
 /* fd_vinyl_io_spad_est() returns estimate of the smallest scratch pad
-   size required most applications.  Specifically, this returns:
+   size required for most applications.  Specifically, this returns:
 
      2 pair_sz( LZ4_COMPRESSBOUND( VAL_MAX ) )
 

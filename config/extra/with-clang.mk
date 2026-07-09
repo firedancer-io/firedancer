@@ -36,7 +36,3 @@ CPPFLAGS+=-DFD_USING_CLANG=1
 # itself doesn't matter ... only that the variable is defined).
 
 FD_USING_CLANG:=1
-
-# Using clang++ doesn't always bring in this library
-
-LDFLAGS+=-lstdc++

@@ -1143,3 +1143,21 @@ SYM_FUNC_END(aes_gcm_enc_final_aesni_avx)
 SYM_FUNC_START(aes_gcm_dec_final_aesni_avx)
 	_aes_gcm_final	0
 SYM_FUNC_END(aes_gcm_dec_final_aesni_avx)
+
+# Advertise IBT, SHSTK compliance
+.section ".note.gnu.property", "a"
+.p2align 3
+.long 1f - 0f
+.long 4f - 1f
+.long 5
+0:
+.byte 0x47, 0x4e, 0x55, 0
+1:
+.p2align 3
+.long 0xc0000002
+.long 3f - 2f
+2:
+.long 3
+3:
+.p2align 3
+4:

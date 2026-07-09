@@ -161,8 +161,8 @@ fd_vinyl_data_obj_t *
 fd_vinyl_data_alloc( fd_vinyl_data_t * data,
                      ulong             szc ) {
 
-  FD_CRIT( data,                      "NULL data"     );
-  FD_CRIT( szc<FD_VINYL_DATA_SZC_CNT, "bad sizeclass" );
+  FD_DCHECK_CRIT( data,                      "NULL data"     );
+  FD_DCHECK_CRIT( szc<FD_VINYL_DATA_SZC_CNT, "bad sizeclass" );
 
   void *                 laddr0        = data->laddr0;
   fd_vinyl_data_vol_t *  vol           = data->vol;
@@ -181,7 +181,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
   if( FD_LIKELY( superblock ) ) {
 
-    FD_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
+    FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
 
     *_active = NULL;
 
@@ -191,7 +191,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
     if( FD_LIKELY( superblock ) ) {
 
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
 
       *_inactive_top = fd_vinyl_data_obj_ptr( laddr0, superblock->next_off );
 
@@ -241,7 +241,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
   ulong free_blocks = superblock->free_blocks;
 
-  FD_CRIT( free_blocks, "corruption detected" );
+  FD_DCHECK_CRIT( free_blocks, "corruption detected" );
 
   ulong idx = (ulong)fd_ulong_find_lsb( free_blocks );
 
@@ -264,7 +264,7 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
     if( FD_UNLIKELY( displaced_superblock ) ) {
 
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
 
       displaced_superblock->next_off = fd_vinyl_data_obj_off( laddr0, *_inactive_top );
       *_inactive_top                 = displaced_superblock;
@@ -305,13 +305,13 @@ void
 fd_vinyl_data_free( fd_vinyl_data_t *     data,
                     fd_vinyl_data_obj_t * obj ) {
 
-  FD_CRIT( data, "NULL data" );
+  FD_DCHECK_CRIT( data, "NULL data" );
 
   if( FD_UNLIKELY( !obj ) ) return;
 
-  FD_CRIT( fd_ulong_is_aligned( (ulong)obj, FD_VINYL_BSTREAM_BLOCK_SZ ),                               "obj misaligned"        );
-  FD_CRIT( ((ulong)data->vol<=(ulong)obj) & ((ulong)obj<(ulong)(data->vol+data->vol_cnt)),             "obj not in data cache" );
-  FD_CRIT( (obj->type==FD_VINYL_DATA_OBJ_TYPE_ALLOC) | (obj->type==FD_VINYL_DATA_OBJ_TYPE_SUPERBLOCK), "obj not freeable"      );
+  FD_DCHECK_CRIT( fd_ulong_is_aligned( (ulong)obj, FD_VINYL_BSTREAM_BLOCK_SZ ),                               "obj misaligned"        );
+  FD_DCHECK_CRIT( ((ulong)data->vol<=(ulong)obj) & ((ulong)obj<(ulong)(data->vol+data->vol_cnt)),             "obj not in data cache" );
+  FD_DCHECK_CRIT( (obj->type==FD_VINYL_DATA_OBJ_TYPE_ALLOC) | (obj->type==FD_VINYL_DATA_OBJ_TYPE_SUPERBLOCK), "obj not freeable"      );
 
   /* At this point, obj appears to be a freeable obj in the data.
      Determine how obj was allocated.  If obj is a vol, push obj onto
@@ -320,10 +320,10 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
   ulong szc = (ulong)obj->szc;
   ulong idx =        obj->idx;
 
-  FD_CRIT( szc<=FD_VINYL_DATA_SZC_CNT, "corruption detected" ); /* valid szc */
+  FD_DCHECK_CRIT( szc<=FD_VINYL_DATA_SZC_CNT, "corruption detected" ); /* valid szc */
 
   if( FD_UNLIKELY( szc>=FD_VINYL_DATA_SZC_CNT ) ) {
-    FD_CRIT( idx < data->vol_cnt, "corruption detected" ); /* valid idx for vol */
+    FD_DCHECK_CRIT( idx < data->vol_cnt, "corruption detected" ); /* valid idx for vol */
 
     obj->type          = FD_VINYL_DATA_OBJ_TYPE_FREEVOL; /* Mark as on the free stack */
     obj->idx           = data->vol_idx_free;
@@ -332,7 +332,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
     return;
   }
 
-  FD_CRIT( idx<(ulong)fd_vinyl_data_szc_cfg[ szc ].obj_cnt, "corruption detected" ); /* valid idx for szc */
+  FD_DCHECK_CRIT( idx<(ulong)fd_vinyl_data_szc_cfg[ szc ].obj_cnt, "corruption detected" ); /* valid idx for szc */
 
   /* At this point, obj appears to be contained in a superblock at
      position idx.  Mark the object as free in the superblock. */
@@ -340,12 +340,12 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
   fd_vinyl_data_obj_t * superblock = (fd_vinyl_data_obj_t *)
     ((ulong)obj - sizeof(fd_vinyl_data_obj_t) - idx*fd_vinyl_data_szc_obj_footprint( szc ));
 
-  FD_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
+  FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, superblock, szc ), "corruption detected" );
 
   ulong free_blocks = superblock->free_blocks;
   ulong block       = 1UL << idx;
 
-  FD_CRIT( !(free_blocks & block), "obj already free" );
+  FD_DCHECK_CRIT( !(free_blocks & block), "obj already free" );
 
   obj->type = 0UL; /* Mark this as no longer an object (not strictly necessary but useful for things like double free detection) */
 
@@ -376,7 +376,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
     if( displaced_superblock ) {
 
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
+      FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
 
       displaced_superblock->next_off       = fd_vinyl_data_obj_off( data->laddr0, data->superblock[ szc ].inactive_top );
       data->superblock[ szc ].inactive_top = displaced_superblock;
@@ -393,7 +393,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
       if( FD_UNLIKELY( candidate_superblock ) ) {
 
-        FD_ALERT( !fd_vinyl_data_superblock_test( data, candidate_superblock, szc ), "corruption detected" );
+        FD_DCHECK_ALERT( !fd_vinyl_data_superblock_test( data, candidate_superblock, szc ), "corruption detected" );
 
         if( FD_UNLIKELY( candidate_superblock->free_blocks==all_blocks ) ) {
 
@@ -472,7 +472,7 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
    and FD_VINYL_ERR_CORRUPT (negative) if memory corruption was detected
    (logs details). */
 
-FD_FN_PURE static int
+static int
 fd_vinyl_data_verify_superblock( fd_vinyl_data_t     const * data,
                                  fd_vinyl_data_obj_t const * superblock ) {
 
@@ -559,7 +559,7 @@ fd_vinyl_data_verify( fd_vinyl_data_t const * data ) {
     }
 
     TEST( vol_used_rem );
-    TEST( !fd_vinyl_data_verify_superblock( data, vol->obj ) );
+    TEST( !fd_vinyl_data_verify_superblock( data, obj ) );
     vol_used_rem--;
   }
 

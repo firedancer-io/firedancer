@@ -3,7 +3,6 @@
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include <stddef.h>
-#include <assert.h>
 
 FD_STATIC_ASSERT( FD_VM_FOOTPRINT                       == sizeof( fd_vm_t ), vm_struct );
 FD_STATIC_ASSERT( FD_VM_ALIGN                           == alignof( fd_vm_t ), vm_struct );
@@ -53,8 +52,7 @@ FD_STATIC_ASSERT( FD_VM_LOG_TAIL==128UL,   vm_log );
 FD_STATIC_ASSERT( FD_VM_COMPUTE_UNIT_LIMIT                       ==         1400000UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_LOG_64_UNITS                             ==             100UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_CREATE_PROGRAM_ADDRESS_UNITS             ==            1500UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==            1000UL, vm_cu );
-FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS_SIMD_0339                   ==             946UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==             946UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_INVOKE_STACK_HEIGHT                  ==               5UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_MAX_INSTRUCTION_TRACE_LENGTH             ==              64UL, vm_cu );
 FD_STATIC_ASSERT( FD_VM_SHA256_BASE_COST                         ==              85UL, vm_cu );
@@ -115,11 +113,6 @@ FD_STATIC_ASSERT( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT          ==64UL*1024UL*1
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2, vm_trace );
-
-#if 0 /* FIXME: MOVE TESTING TO VM */
-static fd_vm_log_collector_t lc[1];
-static uchar lc_mirror[ FD_VM_LOG_MAX ];
-#endif
 
 int
 main( int     argc,

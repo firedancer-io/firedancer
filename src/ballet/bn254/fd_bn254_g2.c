@@ -1,69 +1,9 @@
-#include "./fd_bn254.h"
+#include "./fd_bn254_g2_inl.h"
 
 /* G2 */
 
 /* COV: unlike g1, g2 operations are not exposed to users.
    So many edge cases and checks for zero are never triggered, e.g. by syscall tests. */
-
-static inline int
-fd_bn254_g2_is_zero( fd_bn254_g2_t const * p ) {
-  return fd_bn254_fp2_is_zero( &p->Z );
-}
-
-static inline int
-fd_bn254_g2_eq( fd_bn254_g2_t const * p,
-                fd_bn254_g2_t const * q ) {
-  if( fd_bn254_g2_is_zero( p ) ) {
-    return fd_bn254_g2_is_zero( q );
-  }
-  if( fd_bn254_g2_is_zero( q ) ) {
-    return 0;
-  }
-
-  fd_bn254_fp2_t pz2[1], qz2[1];
-  fd_bn254_fp2_t l[1], r[1];
-
-  fd_bn254_fp2_sqr( pz2, &p->Z );
-  fd_bn254_fp2_sqr( qz2, &q->Z );
-
-  fd_bn254_fp2_mul( l, &p->X, qz2 );
-  fd_bn254_fp2_mul( r, &q->X, pz2 );
-  if( !fd_bn254_fp2_eq( l, r ) ) {
-    return 0;
-  }
-
-  fd_bn254_fp2_mul( l, &p->Y, qz2 );
-  fd_bn254_fp2_mul( l, l, &q->Z );
-  fd_bn254_fp2_mul( r, &q->Y, pz2 );
-  fd_bn254_fp2_mul( r, r, &p->Z );
-  return fd_bn254_fp2_eq( l, r );
-}
-
-static inline fd_bn254_g2_t *
-fd_bn254_g2_set( fd_bn254_g2_t *       r,
-                 fd_bn254_g2_t const * p ) {
-  fd_bn254_fp2_set( &r->X, &p->X );
-  fd_bn254_fp2_set( &r->Y, &p->Y );
-  fd_bn254_fp2_set( &r->Z, &p->Z );
-  return r;
-}
-
-static inline fd_bn254_g2_t *
-fd_bn254_g2_neg( fd_bn254_g2_t *       r,
-                 fd_bn254_g2_t const * p ) {
-  fd_bn254_fp2_set( &r->X, &p->X );
-  fd_bn254_fp2_neg( &r->Y, &p->Y );
-  fd_bn254_fp2_set( &r->Z, &p->Z );
-  return r;
-}
-
-static inline fd_bn254_g2_t *
-fd_bn254_g2_set_zero( fd_bn254_g2_t * r ) {
-  // fd_bn254_fp2_set_zero( &r->X );
-  // fd_bn254_fp2_set_zero( &r->Y );
-  fd_bn254_fp2_set_zero( &r->Z );
-  return r;
-}
 
 static inline fd_bn254_g2_t *
 fd_bn254_g2_to_affine( fd_bn254_g2_t *       r,
@@ -104,31 +44,6 @@ fd_bn254_g2_tobytes( uchar                 out[128],
   fd_bn254_fp2_tobytes_nm( &out[64], &r->Y, big_endian );
   /* no flags */
   return out;
-}
-
-static inline fd_bn254_g2_t *
-fd_bn254_g2_frob( fd_bn254_g2_t *       r,
-                  fd_bn254_g2_t const * p ) {
-  fd_bn254_fp2_conj( &r->X, &p->X );
-  fd_bn254_fp2_mul ( &r->X, &r->X, &fd_bn254_const_frob_gamma1_mont[1] );
-  fd_bn254_fp2_conj( &r->Y, &p->Y );
-  fd_bn254_fp2_mul ( &r->Y, &r->Y, &fd_bn254_const_frob_gamma1_mont[2] );
-  fd_bn254_fp2_conj( &r->Z, &p->Z );
-  return r;
-}
-
-static inline fd_bn254_g2_t *
-fd_bn254_g2_frob2( fd_bn254_g2_t *       r,
-                   fd_bn254_g2_t const * p ) {
-  /* X */
-  fd_bn254_fp_mul( &r->X.el[0], &p->X.el[0], &fd_bn254_const_frob_gamma2_mont[1] );
-  fd_bn254_fp_mul( &r->X.el[1], &p->X.el[1], &fd_bn254_const_frob_gamma2_mont[1] );
-  /* Y */
-  fd_bn254_fp_mul( &r->Y.el[0], &p->Y.el[0], &fd_bn254_const_frob_gamma2_mont[2] );
-  fd_bn254_fp_mul( &r->Y.el[1], &p->Y.el[1], &fd_bn254_const_frob_gamma2_mont[2] );
-  /* Z=1 */
-  fd_bn254_fp2_set( &r->Z, &p->Z );
-  return r;
 }
 
 /* fd_bn254_g2_dbl computes r = 2p.
@@ -252,6 +167,7 @@ fd_bn254_g2_add_mixed( fd_bn254_g2_t *       r,
 }
 
 /* fd_bn254_g2_add computes r = p + q.
+   p MUST not be equal to q, unless p==0.
    http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#addition-add-2007-bl */
 fd_bn254_g2_t *
 fd_bn254_g2_add( fd_bn254_g2_t *       r,
@@ -324,134 +240,57 @@ fd_bn254_g2_add( fd_bn254_g2_t *       r,
   return r;
 }
 
-/* fd_bn254_g2_scalar_mul computes r = s * p.
-   This assumes that p is affine, i.e. p->Z==1. */
+/* fd_bn254_g2_affine_add computes r = p + q.
+   Both p, q are affine, i.e. Z==1. */
 fd_bn254_g2_t *
-fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
-                        fd_bn254_g2_t const *     p,
-                        fd_bn254_scalar_t const * s ) {
-  /* TODO: wNAF, GLV */
-  int i = 255;
-  for( ; i>=0 && !fd_uint256_bit( s, i ); i-- ) ; /* do nothing, just i-- */
-  if( FD_UNLIKELY( i<0 ) ) {
-    return fd_bn254_g2_set_zero( r );
-  }
-  fd_bn254_g2_set( r, p );
-  for( i--; i>=0; i-- ) {
-    fd_bn254_g2_dbl( r, r );
-    if( fd_uint256_bit( s, i ) ) {
-      fd_bn254_g2_add_mixed( r, r, p );
-    }
-  }
-  return r;
-}
-
-/* fd_bn254_g2_frombytes_internal extracts (x, y) and performs basic checks.
-   This is used by fd_bn254_g2_compress() and fd_bn254_g2_frombytes_check_subgroup(). */
-static inline fd_bn254_g2_t *
-fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
-                                uchar const     in[128],
-                                int             big_endian ) {
-  /* Special case: all zeros => point at infinity */
-  const uchar zero[128] = { 0 };
-  if( FD_UNLIKELY( fd_memeq( in, zero, 128 ) ) ) {
-    return fd_bn254_g2_set_zero( p );
-  }
-
-  /* Check x < p */
-  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_nm( &p->X, &in[0], big_endian, NULL, NULL ) ) ) {
-    return NULL;
-  }
-
-  /* Check flags and y < p */
-  int is_inf, is_neg;
-  if( FD_UNLIKELY( !fd_bn254_fp2_frombytes_nm( &p->Y, &in[64], big_endian, &is_inf, &is_neg ) ) ) {
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( is_inf ) ) {
-    return fd_bn254_g2_set_zero( p );
-  }
-
-  fd_bn254_fp2_set_one( &p->Z );
-  return p;
-}
-
-/* fd_bn254_g2_frombytes_check_eq_only performs frombytes, checks the curve
-   equation, but does NOT check subgroup membership. */
-static inline fd_bn254_g2_t *
-fd_bn254_g2_frombytes_check_eq_only( fd_bn254_g2_t * p,
-                                     uchar const     in[128],
-                                     int             big_endian ) {
-  if( FD_UNLIKELY( !fd_bn254_g2_frombytes_internal( p, in, big_endian ) ) ) {
-    return NULL;
-  }
+fd_bn254_g2_affine_add( fd_bn254_g2_t *       r,
+                        fd_bn254_g2_t const * p,
+                        fd_bn254_g2_t const * q ) {
+  /* p==0, return q */
   if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
-    return p;
+    return fd_bn254_g2_set( r, q );
+  }
+  /* q==0, return p */
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( q ) ) ) {
+    return fd_bn254_g2_set( r, p );
   }
 
-  fd_bn254_fp2_to_mont( &p->X, &p->X );
-  fd_bn254_fp2_to_mont( &p->Y, &p->Y );
-  fd_bn254_fp2_set_one( &p->Z );
+  fd_bn254_fp2_t lambda[1], x[1], y[1];
 
-  /* Check that y^2 = x^3 + b */
-  fd_bn254_fp2_t y2[1], x3b[1];
-  fd_bn254_fp2_sqr( y2, &p->Y );
-  fd_bn254_fp2_sqr( x3b, &p->X );
-  fd_bn254_fp2_mul( x3b, x3b, &p->X );
-  fd_bn254_fp2_add( x3b, x3b, fd_bn254_const_twist_b_mont );
-  if( FD_UNLIKELY( !fd_bn254_fp2_eq( y2, x3b ) ) ) {
-    return NULL;
+  /* same X, either the points are equal or opposite */
+  if( fd_bn254_fp2_eq( &p->X, &q->X ) ) {
+    if( fd_bn254_fp2_eq( &p->Y, &q->Y ) ) {
+      /* p==q => point double: lambda = 3 * x1^2 / (2 * y1) */
+      fd_bn254_fp2_sqr( x, &p->X ); /* x =   x1^2 */
+      fd_bn254_fp2_add( y, x, x );  /* y = 2 x1^2 */
+      fd_bn254_fp2_add( x, x, y );  /* x = 3 x1^2 */
+      fd_bn254_fp2_add( y, &p->Y, &p->Y );
+      fd_bn254_fp2_inv( lambda, y );
+      fd_bn254_fp2_mul( lambda, lambda, x );
+    } else {
+      /* p==-q => r=0 */
+      return fd_bn254_g2_set_zero( r );
+    }
+  } else {
+    /* point add: lambda = (y1 - y2) / (x1 - x2) */
+    fd_bn254_fp2_sub( x, &p->X, &q->X );
+    fd_bn254_fp2_sub( y, &p->Y, &q->Y );
+    fd_bn254_fp2_inv( lambda, x );
+    fd_bn254_fp2_mul( lambda, lambda, y );
   }
-  return p;
-}
 
-/* fd_bn254_g2_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
-static inline fd_bn254_g2_t *
-fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
-                                      uchar const     in[128],
-                                      int             big_endian ) {
-  if( FD_UNLIKELY( fd_bn254_g2_frombytes_check_eq_only( p, in, big_endian )==NULL ) ) {
-    return NULL;
-  }
+  /* x3 = lambda^2 - x1 - x2 */
+  fd_bn254_fp2_sqr( x, lambda );
+  fd_bn254_fp2_sub( x, x, &p->X );
+  fd_bn254_fp2_sub( x, x, &q->X );
 
-  /* G2 does NOT have prime order, so we have to check group membership. */
+  /* y3 = lambda * (x1 - x3) - y1 */
+  fd_bn254_fp2_sub( y, &p->X, x );
+  fd_bn254_fp2_mul( y, y, lambda );
+  fd_bn254_fp2_sub( y, y, &p->Y );
 
-  /* We use the fast subgroup membership check, that requires a single 64-bit scalar mul.
-     https://eprint.iacr.org/2022/348, Sec 3.1.
-     [r]P == 0 <==> [x+1]P + ψ([x]P) + ψ²([x]P) = ψ³([2x]P)
-     See also: https://github.com/Consensys/gnark-crypto/blob/v0.12.1/ecc/bn254/g2.go#L404
-
-     For reference, the followings also work:
-
-     1) very slow: 256-bit scalar mul
-
-     fd_bn254_g2_t r[1];
-     fd_bn254_g2_scalar_mul( r, p, fd_bn254_const_r );
-     if( !fd_bn254_g2_is_zero( r ) ) return NULL;
-
-     2) slow: 128-bit scalar mul
-
-     fd_bn254_g2_t a[1], b[1];
-     const fd_bn254_scalar_t six_x_sqr[1] = {{{ 0xf83e9682e87cfd46, 0x6f4d8248eeb859fb, 0x0, 0x0, }}};
-     fd_bn254_g2_scalar_mul( a, p, six_x_sqr );
-     fd_bn254_g2_frob( b, p );
-     if( !fd_bn254_g2_eq( a, b ) ) return NULL; */
-
-  fd_bn254_g2_t xp[1], l[1], psi[1], r[1];
-  fd_bn254_g2_scalar_mul( xp, p, fd_bn254_const_x ); /* 64-bit */
-  fd_bn254_g2_add_mixed( l, xp, p );
-
-  fd_bn254_g2_frob( psi, xp );
-  fd_bn254_g2_add( l, l, psi );
-
-  fd_bn254_g2_frob2( psi, xp ); /* faster than frob( psi, psi ) */
-  fd_bn254_g2_add( l, l, psi );
-
-  fd_bn254_g2_frob( psi, psi );
-  fd_bn254_g2_dbl( r, psi );
-  if( FD_UNLIKELY( !fd_bn254_g2_eq( l, r ) ) ) {
-    return NULL;
-  }
-  return p;
+  fd_bn254_fp2_set( &r->X, x );
+  fd_bn254_fp2_set( &r->Y, y );
+  fd_bn254_fp2_set_one( &r->Z );
+  return r;
 }

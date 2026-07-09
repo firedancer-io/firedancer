@@ -327,6 +327,142 @@ test_tls_server_wrong_ciphersuite( fd_rng_t * rng ) {
   fd_tls_delete( fd_tls_leave( client ) );
 }
 
+static void
+test_tls_truncated_cert_extract( void ) {
+
+  {
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( NULL, 0UL, FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( (uchar const *)"", 0UL, FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    uchar const cert_body[] = { 0x00 };
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    uchar const cert_body[] = { 0x00, 0x00, 0x00 };
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    uchar const cert_body[] = {
+      0x00,             /* certificate_request_context length = 0 */
+      0x00, 0x00, 0x20, /* cert_list_sz = 32 (nonzero) */
+    };
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    uchar const cert_body[] = {
+      0x00,             /* certificate_request_context length = 0 */
+      0x00, 0x00, 0x20, /* cert_list_sz = 32 */
+      0x00, 0x00, 0x20, /* cert_sz = 32 (but only 0 bytes follow) */
+    };
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    uchar const cert_body[] = {
+      0x00,             /* certificate_request_context length = 0 */
+      0x00, 0x00, 0x00, /* cert_list_sz = 0 */
+    };
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_X509 );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_BAD_CERTIFICATE    );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_CHAIN_EMPTY  );
+  }
+
+  {
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( NULL, 0UL, FD_TLS_CERTTYPE_RAW_PUBKEY );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+
+  {
+    uchar const cert_body[] = { 0x00 };
+    fd_tls_extract_cert_pubkey_res_t res =
+      fd_tls_extract_cert_pubkey( cert_body, sizeof(cert_body), FD_TLS_CERTTYPE_RAW_PUBKEY );
+    FD_TEST( !res.pubkey );
+    FD_TEST( res.alert  == FD_TLS_ALERT_DECODE_ERROR );
+    FD_TEST( res.reason == FD_TLS_REASON_CERT_PARSE  );
+  }
+}
+
+static void
+test_tls_truncated_cert_handshake( fd_rng_t * rng ) {
+
+  fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  prepare_tls_pair( rng, client, server );
+
+  fd_tls_estate_cli_t cli_hs[1];
+  FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+
+  cli_hs->base.state        = FD_TLS_HS_WAIT_CERT_CR;
+  cli_hs->server_pubkey_pin = 0;
+
+  uchar record[] = {
+    FD_TLS_MSG_CERT,    /* type = Certificate */
+    0x00, 0x00, 0x01,   /* msg body length = 1 byte */
+    0x00,               /* certificate_request_context length = 0 */
+  };
+
+  long res = fd_tls_client_handshake( client, cli_hs, record, sizeof(record), FD_TLS_LEVEL_HANDSHAKE );
+  FD_TEST( res == -(long)FD_TLS_ALERT_DECODE_ERROR );
+  FD_TEST( cli_hs->base.reason == FD_TLS_REASON_CERT_CR_PARSE );
+  FD_TEST( cli_hs->base.state  != FD_TLS_HS_WAIT_CV );
+
+  /* Zero-length body — FD_TLS_SKIP_FIELD fails at opaque_sz */
+  FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
+  cli_hs->base.state        = FD_TLS_HS_WAIT_CERT_CR;
+  cli_hs->server_pubkey_pin = 0;
+
+  uchar record_empty[] = {
+    FD_TLS_MSG_CERT,
+    0x00, 0x00, 0x00,   /* msg body length = 0 */
+  };
+
+  res = fd_tls_client_handshake( client, cli_hs, record_empty, sizeof(record_empty), FD_TLS_LEVEL_HANDSHAKE );
+  FD_TEST( res == -(long)FD_TLS_ALERT_DECODE_ERROR );
+  FD_TEST( cli_hs->base.reason == FD_TLS_REASON_CERT_CR_PARSE );
+  FD_TEST( cli_hs->base.state  != FD_TLS_HS_WAIT_CV );
+
+  fd_tls_estate_cli_delete( cli_hs );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
+}
+
 int
 main( int     argc,
       char ** argv) {
@@ -337,6 +473,8 @@ main( int     argc,
   test_tls_pair( rng );
   test_tls_client_wrong_ciphersuite( rng );
   test_tls_server_wrong_ciphersuite( rng );
+  test_tls_truncated_cert_extract();
+  test_tls_truncated_cert_handshake( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));

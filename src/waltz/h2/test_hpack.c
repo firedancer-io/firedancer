@@ -189,8 +189,7 @@ test_hpack_wr_varint( void ) {
   }
 }
 
-void
-test_hpack( void ) {
+FD_UNIT_TEST( hpack ) {
   test_hpack_rd( rfc7541_c31_bin, sizeof(rfc7541_c31_bin), rfc7541_c31_dec );
   test_hpack_rd( rfc7541_c32_bin, sizeof(rfc7541_c32_bin), rfc7541_c32_dec );
   test_hpack_rd( rfc7541_c33_bin, sizeof(rfc7541_c33_bin), rfc7541_c33_dec );

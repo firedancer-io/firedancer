@@ -14,9 +14,9 @@ typedef struct fd_topo fd_topo_t;
 /* Helpers for consumers of net tile RX packets */
 
 struct fd_net_rx_bounds {
-  ulong base;       /* base address of wksp containing dcache */
-  ulong pkt_lo;     /* lowest permitted pointer to packet payload */
-  ulong pkt_wmark;  /* highest " */
+  ulong base;   /* base address of wksp containing dcache */
+  ulong pkt_lo; /* lowest permitted pointer to packet payload */
+  ulong pkt_hi; /* one past last valid byte of packet payload region */
 };
 
 typedef struct fd_net_rx_bounds fd_net_rx_bounds_t;
@@ -35,9 +35,9 @@ FD_PROTOTYPES_BEGIN
 FD_FN_UNUSED static void
 fd_net_rx_bounds_init( fd_net_rx_bounds_t * bounds,
                        void *               dcache ) {
-  bounds->base      = (ulong)fd_wksp_containing( dcache );
-  bounds->pkt_lo    = (ulong)dcache;
-  bounds->pkt_wmark = bounds->pkt_lo + fd_dcache_data_sz( dcache ) - FD_NET_MTU;
+  bounds->base   = (ulong)fd_wksp_containing( dcache );
+  bounds->pkt_lo = (ulong)dcache;
+  bounds->pkt_hi = bounds->pkt_lo + fd_dcache_data_sz( dcache );
   if( FD_UNLIKELY( !bounds->base ) ) FD_LOG_ERR(( "Failed to find wksp containing dcache" ));
 }
 
@@ -55,12 +55,12 @@ fd_net_rx_translate_frag( fd_net_rx_bounds_t const * bounds,
                           ulong                      ctl,
                           ulong                      sz ) {
   ulong p = ((ulong)bounds->base + (chunk<<FD_CHUNK_LG_SZ) + ctl);
-  if( FD_UNLIKELY( !( (p  >= bounds->pkt_lo   ) &
-                      (p  <= bounds->pkt_wmark) &
-                      (sz <= FD_NET_MTU       ) ) ) ) {
-    FD_LOG_ERR(( "frag %p (chunk=%lu ctl=%lu sz=%lu) is not in bounds [%p:%p]",
+  if( FD_UNLIKELY( !( (p      >= bounds->pkt_lo) &
+                      (p + sz <= bounds->pkt_hi ) &
+                      (sz     <= FD_NET_MTU     ) ) ) ) {
+    FD_LOG_ERR(( "frag %p (chunk=%lu ctl=%lu sz=%lu) is not in bounds [%p:%p)",
                  (void *)p, chunk, ctl, sz,
-                 (void *)bounds->pkt_lo, (void *)bounds->pkt_wmark ));
+                 (void *)bounds->pkt_lo, (void *)bounds->pkt_hi ));
   }
   return (void const *)p;
 }

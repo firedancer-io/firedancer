@@ -46,7 +46,7 @@ fd_vinyl_meta_query_fast( fd_vinyl_meta_ele_t const * ele0,
     ele_idx = (ele_idx+1UL) & (ele_max-1UL); /* collision, try next slot */
   }
 
-  FD_CRIT( rem, "corruption detected" );
+  FD_DCHECK_CRIT( rem, "corruption detected" );
 
   return err;
 }
@@ -89,7 +89,7 @@ fd_vinyl_meta_remove_fast( fd_vinyl_meta_ele_t * ele0,
   for( contig_cnt=1UL; contig_cnt<ele_max; contig_cnt++ )
     if( FD_LIKELY( !ele0[ (ele_idx + contig_cnt) & (ele_max-1UL) ].phdr.ctl ) ) break;
 
-  FD_CRIT( contig_cnt<ele_max, "corruption detected" );
+  FD_DCHECK_CRIT( contig_cnt<ele_max, "corruption detected" );
 
   /* At this point, contig_cnt is in [1,ele_max) and meta elements
      [ele_idx,ele_idx+contig_cnt) (cyclic) are the contiguously occupied
@@ -141,10 +141,10 @@ fd_vinyl_meta_remove_fast( fd_vinyl_meta_ele_t * ele0,
 
       ulong line_idx = ele0[ ele_idx ].line_idx;
       if( FD_LIKELY( line_idx<line_cnt ) ) {
-        FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
+        FD_DCHECK_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
         line[ line_idx ].ele_idx = hole_idx;
       } else {
-        FD_CRIT( line_idx==ULONG_MAX, "corruption detected" );
+        FD_DCHECK_CRIT( line_idx==ULONG_MAX, "corruption detected" );
       }
 
       ele0[ hole_idx ] = ele0[ ele_idx ];

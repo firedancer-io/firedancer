@@ -3,14 +3,26 @@
 #include "fd_event_client.h"
 
 #include "../fd_txn_m.h"
+#include "../fd_clock_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
+#include "generated/fd_event_gen.h"
 #include "../keyguard/fd_keyload.h"
+#include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/resolv/fd_netdb.h"
+#include "../../waltz/http/fd_url.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../../tango/tempo/fd_tempo.h"
+
+#if FD_HAS_OPENSSL
+#include "../../util/alloc/fd_alloc.h"
+#include "../../waltz/openssl/fd_openssl.h"
+#include "../../waltz/openssl/fd_openssl_tile.h"
+#include <openssl/ssl.h>
+#endif
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -25,13 +37,16 @@
 
 #define GRPC_BUF_MAX (2048UL<<10UL) /* 2 MiB */
 
-extern char const firedancer_version_string[];
-
 #define IN_KIND_SHRED  (0)
 #define IN_KIND_DEDUP  (1)
 #define IN_KIND_SIGN   (2)
 #define IN_KIND_GENESI (3)
 #define IN_KIND_IPECHO (4)
+#define IN_KIND_EVENT  (5)
+
+#define FD_EVENT_TYPE_TXN         1
+#define FD_EVENT_TYPE_SHRED       2
+#define FD_EVENT_TYPE_SIGNED_VOTE 3
 
 union fd_event_tile_in {
   struct {
@@ -53,6 +68,8 @@ struct fd_event_tile {
 
   int tile_shutdown_rendered[ FD_TOPO_MAX_TILES ];
 
+  fd_keyswitch_t * keyswitch;
+
   ulong idle_cnt;
 
   ulong boot_id;
@@ -66,12 +83,23 @@ struct fd_event_tile {
   ulong shred_buf_sz;
   uchar shred_buf[ FD_NET_MTU ];
 
+  ulong event_type;
+  ulong event_sz;
+  uchar event_buf[ FD_EVENT_GEN_STRUCT_MAX ];
+
   uchar identity_pubkey[ 32UL ];
+
+  int use_tls;
+#if FD_HAS_OPENSSL
+  SSL_CTX * ssl_ctx;
+#endif
 
   fd_keyguard_client_t keyguard_client[1];
   fd_rng_t rng[1];
 
   fd_netdb_fds_t netdb_fds[1];
+
+  fd_clock_tile_t clock[1];
 
   ulong in_cnt;
   int in_kind[ 64UL ];
@@ -82,7 +110,13 @@ typedef struct fd_event_tile fd_event_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  ulong a = alignof( fd_event_tile_t );
+  a = fd_ulong_max( a, fd_event_client_align() );
+  a = fd_ulong_max( a, fd_circq_align() );
+# if FD_HAS_OPENSSL
+  a = fd_ulong_max( a, fd_alloc_align() );
+# endif
+  return a;
 }
 
 FD_FN_PURE static inline ulong
@@ -93,22 +127,41 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           ); /* 1GiB circq for events */
+# if FD_HAS_OPENSSL
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                     );
+# endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+# if FD_HAS_OPENSSL
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  /* Extra workspace memory for OpenSSL dynamic allocations */
+  return 1UL<<26UL; /* 64 MiB */
+}
+# endif
+
 static inline void
 metrics_write( fd_event_tile_t * ctx ) {
-  FD_MGAUGE_SET( EVENT, EVENT_QUEUE_COUNT, ctx->circq->cnt );
-  FD_MCNT_SET( EVENT, EVENT_QUEUE_DROPS, ctx->circq->metrics.drop_cnt );
-  FD_MGAUGE_SET( EVENT, EVENT_QUEUE_BYTES_USED, fd_circq_bytes_used( ctx->circq ) );
-  FD_MGAUGE_SET( EVENT, EVENT_QUEUE_BYTES_CAPACITY, ctx->circq->size );
+  FD_MGAUGE_SET( EVENT, QUEUE_DEPTH, ctx->circq->cnt );
+  FD_MGAUGE_SET( EVENT, QUEUE_UNSENT, fd_circq_unsent_cnt( ctx->circq ) );
+  FD_MCNT_SET( EVENT, QUEUE_DROPPED, ctx->circq->metrics.drop_cnt );
+  FD_MGAUGE_SET( EVENT, QUEUE_BYTES_USED, fd_circq_bytes_used( ctx->circq ) );
+  FD_MGAUGE_SET( EVENT, QUEUE_BYTES_CAPACITY, ctx->circq->size );
 
   fd_event_client_metrics_t const * metrics = fd_event_client_metrics( ctx->client );
-  FD_MCNT_SET( EVENT, EVENTS_SENT,         metrics->events_sent );
-  FD_MCNT_SET( EVENT, EVENTS_ACKED,        metrics->events_acked );
+  FD_MCNT_SET( EVENT, SENT,          metrics->events_sent );
+  FD_MCNT_SET( EVENT, ACKED,         metrics->events_acked );
+  FD_MGAUGE_SET( EVENT, LAST_ACKED_ID, metrics->last_acked_id );
   FD_MCNT_SET( EVENT, BYTES_WRITTEN,       metrics->bytes_written );
   FD_MCNT_SET( EVENT, BYTES_READ,          metrics->bytes_read );
-  FD_MGAUGE_SET( EVENT, CONNECTION_STATE,  fd_event_client_state( ctx->client ) );
+  FD_MCNT_SET( EVENT, AUTH_FAILED,         metrics->auth_fail_cnt );
+  FD_MCNT_SET( EVENT, INVALID_MESSAGE,     metrics->invalid_msg_cnt );
+  FD_MCNT_SET( EVENT, CONN_ATTEMPT,        metrics->connect_attempt_cnt );
+  FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUT,   metrics->handshake_timeout_cnt );
+
+  FD_MGAUGE_SET( EVENT, CONN_STATE,        fd_event_client_state( ctx->client ) );
 }
 
 static void
@@ -132,8 +185,9 @@ during_frag( fd_event_tile_t * ctx,
              ulong             chunk,
              ulong             sz,
              ulong             ctl ) {
-  (void)seq; (void)sig; (void)ctl;
+  (void)seq; (void)ctl;
 
+  fd_event_tile_in_t const * in = &ctx->in[ in_idx ];
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
       uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
@@ -149,13 +203,20 @@ during_frag( fd_event_tile_t * ctx,
     case IN_KIND_DEDUP:
     case IN_KIND_GENESI:
     case IN_KIND_IPECHO:
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || sz>in->mtu ) )
+        FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in->chunk0, in->wmark ));
       ctx->chunk = chunk;
       break;
+    case IN_KIND_EVENT: {
+      if( FD_UNLIKELY( chunk<in->chunk0 || chunk>in->wmark || sz>in->mtu ) )
+        FD_LOG_CRIT(( "chunk %lu corrupt, not in range [%lu,%lu]", chunk, in->chunk0, in->wmark ));
+      fd_memcpy( ctx->event_buf, fd_chunk_to_laddr_const( in->mem, chunk ), sz );
+      ctx->event_type = sig;
+      ctx->event_sz   = sz;
+      break;
+    }
     default:
-      FD_LOG_ERR(( "unexpected in_kind %d %lu", ctx->in_kind[ in_idx ], in_idx ));
+      FD_LOG_CRIT(( "unexpected in_kind %d %lu", ctx->in_kind[ in_idx ], in_idx ));
   }
 }
 
@@ -168,7 +229,7 @@ after_frag( fd_event_tile_t *   ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)seq; (void)sz; (void)tsorig; (void)stem;
+  (void)sz; (void)tsorig; (void)stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
@@ -185,10 +246,10 @@ after_frag( fd_event_tile_t *   ctx,
       int protocol;
       switch( fd_disco_netmux_sig_proto( sig ) ) {
         case DST_PROTO_SHRED:
-          protocol = 0;
+          protocol = 1;
           break;
         case DST_PROTO_REPAIR:
-          protocol = 1;
+          protocol = 2;
           break;
         default:
           // TODO: Leader shreds?
@@ -196,9 +257,8 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_frag_meta_ts_decomp( tspub, fd_tickcount() );
-      long timestamp_seconds = timestamp_nanos / 1000000000L;
-      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
+        fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -206,12 +266,10 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
       fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_submsg_open( encoder, 3U );
-      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
-      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
-      fd_pb_submsg_close( encoder );
+      fd_pb_push_uint64( encoder, 3U, seq ); /* link_seq */
+      fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 5U ); /* Event */
       fd_pb_submsg_open( encoder, 2U ); /* Shred */
       fd_pb_push_bytes( encoder, 1U, &ip_addr, 4UL );
       fd_pb_push_uint32( encoder, 2U, source_port );
@@ -243,9 +301,8 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_frag_meta_ts_decomp( tspub, fd_tickcount() );
-      long timestamp_seconds = timestamp_nanos / 1000000000L;
-      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock,
+        fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -253,12 +310,10 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
       fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_submsg_open( encoder, 3U );
-      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
-      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
-      fd_pb_submsg_close( encoder );
+      fd_pb_push_uint64( encoder, 3U, seq ); /* link_seq */
+      fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 5U ); /* Event */
       fd_pb_submsg_open( encoder, 1U ); /* Txn */
       fd_pb_push_bytes( encoder, 1U, &txnm->source_ipv4, 4UL );
       fd_pb_push_uint32( encoder, 2U, 0U ); /* TODO: source port .. */
@@ -282,30 +337,41 @@ after_frag( fd_event_tile_t *   ctx,
 
       break;
     case IN_KIND_GENESI: {
-      uchar const * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        fd_event_client_init_genesis_hash( ctx->client, src+sizeof(fd_lthash_value_t) );
-      } else {
-        fd_event_client_init_genesis_hash( ctx->client, src );
-      }
+      fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
+      fd_event_client_init_genesis( ctx->client, genesis_meta );
       break;
     }
     case IN_KIND_IPECHO:
       FD_TEST( sig && sig<=USHORT_MAX );
       fd_event_client_init_shred_version( ctx->client, (ushort)sig );
       break;
+    case IN_KIND_EVENT: {
+      long timestamp_nanos = fd_clock_tile_tickcount_to_wallclock( ctx->clock, fd_clock_tile_tickcount_decomp( ctx->clock, tspub ) );
+      fd_event_serialize_by_type( ctx->event_type, ctx->circq, ctx->client, timestamp_nanos, seq, ctx->event_buf, ctx->event_sz );
+      break;
+    }
     default:
       FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t) );
+  fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t),  sizeof(fd_event_tile_t) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           );
+# if FD_HAS_OPENSSL
+  void * alloc_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  (void)alloc_mem;
+# endif
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   if( FD_UNLIKELY( !strcmp( tile->event.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
   const uchar * identity_key = fd_keyload_load( tile->event.identity_key_path, /* pubkey only: */ 1 );
@@ -335,23 +401,74 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
     FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
   }
+
+  /* Detect TLS from the URL scheme */
+  fd_url_t url[ 1UL ];
+  ushort   port;
+  _Bool    is_ssl = 0;
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url, tile->event.url, strlen( tile->event.url ), &port, &is_ssl, "[tiles.event.url]" ) ) ) {
+    FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
+  }
+  ctx->use_tls = is_ssl;
+
+# if FD_HAS_OPENSSL
+  ctx->ssl_ctx = NULL;
+  if( ctx->use_tls ) {
+    fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), tile->kind_id );
+    if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_new failed" ));
+    fd_ossl_tile_init( alloc );
+
+    SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+    if( FD_UNLIKELY( !ssl_ctx ) ) FD_LOG_ERR(( "SSL_CTX_new failed" ));
+
+    if( FD_UNLIKELY( !SSL_CTX_set_mode( ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_AUTO_RETRY ) ) )
+      FD_LOG_ERR(( "SSL_CTX_set_mode failed" ));
+
+    if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) )
+      FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
+
+    if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (uchar const *)"\x02h2", 3 ) ) )
+      FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
+
+    fd_ossl_load_certs( ssl_ctx ); /* also sets SSL_VERIFY_PEER */
+
+    ctx->ssl_ctx = ssl_ctx;
+  }
+# else
+  if( FD_UNLIKELY( ctx->use_tls ) ) {
+    FD_LOG_ERR(( "TLS requested for event service (https:// URL) but this build "
+                 "does not include OpenSSL. Re-run ./deps.sh and do a clean rebuild." ));
+  }
+# endif
+}
+
+static int
+link_is_event_report( fd_topo_t const * topo,
+                      ulong             link_id ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( FD_UNLIKELY( topo->tiles[ i ].event_link_id==link_id ) ) return 1;
+  }
+  return 0;
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                  );
-  void * _event_client  = FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX) );
-  void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )          );
+  fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
+  void * _event_client  = FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
+  void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           );
+# if FD_HAS_OPENSSL
+  FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+# endif
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_event", tile->kind_id );
   ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "event_sign", tile->kind_id );
   FD_TEST( sign_in_idx!=ULONG_MAX );
-  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
-  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+  fd_topo_link_t const * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
+  fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
   if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
           sign_out->mcache,
           sign_out->dcache,
@@ -363,8 +480,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0U, ctx->seed ) ) );
 
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
   ctx->circq = fd_circq_join( fd_circq_new( _circq, 1UL<<30UL /* 1GiB */ ) );
   FD_TEST( ctx->circq );
+
+  void * ssl_ctx_ptr = NULL;
+# if FD_HAS_OPENSSL
+  ssl_ctx_ptr = ctx->ssl_ctx;
+# endif
 
   ctx->client = fd_event_client_join( fd_event_client_new( _event_client,
                                                            ctx->keyguard_client,
@@ -373,11 +498,15 @@ unprivileged_init( fd_topo_t *      topo,
                                                            2*(1UL<<20UL) /* 2 MiB */,
                                                            tile->event.url,
                                                            ctx->identity_pubkey,
-                                                           firedancer_version_string,
+                                                           fd_version_cstr,
+                                                           fd_commit_ref_cstr,
+                                                           tile->event.action,
                                                            ctx->instance_id,
                                                            ctx->boot_id,
                                                            ctx->machine_id,
-                                                           GRPC_BUF_MAX ) );
+                                                           GRPC_BUF_MAX,
+                                                           ctx->use_tls,
+                                                           ssl_ctx_ptr ) );
   FD_TEST( ctx->client );
 
   ctx->topo = topo;
@@ -385,33 +514,45 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->idle_cnt = 0UL;
 
-  ctx->in_cnt = tile->in_cnt;
+  FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
+  ulong polled_in_idx = 0UL;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if( FD_LIKELY( !strcmp( link->name, "net_shred"         ) ) ) {
-      fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
-      ctx->in_kind[ i ] = IN_KIND_SHRED;
+      fd_net_rx_bounds_init( &ctx->in[ polled_in_idx ].net_rx, link->dcache );
+      ctx->in_kind[ polled_in_idx ] = IN_KIND_SHRED;
+      polled_in_idx++;
       continue; /* only net_rx needs to be set in this case. */
-    } else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
-    else if( FD_LIKELY( !strcmp( link->name, "sign_event"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
-    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
+    }
+    else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in_kind[ polled_in_idx ] = IN_KIND_DEDUP;
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ polled_in_idx ] = IN_KIND_GENESI;
+    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ polled_in_idx ] = IN_KIND_IPECHO;
+    else if( FD_LIKELY( link_is_event_report( topo, link->id ) ) ) {
+      ctx->in_kind[ polled_in_idx ] = IN_KIND_EVENT;
+      FD_TEST( link->mtu<=sizeof(ctx->event_buf) );
+    }
     else FD_LOG_ERR(( "event tile has unexpected input link %lu %s", i, link->name ));
 
-    ctx->in[ i ].mem = link_wksp->wksp;
-    ctx->in[ i ].mtu = link->mtu;
-    if( FD_UNLIKELY( ctx->in[ i ].mtu ) ) {
-      ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-      ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    ctx->in[ polled_in_idx ].mem = link_wksp->wksp;
+    ctx->in[ polled_in_idx ].mtu = link->mtu;
+    if( FD_UNLIKELY( ctx->in[ polled_in_idx ].mtu ) ) {
+      ctx->in[ polled_in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ polled_in_idx ].mem, link->dcache );
+      ctx->in[ polled_in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in[ polled_in_idx ].mem, link->dcache, link->mtu );
     } else {
-      ctx->in[ i ].chunk0 = 0UL;
-      ctx->in[ i ].wmark  = 0UL;
+      ctx->in[ polled_in_idx ].chunk0 = 0UL;
+      ctx->in[ polled_in_idx ].wmark  = 0UL;
     }
+    polled_in_idx++;
   }
+  ctx->in_cnt = polled_in_idx;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  fd_clock_tile_init( ctx->clock );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -450,16 +591,31 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+during_housekeeping( fd_event_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: switching identity" ));
+    memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+    fd_event_client_set_identity( ctx->client, ctx->identity_pubkey );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
 #define STEM_BURST (1UL)
 #define STEM_LAZY ((long)10e6) /* 10ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_event_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_event_tile_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../stem/fd_stem.c"
 
@@ -470,6 +626,9 @@ fd_topo_run_tile_t fd_tile_event = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+# if FD_HAS_OPENSSL
+  .loose_footprint          = loose_footprint,
+# endif
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

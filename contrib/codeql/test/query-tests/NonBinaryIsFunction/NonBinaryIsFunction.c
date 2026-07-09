@@ -1,6 +1,6 @@
 // Add missing typedef and define
 #define FD_EXECUTOR_INSTR_ERR_MISSING_ACC (-33) /* An account required by the instruction is missing */
-#define FD_BANK_FLAGS_DEAD (0x00000008UL)       /* Dead.  We stopped replaying it before we could finish it (e.g. invalid block or pruned minority fork). */
+#define FD_BANK_STATE_DEAD (0x00000008UL)       /* Dead.  We stopped replaying it before we could finish it (e.g. invalid block or pruned minority fork). */
 
 typedef struct
 {
@@ -13,7 +13,7 @@ typedef struct
 
 typedef struct
 {
-    int flags;
+    int state;
 } fd_bank_t;
 
 int fd_instr_acc_is_signer_idx(fd_instr_info_t const *instr,
@@ -30,7 +30,7 @@ int fd_instr_acc_is_signer_idx(fd_instr_info_t const *instr,
 static inline int
 fd_banks_is_bank_dead(fd_bank_t *bank)
 {
-    return bank->flags & FD_BANK_FLAGS_DEAD; // $ Alert (returns value in [0, 8])
+    return bank->state & FD_BANK_STATE_DEAD; // $ Alert (returns value in [0, 8])
 }
 
 // inspired by the function, but heavily simplified

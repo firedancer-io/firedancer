@@ -45,7 +45,7 @@ test_init( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_state_validate( server_quic );
   fd_quic_state_validate( client_quic );
 
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
@@ -136,7 +136,7 @@ test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
 
   /* try creating 10 conns - the last one should fail */
   for( ulong i=0; i<conn_cnt; ++i ) {
-    fd_quic_conn_t * conn = fd_quic_connect( client_quic, 0, 0, 0, 0, now );
+    fd_quic_conn_t * conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
     for( ulong j=0; j<10; ++j ) {
       fd_quic_service( client_quic, now );
       fd_quic_service( server_quic, now );
@@ -159,7 +159,7 @@ test_quic_free_timed_out( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   FD_TEST( orig_timeouts + 1 == server_quic->metrics.conn_timeout_cnt );
 
   /* try again, should have space by freeing old one */
-  fd_quic_conn_t * conn = fd_quic_connect( client_quic, 0, 0, 0, 0, now );
+  fd_quic_conn_t * conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
   FD_TEST( conn );
   for( ulong j=0; j<10; ++j ) {
     fd_quic_service( client_quic, now );

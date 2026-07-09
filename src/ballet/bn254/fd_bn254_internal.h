@@ -168,6 +168,32 @@ fd_bn254_fp12_set_one( fd_bn254_fp12_t * r ) {
   return r;
 }
 
+/* Group utilities */
+
+static inline int
+fd_bn254_g1_is_zero( fd_bn254_g1_t const * p ) {
+  return fd_bn254_fp_is_zero( &p->Z );
+}
+
+static inline int
+fd_bn254_g2_is_zero( fd_bn254_g2_t const * p ) {
+  return fd_bn254_fp2_is_zero( &p->Z );
+}
+
+/* Extern fns, defined in fd_bn254_field.c */
+
+fd_bn254_fp_t *
+fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
+                 fd_bn254_fp_t const *    a,
+                 fd_uint256_t  const *    b );
+
+/* Extern fns, defined in fd_bn254_field_ext.c */
+
+fd_bn254_fp2_t *
+fd_bn254_fp2_pow( fd_bn254_fp2_t * restrict r,
+                  fd_bn254_fp2_t const *    a,
+                  fd_uint256_t   const *    b );
+
 fd_bn254_fp12_t *
 fd_bn254_fp12_mul( fd_bn254_fp12_t * r,
                    fd_bn254_fp12_t const * a,
@@ -176,6 +202,103 @@ fd_bn254_fp12_mul( fd_bn254_fp12_t * r,
 fd_bn254_fp12_t *
 fd_bn254_fp12_inv( fd_bn254_fp12_t * r,
                    fd_bn254_fp12_t const * a );
+
+fd_bn254_fp12_t *
+fd_bn254_fp12_mul_sparse( fd_bn254_fp12_t *       r,
+                          fd_bn254_fp12_t const * a,
+                          fd_bn254_fp12_t const * b );
+
+fd_bn254_fp12_t *
+fd_bn254_fp12_sqr( fd_bn254_fp12_t * r,
+                   fd_bn254_fp12_t const * a );
+
+/* Extern fns, defined in fd_bn254_g1.c */
+
+uchar *
+fd_bn254_g1_tobytes( uchar                 out[64],
+                     fd_bn254_g1_t const * p,
+                     int                   big_endian );
+
+fd_bn254_g1_t *
+fd_bn254_g1_affine_add( fd_bn254_g1_t *       r,
+                        fd_bn254_g1_t const * p,
+                        fd_bn254_g1_t const * q );
+
+fd_bn254_g1_t *
+fd_bn254_g1_dbl( fd_bn254_g1_t *       r,
+                 fd_bn254_g1_t const * p );
+
+fd_bn254_g1_t *
+fd_bn254_g1_add_mixed( fd_bn254_g1_t *       r,
+                       fd_bn254_g1_t const * p,
+                       fd_bn254_g1_t const * q );
+
+fd_bn254_g1_t *
+fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
+                        fd_bn254_g1_t const *     p,
+                        fd_bn254_scalar_t const * s );
+
+fd_bn254_g1_t *
+fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
+                                uchar const     in[64],
+                                int             big_endian );
+
+fd_bn254_g1_t *
+fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
+                                      uchar const     in[64],
+                                      int             big_endian );
+
+/* Extern fns, defined in fd_bn254_g2.c */
+
+uchar *
+fd_bn254_g2_tobytes( uchar                 out[128],
+                     fd_bn254_g2_t const * p,
+                     int                   big_endian );
+
+fd_bn254_g2_t *
+fd_bn254_g2_dbl( fd_bn254_g2_t *       r,
+                 fd_bn254_g2_t const * p );
+
+fd_bn254_g2_t *
+fd_bn254_g2_add_mixed( fd_bn254_g2_t *       r,
+                       fd_bn254_g2_t const * p,
+                       fd_bn254_g2_t const * q );
+
+fd_bn254_g2_t *
+fd_bn254_g2_add( fd_bn254_g2_t *       r,
+                 fd_bn254_g2_t const * p,
+                 fd_bn254_g2_t const * q );
+
+fd_bn254_g2_t *
+fd_bn254_g2_affine_add( fd_bn254_g2_t *       r,
+                        fd_bn254_g2_t const * p,
+                        fd_bn254_g2_t const * q );
+
+fd_bn254_g2_t *
+fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
+                        fd_bn254_g2_t const *     p,
+                        fd_bn254_scalar_t const * s );
+
+fd_bn254_g2_t *
+fd_bn254_g2_frombytes_internal( fd_bn254_g2_t * p,
+                                uchar const     in[128],
+                                int             big_endian );
+
+fd_bn254_g2_t *
+fd_bn254_g2_frombytes_check_eq_only( fd_bn254_g2_t * p,
+                                     uchar const     in[128],
+                                     int             big_endian );
+
+fd_bn254_g2_t *
+fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
+                                      uchar const     in[128],
+                                      int             big_endian );
+
+/* Extern fns, defined in fd_bn254_pairing.c */
+
+fd_bn254_fp12_t *
+fd_bn254_fp12_pow_x( fd_bn254_fp12_t * restrict r,
+                     fd_bn254_fp12_t const *    a );
 
 fd_bn254_fp12_t *
 fd_bn254_final_exp( fd_bn254_fp12_t *       r,

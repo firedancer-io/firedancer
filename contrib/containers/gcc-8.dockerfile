@@ -14,14 +14,6 @@ RUN cd /tmp && \
     ln -s /opt/cmake-3.26.5-linux-x86_64/bin/cpack /usr/local/bin/cpack && \
     rm -f /tmp/cmake-3.26.5-linux-x86_64.tar.gz
 
-# Install Rust using rustup
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-
-# Enable Rust by default
-ENV PATH=/root/.cargo/bin:${PATH}
-ENV RUSTUP_HOME=/root/.rustup
-ENV CARGO_HOME=/root/.cargo
-
 WORKDIR /data/firedancer
 
 CMD ["/bin/bash"]

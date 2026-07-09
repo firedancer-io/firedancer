@@ -69,16 +69,16 @@ fd_vinyl_io_bd_read_imm( fd_vinyl_io_t * io,
   ulong seq_present = bd->base->seq_present;
 
   int bad_seq  = !fd_ulong_is_aligned( seq0, FD_VINYL_BSTREAM_BLOCK_SZ );
-  int bad_dst  = (!fd_ulong_is_aligned( (ulong)dst, FD_VINYL_BSTREAM_BLOCK_SZ )) | !dst;
+  int bad_dst  = !dst;
   int bad_sz   = !fd_ulong_is_aligned( sz,   FD_VINYL_BSTREAM_BLOCK_SZ );
   int bad_past = !(fd_vinyl_seq_le( seq_past, seq0 ) & fd_vinyl_seq_lt( seq0, seq1 ) & fd_vinyl_seq_le( seq1, seq_present ));
 
   if( FD_UNLIKELY( bad_seq | bad_dst | bad_sz | bad_past ) )
     FD_LOG_CRIT(( "bstream read_imm [%016lx,%016lx)/%lu failed (past [%016lx,%016lx)/%lu, %s)",
                   seq0, seq1, sz, seq_past, seq_present, seq_present-seq_past,
-                  bad_seq ? "misaligned seq"         :
-                  bad_dst ? "misaligned or NULL dst" :
-                  bad_sz  ? "misaligned sz"          :
+                  bad_seq ? "misaligned seq" :
+                  bad_dst ? "NULL dst"       :
+                  bad_sz  ? "misaligned sz"  :
                             "not in past" ));
 
   /* At this point, we have a valid read request.  Map seq0 into the
@@ -124,16 +124,16 @@ fd_vinyl_io_bd_read( fd_vinyl_io_t *    io,
   ulong seq_present = bd->base->seq_present;
 
   int bad_seq  = !fd_ulong_is_aligned( seq0, FD_VINYL_BSTREAM_BLOCK_SZ );
-  int bad_dst  = (!fd_ulong_is_aligned( (ulong)dst, FD_VINYL_BSTREAM_BLOCK_SZ )) | !dst;
+  int bad_dst  = !dst;
   int bad_sz   = !fd_ulong_is_aligned( sz,   FD_VINYL_BSTREAM_BLOCK_SZ );
   int bad_past = !(fd_vinyl_seq_le( seq_past, seq0 ) & fd_vinyl_seq_lt( seq0, seq1 ) & fd_vinyl_seq_le( seq1, seq_present ));
 
   if( FD_UNLIKELY( bad_seq | bad_dst | bad_sz | bad_past ) )
     FD_LOG_CRIT(( "bstream read [%016lx,%016lx)/%lu failed (past [%016lx,%016lx)/%lu, %s)",
                   seq0, seq1, sz, seq_past, seq_present, seq_present-seq_past,
-                  bad_seq ? "misaligned seq"         :
-                  bad_dst ? "misaligned or NULL dst" :
-                  bad_sz  ? "misaligned sz"          :
+                  bad_seq ? "misaligned seq" :
+                  bad_dst ? "NULL dst"       :
+                  bad_sz  ? "misaligned sz"  :
                             "not in past" ));
 
   /* At this point, we have a valid read request.  Map seq0 into the
@@ -650,16 +650,16 @@ fd_vinyl_io_bd_init( void *       mem,
 
   }
 
-  FD_LOG_INFO(( "IO config"
-                "\n\ttype     bd"
-                "\n\tspad_max %lu bytes"
-                "\n\tdev_sz   %lu bytes"
-                "\n\treset    %i"
-                "\n\tinfo     \"%s\" (info_sz %lu%s)"
-                "\n\tio_seed  0x%016lx%s",
-                spad_max, dev_sz, reset,
-                info ? (char const *)info : "", info_sz, reset ? "" : ", discovered",
-                io_seed, reset ? "" : " (discovered)" ));
+  FD_LOG_NOTICE(( "IO config"
+                  "\n\ttype     bd"
+                  "\n\tspad_max %lu bytes"
+                  "\n\tdev_sz   %lu bytes"
+                  "\n\treset    %i"
+                  "\n\tinfo     \"%s\" (info_sz %lu%s)"
+                  "\n\tio_seed  0x%016lx%s",
+                  spad_max, dev_sz, reset,
+                  info ? (char const *)info : "", info_sz, reset ? "" : ", discovered",
+                  io_seed, reset ? "" : " (discovered)" ));
 
   return bd->base;
 }

@@ -6,6 +6,66 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_DIAG_TOTAL (0UL)
+enum {
+  FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_OFF = FD_METRICS_TILE_OFF,
+  FD_METRICS_GAUGE_DIAG_VOTE_STATUS_OFF,
+  FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_OFF,
+  FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_OFF,
+  FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_OFF,
+  FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_NET_OFF = FD_METRICS_COUNTER_DIAG_SOFTIRQ_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_DISK_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_OTHER_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_NET_OFF = FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_DISK_OFF,
+  FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_OTHER_OFF,
+};
+
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_NAME "diag_bundle_status"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_DESC "Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected)"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_NAME "diag_vote_status"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_DESC "Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally)"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_NAME "diag_replay_status"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_DESC "Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up)"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_NAME "diag_turbine_status"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_DESC "Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally)"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_NAME "diag_device_irq"
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_DESC "Number of device IRQs across all CPUs"
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_NAME "diag_device_irq_undesired"
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_DESC "Number of device hard IRQs that stole CPU time from fixed tiles"
+#define FD_METRICS_COUNTER_DIAG_DEVICE_IRQ_UNDESIRED_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_NAME "diag_softirq"
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_DESC "Number of soft-IRQs across all CPUs"
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_CNT  (3UL)
+
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_NAME "diag_softirq_undesired"
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_DESC "Number of soft-IRQs that stole CPU time from fixed tiles"
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_COUNTER_DIAG_SOFTIRQ_UNDESIRED_CNT  (3UL)
+
+#define FD_METRICS_DIAG_TOTAL (12UL)
+extern const fd_metrics_meta_t FD_METRICS_DIAG[FD_METRICS_DIAG_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_diag_h */

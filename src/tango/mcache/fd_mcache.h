@@ -369,14 +369,38 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
                        ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
                        ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
   fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
-  __m256i meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
+  fd_frag_meta_v256_t meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
   FD_COMPILER_MFENCE();
-  /* _mm256_store_si256( &meta->avx, meta_avx );
-     Some versions of Clang break up a 256-bit store intrinsic into two
-     128-bit stores, which is not atomic.  Use a volatile 256-bit store
-     as a workaround. */
+  /* Volatile rather than a 256-bit store intrinsic: some versions of
+     Clang break the intrinsic into two non-atomic 128-bit stores. */
   FD_VOLATILE( meta->avx ) = meta_avx;
   FD_COMPILER_MFENCE();
+}
+
+#endif
+
+#if FD_HAS_ARM
+
+static inline void
+fd_mcache_publish_arm( fd_frag_meta_t * mcache,   /* Assumed a current local join */
+                       ulong            depth,    /* Assumed an integer power-of-2 >= BLOCK */
+                       ulong            seq,
+                       ulong            sig,
+                       ulong            chunk,    /* Assumed in [0,UINT_MAX] */
+                       ulong            sz,       /* Assumed in [0,USHORT_MAX] */
+                       ulong            ctl,      /* Assumed in [0,USHORT_MAX] */
+                       ulong            tsorig,   /* Assumed in [0,UINT_MAX] */
+                       ulong            tspub ) { /* Assumed in [0,UINT_MAX] */
+  /* stp   seq-1, sig, [meta]
+     stp   ul2,   ul3, [meta, #16]
+     stlr  seq,        [meta] */
+  fd_frag_meta_t * meta = mcache + fd_mcache_line_idx( seq, depth );
+  ulong ul2 = fd_frag_meta_ul2( chunk, sz, ctl );
+  ulong ul3 = fd_frag_meta_ul3( tsorig, tspub );
+  fd_arm_stp16( meta->ul, fd_seq_dec( seq, 1UL ), sig );
+  FD_HW_MFENCE_ST();
+  fd_arm_stp16( meta->ul+2, ul2, ul3 );
+  __atomic_store_n( &meta->seq, seq, __ATOMIC_RELEASE );
 }
 
 #endif
@@ -706,13 +730,13 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
     ulong                  _fd_mcache_wait_seq_expected = (seq_expected);                                              \
     fd_frag_meta_t const * _fd_mcache_wait_mline        = (mcache)                                                     \
                                                         + fd_mcache_line_idx( _fd_mcache_wait_seq_expected, (depth) ); \
-    __m256i                _fd_mcache_wait_meta_avx;                                                                   \
+    fd_frag_meta_v256_t    _fd_mcache_wait_meta_avx;                                                                   \
     ulong                  _fd_mcache_wait_seq_found;                                                                  \
     long                   _fd_mcache_wait_seq_diff;                                                                   \
     ulong                  _fd_mcache_wait_poll_max     = (poll_max);                                                  \
     for(;;) {                                                                                                          \
       FD_COMPILER_MFENCE();                                                                                            \
-      _fd_mcache_wait_meta_avx  = _mm256_load_si256( &_fd_mcache_wait_mline->avx ); /* atomic */                       \
+      _fd_mcache_wait_meta_avx  = FD_VOLATILE_CONST( _fd_mcache_wait_mline->avx ); /* atomic (aligned 32B load) */     \
       FD_COMPILER_MFENCE();                                                                                            \
       _fd_mcache_wait_seq_found = fd_frag_meta_avx_seq( _fd_mcache_wait_meta_avx );                                    \
       _fd_mcache_wait_seq_diff  = fd_seq_diff( _fd_mcache_wait_seq_found, _fd_mcache_wait_seq_expected );              \

@@ -17,6 +17,7 @@ gfni_const_tbl:
 fd_reedsol_private_encode_32_32:
 .globl fd_reedsol_private_encode_32_32
 .cfi_startproc
+endbr64
 
 # This file implements the FFT-like O(n log n) algorithm for computing Reed
 # Solomon parity as described in
@@ -412,3 +413,21 @@ ret
 .align 16
 
 .cfi_endproc
+
+# Advertise IBT, SHSTK compliance
+.section ".note.gnu.property", "a"
+.p2align 3
+.long 1f - 0f
+.long 4f - 1f
+.long 5
+0:
+.byte 0x47, 0x4e, 0x55, 0
+1:
+.p2align 3
+.long 0xc0000002
+.long 3f - 2f
+2:
+.long 3
+3:
+.p2align 3
+4:

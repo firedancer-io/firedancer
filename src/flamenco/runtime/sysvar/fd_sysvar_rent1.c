@@ -1,6 +1,5 @@
 #include "fd_sysvar_rent.h"
-
-/* Moved into a separate compile unit to minimize dependencies on fd_funk */
+#include "../../types/fd_cast.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L36 */
 #define ACCOUNT_STORAGE_OVERHEAD (128)

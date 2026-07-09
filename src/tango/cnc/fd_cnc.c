@@ -298,7 +298,7 @@ fd_cnc_wait( fd_cnc_t const * cnc,
   ulong obs;
   for(;;) {
     obs = fd_cnc_signal_query( cnc );
-    int done = ((obs!=test) | ((now-then)>dt));
+    int done = ((obs!=test) | ((now-then)>=dt));
     FD_COMPILER_FORGET( done ); /* avoid compiler misoptimization */
     if( FD_LIKELY( done ) ) break; /* optimize for exit, single exit to optimize spin pause hinting */
     FD_YIELD();

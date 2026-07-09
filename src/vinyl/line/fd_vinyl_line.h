@@ -2,7 +2,7 @@
 #define HEADER_fd_src_vinyl_line_fd_vinyl_line_h
 
 /* A vinyl tile caches key-val pairs in DRAM for performance reasons
-   and to faciliate operations like creating a new pair or asynchronous
+   and to facilitate operations like creating a new pair or asynchronous
    I/O.  This cache can be _completely_ lost without impacting the
    recoverabilty exactly key-val state at the time the bstream was most
    recently sync'd.
@@ -30,7 +30,7 @@
 #include "../meta/fd_vinyl_meta.h"
 #include "../data/fd_vinyl_data.h"
 
-/* FD_VINYL_LINE_EVICT_PRIO_* specify eviction priorties.  These should
+/* FD_VINYL_LINE_EVICT_PRIO_* specify eviction priorities.  These should
    be compatible with fd_vinyl_req_evict_prio and FD_VINYL_REQ_FLAG_* */
 
 #define FD_VINYL_LINE_EVICT_PRIO_MRU (0) /* <0 also treated as MRU */
@@ -124,7 +124,7 @@ fd_vinyl_line_evict_prio( uint *            _line_idx_lru, /* Pointer to the LRU
 
 /* fd_vinyl_line_evict_lru finds the least recently used evictable line
    and evicts it.  Returns the line_idx of that line (will be free to
-   use).  Cannot fail from the caller's perspecitve (will FD_LOG_CRIT if
+   use).  Cannot fail from the caller's perspective (will FD_LOG_CRIT if
    corruption was detected or quotas were misconfigured). */
 
 ulong

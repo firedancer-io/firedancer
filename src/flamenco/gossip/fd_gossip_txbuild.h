@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_txbuild_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_txbuild_h
 
-#include "fd_gossip_private.h"
+#include "fd_gossip_message.h"
 
 /* fd_gossip_txbuild_t provides a set of APIs to incrementally build a
    push or pull response message from CRDS values.  The caller is
@@ -19,7 +19,7 @@ struct fd_gossip_txbuild {
    ulong tag;
    ulong off;
    ulong sz;
-  } crds[ FD_GOSSIP_MSG_MAX_CRDS ];
+  } crds[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
 };
 
 typedef struct fd_gossip_txbuild fd_gossip_txbuild_t;
@@ -50,6 +50,7 @@ fd_gossip_txbuild_can_fit( fd_gossip_txbuild_t const * txbuild,
    On return builder->msg is a valid Gossip push/pullresp message of
    size builder->msg with N+1 CRDS values appended where N is the
    number of existing CRDS values prior to insertion of crds_val. */
+
 void
 fd_gossip_txbuild_append( fd_gossip_txbuild_t * txbuild,
                           ulong                 crds_len,

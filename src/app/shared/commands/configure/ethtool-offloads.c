@@ -23,16 +23,6 @@
 
 #define NAME "ethtool-offloads"
 
-static int
-enabled( fd_config_t const * config ) {
-
-  /* if we're running in a network namespace, we configure ethtool on
-     the virtual device as part of netns setup, not here */
-  if( config->development.netns.enabled ) return 0;
-
-  return 1;
-}
-
 static void
 init_perm( fd_cap_chk_t *      chk,
            fd_config_t const * config FD_PARAM_UNUSED ) {
@@ -142,7 +132,6 @@ check( fd_config_t const * config,
 configure_stage_t fd_cfg_stage_ethtool_offloads = {
   .name            = NAME,
   .always_recreate = 0,
-  .enabled         = enabled,
   .init_perm       = init_perm,
   .fini_perm       = NULL,
   .init            = init,

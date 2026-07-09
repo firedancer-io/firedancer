@@ -106,9 +106,9 @@ test_wycheproofs( void ) {
 
     int actual = ( fd_x25519_exchange( shared, proof->prv, proof->pub )
                      != NULL );
-    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange_wycheproof id=%u", proof->tc_id ) );
+    FD_CHECK_ERR( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange_wycheproof id=%u", proof->tc_id ) );
     if (proof->ok) {
-      FD_TEST_CUSTOM( fd_memeq( shared, proof->shared, 32 ), fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange_wycheproof id=%u (shared)", proof->tc_id ) );
+      FD_CHECK_ERR( fd_memeq( shared, proof->shared, 32 ), fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange_wycheproof id=%u (shared)", proof->tc_id ) );
     }
   }
   FD_LOG_NOTICE(( "fd_x25519_exchange_wycheproof: ok" ));

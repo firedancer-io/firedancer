@@ -4,8 +4,8 @@
 #include <unistd.h> /* syscall */
 
 int
-fd_io_uring_setup( uint                     entry_cnt,
-                   struct io_uring_params * p ) {
+fd_io_uring_setup( uint                   entry_cnt,
+                   fd_io_uring_params_t * p ) {
   return (int)syscall( SYS_io_uring_setup, entry_cnt, p );
 }
 

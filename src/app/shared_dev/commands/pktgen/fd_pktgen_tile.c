@@ -36,8 +36,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   fd_pktgen_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( tile->out_cnt==1UL );
   void * out_base   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
@@ -53,12 +53,14 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static void
-before_credit( fd_pktgen_tile_ctx_t * ctx,
-               fd_stem_context_t *    stem,
-               int *                  charge_busy ) {
+after_credit( fd_pktgen_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
   if( FD_VOLATILE_CONST( fd_pktgen_active )!=1U ) return;
 
   *charge_busy = 1;
+  *opt_poll_in = 0;
 
   /* Select an arbitrary public IP as the fake destination.  The outgoing
      packet has an an invalid ip header, so it will not reach that
@@ -90,9 +92,9 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE fd_pktgen_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pktgen_tile_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
 
-#define STEM_LAZY ((ulong)1e9) /* max possible */
+#define STEM_LAZY ((ulong)384e3) /* 384us, same as shred tile */
 
 #include "../../../../disco/stem/fd_stem.c"
 

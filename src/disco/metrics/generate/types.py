@@ -3,51 +3,55 @@ from typing import Dict, List, Optional
 import xml.etree.ElementTree as ET
 
 class Tile(Enum):
-    NET = 0
-    QUIC = 1
-    BUNDLE = 2
-    VERIFY = 3
-    DEDUP = 4
-    RESOLV = 5
-    PACK = 6
-    BANK = 7
-    POH = 8
-    SHRED = 9
-    STORE = 10
-    SIGN = 11
-    METRIC = 12
-    DIAG = 13
-    EVENT = 14
-    PLUGIN = 15
-    GUI = 16
-    REPLAY = 17
-    GOSSIP = 18
-    NETLNK = 19
-    SOCK = 20
-    REPAIR = 21
-    TXSEND = 22
-    SNAPCT = 23
-    SNAPLD = 24
-    SNAPDC = 25
-    SNAPIN = 26
-    IPECHO = 27
-    GOSSVF = 28
-    EXECLE = 29
-    RESOLF = 30
-    BACKT = 31
-    EXEC = 32
-    SNAPWR = 33
-    BENCHS = 34
-    SNAPWH = 35
-    SNAPLA = 36
-    SNAPLS = 37
-    TOWER = 38
-    ACCDB = 39
-    SNAPWM = 40
-    SNAPLH = 41
-    SNAPLV = 42
-    GENESI = 43
-    RPC = 44
+    GENESI = 1
+    IPECHO = 2
+
+    SNAPCT = 3
+    SNAPLD = 4
+    SNAPDC = 5
+    SNAPIN = 6
+    SNAPWR = 7
+
+    ADMIN = 8
+
+    NETLNK = 14
+    NET = 15
+    SOCK = 16
+    QUIC = 17
+    BUNDLE = 18
+    VERIFY = 19
+    DEDUP = 20
+    RESOLV = 21
+    PACK = 22
+    EXECLE = 23
+    POH = 24
+    SIGN = 25
+    SHRED = 26
+
+    GOSSVF = 27
+    GOSSIP = 28
+    REPAIR = 29
+    RSERVE = 30
+    REPLAY = 31
+    EXECRP = 32
+    ACCDB = 33
+    TOWER = 34
+    TXSEND = 35
+
+    DIAG = 36
+    EVENT = 37
+    GUI = 38
+    METRIC = 39
+    RPC = 40
+
+    RESOLH = 100
+    BANK = 101
+    POHH = 102
+    STORE = 103
+    PLUGIN = 104
+    BACKT = 105
+    BENCHS = 106
+    GUIH = 107
 
 class MetricType(Enum):
     COUNTER = 0
@@ -60,10 +64,11 @@ class HistogramConverter(Enum):
     NANOSECONDS = 2
 
 class EnumValue:
-    def __init__(self, value: int, name: str, label: str):
+    def __init__(self, value: int, name: str, label: str, normalize: bool = True):
         self.value = value
         self.name = name
         self.label = label
+        self.normalize = normalize
 
 class MetricEnum:
     def __init__(self, name: str, values: List[EnumValue]):
@@ -209,7 +214,8 @@ def parse_metrics(xml_data: str) -> Metrics:
                 EnumValue(
                     value=int(value.attrib['value']),
                     name=value.attrib['name'],
-                    label=value.attrib['label']
+                    label=value.attrib['label'],
+                    normalize=(enum.attrib.get('normalize', 'true').lower() == 'true')
                 )
                 for value in enum.findall('int')
             ]

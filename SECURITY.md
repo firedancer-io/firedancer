@@ -10,7 +10,7 @@ The following document describes various aspects of the Firedancer security prog
 
 # Bug Bounty Program
 
-Security-relevant bugs in Firedancer v0.1 should be submitted to our [Immunefi bug bounty program](https://immunefi.com/bug-bounty/firedancer/).
+Security-relevant bugs in Firedancer v0.1 should be submitted to our [Immunefi bug bounty program](https://immunefi.com/bug-bounty/Frankendancer/).
 Under the terms and conditions of the program, you may be eligible for a reward.
 
 Code outside the scope of the bug bounty program is still in development.

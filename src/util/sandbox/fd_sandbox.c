@@ -125,7 +125,7 @@ fd_sandbox_private_explicit_clear_environment_variables( void ) {
 
   for( char * const * env = environ; *env; env++ ) {
     ulong len = strlen( *env );
-    explicit_bzero( *env, len );
+    fd_memzero_explicit( *env, len );
   }
 
   if( clearenv() ) FD_LOG_ERR(( "clearenv failed" ));
@@ -162,7 +162,7 @@ fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descri
        If we don't align it the compiler might prove somthing weird and
        trash this code, and also ASAN would flag it as an error.  So we
        just align it anyway. */
-    uchar buf[ 4096 ] __attribute__((aligned(alignof(struct dirent64))));
+    uchar buf[ 4096 ] __attribute__((aligned(alignof(struct dirent))));
 
     long dents_bytes = syscall( SYS_getdents64, dirfd, buf, sizeof( buf ) );
     if( !dents_bytes ) break;
@@ -170,7 +170,7 @@ fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descri
 
     ulong offset = 0UL;
     while( offset<(ulong)dents_bytes ) {
-      struct dirent64 const * dent = (struct dirent64 const *)(buf + offset);
+      struct dirent const * dent = (struct dirent const *)(buf + offset);
       if( !strcmp( dent->d_name, "." ) || !strcmp( dent->d_name, ".." ) ) {
         offset += dent->d_reclen;
         continue;
@@ -387,6 +387,7 @@ void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
                                 ulong rlimit_address_space,
                                 ulong rlimit_data,
+                                ulong rlimit_nproc,
                                 int   dumpable ) {
   struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
@@ -410,7 +411,7 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
     { .resource=RLIMIT_DATA,       .limit=rlimit_data     },
     { .resource=RLIMIT_MEMLOCK,    .limit=0UL             },
     { .resource=RLIMIT_MSGQUEUE,   .limit=0UL             },
-    { .resource=RLIMIT_NPROC,      .limit=0UL             },
+    { .resource=RLIMIT_NPROC,      .limit=rlimit_nproc    },
     { .resource=RLIMIT_RTPRIO,     .limit=0UL             },
     { .resource=RLIMIT_RTTIME,     .limit=0UL             },
     { .resource=RLIMIT_SIGPENDING, .limit=0UL             },
@@ -428,7 +429,7 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
   for( ulong i=0UL; i<sizeof(rlimits)/sizeof(rlimits[ 0 ]); i++ ) {
     if( dumpable && rlimits[i].resource==RLIMIT_CORE ) continue;
     struct rlimit limit = { .rlim_cur=rlimits[ i ].limit, .rlim_max=rlimits[ i ].limit };
-    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%u) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
+    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%u) failed (%i-%s)", (uint)rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -581,6 +582,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      ulong       rlimit_file_cnt,
                                      ulong       rlimit_address_space,
                                      ulong       rlimit_data,
+                                     ulong       rlimit_nproc,
                                      ulong       allowed_file_descriptor_cnt,
                                      int const * allowed_file_descriptor ) {
   /* Read the highest capability index on the currently running kernel
@@ -674,7 +676,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_landlock_restrict_self( allow_connect, allow_renameat );
 
   /* And trim all the resource limits down to zero. */
-  fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, dumpable );
+  fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, rlimit_nproc, dumpable );
 
   /* And drop all the capabilities we have in the new user namespace. */
   fd_sandbox_private_drop_caps( cap_last_cap );
@@ -693,6 +695,7 @@ fd_sandbox_enter( uint                 desired_uid,
                   ulong                rlimit_file_cnt,
                   ulong                rlimit_address_space,
                   ulong                rlimit_data,
+                  ulong                rlimit_nproc,
                   ulong                allowed_file_descriptor_cnt,
                   int const *          allowed_file_descriptor,
                   ulong                seccomp_filter_cnt,
@@ -709,6 +712,7 @@ fd_sandbox_enter( uint                 desired_uid,
                                        rlimit_file_cnt,
                                        rlimit_address_space,
                                        rlimit_data,
+                                       rlimit_nproc,
                                        allowed_file_descriptor_cnt,
                                        allowed_file_descriptor );
 

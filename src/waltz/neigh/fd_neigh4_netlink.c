@@ -93,11 +93,6 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
 
   }
 
-  if( FD_UNLIKELY( !mac_addr.ul || !ip4_dst ) ) {
-    FD_LOG_DEBUG(( "Ignoring neighbor table update with missing or invalid L2 or L3 address" ));
-    return;
-  }
-
   /* Determine if we should remove or insert/update entry */
 
   int remove = 0;
@@ -117,12 +112,22 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
     remove = 1;
   }
 
+  if( FD_UNLIKELY( !ip4_dst ) ) {
+    FD_LOG_DEBUG(( "Ignoring neighbor table update with missing or invalid L3 address" ));
+    return;
+  }
+
   /* Perform update */
 
   if( remove ) {
     fd_neigh4_entry_t * e = fd_neigh4_hmap_update( map, &ip4_dst );
     if( FD_LIKELY( e ) ) fd_neigh4_hmap_remove( map, e );
   } else {
+    if( FD_UNLIKELY( !mac_addr.ul ) ) {
+      FD_LOG_DEBUG(( "Ignoring neighbor table update with missing or invalid L2 address" ));
+      return;
+    }
+
     fd_neigh4_entry_t to_insert = {
       .ip4_addr = ip4_dst,
       .state    = FD_NEIGH4_STATE_ACTIVE,

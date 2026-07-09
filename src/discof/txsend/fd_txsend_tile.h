@@ -1,166 +1,151 @@
 #ifndef HEADER_fd_src_discof_txsend_fd_txsend_tile_h
 #define HEADER_fd_src_discof_txsend_fd_txsend_tile_h
 
-/* Sender tile signs and sends transactions to the current leader.
-   Currently only supports transactions which require one signature.
-   Designed with voting as primary use case. Signing those votes will
-   eventually move to a separate consensus tile.*/
-#define _GNU_SOURCE
-
-#include "../../util/net/fd_net_headers.h"
+#include "../../waltz/quic/fd_quic.h"
+#include "../../flamenco/progcache/fd_progcache_xid.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../disco/stem/fd_stem.h"
-#include "../../disco/fd_disco.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
-#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
-#include "../../waltz/quic/fd_quic.h"
-#include "../../util/clock/fd_clock.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../util/net/fd_net_headers.h"
 
-/* Send votes to next FD_SEND_TARGET_LEADER_CNT leaders (slot x, x+4, x+8, ...) */
-#define FD_TXSEND_TARGET_LEADER_CNT (3UL)
-
-/* Connect FD_CONNECT_AHEAD_LEADER_CNT leaders ahead (slot x, x+4, x+8, ...) */
-#define FD_TXSEND_CONNECT_AHEAD_LEADER_CNT  (7UL)
-
-/* Agave currently rate limits connections per minute per IP */
-#define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
-
-/* so each of our connections must survive at least 60/8 = 7.5 seconds
-   Let's conservatively go to 10 */
-#define FD_TXSEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
-
-/* Wait FD_TXSEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS many seconds before
-   re-establishing a conn to a quic_vote port. Why?
-   After timing out, the agave server puts the conn in a draining state, during
-   which time it remains in their connection map. So our new attempt gets
-   rejected, as the quic_vote port limits to 1 conn per client. Without cooldown,
-   we keep trying rapidly, and can quickly hit their 8 conn/min limit.
-   That prevents us from connecting for far longer than just cooling down
-   (which should be free because we connect ahead). This number is based
-   on empirical observation, but has much room for improvement. */
-#define FD_TXSEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS (2L)
-
-/* the 1M lets this be integer math */
-FD_STATIC_ASSERT((60*1000000)/FD_TXSEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*FD_AGAVE_MAX_CONNS_PER_MINUTE, "QUIC conn lifetime too low for rate limit");
-
-#define FD_TXSEND_QUIC_IDLE_TIMEOUT_NS (30e9L) /* 30 s - minimize keep_alive work */
-#define FD_TXSEND_QUIC_ACK_DELAY_NS    (25e6L) /* 25 ms */
-
-/* quic ports first, so we can re-use idx to select conn ptr
-   Don't rearrange, lots of stuff depends on this order. */
-#define FD_TXSEND_PORT_QUIC_VOTE_IDX  (0UL)
-#define FD_TXSEND_PORT_QUIC_TPU_IDX   (1UL)
-#define FD_TXSEND_PORT_UDP_VOTE_IDX   (2UL)
-#define FD_TXSEND_PORT_UDP_TPU_IDX    (3UL)
-#define FD_TXSEND_PORT_QUIC_CNT       (2UL)
-#define FD_TXSEND_PORT_CNT            (4UL)
-
-struct fd_txsend_link_in {
-  fd_wksp_t *  mem;
-  ulong        chunk0;
-  ulong        wmark;
-  ulong        kind;
-  void      *  dcache;
+struct fd_txsend_in {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
 };
-typedef struct fd_txsend_link_in fd_txsend_link_in_t;
 
-struct fd_txsend_link_out {
-  ulong            idx;
-  fd_frag_meta_t * mcache;
-  ulong *          sync;
-  ulong            depth;
+typedef struct fd_txsend_in fd_txsend_in_t;
 
+struct fd_txsend_out {
+  ulong       idx;
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
   ulong       chunk;
 };
-typedef struct fd_txsend_link_out fd_txsend_link_out_t;
 
-struct fd_txsend_conn_entry {
-  fd_pubkey_t      pubkey;
-  uint             hash;
+typedef struct fd_txsend_out fd_txsend_out_t;
 
-  fd_quic_conn_t * conn[ FD_TXSEND_PORT_UDP_VOTE_IDX ]; /* quic ports first in enum */
-  long             last_quic_vote_close;
+/* QUIC conn table state management
 
-  uint             ip4s [ FD_TXSEND_PORT_CNT ]; /* net order */
-  ushort           ports[ FD_TXSEND_PORT_CNT ]; /* host order */
+   fd_quic_conn_t objects are managed by fd_quic_t.
+   peer_map holds pointers to quic_conns (up to 2 conns per peer).
+   The lifetime of these must be synchronized with quic_conn state.
+
+   This implies the following:
+   - fd_quic must inform txsend via a conn_final callback before freeing
+     a conn object
+   - in rare cases, txsend may see conn alloc failures even if peer_map
+     has free conn slots
+
+   The following procedure closes a conn:
+   - call fd_quic_conn_close (enqueues an immediate conn close)
+   - deregister the conn from the table
+   - call fd_quic_service (sends out CONN_CLOSE packet, conn_final
+     callback, frees conn) */
+
+struct txsend_conn {
+  uint             quic_ip_addr;
+  ushort           quic_port;
+  fd_quic_conn_t * quic_conn;
+  long             quic_last_connected;
 };
-typedef struct fd_txsend_conn_entry fd_txsend_conn_entry_t;
+typedef struct txsend_conn txsend_conn_t;
 
+struct peer_entry {
+  /* Key */
+  fd_pubkey_t pubkey;
 
-struct fd_txsend_tile_ctx {
+  /* State */
+  txsend_conn_t quic_conns[ 2UL ];
+  uint   udp_ip_addrs[ 2UL ];
+  ushort udp_ports[ 2UL ];
+  int    tombstoned;
 
-  /* link things */
-  #define FD_TXSEND_MAX_IN_LINK_CNT 32UL
-  fd_stem_context_t *  stem;
-  fd_txsend_link_in_t    in_links[ FD_TXSEND_MAX_IN_LINK_CNT ];
-  fd_net_rx_bounds_t   net_in_bounds[ FD_TXSEND_MAX_IN_LINK_CNT ];
-  fd_txsend_link_out_t   gossip_verify_out[ 1 ];
-  fd_txsend_link_out_t   net_out          [ 1 ];
+  struct {
+    ulong next;
+  } map;
+};
 
-  fd_keyguard_client_t keyguard_client  [ 1 ];
+typedef struct peer_entry peer_entry_t;
 
-  /* buffers btwn during_frag and after_frag :( */
-  union {
-    /* IN_KIND_GOSSIP */
-    struct {
-      fd_shred_dest_wire_t       contact_buf[ MAX_STAKED_LEADERS ];
-      ulong                      contact_cnt;
-    };
+#define MAP_NAME               peer_map
+#define MAP_KEY                pubkey
+#define MAP_ELE_T              peer_entry_t
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_NEXT               map.next
+#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
+#define MAP_KEY_HASH(key,seed) fd_progcache_rec_key_hash1( (key)->uc, (seed) )
+#define MAP_IMPL_STYLE         1
+#include "../../util/tmpl/fd_map_chain.c"
 
-    /* IN_KIND_NET */
-    uchar quic_buf[ FD_NET_MTU ];
-  };
+struct quic_entry {
+  fd_quic_conn_t * conn;
+  fd_pubkey_t      pubkey;
+};
 
-  /* networking things */
+typedef struct quic_entry quic_entry_t;
+
+/* txsend tile data structure
+
+   notable data structures:
+   - the quic instance manages quic_conns
+   - the conns array is a list of pointers to quic_conns, kept in sync
+     with quic instance
+   - the peers table is replicated from gossip ContactInfo updates
+   - the peer_map hashmap maps pubkey to peers[i] entry; drift is
+     tolerated
+   - peers[i] contains pointers to quic_conn */
+
+struct fd_txsend_tile {
+  fd_quic_t * quic;
+
+  ulong leader_schedules;
+  fd_multi_epoch_leaders_t * mleaders;
+
+  ulong seed;
+  peer_map_t * peer_map;
+
+  peer_entry_t peers[ FD_CONTACT_INFO_TABLE_SIZE ];
+
+  ulong conns_len;
+  quic_entry_t conns[ 128UL ];
+
+  ulong voted_slot;
+
+  fd_stem_context_t * stem;
+
+  ulong chunk;
+  uchar quic_buf[ FD_NET_MTU ];
+
   uint               src_ip_addr;
   ushort             src_port;
   fd_ip4_udp_hdrs_t  packet_hdr[1]; /* template, but will be modified directly */
   ushort             net_id;
 
-  /* identity pubkey used for tls */
-  fd_pubkey_t identity_key[ 1 ];
-  /* Leader schedule tracking */
-  fd_multi_epoch_leaders_t * mleaders;
-
-  /* QUIC handles */
-  fd_quic_t * quic;
   fd_aio_t    quic_tx_aio[1];
 
-  /* Connection map for outgoing QUIC connections and contact info */
-  fd_txsend_conn_entry_t * conn_map;
+  int in_kind[ 32UL ];
+  fd_txsend_in_t in[ 32UL ];
+  fd_net_rx_bounds_t net_in_bounds[ 64UL ];
 
-  /* timekeeping */
-  long             now;            /* current time in ns!     */
-  fd_clock_t       clock[1];       /* memory for fd_clock_t   */
-  long             recal_next;     /* next recalibration time (ns) */
+  fd_txsend_out_t txsend_out[1];
+  fd_txsend_out_t net_out[1];
 
-  struct {
-    /* Contact info */
-    ulong unstaked_ci_rcvd;
-    ulong new_contact_info[FD_TXSEND_PORT_CNT][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_CNT];
-    ulong ci_removed;
+  fd_keyswitch_t * keyswitch;
+  ulong tower_in_expect_seq;
+  int   halt_net_frags;
 
-    /* Outcome of trying to send data */
-    ulong send_result_cnt[FD_TXSEND_PORT_CNT][FD_METRICS_ENUM_TXN_SEND_RESULT_CNT];
-
-    /* QUIC-specific metrics */
-    ulong quic_hs_complete   [FD_METRICS_ENUM_TXSEND_QUIC_PORTS_CNT];
-    ulong quic_conn_final    [FD_METRICS_ENUM_TXSEND_QUIC_PORTS_CNT];
-    ulong ensure_conn_result [FD_METRICS_ENUM_TXSEND_QUIC_PORTS_CNT]
-                                [FD_METRICS_ENUM_TXSEND_ENSURE_CONN_RESULT_CNT];
-
-    /* Time spent waiting for tls_cv signatures */
-    fd_histf_t sign_duration[ 1 ];
-  } metrics;
+  fd_pubkey_t identity_key[1];
+  fd_keyguard_client_t keyguard_client[1];
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
-  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 };
 
-typedef struct fd_txsend_tile_ctx fd_txsend_tile_ctx_t;
+typedef struct fd_txsend_tile fd_txsend_tile_t;
 
 #endif /* HEADER_fd_src_discof_txsend_fd_txsend_tile_h */
-

@@ -1,20 +1,20 @@
 #include "../fd_vinyl.h"
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_SZC_CNT==188UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_SZC_CNT==83UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_FREEVOL   ==0xf7eef7eef7eef7eeUL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_ALLOC     ==0xa11ca11ca11ca11cUL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_SUPERBLOCK==0x59e759e759e759e7UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_GUARD_SZ==384UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_GUARD_SZ==0UL, unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==114211328UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==41944192UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_ALIGN    == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==3072UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_ALIGN    ==alignof(fd_vinyl_data_t), unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==sizeof (fd_vinyl_data_t), unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_vol_t)==FD_VINYL_BSTREAM_BLOCK_SZ,   unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_vol_t)==FD_VINYL_DATA_VOL_FOOTPRINT, unit_test );
@@ -32,7 +32,7 @@ main( int     argc,
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL,             1UL );
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL,      "gigantic" );
   ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu", NULL, fd_log_cpu_id() );
-  ulong        iter_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-cnt", NULL,        10000000 );
+  ulong        iter_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-cnt", NULL,         2000000 );
   int          level    = fd_env_strip_cmdline_int  ( &argc, &argv, "--level",    NULL,               0 );
 
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );

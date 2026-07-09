@@ -1,32 +1,127 @@
-#include "fd_progcache_rec.h"
+#include "fd_progcache.h"
 #include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
+#include "../../util/alloc/fd_alloc.h"
+
+#include <stdlib.h>
+
+/* Can be overridden by test executables */
+__attribute__((weak)) int const fd_progcache_use_malloc = 0;
+static inline _Bool
+use_malloc( void ) {
+  _Bool use_malloc = !!fd_progcache_use_malloc;
+  FD_COMPILER_FORGET( use_malloc ); /* prevent constant propagation */
+  return use_malloc;
+}
+
+void *
+fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
+                        fd_progcache_join_t * join,
+                        ulong                 val_align,
+                        ulong                 val_footprint ) {
+  if( rec->data_gaddr ) fd_progcache_val_free( rec, join );
+  ulong  val_max = 0UL;
+  void * mem;
+  ulong  gaddr;
+  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
+    mem = aligned_alloc( val_align, val_footprint );
+    if( FD_UNLIKELY( !mem ) ) return NULL;
+    val_max = val_footprint;
+    gaddr   = (ulong)mem;
+  } else {
+    mem = fd_alloc_malloc_at_least( join->alloc, val_align, val_footprint, &val_max );
+    if( FD_UNLIKELY( !mem ) ) return NULL;
+    FD_CHECK_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
+    gaddr = fd_wksp_gaddr_fast( join->data_base, mem );
+  }
+  rec->data_gaddr = gaddr;
+  rec->data_max   = (uint)val_max;
+  return mem;
+}
+
+void
+fd_progcache_val_free1( fd_progcache_rec_t * rec,
+                        void *               val,
+                        fd_alloc_t *         alloc ) {
+  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
+    free( val );
+  } else {
+    fd_alloc_free( alloc, val );
+  }
+  rec->data_gaddr = 0UL;
+  rec->data_max   = 0U;
+  rec->rodata_off = 0U;
+  rec->rodata_sz  = 0U;
+}
+
+void
+fd_progcache_val_free( fd_progcache_rec_t *  rec,
+                       fd_progcache_join_t * join ) {
+  if( !rec->data_gaddr ) return;
+  void * mem = fd_wksp_laddr_fast( join->data_base, rec->data_gaddr );
+
+  /* Illegal to call val_free on a spill-allocated buffer */
+  FD_TEST( !( (ulong)mem >= (ulong)join->shmem->spill.spad &&
+              (ulong)mem <  (ulong)join->shmem->spill.spad+FD_PROGCACHE_SPAD_MAX ) );
+
+  fd_progcache_val_free1( rec, mem, join->alloc );
+}
+
+FD_FN_PURE ulong
+fd_progcache_val_footprint( fd_sbpf_elf_info_t const * elf_info ) {
+  int   has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
+  ulong pc_max        = fd_ulong_max( 1UL, elf_info->text_cnt );
+
+  /* load_buf_sz is the exact buffer the loader needs (peek-computed):
+     text_off+text_sz for strict, the rodata image for lenient-fast, or bin_sz
+     for legacy lenient. */
+  ulong l = FD_LAYOUT_INIT;
+  if( has_calldests ) {
+    l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( pc_max ) );
+  }
+  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->load_buf_sz );
+  return FD_LAYOUT_FINI( l, fd_progcache_val_align() );
+}
+
+/* Program loader wrapper */
 
 fd_progcache_rec_t *
-fd_progcache_rec_new( void *                          mem,
-                      fd_sbpf_elf_info_t const *      elf_info,
-                      fd_sbpf_loader_config_t const * config,
-                      ulong                           load_slot,
-                      fd_features_t const *           features,
-                      void const *                    progdata,
-                      ulong                           progdata_sz,
-                      void *                          scratch,
-                      ulong                           scratch_sz ) {
+fd_progcache_rec_load( fd_progcache_rec_t *            rec,
+                       fd_wksp_t *                     wksp,
+                       fd_sbpf_elf_info_t const *      elf_info,
+                       fd_sbpf_loader_config_t const * config,
+                       ulong                           load_slot,
+                       fd_features_t const *           features,
+                       void const *                    progdata,
+                       ulong                           progdata_sz,
+                       void *                          scratch,
+                       ulong                           scratch_sz ) {
 
   /* Format object */
 
-  int   has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
+  int has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
 
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_progcache_rec_t * rec           = FD_SCRATCH_ALLOC_APPEND( l, fd_progcache_rec_align(),  sizeof(fd_progcache_rec_t) );
-  void *               calldests_mem = NULL;
+  void * val           = fd_wksp_laddr_fast( wksp, rec->data_gaddr );
+  void * calldests_mem = NULL;
+  void * rodata_mem;
   if( has_calldests ) {
-    /*               */calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( elf_info->text_cnt ) );
+    /* Lenient (v0-v2): [ calldests | rodata ] laid out inside val.  The rodata
+       buffer is load_buf_sz (rodata image on the fast path, bin_sz on the
+       legacy path); must match fd_progcache_val_footprint. */
+    FD_SCRATCH_ALLOC_INIT( l, val );
+    calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
+    rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->load_buf_sz );
+    FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
+    FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
+  } else {
+    /* Strict (v3+): no calldests, so rodata is just the start of val
+       (val is fd_progcache_val_align()-aligned, which is >= 8). */
+    rodata_mem = val;
   }
-  void *               rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL,                       elf_info->bin_sz );
-  FD_SCRATCH_ALLOC_FINI( l, fd_progcache_rec_align() );
-  memset( rec, 0, sizeof(fd_progcache_rec_t) );
-  rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)mem ) : 0U;
-  rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)mem );
+
+  rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : UINT_MAX;
+  rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)val );
+  rec->entry_pc      = 0;
+  rec->rodata_sz     = 0;
 
   rec->text_cnt      = elf_info->text_cnt;
   rec->text_off      = elf_info->text_off;
@@ -53,9 +148,19 @@ fd_progcache_rec_new( void *                          mem,
   int syscalls_err = fd_vm_syscall_register_slot( syscalls, load_slot, features, /* is_deploy */ 0 );
   if( FD_UNLIKELY( syscalls_err!=FD_VM_SUCCESS ) ) FD_LOG_CRIT(( "fd_vm_syscall_register_slot failed" ));
 
-  /* Run ELF loader */
+  /* Run ELF loader.
 
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, progdata, progdata_sz, syscalls, config, scratch, scratch_sz ) ) ) {
+     Scratch is needed only by the lenient (v0-v2) fallback path, which
+     assembles the rodata segment via a scratch buffer.  The lenient fast
+     path and strict (v3+) loads write directly into the destination buffer;
+     passing NULL both selects the loader's fast/no-scratch path and faults
+     loudly if it ever starts relying on scratch. */
+
+  int    use_scratch     = fd_sbpf_loader_is_legacy_lenient( elf_info );
+  void * load_scratch    = use_scratch ? scratch    : NULL;
+  ulong  load_scratch_sz = use_scratch ? scratch_sz : 0UL;
+
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, progdata, progdata_sz, syscalls, config, load_scratch, load_scratch_sz ) ) ) {
     return NULL;
   }
 
@@ -88,24 +193,28 @@ fd_progcache_rec_new( void *                          mem,
                    NULL,
                    0,
                    FD_FEATURE_ACTIVE( load_slot, features, account_data_direct_mapping ),
-                   FD_FEATURE_ACTIVE( load_slot, features, stricter_abi_and_runtime_constraints ),
+                   FD_FEATURE_ACTIVE( load_slot, features, syscall_parameter_address_restrictions ),
+                   FD_FEATURE_ACTIVE( load_slot, features, virtual_address_space_adjustments ),
                    0,
                    0UL );
   if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_init failed" ));
 
   if( FD_UNLIKELY( fd_vm_validate( vm )!=FD_VM_SUCCESS ) ) return NULL;
 
-  rec->slot       = load_slot;
-  rec->executable = 1;
   return rec;
 }
 
 fd_progcache_rec_t *
-fd_progcache_rec_new_nx( void * mem,
-                         ulong  load_slot ) {
-  fd_progcache_rec_t * rec = mem;
-  memset( rec, 0, sizeof(fd_progcache_rec_t) );
-  rec->slot       = load_slot;
-  rec->executable = 0;
+fd_progcache_rec_nx( fd_progcache_rec_t * rec ) {
+  rec->data_gaddr    = 0UL;
+  rec->data_max      = 0U;
+  rec->entry_pc      = 0;
+  rec->text_cnt      = 0;
+  rec->text_off      = 0;
+  rec->text_sz       = 0;
+  rec->rodata_sz     = 0;
+  rec->calldests_off = UINT_MAX;
+  rec->rodata_off    = 0;
+  rec->sbpf_version  = 0;
   return rec;
 }

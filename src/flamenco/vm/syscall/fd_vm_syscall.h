@@ -698,9 +698,8 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
      r1 - seeds, bytes VM pointer, indexed [0,seed_cnt),
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN
-          aligned
-     r4 - out, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN aligned
+     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
+     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
      r5 - ignored
 
      seed[i] holds the ulong pair
@@ -736,9 +735,8 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
      r1 - seed, ulong pair VM pointer, indexed [0,seed_cnt),
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN
-          aligned
-     r4 - out, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN aligned
+     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
+     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
      r5 - bump_seed, byte VM pointer, indexed [0,1)
 
      seed[i] holds the ulong pair
@@ -885,6 +883,7 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 FD_VM_SYSCALL_DECL( sol_blake3    );
 FD_VM_SYSCALL_DECL( sol_keccak256 );
 FD_VM_SYSCALL_DECL( sol_sha256    );
+FD_VM_SYSCALL_DECL( sol_sha512    );
 
 /* syscall(c4947c21) sol_poseidon computes the Poseidon hash on an array of input values.
    See SIMD-0129.
@@ -907,12 +906,12 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS   ( 0UL        ) /* ed25519 */
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO ( 1UL        ) /* ristretto255 */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE         ( 4UL        ) /* bls12-381 big endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE         ( 4UL | 0x80 ) /* bls12-381 little endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE      ( 5UL        ) /* bls12-381 G1 big endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL | 0x80 ) /* bls12-381 G1 little endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL        ) /* bls12-381 G2 big endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL | 0x80 ) /* bls12-381 G2 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE         ( 4UL | 0x80 ) /* bls12-381 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE         ( 4UL        ) /* bls12-381 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE      ( 5UL | 0x80 ) /* bls12-381 G1 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL        ) /* bls12-381 G1 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL | 0x80 ) /* bls12-381 G2 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL        ) /* bls12-381 G2 little endian */
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
 
@@ -922,11 +921,13 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...}_SZ specifies the size of inputs/outputs. */
 
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ      (32UL) /* point (compressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ     (32UL) /* scalar */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ    (96UL) /* G1 point (uncompressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ  (2*96UL) /* G2 point (uncompressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ   (12*48UL) /* GT element */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ           (32UL)   /* point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ          (32UL)   /* scalar */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ    (48UL)   /* G1 point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ         (96UL)   /* G1 point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ  (2*48UL)   /* G2 point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ       (2*96UL)   /* G2 point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ        (12*48UL)   /* GT element */
 
 /* syscall(aa2607ca) sol_curve_validate_point
 
@@ -1012,8 +1013,8 @@ FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
    Inputs:
 
      arg0 - curve_id
-     arg1 - point_addr
-     arg2 - result_addr
+     arg1 - point_addr, compressed BLS12-381 point selected by curve_id
+     arg2 - result_addr, uncompressed BLS12-381 point
      arg3 - ignored
      arg4 - ignored
 

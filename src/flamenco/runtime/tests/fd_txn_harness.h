@@ -25,7 +25,8 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          fd_runtime_t *        runtime,
                          fd_txn_in_t const *   txn_in,
                          int *                 exec_res,
-                         fd_txn_out_t *        txn_out );
+                         fd_txn_out_t *        txn_out,
+                         int                   reclaim_accounts );
 
 FD_PROTOTYPES_END
 

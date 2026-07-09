@@ -23,8 +23,6 @@
    calculation state.  (It technically isn't here facilitate compile
    time declarations of fd_keccak256_t memory.) */
 
-#define FD_KECCAK256_MAGIC (0xF17EDA2CE7EC2560) /* FIREDANCE KEC256 V0 */
-
 #define FD_KECCAK256_STATE_SZ (25UL)
 #define FD_KECCAK256_OUT_SZ (32UL)
 #define FD_KECCAK256_RATE ((sizeof(ulong)*FD_KECCAK256_STATE_SZ) - (2*FD_KECCAK256_OUT_SZ))
@@ -39,7 +37,6 @@ struct __attribute__((aligned(FD_KECCAK256_ALIGN))) fd_keccak256_private {
 
   /* This point is 32-byte aligned */
 
-  ulong magic;    /* ==FD_KECCAK256_MAGIC */
   ulong padding_start; /* Number of buffered bytes, in [0,FD_KECCAK256_BUF_MAX) */
 
   /* Padding to 128-byte here */
@@ -48,27 +45,6 @@ struct __attribute__((aligned(FD_KECCAK256_ALIGN))) fd_keccak256_private {
 typedef struct fd_keccak256_private fd_keccak256_t;
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_keccak256_{align,footprint,new,join,leave,delete} usage is identical to
-   that of fd_sha256.  See ../sha256/fd_sha256.h */
-
-FD_FN_CONST ulong
-fd_keccak256_align( void );
-
-FD_FN_CONST ulong
-fd_keccak256_footprint( void );
-
-void *
-fd_keccak256_new( void * shmem );
-
-fd_keccak256_t *
-fd_keccak256_join( void * shsha );
-
-void *
-fd_keccak256_leave( fd_keccak256_t * sha );
-
-void *
-fd_keccak256_delete( void * shsha );
 
 /* fd_keccak256_init starts a keccak256 calculation.  sha is assumed to be a
    current local join to a keccak256 calculation state with no other

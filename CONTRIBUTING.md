@@ -354,9 +354,24 @@ Prefer `fd_io` over `stdio.h` for streaming file I/O.
 
 Make sure to handle `EINTR` correctly.
 
-### 8. Security
+### 8. Code Coverage
 
-#### 8.1. Fuzzing
+To generate an HTML coverage report for a single test:
+
+```bash
+make -j CC=clang EXTRAS=llvm-cov BUILDDIR=clang-cov
+./contrib/test/single_test_cov.sh build/clang-cov/unit-test/test_xxx
+```
+
+This creates a `report/` directory with an HTML report.  View it with:
+
+```bash
+python3 -m http.server 12000 -b 127.0.0.1 -d report
+```
+
+### 9. Security
+
+#### 9.1. Fuzzing
 
 Most code should be covered by fuzz tests.
 
@@ -382,7 +397,7 @@ updating `contrib/test/test-vectors-fixtures/test-vectors-commit-sha.txt`
 with the latest test vectors Github commit SHA containing your change
 (e.g. `2066cfd358a8fd163255c58b3e9a28b9de65df11`).
 
-#### 8.2. Complex Function Exit
+#### 9.2. Complex Function Exit
 
 Sometimes complex control flow is unavoidable.
 

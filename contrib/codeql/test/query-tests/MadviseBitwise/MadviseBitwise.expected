@@ -1,0 +1,1 @@
+| MadviseBitwise.c:17:9:17:15 | call to madvise | The `advice` argument of madvise doesn't accept bitwise arguments. |

@@ -26,11 +26,11 @@ fd_repair_metrics_set_turbine_slot0( fd_repair_metrics_t * repair_metrics, ulong
 
 void
 fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
-                     ulong          slot,
-                     long           first_shred_ts,
-                     long           slot_complete_ts,
-                     uint           repair_cnt,
-                     uint           turbine_cnt ) {
+                            ulong                 slot,
+                            long                  first_shred_ts,
+                            long                  slot_complete_ts,
+                            uint                  repair_cnt,
+                            uint                  turbine_cnt ) {
   uint next_en = (repair_metrics->en + 1) % FD_CATCHUP_METRICS_MAX;
   if( FD_UNLIKELY( next_en == repair_metrics->st || repair_metrics->st == UINT_MAX ) ) {
     repair_metrics->st = (repair_metrics->st + 1) % FD_CATCHUP_METRICS_MAX;
@@ -41,12 +41,6 @@ fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
   repair_metrics->slots[ next_en ].repair_cnt       = repair_cnt;
   repair_metrics->slots[ next_en ].turbine_cnt      = turbine_cnt;
   repair_metrics->en = next_en;
-
-# if DEBUG_LOGGING
-  if( FD_UNLIKELY( slot == repair_metrics->turbine_slot0 ) ) {
-    fd_repair_metrics_print( repair_metrics );
-  }
-# endif
 }
 
 #define MAX_WIDTH 120
@@ -167,6 +161,7 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
 
 void
 fd_repair_metrics_print( fd_repair_metrics_t * repair_metrics, int verbose ) {
+  if( repair_metrics->st == UINT_MAX ) return; // no data to print
   long min_ts            = repair_metrics->slots[ repair_metrics->st ].first_shred_ts;
   long max_ts            = repair_metrics->slots[ repair_metrics->en ].slot_complete_ts;
   uint total_slots       = 0;

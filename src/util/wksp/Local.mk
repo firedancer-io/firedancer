@@ -1,6 +1,8 @@
 $(call add-hdrs,fd_wksp.h)
-$(call add-objs,fd_wksp_admin fd_wksp_user fd_wksp_helper fd_wksp_used_treap fd_wksp_free_treap fd_wksp_io,fd_util)
+$(call add-objs,fd_wksp_admin fd_wksp_user fd_wksp_helper fd_wksp_used_treap fd_wksp_free_treap,fd_util)
+ifdef FD_HAS_HOSTED
 $(call add-objs,fd_wksp_io fd_wksp_checkpt_v1 fd_wksp_restore_v1 fd_wksp_checkpt_v2 fd_wksp_restore_v2,fd_util)
+endif
 $(call make-bin,fd_wksp_ctl,fd_wksp_ctl,fd_util) # Just a stub if not HAS_HOSTED
 
 ifdef FD_HAS_HOSTED # This tests need fd_shmem API support currently only available on hosted targets

@@ -12,30 +12,6 @@
 
 #include <linux/filter.h>
 
-/* fd_shred34 is a collection of up to 34 shreds batched in a way that's
-   convenient for use in a dcache and for access from Rust. The limit of
-   34 comes so that sizeof( fd_shred34_t ) < USHORT_MAX. */
-
-struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
-  ulong shred_cnt;
-
-  /* est_txn_cnt: An estimate of the number of transactions contained in this
-     shred34_t.  The true value might not be a whole number, but this is
-     helpful for diagnostic purposes. */
-  ulong est_txn_cnt;
-  ulong stride;
-  ulong offset;
-  ulong shred_sz; /* The size of each shred */
-  /* For i in [0, shred_cnt), shred i's payload spans bytes
-     [i*stride+offset, i*stride+offset+shred_sz ), counting from the
-     start of the struct, not this point. */
-  union {
-    fd_shred_t shred;
-    uchar      buffer[ FD_SHRED_MAX_SZ ];
-  } pkts[ 34 ];
-};
-typedef struct fd_shred34 fd_shred34_t;
-
 struct fd_became_leader {
    ulong slot;
 
@@ -88,6 +64,8 @@ struct fd_became_leader {
     ulong slot_max_cost;
     ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
+    ulong slot_max_allocated_data_per_block;
+    ulong slot_max_data_shreds;
   } limits;
 
   /* Information from the accounts database as of the start of the slot
@@ -117,6 +95,22 @@ struct fd_completed_bank {
 
 typedef struct fd_completed_bank fd_completed_bank_t;
 
+/* fd_txn_ns_dt contains nanosecond offsets for an executed solana
+   transaction relative to the publish event by pack for its
+   corresponding microblock.
+
+   In Firedancer, these states align with the struct declaration order,
+   but in Frankendancer the "check" phase happens before "load". */
+struct __attribute__((packed)) fd_txn_ns_dt {
+  float load_start;
+  float check_start;
+  float exec_start;
+  float commit_start;
+  float commit_end;
+};
+
+typedef struct fd_txn_ns_dt fd_txn_ns_dt_t;
+
 struct fd_microblock_trailer {
   /* The hash of the transactions in the microblock, ready to be
      mixed into PoH. */
@@ -132,22 +126,14 @@ struct fd_microblock_trailer {
      transactions */
   ulong tips;
 
-  /* If the duration of a microblock is the difference between the
-     publish timestamp of the microblock from pack and the publish
-     timestamp of the microblock from execle, then these represent the
-     elapsed time between the start of the microblock and the 3 state
-     transitions (ready->start loading, loading -> execute, execute ->
-     done) for the first transaction.
-
-     For example, if a microblock starts at t=10 and ends at t=20, and
-     txn_exec_end_pct is UCHAR_MAX / 2, then this transaction started
-     executing at roughly 10+(20-10)*(128/UCHAR_MAX)=15 */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
+  fd_txn_ns_dt_t txn_ns_dt;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
+
+/* Sentinel sig values for messages on the pack_poh.  Normal
+   done_packing messages use fd_disco_execle_sig( slot, pack_idx ). */
+#define FD_PACK_MSG_DONE_DRAINING   (ULONG_MAX)
+#define FD_PACK_MSG_REDUCE_MB_BOUND (ULONG_MAX-1UL)
 
 #define FD_PACK_END_SLOT_REASON_TIME          (1)
 #define FD_PACK_END_SLOT_REASON_MICROBLOCK    (2)
@@ -159,8 +145,8 @@ struct fd_done_packing {
   fd_pack_limits_usage_t limits_usage[ 1 ];
   fd_pack_limits_t limits[ 1 ];
 
-  ulong block_results    [ FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT ];
-  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT ];
+  ulong block_results    [ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
+  ulong end_block_results[ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
 
   fd_pack_smallest_t pending_smallest[ 1 ];
   fd_pack_smallest_t pending_votes_smallest[ 1 ];
@@ -200,13 +186,5 @@ struct fd_microblock_execle_trailer {
   int is_bundle;
 };
 typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
-
-typedef struct __attribute__((packed)) {
-  ulong  tick_duration_ns;
-  ulong  hashcnt_per_tick;
-  ulong  ticks_per_slot;
-  ulong  tick_height;
-  uchar  last_entry_hash[32];
-} fd_poh_init_msg_t;
 
 #endif /* HEADER_fd_src_disco_tiles_h */

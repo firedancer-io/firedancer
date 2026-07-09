@@ -38,6 +38,15 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
                        ushort               shred_version );
 
 void
+fd_ipecho_server_fini( fd_ipecho_server_t * server );
+
+/* fd_ipecho_server_close_conns closes all accepted connections on
+   the server, but leaves the listen socket open. */
+
+void
+fd_ipecho_server_close_conns( fd_ipecho_server_t * server );
+
+void
 fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
                                     ushort               shred_version );
 

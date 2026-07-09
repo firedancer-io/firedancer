@@ -10,21 +10,3 @@ jobs:
       contents: read
       pages: write
       id-token: write
-
-  clusterfuzz:
-    uses: ./.github/workflows/clusterfuzz.yml
-    secrets: inherit
-
-  trigger:
-    needs: clusterfuzz
-    runs-on: ubuntu-latest
-    steps:
-      - name: dispatch solfuzz CI
-        run: |
-          curl -L \
-          -X POST \
-          https://api.github.com/repos/firedancer-io/solfuzz/dispatches \
-          -H 'Accept: application/vnd.github.everest-preview+json' \
-          -H "Authorization: Bearer ${{ secrets.PAT }}" \
-          -H "X-GitHub-Api-Version: 2022-11-28" \
-          --data '{"event_type": "fd_main"}'

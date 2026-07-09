@@ -89,6 +89,8 @@ def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
             potential_parity_remaining -= n
 
         cprint("#undef ALL_VARS")
+        if n>=64:
+            cprint("#undef ALL_VARS_REF")
         cprint("/* In order to handle shred sizes that are not divisible by 32, we clamp")
         cprint("   shred_pos to shred_sz-32 when shred_sz-32<shred_pos<shred_sz")
         cprint("   (after the increment). */")

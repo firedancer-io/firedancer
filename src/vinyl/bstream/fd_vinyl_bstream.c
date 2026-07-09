@@ -1,20 +1,6 @@
 #include "fd_vinyl_bstream.h"
 
 void
-fd_vinyl_bstream_pair_zero( fd_vinyl_bstream_block_t * hdr ) {
-
-  ulong ctl     = hdr->ctl;
-  ulong val_esz = fd_vinyl_bstream_ctl_sz( ctl );
-
-  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
-
-  ulong off = sizeof(fd_vinyl_bstream_phdr_t) + val_esz;
-  ulong zsz = pair_sz - off; /* covers zpad and footer so at least FD_VINYL_BSTREAM_FTR_SZ */
-
-  memset( (uchar *)hdr + off, 0, zsz );
-}
-
-void
 fd_vinyl_bstream_pair_hash( ulong                      seed,
                             fd_vinyl_bstream_block_t * hdr ) {
 
@@ -184,8 +170,10 @@ fd_vinyl_bstream_move_test( ulong                      seed,
            bad_dst_key    ? "mismatched move dst key"      :
                             "mismatched move dst info";
 
+# if 0 /* Note: with BLOCK_SZ==128, MOVE_INFO_MAX=0 and there's no move.info field due to language limitations */
   for( ulong zpad_idx=move_info_sz; zpad_idx<FD_VINYL_BSTREAM_MOVE_INFO_MAX; zpad_idx++ )
     if( FD_UNLIKELY( block->move.info[ zpad_idx ] ) ) return "data in zero padding";
+# endif
 
   if( FD_UNLIKELY( fd_vinyl_bstream_block_test( seed, block ) ) ) return "corrupt block";
 

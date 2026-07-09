@@ -1,7 +1,14 @@
 #include "fd_topob.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../util/tile/fd_tile_private.h" /* fd_tile_private_sibling_idx */
 #include "fd_cpu_topo.h"
+
+#define SET_NAME cpu_bv
+#define SET_MAX  FD_TILE_MAX
+#include "../../util/tmpl/fd_set.c"
+
+#include <ctype.h>
 
 fd_topo_t *
 fd_topob_new( void * mem,
@@ -23,7 +30,7 @@ fd_topob_new( void * mem,
   FD_TEST( fd_pod_new( topo->props, sizeof(topo->props) ) );
 
   if( FD_UNLIKELY( strlen( app_name )>=sizeof(topo->app_name) ) ) FD_LOG_ERR(( "app_name too long: %s", app_name ));
-  strncpy( topo->app_name, app_name, sizeof(topo->app_name) );
+  fd_cstr_ncpy( topo->app_name, app_name, sizeof(topo->app_name) );
 
   topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
   topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;
@@ -148,7 +155,9 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch ) {
+               int            uses_id_keyswitch,
+               int            uses_av_keyswitch ) {
+
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
   if( FD_UNLIKELY( topo->tile_cnt>=FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "too many tiles %lu", topo->tile_cnt ));
@@ -160,13 +169,13 @@ fd_topob_tile( fd_topo_t *    topo,
 
   fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt ];
   strncpy( tile->name, tile_name, sizeof(tile->name) );
-  tile->metrics_name[ 0 ]   = 0;
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
   tile->cpu_idx             = cpu_idx;
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
+  tile->event_link_id       = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
@@ -177,12 +186,20 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->metrics_obj_id = obj->id;
   fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  if( FD_LIKELY( uses_keyswitch ) ) {
+  if( FD_LIKELY( uses_id_keyswitch ) ) {
     obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
-    tile->keyswitch_obj_id = obj->id;
+    tile->id_keyswitch_obj_id = obj->id;
     fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   } else {
-    tile->keyswitch_obj_id = ULONG_MAX;
+    tile->id_keyswitch_obj_id = ULONG_MAX;
+  }
+
+  if( FD_UNLIKELY( uses_av_keyswitch ) ) {
+    obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
+    tile->av_keyswitch_obj_id = obj->id;
+    fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  } else {
+    tile->av_keyswitch_obj_id = ULONG_MAX;
   }
 
   topo->tile_cnt++;
@@ -355,166 +372,417 @@ validate( fd_topo_t const * topo ) {
   }
 }
 
+/* Tiles that yield to the kernel scheduler */
+static char const * FLOATING[] = {
+  "netlnk",
+  "metric",
+  "diag",
+  "bencho",
+  "genesi", /* FIREDANCER ONLY */
+  "ipecho", /* FIREDANCER ONLY */
+  "admin",  /* FIREDANCER ONLY */
+  NULL
+};
+
+/* Tiles only active on startup
+   (Must shut down after snapshot load) */
+static char const * STARTUP[] = {
+  "genesi", /* FIREDANCER only */
+  "snapct", /* FIREDANCER only */
+  "snapld", /* FIREDANCER only */
+  "snapdc", /* FIREDANCER only */
+  "snapin", /* FIREDANCER only */
+  "snapwr", /* FIREDANCER only */
+  NULL
+};
+
+/* Tiles only active post startup
+   (Must sleep until snapshot load finishes) */
+static char const * POST_START[] = {
+  "accdb",  /* FIREDANCER only */
+  "execle", /* FIREDANCER only */
+  "poh",    /* FIREDANCER only */
+  "execrp", /* FIREDANCER only */
+  "txsend", /* FIREDANCER only */
+  NULL
+};
+
+/* Tiles that are always active */
+static char const * ALWAYS[] = {
+  "backt",
+  "benchg",
+  "benchs",
+  "net",
+  "sock",
+  "quic",
+  "bundle",
+  "verify",
+  "dedup",
+  "resolh", /* FRANK only */
+  "resolv", /* FIREDANCER only */
+  "pack",
+  "bank",   /* FRANK only */
+  "pohh",   /* FRANK only */
+  "sign",
+  "shred",
+  "event",  /* FIREDANCER only */
+  "store",  /* FRANK only */
+  "plugin", /* FRANK only */
+  "gui",    /* FIREDANCER only */
+  "guih",   /* FRANK only */
+  "rpc",    /* FIREDANCER only */
+  "gossvf", /* FIREDANCER only */
+  "gossip", /* FIREDANCER only */
+  "repair", /* FIREDANCER only */
+  "rserve", /* FIREDANCER only */
+  "replay", /* FIREDANCER only */
+  "tower",  /* FIREDANCER only */
+  "pktgen",
+  "forkt",  /* FIREDANCER only */
+  NULL
+};
+
+/* Tiles that should not have a SMT neighbor */
+static char const * CRITICAL_TILES[] = {
+  "pack",
+  "poh",
+  "pohh",
+  "gui",
+  "guih",
+  NULL
+};
+
+int
+fd_topob_tile_priority_type( char const * name ) {
+  for( char const ** p = FLOATING; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_FLOATING;
+  }
+  for( char const ** p = STARTUP; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_STARTUP;
+  }
+  for( char const ** p = CRITICAL_TILES; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_CRITICAL;
+  }
+  for( char const ** p = POST_START; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_NORMAL;
+  }
+  for( char const ** p = ALWAYS; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_NORMAL;
+  }
+  return FD_TOPOB_PRIORITY_FLOATING;
+}
+
+FD_STATIC_ASSERT( FD_TILE_MAX<65535, update_tile_to_cpu_type );
+
+ulong
+fd_topob_parse_affinity_cstr( char const * cstr,
+                              ushort *     tile_to_cpu,
+                              int          allow_repeats ) {
+  if( !cstr ) return 0UL;
+  ulong cnt = 0UL;
+
+  cpu_bv_t cpu_assigned[ cpu_bv_word_cnt ];
+  cpu_bv_new( cpu_assigned );
+
+  char const * p = cstr;
+  for(;;) {
+
+    while( fd_isspace( (int)p[0] ) ) p++;
+
+    if( p[0]=='f' ) {
+      p++;
+
+      ulong float_cnt;
+
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if     ( p[0]==','             ) float_cnt = 1UL, p++;
+      else if( p[0]=='\0'            ) float_cnt = 1UL;
+      else if( !fd_isdigit( (int)p[0] ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (malformed float count)" ));
+      else {
+        float_cnt = fd_cstr_to_ulong( p );
+        if( FD_UNLIKELY( !float_cnt ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad float count)" ));
+        p++; while( fd_isdigit( (int)p[0] ) ) p++;
+        while( fd_isspace( (int)p[0] ) ) p++;
+        if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad float count delimiter)" ));
+        if( p[0]==',' ) p++;
+      }
+
+      do {
+        if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_topob: too many affinity entries" ));
+        tile_to_cpu[ cnt++ ] = (ushort)65535;
+      } while( --float_cnt );
+
+      continue;
+    }
+
+    if( !fd_isdigit( (int)p[0] ) ) {
+      if( FD_UNLIKELY( p[0]!='\0' ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (range lo not a cpu)" ));
+      break;
+    }
+    ulong cpu0   = fd_cstr_to_ulong( p );
+    ulong cpu1   = cpu0;
+    ulong stride = 1UL;
+    p++; while( fd_isdigit( (int)p[0] ) ) p++;
+    while( fd_isspace( (int)p[0] ) ) p++;
+    if( p[0]=='-' ) {
+      p++;
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (range hi not a cpu)" ));
+      cpu1 = fd_cstr_to_ulong( p );
+      p++; while( fd_isdigit( (int)p[0] ) ) p++;
+      while( fd_isspace( (int)p[0] ) ) p++;
+      if( p[0]=='/' || p[0]==':' ) {
+        p++;
+        while( fd_isspace( (int)p[0] ) ) p++;
+        if( FD_UNLIKELY( !fd_isdigit( (int)p[0] ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (stride not an int)" ));
+        stride = fd_cstr_to_ulong( p );
+        p++; while( fd_isdigit( (int)p[0] ) ) p++;
+      }
+    }
+    else if( p[0]=='h' ) {
+      p++;
+      ulong sibling = fd_tile_private_sibling_idx( cpu0 );
+      cpu1 =   fd_ulong_if( sibling==ULONG_MAX, cpu0, sibling );
+      stride = fd_ulong_if( sibling==ULONG_MAX, 1,    sibling-cpu0 );
+    }
+    while( fd_isspace( (int)p[0] ) ) p++;
+    if( FD_UNLIKELY( !( p[0]==',' || p[0]=='\0' ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (bad range delimiter)" ));
+    if( p[0]==',' ) p++;
+    cpu1++;
+    if( FD_UNLIKELY( cpu1<=cpu0 ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (invalid range)"  ));
+    if( FD_UNLIKELY( !stride    ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (invalid stride)" ));
+
+    for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
+      if( FD_UNLIKELY( cnt>=FD_TILE_MAX ) ) FD_LOG_ERR(( "fd_topob: too many affinity entries" ));
+      if( FD_UNLIKELY( !allow_repeats && cpu_bv_test( cpu_assigned, cpu ) ) ) FD_LOG_ERR(( "fd_topob: malformed affinity string (repeated cpu)" ));
+      tile_to_cpu[ cnt++ ] = (ushort)cpu;
+      cpu_bv_insert( cpu_assigned, cpu );
+    }
+  }
+
+  return cnt;
+}
+
+static int
+tile_name_in( char const *         name,
+              char const * const * names ) {
+  for( char const * const * p = names; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return 1;
+  }
+  return 0;
+}
+
+#define FD_TOPOB_LIVE_ALWAYS    (1)
+#define FD_TOPOB_LIVE_STARTUP   (2)
+#define FD_TOPOB_LIVE_POSTSTART (3)
+
+static int
+fd_topob_tile_live_phase( char const * name ) {
+  if( tile_name_in( name, STARTUP    ) ) return FD_TOPOB_LIVE_STARTUP;
+  if( tile_name_in( name, POST_START ) ) return FD_TOPOB_LIVE_POSTSTART;
+  return FD_TOPOB_LIVE_ALWAYS;
+}
+
+static int
+fd_topob_cpu_overlap_allowed( fd_topo_tile_t const * a,
+                              fd_topo_tile_t const * b ) {
+  int a_phase = fd_topob_tile_live_phase( a->name );
+  int b_phase = fd_topob_tile_live_phase( b->name );
+
+  return ( a_phase==FD_TOPOB_LIVE_STARTUP   && b_phase==FD_TOPOB_LIVE_POSTSTART ) ||
+         ( a_phase==FD_TOPOB_LIVE_POSTSTART && b_phase==FD_TOPOB_LIVE_STARTUP   );
+}
+
 void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores ) {
+fd_topob_validate_cpu_overlaps( fd_topo_t const * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * a = &topo->tiles[ i ];
+    if( a->cpu_idx>=FD_TILE_MAX ) continue;
+
+    for( ulong j=i+1UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t const * b = &topo->tiles[ j ];
+      if( b->cpu_idx!=a->cpu_idx ) continue;
+      if( FD_LIKELY( fd_topob_cpu_overlap_allowed( a, b ) ) ) continue;
+
+      FD_LOG_ERR(( "tile `%s:%lu` and tile `%s:%lu` are both assigned to CPU %lu and may try to run at the same time",
+                   a->name, a->kind_id, b->name, b->kind_id, a->cpu_idx ));
+    }
+  }
+}
+
+static void
+auto_tile_cpu( fd_topo_tile_t * tile,
+               fd_topo_cpus_t * cpus,
+               ulong *          cpu_idx_p,
+               cpu_bv_t         cpu_assigned[ static cpu_bv_word_cnt ],
+               ushort const     cpu_ordering[ static FD_TILE_MAX     ],
+              _Bool             skip_ht_pairs ) {
+  ulong cpu_idx = *cpu_idx_p;
+
+  ulong cpu_cnt = cpus->cpu_cnt;
+  while( cpu_idx<cpu_cnt && cpu_bv_test( cpu_assigned, cpu_ordering[ cpu_idx ] ) ) cpu_idx++;
+  if( FD_UNLIKELY( cpu_idx>=cpu_cnt ) ) {
+    FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
+  }
+
+  /* Certain tiles are latency and throughput critical and
+     should not get a HT pair assigned. */
+  fd_topo_cpu_t const * cpu = &cpus->cpu[ cpu_ordering[ cpu_idx ] ];
+
+  int is_ht_critical = 0;
+  if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
+    for( char const ** p = CRITICAL_TILES; *p; p++ ) {
+      if( !strcmp( tile->name, *p ) ) {
+        is_ht_critical = 1;
+        break;
+      }
+    }
+  }
+
+  if( FD_UNLIKELY( is_ht_critical || skip_ht_pairs ) ) {
+    ulong try_assign = cpu_idx;
+    while( cpu_bv_test( cpu_assigned, cpu_ordering[ try_assign ] ) ||
+           ( cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX &&
+             cpu_bv_test( cpu_assigned, cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ) ) ) {
+      try_assign++;
+      if( FD_UNLIKELY( try_assign>=cpus->cpu_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
+    }
+
+    ulong sibling = cpus->cpu[ cpu_ordering[ try_assign ] ].sibling;
+    cpu_bv_insert( cpu_assigned, cpu_ordering[ try_assign ] );
+    if( sibling!=ULONG_MAX ) {
+      cpu_bv_insert( cpu_assigned, sibling );
+    }
+    tile->cpu_idx = cpu_ordering[ try_assign ];
+  } else {
+    cpu_bv_insert( cpu_assigned, cpu_ordering[ cpu_idx ] );
+    tile->cpu_idx = cpu_ordering[ cpu_idx ];
+  }
+
+  *cpu_idx_p = cpu_idx;
+}
+
+void
+fd_topob_auto_layout_cpus( fd_topo_t *      topo,
+                           fd_topo_cpus_t * cpus,
+                           int              reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
-
-  char const * FLOATING[] = {
-    "netlnk",
-    "metric",
-    "diag",
-    "bencho",
-    "genesi", /* FIREDANCER ONLY */
-    "ipecho", /* FIREDANCER ONLY */
-    "snapwr", /* FIREDANCER ONLY */
-  };
-
-  char const * ORDERED[] = {
-    "backt",
-    "benchg",
-    "benchs",
-    "net",
-    "sock",
-    "quic",
-    "bundle",
-    "verify",
-    "dedup",
-    "resolv", /* FRANK only */
-    "pack",
-    "bank",   /* FRANK only */
-    "execle", /* FIREDANCER only */
-    "poh",    /* FRANK only */
-    "pohi",   /* FIREDANCER only */
-    "shred",
-    "event",  /* FIREADNCER only */
-    "store",  /* FRANK only */
-    "storei", /* FIREDANCER only */
-    "sign",
-    "plugin",
-    "gui",
-    "rpc",    /* FIREDANCER only */
-    "gossvf", /* FIREDANCER only */
-    "gossip", /* FIREDANCER only */
-    "repair", /* FIREDANCER only */
-    "replay", /* FIREDANCER only */
-    "exec",   /* FIREDANCER only */
-    "txsend", /* FIREDANCER only */
-    "tower",  /* FIREDANCER only */
-    "rpc",    /* FIREDANCER only */
-    "pktgen",
-    "snapct", /* FIREDANCER only */
-    "snapld", /* FIREDANCER only */
-    "snapdc", /* FIREDANCER only */
-    "snapin", /* FIREDANCER only */
-    "snapwm", /* FIREDANCER only */
-    "snapwh", /* FIREDANCER only */
-    "snapla", /* FIREDANCER only */
-    "snapls", /* FIREDANCER only */
-    "snaplh", /* FIREDANCER only */
-    "snaplv", /* FIREDANCER only */
-    "arch_f", /* FIREDANCER only */
-    "arch_w", /* FIREDANCER only */
-    "accdb",  /* FIREDANCER only */
-  };
-
-  char const * CRITICAL_TILES[] = {
-    "pack",
-    "poh",
-    "gui",
-    "snapld", /* TODO: Snapshot loading speed depends on having full core */
-    "snapdc", /* TODO: Snapshot loading speed depends on having full core */
-    "snapin", /* TODO: Snapshot loading speed depends on having full core */
-    "snapwm", /* TODO: Snapshot loading speed depends on having full core */
-    "snapwh", /* TODO: Snapshot loading speed depends on having full core */
-  };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     tile->cpu_idx = ULONG_MAX;
   }
 
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
+  ushort   cpu_ordering[ FD_TILE_MAX ] = {0};
+  cpu_bv_t pairs_assigned[ cpu_bv_word_cnt ]; cpu_bv_new( pairs_assigned );
+  FD_STATIC_ASSERT( FD_TILE_MAX<=USHORT_MAX, layout );
 
-  ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
-  int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
-
-  ulong next_cpu_idx   = 0UL;
+  ulong next_cpu_idx = 0UL;
   for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
     for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
       fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
 
-      if( FD_UNLIKELY( pairs_assigned[ j ] || cpu->numa_node!=i ) ) continue;
+      if( FD_UNLIKELY( cpu_bv_test( pairs_assigned, j ) || cpu->numa_node!=i ) ) continue;
 
       FD_TEST( next_cpu_idx<FD_TILE_MAX );
-      cpu_ordering[ next_cpu_idx++ ] = j;
+      cpu_ordering[ next_cpu_idx++ ] = (ushort)j;
 
       if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
         /* If the CPU has a HT pair, place it immediately after so they
            are sequentially assigned. */
         FD_TEST( next_cpu_idx<FD_TILE_MAX );
-        cpu_ordering[ next_cpu_idx++ ] = cpu->sibling;
-        pairs_assigned[ cpu->sibling ] = 1;
+        cpu_ordering[ next_cpu_idx++ ] = (ushort)cpu->sibling;
+        cpu_bv_insert( pairs_assigned, cpu->sibling );
       }
     }
   }
 
   FD_TEST( next_cpu_idx==cpus->cpu_cnt );
 
-  int cpu_assigned[ FD_TILE_MAX ] = {0};
   /* excluded cpus are simply considered already assigned */
+  cpu_bv_t cpu_assigned[ cpu_bv_word_cnt ];
+  cpu_bv_new( cpu_assigned );
   for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
     FD_TEST( topo->blocklist_cores_cpu_idx[ i ]<FD_TILE_MAX );
-    cpu_assigned[ topo->blocklist_cores_cpu_idx[ i ] ] = 1;
+    cpu_bv_insert( cpu_assigned, topo->blocklist_cores_cpu_idx[ i ] );
   }
 
-  ulong cpu_idx = 0UL;
-  while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
+  /* Compute total number of available physical cores */
+  ulong available_physical = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    if( !cpu_bv_test( cpu_assigned, i   ) &&
+        !cpu_bv_test( pairs_assigned, i ) &&
+        ( cpus->cpu[ i ].sibling==ULONG_MAX ||
+          !cpu_bv_test( cpu_assigned, cpus->cpu[ i ].sibling ) ) ) {
+      available_physical++;
+    }
+  }
 
-  for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
+  /* Compute total number of tiles that need assignment */
+  ulong always_tiles_to_assign = 0UL;
+  ulong post_start_tiles_to_assign = 0UL;
+  ulong startup_tiles_to_assign = 0UL;
+  for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+    for( char const ** p = POST_START; *p; p++ ) {
+      if( !strcmp( topo->tiles[ j ].name, *p ) ) {
+        post_start_tiles_to_assign++;
+        break;
+      }
+    }
+    for( char const ** p = ALWAYS; *p; p++ ) {
+      if( !strcmp( topo->tiles[ j ].name, *p ) ) {
+        always_tiles_to_assign++;
+        break;
+      }
+    }
+    for( char const ** p = STARTUP; *p; p++ ) {
+      if( !strcmp( topo->tiles[ j ].name, *p ) ) {
+        startup_tiles_to_assign++;
+        break;
+      }
+    }
+  }
+  ulong tiles_to_assign = always_tiles_to_assign +
+      fd_ulong_max( startup_tiles_to_assign, post_start_tiles_to_assign );
+
+  /* If we have enough physical cores (excluding HT siblings) for all
+     tiles that need assignment, exclude HT siblings so that no tile
+     gets scheduled on a hyperthread pair.
+     For Frankendancer, we reserve 2x cores so we have enough for Agave */
+  _Bool skip_ht_pairs = reserve_agave_cores
+    ? (available_physical>=2*tiles_to_assign) /* Frankendancer */
+    : (available_physical>=tiles_to_assign);  /* Firedancer */
+
+  /* First, assign always-on tiles */
+  ulong cpu_idx = 0UL;
+  for( char const ** p = ALWAYS; *p; p++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
-      if( !strcmp( tile->name, ORDERED[ i ] ) ) {
-        if( FD_UNLIKELY( cpu_idx>=cpus->cpu_cnt ) ) {
-          FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
-        } else {
-          /* Certain tiles are latency and throughput critical and
-             should not get a HT pair assigned. */
-          fd_topo_cpu_t const * cpu = &cpus->cpu[ cpu_ordering[ cpu_idx ] ];
+      if( !strcmp( tile->name, *p ) ) {
+        auto_tile_cpu( tile, cpus, &cpu_idx, cpu_assigned, cpu_ordering, skip_ht_pairs );
+      }
+    }
+  }
+  ulong cpu_idx_startup = cpu_idx;
+  cpu_bv_t cpu_assigned_startup[ cpu_bv_word_cnt ];
+  cpu_bv_copy( cpu_assigned_startup, cpu_assigned );
 
-          int is_ht_critical = 0;
-          if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
-            for( ulong k=0UL; k<sizeof(CRITICAL_TILES)/sizeof(CRITICAL_TILES[0]); k++ ) {
-              if( !strcmp( tile->name, CRITICAL_TILES[ k ] ) ) {
-                is_ht_critical = 1;
-                break;
-              }
-            }
-          }
-
-          if( FD_UNLIKELY( is_ht_critical ) ) {
-            ulong try_assign = cpu_idx;
-            while( cpu_assigned[ cpu_ordering[ try_assign ] ] || (cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX && cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ]) ) {
-              try_assign++;
-              if( FD_UNLIKELY( try_assign>=cpus->cpu_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
-            }
-
-            ulong sibling = cpus->cpu[ cpu_ordering[ try_assign ] ].sibling;
-            cpu_assigned[ cpu_ordering[ try_assign ] ] = 1;
-            if( sibling!=ULONG_MAX ) {
-              cpu_assigned[ sibling ] = 1;
-            }
-            tile->cpu_idx = cpu_ordering[ try_assign ];
-            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
-          } else {
-            cpu_assigned[ cpu_ordering[ cpu_idx ] ] = 1;
-            tile->cpu_idx = cpu_ordering[ cpu_idx ];
-            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
-          }
-        }
+  /* Separately assign startup and post-start tiles */
+  for( char const ** p = STARTUP; *p; p++ ) {
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t * tile = &topo->tiles[ j ];
+      if( !strcmp( tile->name, *p ) ) {
+        auto_tile_cpu( tile, cpus, &cpu_idx_startup, cpu_assigned_startup, cpu_ordering, skip_ht_pairs );
+      }
+    }
+  }
+  for( char const ** p = POST_START; *p; p++ ) {
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t * tile = &topo->tiles[ j ];
+      if( !strcmp( tile->name, *p ) ) {
+        auto_tile_cpu( tile, cpus, &cpu_idx, cpu_assigned, cpu_ordering, skip_ht_pairs );
       }
     }
   }
@@ -525,8 +793,8 @@ fd_topob_auto_layout( fd_topo_t * topo,
     if( tile->cpu_idx!=ULONG_MAX ) continue;
 
     int found = 0;
-    for( ulong j=0UL; j<sizeof(FLOATING)/sizeof(FLOATING[0]); j++ ) {
-      if( !strcmp( tile->name, FLOATING[ j ] ) ) {
+    for( char const ** p = FLOATING; *p; p++ ) {
+      if( !strcmp( tile->name, *p ) ) {
         found = 1;
         break;
       }
@@ -535,16 +803,25 @@ fd_topob_auto_layout( fd_topo_t * topo,
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
+  topo->agave_affinity_cnt = 0UL;
   if( FD_UNLIKELY( reserve_agave_cores ) ) {
     for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
-      if( FD_UNLIKELY( cpu_assigned[ cpu_ordering[ i ] ] ) ) continue;
+      if( FD_UNLIKELY( cpu_bv_test( cpu_assigned, cpu_ordering[ i ] ) ) ) continue;
 
       if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
       }
     }
   }
+}
+
+void
+fd_topob_auto_layout( fd_topo_t * topo,
+                      int         reserve_agave_cores ) {
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  fd_topob_auto_layout_cpus( topo, cpus, reserve_agave_cores );
 }
 
 ulong
@@ -573,15 +850,17 @@ initialize_numa_assignments( fd_topo_t * topo ) {
 
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
-    int found_strict = 0;
-    int found_lazy   = 0;
+    int found_strict   = 0;
+    int found_lazy     = 0;
+    int found_assigned = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx<FD_TILE_MAX ) ) {
         topo->workspaces[ i ].numa_idx = fd_numa_node_idx( tile->cpu_idx );
         FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
-        found_strict = 1;
-        found_lazy = 1;
+        found_strict   = 1;
+        found_lazy     = 1;
+        found_assigned = 1;
         break;
       } else if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx>=FD_TILE_MAX ) ) {
         topo->workspaces[ i ].numa_idx = 0;
@@ -597,7 +876,8 @@ initialize_numa_assignments( fd_topo_t * topo ) {
           if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj && tile->cpu_idx<FD_TILE_MAX ) ) {
             topo->workspaces[ i ].numa_idx = fd_numa_node_idx( tile->cpu_idx );
             FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
-            found_lazy = 1;
+            found_lazy     = 1;
+            found_assigned = 1;
             break;
           } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx>=FD_TILE_MAX ) {
             topo->workspaces[ i ].numa_idx = 0;
@@ -608,7 +888,7 @@ initialize_numa_assignments( fd_topo_t * topo ) {
           }
         }
 
-        if( FD_UNLIKELY( found_lazy ) ) break;
+        if( FD_UNLIKELY( found_assigned ) ) break;
       }
     }
 
@@ -706,5 +986,6 @@ fd_topob_finish( fd_topo_t *                topo,
 
   initialize_numa_assignments( topo );
 
+  fd_topob_validate_cpu_overlaps( topo );
   validate( topo );
 }

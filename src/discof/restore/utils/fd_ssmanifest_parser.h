@@ -31,9 +31,14 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
 int
 fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
-                              ulong                    bufsz,
-                              acc_vec_map_t *          acc_vec_map,
-                              acc_vec_t *              acc_vec_pool );
+                              ulong                    bufsz );
+
+/* Indicate to the parser that there are no more bytes coming.
+   Returns DONE if the parser was at a point in the state machine
+   where it is legal to finish, or ERROR otherwise.
+   Must be called after the last consume(). */
+int
+fd_ssmanifest_parser_fini( fd_ssmanifest_parser_t * parser );
 
 FD_PROTOTYPES_END
 

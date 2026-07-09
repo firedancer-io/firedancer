@@ -1,0 +1,9 @@
+---
+# Add any genesis accounts in here. This file gets passed into
+# solana-genesis as the --primordial-accounts-file flag.
+# Example: Feature account: HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3
+# HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3:
+#   balance: 1000000
+#   owner: Feature111111111111111111111111111111111111
+#   data: AAAAAAAAAAAA
+#   executable: false

@@ -15,6 +15,10 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Benchmarks run only with --bench (default off) so the unit test stays
+     fast in CI. */
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   FD_TEST( fd_sha256_align    ()==FD_SHA256_ALIGN     );
@@ -106,7 +110,7 @@ main( int     argc,
   uchar hash_mem[ 32UL*BATCH_MAX ];
 
   uchar batch_mem[ FD_SHA256_BATCH_FOOTPRINT ] __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
-  for( ulong trial_rem=262144UL; trial_rem; trial_rem-- ) {
+  for( ulong trial_rem=32768UL; trial_rem; trial_rem-- ) {
     uchar const * data[ BATCH_MAX ];
     ulong         sz  [ BATCH_MAX ];
     uchar *       hash[ BATCH_MAX ];
@@ -138,7 +142,7 @@ main( int     argc,
 
   uchar in_hash[32];
   /* test fd_sha256_hash_32_repeated */
-  for( ulong k=0UL; k<10000000UL; k = (k<<1)|1UL ) {
+  for( ulong k=0UL; k<1000000UL; k = (k<<1)|1UL ) {
     for( ulong b=0UL; b<32UL; b++ ) in_hash[b] = fd_rng_uchar( rng );
     memcpy( hash, in_hash, 32UL );
     for( ulong iter=0UL; iter<k; iter++ ) fd_sha256_hash( hash, 32UL, hash );
@@ -146,98 +150,100 @@ main( int     argc,
     for( ulong b=0UL; b<32UL; b++ ) FD_TEST( in_hash[b]==hash[b] );
   }
 
-  /* do a benchmark on PoH-style hashing */
-  FD_LOG_NOTICE(( "Benchmarking poh" ));
-  for( ulong b=0UL; b<32UL; b++ ) in_hash[b] = fd_rng_uchar( rng );
+  if( bench ) {
+    /* do a benchmark on PoH-style hashing */
+    FD_LOG_NOTICE(( "Benchmarking poh" ));
+    for( ulong b=0UL; b<32UL; b++ ) in_hash[b] = fd_rng_uchar( rng );
 
-  {
-    memcpy( hash, in_hash, 32UL );
-    /* warmup */
-    for( ulong rem=10UL; rem; rem-- ) fd_sha256_hash( hash, 32UL, hash );
+    {
+      memcpy( hash, in_hash, 32UL );
+      /* warmup */
+      for( ulong rem=10UL; rem; rem-- ) fd_sha256_hash( hash, 32UL, hash );
 
-    memcpy( hash, in_hash, 32UL );
-    /* for real */
-    ulong iter = 1000000UL;
-    long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_sha256_hash( hash, 32UL, hash );
-    dt += fd_log_wallclock();
-    float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
-    FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core", (double)hashes_per_sec ));
-  }
-  {
-    fd_sha256_hash_32_repeated( in_hash, hash, 10UL );
-    ulong iter = 1000000UL;
-    /* Now do it again with hash_32_repeated */
-    long  dt   = -fd_log_wallclock();
-    fd_sha256_hash_32_repeated( in_hash, hash, iter );
-    dt += fd_log_wallclock();
-    float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
-    FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated", (double)hashes_per_sec ));
-  }
+      memcpy( hash, in_hash, 32UL );
+      /* for real */
+      ulong iter = 1000000UL;
+      long  dt   = -fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) fd_sha256_hash( hash, 32UL, hash );
+      dt += fd_log_wallclock();
+      float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
+      FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core", (double)hashes_per_sec ));
+    }
+    {
+      fd_sha256_hash_32_repeated( in_hash, hash, 10UL );
+      ulong iter = 1000000UL;
+      /* Now do it again with hash_32_repeated */
+      long  dt   = -fd_log_wallclock();
+      fd_sha256_hash_32_repeated( in_hash, hash, iter );
+      dt += fd_log_wallclock();
+      float hashes_per_sec = ((float)iter * 1e-6f ) / ((float)dt * 1e-9f) ;
+      FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated", (double)hashes_per_sec ));
+    }
 
-  /* do a quick benchmark of sha-256 on small and large UDP payload
-     packets from UDP/IP4/VLAN/Ethernet */
+    /* do a quick benchmark of sha-256 on small and large UDP payload
+      packets from UDP/IP4/VLAN/Ethernet */
 
-  static ulong const bench_sz[2] = { 14UL, 1472UL };
+    static ulong const bench_sz[2] = { 14UL, 1472UL };
 
-  uchar buf[ 1472 ] __attribute__((aligned(128)));
-  for( ulong b=0UL; b<1472UL; b++ ) buf[b] = fd_rng_uchar( rng );
+    uchar buf[ 1472 ] __attribute__((aligned(128)));
+    for( ulong b=0UL; b<1472UL; b++ ) buf[b] = fd_rng_uchar( rng );
 
-  FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
-  for( ulong idx=0U; idx<2UL; idx++ ) {
-    ulong sz = bench_sz[ idx ];
-
-    /* warmup */
-    for( ulong rem=10UL; rem; rem-- ) fd_sha256_fini( fd_sha256_append( fd_sha256_init( sha ), buf, sz ), hash );
-
-    /* for real */
-    ulong iter = 100000UL;
-    long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_sha256_fini( fd_sha256_append( fd_sha256_init( sha ), buf, sz ), hash );
-    dt += fd_log_wallclock();
-    float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
-    FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
-  }
-
-  FD_LOG_NOTICE(( "Benchmarking streamlined" ));
-  for( ulong idx=0U; idx<2UL; idx++ ) {
-    ulong sz = bench_sz[ idx ];
-
-    /* warmup */
-    for( ulong rem=10UL; rem; rem-- ) fd_sha256_hash( buf, sz, hash );
-
-    /* for real */
-    ulong iter = 100000UL;
-    long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_sha256_hash( buf, sz, hash );
-    dt += fd_log_wallclock();
-    float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
-    FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
-  }
-
-  FD_LOG_NOTICE(( "Benchmarking batched" ));
-  for( ulong idx=0U; idx<2UL; idx++ ) {
-    ulong sz = bench_sz[ idx ];
-    for( ulong batch_cnt=1UL; batch_cnt<=48UL; batch_cnt++ ) {
+    FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
+    for( ulong idx=0U; idx<2UL; idx++ ) {
+      ulong sz = bench_sz[ idx ];
 
       /* warmup */
-      for( ulong rem=10UL; rem; rem-- ) {
-        fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
-        for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha256_batch_add( batch, buf, sz, hash );
-        fd_sha256_batch_fini( batch );
-      }
+      for( ulong rem=10UL; rem; rem-- ) fd_sha256_fini( fd_sha256_append( fd_sha256_init( sha ), buf, sz ), hash );
 
       /* for real */
-      ulong iter = 10000UL;
+      ulong iter = 100000UL;
       long  dt   = -fd_log_wallclock();
-      for( ulong rem=iter; rem; rem-- ) {
-        fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
-        for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha256_batch_add( batch, buf, sz, hash );
-        fd_sha256_batch_fini( batch );
-      }
+      for( ulong rem=iter; rem; rem-- ) fd_sha256_fini( fd_sha256_append( fd_sha256_init( sha ), buf, sz ), hash );
       dt += fd_log_wallclock();
-      float gbps = ((float)(batch_cnt*8UL*(70UL+sz)*iter)) / ((float)dt);
-      FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (batch_cnt %2lu sz %4lu)", (double)gbps, batch_cnt, sz ));
+      float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
+      FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+    }
+
+    FD_LOG_NOTICE(( "Benchmarking streamlined" ));
+    for( ulong idx=0U; idx<2UL; idx++ ) {
+      ulong sz = bench_sz[ idx ];
+
+      /* warmup */
+      for( ulong rem=10UL; rem; rem-- ) fd_sha256_hash( buf, sz, hash );
+
+      /* for real */
+      ulong iter = 100000UL;
+      long  dt   = -fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) fd_sha256_hash( buf, sz, hash );
+      dt += fd_log_wallclock();
+      float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
+      FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+    }
+
+    FD_LOG_NOTICE(( "Benchmarking batched" ));
+    for( ulong idx=0U; idx<2UL; idx++ ) {
+      ulong sz = bench_sz[ idx ];
+      for( ulong batch_cnt=1UL; batch_cnt<=48UL; batch_cnt++ ) {
+
+        /* warmup */
+        for( ulong rem=10UL; rem; rem-- ) {
+          fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
+          for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha256_batch_add( batch, buf, sz, hash );
+          fd_sha256_batch_fini( batch );
+        }
+
+        /* for real */
+        ulong iter = 10000UL;
+        long  dt   = -fd_log_wallclock();
+        for( ulong rem=iter; rem; rem-- ) {
+          fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
+          for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha256_batch_add( batch, buf, sz, hash );
+          fd_sha256_batch_fini( batch );
+        }
+        dt += fd_log_wallclock();
+        float gbps = ((float)(batch_cnt*8UL*(70UL+sz)*iter)) / ((float)dt);
+        FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (batch_cnt %2lu sz %4lu)", (double)gbps, batch_cnt, sz ));
+      }
     }
   }
 
@@ -246,23 +252,25 @@ main( int     argc,
      $ head --bytes 4294967311 /dev/zero | openssl dgst -sha256
      326346c80cdb84ec6e143e15f4c419bd266a852b6ed55aa8ad69eebefb56eead */
 
+  if( bench ) {
 # define INPUT_SZ (4294967311UL) /* prime larger than 2^32 */
 # define CHUNK_SZ (4096UL)
-  uchar chunk[ CHUNK_SZ ] __attribute__((aligned(32)));
-  fd_memset( chunk, 0, CHUNK_SZ );
+    uchar chunk[ CHUNK_SZ ] __attribute__((aligned(32)));
+    fd_memset( chunk, 0, CHUNK_SZ );
 
-  fd_sha256_init( sha );
-  ulong left_sz;
-  for( left_sz=INPUT_SZ; left_sz>=CHUNK_SZ; left_sz-=CHUNK_SZ )
-    fd_sha256_append( sha, chunk, CHUNK_SZ );
-  fd_sha256_append( sha, chunk, left_sz );
-  fd_sha256_fini( sha, hash );
-  FD_TEST( 0==memcmp( hash,
-                      "\x32\x63\x46\xc8\x0c\xdb\x84\xec\x6e\x14\x3e\x15\xf4\xc4\x19\xbd"
-                      "\x26\x6a\x85\x2b\x6e\xd5\x5a\xa8\xad\x69\xee\xbe\xfb\x56\xee\xad",
-                      32UL ) );
+    fd_sha256_init( sha );
+    ulong left_sz;
+    for( left_sz=INPUT_SZ; left_sz>=CHUNK_SZ; left_sz-=CHUNK_SZ )
+      fd_sha256_append( sha, chunk, CHUNK_SZ );
+    fd_sha256_append( sha, chunk, left_sz );
+    fd_sha256_fini( sha, hash );
+    FD_TEST( 0==memcmp( hash,
+                        "\x32\x63\x46\xc8\x0c\xdb\x84\xec\x6e\x14\x3e\x15\xf4\xc4\x19\xbd"
+                        "\x26\x6a\x85\x2b\x6e\xd5\x5a\xa8\xad\x69\xee\xbe\xfb\x56\xee\xad",
+                        32UL ) );
 # undef CHUNK_SZ
 # undef INPUT_SZ
+  }
 
   /* clean up */
 

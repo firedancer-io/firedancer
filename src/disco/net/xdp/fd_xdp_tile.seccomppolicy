@@ -7,7 +7,7 @@
 # lo_xsk_fd: This is the file descriptor for the kernel XDP socket we
 #            created for the loopback network device.  This is currently
 #            needed because Solana sends packets to itself on loopback.
-unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd
+uint logfile_fd, uint xsk_fd, uint lo_xsk_fd
 
 # logging: all log messages are written to a file and/or pipe
 #

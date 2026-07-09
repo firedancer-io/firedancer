@@ -3,7 +3,7 @@
 
 #ifndef PB_BUNDLE_BUNDLE_PB_H_INCLUDED
 #define PB_BUNDLE_BUNDLE_PB_H_INCLUDED
-#include "../../../ballet/nanopb/pb_firedancer.h"
+#include "../../../third_party/nanopb/pb_firedancer.h"
 #include "packet.pb.h"
 #include "shared.pb.h"
 

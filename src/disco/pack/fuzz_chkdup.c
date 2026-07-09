@@ -15,6 +15,7 @@ LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   atexit( fd_halt );
   fd_log_level_core_set( 3 ); /* crash on warning log */
@@ -36,8 +37,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar *content = (uchar*)data+metadata_size;
 
   size_t total_addrs = data_sz / sizeof(fd_acct_addr_t);
-  if ( total_addrs == 0 ){
+  if( total_addrs == 0 ) {
     return 0;
+  }
+  if( total_addrs > FD_TXN_ACCT_ADDR_MAX ) {
+    total_addrs = FD_TXN_ACCT_ADDR_MAX;
   }
 
   size_t split_index = split % (total_addrs + 1);  // +1 allows splitting at the end

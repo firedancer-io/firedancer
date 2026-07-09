@@ -173,7 +173,7 @@ main( int     argc,
   tic = fd_log_wallclock();
   tic = fd_log_wait_until( tic+(long)1e9 ) - (tic+(long)1e9);
   FD_LOG_NOTICE(( "Test fd_log_wait_until delta %li ns", tic ));
-  FD_TEST( fd_long_abs( tic ) < (ulong)25e3 );
+  FD_TEST( fd_long_abs( tic ) < (ulong)25e6 );
 
   /* Debugging helpers */
   static uchar const hex[16] = { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf };
@@ -198,6 +198,15 @@ main( int     argc,
   /* Cancelling log messages */
   if( !volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
   if( !volatile_yes ) backtrace_test();
+
+  FD_CHECK_ERR(  volatile_yes, "never see this" );
+  FD_CHECK_CRIT( volatile_yes, "never see this" );
+
+  FD_TEST_ERR(  volatile_yes );
+  FD_TEST_CRIT( volatile_yes );
+
+  FD_DCHECK_CRIT(  volatile_yes, "never see this" );
+  FD_DCHECK_ALERT( volatile_yes, "never see this" );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

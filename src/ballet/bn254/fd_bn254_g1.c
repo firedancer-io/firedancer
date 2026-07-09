@@ -1,11 +1,23 @@
-#include "./fd_bn254.h"
+#include "./fd_bn254_field_inl.h"
+#include "./fd_bn254_glv.h"
 
 /* G1 */
 
-static inline int
-fd_bn254_g1_is_zero( fd_bn254_g1_t const * p ) {
-  return fd_bn254_fp_is_zero( &p->Z );
-}
+/* GLV consts, decl in fd_bn254_glv.h, shared with fd_bn254_g2.c. */
+
+/* beta in Montgomery form.
+   0x30644e72e131a0295e6dd9e7e0acccb0c28f069fbb966e3de4bd44e5607cfd48 */
+const fd_bn254_fp_t fd_bn254_const_beta_mont[1] = {{{
+  0x3350c88e13e80b9cUL, 0x7dce557cdb5e56b9UL, 0x6001b4b8b615564aUL, 0x2682e617020217e0UL
+}}};
+
+/* Lattice constants, see glv.py */
+const ulong na[ 2 ] = { 0x8211bbeb7d4f1128UL, 0x6f4d8248eeb859fcUL };
+const ulong nb[ 1 ] = { 0x89d3256894d213e3UL };
+const ulong nc[ 2 ] = { 0x0be4e1541221250bUL, 0x6f4d8248eeb859fdUL };
+
+/* g2 = round(2^256 * N_B / r), 66-bit (2 limbs). Same for G1 and G2. */
+const ulong g2_const[ 2 ] = { 0xd91d232ec7e0b3d7UL, 0x0000000000000002UL };
 
 static inline fd_bn254_g1_t *
 fd_bn254_g1_set( fd_bn254_g1_t *       r,
@@ -238,32 +250,94 @@ fd_bn254_g1_add_mixed( fd_bn254_g1_t *       r,
   return r;
 }
 
-/* fd_bn254_g1_scalar_mul computes r = s * p.
-   This assumes that p is affine, i.e. p->Z==1. */
+/* fd_bn254_g1_scalar_mul computes r = [s]P.
+   p must be in affine form (p->Z == 1).
+   The result is in projective coordinates. */
 fd_bn254_g1_t *
 fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
                         fd_bn254_g1_t const *     p,
                         fd_bn254_scalar_t const * s ) {
-  /* TODO: wNAF, GLV */
+  if( FD_UNLIKELY( fd_uint256_is_zero( s ) || fd_bn254_g1_is_zero( p ) ) ) {
+    return fd_bn254_g1_set_zero( r );
+  }
+  const ulong g1_const[ 3 ] = { 0x5398fd0300ff6565UL, 0x4ccef014a773d2d2UL, 0x0000000000000002UL };
+  ulong b1[ 3 ];
+  ulong b2[ 2 ];
+  fd_bn254_glv_sxg3( b1, s, g1_const );
+  fd_bn254_glv_sxg2( b2, s, g2_const );
+
+  /* k1 = s - b1*N_A - b2*N_B (always non-negative for G1) */
+  fd_uint256_t k1[1];
+  {
+    ulong p11[ 4 ];
+    /* b2*nb will produce at most 3 limbs, but we want the 4th zeroed for the addition. */
+    ulong p21[ 4 ] = {0};
+    ulong  t[ 4 ];
+    fd_bn254_glv_mul3x2( p11, b1, na );
+    fd_bn254_glv_mul2x1( p21, b2, nb );
+    fd_bn254_glv_add4( t, p11, p21 );
+    fd_bn254_glv_sub4( k1->limbs, s->limbs, t );
+  }
+
+  /* k2 = b1*N_B - b2*N_C (may be negative) */
+  fd_uint256_t k2_abs[1];
+  int k2_neg = 0;
+  {
+    ulong pos[ 4 ], neg[ 4 ];
+    fd_bn254_glv_mul3x1( pos, b1, nb );
+    fd_bn254_glv_mul2x2( neg, b2, nc );
+    ulong borrow = fd_bn254_glv_sub4( k2_abs->limbs, pos, neg );
+    if( borrow ) {
+      k2_neg = 1;
+      fd_bn254_glv_negate4( k2_abs->limbs );
+    }
+  }
+
+  /* pt2 = phi(P) = (beta * P.x, P.y). If k2 < 0, negate pt2. */
+  fd_bn254_g1_t pt2[1];
+  fd_bn254_fp_mul    ( &pt2->X, &p->X, fd_bn254_const_beta_mont );
+  fd_bn254_fp_set    ( &pt2->Y, &p->Y );
+  fd_bn254_fp_set_one( &pt2->Z );
+  if( k2_neg ) {
+    fd_bn254_fp_neg( &pt2->Y, &pt2->Y );
+  }
+
+  fd_bn254_g1_t pt12[1];
+  fd_bn254_g1_affine_add( pt12, p, pt2 );
+
+  /* Shamir's trick: simultaneous double-and-add on k1, k2. */
   int i = 255;
-  for( ; i>=0 && !fd_uint256_bit( s, i ); i-- ) ; /* do nothing, just i-- */
+  for( ; i>=0; i-- ) {
+    int k1b = !!fd_uint256_bit( k1, i );
+    int k2b = !!fd_uint256_bit( k2_abs, i );
+    if( k1b || k2b ) {
+      fd_bn254_g1_set( r, ( k1b && k2b ) ? pt12 : ( k1b ? p : pt2 ) );
+      break;
+    }
+  }
   if( FD_UNLIKELY( i<0 ) ) {
     return fd_bn254_g1_set_zero( r );
   }
-  fd_bn254_g1_set( r, p );
-  for( i--; i>=0; i-- ) {
+  for( i--; i >= 0; i-- ) {
     fd_bn254_g1_dbl( r, r );
-    if( fd_uint256_bit( s, i ) ) {
+    int k1b = !!fd_uint256_bit( k1, i );
+    int k2b = !!fd_uint256_bit( k2_abs, i );
+    if( k1b && k2b ) {
+      fd_bn254_g1_add_mixed( r, r, pt12 );
+    } else if( k1b ) {
       fd_bn254_g1_add_mixed( r, r, p );
+    } else if( k2b ) {
+      fd_bn254_g1_add_mixed( r, r, pt2 );
     }
   }
+
   return r;
 }
 
 /* fd_bn254_g1_frombytes_internal extracts (x, y) and performs basic checks.
    This is used by fd_bn254_g1_compress() and fd_bn254_g1_frombytes_check_subgroup().
    https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/mod.rs#L173-L178 */
-static inline fd_bn254_g1_t *
+fd_bn254_g1_t *
 fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
                                 uchar const     in[64],
                                 int             big_endian ) {
@@ -293,7 +367,7 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
 }
 
 /* fd_bn254_g1_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
-static inline fd_bn254_g1_t *
+fd_bn254_g1_t *
 fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
                                       uchar const     in[64],
                                       int             big_endian ) {

@@ -15,15 +15,15 @@
 #include "../fd_txn_m.h"
 #include "../../tango/fd_tango_base.h"
 
-/* FD_TPU_REASM_MTU is the max tango frag sz sent by an fd_tpu_reasm_t.
-   FD_TPU_REASM_CHUNK_MTU*FD_CHUNK_SZ == FD_TPU_REASM_MTU */
+/* fd_tpu_msg_t is the payload of a quic_verify frag. */
 
-#define FD_TPU_REASM_CHUNK_MTU (FD_ULONG_ALIGN_UP( FD_TPU_RAW_MTU, FD_CHUNK_SZ )>>FD_CHUNK_LG_SZ)
-#define FD_TPU_REASM_MTU       (FD_TPU_REASM_CHUNK_MTU<<FD_CHUNK_LG_SZ)
+struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_tpu_msg {
+  fd_txn_m_t hdr;
+  uchar      payload[ FD_TPU_MTU ];
+  /* No txn_t nor alut info follows */
+};
 
-#define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
-
-#define FD_TPU_REASM_REQ_DATA_SZ(depth, reasm_max) (((depth)+(reasm_max))*FD_TPU_REASM_MTU)
+typedef struct fd_tpu_msg fd_tpu_msg_t;
 
 /* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes.  These values are
    persisted to logs.  Entries should not be renumbered and numeric
@@ -144,13 +144,14 @@ struct __attribute__((aligned(16))) fd_tpu_reasm_slot {
 
 typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
 
-struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
+struct fd_tpu_reasm {
   ulong magic;  /* ==FD_TPU_REASM_MAGIC */
 
-  ulong   slots_off;     /* slots mem     */
-  ulong   pub_slots_off; /* pub_slots mem */
-  ulong   map_off;       /* map mem */
-  uchar * dcache;        /* points to first dcache data byte in local address space */
+  ulong slots_off;     /* slots mem     */
+  ulong pub_slots_off; /* pub_slots mem */
+  ulong map_off;       /* map mem */
+
+  fd_tpu_msg_t * dcache;
 
   uint   depth;       /* mcache depth */
   uint   burst;       /* max concurrent reassemblies */
@@ -201,7 +202,7 @@ fd_tpu_reasm_footprint( ulong depth,       /* Assumed in {2^0,2^1,2^2,...,2^31} 
 FD_FN_CONST static inline ulong
 fd_tpu_reasm_req_data_sz( ulong depth,
                           ulong reasm_max ) { /* Assumed in [1,2^31) */
-  return (depth+reasm_max) * FD_TPU_REASM_MTU;
+  return (depth+reasm_max) * sizeof(fd_tpu_msg_t);
 }
 
 /* fd_tpu_reasm_new formats an unused memory region for use as a

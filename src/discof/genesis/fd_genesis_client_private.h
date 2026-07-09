@@ -3,7 +3,7 @@
 
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
-#include <sys/poll.h>
+#include <poll.h>
 
 struct fd_genesis_client_peer {
   fd_ip4_port_t addr;

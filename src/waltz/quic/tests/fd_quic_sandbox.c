@@ -369,6 +369,8 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
       .net_frag_off = 0x4000u, /* don't fragment */
       .ttl          = 64,
       .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
+      .saddr        = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr        = FD_QUIC_SANDBOX_SELF_IP4,
     }},
     .udp = {{
       .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
@@ -415,6 +417,8 @@ fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
       .net_frag_off = 0x4000u, /* don't fragment */
       .ttl          = 64,
       .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
+      .saddr        = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr        = FD_QUIC_SANDBOX_SELF_IP4,
     }},
     .udp = {{
       .net_sport = FD_QUIC_SANDBOX_PEER_PORT,

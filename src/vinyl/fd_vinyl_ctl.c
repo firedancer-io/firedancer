@@ -181,6 +181,8 @@ fd_vinyl_main( int     argc,
 
   } else if( !strcmp( type, "bd" ) ) {
 
+    if( FD_VINYL_BSTREAM_BLOCK_SZ<512UL ) TEST( !direct, "--direct 1 not supported with --type bd and BLOCK_SZ<512" );
+
     TEST( path, "--path not specified for --type bd" );
 
     FD_LOG_NOTICE(( "Using --path as a block device bstream" ));

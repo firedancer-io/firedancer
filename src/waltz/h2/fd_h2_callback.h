@@ -14,7 +14,7 @@ struct fd_h2_callbacks {
   /* stream_create requests the callee to allocate a stream object for
      a peer-initiated HTTP/2 stream.
 
-     The returned pointer hould be valid until at least when fd_h2_rx
+     The returned pointer should be valid until at least when fd_h2_rx
      returns, which is the function that issues the callback.  The
      callee initializes the stream with fd_h2_stream_init.  The user of
      this API promises to eventually close the stream with

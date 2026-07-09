@@ -3,6 +3,8 @@
 
 #include "../fd_ballet_base.h"
 
+#define FD_BLS_SUCCESS (0)
+
 /* Max size for the pairing function */
 #define FD_BLS12_381_PAIRING_BATCH_SZ (8UL)
 
@@ -24,7 +26,8 @@ FD_PROTOTYPES_BEGIN
    The big_endian parameter determines how the byte arrays are read
    and written: 1 for big endian, 0 for little endian.
 
-   Return value is 0 on success, -1 on failure. */
+   Return value is 0 on success, -1 on failure.
+   For *_validate_syscall functions, return value is 1 if the point is valid, 0 otherwise. */
 
 /* fd_bls12_381_g1_decompress_syscall decompresses the G1 point `a`
    into `r`.
@@ -39,7 +42,7 @@ fd_bls12_381_g1_decompress_syscall( uchar       r[ 96 ], /* G1 point */
 /* fd_bls12_381_g1_validate_syscall validates the G1 point `a`.
    Input is expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not a G1 point. */
+   The function returns 1 if `a` is a valid G1 point, 0 otherwise. */
 int
 fd_bls12_381_g1_validate_syscall( uchar const a[ 96 ], /* G1 point */
                                   int         big_endian );
@@ -71,11 +74,12 @@ fd_bls12_381_g1_sub_syscall( uchar       r[ 96 ], /* G1 point */
 /* fd_bls12_381_g1_mul_syscall computes r = n * a in G1.
    Inputs and output are expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not in G1. */
+   The function returns 0 on success, -1 if `a` is not in G1 or
+   `n` is not a valid scalar. */
 int
 fd_bls12_381_g1_mul_syscall( uchar       r[ 96 ], /* G1 point */
-                             uchar const a[ 96 ], /* G1 point */
                              uchar const n[ 32 ], /* Scalar */
+                             uchar const a[ 96 ], /* G1 point */
                              int         big_endian );
 
 /* fd_bls12_381_g2_decompress_syscall decompresses the G2 point `a`
@@ -91,7 +95,7 @@ fd_bls12_381_g2_decompress_syscall( uchar       r[ 96*2 ], /* G2 point */
 /* fd_bls12_381_g2_validate_syscall validates the G2 point `a`.
    Input is expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not a G2 point. */
+   The function returns 1 if `a` is a valid G2 point, 0 otherwise. */
 int
 fd_bls12_381_g2_validate_syscall( uchar const a[ 96*2 ], /* G2 point */
                                   int         big_endian );
@@ -123,11 +127,12 @@ fd_bls12_381_g2_sub_syscall( uchar       r[ 96*2 ], /* G2 point */
 /* fd_bls12_381_g2_mul_syscall computes r = n * a in G2.
    Inputs and output are expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not in G2. */
+   The function returns 0 on success, -1 if `a` is not in G2 or
+   `n` is not a valid scalar. */
 int
 fd_bls12_381_g2_mul_syscall( uchar       r[ 96*2 ], /* G2 point */
-                             uchar const a[ 96*2 ], /* G2 point */
                              uchar const n[ 32 ],   /* Scalar */
+                             uchar const a[ 96*2 ], /* G2 point */
                              int         big_endian );
 
 /* fd_bls12_381_pairing_syscall computes the pairing r = e( a[], b[] ),
@@ -145,6 +150,30 @@ fd_bls12_381_pairing_syscall( uchar       r[ 48*12 ], /* GT element */
                               uchar const b[], /* 96*2*n - array of n G2 points */
                               ulong const n,
                               int         big_endian );
+
+/* Alpenglow */
+
+/* fd_bls12_381_proof_of_possession_verify verifies proof of possession
+   `proof` for the public key `public_key` against a message `msg` of
+   size `msg_sz`.  The function returns 0 on success, -1 on failure.
+
+   Note: it is responsibility of the caller to include the bytes of
+   the public key also in `msg`.
+
+   For context, see:
+   https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-06#section-3.3.3
+
+   Note that Solana uses a slightly more general definition of proof
+   of possession, and accepts a generic payload `msg` that must
+   contain the public key.  This allows to include additional data,
+   such as a domain separator and chain-specific info to avoid replay
+   attacks.  Specifically, step 6 of the "Procedure" in the RFC is
+   replaced with Q = hash_pubkey_to_point(msg). */
+int
+fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
+                                         ulong       msg_sz,
+                                         uchar const proof[ static 96 ],        /* Compressed G2 point */
+                                         uchar const public_key[ static 48 ] ); /* Compressed G1 point */
 
 FD_PROTOTYPES_END
 

@@ -4,7 +4,6 @@
 #include "../../waltz/ip/fd_netlink1.h"
 #include "../metrics/generated/fd_metrics_netlnk.h"
 #include "../../waltz/ip/fd_fib4.h"
-#include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/neigh/fd_neigh4_probe.h"
@@ -31,11 +30,8 @@ struct fd_netlink_tile_ctx {
   long route4_update_ts;
   long link_update_ts;
 
-  /* Link table */
-  void *               netdev_local;  /* local mutable table */
-  ulong                netdev_sz;     /* size of netdev table */
-  fd_netdev_tbl_join_t netdev_tbl[1]; /* join to local mutable table */
-  fd_dbl_buf_t *       netdev_buf;    /* global immutable copy */
+  /* Link table (shared, seqlock protected) */
+  fd_netdev_tbl_join_t netdev_tbl[1];
 
   /* Route tables */
   fd_fib4_t fib4_local[1];
@@ -52,7 +48,7 @@ struct fd_netlink_tile_ctx {
   struct {
     ulong link_full_syncs;
     ulong route_full_syncs;
-    ulong update_cnt[ FD_METRICS_COUNTER_NETLNK_UPDATES_CNT ];
+    ulong update_cnt[ FD_METRICS_COUNTER_NETLNK_UPDATE_PROCESSED_CNT ];
     ulong neigh_solicits_sent;
     ulong neigh_solicits_fails;
   } metrics;

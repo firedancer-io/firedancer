@@ -101,16 +101,8 @@ __sanitizer_finish_switch_fiber( void *        fake_stack_save,
                                  void const ** stack_bottom_old,
                                  ulong *       stack_size_old );
 
-#ifdef FD_HAS_DEEPASAN_WATCH
-void fd_asan_check_watch( int poison, void * addr, ulong sz );
-void fd_asan_watch( void const * addr );
-static inline void * fd_asan_poison  ( void * addr, ulong sz ) { __asan_poison_memory_region  ( addr, sz ); fd_asan_check_watch( 1, addr, sz ); return addr; }
-static inline void * fd_asan_unpoison( void * addr, ulong sz ) { __asan_unpoison_memory_region( addr, sz ); fd_asan_check_watch( 0, addr, sz ); return addr; }
-
-#else
 static inline void * fd_asan_poison  ( void * addr, ulong sz ) { __asan_poison_memory_region  ( addr, sz ); return addr; }
 static inline void * fd_asan_unpoison( void * addr, ulong sz ) { __asan_unpoison_memory_region( addr, sz ); return addr; }
-#endif
 
 static inline int    fd_asan_test    ( void * addr           ) { return __asan_address_is_poisoned( addr );     }
 static inline void * fd_asan_query   ( void * addr, ulong sz ) { return __asan_region_is_poisoned ( addr, sz ); }

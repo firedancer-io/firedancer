@@ -55,7 +55,7 @@ struct fd_entry_batch_header {
 };
 typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 
-#define MAX_TXN_PER_MICROBLOCK ((MAX_MICROBLOCK_SZ-sizeof(fd_entry_batch_meta_t))/sizeof(fd_txn_p_t))
+#define MAX_TXN_PER_MICROBLOCK ((MAX_MICROBLOCK_SZ-sizeof(fd_entry_batch_meta_t))/sizeof(fd_txn_e_t))
 
 /* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
    largest microblock the pack tile will produce, plus the 48B of

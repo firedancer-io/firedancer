@@ -7,8 +7,27 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-376969880-solcap"
+LEDGER="mainnet-424669000-solcap"
 REDOWNLOAD=1
+
+BACKTEST_LOG="/tmp/ledger_log_solcap"
+
+# Surface failures: with `set -e` a failing command aborts the script with
+# no context, and several steps below capture output to log files.  This
+# trap prints the failing command, line, and exit code, and dumps the
+# backtest log tail so the real error is visible in CI instead of a bare
+# non-zero exit.
+on_err() {
+  local ec=$?
+  echo "::error::run_solcap_tests.sh failed at line ${BASH_LINENO[0]} (exit ${ec}): ${BASH_COMMAND}" >&2
+  if [[ -f "$BACKTEST_LOG" ]]; then
+    echo "----- last 100 lines of ${BACKTEST_LOG} -----" >&2
+    tail -n 100 "$BACKTEST_LOG" >&2 || true
+    echo "---------------------------------------------" >&2
+  fi
+  exit "$ec"
+}
+trap on_err ERR
 
 while [[ $# -gt 0 ]]; do
 case $1 in
@@ -42,29 +61,37 @@ download_and_extract_ledger() {
   gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
 }
 
-if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+if [[ ! -e $DUMP/$LEDGER ]]; then
   download_and_extract_ledger
-  create_checksum
-else
-  check_ledger_checksum_and_redownload
 fi
 
-# Clone and build solcap-tools
+# Clone and build solcap-tools.  Capture output to a log and only print
+# it on failure, so a broken clone/fetch/checkout/build surfaces its
+# error in CI instead of failing silently.
+echo "Building solcap-tools ..."
 ORIG_DIR=$(pwd)
+SOLCAP_BUILD_LOG="$(mktemp)"
+run_quiet() {
+  if ! "$@" > "$SOLCAP_BUILD_LOG" 2>&1; then
+    echo "::error::solcap-tools step failed: $*" >&2
+    cat "$SOLCAP_BUILD_LOG" >&2
+    exit 1
+  fi
+}
 cd $DUMP
 if [ ! -d "solcap-tools" ]; then
-  git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
+  run_quiet git clone https://github.com/firedancer-io/solcap-tools.git
 fi
 cd solcap-tools
-git fetch origin > /dev/null 2>&1
-git checkout nishk/bp-fixes > /dev/null 2>&1
-git reset --hard origin/nishk/bp-fixes > /dev/null 2>&1
-cargo build --release > /dev/null 2>&1
+run_quiet git fetch
+run_quiet git checkout 44dc8e2a5c65435daf57b009c108234f316224f7
+run_quiet cargo build --release
 cd "$ORIG_DIR"
 
 export ledger_dir=$(realpath $DUMP/$LEDGER)
+export dump_dir=$(realpath $DUMP)
 
-cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
+cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
 
 [snapshots]
     incremental_snapshots = false
@@ -75,26 +102,17 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
             allow_list = []
 [layout]
     shred_tile_count = 4
-    snapshot_hash_tile_count = 1
     verify_tile_count = 2
-    exec_tile_count = 6
+    execrp_tile_count = 6
 [tiles]
-    [tiles.archiver]
-        enabled = true
-        end_slot = 376969900
-        rocksdb_path = "${ledger_dir}/rocksdb"
-        shredcap_path = "${ledger_dir}/shreds.pcapng.zst"
-        ingest_mode = "shredcap"
     [tiles.replay]
         enable_features = [  ]
     [tiles.gui]
         enabled = false
     [tiles.rpc]
         enabled = false
-[funk]
-    heap_size_gib = 1
-    max_account_records = 2000000
-    max_database_transactions = 64
+[accounts]
+    max_accounts = 4000000
 [runtime]
     max_live_slots = 64
     max_fork_width = 4
@@ -104,29 +122,42 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
 
 [paths]
     snapshots = "${ledger_dir}"
-
+    accounts = "${ledger_dir}/accounts.db"
 [capture]
-    solcap_capture = "${ledger_dir}/mainnet-376969880-solcap.solcap"
-[development]
-    [development.snapshots]
-        disable_lthash_verification = true
+    solcap_capture = "${dump_dir}/mainnet-424669000.solcap"
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
+[development.ledger_input]
+    path = "${ledger_dir}/rocksdb"
+    end_slot = 424669025
 EOF
 
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/mainnet-376969880_current.toml
+echo "Running firedancer-dev configure fini all ..."
+$OBJDIR/bin/firedancer-dev configure fini all
+
+echo "Running backtest (full log at ${BACKTEST_LOG}) ..."
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
 
 # Run solcap-tools diff and check the summary for zero differences
-DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/$LEDGER/mainnet-376969880-solcap.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
+echo "Running solcap-tools diff ..."
+DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/mainnet-424669000.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
 echo "$DIFF_OUTPUT"
 
-SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3) > /dev/null 2>&1
-DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -ioP 'Differing Slots: \K\d+' || echo "") > /dev/null 2>&1
-DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -ioP 'Differing Accounts: \K\d+' || echo "") > /dev/null 2>&1
+SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3)
+DIFFERING_SLOTS=$(echo "$SUMMARY" | grep -ioP 'Differing Slots: \K\d+' || true)
+DIFFERING_ACCOUNTS=$(echo "$SUMMARY" | grep -ioP 'Differing Accounts: \K\d+' || true)
+
+# If the summary did not parse, treat that as a failure rather than
+# silently passing (empty != "0").
+if [[ -z "$DIFFERING_SLOTS" || -z "$DIFFERING_ACCOUNTS" ]]; then
+  echo -e "\033[0;31mFAIL\033[0m Could not parse solcap diff summary (Differing Slots='${DIFFERING_SLOTS}', Differing Accounts='${DIFFERING_ACCOUNTS}'). Full diff output above." >&2
+  exit 1
+fi
 
 if [[ "$DIFFERING_SLOTS" != "0" || "$DIFFERING_ACCOUNTS" != "0" ]]; then
   echo -e "\033[0;31mFAIL\033[0m Solcap diff found mismatches! Differing Slots: $DIFFERING_SLOTS, Differing Accounts: $DIFFERING_ACCOUNTS" >&2
   exit 1
 fi
 
+echo "Solcap diff clean: 0 differing slots, 0 differing accounts"
 exit 0

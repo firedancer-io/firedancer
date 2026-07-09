@@ -20,6 +20,21 @@ log_bench( char const * descr,
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
 }
 
+/* Hash a series of bytes.
+   Must be called with bytes_len<=384. */
+static inline int
+fd_poseidon_hash( fd_poseidon_hash_result_t * result,
+                  uchar const *               bytes,
+                  ulong                       bytes_len,
+                  int const                   big_endian ) {
+  fd_poseidon_t pos[1];
+  fd_poseidon_init( pos, big_endian );
+  for( ulong i=0; i<bytes_len/32; i++ ) {
+    fd_poseidon_append( pos, &bytes[i*32], 32, 1 );
+  }
+  return !fd_poseidon_fini( pos, fd_type_pun(result) );
+}
+
 int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );

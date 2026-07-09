@@ -1,8 +1,9 @@
 #include "fd_vm_syscall.h"
 
 #include "../../../ballet/keccak256/fd_keccak256.h"
+#include "../../../ballet/sha512/fd_sha512.h"
 
-/* Syscalls for sha256, keccak256, blake3. */
+/* Syscalls for sha256, keccak256, blake3, sha512. */
 
 /* Agave has a single generic hash syscall:
    https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1895-L1959
@@ -184,6 +185,50 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1956-L1957 */
   fd_keccak256_fini( sha, hash_result );
+  *_ret = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_sol_sha512( /**/            void *  _vm,
+                          /**/            ulong   vals_addr,
+                          /**/            ulong   vals_len,
+                          /**/            ulong   result_addr,
+                          FD_PARAM_UNUSED ulong   r4,
+                          FD_PARAM_UNUSED ulong   r5,
+                          /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+      "%s Hashing %lu sequences in one syscall is over the limit %lu",
+      "Sha512", vals_len, FD_VM_SHA256_MAX_SLICES );
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_TOO_MANY_SLICES );
+    return FD_VM_SYSCALL_ERR_TOO_MANY_SLICES;
+  }
+
+  FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
+  uchar * hash_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, FD_SHA512_HASH_SZ );
+
+  fd_sha512_t sha[1];
+  fd_sha512_init( sha );
+
+  if( vals_len > 0 ) {
+    fd_vm_vec_t const * input_vec_haddr = (fd_vm_vec_t const *)FD_VM_MEM_HADDR_LD( vm, vals_addr, FD_VM_VEC_ALIGN, vals_len*sizeof(fd_vm_vec_t) );
+    for( ulong i=0UL; i<vals_len; i++ ) {
+      ulong val_len = input_vec_haddr[i].len;
+      void const * bytes = FD_VM_MEM_SLICE_HADDR_LD( vm, input_vec_haddr[i].addr, FD_VM_ALIGN_RUST_U8, val_len );
+
+      ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
+                                 fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, (val_len / 2) ) );
+
+      FD_VM_CU_UPDATE( vm, cost );
+
+      fd_sha512_append( sha, bytes, val_len );
+    }
+  }
+
+  fd_sha512_fini( sha, hash_result );
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }

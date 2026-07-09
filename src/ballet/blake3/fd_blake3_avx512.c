@@ -222,7 +222,7 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
       ulong tail_data_off = fd_ulong_align_dn( sz, FD_BLAKE3_BLOCK_SZ );
 
       batch_tail_data[ batch_idx ] = tail_data;
-      batch_tail_rem [ batch_idx ] = (!!tail_data_sz) ^ (!sz);  /* (hash 1 tail block if 0 sz) */
+      batch_tail_rem [ batch_idx ] = (ulong)( (!!tail_data_sz) ^ (!sz) );  /* (hash 1 tail block if 0 sz) */
 
       scratch_free += FD_BLAKE3_BLOCK_SZ;
 
@@ -662,10 +662,10 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict msg,
   ulong off = 0UL;
   do {
     ulong const off_next = off+FD_BLAKE3_BLOCK_SZ;
-    int chunk_flags =
-        ( off     ==0UL ? FD_BLAKE3_FLAG_CHUNK_START : 0 ) |
-        ( off_next==sz  ? FD_BLAKE3_FLAG_CHUNK_END   : 0 );
-    int flags_ = flags | fd_int_if( parent, 0, chunk_flags );
+    uint chunk_flags =
+        ( off     ==0UL ? FD_BLAKE3_FLAG_CHUNK_START : 0u ) |
+        ( off_next==sz  ? FD_BLAKE3_FLAG_CHUNK_END   : 0u );
+    uint flags_ = (uint)flags | fd_uint_if( parent, 0u, chunk_flags );
     wwu_t flags_vec = wwu_bcast( flags_ );
 
     wwu_t m[16];

@@ -158,6 +158,80 @@ main( int argc, char ** argv ) {
 
   FD_TEST( test_live_table_delete( test_live_table_leave( table ) ) );
 
+  uchar reg_scratch[ 256 ] __attribute__((aligned(256UL)));
+  FD_TEST( sizeof(reg_scratch)==test_live_table_footprint( TEST_LIVE_TABLE_ROW_CNT ) );
+
+  test_live_table_t * reg_table = test_live_table_join( test_live_table_new( reg_scratch, TEST_LIVE_TABLE_ROW_CNT ) );
+
+  test_live_table_row_t reg_pool[] = {
+    { .key = { .uc = { 0UL } }, .ipv4 = 0U, .counter = 0UL },
+    { .key = { .uc = { 0UL } }, .ipv4 = 0U, .counter = 1UL },
+    { .key = { .uc = { 1UL } }, .ipv4 = 0U, .counter = 0UL },
+  };
+
+  test_live_table_seed( reg_pool, 3UL, 43UL );
+  test_live_table_idx_insert( reg_table, 0UL, reg_pool );
+  test_live_table_idx_insert( reg_table, 1UL, reg_pool );
+  test_live_table_idx_insert( reg_table, 2UL, reg_pool );
+
+  test_live_table_sort_key_t key_with_tie_break = { .col = { 0, 1, 2 }, .dir = { 1, 1, -1 } };
+  test_live_table_sort_key_t key_without_tie_break = { .col = { 0, 1, 2 }, .dir = { 1, 1,  0 } };
+
+  FD_TEST( test_live_table_key( reg_table, &key_with_tie_break,    reg_pool, (ulong[]){ 1UL, 0UL, 2UL }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( reg_table )==1UL );
+  FD_TEST( test_live_table_key( reg_table, &key_without_tie_break, reg_pool, (ulong[]){ 0UL, 1UL, 2UL }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( reg_table )==2UL );
+
+  FD_TEST( test_live_table_delete( test_live_table_leave( reg_table ) ) );
+
+  /* Test fwd_iter_init eviction */
+  uchar evict_scratch[ 256 ] __attribute__((aligned(256UL)));
+  FD_TEST( sizeof(evict_scratch)==test_live_table_footprint( TEST_LIVE_TABLE_ROW_CNT ) );
+
+  test_live_table_t * evict_table = test_live_table_join( test_live_table_new( evict_scratch, TEST_LIVE_TABLE_ROW_CNT ) );
+
+  test_live_table_row_t evict_pool[] = {
+    { .key = { .uc = { 0UL } }, .ipv4 = 2, .counter = 30 },
+    { .key = { .uc = { 1UL } }, .ipv4 = 0, .counter = 20 },
+    { .key = { .uc = { 2UL } }, .ipv4 = 1, .counter = 10 },
+  };
+
+  test_live_table_seed( evict_pool, 3UL, 44UL );
+  test_live_table_idx_insert( evict_table, 0UL, evict_pool );
+  test_live_table_idx_insert( evict_table, 1UL, evict_pool );
+  test_live_table_idx_insert( evict_table, 2UL, evict_pool );
+
+  /* Three distinct sort keys — only 2 cache slots available. */
+  test_live_table_sort_key_t evict_key0 = { .col = { 0, 1, 2 }, .dir = {  1, 0, 0 } }; /* asc pubkey   */
+  test_live_table_sort_key_t evict_key1 = { .col = { 1, 0, 2 }, .dir = {  1, 0, 0 } }; /* asc ipv4     */
+  test_live_table_sort_key_t evict_key2 = { .col = { 2, 0, 1 }, .dir = { -1, 0, 0 } }; /* desc counter */
+
+  /* Fill both cache slots. */
+  FD_TEST( test_live_table_key( evict_table, &evict_key0, evict_pool, (ulong[]){ 0, 1, 2 }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( evict_table )==1UL );
+  FD_TEST( test_live_table_key( evict_table, &evict_key1, evict_pool, (ulong[]){ 1, 2, 0 }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( evict_table )==2UL );
+
+  /* 3rd key triggers auto-eviction inside fwd_iter_init. */
+  FD_TEST( test_live_table_key( evict_table, &evict_key2, evict_pool, (ulong[]){ 0, 1, 2 }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( evict_table )==2UL ); /* still 2 — one evicted, one created */
+
+  /* The evicted key should be transparently rebuilt on re-query. */
+  FD_TEST( test_live_table_key( evict_table, &evict_key0, evict_pool, (ulong[]){ 0, 1, 2 }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( evict_table )==2UL );
+
+  /* Cycle through all three keys repeatedly to stress the eviction
+     path — each call evicts and rebuilds. */
+  for( ulong round=0UL; round<4UL; round++ ) {
+    FD_TEST( test_live_table_key( evict_table, &evict_key0, evict_pool, (ulong[]){ 0, 1, 2 }, 3UL ) );
+    FD_TEST( test_live_table_key( evict_table, &evict_key1, evict_pool, (ulong[]){ 1, 2, 0 }, 3UL ) );
+    FD_TEST( test_live_table_key( evict_table, &evict_key2, evict_pool, (ulong[]){ 0, 1, 2 }, 3UL ) );
+    FD_TEST( test_live_table_active_sort_key_cnt( evict_table )==2UL );
+  }
+
+  FD_TEST( !test_live_table_verify( evict_table, evict_pool ) );
+  FD_TEST( test_live_table_delete( test_live_table_leave( evict_table ) ) );
+
   FD_LOG_INFO(( "PASSED" ));
   return 0;
 }

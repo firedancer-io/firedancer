@@ -1,4 +1,3 @@
-#include "../fd_ballet.h"
 #include "fd_keccak256.h"
 #include "fd_keccak256_test_vector.c"
 
@@ -17,20 +16,7 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  FD_TEST( fd_keccak256_align    ()==FD_KECCAK256_ALIGN     );
-  FD_TEST( fd_keccak256_footprint()==FD_KECCAK256_FOOTPRINT );
-
-  fd_keccak256_t mem[1];
-
-  FD_TEST( fd_keccak256_new( NULL          )==NULL ); /* null shmem       */
-  FD_TEST( fd_keccak256_new( (void *)0x1UL )==NULL ); /* misaligned shmem */
-
-  void * obj = fd_keccak256_new( mem ); FD_TEST( obj );
-
-  FD_TEST( fd_keccak256_join( NULL           )==NULL ); /* null shsha       */
-  FD_TEST( fd_keccak256_join( (void *) 0x1UL )==NULL ); /* misaligned shsha */
-
-  fd_keccak256_t * sha = fd_keccak256_join( obj ); FD_TEST( sha );
+  fd_keccak256_t sha[1];
 
   uchar hash[ 32 ] __attribute__((aligned(32)));
 
@@ -92,10 +78,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
   for( ulong idx=0U; idx<2UL; idx++ ) {
     ulong sz = bench_sz[ idx ];
-  
+
     /* warmup */
     for( ulong rem=10UL; rem; rem-- ) fd_keccak256_fini( fd_keccak256_append( fd_keccak256_init( sha ), buf, sz ), hash );
-  
+
     /* for real */
     ulong iter = 100000UL;
     long  dt   = -fd_log_wallclock();
@@ -120,15 +106,6 @@ main( int     argc,
     float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
     FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
   }
-
-  /* clean up */
-
-  FD_TEST( fd_keccak256_leave( NULL )==NULL ); /* null sha */
-  FD_TEST( fd_keccak256_leave( sha  )==obj  ); /* ok */
-
-  FD_TEST( fd_keccak256_delete( NULL          )==NULL ); /* null shsha       */
-  FD_TEST( fd_keccak256_delete( (void *)0x1UL )==NULL ); /* misaligned shsha */
-  FD_TEST( fd_keccak256_delete( obj           )==mem  ); /* ok */
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));

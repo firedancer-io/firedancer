@@ -3,8 +3,7 @@
 
 /* https://www.iana.org/assignments/http2-parameters/http2-parameters.xhtml */
 
-static void
-test_h2_enum( void ) {
+FD_UNIT_TEST( h2_enum ) {
 
   /* Frame types */
 
@@ -42,7 +41,3 @@ test_h2_enum( void ) {
 
 }
 
-static void
-test_h2_proto( void ) {
-  test_h2_enum();
-}

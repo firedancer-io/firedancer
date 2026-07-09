@@ -347,7 +347,7 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
   return 1;
 }
 
-#define FD_PCAP_SNAPLEN (USHORT_MAX + 64UL + 4UL)
+#define FD_PCAP_SNAPLEN (2UL*USHORT_MAX + 64UL + 4UL)
 
 static void
 fd_pcap_write_hdr( fd_pcap_hdr_t * hdr,

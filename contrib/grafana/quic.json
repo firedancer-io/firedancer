@@ -125,7 +125,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_received_packets{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_pkt_rx_total{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "RX pps",
           "range": true,
@@ -137,7 +137,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "-sum(rate(quic_sent_packets{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "-sum(rate(quic_pkt_tx_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "TX pps",
@@ -239,7 +239,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_received_bytes{instance=~\"$instance\"}[$__rate_interval]))*8",
+          "expr": "sum(rate(quic_pkt_rx_bytes_total{instance=~\"$instance\"}[$__rate_interval]))*8",
           "instant": false,
           "legendFormat": "RX bitrate",
           "range": true,
@@ -251,7 +251,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "-sum(rate(quic_sent_bytes{instance=~\"$instance\"}[$__rate_interval]))*8",
+          "expr": "-sum(rate(quic_pkt_tx_bytes_total{instance=~\"$instance\"}[$__rate_interval]))*8",
           "hide": false,
           "instant": false,
           "legendFormat": "TX bitrate",
@@ -326,7 +326,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_txns_received{instance=~\"$instance\",tpu_recv_type=\"quic_fast\"}[$__range])) + sum(increase(quic_txns_received{instance=~\"$instance\",tpu_recv_type=\"quic_frag\"}[$__range]))",
+          "expr": "sum(increase(quic_txn_rx_total{instance=~\"$instance\",tpu_recv_type=\"quic_fast\"}[$__range])) + sum(increase(quic_txn_rx_total{instance=~\"$instance\",tpu_recv_type=\"quic_frag\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -400,7 +400,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_txns_abandoned{instance=~\"$instance\"}[$__range])) + sum(increase(quic_quic_txn_too_large{instance=~\"$instance\"}[$__range])) + sum(increase(quic_txns_overrun{instance=~\"$instance\"}[$__range]))",
+          "expr": "sum(increase(quic_txn_abandoned_total{instance=~\"$instance\"}[$__range])) + sum(increase(quic_txn_oversize_total{instance=~\"$instance\"}[$__range])) + sum(increase(quic_txn_overrun_total{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -477,7 +477,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "(sum(increase(quic_txns_received{instance=~\"$instance\",tpu_recv_type=\"quic_fast\"}[$__range])) + sum(increase(quic_txns_received{instance=~\"$instance\",tpu_recv_type=\"quic_frag\"}[$__range]))) / (sum(increase(quic_txns_received{instance=~\"$instance\",tpu_recv_type=\"quic_fast\"}[$__range])) + sum(increase(quic_txn_reasms_started{instance=~\"$instance\"}[$__range])))",
+          "expr": "(sum(increase(quic_txn_rx_total{instance=~\"$instance\",tpu_recv_type=\"quic_fast\"}[$__range])) + sum(increase(quic_txn_rx_total{instance=~\"$instance\",tpu_recv_type=\"quic_frag\"}[$__range]))) / (sum(increase(quic_txn_rx_total{instance=~\"$instance\",tpu_recv_type=\"quic_fast\"}[$__range])) + sum(increase(quic_txn_reassembly_started_total{instance=~\"$instance\"}[$__range])))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -582,7 +582,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(quic_connections_active{instance=~\"$instance\"})",
+          "expr": "sum(quic_conn_state{instance=~\"$instance\",quic_conn_state=\"active\"})",
           "instant": false,
           "legendFormat": "Conns",
           "range": true,
@@ -655,7 +655,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_connections_created{instance=~\"$instance\"}[$__range]))",
+          "expr": "sum(increase(quic_conn_created_total{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -759,7 +759,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum by (quic_frame_type) (rate(quic_received_frames{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (quic_frame_type) (rate(quic_frame_rx_total{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{quic_frame_type}}",
           "range": true,
@@ -832,7 +832,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_connections_aborted{instance=~\"$instance\"}[$__range]))",
+          "expr": "sum(increase(quic_conn_aborted_total{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -905,7 +905,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(quic_connections_closed{instance=~\"$instance\"}[$__range]))",
+          "expr": "sum(increase(quic_conn_closed_total{instance=~\"$instance\"}[$__range]))",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -1007,7 +1007,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (tpu_recv_type) (rate(quic_txns_received{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (tpu_recv_type) (rate(quic_txn_rx_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Rcvd {{tpu_recv_type}}",
@@ -1020,7 +1020,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_txns_abandoned{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_txn_abandoned_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Abandoned",
@@ -1033,7 +1033,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_txns_overrun{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_txn_overrun_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Overrun",
@@ -1046,7 +1046,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_txn_undersz{instance=~\"$instance\"}[$__rate_interval]))\n",
+          "expr": "sum(rate(quic_txn_undersize_total{instance=~\"$instance\"}[$__rate_interval]))\n",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Txn Undersz",
@@ -1059,7 +1059,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_txn_too_large{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_txn_oversize_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Txn Oversz",
@@ -1072,7 +1072,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_non_quic_packet_too_small{instance=~\"instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_pkt_undersize_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "UDP Undersz",
@@ -1085,7 +1085,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_non_quic_packet_too_large{instance=~\"instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_pkt_oversize_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "UDP Oversz",
@@ -1184,7 +1184,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_handshake_error_alloc_fail{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_handshake_error_alloc_fail_total{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Alloc Fail",
           "range": true,
@@ -1196,7 +1196,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_handshakes_created{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_handshake_created_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Created",
@@ -1212,7 +1212,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Connections rejected per second\n\n- Alloc Fail: Aborted because the connection table was full\n- TLS Fail: Aborted because the TLS 1.3 handshake failed\n- Retry Fail: Client send an expired or invalid retry token (QUIC Retry are comparable to TCP SYN cookies)",
+      "description": "Connections rejected per second\n\n- Alloc Fail: Aborted because the connection table was full\n- Handshake Alloc Fail: Aborted because handshake state could not be allocated\n- Retry Fail: Client send an expired or invalid retry token (QUIC Retry are comparable to TCP SYN cookies)",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1295,7 +1295,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connection_error_no_slots{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_conn_error_no_slots_total{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Alloc Fail",
           "range": true,
@@ -1307,10 +1307,10 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connection_error_tls_fail{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_handshake_error_alloc_fail_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
-          "legendFormat": "TLS Fail",
+          "legendFormat": "Handshake Alloc Fail",
           "range": true,
           "refId": "B"
         },
@@ -1320,7 +1320,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connection_error_retry_fail{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_conn_error_retry_failed_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Retry Fail",
@@ -1445,7 +1445,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connections_created{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_conn_created_total{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Created",
           "range": true,
@@ -1457,7 +1457,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connections_aborted{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_conn_aborted_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Aborted",
@@ -1470,7 +1470,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connections_closed{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_conn_closed_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Graceful Closed",
@@ -1483,7 +1483,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(quic_connections_timed_out{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(quic_conn_timed_out_total{instance=~\"$instance\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Timeout",
@@ -1580,7 +1580,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(link_overrun_polling_frag_count{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
+          "expr": "sum(increase(link_frag_polling_overrun_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "QUIC drops",
           "range": true,
@@ -1592,7 +1592,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(tile_context_switch_involuntary_count{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
+          "expr": "sum(increase(tile_context_switch_involuntary_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "Involuntary Context Switches",
@@ -1605,7 +1605,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(quic_frame_fail_parse{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
+          "expr": "sum(increase(quic_frame_parse_failed_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC Parse Fail",
@@ -1618,10 +1618,10 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (quic_enc_level) (increase(quic_pkt_crypto_failed{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])) != 0",
+          "expr": "sum by (quic_encryption_level) (increase(quic_pkt_crypto_failed_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])) != 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "QUIC Crypto Fail ({{quic_enc_level}})",
+          "legendFormat": "QUIC Crypto Fail ({{quic_encryption_level}})",
           "range": true,
           "refId": "D"
         },
@@ -1631,10 +1631,10 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (quic_enc_level) (increase(quic_pkt_no_key{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])) != 0",
+          "expr": "sum by (quic_encryption_level) (increase(quic_pkt_no_key_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval])) != 0",
           "hide": false,
           "instant": false,
-          "legendFormat": "QUIC No Key ({{quic_enc_level}})",
+          "legendFormat": "QUIC No Key ({{quic_encryption_level}})",
           "range": true,
           "refId": "E"
         },
@@ -1644,7 +1644,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(quic_pkt_no_conn{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]) != 0",
+          "expr": "increase(quic_pkt_no_conn_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]) != 0",
           "hide": false,
           "instant": false,
           "legendFormat": "QUIC No Conn",
@@ -1743,7 +1743,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.5, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(quic_rx_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
           "format": "time_series",
           "instant": false,
           "interval": "",
@@ -1758,7 +1758,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.9, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(quic_rx_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "legendFormat": "p90",
@@ -1772,7 +1772,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(quic_rx_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "legendFormat": "p95",
@@ -1786,7 +1786,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(quic_rx_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "legendFormat": "p99",
@@ -1800,7 +1800,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.999, sum by (le) (increase(quic_receive_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.999, sum by (le) (increase(quic_rx_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "legendFormat": "p99.9",
@@ -1898,7 +1898,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (quic_ack_tx) (rate(quic_ack_tx{instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (quic_ack_tx_total) (rate(quic_ack_tx_total{instance=~\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{quic_ack_tx}}",
           "range": true,
@@ -1993,7 +1993,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(quic_frags_dup{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
+          "expr": "sum(increase(quic_frag_duplicate_total{instance=~\"$instance\",kind=\"quic\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "Duplicate Frags",
           "range": true,
@@ -2091,7 +2091,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(quic_pkt_retransmissions{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(quic_pkt_tx_retransmitted_total{instance=~\"$instance\"}[$__rate_interval])",
           "hide": false,
           "instant": false,
           "legendFormat": "__auto",
@@ -2137,7 +2137,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(quic_connections_active,instance)",
+        "definition": "label_values(quic_conn_state,instance)",
         "hide": 0,
         "includeAll": true,
         "multi": false,
@@ -2145,7 +2145,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(quic_connections_active,instance)",
+          "query": "label_values(quic_conn_state,instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

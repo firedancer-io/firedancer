@@ -128,10 +128,10 @@ test_max_size( void ) {
     .initial_max_stream_data_uni                 = (1UL<<62)-1,
     /* 0x08 */
     .initial_max_streams_bidi_present            = 1,
-    .initial_max_streams_bidi                    = (1UL<<62)-1,
+    .initial_max_streams_bidi                    = (1UL<<60), /* theoretically up to 2^62-1, but not valid */
     /* 0x09 */
     .initial_max_streams_uni_present             = 1,
-    .initial_max_streams_uni                     = (1UL<<62)-1,
+    .initial_max_streams_uni                     = (1UL<<60), /* theoretically up to 2^62-1, but not valid */
 
     /* 0x0a */
     .ack_delay_exponent_present = 1,
@@ -204,6 +204,333 @@ test_grease( void ) {
 
 }
 
+/* Test Case 1: Valid max_idle_timeout values */
+static void
+test_max_idle_timeout_valid( void ) {
+  FD_LOG_NOTICE(( "test_max_idle_timeout_valid" ));
+
+  fd_quic_transport_params_t params_in[1];
+  fd_quic_transport_params_t params_out[1];
+  uchar buf[512];
+
+  /* Test valid values: 0, 1, typical value, max */
+  ulong test_values[] = { 0UL, 1UL, 30000UL, FD_QUIC_VARINT_MAX };
+
+  for( ulong i = 0; i < sizeof(test_values) / sizeof(test_values[0]); i++ ) {
+    fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+    params_in->max_idle_timeout_ms = test_values[i];
+    params_in->max_idle_timeout_ms_present = 1;
+
+    ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+    FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+
+    fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+    int ret = fd_quic_decode_transport_params( params_out, buf, len );
+    FD_TEST( ret == 0 );
+    FD_TEST( params_out->max_idle_timeout_ms_present == 1 );
+    FD_TEST( params_out->max_idle_timeout_ms == test_values[i] );
+  }
+}
+
+/* Test Case 2: Valid and invalid max_udp_payload_size values */
+static void
+test_max_udp_payload_size_bounds( void ) {
+  FD_LOG_NOTICE(( "test_max_udp_payload_size_bounds" ));
+
+  fd_quic_transport_params_t params_in[1];
+  fd_quic_transport_params_t params_out[1];
+  uchar buf[512];
+
+  /* Test valid minimum value (1200) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_udp_payload_size = 1200UL;
+  params_in->max_udp_payload_size_present = 1;
+  ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  int ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->max_udp_payload_size_present == 1 );
+  FD_TEST( params_out->max_udp_payload_size == 1200UL );
+
+  /* Test valid typical value (65527) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_udp_payload_size = 65527UL;
+  params_in->max_udp_payload_size_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->max_udp_payload_size_present == 1 );
+  FD_TEST( params_out->max_udp_payload_size == 65527UL );
+
+  /* Test invalid value below minimum (1199) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_udp_payload_size = 1199UL;
+  params_in->max_udp_payload_size_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+
+  /* Test invalid value (0) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_udp_payload_size = 0UL;
+  params_in->max_udp_payload_size_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+}
+
+/* Test Case 3: ack_delay_exponent bounds (max 20) */
+static void
+test_ack_delay_exponent_bounds( void ) {
+  FD_LOG_NOTICE(( "test_ack_delay_exponent_bounds" ));
+
+  fd_quic_transport_params_t params_in[1];
+  fd_quic_transport_params_t params_out[1];
+  uchar buf[512];
+
+  /* Test valid values 0-20 */
+  for( ulong value = 0; value <= 20; value++ ) {
+    fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+    params_in->ack_delay_exponent = value;
+    params_in->ack_delay_exponent_present = 1;
+    ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+    FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+    fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+    int ret = fd_quic_decode_transport_params( params_out, buf, len );
+    FD_TEST( ret == 0 );
+    FD_TEST( params_out->ack_delay_exponent_present == 1 );
+    FD_TEST( params_out->ack_delay_exponent == value );
+  }
+
+  /* Test invalid value (21) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->ack_delay_exponent = 21UL;
+  params_in->ack_delay_exponent_present = 1;
+  ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  int ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+
+  /* Test invalid value (100) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->ack_delay_exponent = 100UL;
+  params_in->ack_delay_exponent_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+}
+
+/* Test Case 4: max_ack_delay bounds (max 2^14-1 = 16383) */
+static void
+test_max_ack_delay_bounds( void ) {
+  FD_LOG_NOTICE(( "test_max_ack_delay_bounds" ));
+
+  fd_quic_transport_params_t params_in[1];
+  fd_quic_transport_params_t params_out[1];
+  uchar buf[512];
+
+  /* Test valid minimum value (0) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_ack_delay = 0UL;
+  params_in->max_ack_delay_present = 1;
+  ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  int ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->max_ack_delay_present == 1 );
+  FD_TEST( params_out->max_ack_delay == 0UL );
+
+  /* Test valid typical value (25) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_ack_delay = 25UL;
+  params_in->max_ack_delay_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->max_ack_delay_present == 1 );
+  FD_TEST( params_out->max_ack_delay == 25UL );
+
+  /* Test valid maximum value (16383) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_ack_delay = 16383UL;
+  params_in->max_ack_delay_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->max_ack_delay_present == 1 );
+  FD_TEST( params_out->max_ack_delay == 16383UL );
+
+  /* Test invalid value (16384 = 2^14) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_ack_delay = 16384UL;
+  params_in->max_ack_delay_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+
+  /* Test invalid value (1000000) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->max_ack_delay = 1000000UL;
+  params_in->max_ack_delay_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+}
+
+/* Test Case 5: Stream count bounds (max 2^60-1) */
+static void
+test_stream_count_bounds( void ) {
+  FD_LOG_NOTICE(( "test_stream_count_bounds" ));
+
+  fd_quic_transport_params_t params_in[1];
+  fd_quic_transport_params_t params_out[1];
+  uchar buf[512];
+
+  /* Test initial_max_streams_bidi with valid values */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->initial_max_streams_bidi = 0UL;
+  params_in->initial_max_streams_bidi_present = 1;
+  ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  int ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->initial_max_streams_bidi_present == 1 );
+  FD_TEST( params_out->initial_max_streams_bidi == 0UL );
+
+  /* Test with typical value */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->initial_max_streams_bidi = 100UL;
+  params_in->initial_max_streams_bidi_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->initial_max_streams_bidi_present == 1 );
+  FD_TEST( params_out->initial_max_streams_bidi == 100UL );
+
+  /* Test with maximum valid value (2^60) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  ulong max_stream_count = FD_QUIC_STREAM_COUNT_MAX;
+  params_in->initial_max_streams_bidi = max_stream_count;
+  params_in->initial_max_streams_bidi_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->initial_max_streams_bidi_present == 1 );
+  FD_TEST( params_out->initial_max_streams_bidi == max_stream_count );
+
+  /* Test with invalid value (2^60 + 1) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  ulong invalid_stream_count = FD_QUIC_STREAM_COUNT_MAX + 1;
+  params_in->initial_max_streams_bidi = invalid_stream_count;
+  params_in->initial_max_streams_bidi_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+
+  /* Test initial_max_streams_uni with valid value */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->initial_max_streams_uni = 100UL;
+  params_in->initial_max_streams_uni_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->initial_max_streams_uni_present == 1 );
+  FD_TEST( params_out->initial_max_streams_uni == 100UL );
+
+  /* Test initial_max_streams_uni with invalid value (2^61) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  ulong very_large_count = (1UL << 61);
+  params_in->initial_max_streams_uni = very_large_count;
+  params_in->initial_max_streams_uni_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+}
+
+/* Test Case 6: active_connection_id_limit bounds (min 2) */
+static void
+test_active_connection_id_limit_bounds( void ) {
+  FD_LOG_NOTICE(( "test_active_connection_id_limit_bounds" ));
+
+  fd_quic_transport_params_t params_in[1];
+  fd_quic_transport_params_t params_out[1];
+  uchar buf[512];
+
+  /* Test valid minimum value (2) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->active_connection_id_limit = 2UL;
+  params_in->active_connection_id_limit_present = 1;
+  ulong len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  int ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->active_connection_id_limit_present == 1 );
+  FD_TEST( params_out->active_connection_id_limit == 2UL );
+
+  /* Test valid typical value (8) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->active_connection_id_limit = 8UL;
+  params_in->active_connection_id_limit_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == 0 );
+  FD_TEST( params_out->active_connection_id_limit_present == 1 );
+  FD_TEST( params_out->active_connection_id_limit == 8UL );
+
+  /* Test invalid value below minimum (0) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->active_connection_id_limit = 0UL;
+  params_in->active_connection_id_limit_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+
+  /* Test invalid value (1) */
+  fd_memset( params_in, 0, sizeof(fd_quic_transport_params_t) );
+  params_in->active_connection_id_limit = 1UL;
+  params_in->active_connection_id_limit_present = 1;
+  len = fd_quic_encode_transport_params( buf, sizeof(buf), params_in );
+  FD_TEST( len != FD_QUIC_ENCODE_FAIL );
+  fd_memset( params_out, 0, sizeof(fd_quic_transport_params_t) );
+  ret = fd_quic_decode_transport_params( params_out, buf, len );
+  FD_TEST( ret == -1 );  /* bounds check failure in decoder */
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -212,6 +539,12 @@ main( int     argc,
   test_preferred_address();
   test_max_size();
   test_grease();
+  test_max_idle_timeout_valid();
+  test_max_udp_payload_size_bounds();
+  test_ack_delay_exponent_bounds();
+  test_max_ack_delay_bounds();
+  test_stream_count_bounds();
+  test_active_connection_id_limit_bounds();
 
   fd_quic_dump_transport_param_desc( stdout );
 

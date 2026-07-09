@@ -113,6 +113,51 @@ fd_tempo_set_tick_per_ns( double _mu,
   sigma = _sigma;
 }
 
+/* tick_per_ns_sample measures the fd_tickcount()/fd_log_wallclock()
+   rate and writes the file-scope mu/sigma.  Per trial, it observes a
+   (wallclock,tickcount) pair, sleeps sleep_ns, observes another pair,
+   and forms d_ticks/d_ns; it then drops the first and last trim_cnt
+   samples (in time order, to skip warmup/cooldown outliers) and does a
+   robust normal fit over the remainder.
+
+   The rate accuracy is set by the total observed interval
+   (trial_cnt*sleep_ns) relative to the observe_pair jitter, and the fit
+   needs a few samples for sigma.  Callers pick the (trial,trim,sleep)
+   budget that trades wall-clock cost against precision.  trial_cnt must
+   be at most TRIAL_MAX and leave a positive sample count after
+   trimming (2*trim_cnt<trial_cnt). */
+
+static void
+tick_per_ns_sample( ulong trial_cnt,
+                    ulong trim_cnt,
+                    long  sleep_ns ) {
+# define TRIAL_MAX (64UL)
+  if( FD_UNLIKELY( trial_cnt>TRIAL_MAX ) )      FD_LOG_ERR(( "tick_per_ns_sample: trial_cnt %lu exceeds TRIAL_MAX %lu", trial_cnt, TRIAL_MAX ));
+  if( FD_UNLIKELY( 2UL*trim_cnt>=trial_cnt ) )  FD_LOG_ERR(( "tick_per_ns_sample: trim_cnt %lu leaves no samples for trial_cnt %lu", trim_cnt, trial_cnt ));
+  ulong iter = 0UL;
+  for(;;) {
+    double trial[ TRIAL_MAX ];
+    for( ulong trial_idx=0UL; trial_idx<trial_cnt; trial_idx++ ) {
+      long then; long toc; fd_tempo_observe_pair( &then, &toc );
+      fd_log_sleep( sleep_ns );
+      long now; long tic; fd_tempo_observe_pair( &now, &tic );
+      trial[ trial_idx ] = (double)(tic-toc) / (double)(now-then);
+    }
+    double * sample     = trial + trim_cnt;
+    ulong    sample_cnt = trial_cnt - 2UL*trim_cnt;
+    ulong    thresh     = sample_cnt >> 1;
+    if( FD_LIKELY( fd_stat_robust_norm_fit_double( &mu, &sigma, sample, sample_cnt, sample )>thresh ) && FD_LIKELY( mu>0. ) )
+      break;
+    iter++;
+    if( iter==3UL ) {
+      FD_LOG_WARNING(( "unable to measure tick_per_ns accurately; using fallback and attempting to continue" ));
+      mu = 3.; sigma = 1e-7;
+      break;
+    }
+  }
+#undef TRIAL_MAX
+}
+
 double
 fd_tempo_tick_per_ns( double * opt_sigma ) {
 
@@ -131,31 +176,37 @@ fd_tempo_tick_per_ns( double * opt_sigma ) {
          sources of noise, assuming the sample distribution is reasonably
          well modeled as normal. */
 
-      ulong iter = 0UL;
-      for(;;) {
-  #     define TRIAL_CNT 32UL
-  #     define TRIM_CNT   4UL
-        double trial[ TRIAL_CNT ];
-        for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
-          long then; long toc; fd_tempo_observe_pair( &then, &toc );
-          fd_log_sleep( 16777216L ); /* ~16.8 ms */
-          long now; long tic; fd_tempo_observe_pair( &now, &tic );
-          trial[ trial_idx ] = (double)(tic-toc) / (double)(now-then);
-        }
-        double * sample     = trial + TRIM_CNT;
-        ulong    sample_cnt = TRIAL_CNT - 2UL*TRIM_CNT;
-        ulong    thresh     = sample_cnt >> 1;
-        if( FD_LIKELY( fd_stat_robust_norm_fit_double( &mu, &sigma, sample, sample_cnt, sample )>thresh ) && FD_LIKELY( mu>0. ) )
-          break;
-  #     undef TRIM_CNT
-  #     undef TRIAL_CNT
-        iter++;
-        if( iter==3UL ) {
-          FD_LOG_WARNING(( "unable to measure tick_per_ns accurately; using fallback and attempting to continue" ));
-          mu = 3.; sigma = 1e-7;
-          break;
-        }
-      }
+      tick_per_ns_sample( 32UL, 4UL, 16777216L /* ~16.8 ms */ );
+    }
+
+  } FD_ONCE_END;
+
+  if( opt_sigma ) opt_sigma[0] = sigma;
+  return mu;
+}
+
+double
+fd_tempo_tick_per_ns_dev( double * opt_sigma ) {
+
+  FD_ONCE_BEGIN {
+
+    if( FD_LIKELY( !explicit_set ) ) {
+
+      /* Development-only fast path.  4 trials of ~0.25 ms (~1 ms total)
+         measures the rate to a few ppm and keeps sigma well defined
+         (>=2 trials), versus ~0.5 s for the production path.  This is
+         intended for firedancer-dev, where boot latency matters and the
+         rate is not used for anything consensus critical.  See
+         bench_tempo_calib for the accuracy/cost sweep that motivates
+         these constants. */
+
+      tick_per_ns_sample( 4UL, 0UL, 262144L /* ~0.25 ms */ );
+
+      /* Mark the value explicit so a subsequent fd_tempo_tick_per_ns()
+         (e.g. later in fd_config_fill) returns this measurement instead
+         of re-running the slow production sampling. */
+
+      explicit_set = 1;
     }
 
   } FD_ONCE_END;

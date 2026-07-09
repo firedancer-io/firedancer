@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_topo_fd_cpu_topo_h
 
 #include "../fd_disco_base.h"
+#include "../../util/tile/fd_tile.h"
 
 struct fd_topo_cpu {
   ulong idx;

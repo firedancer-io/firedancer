@@ -71,6 +71,20 @@ fd_tempo_set_tick_per_ns( double _mu,
 double
 fd_tempo_tick_per_ns( double * opt_sigma );
 
+/* fd_tempo_tick_per_ns_dev is a development-only variant of
+   fd_tempo_tick_per_ns that measures the rate with a much smaller
+   wall-clock budget (~1 ms vs ~0.5 s) at the cost of a few ppm of
+   accuracy.  It is intended for firedancer-dev, where boot latency
+   matters and the rate is not used for anything critical.  Like
+   fd_tempo_tick_per_ns it is FD_ONCE guarded and honors a prior
+   fd_tempo_set_tick_per_ns; additionally, calling this marks the value
+   explicit so a later fd_tempo_tick_per_ns() returns this fast
+   measurement rather than re-running the slow production sampling.  Do
+   NOT use in production. */
+
+double
+fd_tempo_tick_per_ns_dev( double * opt_sigma );
+
 /* fd_tempo_observe_pair observes the fd_log_wallclock() and
    fd_tickcount() at the "same time".  More precisely, it alternately
    observes both a few times and estimates from the "best" wallclock

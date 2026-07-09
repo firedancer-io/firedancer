@@ -362,6 +362,9 @@ static inline int
 fd_chkdup_check_slow( fd_chkdup_t          * chkdup,
                       fd_acct_addr_t const * list0,     ulong list0_cnt,
                       fd_acct_addr_t const * list1,     ulong list1_cnt ) {
+  /* Precondition: total account count must fit the hashmap and inserted array. */
+  FD_TEST( list0_cnt+list1_cnt<=FD_TXN_ACCT_ADDR_MAX );
+
   fd_chkdup_waddr_t * map = fd_chkdup_pmap_join( chkdup->hashmap );
   fd_chkdup_waddr_t * inserted[ FD_TXN_ACCT_ADDR_MAX ];
   ulong inserted_cnt = 0UL;

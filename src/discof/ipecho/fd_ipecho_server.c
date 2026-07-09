@@ -6,7 +6,7 @@
 
 #include <errno.h>
 #include <unistd.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -94,10 +94,13 @@ fd_ipecho_server_new( void * shmem,
   server->pool = conn_pool_join( conn_pool_new( pool, max_connection_cnt ) );
   FD_TEST( server->pool );
 
+  server->sockfd = -1;
+
   for( ulong i=0UL; i<max_connection_cnt; i++ ) {
     server->pollfds[ i ].fd = -1;
     server->pollfds[ i ].events = POLLIN | POLLOUT;
   }
+  server->pollfds[ max_connection_cnt ].fd = -1;
 
   server->evict_idx = 0UL;
   server->max_connection_cnt = max_connection_cnt;
@@ -167,6 +170,29 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
 }
 
 void
+fd_ipecho_server_fini( fd_ipecho_server_t * server ) {
+  fd_ipecho_server_close_conns( server );
+  if( FD_UNLIKELY( -1!=server->sockfd ) ) {
+    FD_TEST( -1!=close( server->sockfd ) );
+    server->sockfd = -1;
+    server->pollfds[ server->max_connection_cnt ].fd = -1;
+  }
+}
+
+void
+fd_ipecho_server_close_conns( fd_ipecho_server_t * server ) {
+  for( ulong i=0UL; i<server->max_connection_cnt; i++ ) {
+    if( FD_UNLIKELY( -1!=server->pollfds[ i ].fd ) ) {
+      FD_TEST( -1!=close( server->pollfds[ i ].fd ) );
+      server->pollfds[ i ].fd = -1;
+      conn_pool_ele_release( server->pool, &server->pool[ i ] );
+    }
+  }
+  server->metrics->connection_cnt = 0UL;
+  server->evict_idx               = 0UL;
+}
+
+void
 fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
                                     ushort               shred_version ) {
   server->shred_version = shred_version;
@@ -187,7 +213,9 @@ is_expected_network_error( int err ) {
     err==ENETRESET ||
     err==ECONNABORTED ||
     err==ECONNRESET ||
-    err==EPIPE;
+    err==EPIPE ||
+    err==EPERM || /* iptables */
+    err==ENOMEM; /* net stack OOM */
 }
 
 static void
@@ -266,6 +294,8 @@ read_conn( fd_ipecho_server_t * server,
     close_conn( server, conn_idx, CLOSE_LARGE_REQUEST );
     return;
   }
+
+  if( FD_UNLIKELY( conn->request_bytes_read<21UL ) ) return;
 
   if( FD_UNLIKELY( memcmp( conn->request_bytes, "\0\0\0\0", 4UL ) ) ) {
     close_conn( server, conn_idx, CLOSE_BAD_HEADER );

@@ -11,7 +11,7 @@
 #
 # pid_namespace: This is the PID of the child process that we created.
 #                There is always exactly one such process.
-unsigned int logfile_fd, unsigned int pid_namespace
+uint logfile_fd, uint pid_namespace
 
 # logging: all log messages are written to a file and/or pipe
 #

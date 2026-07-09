@@ -1,6 +1,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 #include "../../../discof/gossip/fd_gossip_tile.h"
+#include "../../../flamenco/gossip/fd_gossip_message.h"
 #include "../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
@@ -27,21 +28,21 @@ gossip_dump_cmd_fn( args_t *   args,
 
   fd_gossip_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile_obj_id );
 
-  fd_contact_info_t my_ci[1];
+  fd_gossip_contact_info_t my_ci[1];
   *my_ci = FD_VOLATILE_CONST( *ctx->my_contact_info );
 
   puts( "" );
   puts( "my_contact_info:" );
-  FD_BASE58_ENCODE_32_BYTES( my_ci->pubkey.uc, pubkey_b58 );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_b58 );
   printf( "  pubkey: %s\n", pubkey_b58 );
   printf( "  shred_version: %u\n", my_ci->shred_version );
   puts( "  sockets:" );
-  for( uint i=0UL; i<FD_CONTACT_INFO_SOCKET_CNT; i++ ) {
-    fd_ip4_port_t const * ele = &my_ci->sockets[ i ];
-    if( ele->addr==0 && ele->port==0 ) continue;
+  for( uint i=0UL; i<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; i++ ) {
+    fd_gossip_socket_t const * ele = &my_ci->sockets[ i ];
+    if( ele->is_ipv6 || (ele->ip4==0 && ele->port==0 ) ) continue;
     printf( "    proto_%02u: " FD_IP4_ADDR_FMT ":%hu\n",
             i,
-            FD_IP4_ADDR_FMT_ARGS( ele->addr ),
+            FD_IP4_ADDR_FMT_ARGS( ele->ip4 ),
             fd_ushort_bswap( ele->port ) );
   }
   puts( "" );

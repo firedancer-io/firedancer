@@ -15,6 +15,7 @@ int
 LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
   putenv( "FD_LOG_BACKTRACE=0" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   atexit( fd_halt );
 
@@ -35,6 +36,8 @@ int
 LLVMFuzzerTestOneInput( uchar const * data_,
                         ulong         size ) {
   fd_ssmanifest_parser_init( parser, output_mem );
-  fd_ssmanifest_parser_consume( parser, data_, size, NULL, NULL );
+  if( fd_ssmanifest_parser_consume( parser, data_, size )!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) {
+    fd_ssmanifest_parser_fini( parser );
+  }
   return 0;
 }

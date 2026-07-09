@@ -3,8 +3,6 @@
 
 #include "fd_aes_gcm.h"
 
-#include <assert.h>
-
 #define fd_gcm_init  fd_gcm_init_4bit
 #define fd_gcm_gmult fd_gcm_gmult_4bit
 #define fd_gcm_ghash fd_gcm_ghash_4bit
@@ -259,7 +257,8 @@ fd_aes_gcm_encrypt_ref( fd_aes_gcm_ref_t * aes_gcm,
   fd_gcm128_aad( aes_gcm, aad, aad_sz );
 
   ulong bulk = 0UL;
-  assert( 0==fd_gcm128_encrypt( aes_gcm, p+bulk, c+bulk, sz-bulk ) );
+  int res = fd_gcm128_encrypt( aes_gcm, p+bulk, c+bulk, sz-bulk );
+  FD_DCHECK_CRIT( res==0, "internal error" );
 
   /* CRYPTO_gcm128_tag */
   fd_gcm128_finish( aes_gcm );
@@ -278,7 +277,8 @@ fd_aes_gcm_decrypt_ref( fd_aes_gcm_ref_t * aes_gcm,
   fd_gcm128_aad( aes_gcm, aad, aad_sz );
 
   ulong bulk = 0UL;
-  assert( 0==fd_gcm128_decrypt( aes_gcm, c+bulk, p+bulk, sz-bulk ) );
+  int res = fd_gcm128_decrypt( aes_gcm, c+bulk, p+bulk, sz-bulk );
+  FD_DCHECK_CRIT( res==0, "internal error" );
 
   /* CRYPTO_gcm128_finish */
   fd_gcm128_finish( aes_gcm );

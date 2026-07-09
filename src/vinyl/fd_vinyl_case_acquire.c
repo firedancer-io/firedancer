@@ -1,6 +1,5 @@
   case FD_VINYL_REQ_TYPE_ACQUIRE: {
     ulong                  req_flags     = (ulong)req->flags;
-    ulong                  req_val_max   = (ulong)req->val_max;
     fd_vinyl_key_t const * req_key       = MAP_REQ_GADDR( req->key_gaddr,       fd_vinyl_key_t, batch_cnt );
     ulong *                req_val_gaddr = MAP_REQ_GADDR( req->val_gaddr_gaddr, ulong,          batch_cnt );
     schar *                req_err       = MAP_REQ_GADDR( req->err_gaddr,       schar,          batch_cnt );
@@ -11,12 +10,11 @@
     int req_flag_excl   = fd_vinyl_req_flag_excl  ( req_flags );
     int req_evict_prio  = fd_vinyl_req_evict_prio ( req_flags );
 
-    int bad_gaddr   = (!!batch_cnt) & ((!req_key) | (!req_val_gaddr) | (!req_err));
-    int bad_val_max = req_flag_modify & (req_val_max>FD_VINYL_VAL_MAX);
-    int bad_quota   = quota_rem<batch_cnt;
+    int bad_gaddr = (!!batch_cnt) & ((!req_key) | (!req_val_gaddr) | (!req_err));
+    int bad_quota = quota_rem<batch_cnt;
 
-    if( FD_UNLIKELY( bad_gaddr | bad_val_max | bad_quota ) ) {
-      comp_err = (bad_gaddr | bad_val_max) ? FD_VINYL_ERR_INVAL : FD_VINYL_ERR_FULL;
+    if( FD_UNLIKELY( bad_gaddr | bad_quota ) ) {
+      comp_err = bad_gaddr ? FD_VINYL_ERR_INVAL : FD_VINYL_ERR_FULL;
       break;
     }
 
@@ -31,6 +29,12 @@
         fail_cnt  += (ulong)!!_err;                          \
         goto next_acquire; /* sigh ... can't use continue */ \
       } while(0)
+
+      ulong req_val_max = 0UL;
+      if( req_flag_modify ) {
+        req_val_max = req_val_gaddr[ batch_idx ];
+        if( FD_UNLIKELY( req_val_max>FD_VINYL_VAL_MAX ) ) DONE( FD_VINYL_ERR_INVAL );
+      }
 
       /* Query vinyl meta for key */
 
@@ -50,7 +54,7 @@
 
         ulong pair_ctl = ele0[ ele_idx ].phdr.ctl;
 
-        FD_CRIT( (fd_vinyl_bstream_ctl_type( pair_ctl )==FD_VINYL_BSTREAM_CTL_TYPE_PAIR) | (pair_ctl==ULONG_MAX),
+        FD_DCHECK_CRIT( (fd_vinyl_bstream_ctl_type( pair_ctl )==FD_VINYL_BSTREAM_CTL_TYPE_PAIR) | (pair_ctl==ULONG_MAX),
                  "corruption detected" );
 
         if( FD_UNLIKELY( pair_ctl==ULONG_MAX ) ) DONE( FD_VINYL_ERR_AGAIN );
@@ -60,22 +64,20 @@
         ulong val_sz   = (ulong)ele0[ ele_idx ].phdr.info.val_sz;
         ulong line_idx = ele0[ ele_idx ].line_idx;
 
-        FD_CRIT( val_sz<=FD_VINYL_VAL_MAX,                    "corruption detected" );
-        FD_CRIT( (line_idx<line_cnt) | (line_idx==ULONG_MAX), "corruption detected" );
+        FD_DCHECK_CRIT( val_sz<=FD_VINYL_VAL_MAX,                    "corruption detected" );
+        FD_DCHECK_CRIT( (line_idx<line_cnt) | (line_idx==ULONG_MAX), "corruption detected" );
 
         if( FD_LIKELY( line_idx<line_cnt ) ) {
 
           /* At this point, pair key is cached.  Get the cache info for
              line line_idx. */
 
-          accum_cache_hit++;
-
-          FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
+          FD_DCHECK_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
           fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
 
-          FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
-          FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
+          FD_DCHECK_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
+          FD_DCHECK_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
 
           ulong line_ctl = line[ line_idx ].ctl;
 
@@ -101,11 +103,11 @@
             if( FD_LIKELY( !obj->rd_active ) ) {
               fd_vinyl_bstream_phdr_t * phdr = fd_vinyl_data_obj_phdr( obj );
 
-              FD_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz,                                  "corruption detected" );
-              FD_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
+              FD_DCHECK_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz,                                  "corruption detected" );
+              FD_DCHECK_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                         FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz ),   "corruption detected" );
-              FD_CRIT( fd_vinyl_key_eq( &phdr->key, key ),                                          "corruption detected" );
-              FD_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
+              FD_DCHECK_CRIT( fd_vinyl_key_eq( &phdr->key, key ),                                          "corruption detected" );
+              FD_DCHECK_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
             }
 
             line[ line_idx ].ctl = fd_vinyl_line_ctl( ver, ref+1L ); /* don't bump ver */
@@ -126,12 +128,12 @@
 
           fd_vinyl_bstream_phdr_t * phdr = fd_vinyl_data_obj_phdr( obj );
 
-          FD_CRIT( !obj->rd_active,                                                             "corruption detected" );
-          FD_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz,                                  "corruption detected" );
-          FD_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
+          FD_DCHECK_CRIT( !obj->rd_active,                                                             "corruption detected" );
+          FD_DCHECK_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz,                                  "corruption detected" );
+          FD_DCHECK_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                     FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz ),   "corruption detected" );
-          FD_CRIT( fd_vinyl_key_eq( &phdr->key, key ),                                          "corruption detected" );
-          FD_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
+          FD_DCHECK_CRIT( fd_vinyl_key_eq( &phdr->key, key ),                                          "corruption detected" );
+          FD_DCHECK_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
 
           /* If the ignore flag is set, set the cached value size to 0. */
 
@@ -270,8 +272,8 @@
           int   style   = fd_vinyl_bstream_ctl_style( pair_ctl );
           ulong val_esz = fd_vinyl_bstream_ctl_sz   ( pair_ctl );
 
-          FD_CRIT( val_esz<=FD_VINYL_VAL_MAX,                                   "corruption detected" );
-          FD_CRIT( (style!=FD_VINYL_BSTREAM_CTL_STYLE_RAW) | (val_sz==val_esz), "corruption detected" );
+          FD_DCHECK_CRIT( val_esz<=FD_VINYL_VAL_MAX,                                   "corruption detected" );
+          FD_DCHECK_CRIT( (style!=FD_VINYL_BSTREAM_CTL_STYLE_RAW) | (val_sz==val_esz), "corruption detected" );
 
           fd_vinyl_data_obj_t * cobj;
 
@@ -320,7 +322,7 @@
          and is not in the process of being created.  If we aren't
          allowed to create pair key, fail.  Otherwise, evict the least
          recently used evictable line (this should always be possible if
-         quotas are confiured correctly) to make room to cache this
+         quotas are configured correctly) to make room to cache this
          pair, set the line's reference count appropriately, bump the
          version and move the line to the desired location in the
          eviction sequence.  We do this upfront to free data cache for
@@ -388,7 +390,7 @@
 
     } /* for batch_idx */
 
-    FD_CRIT( (!read_cnt) | (!(req_flag_modify & req_flag_ignore)), "corruption detected" );
+    FD_DCHECK_CRIT( (!read_cnt) | (!(req_flag_modify & req_flag_ignore)), "corruption detected" );
 
     comp_err = FD_VINYL_SUCCESS;
     break;

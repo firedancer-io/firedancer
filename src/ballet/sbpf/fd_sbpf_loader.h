@@ -103,7 +103,7 @@
    */
 #define FD_SBPF_TEXT_CNT_MAX (FD_RUNTIME_ACC_SZ_MAX / 8UL)
 #define FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT ( (FD_SBPF_TEXT_CNT_MAX +63UL)>>6 )
-#define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
+#define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_program_t) + sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
    vm is a handle to the running VM.  Returns 0 on success or an integer
@@ -170,6 +170,23 @@ struct fd_sbpf_elf_info {
   uint  text_cnt;       /* Instruction count */
   ulong text_sz;        /* size of text segment. Guaranteed to be <= bin_sz. */
 
+  /* Size of the buffer the loader assembles the program into, computed at
+     peek.  This is exactly the buffer the program cache must allocate:
+       - strict (v3+):       rodata + text segments (text_off + text_sz)
+       - lenient fast path:  the assembled rodata image (highest ro section
+                             end) -- exact size, no scratch buffer needed.
+                             Selected only when the read-only sections already
+                             sit at their file offsets (section address ==
+                             file offset), so the image needs no section
+                             repositioning, only zeroing of the gaps between
+                             and around the read-only slices.
+       - lenient legacy path: bin_sz -- the loader relocates in place over the
+                             full ELF image (and may read the unused account
+                             tail), so it needs the whole binary plus scratch
+     fd_sbpf_loader_is_legacy_lenient() (load_buf_sz==bin_sz) identifies the
+     last case -- the only one that requires a scratch buffer. */
+  ulong load_buf_sz;
+
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
   int shndx_text;
@@ -190,6 +207,16 @@ struct fd_sbpf_elf_info {
   ulong sbpf_version;
 };
 typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
+
+/* fd_sbpf_loader_is_legacy_lenient returns 1 iff the program must be loaded via
+   the legacy lenient path (relocate in place over the full ELF image using a
+   scratch buffer).  This is exactly the case load_buf_sz==bin_sz: strict (v3+)
+   and lenient-fast loads assemble a smaller, exact-size buffer with no scratch,
+   while the legacy path needs the whole binary (load_buf_sz==bin_sz) + scratch. */
+FD_FN_PURE static inline int
+fd_sbpf_loader_is_legacy_lenient( fd_sbpf_elf_info_t const * info ) {
+  return info->load_buf_sz==info->bin_sz;
+}
 
 /* fd_sbpf_program_t describes a loaded program in memory.
 
@@ -347,28 +374,46 @@ fd_sbpf_program_delete( fd_sbpf_program_t * program );
 #define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN (64U)
 
 /* SIMD-0166 */
-static inline int fd_sbpf_dynamic_stack_frames_enabled       ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V1; }
-
-/* SIMD-0173 */
-static inline int fd_sbpf_callx_uses_src_reg_enabled         ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
-static inline int fd_sbpf_enable_lddw_enabled                ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
-static inline int fd_sbpf_enable_le_enabled                  ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
-static inline int fd_sbpf_move_memory_ix_classes_enabled     ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
+static inline int fd_sbpf_manual_stack_frame_bump_enabled            ( ulong v ) { return v==FD_SBPF_V1 || v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
+static inline int fd_sbpf_stack_frame_gaps_enabled                   ( ulong v ) { return v==FD_SBPF_V0; }
 
 /* SIMD-0174 */
-static inline int fd_sbpf_enable_neg_enabled                 ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
-static inline int fd_sbpf_swap_sub_reg_imm_operands_enabled  ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
-static inline int fd_sbpf_explicit_sign_ext_enabled          ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
-static inline int fd_sbpf_enable_pqr_enabled                 ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */
+static inline int fd_sbpf_enable_pqr_enabled                         ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L45-L47 */
+static inline int fd_sbpf_explicit_sign_extension_of_results_enabled ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L49-L51 */
+static inline int fd_sbpf_swap_sub_reg_imm_operands_enabled          ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L53-L55 */
+static inline int fd_sbpf_disable_neg_enabled                        ( ulong v ) { return v==FD_SBPF_V2; }
+
+/* SIMD-0173 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L58-L60 */
+static inline int fd_sbpf_callx_uses_src_reg_enabled                 ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L62-L64 */
+static inline int fd_sbpf_disable_lddw_enabled                       ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L66-L68 */
+static inline int fd_sbpf_disable_le_enabled                         ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L70-L72 */
+static inline int fd_sbpf_move_memory_ix_classes_enabled             ( ulong v ) { return v==FD_SBPF_V2; }
 
 /* SIMD-0178 */
-static inline int fd_sbpf_static_syscalls_enabled            ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
-static inline int fd_sbpf_enable_elf_vaddr_enabled           ( ulong sbpf_version ) { return sbpf_version!=FD_SBPF_V0; }
-static inline int fd_sbpf_reject_rodata_stack_overlap_enabled( ulong sbpf_version ) { return sbpf_version!=FD_SBPF_V0; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L75-L77 */
+static inline int fd_sbpf_static_syscalls_enabled                    ( ulong v ) { return v>=FD_SBPF_V3; }
 
 /* SIMD-0189 */
-static inline int fd_sbpf_enable_stricter_elf_headers_enabled( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
-static inline int fd_sbpf_enable_lower_bytecode_vaddr_enabled( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L79-L81 */
+static inline int fd_sbpf_enable_stricter_elf_headers_enabled        ( ulong v ) { return v>=FD_SBPF_V3; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L83-L85 */
+static inline int fd_sbpf_enable_lower_rodata_vaddr_enabled          ( ulong v ) { return v>=FD_SBPF_V3; }
+
+/* SIMD-0377 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L87-L89 */
+static inline int fd_sbpf_enable_jmp32_enabled                       ( ulong v ) { return v>=FD_SBPF_V3; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L91-L93 */
+static inline int fd_sbpf_callx_uses_dst_reg_enabled                 ( ulong v ) { return v>=FD_SBPF_V3; }
 
 FD_PROTOTYPES_END
 

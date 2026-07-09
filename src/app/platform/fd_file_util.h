@@ -87,4 +87,15 @@ char *
 fd_file_util_read_all( char const * path,
                        ulong *      out_sz );
 
+/* fd_file_util_read_cstr() reads all the file contents from path into
+   dst, and then zero-terminates dst, and sets *dst_len.  Returns NULL
+   on failure (e.g. read error or insufficient dst_max).  In case of
+   error, *dst and *dst_len are undefined.  */
+
+char *
+fd_file_util_read_cstr( char const * path,
+                        char *       dst,
+                        ulong        dst_max,
+                        ulong *      dst_len );
+
 #endif /* HEADER_fd_src_app_platform_fd_file_util_h */

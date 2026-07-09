@@ -3,7 +3,7 @@
 
 #include "../../util/fd_util_base.h"
 
-#include <sys/poll.h>
+#include <poll.h>
 
 struct fd_ipecho_client_peer {
   int writing;

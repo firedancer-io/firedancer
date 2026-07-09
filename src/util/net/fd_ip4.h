@@ -104,15 +104,20 @@ typedef union fd_ip4_hdr fd_ip4_hdr_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_ip4_addr_is_{mcast,bcast} returns 1 if the ipaddr is {multicast
-   (in [224-239].y.z.w),global broadcast (255.255.255.255)} and 0
-   otherwise. fd_ip4_hdr_net_frag_off_is_unfragmented returns 1 if the
+/* fd_ip4_addr_is_{mcast,bcast,loopback} returns 1 if the ipaddr is
+   {multicast (in [224-239].y.z.w), global broadcast
+   (255.255.255.255), loopback (127.y.z.w)} and 0 otherwise.
+   fd_ip4_hdr_net_frag_off_is_unfragmented returns 1 if the
    net_frag_off field of the ip4 header indicates the encapsulated
    packet is not fragmented (i.e. entirely containing the IP4 packet)
    and 0 otherwise (i.e. fragmented into multiple IP4 packets). */
 
 FD_FN_CONST static inline int fd_ip4_addr_is_mcast( uint addr ) { return (((uchar)addr)>>4)==(uchar)0xe; }
 FD_FN_CONST static inline int fd_ip4_addr_is_bcast( uint addr ) { return addr==~0U;                      }
+FD_FN_CONST static inline int fd_ip4_addr_is_loopback( uint addr ) {
+   return fd_uint_bswap( addr ) >= fd_uint_bswap( IP4_LOOPBACK_START_NET ) &&
+          fd_uint_bswap( addr ) <= fd_uint_bswap( IP4_LOOPBACK_END_NET   );
+ }
 
 FD_FN_CONST static inline int
 fd_ip4_hdr_net_frag_off_is_unfragmented( ushort net_frag_off ) { /* net order */
@@ -133,9 +138,6 @@ fd_ip4_hdr_check( void const * vp_hdr ) {
   uchar * cp = (uchar*)vp_hdr;
 
   uint n = ( (*cp) & 0x0fu );
-
-  /* optimizes the first 5 by unrolling */
-  if( n < 5 ) __builtin_unreachable();
 
   ulong        c = 0UL;
   for( uint i=0U; i<n; i++ ) {
@@ -206,7 +208,7 @@ fd_ip4_addr_is_public( uint addr ) {
   return !((addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE1_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE1_END_NET )) ||
            (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE2_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE2_END_NET )) ||
            (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE3_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE3_END_NET )) ||
-           (addr_host >= fd_uint_bswap( IP4_LOOPBACK_START_NET )       && addr_host <= fd_uint_bswap( IP4_LOOPBACK_END_NET )));
+           fd_ip4_addr_is_loopback( addr ));
 }
 
 /* fd_ip4_hdr_bswap reverses the endianness of all fields in the IPv4

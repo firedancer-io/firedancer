@@ -21,11 +21,11 @@ concurrency:
 jobs:
   # Build job
   build:
-    timeout-minutes: 30
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Not needed if lastUpdated is not enabled
       # - uses: pnpm/action-setup@v2 # Uncomment this if you're using pnpm
@@ -36,20 +36,20 @@ jobs:
       #     node-version: 18
       #     cache: npm # or pnpm / yarn
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Install dependencies
         run: bun install --cwd ./book # or pnpm install / yarn install / bun install
       - name: Build with VitePress
         run: |
           bun run --cwd ./book build # or pnpm docs:build / yarn docs:build / bun run docs:build
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: book/.vitepress/dist
 
   # Deployment job
   deploy:
-    timeout-minutes: 30
+    timeout-minutes: 2
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -59,4 +59,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

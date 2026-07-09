@@ -3,7 +3,7 @@
 
 #ifndef PB_PACKET_PACKET_PB_H_INCLUDED
 #define PB_PACKET_PACKET_PB_H_INCLUDED
-#include "../../../ballet/nanopb/pb_firedancer.h"
+#include "../../../third_party/nanopb/pb_firedancer.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.

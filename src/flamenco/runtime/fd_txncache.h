@@ -111,8 +111,6 @@
 
 #define FD_TXNCACHE_ALIGN (128UL)
 
-#define FD_TXNCACHE_MAGIC (0xF17EDA2CE5CAC4E0) /* FIREDANCE SCACHE V0 */
-
 struct fd_txncache_private;
 typedef struct fd_txncache_private fd_txncache_t;
 
@@ -192,6 +190,15 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
                            fd_txncache_fork_id_t fork_id,
                            ulong                 txnhash_offset,
                            uchar const *         blockhash );
+
+/* fd_txncache_cancel_fork removes the provided fork and all of its
+   descendants from the txncache.  Forks in the subtree must be
+   unrooted.  Forks in the subtree may or may not have been finalized.
+   Takes a write lock. */
+
+void
+fd_txncache_cancel_fork( fd_txncache_t *       tc,
+                         fd_txncache_fork_id_t fork_id );
 
 /* fd_txncache_advance_root is called when the root slot of the chain
    has advanced, in which case old message hashes (referencing

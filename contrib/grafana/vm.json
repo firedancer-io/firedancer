@@ -114,7 +114,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "(\n    sum(rate(exec_txn_regime{instance=\"$instance\"}[$__rate_interval])) by (txn_regime) /\n    on () group_left\n    sum(rate(tile_regime_duration_nanos{instance=\"$instance\",kind=\"exec\",kind_id=\"0\"}[$__rate_interval]))\n)",
+          "expr": "(\n    sum(rate(execrp_txn_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval])) by (txn_regime) /\n    on () group_left\n    sum(rate(tile_regime_duration_nanos_total{instance=\"$instance\",kind=\"exec\",kind_id=\"0\"}[$__rate_interval]))\n)",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -217,7 +217,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(exec_vm_regime{instance=\"$instance\"}[$__rate_interval])) by (vm_regime) /\non () group_left\nsum(rate(tile_regime_duration_nanos{instance=\"$instance\",kind=\"exec\",kind_id=\"0\"}[$__rate_interval])) ",
+          "expr": "sum(rate(execrp_vm_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval])) by (vm_regime) /\non () group_left\nsum(rate(tile_regime_duration_nanos_total{instance=\"$instance\",kind=\"exec\",kind_id=\"0\"}[$__rate_interval])) ",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -319,7 +319,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(exec_txn_regime{instance=\"$instance\"}[$__rate_interval])) by (txn_regime) /\non () group_left\nsum(rate(exec_txn_regime{instance=\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(execrp_txn_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval])) by (txn_regime) /\non () group_left\nsum(rate(execrp_txn_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -421,7 +421,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(exec_vm_regime{instance=\"$instance\"}[$__rate_interval])) by (vm_regime) /\non () group_left\nsum(rate(exec_vm_regime{instance=\"$instance\"}[$__rate_interval])) ",
+          "expr": "sum(rate(execrp_vm_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval])) by (vm_regime) /\non () group_left\nsum(rate(execrp_vm_regime_duration_nanos_total{instance=\"$instance\"}[$__rate_interval])) ",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -465,7 +465,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(exec_vm_regime,instance)",
+        "definition": "label_values(execrp_vm_regime_duration_nanos_total,instance)",
         "hide": 0,
         "includeAll": false,
         "multi": false,
@@ -473,7 +473,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(exec_vm_regime,instance)",
+          "query": "label_values(execrp_vm_regime_duration_nanos_total,instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

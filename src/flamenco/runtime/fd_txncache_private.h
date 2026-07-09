@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_txncache_private_h
 
 #include "fd_txncache_shmem.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
 
 /* The number of transactions in each page.  This needs to be high
@@ -80,11 +80,6 @@ struct fd_txncache_blockcache_shmem {
     ulong next;
     ulong prev;
   } blockhash_map;
-
-  struct {
-    ulong next;
-    ulong prev;
-  } fork_map;
 };
 
 typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
@@ -141,7 +136,8 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
                               most recently added root, the head is the oldest root.  This is used to identify
                               which forks can be pruned when a new root is added. */
 
-  ulong magic; /* ==FD_TXNCACHE_MAGIC */
+  ulong seed;
+  ulong magic; /* ==FD_TXNCACHE_SHMEM_MAGIC */
 };
 
 FD_PROTOTYPES_BEGIN

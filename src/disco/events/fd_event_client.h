@@ -3,7 +3,7 @@
 
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
-#include <complex.h>
+#include "../../discof/genesis/fd_genesi_tile.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h>
@@ -23,8 +23,13 @@ struct fd_event_client_metrics {
   ulong transport_success_cnt;
   ulong events_sent;
   ulong events_acked;
+  ulong last_acked_id;
   ulong bytes_written;
   ulong bytes_read;
+  ulong auth_fail_cnt;
+  ulong invalid_msg_cnt;
+  ulong connect_attempt_cnt;
+  ulong handshake_timeout_cnt;
 };
 
 typedef struct fd_event_client_metrics fd_event_client_metrics_t;
@@ -46,10 +51,14 @@ fd_event_client_new( void *                 shmem,
                      char const *           endpoint,
                      uchar const *          identity_pubkey,
                      char const *           client_version,
+                     char const *           commit_hash,
+                     char const *           action,
                      ulong                  instance_id,
                      ulong                  boot_id,
                      ulong                  machine_id,
-                     ulong                  buf_max );
+                     ulong                  buf_max,
+                     int                    use_tls,
+                     void *                 ssl_ctx );
 
 fd_event_client_t *
 fd_event_client_join( void * shec );
@@ -64,8 +73,8 @@ ulong
 fd_event_client_id_reserve( fd_event_client_t * client );
 
 void
-fd_event_client_init_genesis_hash( fd_event_client_t * client,
-                                   uchar const *       genesis_hash );
+fd_event_client_init_genesis( fd_event_client_t *       client,
+                              fd_genesis_meta_t const * genesis_meta );
 
 void
 fd_event_client_init_shred_version( fd_event_client_t * client,

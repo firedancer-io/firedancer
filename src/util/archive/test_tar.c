@@ -41,9 +41,62 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  /* Test hex file size */
+  /* Test binary size encoding (OLDGNU) */
   fd_tar_meta_t const * hdr = fd_type_pun_const( test_large_header );
   FD_TEST( fd_tar_meta_get_size( hdr )==10771643384UL );
+
+  /* Test octal size parsing with various formats */
+
+  fd_tar_meta_t meta[1];
+
+  /* Zero-padded octal (standard format from fd_tar_set_octal) */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "00000012345\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==5349UL );
+
+  /* Leading space-padded octal (valid per POSIX TAR) */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "  12345\0\0\0\0\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==5349UL );
+
+  /* Trailing space after octal digits (valid per POSIX TAR) */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "12345 \0\0\0\0\0\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==5349UL );
+
+  /* Leading and trailing spaces */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, " 12345 \0\0\0\0\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==5349UL );
+
+  /* All-null size field (size zero) */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  FD_TEST( fd_tar_meta_get_size( meta )==0UL );
+
+  /* All spaces followed by null (size zero) */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "           \0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==0UL );
+
+  /* Invalid octal digit '8' - must return ULONG_MAX */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "88888888888\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==ULONG_MAX );
+
+  /* Invalid octal digit '9' embedded in valid prefix */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "123456789\0\0\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==ULONG_MAX );
+
+  /* Non-digit characters */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memcpy( meta->size, "abc\0\0\0\0\0\0\0\0\0", 12 );
+  FD_TEST( fd_tar_meta_get_size( meta )==ULONG_MAX );
+
+  /* Roundtrip through fd_tar_meta_set_size / fd_tar_meta_get_size */
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  FD_TEST( fd_tar_meta_set_size( meta, 1234567UL ) );
+  FD_TEST( fd_tar_meta_get_size( meta )==1234567UL );
 
   FD_LOG_NOTICE(( "pass" ));
 

@@ -15,19 +15,21 @@
    not.
 
    Any peer which has tried to send us a gossip message within the last
-   two minutes is eligible to be pinged, except nodes with at least one
-   SOL of stake which are exempt from ping requirements.
+   sixty seconds is eligible to be pinged, except nodes with at least
+   FD_GOSSIP_STAKED_THRESHOLD lamports of stake which are exempt from
+   ping requirements.
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
-   until the peer responds, or their most recent message becomes older
-   than two minutes.
+   every 20s for a minute until the peer responds, or their most recent
+   message becomes older than sixty seconds.
 
    Once a peer is validated by responding to a ping with a valid pong,
    it is considered valid for 20 minutes.  After 18 minutes, we will
    begin pinging the peer again, every twenty seconds, to refresh the
    peer. */
 
+#include "fd_gossip_message.h"
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 
@@ -116,6 +118,24 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           fd_ip4_port_t       peer_address,
                           uchar const *       pong_token,
                           long                now );
+
+/* fd_ping_tracker_active returns 1 if the peer is currently active and
+   valid to send messages to, or 0 if the peer is not active. */
+
+int
+fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
+                        uchar const *       peer_pubkey,
+                        fd_ip4_port_t       peer_address );
+
+/* fd_ping_tracker_remove removes a peer from the ping tracker by
+   pubkey.  If the peer was active (VALID or VALID_REFRESHING), the
+   change_fn callback is fired with INACTIVE change type.  If the peer
+   is not in the tracker, this is a no-op. */
+
+void
+fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
+                        uchar const *       peer_pubkey,
+                        long                now );
 
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the

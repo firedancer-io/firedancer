@@ -1,6 +1,7 @@
 #include "fd_gossip_txbuild.h"
+#include "fd_gossip_message.h"
 
-#include "fd_gossip_private.h"
+#include "../../util/log/fd_log.h"
 
 struct __attribute__((packed)) crds_val_hdr {
   uchar sig[ 64UL ];
@@ -42,7 +43,7 @@ void
 fd_gossip_txbuild_append( fd_gossip_txbuild_t * txbuild,
                           ulong                 crds_len,
                           uchar const *         crds ) {
-  FD_TEST( crds_len<=FD_GOSSIP_CRDS_MAX_SZ );
+  FD_TEST( crds_len<=FD_GOSSIP_VALUE_MAX_SZ );
   FD_TEST( fd_gossip_txbuild_can_fit( txbuild, crds_len ) );
   FD_TEST( txbuild->crds_len<sizeof(txbuild->crds)/sizeof(txbuild->crds[0]) );
 

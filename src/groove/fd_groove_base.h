@@ -44,7 +44,6 @@ FD_PROTOTYPES_END
    strlen for accelerating cstr operations further but this is up to the
    user.) */
 
-/* FIXME: binary compat with funk key? */
 /* FIXME: consider aligning key 16 or 32 and/or AVX accelerating? */
 
 #define FD_GROOVE_KEY_ALIGN     (8UL)

@@ -165,13 +165,8 @@ tile_main( int     argc,
     }
 
     case 1: { /* good insert */
-      int       acq_err;
-      myele_t * ele = mypool_acquire( pool, NULL, 0, &acq_err ); /* non-blocking acquire */
-      if( FD_UNLIKELY( !ele ) ) {
-        if( acq_err==FD_POOL_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
-        else                             FD_TEST( acq_err==FD_POOL_ERR_EMPTY );
-        break;
-      }
+      myele_t * ele = mypool_acquire( pool );
+      if( FD_UNLIKELY( !ele ) ) break;
       uint key = (uint)(local_prefix | local_key);
       uint mod = 0U;
 
@@ -185,7 +180,7 @@ tile_main( int     argc,
         FD_TEST( !(flags & FD_MAP_FLAG_BLOCKING) );
         FD_TEST( err==FD_MAP_ERR_AGAIN           );
         FD_TEST( tile_cnt>1UL                    );
-        FD_TEST( !mypool_release( pool, ele, 1 ) ); /* blocking release */
+        mypool_release( pool, ele );
       } else {
         map_key[ map_cnt++ ] = key;
         local_key++;
@@ -242,7 +237,7 @@ tile_main( int     argc,
       } else {
         FD_TEST( ele->mykey== key                                               );
         FD_TEST( ele->val  ==((key ^ ele->mod) ^ (uint)mypool_idx( pool, ele )) );
-        FD_TEST( !mypool_release( pool, ele, 1 ) ); /* blocking release */
+        mypool_release( pool, ele );
         map_key[ idx ] = map_key[ --map_cnt ];
       }
       break;
@@ -472,13 +467,9 @@ tile_main( int     argc,
             FD_TEST( mymap_txn_insert( map, sentinel )==FD_MAP_ERR_INVAL ); /* not in ele store */
             FD_TEST( mymap_txn_insert( map, ele_stop )==FD_MAP_ERR_INVAL ); /* not in ele store */
 
-            int       err;
-            myele_t * ele = mypool_acquire( pool, NULL, 0, &err ); /* non-blocking acquire */
-            if( FD_UNLIKELY( !ele ) ) {
-              if( err==FD_POOL_ERR_AGAIN ) FD_TEST( tile_cnt>1UL );
-              else                         FD_TEST( err==FD_POOL_ERR_EMPTY );
-              break;
-            }
+            myele_t * ele = mypool_acquire( pool ); /* non-blocking acquire */
+            if( FD_UNLIKELY( !ele ) ) break;
+
             uint mod = 0U;
 
             ele->mykey = key;
@@ -510,7 +501,7 @@ tile_main( int     argc,
             } else {
               FD_TEST( ele->mykey== key                                               );
               FD_TEST( ele->val  ==((key ^ ele->mod) ^ (uint)mypool_idx( pool, ele )) );
-              FD_TEST( !mypool_release( pool, ele, 1 ) ); /* blocking release */
+              mypool_release( pool, ele );
               ulong idx;
               for( idx=0UL; idx<map_cnt; idx++ ) if( map_key[ idx ]==key ) break;
               map_key[ idx ] = map_key[ --map_cnt ];
@@ -625,7 +616,7 @@ tile_main( int     argc,
   for( ulong map_idx=0UL; map_idx<map_cnt; map_idx++ ) {
     mymap_query_t query[1];
     FD_TEST( !mymap_remove( map, map_key + map_idx, NULL, query, 1 ) );
-    FD_TEST( !mypool_release( pool, mymap_query_ele( query ), 1 ) );
+    mypool_release( pool, mymap_query_ele( query ) );
   }
 
   shmem_cnt = save;
@@ -657,7 +648,7 @@ main( int     argc,
 
   void * shpool = mypool_new( shmem_alloc( mypool_align(), mypool_footprint() ) );
   mypool_t pool[1]; FD_TEST( mypool_join( pool, shpool, shele, ele_max )==pool );
-  mypool_reset( pool, 0UL );
+  mypool_reset( pool );
 
   FD_LOG_NOTICE(( "Testing misc" ));
 

@@ -109,13 +109,14 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_RAW_BUF_SZ ) >= ( FD_SHRED_BATCH_WMARK_RESIGN
    FEC_SETS_MAX * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, and then
    we subtract from there the worst-case overheads from: padding,
    watermark regression and batch header.
-   - OHEAD_PAD (padding overhead): except for the last batch in a
-   block, each batch typically has FD_SHRED_BATCH_FEC_SETS_WMARK FEC
-   sets, but can contain as little as one FEC set.  However, the
+   - OHEAD_PAD (padding overhead): except for the first and last batch
+   in a block, each batch typically has FD_SHRED_BATCH_FEC_SETS_WMARK
+   FEC sets, but can contain as little as one FEC set.  However, the
    worst case occurs when each batch has two FEC sets, of which the
    second one contains a single byte of data and the rest is padding.
-   In that case, OHEAD_PAD -> 1/2 of the maximum raw capacity, i.e.
-   ( FEC_SETS_MAX / 2 ) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ.
+   In that case, OHEAD_PAD is approximately 1/2 of the maximum raw
+   capacity, i.e.
+   (FEC_SETS_MAX / 2) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ.
    - OHEAD_REG (watermark regression overhead): this is basically
    FD_SHRED_BATCH_FEC_SETS_MAX * 2048 bytes (the difference in
    payload size between chained and (chained+)resigned FEC sets).
@@ -129,6 +130,6 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_MAX ) == ( 4UL ), FD_SHRED_BATCH_FEC
 #define FD_SHRED_BATCH_BLOCK_DATA_OHEAD  (  512UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ + 8192UL + 8192UL )
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_BLOCK_DATA_OHEAD ) < ( 1024UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ ), FD_SHRED_BATCH_BLOCK_DATA_OHEAD );
 /* Define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX. */
-#define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( 1024UL * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
+#define FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX ( (1024UL-2UL) * FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - FD_SHRED_BATCH_BLOCK_DATA_OHEAD )
 
 #endif /* HEADER_fd_src_disco_shred_fd_shred_batch_h */

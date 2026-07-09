@@ -1,5 +1,6 @@
 /* Topology support routines for the net tile */
 
+#define _GNU_SOURCE
 #include "fd_net_tile.h"
 #include "../topo/fd_topob.h"
 #include "../netlink/fd_netlink_tile.h"
@@ -20,7 +21,7 @@ setup_xdp_tile( fd_topo_t *             topo,
                 char const *            if_phys,
                 ulong                   if_queue,
                 int                     xsk_core_dump ) {
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "net",    tile_kind_id,                "net_netlnk", tile_kind_id );
@@ -44,8 +45,10 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.zero_copy           = net_cfg->xdp.xdp_zero_copy;
   fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
 
+  fd_cstr_ncpy( tile->xdp.poll_mode, net_cfg->xdp.poll_mode, sizeof(tile->xdp.poll_mode) );
+
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
-  tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->xdp.netdev_tbl_obj_id      = netlink_tile->netlink.netdev_tbl_obj_id;
   tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
   tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
   tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
@@ -65,7 +68,7 @@ static void
 setup_sock_tile( fd_topo_t *             topo,
                  ulong const *           tile_to_cpu,
                  fd_config_net_t const * net_cfg ) {
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   tile->sock.net.bind_address = net_cfg->bind_address_parsed;
 
   if( FD_UNLIKELY( net_cfg->socket.receive_buffer_size>INT_MAX ) ) FD_LOG_ERR(( "invalid [net.socket.receive_buffer_size]" ));
@@ -99,7 +102,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     /* net_netlnk: net->netlnk ARP requests */
     fd_topob_wksp( topo, "net_netlnk" );
 
-    fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
     /* Enumerate network devices to attach to */
@@ -112,6 +115,10 @@ fd_topos_net_tiles( fd_topo_t *             topo,
       for( slave_cnt=0U;
            /*         */ !fd_bonding_slave_iter_done( iter );
            slave_cnt++,  fd_bonding_slave_iter_next( iter ) ) {
+        if( FD_UNLIKELY( slave_cnt>=FD_NET_BOND_SLAVE_MAX ) ) {
+          FD_LOG_ERR(( "bond interface %s has too many slave devices; max is %u (see [net.xdp.native_bond])",
+                       net_cfg->interface, FD_NET_BOND_SLAVE_MAX ));
+        }
         uint if_idx = if_nametoindex( fd_bonding_slave_iter_ele( iter ) );
         if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", fd_bonding_slave_iter_ele( iter ) ));
         devices[ slave_cnt ] = if_idx;
@@ -334,7 +341,7 @@ fd_topo_install_xdp( fd_topo_t const * topo,
     (ushort)net0_tile->xdp.net.quic_transaction_listen_port,
     (ushort)net0_tile->xdp.net.shred_listen_port,
     (ushort)net0_tile->xdp.net.gossip_listen_port,
-    (ushort)net0_tile->xdp.net.repair_intake_listen_port,
+    (ushort)net0_tile->xdp.net.repair_client_listen_port,
     (ushort)net0_tile->xdp.net.repair_serve_listen_port,
     (ushort)net0_tile->xdp.net.txsend_src_port,
   };

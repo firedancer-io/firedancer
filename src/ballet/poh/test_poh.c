@@ -194,6 +194,8 @@ int main( int argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
 
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+
   test_poh_append_nop();
   test_poh_append_one();
 
@@ -203,7 +205,7 @@ int main( int argc,
     test_poh_vector( v );
   }
 
-  bench_poh_sequential();
+  if( bench ) bench_poh_sequential();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

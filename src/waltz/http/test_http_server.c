@@ -2,6 +2,53 @@
 #include "fd_http_server_private.h"
 #include "../../util/fd_util.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+struct overflow_close_state {
+  ulong close_cnt;
+  int   last_reason;
+};
+
+typedef struct overflow_close_state overflow_close_state_t;
+
+static fd_http_server_response_t
+request_noop( fd_http_server_request_t const * request ) {
+  (void)request;
+  fd_http_server_response_t response = {
+    .status = 400,
+  };
+  return response;
+}
+
+static void
+close_capture( ulong  conn_id,
+               int    reason,
+               void * ctx ) {
+  (void)conn_id;
+  overflow_close_state_t * state = (overflow_close_state_t *)ctx;
+  state->close_cnt++;
+  state->last_reason = reason;
+}
+
+static void
+send_all( int          fd,
+          char const * req,
+          ulong        req_sz ) {
+  ulong sent = 0UL;
+  while( sent<req_sz ) {
+    long n = send( fd, req+sent, req_sz-sent, 0 );
+    if( FD_UNLIKELY( n<0L ) ) {
+      FD_LOG_ERR(( "send failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    sent += (ulong)n;
+  }
+}
+
 void
 test_oring( void ) {
   fd_http_server_params_t params = {
@@ -22,7 +69,12 @@ test_oring( void ) {
   };
 
   uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
+#if FD_HAS_ZSTD
   FD_TEST( fd_http_server_footprint( params )==1633024 );
+#else
+  FD_TEST( fd_http_server_footprint( params )==329344 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
+#endif
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -35,44 +87,48 @@ test_oring( void ) {
   FD_TEST( !memcmp( "ABC", http->oring, 3UL ) );
   fd_http_server_unstage( http );
 
-  for( ulong i=1UL; i<32UL; i++ ) {
+  for( ulong i=1UL; i<=7UL; i++ ) {
     for( ulong j=0UL; j<1024UL; j++ ) {
       for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
 
       fd_http_server_response_t response;
-      if( i>8 ) {
-        FD_TEST( fd_http_server_stage_body( http, &response ) );
-      } else {
-        FD_TEST( !fd_http_server_stage_body( http, &response ) );
-        FD_TEST( response._body_len==i );
-        FD_TEST( (response._body_off%8UL)<=8-i );
-        for( ulong l=0UL; l<i; l++ ) {
-          FD_TEST( http->oring[(response._body_off%8UL)+l]==(uchar)('a'+i) );
-        }
+      FD_TEST( !fd_http_server_stage_body( http, &response ) );
+      FD_TEST( response._body_len==i );
+      FD_TEST( (response._body_off%8UL)<=8-i );
+      for( ulong l=0UL; l<i; l++ ) {
+        FD_TEST( http->oring[(response._body_off%8UL)+l]==(uchar)('a'+i) );
       }
     }
+  }
+
+  /* Verify overflow is handled correctly for body sizes exceeding the
+     oring (only one iteration needed per size since no wrapping occurs). */
+  for( ulong i=8UL; i<32UL; i++ ) {
+    for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
+    fd_http_server_response_t response;
+    FD_TEST( fd_http_server_stage_body( http, &response ) );
   }
 
   fd_http_server_response_t response;
 
   http->stage_off = 1UL;
-  fd_http_server_printf( http, "01234567" );
+  fd_http_server_printf( http, "0123456" );
   FD_TEST( http->stage_off==8UL );
-  FD_TEST( http->stage_len==8UL );
+  FD_TEST( http->stage_len==7UL );
   FD_TEST( !fd_http_server_stage_body( http, &response ) );
   FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 7UL;
-  fd_http_server_printf( http, "01234567" );
+  fd_http_server_printf( http, "0123456" );
   FD_TEST( http->stage_off==8UL );
-  FD_TEST( http->stage_len==8UL );
+  FD_TEST( http->stage_len==7UL );
   fd_http_server_unstage( http );
   FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 16UL;
-  fd_http_server_printf( http, "01234567" );
+  fd_http_server_printf( http, "0123456" );
   FD_TEST( http->stage_off==16UL );
-  FD_TEST( http->stage_len==8UL );
+  FD_TEST( http->stage_len==7UL );
   FD_TEST( !fd_http_server_stage_body( http, &response ) );
   FD_TEST( http->stage_comp_len==0UL );
 
@@ -82,12 +138,216 @@ test_oring( void ) {
   FD_TEST( http->stage_comp_len==0UL );
 }
 
+void
+test_content_length_overflow_close( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_noop,
+    .close      = close_capture,
+    .ws_open    = NULL,
+    .ws_close   = NULL,
+    .ws_message = NULL,
+  };
+
+  FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
+  uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
+#if FD_HAS_ZSTD
+  FD_TEST( fd_http_server_footprint( params )==sizeof( scratch ) );
+#else
+  FD_TEST( fd_http_server_footprint( params )==3072 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
+#endif
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  char const * req =
+      "POST / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Content-Type: application/json\r\n"
+      "Content-Length: 30000000000000000000\r\n"
+      "\r\n"
+      "x";
+  send_all( client_fd, req, strlen( req ) );
+
+  for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
+    fd_http_server_poll( http, 1 );
+  }
+
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+}
+
+static void
+test_close_reason( char const * req,
+                   int          expected_reason,
+                   fd_http_server_params_t params ) {
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_noop,
+    .close      = close_capture,
+    .ws_open    = NULL,
+    .ws_close   = NULL,
+    .ws_message = NULL,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  send_all( client_fd, req, strlen( req ) );
+
+  for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
+    fd_http_server_poll( http, 1 );
+  }
+
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( state.last_reason==expected_reason );
+
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+static fd_http_server_params_t
+default_test_params( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+  return params;
+}
+
+void
+test_transfer_encoding_close( void ) {
+  FD_LOG_NOTICE(( "Testing Transfer-Encoding rejection" ));
+  test_close_reason(
+      "POST / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Transfer-Encoding: chunked\r\n"
+      "Content-Length: 1\r\n"
+      "\r\n"
+      "x",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING,
+      default_test_params() );
+}
+
+void
+test_duplicate_content_length_different_close( void ) {
+  FD_LOG_NOTICE(( "Testing duplicate Content-Length with different values" ));
+  test_close_reason(
+      "POST / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Content-Length: 1\r\n"
+      "Content-Length: 2\r\n"
+      "\r\n"
+      "xx",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST,
+      default_test_params() );
+}
+
+void
+test_ws_bad_key_close( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket bad Sec-WebSocket-Key" ));
+  /* Key is 24 chars but unpadded, so it decodes to 18 bytes and
+     fd_base64_decode returns != 16 (regression test for decoded_key). */
+  test_close_reason(
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAAAA\r\n"
+      "Sec-WebSocket-Version: 13\r\n"
+      "\r\n",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY,
+      default_test_params() );
+}
+
+void
+test_ws_early_data_close( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket early data after headers" ));
+  /* Valid WebSocket upgrade but with trailing data after the
+     headers — the client must not send WebSocket frames before
+     receiving the 101 response (RFC 6455 s4.2.2). */
+  test_close_reason(
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "Sec-WebSocket-Version: 13\r\n"
+      "\r\n"
+      "extradata",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST,
+      default_test_params() );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_oring();
+  test_content_length_overflow_close();
+  test_transfer_encoding_close();
+  test_duplicate_content_length_different_close();
+  test_ws_bad_key_close();
+  test_ws_early_data_close();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

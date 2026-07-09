@@ -1,13 +1,5 @@
 #include "fd_lthash_adder.h"
 
-#if FD_HAS_AVX512
-#define FD_LTHASH_ADDER_PARA_CNT 16
-#elif FD_HAS_AVX
-#define FD_LTHASH_ADDER_PARA_CNT  8
-#else
-#define FD_LTHASH_ADDER_PARA_CNT  0
-#endif
-
 fd_lthash_adder_t *
 fd_lthash_adder_new( fd_lthash_adder_t * adder ) {
   if( FD_UNLIKELY( !adder ) ) {

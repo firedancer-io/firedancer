@@ -4,7 +4,6 @@
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
-#include <assert.h>
 #include <stdio.h>
 
 /* ELF loader, part 1 **************************************************
@@ -37,12 +36,14 @@ typedef union fd_sbpf_elf fd_sbpf_elf_t;
 
    FIXME: These should be defined elsewhere */
 
-#define FD_SBPF_MM_BYTECODE_ADDR (0x0UL)         /* bytecode */
-#define FD_SBPF_MM_RODATA_ADDR   (0x100000000UL) /* readonly program data */
-#define FD_SBPF_MM_PROGRAM_ADDR  (0x100000000UL) /* readonly program data */
-#define FD_SBPF_MM_STACK_ADDR    (0x200000000UL) /* stack */
-#define FD_SBPF_MM_HEAP_ADDR     (0x300000000UL) /* heap */
-#define FD_SBPF_MM_REGION_SZ     (0x100000000UL) /* max region size */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L42-L43 */
+#define FD_SBPF_MM_RODATA_START   (0x0UL)         /* readonly data */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L44-L45 */
+#define FD_SBPF_MM_BYTECODE_START (0x100000000UL) /* bytecode / program region */
+#define FD_SBPF_MM_PROGRAM_ADDR   FD_SBPF_MM_BYTECODE_START
+#define FD_SBPF_MM_STACK_ADDR     (0x200000000UL) /* stack */
+#define FD_SBPF_MM_HEAP_ADDR      (0x300000000UL) /* heap */
+#define FD_SBPF_MM_REGION_SZ      (0x100000000UL) /* max region size */
 
 #define FD_SBPF_PF_X  (1U) /* executable */
 #define FD_SBPF_PF_W  (2U) /* writable */
@@ -128,7 +129,7 @@ fd_sbpf_program_align( void ) {
 
 ulong
 fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
-  FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depened on info contents in future) */
+  FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depend on info contents in future) */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( info->sbpf_version ) ) ) {
     /* SBPF v3+ no longer needs calldests bitmap */
     return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
@@ -174,21 +175,19 @@ fd_sbpf_program_new( void *                     prog_mem,
 
   /* Note that entry_pc and rodata_sz get set during the loading phase. */
   *prog = (fd_sbpf_program_t) {
-    .info      = *elf_info,
-    .rodata    = rodata,
-    .rodata_sz = 0UL,
-    .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
-    .entry_pc  = ULONG_MAX,
+    .info            = *elf_info,
+    .rodata          = rodata,
+    .rodata_sz       = 0UL,
+    .text            = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    .entry_pc        = ULONG_MAX,
+    .calldests_shmem = NULL,
+    .calldests       = NULL,
   };
 
-  /* If the text section is empty, then we do not need a calldests map. */
+  /* If the text section is empty, or the program is SBPF V3+, then we
+     do not need a calldests map. */
   ulong pc_max = elf_info->calldests_max;
-  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) || pc_max==0UL ) ) {
-    /* No calldests map in SBPF v3+ or if text_cnt is 0. */
-    prog->calldests_shmem = NULL;
-    prog->calldests       = NULL;
-  } else {
-    /* Initialize calldests map. */
+  if( FD_LIKELY( ( !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) ) && pc_max!=0UL ) ) {
     prog->calldests_shmem = fd_sbpf_calldests_new(
           FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
                                           fd_sbpf_calldests_footprint( pc_max ) ),
@@ -629,16 +628,16 @@ static int
 fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
                      fd_sbpf_program_t *             prog,
                      fd_sbpf_elf_t const *           elf,
-                     ulong                           elf_sz,
+                     ulong                           elf_sz,    /* bound for elf->bin reads (symbol name) */
+                     ulong                           rodata_sz, /* bound for rodata writes */
                      uchar *                         rodata,
                      fd_sbpf_elf_info_t const *      info,
                      fd_elf64_rel const *            dt_rel,
                      ulong                           r_offset,
                      fd_sbpf_loader_config_t const * config ) {
 
-  fd_elf64_shdr const * shdrs                  = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_shdr const * sh_text                = &shdrs[ info->shndx_text ];
-  fd_elf64_shdr const * dyn_section_names_shdr = &shdrs[ info->shndx_dynstr ];
+  fd_elf64_shdr const * shdrs   = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * sh_text = &shdrs[ info->shndx_text ];
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1253-L1254 */
   ulong imm_offset = fd_ulong_sat_add( r_offset, 4UL /* BYTE_OFFSET_IMMEDIATE */ );
@@ -668,9 +667,24 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   symbol = &dynsym_table[ r_sym ];
 
   /* Verify symbol name.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1261-L1263 */
-  uchar const * name;
-  ulong         name_len;
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1261-L1263
+
+     First check if the dynamic string table exists:
+     If the dynamic string table does not exist then dynamic_symbol_name()
+     will throw an error because
+
+     self.dynamic_symbol_names_section_header
+       .ok_or(ElfParserError::NoDynamicStringTable)?
+
+     will throw an error which, will be mapped to UnknownSymbol
+     https://github.com/anza-xyz/sbpf/blob/main/src/elf_parser/mod.rs#L528-L536 */
+  if( FD_UNLIKELY( info->shndx_dynstr<0 ) ) {
+    return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
+  }
+
+  uchar const *         name;
+  ulong                 name_len;
+  fd_elf64_shdr const * dyn_section_names_shdr = &shdrs[ info->shndx_dynstr ];
   if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( elf->bin, elf_sz, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SYMBOL_NAME_SZ_MAX, &name, &name_len ) ) ) {
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
@@ -706,8 +720,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
     }
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1297-L1300 */
-  if( FD_UNLIKELY( fd_ulong_sat_add( imm_offset, 4UL /* BYTE_LENGTH_IMMEDIATE */ )>elf_sz ) ) {
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1297-L1300
+     Write into rodata: bounded by the rodata buffer size, not bin_sz. */
+  if( FD_UNLIKELY( fd_ulong_sat_add( imm_offset, 4UL /* BYTE_LENGTH_IMMEDIATE */ )>rodata_sz ) ) {
     return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
   }
 
@@ -723,8 +738,7 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
 
   /* Parse file header */
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L425
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L278
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L418
      (Agave does some extra checks on alignment, but they don't seem necessary) */
   if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
@@ -732,19 +746,20 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
 
   fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L430-L453 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L419-L422 */
   ulong program_header_table_end = fd_ulong_sat_add( sizeof(fd_elf64_ehdr), fd_ulong_sat_mul( ehdr.e_phnum, sizeof(fd_elf64_phdr) ) );
 
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L423-L446 */
   int parse_ehdr_err =
       ( fd_uint_load_4( ehdr.e_ident )    != FD_ELF_MAG_LE         )
     | ( ehdr.e_ident[ FD_ELF_EI_CLASS   ] != FD_ELF_CLASS_64       )
     | ( ehdr.e_ident[ FD_ELF_EI_DATA    ] != FD_ELF_DATA_LE        )
     | ( ehdr.e_ident[ FD_ELF_EI_VERSION ] != 1                     )
     | ( ehdr.e_ident[ FD_ELF_EI_OSABI   ] != FD_ELF_OSABI_NONE     )
-    // The 7 padding bytes [9, 16) must be 0. Byte 8 (EI_OSABI) is 0 due to above check, so check [8, 16).
+    // The 7 padding bytes [9, 16) must be 0. Byte 8 (EI_ABIVERSION) is also 0, so check [8, 16).
     | ( fd_ulong_load_8( ehdr.e_ident+8 ) != 0UL                   )
-    | ( ehdr.e_type                       != FD_ELF_ET_DYN         )
-    | ( ehdr.e_machine                    != FD_ELF_EM_SBPF        )
+    // | ( ehdr.e_type )                                              /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L430 */
+    | ( ehdr.e_machine                    != FD_ELF_EM_BPF         )  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L431 */
     | ( ehdr.e_version                    != 1                     )
     // | ( ehdr.e_entry )
     | ( ehdr.e_phoff                      != sizeof(fd_elf64_ehdr) )
@@ -752,62 +767,85 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     // | ( ehdr.e_flags )
     | ( ehdr.e_ehsize                     != sizeof(fd_elf64_ehdr) )
     | ( ehdr.e_phentsize                  != sizeof(fd_elf64_phdr) )
-    | ( ehdr.e_phnum                      <  EXPECTED_PHDR_CNT     ) /* SIMD-0189 says < instead of != */
-    | ( program_header_table_end          >= bin_sz                )
-    | ( ehdr.e_shentsize                  != sizeof(fd_elf64_shdr) )
-    // | ( ehdr.e_shnum )
-    | ( ehdr.e_shstrndx                   >= ehdr.e_shnum          )
+    | ( ehdr.e_phnum                      == 0                     ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L439 */
+    | ( program_header_table_end          >  bin_sz                ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L440 */
+    // | ( ehdr.e_shentsize )                                        /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L441 */
+    // | ( ehdr.e_shnum )                                            /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L442 */
+    // | ( ehdr.e_shstrndx )                                         /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L443 */
   ;
   if( FD_UNLIKELY( parse_ehdr_err ) ) {
     return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L462 */
-  if( FD_UNLIKELY( (program_header_table_end-sizeof(fd_elf64_ehdr))%sizeof(fd_elf64_phdr) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
-  }
-  if( FD_UNLIKELY( program_header_table_end>bin_sz ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-  }
-  /* This is always true ... */
-  // if( FD_UNLIKELY( !fd_ulong_is_aligned( sizeof(fd_elf64_ehdr), 8UL ) ) ) {
-  //   return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L452-L453
+     Note: program_header_table_end = sizeof(ehdr) + e_phnum * sizeof(phdr),
+     all inputs are small so saturating arithmetic is unnecessary.
+     This means that the modulus is always zero and the code is unreachable.
+     Commented out so we can reach 100% coverage. */
+  // if( FD_UNLIKELY( (program_header_table_end-sizeof(fd_elf64_ehdr))%sizeof(fd_elf64_phdr) ) ) {
+  //   return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
   // }
 
-  /* Parse program headers (expecting 4 segments) */
+  /* Parse program headers (expecting up to 2 segments: rodata + bytecode)
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L448-L484 */
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L455-L487
-     Note: Agave iterates with a zip, i.e. it cuts the loop to 4, even
-           though the number of phdrs is allowed to be higher. */
-  ulong expected_p_vaddr[ EXPECTED_PHDR_CNT ] = { FD_SBPF_MM_BYTECODE_ADDR, FD_SBPF_MM_RODATA_ADDR, FD_SBPF_MM_STACK_ADDR, FD_SBPF_MM_HEAP_ADDR };
-  uint  expected_p_flags[ EXPECTED_PHDR_CNT ] = { FD_SBPF_PF_X,             FD_SBPF_PF_R,           FD_SBPF_PF_RW,         FD_SBPF_PF_RW        };
-  fd_elf64_phdr     phdr[ EXPECTED_PHDR_CNT ];
-  for( uint i=0; i<EXPECTED_PHDR_CNT; i++ ) {
-    ulong phdr_off = sizeof(fd_elf64_ehdr) + i*sizeof(fd_elf64_phdr);
-    phdr[ i ] = FD_LOAD( fd_elf64_phdr, bin+phdr_off );
+  #define STRICT_EXPECTED_PHDR_CNT (2U)
+  ulong expected_p_vaddr[ STRICT_EXPECTED_PHDR_CNT ] = { FD_SBPF_MM_RODATA_START, FD_SBPF_MM_BYTECODE_START };
+  uint  expected_p_flags[ STRICT_EXPECTED_PHDR_CNT ] = { FD_SBPF_PF_R,            FD_SBPF_PF_X              };
 
-    ulong p_filesz = ( expected_p_flags[ i ] & FD_SBPF_PF_W ) ? 0UL : phdr[ i ].p_memsz;
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L455-L463
+     If the first PH is not marked as readonly, expect the rodata
+     segment to be skipped. */
+  fd_elf64_phdr phdr0 = FD_LOAD( fd_elf64_phdr, bin + sizeof(fd_elf64_ehdr) );
+  int skip_rodata = ( phdr0.p_flags != expected_p_flags[ 0 ] );
+  uint ph_start = skip_rodata ? 1U : 0U;
+
+  if( FD_UNLIKELY( !skip_rodata && ehdr.e_phnum < 2 ) ) {
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L461-L463 */
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L464 */
+  ulong expected_offset = program_header_table_end;
+  fd_elf64_phdr bytecode_phdr = {0};
+
+  uint ph_count = fd_uint_min( ehdr.e_phnum, STRICT_EXPECTED_PHDR_CNT );
+  for( uint ei=ph_start, pi=0; ei<STRICT_EXPECTED_PHDR_CNT && pi<ph_count; ei++, pi++ ) {
+    fd_elf64_phdr phdr_i = FD_LOAD( fd_elf64_phdr, bin + sizeof(fd_elf64_ehdr) + pi*sizeof(fd_elf64_phdr) );
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L468-L479 */
     int parse_phdr_err =
-        ( phdr[ i ].p_type         != FD_ELF_PT_LOAD              )
-      | ( phdr[ i ].p_flags        != expected_p_flags[ i ]       )
-      | ( phdr[ i ].p_offset       <  program_header_table_end    )
-      | ( phdr[ i ].p_offset       >= bin_sz                      )
-      | ( phdr[ i ].p_offset % 8UL != 0UL                         )
-      | ( phdr[ i ].p_vaddr        != expected_p_vaddr[ i ]       )
-      | ( phdr[ i ].p_paddr        != expected_p_vaddr[ i ]       )
-      | ( phdr[ i ].p_filesz       != p_filesz                    )
-      | ( phdr[ i ].p_filesz       >  bin_sz - phdr[ i ].p_offset )
-      | ( phdr[ i ].p_filesz % 8UL != 0UL                         )
-      | ( phdr[ i ].p_memsz        >= FD_SBPF_MM_REGION_SZ        )
+        ( phdr_i.p_type         != FD_ELF_PT_LOAD              )
+      | ( phdr_i.p_flags        != expected_p_flags[ ei ]      )
+      | ( phdr_i.p_offset       != expected_offset             ) /* exact sequential: https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L470 */
+      | ( phdr_i.p_offset       >= bin_sz                      )
+      | ( phdr_i.p_offset % 8UL != 0UL                         )
+      | ( phdr_i.p_vaddr        != expected_p_vaddr[ ei ]      )
+      | ( phdr_i.p_paddr        != expected_p_vaddr[ ei ]      )
+      | ( phdr_i.p_filesz       != phdr_i.p_memsz              ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L475 */
+      | ( phdr_i.p_filesz       >  bin_sz - phdr_i.p_offset    )
+      | ( phdr_i.p_filesz % 8UL != 0UL                         )
+      | ( phdr_i.p_memsz        >= FD_SBPF_MM_REGION_SZ        )
     ;
     if( FD_UNLIKELY( parse_phdr_err ) ) {
       return FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER;
     }
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L483 */
+    expected_offset = fd_ulong_sat_add( expected_offset, phdr_i.p_filesz );
+    if( ei == 1 ) { bytecode_phdr = phdr_i; }
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L489-L506 */
-  ulong vm_range_start = phdr[ 0 ].p_vaddr;
-  ulong vm_range_end = phdr[ 0 ].p_vaddr + phdr[ 0 ].p_memsz;
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L486-L496
+     Determine bytecode_header based on skip_rodata */
+  if( skip_rodata ) {
+    bytecode_phdr = phdr0;
+  }
+  #undef STRICT_EXPECTED_PHDR_CNT
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L501-L508 */
+  ulong vm_range_start = bytecode_phdr.p_vaddr;
+  ulong vm_range_end = bytecode_phdr.p_vaddr + bytecode_phdr.p_memsz;
   ulong entry_chk = ehdr.e_entry + 7UL;
   int parse_e_entry_err =
      !( vm_range_start <= entry_chk && entry_chk < vm_range_end ) /* rust contains includes min, excludes max*/
@@ -817,23 +855,24 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L507-L515 */
-  ulong entry_pc = ( ehdr.e_entry - phdr[ 0 ].p_vaddr ) / 8UL;
-  ulong insn = fd_ulong_load_8( (uchar const *) bin + phdr[ 0 ].p_offset + entry_pc*8UL );
-  /* Entrypoint must be a valid function start (ADD64_IMM with dst=r10)
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L588 */
-  if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( insn ) ) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
-  }
+  /* entry_pc is computed later in fd_sbpf_program_load.
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L510-L514 */
 
   /* config.enable_symbol_and_section_labels is false in production,
      so there's nothing else to do.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L519 */
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L516-L518 */
+
+  /* For strict (v3+) the text (bytecode) segment is laid out immediately
+     after the rodata segment, so text_off == the rodata segment size. */
+  ulong rodata_sz = skip_rodata ? 0UL : phdr0.p_memsz;
 
   info->bin_sz   = bin_sz;
-  info->text_off = (uint)phdr[ 0 ].p_offset;
-  info->text_sz  = (uint)phdr[ 0 ].p_memsz;
-  info->text_cnt = (uint)( phdr[ 0 ].p_memsz / 8UL );
+  info->text_off = (uint)rodata_sz;
+  info->text_sz  = (uint)bytecode_phdr.p_memsz;
+  info->text_cnt = (uint)( bytecode_phdr.p_memsz / 8UL );
+
+  /* Strict (v3+): the loader assembles exactly rodata + text. */
+  info->load_buf_sz = rodata_sz + (ulong)info->text_sz;
 
   return FD_SBPF_ELF_SUCCESS;
 }
@@ -1414,9 +1453,140 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
   info->text_sz       = text_section_range.hi-text_section_range.lo;
   info->text_cnt      = (uint)( info->text_sz/8UL );
   info->shndx_text    = shndx_text;
-  info->calldests_max = fd_ulong_min( text_shdr->sh_size, bin_sz )/8UL;
+  info->calldests_max = (fd_ulong_min( text_shdr->sh_size, bin_sz )+7UL)/8UL;
 
   return FD_SBPF_ELF_SUCCESS;
+}
+
+/* fd_sbpf_lenient_ro_layout walks the section headers and computes the
+   read-only segment layout for a lenient (v0-v2) program.  The read-only
+   sections are those named .text/.rodata/.data.rel.ro/.eh_frame.  Sets:
+     - *out_highest_addr: the assembled read-only segment size (the rodata
+       buffer size), i.e. the highest section_addr + file length.
+     - *out_invalid_offsets (nullable): 1 if any read-only section's address
+       differs from its file offset.
+     - slices (nullable, must hold up to e_shnum entries) / *out_slice_cnt
+       (nullable): the section-header indices of the read-only sections, in
+       section-header order.
+   Applies the bounds and reject_broken_elfs checks that the read-only
+   assembly relies on.  Returns FD_SBPF_ELF_SUCCESS or an ElfError.  Both
+   fd_sbpf_elf_peek_lenient (to size the buffer) and fd_sbpf_parse_ro_sections
+   (to assemble it) call this, so they agree on the layout by construction. */
+static int
+fd_sbpf_lenient_ro_layout( void const *                    bin,
+                           ulong                           bin_sz,
+                           fd_sbpf_loader_config_t const * config,
+                           ulong *                         out_highest_addr,
+                           uchar *                         out_invalid_offsets,
+                           ulong *                         slices,
+                           ulong *                         out_slice_cnt ) {
+  fd_sbpf_elf_t const * elf                = (fd_sbpf_elf_t const *)bin;
+  fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * section_names_shdr = &shdrs[ elf->ehdr.e_shstrndx ];
+
+  ulong lowest_addr     = ULONG_MAX;
+  ulong highest_addr    = 0UL;
+  ulong ro_fill_length  = 0UL; /* aggregated section length, excluding gaps */
+  uchar invalid_offsets = 0;
+  ulong slice_cnt       = 0UL;
+
+  for( uint i=0U; i<elf->ehdr.e_shnum; i++ ) {
+    fd_elf64_shdr const * section_header = &shdrs[ i ];
+
+    uchar const * name;
+    ulong         name_len;
+    if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( bin, bin_sz, section_names_shdr, section_header->sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len ) ) ) {
+      continue;
+    }
+    if( FD_UNLIKELY( !fd_sbpf_slice_cstr_eq( name, name_len, ".text" ) &&
+                     !fd_sbpf_slice_cstr_eq( name, name_len, ".rodata" ) &&
+                     !fd_sbpf_slice_cstr_eq( name, name_len, ".data.rel.ro" ) &&
+                     !fd_sbpf_slice_cstr_eq( name, name_len, ".eh_frame" ) ) ) {
+      continue;
+    }
+
+    ulong section_addr = section_header->sh_addr;
+
+    /* A read-only section's address must equal its file offset, unless ELF
+       vaddrs are in use (then all addresses share a constant delta). */
+    if( FD_LIKELY( !invalid_offsets ) ) {
+      if( FD_UNLIKELY( section_addr!=section_header->sh_offset ) ) {
+        invalid_offsets = 1;
+      }
+    }
+
+    ulong vaddr_end = section_addr;
+    if( section_addr<FD_SBPF_MM_BYTECODE_START ) {
+      vaddr_end = fd_ulong_sat_add( section_addr, FD_SBPF_MM_BYTECODE_START );
+    }
+    if( FD_UNLIKELY( ( config->reject_broken_elfs && invalid_offsets ) ||
+                       vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+    }
+
+    fd_sbpf_range_t section_header_range;
+    fd_shdr_get_file_range( section_header, &section_header_range );
+    if( FD_UNLIKELY( section_header_range.hi>bin_sz ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+    }
+    ulong section_data_len = section_header_range.hi-section_header_range.lo;
+
+    lowest_addr    = fd_ulong_min( lowest_addr, section_addr );
+    highest_addr   = fd_ulong_max( highest_addr, fd_ulong_sat_add( section_addr, section_data_len ) );
+    ro_fill_length = fd_ulong_sat_add( ro_fill_length, section_data_len );
+    if( slices ) slices[ slice_cnt ] = i;
+    slice_cnt++;
+  }
+
+  /* Checks that the read-only sections are not overlapping.  This check is
+     incomplete because it does not account for gaps between sections (a gap
+     can mask an overlap), but it matches Agave exactly -- a stricter
+     line-sweep would diverge from Agave and break consensus.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L910-L913 */
+  if( FD_UNLIKELY( config->reject_broken_elfs &&
+                   fd_ulong_sat_add( lowest_addr, ro_fill_length )>highest_addr ) ) {
+    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+  }
+
+  *out_highest_addr = highest_addr;
+  if( out_invalid_offsets ) *out_invalid_offsets = invalid_offsets;
+  if( out_slice_cnt       ) *out_slice_cnt       = slice_cnt;
+  return FD_SBPF_ELF_SUCCESS;
+}
+
+/* fd_sbpf_lenient_relocs_fast_ok returns 1 iff every dynamic relocation lies
+   fully within the assembled read-only image [0,rodata_sz), and 0 otherwise.
+   The no-scratch fast load path uses a buffer of exactly rodata_sz and applies
+   every relocation in place, so it is taken only when no relocation reads or
+   writes beyond rodata_sz.  A relocation that touches the discarded ELF tail
+   (or straddles the rodata_sz boundary) routes the program to the scratch
+   fallback, which assembles the full ELF image.  r_end is the highest buffer
+   byte the relocation accesses, per relocation type. */
+static int
+fd_sbpf_lenient_relocs_fast_ok( fd_sbpf_elf_t const *      elf,
+                                ulong                      rodata_sz,
+                                fd_sbpf_elf_info_t const * info ) {
+  if( FD_UNLIKELY( info->shndx_text<0 ) ) return 0;
+  fd_elf64_shdr const * shdrs   = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * sh_text = &shdrs[ info->shndx_text ];
+  fd_sbpf_range_t text_range;
+  fd_shdr_get_file_range( sh_text, &text_range );
+
+  fd_elf64_rel const * rels    = (fd_elf64_rel const *)( elf->bin + info->dt_rel_off );
+  uint                 rel_cnt = info->dt_rel_sz / sizeof(fd_elf64_rel);
+  for( uint i=0U; i<rel_cnt; i++ ) {
+    uint  r_type   = FD_ELF64_R_TYPE( rels[i].r_info );
+    ulong r_offset = rels[i].r_offset;
+    ulong r_end;
+    switch( r_type ) {
+      case FD_ELF_R_BPF_64_64:       r_end = fd_ulong_sat_add( r_offset, 16UL ); break;
+      case FD_ELF_R_BPF_64_RELATIVE: r_end = fd_ulong_sat_add( r_offset, ( r_offset>=text_range.lo && r_offset<text_range.hi ) ? 16UL : 8UL ); break;
+      case FD_ELF_R_BPF_64_32:       r_end = fd_ulong_sat_add( r_offset,  8UL ); break;
+      default:                       r_end = r_offset; break;
+    }
+    if( r_end>rodata_sz ) return 0; /* touches the tail -> not fast */
+  }
+  return 1;
 }
 
 /* First part of Agave's load_with_lenient_parser(). We split up this
@@ -1445,7 +1615,7 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L620-L638 */
   {
-    ulong text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_RODATA_ADDR );
+    ulong text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_BYTECODE_START );
     ulong vaddr_end          = text_section_vaddr;
 
     /* Validate bounds and text section addrs / offsets.
@@ -1458,6 +1628,22 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
 
   /* Peek (vs load) stops here
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L638 */
+
+  /* Record load_buf_sz, the buffer the program cache allocates and the loader
+     assembles into.  The fast (no-scratch) path is eligible when (a) the
+     read-only layout is computed without error, (b) every read-only section's
+     address equals its file offset (invalid_offsets==0), so the sections can
+     be assembled in place, and (c) every dynamic relocation lies fully within
+     the read-only image (fd_sbpf_lenient_relocs_fast_ok).  When eligible,
+     load_buf_sz is the exact image size; otherwise it is bin_sz, which
+     fd_sbpf_loader_is_legacy_lenient reports so the loader takes the scratch
+     path over the full ELF. */
+  ulong highest_addr    = 0UL;
+  uchar invalid_offsets = 0;
+  int   fast = ( fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, &invalid_offsets, NULL, NULL )==FD_SBPF_ELF_SUCCESS ) &&
+               ( invalid_offsets==0 ) &&
+               fd_sbpf_lenient_relocs_fast_ok( (fd_sbpf_elf_t const *)bin, highest_addr, info );
+  info->load_buf_sz = fast ? highest_addr : bin_sz;
 
   return FD_SBPF_ELF_SUCCESS;
 }
@@ -1528,6 +1714,18 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
 
+/* In-place sort of read-only slice section indices by ascending file offset,
+   used by the lenient fast path to zero the gaps between read-only slices.
+   The comparator reads sh_offset from the section header table, supplied via
+   a thread-local pointer because fd_sort's SORT_BEFORE macro takes no context.
+   N is tiny (one entry per read-only section), so insertion sort is the right
+   backend. */
+static FD_TL fd_elf64_shdr const * fd_sbpf_ro_sort_shdrs;
+#define SORT_NAME        fd_sbpf_ro_idx_sort
+#define SORT_KEY_T       ulong
+#define SORT_BEFORE(a,b) ( fd_sbpf_ro_sort_shdrs[ (a) ].sh_offset < fd_sbpf_ro_sort_shdrs[ (b) ].sh_offset )
+#include "../../util/tmpl/fd_sort.c"
+
 /* Parses and concatenates the readonly data sections.  This function
    also computes and sets the rodata_sz field inside the SBPF program
    struct.  scratch is a pointer to a scratch area with size scratch_sz,
@@ -1547,102 +1745,24 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
 
   fd_sbpf_elf_t const * elf                = (fd_sbpf_elf_t const *)bin;
   fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_shdr const * section_names_shdr = &shdrs[ elf->ehdr.e_shstrndx ];
   uchar *               rodata             = prog->rodata;
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L818-L834 */
-  ulong lowest_addr          = ULONG_MAX; /* Lowest section address */
-  ulong highest_addr         = 0UL;       /* Highest section address */
-  ulong ro_fill_length       = 0UL;       /* Aggregated section length, excluding gaps between sections */
-  uchar invalid_offsets      = 0;         /* Whether the section has invalid offsets */
-
-  /* Store the section header indices of ro slices to fill later. */
+  /* Compute the read-only segment layout and the section-header indices of
+     the read-only slices. */
+  ulong highest_addr = 0UL;
   ulong ro_slices_shidxs[ elf->ehdr.e_shnum ];
   ulong ro_slices_cnt = 0UL;
-
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L837-L909 */
-  for( uint i=0U; i<elf->ehdr.e_shnum; i++ ) {
-    fd_elf64_shdr const * section_header = &shdrs[ i ];
-
-    /* Match the section name.
-       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L838-L845 */
-    uchar const * name;
-    ulong         name_len;
-    if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( bin, bin_sz, section_names_shdr, section_header->sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len ) ) ) {
-      continue;
-    }
-
-    if( FD_UNLIKELY( !fd_sbpf_slice_cstr_eq( name, name_len, ".text" ) &&
-                     !fd_sbpf_slice_cstr_eq( name, name_len, ".rodata" ) &&
-                     !fd_sbpf_slice_cstr_eq( name, name_len, ".data.rel.ro" ) &&
-                     !fd_sbpf_slice_cstr_eq( name, name_len, ".eh_frame" ) ) ) {
-      continue;
-    }
-
-    ulong section_addr = section_header->sh_addr;
-
-    /* Handling for the section header offsets. If ELF vaddrs are
-       enabled, the section header addresses are allowed to be > the
-       section header offsets, as long as address - offset is constant
-       across all sections. Otherwise, the section header addresses
-       and offsets must match.
-       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L865-L884 */
-    if( FD_LIKELY( !invalid_offsets ) ) {
-      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L866-L880 */
-      if( FD_UNLIKELY( section_addr!=section_header->sh_offset ) ) {
-        invalid_offsets = 1;
-      }
-    }
-
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L886-L897 */
-    ulong vaddr_end = section_addr;
-    if( section_addr<FD_SBPF_MM_RODATA_ADDR ) {
-      vaddr_end = fd_ulong_sat_add( section_addr, FD_SBPF_MM_RODATA_ADDR );
-    }
-
-    if( FD_UNLIKELY( ( config->reject_broken_elfs && invalid_offsets ) ||
-                       vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
-      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-    }
-
-    /* Append the ro slices vector and update the lowest / highest addr
-       and ro_fill_length variables. Agave stores three fields in the
-       ro slices array that can all be derived from the section header,
-       so we just need to store the indices.
-
-       The call to fd_shdr_get_file_range() is allowed to fail (Agave's
-       unwrap_or_default() call returns a range of 0..0 in this case).
-       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L899-L908 */
-    fd_sbpf_range_t section_header_range;
-    fd_shdr_get_file_range( section_header, &section_header_range );
-    if( FD_UNLIKELY( section_header_range.hi>bin_sz ) ) {
-      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-    }
-    ulong section_data_len = section_header_range.hi-section_header_range.lo;
-
-    lowest_addr    = fd_ulong_min( lowest_addr, section_addr );
-    highest_addr   = fd_ulong_max( highest_addr, fd_ulong_sat_add( section_addr, section_data_len ) );
-    ro_fill_length = fd_ulong_sat_add( ro_fill_length, section_data_len );
-    ro_slices_shidxs[ ro_slices_cnt++ ] = i;
-  }
-
-  /* This checks that the ro sections are not overlapping. This check
-     is incomplete, however, because it does not account for the
-     existence of gaps between sections in calculations.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L910-L913 */
-  if( FD_UNLIKELY( config->reject_broken_elfs &&
-                   fd_ulong_sat_add( lowest_addr, ro_fill_length )>highest_addr ) ) {
-    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-  }
+  int   layout_err    = fd_sbpf_lenient_ro_layout( bin, bin_sz, config, &highest_addr, NULL, ro_slices_shidxs, &ro_slices_cnt );
+  if( FD_UNLIKELY( layout_err ) ) return layout_err;
 
   /* Note that optimize_rodata is always false.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L923-L984 */
- {
+ if( scratch ) { /* fallback path: assemble the ro image via a scratch buffer */
     /* Readonly / non-readonly sections are mixed, so non-readonly
        sections must be zeroed and the readonly sections must be copied
        at their respective offsets.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L950-L983 */
-    lowest_addr = 0UL;
+    ulong lowest_addr = 0UL;
 
     /* Bounds check. */
     ulong buf_len = highest_addr;
@@ -1681,6 +1801,37 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     /* Copy the rodata section back in. */
     prog->rodata_sz = buf_len;
     fd_memcpy( rodata, ro_section, buf_len );
+  } else { /* fast path: no scratch; the ro image is assembled in place */
+    /* The read-only image was copied into the destination buffer in place and
+       relocations applied there.  The fast path is selected only when every
+       read-only section's address equals its file offset, so each section
+       already sits at its final position; zeroing the gaps between and around
+       the read-only slices produces the assembled image.  The buffer is
+       load_buf_sz == highest_addr (fd_sbpf_elf_peek and this function compute
+       it via the same fd_sbpf_lenient_ro_layout walk). */
+    ulong buf_len = highest_addr;
+    if( FD_UNLIKELY( buf_len>bin_sz ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+    }
+
+    /* Sort the ro slice section indices in place by ascending file offset. */
+    fd_sbpf_ro_sort_shdrs = shdrs;
+    fd_sbpf_ro_idx_sort_insert( ro_slices_shidxs, ro_slices_cnt );
+
+    /* Zero the complement of the union of the ro slices within [0,buf_len). */
+    ulong cursor = 0UL;
+    for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
+      fd_sbpf_range_t slice_range;
+      fd_shdr_get_file_range( &shdrs[ ro_slices_shidxs[ i ] ], &slice_range );
+      if( FD_UNLIKELY( slice_range.hi>bin_sz ) ) {
+        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+      }
+      if( slice_range.lo>cursor ) fd_memset( rodata+cursor, 0, slice_range.lo-cursor );
+      cursor = fd_ulong_max( cursor, slice_range.hi );
+    }
+    if( cursor<buf_len ) fd_memset( rodata+cursor, 0, buf_len-cursor );
+
+    prog->rodata_sz = buf_len;
   }
 
   return FD_SBPF_ELF_SUCCESS;
@@ -1694,15 +1845,26 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
                           void const *                    bin,
                           ulong                           bin_sz,
                           fd_sbpf_loader_config_t const * config,
-                          fd_sbpf_loader_t *              loader ) {
+                          fd_sbpf_loader_t *              loader,
+                          int                             is_fast ) {
   fd_sbpf_elf_info_t const * elf_info = &prog->info;
   fd_sbpf_elf_t const *      elf      = (fd_sbpf_elf_t const *)bin;
   uchar *                    rodata   = prog->rodata;
   fd_elf64_shdr const *      shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
   fd_elf64_shdr const *      shtext   = &shdrs[ elf_info->shndx_text ];
 
-  /* Copy rodata segment */
-  fd_memcpy( rodata, elf->bin, elf_info->bin_sz );
+  /* rodata_bound is the size of the destination rodata buffer.  On the fast
+     (no-scratch) path it is the final rodata_sz (the ELF tail is neither
+     copied nor allocated); on the fallback path it is bin_sz, making
+     everything below behave exactly as the original loader.  Reads from the
+     original ELF image (elf->bin: symbol/string/reloc tables, which can live
+     in the tail) stay bounded by bin_sz; reads/writes into the rodata buffer
+     are bounded by rodata_bound. */
+  ulong rodata_bound = is_fast ? elf_info->load_buf_sz : bin_sz;
+
+  /* Copy the read-only image into the destination buffer (only the
+     [0,rodata_bound) prefix we actually need on the fast path). */
+  fd_memcpy( rodata, elf->bin, rodata_bound );
 
   /* Fixup all program counter relative call instructions
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1005-L1041 */
@@ -1713,7 +1875,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
     fd_shdr_get_file_range( shtext, &text_section_range );
 
     ulong insn_cnt = (text_section_range.hi-text_section_range.lo)/8UL;
-    if( FD_UNLIKELY( shtext->sh_size+shtext->sh_offset>bin_sz ) ) {
+    if( FD_UNLIKELY( shtext->sh_size+shtext->sh_offset>rodata_bound ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
 
@@ -1767,18 +1929,21 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
     for( uint i=0U; i<dt_rel_cnt; i++ ) {
       fd_elf64_rel const * dt_rel   = &dt_rels[ i ];
       ulong                r_offset = dt_rel->r_offset;
+      uint                 r_type   = FD_ELF64_R_TYPE( dt_rel->r_info );
 
+      /* Relocations write into the destination buffer (rodata_bound bytes) and
+         read tables from the original ELF (bin_sz bytes). */
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1068-L1303 */
       int err;
-      switch( FD_ELF64_R_TYPE( dt_rel->r_info ) ) {
+      switch( r_type ) {
         case FD_ELF_R_BPF_64_64:
-          err = fd_sbpf_r_bpf_64_64( elf, bin_sz, rodata, elf_info, dt_rel, r_offset );
+          err = fd_sbpf_r_bpf_64_64( elf, rodata_bound, rodata, elf_info, dt_rel, r_offset );
           break;
         case FD_ELF_R_BPF_64_RELATIVE:
-          err = fd_sbpf_r_bpf_64_relative(elf, bin_sz, rodata, elf_info, r_offset );
+          err = fd_sbpf_r_bpf_64_relative(elf, rodata_bound, rodata, elf_info, r_offset );
           break;
         case FD_ELF_R_BPF_64_32:
-          err = fd_sbpf_r_bpf_64_32( loader, prog, elf, bin_sz, rodata, elf_info, dt_rel, r_offset, config );
+          err = fd_sbpf_r_bpf_64_32( loader, prog, elf, bin_sz, rodata_bound, rodata, elf_info, dt_rel, r_offset, config );
           break;
         default:
           return FD_SBPF_ELF_ERR_UNKNOWN_RELOCATION;
@@ -1826,8 +1991,16 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   fd_elf64_shdr const * shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
   fd_elf64_shdr const * sh_text  = &shdrs[ elf_info->shndx_text ];
 
+  /* Fast (no-scratch) path is selected by the caller passing scratch==NULL,
+     which the program cache does for fast-eligible programs (peek set
+     load_buf_sz < bin_sz, i.e. !fd_sbpf_loader_is_legacy_lenient).  On the
+     fast path the rodata buffer is sized to load_buf_sz and the read-only
+     image is assembled in place; otherwise we take the original
+     scratch-based path with a bin_sz buffer. */
+  int is_fast = ( scratch==NULL );
+
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L642-L647 */
-  int err = fd_sbpf_program_relocate( prog, bin, bin_sz, config, loader );
+  int err = fd_sbpf_program_relocate( prog, bin, bin_sz, config, loader, is_fast );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L649-L653 */
@@ -1873,6 +2046,51 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   return FD_SBPF_ELF_SUCCESS;
 }
 
+/* Strict ELF loading (for SBPF V3+ programs).
+
+   SBPF V3+ programs do not require relocations or calldests, so this
+   function is much cheaper than fd_sbpf_program_load_lenient.
+
+   https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L406-L590 */
+static int
+fd_sbpf_program_load_strict( fd_sbpf_program_t * prog,
+                             void const *        bin ) {
+  fd_elf64_ehdr ehdr   = FD_LOAD( fd_elf64_ehdr, bin );
+  fd_elf64_phdr phdr_0 = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr) );
+  int skip_rodata      = phdr_0.p_flags != FD_SBPF_PF_R;
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L486-L496 */
+  fd_elf64_phdr bytecode_phdr;
+  if( FD_UNLIKELY( skip_rodata ) ) {
+    prog->rodata_sz = 0UL;
+    bytecode_phdr   = phdr_0;
+  } else {
+    prog->rodata_sz = phdr_0.p_memsz;
+    bytecode_phdr   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr)+sizeof(fd_elf64_phdr) );
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L493
+       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L497
+       Note: memcpy merged below */
+    // fd_memcpy( prog->rodata, (uchar const *)bin + phdr_0.p_offset, phdr_0.p_filesz );
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L498-L499
+     Note: memcpy merged below */
+  prog->text = (ulong *)( (uchar *)prog->rodata + prog->rodata_sz );
+  // fd_memcpy( (uchar *)prog->text, (uchar const *)bin + bytecode_phdr.p_offset, bytecode_phdr.p_filesz );
+
+  /* Copy the rodata and bytecode (text) segments into the destination buffer.
+     rodata and text are contiguous, so we can copy them in a single memcpy.
+     text_sz >= 8, so we can safely use memcpy. */
+  memcpy( prog->rodata,
+          (uchar const *)bin + phdr_0.p_offset,
+          prog->rodata_sz + (ulong)prog->info.text_sz );
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L510-L514 */
+  prog->entry_pc = fd_ulong_sat_sub( ehdr.e_entry, bytecode_phdr.p_vaddr ) / 8UL;
+  return FD_SBPF_ELF_SUCCESS;
+}
+
 int
 fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
@@ -1888,24 +2106,11 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
 
   /* Invoke strict vs lenient loader
      Note: info.sbpf_version is already set by fd_sbpf_program_parse()
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L409 */
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L396-L402 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ) ) {
-    /* There is nothing else to do in the strict case except updating
-       the prog->rodata_sz field from phdr[ 1 ].p_memsz, and setting
-       the entry_pc. */
-    fd_elf64_ehdr ehdr     = FD_LOAD( fd_elf64_ehdr, bin );
-    fd_elf64_phdr phdr_0   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr) );
-    fd_elf64_phdr phdr_1   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr)+sizeof(fd_elf64_phdr) );
-    prog->rodata_sz        = phdr_1.p_memsz;
-    prog->entry_pc         = ( ehdr.e_entry-phdr_0.p_vaddr )/8UL;
-    return FD_SBPF_ELF_SUCCESS;
+    return fd_sbpf_program_load_strict( prog, bin );
   }
-  int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
-  if( FD_UNLIKELY( res!=FD_SBPF_ELF_SUCCESS ) ) {
-    return res;
-  }
-
-  return FD_SBPF_ELF_SUCCESS;
+  return fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
 }
 
 #undef ERR

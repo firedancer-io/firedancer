@@ -5,13 +5,15 @@
 #include <linux/if_link.h>
 
 #if !defined(__linux__)
-#error "fd_fib4_netlink.c requires a Linux system with kernel headers"
+#error "fd_netdev_netlink.c requires a Linux system with kernel headers"
 #endif
 
 #include <errno.h>
 #include <linux/if.h> /* IFNAMSIZ */
 #include <linux/if_arp.h> /* ARPHRD_NETROM */
 #include <linux/rtnetlink.h> /* RTM_{...}, NLM_{...} */
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <linux/if_tunnel.h>
 
 static fd_netdev_t *
@@ -168,8 +170,8 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
           goto fail;
         }
         int master_idx = FD_LOAD( int, rta );
-        if( FD_UNLIKELY( master_idx<0 || master_idx>=tbl->hdr->dev_max ) ) {
-          FD_LOG_WARNING(( "Error reading interface table: IFLA_MASTER has invalid index %d", master_idx ));
+        if( FD_UNLIKELY( master_idx<0 ) ) {
+          FD_LOG_WARNING(( "Error reading interface table: IFLA_MASTER has invalid ifindex %d", master_idx ));
           err = EPROTO;
           goto fail;
         }

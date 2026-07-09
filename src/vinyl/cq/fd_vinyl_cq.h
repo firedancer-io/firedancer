@@ -67,7 +67,7 @@ typedef struct fd_vinyl_comp fd_vinyl_comp_t;
 
    When reading completions from a cq, a consumer:
 
-   - Determine the cache line for consumer's seq.
+   - Determines the cache line for consumer's seq.
 
    - Reads the cache line seq.
 

@@ -85,9 +85,11 @@ main( int     argc,
 
   FD_TEST( !strcmp( fd_wksp_name( wksp ), name ) );
 
-  FD_TEST( fd_wksp_seed    ( wksp )==seed        );
-  FD_TEST( fd_wksp_part_max( wksp )==part_max    );
-  FD_TEST( fd_wksp_data_max( wksp )==data_max    );
+  FD_TEST( fd_wksp_seed    ( wksp )==seed                                );
+  FD_TEST( fd_wksp_part_max( wksp )==part_max                            );
+  FD_TEST( fd_wksp_data_max( wksp )==data_max                            );
+  FD_TEST( fd_wksp_gaddr_lo( wksp )> 0UL                                 );
+  FD_TEST( fd_wksp_gaddr_hi( wksp )==fd_wksp_gaddr_lo( wksp ) + data_max );
 
   /* Note that rebuild and verify are tested in user aggressively */
 

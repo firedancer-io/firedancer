@@ -9,6 +9,7 @@
 #include "fd_quic_sandbox.h"
 #include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
+#include "../../../disco/fd_clock_tile.h"
 #include "../../../tango/tempo/fd_tempo.h"
 #include <string.h>
 
@@ -22,9 +23,8 @@ main( int     argc,
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  fd_clock_t clock[1];
-  fd_clock_shmem_t clock_shmem[1];
-  fd_clock_default_init( clock, clock_shmem );
+  fd_clock_tile_t clock[1];
+  fd_clock_tile_init( clock );
 
   char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                          );
@@ -74,7 +74,7 @@ main( int     argc,
   fd_quic_t * const quic = sandbox->quic;
   quic->config.idle_timeout = (ulong)100000e9;
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  state->now = fd_clock_now( clock );
+  state->now = fd_clock_tile_now( clock );
 
   /* Create table of server-side conn objects to inject traffic into. */
 
@@ -93,13 +93,13 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Test start (--conn-cnt %lu --duration %g s --conn-burst %lu)", conn_cnt, (double)duration, conn_burst ));
 
-  long test_finish = fd_clock_now( clock ) + (long)( duration * 1e9f );
+  long test_finish = fd_clock_tile_now( clock ) + (long)( duration * 1e9f );
 
   long  lazy        = 1e6; /* 1 ms */
   float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
   ulong async_min   = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, tick_per_ns );
 
-  long now  = fd_clock_now( clock );
+  long now  = fd_clock_tile_now( clock );
   long then = now;
 
   uchar frame_buf[ 1024 ];
@@ -111,7 +111,7 @@ main( int     argc,
   for(;;) {
 
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
-      long ts = fd_clock_now( clock );
+      long ts = fd_clock_tile_now( clock );
       if( ts > test_finish ) break;
 
       if( ts-last_stat >= (long)1e9 ) {
@@ -124,7 +124,7 @@ main( int     argc,
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
-    fd_quic_service( quic, fd_clock_now( clock ) );
+    fd_quic_service( quic, fd_clock_tile_now( clock ) );
 
     if( burst_idx==0UL ) {
       conn_idx  = fd_rng_ulong_roll( rng, conn_cnt );
@@ -143,7 +143,7 @@ main( int     argc,
     fd_quic_sandbox_send_lone_frame( sandbox, conn, frame_buf, sz );
     FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
 
-    now = fd_clock_now( clock );
+    now = fd_clock_tile_now( clock );
     frame_cnt++;
 
   }
@@ -162,8 +162,8 @@ main( int     argc,
 
   fd_wksp_free_laddr( conn_list );
   fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );
-  fd_clock_leave( clock );
-  fd_clock_delete( clock_shmem );
+  fd_clock_leave( clock->clock );
+  fd_clock_delete( clock->shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

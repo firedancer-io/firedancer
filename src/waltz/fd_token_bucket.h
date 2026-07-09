@@ -5,10 +5,10 @@
 #include <math.h>
 
 struct fd_token_bucket {
-  long  ts;
-  float rate;
-  float burst;
-  float balance;
+  long  ts;       /* timestamp in ticks (see fd_tickcount()) */
+  float rate;     /* tokens per tick, how often do we probe */
+  float burst;    /* in tokens, how many probes can we send at once */
+  float balance;  /* in tokens, can be negative if bucket is overdrawn */
 };
 
 typedef struct fd_token_bucket fd_token_bucket_t;

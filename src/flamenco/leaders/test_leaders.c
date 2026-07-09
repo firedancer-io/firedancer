@@ -15,7 +15,26 @@ static uchar leaders_buf[
   FD_EPOCH_LEADERS_FOOTPRINT( 3373UL, 432000UL )
 ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 
-const ulong vote_keyed_lsched = 0UL;
+static void
+test_leader_bits( fd_epoch_leaders_t const * leaders ) {
+  ulong expected_bits[ FD_EPOCH_LEADERS_BITSET_WORD_CNT( 3373UL ) ] = {0UL};
+  FD_TEST( leaders->leader_bits_word_cnt<=FD_EPOCH_LEADERS_BITSET_WORD_CNT( 3373UL ) );
+
+  for( ulong i=0UL; i<leaders->sched_cnt; i++ ) {
+    ulong idx = (ulong)leaders->sched[i];
+    expected_bits[ idx>>6 ] |= (1UL<<(idx&63UL));
+  }
+
+  for( ulong i=0UL; i<leaders->leader_bits_word_cnt; i++ )
+    FD_TEST( leaders->leader_bits[i]==expected_bits[i] );
+
+  for( ulong idx=0UL; idx<=leaders->pub_cnt; idx++ ) {
+    int expected = !!( expected_bits[ idx>>6 ] & (1UL<<(idx&63UL)) );
+    FD_TEST( fd_epoch_leaders_is_leader_idx( leaders, idx )==expected );
+  }
+
+  FD_TEST( !fd_epoch_leaders_is_leader_idx( leaders, leaders->pub_cnt+1UL ) );
+}
 
 int
 main( int     argc,
@@ -40,9 +59,10 @@ main( int     argc,
   fd_pubkey_t       const * leaders_pubkeys = (fd_pubkey_t       const *)e454_leaders_pubkeys;
   uint              const * leaders_idx     = (uint              const *)e454_leaders_idx;
 
-  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, pub_cnt, stakes, 0UL, vote_keyed_lsched ) );
+  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, pub_cnt, stakes, 0UL ) );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( leaders_buf );
   FD_TEST( leaders );
+  test_leader_bits( leaders );
 
   for( ulong i=0UL; i<e454_leaders_pubkeys_sz/32UL; i++ ) {
     FD_TEST( !memcmp( fd_epoch_leaders_get( leaders, slot0+i ), leaders_pubkeys+i, 32UL ) );
@@ -60,9 +80,10 @@ main( int     argc,
   ulong shortlist_cnt = pub_cnt/2UL;
   ulong excluded_stake = 0UL;
   for( ulong i=shortlist_cnt; i<pub_cnt; i++ ) excluded_stake += stakes[ i ].stake;
-  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, shortlist_cnt, stakes, excluded_stake, vote_keyed_lsched ) );
+  FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, shortlist_cnt, stakes, excluded_stake ) );
   leaders = fd_epoch_leaders_join( leaders_buf );
   FD_TEST( leaders );
+  test_leader_bits( leaders );
 
   static const uchar indeterminate[32] = { FD_INDETERMINATE_LEADER };
   for( ulong i=0UL; i<432000UL; i++ ) {

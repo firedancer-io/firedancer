@@ -4,22 +4,18 @@ package events.v1;
 
 import "events.proto";
 
-// Nanosecond resolution timestamp
-message Timestamp {
-  int64 seconds = 1;
-  int32 nanos = 2;
-}
-
 // An event sent from the application to the event server
 message StreamEventsRequest {
   // A nonce provided by the application to identify this event, should be acknowledged back in StreamEventsResponse
   uint64 nonce = 1;
   // The unique ID of the event from this application, monotonically increasing from zero, may have gaps if events get dropped
   uint64 event_id = 2;
-  // The wall clock time when the event was recorded
-  Timestamp timestamp = 3;
+  // The producer's per-link sequence number, monotonically increasing from zero, gaps indicate the producer's link to the event tile overran and dropped events
+  uint64 link_seq = 3;
+  // The wall clock time when the event was recorded, in nanoseconds since the Unix epoch
+  uint64 timestamp_nanos = 4;
   // The actual event
-  Event event = 4;
+  Event event = 5;
 }
 
 // Acknowledgement of an event received by the server
@@ -31,32 +27,28 @@ message StreamEventsResponse {
 message AuthenticateRequest {
   bytes identity_pubkey = 1;
   string version = 2;
-  bytes genesis_hash = 3;
-  uint64 shred_version = 4;
-  uint64 instance_id = 5;
-  uint64 machine_id = 6;
-  uint64 boot_id = 7;
+  string commit_hash = 3;
+  bytes genesis_hash = 4;
+  uint64 shred_version = 5;
+  uint64 instance_id = 6;
+  uint64 machine_id = 7;
+  uint64 boot_id = 8;
+  string action = 9;
 }
 
 message AuthenticateResponse {
   bytes challenge = 1;
 }
 
-message ConfirmAuthChallengeRequest {
-  bytes signed_challenge = 1;
-}
-
-message ConfirmAuthChallengeResponse {
-}
-
-// An event server for receiving application reported events
+// An event server for receiving application reported events.
+//
+// Auth is via bearer token. Client must ed25519 sign the challenge token returned by Authenticate
+// and present it in the `authorization` header as `Bearer <hex(token)>.<hex(sig)>`.
 service EventService {
-  // Generate an authentication challenge for the client to sign
+  // Generate an authentication challenge token for the client to sign.
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse) {}
 
-  // Confirm the signed authentication challenge from the client
-  rpc ConfirmAuthChallenge(ConfirmAuthChallengeRequest) returns (ConfirmAuthChallengeResponse) {}
-
-  // Stream of events from client to server, and acknowledgements from server to client
+  // Stream of events from client to server, and acknowledgements from server to client. The
+  // client authenticates by presenting the signed challenge token in the authorization header.
   rpc StreamEvents (stream StreamEventsRequest) returns (stream StreamEventsResponse);
 }

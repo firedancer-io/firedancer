@@ -5,7 +5,6 @@
 #include "fd_quic_enum.h"
 #include "fd_quic_private.h"
 #include "../../ballet/aes/fd_aes_gcm.h"
-#include <assert.h>
 
 FD_STATIC_ASSERT( FD_QUIC_RETRY_LOCAL_SZ==
                   FD_QUIC_MAX_FOOTPRINT(retry_hdr) +
@@ -84,7 +83,6 @@ fd_quic_retry_create(
   memcpy( retry_hdr->dst_conn_id, src_conn_id->conn_id, FD_QUIC_MAX_CONN_ID_SZ );
   FD_STORE( ulong, retry_hdr->src_conn_id, new_conn_id );
   ulong rc = fd_quic_encode_retry_hdr( retry, FD_QUIC_RETRY_LOCAL_SZ, retry_hdr );
-  assert( rc!=FD_QUIC_PARSE_FAIL );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) FD_LOG_CRIT(( "fd_quic_encode_retry_hdr failed" ));
   out_ptr  += rc;
   out_free -= rc;
@@ -92,7 +90,7 @@ fd_quic_retry_create(
   /* Craft a new retry token */
 
   fd_quic_retry_token_t * retry_token = fd_type_pun( out_ptr );
-  assert( out_free >= sizeof(fd_quic_retry_token_t) );
+  FD_DCHECK_CRIT( out_free >= sizeof(fd_quic_retry_token_t), "insufficient space for retry token" );
 
   uint   src_ip4_addr = pkt->ip4->saddr;  /* net order */
   ushort src_udp_port = (ushort)fd_ushort_bswap( (ushort)pkt->udp->net_sport );
@@ -136,7 +134,7 @@ fd_quic_retry_create(
 
 # endif /* FD_QUIC_DISABLE_CRYPTO */
 
-  assert( (ulong)out_ptr - (ulong)retry <= FD_QUIC_RETRY_LOCAL_SZ );
+  FD_DCHECK_CRIT( (ulong)out_ptr - (ulong)retry <= FD_QUIC_RETRY_LOCAL_SZ, "retry packet overflow" );
   ulong retry_sz = (ulong)out_ptr - (ulong)retry;
   return retry_sz;
 }
@@ -254,7 +252,7 @@ fd_quic_retry_client_verify( uchar const * const       retry_ptr,
   /* Consume retry integrity tag */
 
   uchar const * retry_tag = cur_ptr;
-  assert( cur_sz==FD_QUIC_CRYPTO_TAG_SZ );
+  FD_DCHECK_CRIT( cur_sz==FD_QUIC_CRYPTO_TAG_SZ, "invalid retry tag size" );
   cur_ptr += FD_QUIC_CRYPTO_TAG_SZ;
   cur_sz  -= FD_QUIC_CRYPTO_TAG_SZ;
 

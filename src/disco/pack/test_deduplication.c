@@ -1,8 +1,6 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
-#include "../fd_ballet.h"
 #include "fd_pack.h"
-#include "fd_compute_budget_program.h"
-#include "../txn/fd_txn.h"
+#include "../../ballet/txn/fd_txn.h"
 #include "../../util/simd/fd_avx.h"
 
 FD_IMPORT_BINARY( sample_vote,  "src/disco/pack/sample_vote.bin"          );
@@ -37,11 +35,6 @@ check_sort( uchar const * payload,
 }
 
 static const fd_acct_addr_t null_addr = {{ 1, 0 }};
-
-struct fd_pack_private_addr_use_record {
-  fd_acct_addr_t key; /* account address */
-};
-typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
 
 #define MAP_NAME              hash_pubkeys
 #define MAP_T                 fd_pack_addr_use_t

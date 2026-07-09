@@ -221,7 +221,7 @@ main( int argc, char ** argv ) {
           client_complete = 0;
 
           /* start new connection */
-          client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+          client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
 
           if( !client_conn ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));

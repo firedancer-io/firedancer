@@ -150,7 +150,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
   if ( FD_UNLIKELY( sz > LONG_MAX ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
-    return 0;
+    return NULL;
   }
   if( FD_UNLIKELY( (!_haddr) ) ) {
     vm->segv_vaddr       = vaddr;
@@ -158,12 +158,12 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
     vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
     FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
-    return 0;
+    return NULL;
   }
   if ( FD_UNLIKELY( _sigbus ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
     *err = FD_VM_SYSCALL_ERR_SEGFAULT;
-    return 0;
+    return NULL;
   }
   return (void *)_haddr;
 }
@@ -219,16 +219,6 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
 #define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 #define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
 
-/* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED simply converts a vaddr within the input memory region
-   into an haddr. The sets the region_idx and haddr. */
-#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                  \
-  _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
-  if( FD_UNLIKELY( _offset>=vm->input_mem_regions[ _out_region_idx ].vaddr_offset+vm->input_mem_regions[ _out_region_idx ].region_sz ) ) {      \
-    FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                                                              \
-    return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                                                          \
-  }                                                                                                                                             \
-  _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
-}))
 
 /* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
    Agave's translate_slice function returns an empty array if the sz == 0.
@@ -255,21 +245,6 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
     void const * haddr = 0UL;                                                                                   \
     if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
       haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz );                                                       \
-    }                                                                                                           \
-    haddr;                                                                                                      \
-}))
-
-
-/* This is the same as the above function but passes in a size of 1 to support
-   loads with no size bounding support. */
-#define FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, vaddr, align ) (__extension__({                              \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                       \
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                        \
-      return FD_VM_SYSCALL_ERR_INVALID_LENGTH;                                                                  \
-    }                                                                                                           \
-    void const * haddr = 0UL;                                                                                   \
-    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
-      haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, 1UL );                                                      \
     }                                                                                                           \
     haddr;                                                                                                      \
 }))
@@ -316,7 +291,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
       query->haddr = FD_VM_MEM_HADDR_ST( _vm, query->vaddr, query->align, query->sz ); \
     } \
     for( ulong j=0UL; j<i; j++ ) { \
-      fd_vm_haddr_query_t * other_query = queries[j]; \
+      fd_vm_haddr_query_t * other_query = _queries[j]; \
       FD_VM_MEM_CHECK_NON_OVERLAPPING( _vm, (ulong)query->haddr, query->sz, (ulong)other_query->haddr, other_query->sz ); \
     } \
   } \

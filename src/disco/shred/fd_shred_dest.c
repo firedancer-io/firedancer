@@ -1,4 +1,5 @@
 #include "fd_shred_dest.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 
 struct pubkey_to_idx {
   fd_pubkey_t key;
@@ -16,7 +17,7 @@ static const fd_pubkey_t null_pubkey = {{ 0 }};
 #define MAP_MEMOIZE           0
 #define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
+#define MAP_KEY_HASH(k,s)     ((MAP_HASH_T)fd_accdb_hash( (k).key, (s) ))
 
 #include "../../util/tmpl/fd_map_dynamic.c"
 
@@ -95,8 +96,8 @@ fd_shred_dest_new( void                           * mem,
     return NULL;
   }
 
-  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
-  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
+  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(), fd_wsample_footprint( staked_cnt, 1 ));
+  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),     sizeof(ulong)*unstaked_cnt           );
 
 
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( sdest->rng, FD_CHACHA_RNG_MODE_SHIFT ) );
@@ -261,8 +262,7 @@ fd_shred_dest_idx_t *
 fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
                              fd_shred_t const * const * input_shreds,
                              ulong                      shred_cnt,
-                             fd_shred_dest_idx_t      * out,
-                             int                        use_chacha8 ) {
+                             fd_shred_dest_idx_t      * out ) {
 
   if( FD_UNLIKELY( shred_cnt==0UL ) ) return out;
 
@@ -291,9 +291,17 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
 
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
-    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ], use_chacha8 );
-    /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
-    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] );
+    /* Map FD_WSAMPLE_INDETERMINATE (UINT_MAX-1) and FD_WSAMPLE_EMPTY
+       (UINT_MAX) to FD_SHRED_DEST_NO_DEST.  If wsample returns either
+       sentinel value, it will be cast to -2 or -1, so the max will be
+       -1, as desired.  Otherwise, since wsample guarantees the returned
+       index is in [0, INT_MAX], it will remain non-negative when cast
+       to an int, so the max will be that value. */
+    FD_STATIC_ASSERT( (int)FD_WSAMPLE_INDETERMINATE             <=-1, wsample_val );
+    FD_STATIC_ASSERT( (int)FD_WSAMPLE_EMPTY                     <=-1, wsample_val );
+    FD_STATIC_ASSERT( FD_SHRED_DEST_NO_DEST==(fd_shred_dest_idx_t)-1, wsample_val );
+    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_int_max( (int)fd_wsample_sample( sdest->staked ), -1 );
     else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
   }
   fd_wsample_restore_all( sdest->staked );
@@ -309,8 +317,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
                                 ulong                      out_stride,
                                 ulong                      fanout,
                                 ulong                      dest_cnt,
-                                ulong                    * opt_max_dest_cnt,
-                                int                        use_chacha8 ) {
+                                ulong                    * opt_max_dest_cnt ) {
 
   /* The logic here is a little tricky since we are keeping track of
      staked and unstaked separately and only logically concatenating
@@ -328,10 +335,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
   ulong               slot   = input_shreds[0]->slot;
   fd_pubkey_t const * leader = fd_epoch_leaders_get   ( sdest->lsched, slot );
+  if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
+
   pubkey_to_idx_t *   query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, NULL );
   int                 leader_is_staked = query ? (query->idx<sdest->staked_cnt): 0;
   ulong               leader_idx       = query ?  query->idx                   : ULONG_MAX;
-  if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
   if( FD_UNLIKELY( leader_idx==my_orig_idx ) ) return NULL; /* I am the leader. Use compute_first */
 
   if( FD_UNLIKELY( (sdest->cnt<=1UL) |                    /* We don't know about a single destination, so we can't send
@@ -360,7 +368,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     if( FD_LIKELY( query && leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
 
     ulong my_idx         = 0UL;
-    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ], use_chacha8 ); /* Seeds both samplers since the rng is shared */
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
 
     if( FD_UNLIKELY( !i_am_staked ) ) {
       /* If there's excluded stake, we don't know about any unstaked
@@ -441,7 +449,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       if( FD_UNLIKELY( sample==FD_WSAMPLE_INDETERMINATE ) ) break;
 
       if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
-        out[ stored_cnt*out_stride + i ] = (ushort)sample;
+        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
         stored_cnt++;
       }
       cursor++;
@@ -459,7 +467,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) break;
 
       if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
-        out[ stored_cnt*out_stride + i ] = (ushort)sample;
+        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
         stored_cnt++;
       }
       cursor++;

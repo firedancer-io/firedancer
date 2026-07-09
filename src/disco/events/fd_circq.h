@@ -107,8 +107,7 @@ fd_circq_cursor_advance( fd_circq_t * circq,
 /* fd_circq_pop_until removes messages from the front of the circular
    buffer up to and including the message with the given cursor value.
    Returns 0 on success, or -1 if the given cursor value is invalid
-   (i.e., it is higher than the present cursor of the circq and has
-   never existed.) */
+   (i.e., larger than highest cursor value returned by cursor_advance). */
 
 int
 fd_circq_pop_until( fd_circq_t * circq,
@@ -126,6 +125,14 @@ fd_circq_reset_cursor( fd_circq_t * circq );
 
 ulong
 fd_circq_bytes_used( fd_circq_t const * circq );
+
+/* fd_circq_unsent_cnt returns the number of messages in the queue that
+   the cursor has not yet advanced past, i.e. messages still waiting to
+   be sent.  The remaining messages (cnt - unsent) have been sent and are
+   awaiting acknowledgement before they are popped. */
+
+ulong
+fd_circq_unsent_cnt( fd_circq_t const * circq );
 
 FD_PROTOTYPES_END
 

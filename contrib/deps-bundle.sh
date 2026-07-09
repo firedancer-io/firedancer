@@ -21,8 +21,7 @@ cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"/..
 rm -f deps-bundle.tar.zst
 
 tar -Izstd -cf deps-bundle.tar.zst \
-  ./opt/{include,lib} \
-  ./opt/git/bzip2/*.{h,c}
+  ./opt/{include,lib}
 
 echo "[+] Created deps-bundle.tar.zst"
 

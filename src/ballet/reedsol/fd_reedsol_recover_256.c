@@ -427,7 +427,7 @@ fd_reedsol_private_recover_var_256( ulong           shred_sz,
 
     fd_reedsol_ifft_256_0( ALL_VARS_REF );
 
-    FD_REEDSOL_GENERATE_FDERIV( 256, ALL_VARS );
+    fd_reedsol_fderiv_256( ALL_VARS_REF );
 
     fd_reedsol_fft_256_0( ALL_VARS_REF );
 
@@ -730,6 +730,10 @@ fd_reedsol_private_recover_var_256( ulong           shred_sz,
     if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_CORRUPT;
     shred_pos += GF_WIDTH;
     shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );
+    #undef STORE_COMPARE_RELOAD
+    #undef STORE_COMPARE
+    #undef ALL_VARS
+    #undef ALL_VARS_REF
   }
   return FD_REEDSOL_SUCCESS;
 }

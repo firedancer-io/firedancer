@@ -1,6 +1,8 @@
 #include "fd_scratch.h"
 
+#if FD_DCHECK_STYLE>0
 FD_TL int     fd_scratch_in_prepare;         /* 0    on thread start */
+#endif
 
 FD_TL ulong   fd_scratch_private_start;      /* 0UL  on thread start */
 FD_TL ulong   fd_scratch_private_free;       /* 0UL  on thread start */

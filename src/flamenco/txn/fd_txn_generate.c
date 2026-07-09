@@ -144,17 +144,3 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
                                       data_sz, acct_off, data_off );
   return (ulong)(write_ptr - out_txn_payload);
 }
-
-void
-fd_txn_reset_instrs( uchar * txn_meta_ptr,
-                     uchar out_txn_payload[ static FD_TXN_MTU ] ) {
-  fd_txn_t * txn_meta = (fd_txn_t *)txn_meta_ptr;
-  if( FD_UNLIKELY( txn_meta->instr_cnt == 0 ) ) {
-    return;
-  }
-
-  ulong instr_start   = txn_meta->recent_blockhash_off + FD_TXN_BLOCKHASH_SZ;
-
-  *(out_txn_payload + instr_start) = 0;
-  txn_meta->instr_cnt = 0;
-}

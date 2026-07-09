@@ -15,6 +15,16 @@ typedef enum {
   CMD_PUBKEY,
 } cmd_type_t;
 
+static int
+cstr_ncpy_check( char *       dst,
+                 char const * src,
+                 ulong        dst_sz ) {
+  if( FD_UNLIKELY( fd_cstr_nlen( src, dst_sz )>=dst_sz ) ) return 0;
+
+  fd_cstr_ncpy( dst, src, dst_sz );
+  return 1;
+}
+
 void
 keys_cmd_args( int *    pargc,
                char *** pargv,
@@ -26,14 +36,18 @@ keys_cmd_args( int *    pargc,
     (*pargv)++;
     if( FD_UNLIKELY( *pargc < 1 ) ) goto err;
     args->keys.cmd = CMD_NEW_KEY;
-    fd_memcpy( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) );
+    if( FD_UNLIKELY( !cstr_ncpy_check( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) ) ) ) {
+      FD_LOG_ERR(( "key file path too long" ));
+    }
   }
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pubkey"  ) ) ) {
     (*pargc)--;
     (*pargv)++;
     if( FD_UNLIKELY( *pargc < 1 ) ) goto err;
     args->keys.cmd = CMD_PUBKEY;
-    fd_memcpy( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) );
+    if( FD_UNLIKELY( !cstr_ncpy_check( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) ) ) ) {
+      FD_LOG_ERR(( "key file path too long" ));
+    }
   }
   else goto err;
 
@@ -44,7 +58,7 @@ keys_cmd_args( int *    pargc,
 
 err:
     FD_LOG_ERR(( "unrecognized subcommand `%s`\nusage:\n"
-                 "  keys new key <path-to-keyfile>\n"
+                 "  keys new <path-to-keyfile>\n"
                  "  keys pubkey <path-to-keyfile>\n",
                  *pargv[0] ));
 }
@@ -114,7 +128,7 @@ generate_keypair( char const *     keyfile,
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_memset_explicit( keypair, 0, 64UL );
+  fd_memzero_explicit( keypair, 64UL );
 }
 
 static void
@@ -137,10 +151,22 @@ keys_cmd_fn( args_t *   args,
   }
 }
 
+static void
+keys_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "new <path>",    NULL, "Generate a new random ED25519 keypair and write it to <path> as a\n"
+                                                   "Solana keypair file (a JSON array of 64 bytes)" );
+  fd_action_help_arg( help, "pubkey <path>", NULL, "Read the Solana keypair file at <path> and print its base58 public key" );
+}
+
 action_t fd_action_keys = {
   .name        = "keys",
   .args        = keys_cmd_args,
   .fn          = keys_cmd_fn,
   .perm        = NULL,
   .description = "Generate new keypairs for use with the validator or print a public key",
+  .detail      = "Local key file utility.  `new` creates a fresh validator or vote account\n"
+                 "keypair; `pubkey` prints the public key of an existing keypair file.  This\n"
+                 "command does not require a running validator.",
+  .usage       = "keys <new|pubkey> <path-to-keyfile>",
+  .args_help   = keys_args_help,
 };

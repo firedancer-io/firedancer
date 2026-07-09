@@ -5,6 +5,7 @@
    functions for creating a useful topology. */
 
 #include "../../disco/topo/fd_topo.h"
+#include "fd_cpu_topo.h"
 
 /* A link in the topology is either unpolled or polled.  Almost all
    links are polled, which means a tile which has this link as an in
@@ -21,6 +22,13 @@
 
 #define FD_TOPOB_UNRELIABLE 0
 #define FD_TOPOB_RELIABLE 1
+
+/* Tile priority types used by fd_topob_auto_layout to classify tiles
+   into scheduling categories. */
+#define FD_TOPOB_PRIORITY_FLOATING (1)
+#define FD_TOPOB_PRIORITY_STARTUP  (2)
+#define FD_TOPOB_PRIORITY_NORMAL   (3)
+#define FD_TOPOB_PRIORITY_CRITICAL (4)
 
 FD_PROTOTYPES_BEGIN
 
@@ -101,7 +109,8 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch );
+               int            uses_id_keyswitch,
+               int            uses_av_keyswitch );
 
 /* Add an input link to the tile.  If the tile is created with fd_stem,
    it will automatically poll the in link and forward fragments to the
@@ -136,11 +145,18 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    ulong        link_kind_id );
 
 /* Automatically layout the tiles onto CPUs in the topology for a
-   best effort. */
+   best effort.  fd_topob_auto_layout reads CPU topology from the OS.
+   fd_topob_auto_layout_cpus takes a pre-built CPU topology, useful
+   for testing. */
 
 void
 fd_topob_auto_layout( fd_topo_t * topo,
                       int         reserve_agave_cores );
+
+void
+fd_topob_auto_layout_cpus( fd_topo_t *      topo,
+                           fd_topo_cpus_t * cpus,
+                           int              reserve_agave_cores );
 
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
@@ -151,6 +167,19 @@ fd_topob_auto_layout( fd_topo_t * topo,
 void
 fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks );
+
+
+/* Classify a tile name into one of the FD_TOPOB_PRIORITY_* categories. */
+int
+fd_topob_tile_priority_type( char const * name );
+
+void
+fd_topob_validate_cpu_overlaps( fd_topo_t const * topo );
+
+ulong
+fd_topob_parse_affinity_cstr( char const * cstr,
+                              ushort *     tile_to_cpu,
+                              int          allow_repeats );
 
 FD_PROTOTYPES_END
 

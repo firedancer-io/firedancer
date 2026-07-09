@@ -1,12 +1,13 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_compute_budget_details_h
 #define HEADER_fd_src_flamenco_runtime_fd_compute_budget_details_h
 
-#include "../fd_flamenco_base.h"
+#include "../../util/fd_util_base.h"
 
 FD_PROTOTYPES_BEGIN
 
 /* Defines any compute budget details that may or may not be updated
    by compute budget instructions.
+
    https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L39-L51 */
 struct fd_compute_budget_details {
   uchar has_compute_units_limit_update;
@@ -30,6 +31,7 @@ struct fd_compute_budget_details {
 
   ushort requested_heap_size_instr_index; /* Index of the instruction that requested a heap size. */
 };
+
 typedef struct fd_compute_budget_details fd_compute_budget_details_t;
 
 void

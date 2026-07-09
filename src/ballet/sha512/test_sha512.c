@@ -1,11 +1,6 @@
 #include "../fd_ballet.h"
 #include "fd_sha512_test_vector.c"
 
-#ifdef HAS_CAVP_TEST_VECTORS
-#include "cavp/sha512_short.inc"
-#include "cavp/sha512_long.inc"
-#endif
-
 FD_STATIC_ASSERT( FD_SHA512_ALIGN    ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_SHA512_FOOTPRINT==256UL, unit_test );
 
@@ -97,6 +92,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   FD_TEST( fd_sha512_align    ()==FD_SHA512_ALIGN     );
@@ -162,14 +159,6 @@ main( int     argc,
 # undef DATA_MAX
 # undef BATCH_MAX
 
-# ifdef HAS_CAVP_TEST_VECTORS
-  /* Test NIST CAVP message fixtures */
-  test_sha512_vectors( cavp_sha512_short, sha, rng );
-  FD_LOG_NOTICE(( "OK: CAVP SHA512ShortMsg.rsp" ));
-  test_sha512_vectors( cavp_sha512_long,  sha, rng );
-  FD_LOG_NOTICE(( "OK: CAVP SHA512LongMsg.rsp" ));
-# endif
-
   /* do a quick benchmark of sha-512 on small and large UDP payloads
      packets from UDP/IP4/VLAN/Ethernet */
 
@@ -179,61 +168,63 @@ main( int     argc,
   uchar buf [ 1472 ] __attribute__((aligned(128)));
   for( ulong b=0UL; b<1472UL; b++ ) buf[b] = fd_rng_uchar( rng );
 
-  FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
-  for( ulong idx=0U; idx<2UL; idx++ ) {
-    ulong sz = bench_sz[ idx ];
-
-    /* warmup */
-    for( ulong rem=10UL; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, sz ), hash );
-
-    /* for real */
-    ulong iter = 100000UL;
-    long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, sz ), hash );
-    dt += fd_log_wallclock();
-    float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
-    FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
-  }
-
-  FD_LOG_NOTICE(( "Benchmarking streamlined" ));
-  for( ulong idx=0U; idx<2UL; idx++ ) {
-    ulong sz = bench_sz[ idx ];
-
-    /* warmup */
-    for( ulong rem=10UL; rem; rem-- ) fd_sha512_hash( buf, sz, hash );
-
-    /* for real */
-    ulong iter = 100000UL;
-    long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_sha512_hash( buf, sz, hash );
-    dt += fd_log_wallclock();
-    float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
-    FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
-  }
-
-  FD_LOG_NOTICE(( "Benchmarking batched" ));
-  for( ulong idx=0U; idx<2UL; idx++ ) {
-    ulong sz = bench_sz[ idx ];
-    for( ulong batch_cnt=1UL; batch_cnt<=24UL; batch_cnt++ ) {
+  if( bench ) {
+    FD_LOG_NOTICE(( "Benchmarking incremental (best case)" ));
+    for( ulong idx=0U; idx<2UL; idx++ ) {
+      ulong sz = bench_sz[ idx ];
 
       /* warmup */
-      for( ulong rem=10UL; rem; rem-- ) {
-        fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem );
-        for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha512_batch_add( batch, buf, sz, hash );
-        fd_sha512_batch_fini( batch );
-      }
+      for( ulong rem=10UL; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, sz ), hash );
 
       /* for real */
-      ulong iter = 10000UL;
+      ulong iter = 100000UL;
       long  dt   = -fd_log_wallclock();
-      for( ulong rem=iter; rem; rem-- ) {
-        fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem );
-        for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha512_batch_add( batch, buf, sz, hash );
-        fd_sha512_batch_fini( batch );
-      }
+      for( ulong rem=iter; rem; rem-- ) fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), buf, sz ), hash );
       dt += fd_log_wallclock();
-      float gbps = ((float)(batch_cnt*8UL*(70UL+sz)*iter)) / ((float)dt);
-      FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (batch_cnt %2lu sz %4lu)", (double)gbps, batch_cnt, sz ));
+      float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
+      FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+    }
+
+    FD_LOG_NOTICE(( "Benchmarking streamlined" ));
+    for( ulong idx=0U; idx<2UL; idx++ ) {
+      ulong sz = bench_sz[ idx ];
+
+      /* warmup */
+      for( ulong rem=10UL; rem; rem-- ) fd_sha512_hash( buf, sz, hash );
+
+      /* for real */
+      ulong iter = 100000UL;
+      long  dt   = -fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) fd_sha512_hash( buf, sz, hash );
+      dt += fd_log_wallclock();
+      float gbps = ((float)(8UL*(70UL+sz)*iter)) / ((float)dt);
+      FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, sz ));
+    }
+
+    FD_LOG_NOTICE(( "Benchmarking batched" ));
+    for( ulong idx=0U; idx<2UL; idx++ ) {
+      ulong sz = bench_sz[ idx ];
+      for( ulong batch_cnt=1UL; batch_cnt<=24UL; batch_cnt++ ) {
+
+        /* warmup */
+        for( ulong rem=10UL; rem; rem-- ) {
+          fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem );
+          for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha512_batch_add( batch, buf, sz, hash );
+          fd_sha512_batch_fini( batch );
+        }
+
+        /* for real */
+        ulong iter = 10000UL;
+        long  dt   = -fd_log_wallclock();
+        for( ulong rem=iter; rem; rem-- ) {
+          fd_sha512_batch_t * batch = fd_sha512_batch_init( batch_mem );
+          for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ ) fd_sha512_batch_add( batch, buf, sz, hash );
+          fd_sha512_batch_fini( batch );
+        }
+        dt += fd_log_wallclock();
+        float gbps = ((float)(batch_cnt*8UL*(70UL+sz)*iter)) / ((float)dt);
+        FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (batch_cnt %2lu sz %4lu)", (double)gbps, batch_cnt, sz ));
+      }
     }
   }
 

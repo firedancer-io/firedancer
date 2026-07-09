@@ -146,7 +146,7 @@ main( int     argc,
   fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = now;
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */

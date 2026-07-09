@@ -134,8 +134,10 @@ fd_file_util_rmtree( char const * path,
   }
 
   struct dirent * entry;
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     char path1[ PATH_MAX ];
@@ -162,7 +164,7 @@ fd_file_util_rmtree( char const * path,
     }
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) )   return -1;
+  if( FD_UNLIKELY( errno ) )                    return -1;
   if( FD_UNLIKELY( -1==closedir( dir ) ) )      return -1;
   if( FD_LIKELY( remove_root && -1==rmdir( path ) ) ) return -1;
 
@@ -211,4 +213,45 @@ fd_file_util_read_all( char const * path,
 
   *out_sz = toml_sz;
   return (char *)mem;
+}
+
+char *
+fd_file_util_read_cstr( char const * path,
+                        char *       dst,
+                        ulong        dst_max,
+                        ulong *      dst_len ) {
+  if( FD_UNLIKELY( !dst_max ) ) {
+    errno = ENOMEM;
+    return NULL;
+  }
+
+  char * ret = NULL;
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) return NULL;
+  ulong off = 0UL;
+  for(;;) {
+    if( FD_UNLIKELY( off>=dst_max-1UL ) ) {
+      char extra;
+      long more = read( fd, &extra, 1UL );
+      if( FD_UNLIKELY( -1==more ) ) goto cleanup;
+      if( FD_UNLIKELY( more>0L ) ) { errno = ENOMEM; goto cleanup; }
+      break;
+    }
+
+    long bytes_read = read( fd, dst+off, dst_max-off-1UL );
+    if( FD_UNLIKELY( -1==bytes_read ) ) {
+      goto cleanup;
+    } else if( FD_UNLIKELY( !bytes_read ) ) {
+      break;
+    }
+
+    off += (ulong)bytes_read;
+  }
+  dst[ off ] = '\0';
+  if( dst_len ) *dst_len = off;
+  ret = dst;
+
+cleanup:
+  if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return ret;
 }

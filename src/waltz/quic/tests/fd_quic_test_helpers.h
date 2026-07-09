@@ -6,8 +6,12 @@
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
 #include "../../../ballet/txn/fd_txn.h" /* FD_TXN_MTU */
+#include "../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
+
+#define FD_QUIC_TEST_SERVER_IP4 FD_IP4_ADDR( 127, 0, 0, 1 )
+#define FD_QUIC_TEST_CLIENT_IP4 FD_IP4_ADDR( 127, 0, 0, 2 )
 
 /* Common helpers for QUIC tests.  The tests using these gain the
    following command-line options:

@@ -1,18 +1,19 @@
 /* fd_solfuzz_exec.c contains internal executors */
 
 #include "fd_solfuzz_private.h"
+#include "fd_gossip_harness.h"
 #include "generated/block.pb.h"
-#include "generated/invoke.pb.h"
+#include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
+#include "generated/bundle.pb.h"
 #include "generated/vm.pb.h"
+#include "generated/vm_serialization.pb.h"
+#include "generated/cost.pb.h"
 #include "generated/elf.pb.h"
-
-#if FD_HAS_FLATCC
-#include "flatbuffers/generated/elf_reader.h"
-#endif
+#include "generated/shred.pb.h"
+#include "generated/gossip.pb.h"
 
 #include "../fd_executor_err.h"
-#include <assert.h>
 
 /*
  * fixtures
@@ -64,7 +65,9 @@ static int
 _diff_txn_acct( fd_exec_test_acct_state_t * expected,
                 fd_exec_test_acct_state_t * actual ) {
   /* AcctState -> address (This must hold true when calling this function!) */
-  assert( fd_memeq( expected->address, actual->address, sizeof(fd_pubkey_t) ) );
+  if( FD_UNLIKELY( !fd_memeq( expected->address, actual->address, sizeof(fd_pubkey_t) ) ) ) {
+    FD_LOG_CRIT(( "diff algorithm error" ));
+  }
 
   /* AcctState -> lamports */
   if( expected->lamports != actual->lamports ) {
@@ -103,9 +106,9 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
   /* AcctState -> owner */
   if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
-    char a[ FD_BASE58_ENCODED_32_SZ ];
-    char b[ FD_BASE58_ENCODED_32_SZ ];
-    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", fd_acct_addr_cstr( a, expected->owner ), fd_acct_addr_cstr( b, actual->owner ) ));
+    FD_BASE58_ENCODE_32_BYTES( expected->owner, expected_b58 );
+    FD_BASE58_ENCODE_32_BYTES( actual->owner,   actual_b58   );
+    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", expected_b58, actual_b58 ));
     return 0;
   }
 
@@ -114,26 +117,35 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
 
 static int
-_diff_resulting_states( fd_exec_test_resulting_state_t *  expected,
-                        fd_exec_test_resulting_state_t *  actual ) {
+_diff_accounts( fd_exec_test_acct_state_t * expected,
+                pb_size_t                   expected_count,
+                fd_exec_test_acct_state_t * actual,
+                pb_size_t                   actual_count ) {
   // Verify that the number of accounts are the same
-  if( expected->acct_states_count != actual->acct_states_count ) {
-    FD_LOG_WARNING(( "Account states count mismatch: expected=%u actual=%u", expected->acct_states_count, actual->acct_states_count ));
+  if( expected_count != actual_count ) {
+    FD_LOG_WARNING(( "Account states count mismatch: expected=%u actual=%u", expected_count, actual_count ));
     return 0;
   }
 
   // Verify that the account states are the same
-  for( ulong i = 0; i < expected->acct_states_count; ++i ) {
-    for( ulong j = 0; j < actual->acct_states_count; ++j ) {
-      if( fd_memeq( expected->acct_states[i].address, actual->acct_states[j].address, sizeof(fd_pubkey_t) ) ) {
-        if( !_diff_txn_acct( &expected->acct_states[i], &actual->acct_states[j] ) ) {
+  for( ulong i = 0; i < expected_count; ++i ) {
+    uchar found = 0;
+    for( ulong j = 0; j < actual_count; ++j ) {
+      if( fd_memeq( expected[i].address, actual[j].address, sizeof(fd_pubkey_t) ) ) {
+        found = 1;
+        if( !_diff_txn_acct( &expected[i], &actual[j] ) ) {
           return 0;
         }
+        break;
       }
+    }
+    if( !found ) {
+      FD_BASE58_ENCODE_32_BYTES( expected[i].address, a );
+      FD_LOG_WARNING(( "Account state not found in actual: expected=%s", a ));
+      return 0;
     }
   }
 
-  // TODO: resulting_state -> rent_debits, resulting_state->transaction_rent
   return 1;
 }
 
@@ -146,32 +158,19 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
     return 0;
   }
 
-  /* TxnResult -> sanitization_error */
-  if( expected->sanitization_error != actual->sanitization_error ) {
-    FD_LOG_WARNING(( "Sanitization error mismatch: expected=%d actual=%d", expected->sanitization_error, actual->sanitization_error ));
+  /* TxnResult -> modified_accounts */
+  if( !_diff_accounts( expected->modified_accounts, expected->modified_accounts_count, actual->modified_accounts, actual->modified_accounts_count ) ) {
     return 0;
   }
 
-  /* TxnResult -> resulting_state */
-  if( !_diff_resulting_states( &expected->resulting_state, &actual->resulting_state ) ) {
+  /* TxnResult -> rollback_accounts */
+  if( !_diff_accounts( expected->rollback_accounts, expected->rollback_accounts_count, actual->rollback_accounts, actual->rollback_accounts_count ) ) {
     return 0;
   }
 
-  /* TxnResult -> rent */
-  if( expected->rent != actual->rent ) {
-    FD_LOG_WARNING(( "Rent mismatch: expected=%lu actual=%lu", expected->rent, actual->rent ));
-    return 0;
-  }
-
-  /* TxnResult -> is_ok */
-  if( expected->is_ok != actual->is_ok ) {
-    FD_LOG_WARNING(( "Is ok mismatch: expected=%d actual=%d", expected->is_ok, actual->is_ok ));
-    return 0;
-  }
-
-  /* TxnResult -> status */
-  if( expected->status != actual->status ) {
-    FD_LOG_WARNING(( "Status mismatch: expected=%u actual=%u", expected->status, actual->status ));
+  /* TxnResult -> txn_error */
+  if( expected->txn_error != actual->txn_error ) {
+    FD_LOG_WARNING(( "Txn error mismatch: expected=%u actual=%u", expected->txn_error, actual->txn_error ));
     return 0;
   }
 
@@ -305,6 +304,29 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
+fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_bundle_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_bundle_fixture_t_msg );
+  if( !res ) {
+    FD_LOG_WARNING(( "Invalid bundle fixture." ));
+    return 0;
+  }
+
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_bundle_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_bundle_effects_t_msg, runner->spad );
+  fd_spad_pop( runner->spad );
+
+  // Cleanup
+  pb_release( &fd_exec_test_bundle_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
 fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz ) {
@@ -324,29 +346,6 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_block_fixture_t_msg, fixture );
-  return ok;
-}
-
-int
-fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
-                                  uchar const *         in,
-                                  ulong                 in_sz ) {
-  // Decode fixture
-  fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg );
-  if( !res ) {
-    FD_LOG_WARNING(( "Invalid elf_loader fixture." ));
-    return 0;
-  }
-
-  fd_spad_push( runner->spad );
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_elf_loader_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg, runner->spad );
-  fd_spad_pop( runner->spad );
-
-  // Cleanup
-  pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -373,120 +372,127 @@ fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
 }
 
 int
-fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
-                                 uchar const *         in,
-                                 ulong                 in_sz ) {
+fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
+                                  uchar const *         in,
+                                  ulong                 in_sz ) {
   // Decode fixture
-  fd_exec_test_syscall_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
-    FD_LOG_WARNING(( "Invalid syscall fixture." ));
+  fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid elf loader fixture." ));
     return 0;
   }
 
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_vm_interp_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_elf_loader_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_elf_loader_effects_t_msg, runner->spad );
   fd_spad_pop( runner->spad );
 
   // Cleanup
-  pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
+  pb_release( &fd_exec_test_elf_loader_fixture_t_msg, fixture );
   return ok;
 }
 
-#if FD_HAS_FLATCC
-
-/* Flatbuffers */
-static int
-sol_compat_fb_cmp_elf_loader( SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected,
-                              SOL_COMPAT_NS(ELFLoaderEffects_table_t) actual ) {
-  /* Compare err_code */
-  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_err_code( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_err_code( actual )) ) ) {
-    FD_LOG_WARNING(( "Err code mismatch: expected=%u actual=%u", SOL_COMPAT_NS(ELFLoaderEffects_err_code( expected )), SOL_COMPAT_NS(ELFLoaderEffects_err_code( actual )) ));
+int
+fd_solfuzz_pb_shred_fixture( fd_solfuzz_runner_t * runner,
+                             uchar const *         in,
+                             ulong                 in_sz ) {
+  fd_exec_test_shred_parse_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_shred_parse_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid shred fixture." ));
     return 0;
   }
 
-  /* Compare rodata_hash */
-  SOL_COMPAT_NS(XXHash_struct_t) exp_rodata_hash = SOL_COMPAT_NS(ELFLoaderEffects_rodata_hash( expected ));
-  SOL_COMPAT_NS(XXHash_struct_t) act_rodata_hash = SOL_COMPAT_NS(ELFLoaderEffects_rodata_hash( actual ));
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_shred_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_shred_parse_effects_t_msg, runner->spad );
+  fd_spad_pop( runner->spad );
 
-  if( (!exp_rodata_hash && !act_rodata_hash) ) {
-    // Both are NULL, considered matching
-  } else if( FD_UNLIKELY( (exp_rodata_hash && !act_rodata_hash) || (!exp_rodata_hash && act_rodata_hash) ) ) {
-    FD_LOG_WARNING(( "Rodata hash presence mismatch: expected=%p actual=%p", (void*)exp_rodata_hash, (void*)act_rodata_hash ));
-    return 0;
-  } else if( FD_UNLIKELY( memcmp( &exp_rodata_hash->hash, &act_rodata_hash->hash, sizeof(exp_rodata_hash->hash) ) ) ) {
-    FD_LOG_WARNING(( "Rodata hash mismatch: expected=%lu actual=%lu", *((ulong*)exp_rodata_hash->hash), *((ulong*)act_rodata_hash->hash) ));
-    return 0;
-  }
-
-  /* Compare text_cnt */
-  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ) ) {
-    FD_LOG_WARNING(( "Text cnt mismatch: expected=%lu actual=%lu",
-        SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected )),
-        SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ));
-    return 0;
-  }
-
-  /* Compare text_off */
-  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ) ) {
-    FD_LOG_WARNING(( "Text off mismatch: expected=%lu actual=%lu",
-        SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected )),
-        SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ));
-    return 0;
-  }
-
-  /* Compare entry_pc */
-  if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )) != SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ) ) {
-    FD_LOG_WARNING(( "Entry pc mismatch: expected=%lu actual=%lu",
-        SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )),
-        SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ));
-    return 0;
-  }
-
-  /* Compare calldests_hash */
-  SOL_COMPAT_NS(XXHash_struct_t) exp_calldests_hash = SOL_COMPAT_NS(ELFLoaderEffects_calldests_hash( expected ));
-  SOL_COMPAT_NS(XXHash_struct_t) act_calldests_hash = SOL_COMPAT_NS(ELFLoaderEffects_calldests_hash( actual ));
-
-  if( (!exp_calldests_hash && !act_calldests_hash) ) {
-    // Both are NULL, considered matching
-  } else if( FD_UNLIKELY( (exp_calldests_hash && !act_calldests_hash) || (!exp_calldests_hash && act_calldests_hash) ) ) {
-    FD_LOG_WARNING(( "Calldests hash presence mismatch: expected=%p actual=%p", (void*)exp_calldests_hash, (void*)act_calldests_hash ));
-    return 0;
-  } else if( FD_UNLIKELY( memcmp( &exp_calldests_hash->hash, &act_calldests_hash->hash, sizeof(exp_calldests_hash->hash) ) ) ) {
-    FD_LOG_WARNING(( "Calldests hash mismatch: expected=%lu actual=%lu", *((ulong*)exp_calldests_hash->hash), *((ulong*)act_calldests_hash->hash) ));
-    return 0;
-  }
-
-  return 1;
+  pb_release( &fd_exec_test_shred_parse_fixture_t_msg, fixture );
+  return ok;
 }
 
 int
-fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
-                                  uchar const *         in ) {
-  /* Decode */
-  SOL_COMPAT_NS(ELFLoaderFixture_table_t) fixture = SOL_COMPAT_NS(ELFLoaderFixture_as_root( in ));
-  if( FD_UNLIKELY( !fixture ) ) return 0;
+fd_solfuzz_pb_vm_serialize_fixture( fd_solfuzz_runner_t * runner,
+                                    uchar const *         in,
+                                    ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_vm_serialization_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_vm_serialization_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid vm serialization fixture." ));
+    return 0;
+  }
 
-  /* Execute */
-  SOL_COMPAT_NS(ELFLoaderCtx_table_t) input = SOL_COMPAT_NS(ELFLoaderFixture_input( fixture ));
-  if( FD_UNLIKELY( !input ) ) return 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_vm_serialize_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_vm_serialization_effects_t_msg, runner->spad );
+  fd_spad_pop( runner->spad );
 
-  int err = fd_solfuzz_fb_execute_wrapper( runner, input, fd_solfuzz_fb_elf_loader_run );
-  if( FD_UNLIKELY( err==SOL_COMPAT_V2_FAILURE ) ) return err;
-
-  /* Compare */
-  FD_SPAD_FRAME_BEGIN( runner->spad ) {
-    ulong   buffer_sz  = flatcc_builder_get_buffer_size( runner->fb_builder );
-    uchar * actual_buf = fd_spad_alloc( runner->spad, 1UL, buffer_sz );
-    flatcc_builder_copy_buffer( runner->fb_builder, actual_buf, buffer_sz );
-
-    SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected = SOL_COMPAT_NS(ELFLoaderEffects_as_root( actual_buf ));
-    SOL_COMPAT_NS(ELFLoaderEffects_table_t) actual   = SOL_COMPAT_NS(ELFLoaderFixture_output( fixture ));
-    if( FD_UNLIKELY( !expected || !actual ) ) return 0;
-
-    return sol_compat_fb_cmp_elf_loader( expected, actual );
-  } FD_SPAD_FRAME_END;
+  pb_release( &fd_exec_test_vm_serialization_fixture_t_msg, fixture );
+  return ok;
 }
 
-#endif /* FD_HAS_FLATCC */
+int
+fd_solfuzz_pb_cost_fixture( fd_solfuzz_runner_t * runner,
+                            uchar const *         in,
+                            ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_cost_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_cost_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid cost fixture." ));
+    return 0;
+  }
+
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_cost_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_cost_result_t_msg, runner->spad );
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_cost_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_gossip_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_gossip_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid gossip fixture." ));
+    return 0;
+  }
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+
+  uchar const * input    = fixture->input ? fixture->input->bytes : NULL;
+  ulong         input_sz = fixture->input ? fixture->input->size  : 0UL;
+
+  ulong   out_sz = 32UL*1024UL*1024UL;
+  uchar * out    = fd_spad_alloc( runner->spad, 1UL, out_sz );
+  if( !fd_solfuzz_gossip_decode( runner, out, &out_sz, input, input_sz ) ) {
+    FD_LOG_WARNING(( "No output effects" ));
+  } else {
+    ulong   exp_sz = 32UL*1024UL*1024UL;
+    uchar * exp    = fd_spad_alloc( runner->spad, 1UL, exp_sz );
+    if( !sol_compat_encode( exp, &exp_sz, &fixture->output, &fd_exec_test_gossip_effects_t_msg ) ) {
+      FD_LOG_WARNING(( "Error encoding expected" ));
+    } else if( out_sz!=exp_sz ) {
+      FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz ));
+    } else if( !fd_memeq( out, exp, out_sz ) ) {
+      FD_LOG_WARNING(( "Binary cmp failed: different values." ));
+    } else {
+      ok = 1;
+    }
+  }
+
+  fd_spad_pop( runner->spad );
+
+  // Cleanup
+  pb_release( &fd_exec_test_gossip_fixture_t_msg, fixture );
+  return ok;
+}

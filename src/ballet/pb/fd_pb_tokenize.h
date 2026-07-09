@@ -32,7 +32,7 @@ fd_pb_inbuf_sz( fd_pb_inbuf_t * buf ) {
 static inline void
 fd_pb_inbuf_skip( fd_pb_inbuf_t * buf,
                   ulong           sz ) {
-  FD_CRIT( sz<=fd_pb_inbuf_sz( buf ), "Attempt to skip past end of buffer" );
+  FD_CHECK_CRIT( sz<=fd_pb_inbuf_sz( buf ), "Attempt to skip past end of buffer" );
   buf->cur += sz;
 }
 

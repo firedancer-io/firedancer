@@ -6,13 +6,9 @@ uint logfile_fd, uint in_full_fd, uint in_incr_fd, uint sockfd
 # are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR.  The other files that can be
-# written to are the out descriptors for the full and incremental
-# snapshots and the socket file descriptor, which OpenSSL writes to
-# during the lifetime of an https connection.
+# that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) logfile_fd)
-           (eq (arg 0) sockfd))
+           (eq (arg 0) logfile_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
@@ -61,8 +57,9 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) in_full_fd)
                 (eq (arg 0) in_incr_fd)))
 
-# snapshot: we need to be send http requests to endpoints for snapshot
-# downloading
+# snapshot: send HTTP requests to endpoints for snapshot downloading.
+# OpenSSL also uses sendto to write to the socket during the lifetime
+# of an HTTPS connection.
 #
 # arg 0 is the file descriptor that we would like to send a request to.
 # We will restrict this being called on any of the snapshot file

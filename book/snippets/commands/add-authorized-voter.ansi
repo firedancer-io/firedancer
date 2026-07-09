@@ -1,0 +1,2 @@
+$ sudo firedancer add-authorized-voter --config ~/config.toml ~/keys/validator-keypair.json
+[32mNOTICE [0m Authorized voter key added `4UCZB7zfquCVN7GafWETFVLTceNH3nm2mndyHeDuSggC`

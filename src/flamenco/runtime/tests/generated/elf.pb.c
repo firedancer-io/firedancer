@@ -6,9 +6,6 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(FD_EXEC_TEST_ELF_BINARY, fd_exec_test_elf_binary_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_ELF_LOADER_CTX, fd_exec_test_elf_loader_ctx_t, AUTO)
 
 

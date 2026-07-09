@@ -61,6 +61,9 @@ void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
   cpus->numa_node_cnt = fd_numa_node_cnt();
   cpus->cpu_cnt = fd_topo_cpu_cnt();
+  if( FD_UNLIKELY( cpus->cpu_cnt > FD_TILE_MAX ) ) {
+    FD_LOG_ERR(( "unsupported system: Firedancer supports up to %lu CPUs", FD_TILE_MAX ));
+  }
 
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     cpus->cpu[ i ].idx = i;

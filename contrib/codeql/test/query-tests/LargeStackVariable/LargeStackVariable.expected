@@ -1,0 +1,2 @@
+| LargeStackVariable.c:11:10:11:16 | too_big | Stack variable larger than 512KiB. |
+| LargeStackVariable.c:30:18:30:23 | record | Stack variable larger than 512KiB. |

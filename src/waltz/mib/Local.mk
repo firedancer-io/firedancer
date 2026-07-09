@@ -1,5 +1,4 @@
-$(call add-hdrs,fd_dbl_buf.h)
-$(call add-objs,fd_dbl_buf,fd_waltz)
+$(call add-hdrs,fd_seqlock.h)
 $(call add-hdrs,fd_netdev_tbl.h)
 $(call add-objs,fd_netdev_tbl,fd_waltz)
 ifdef FD_HAS_LINUX

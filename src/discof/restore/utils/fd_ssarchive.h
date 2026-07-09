@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssarchive_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssarchive_h
 
-#include "../../../util/fd_util_base.h"
-#include "../../../flamenco/types/fd_types_custom.h"
+#include "../../../flamenco/fd_flamenco_base.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -21,11 +20,14 @@ fd_ssarchive_parse_filename( char const * _name,
                              uchar        hash[ static FD_HASH_FOOTPRINT ],
                              int *        is_zstd );
 
-/* Given a directory on the filesystem, determine the
-   (full, incremental) slot pair, and the snapshot paths for them which
-   gives the highest incremental slot.  The incremental slot is set to
-   ULONG_MAX if the highest pair is just a full snapshot alone, or if
-   incremental_snapshot is 0.
+/* Given a directory on the filesystem, determine the most recent (full,
+   incremental) slot pair, whether each snapshot is zstd compressed, the
+   associated full and incremental hashes, and the snapshot paths.  The
+   incremental slot is set to ULONG_MAX if the highest pair is just a
+   full snapshot alone, or if incremental_snapshot is 0 (only full
+   snapshots are considered).  In this case, incremental_path is left
+   empty, *incremental_is_zstd is set to 0, and incremental_hash is
+   zeroed.
 
    Returns -1 on failure, and 0 on success. */
 
@@ -37,7 +39,9 @@ fd_ssarchive_latest_pair( char const * directory,
                           char         full_path[ static PATH_MAX ],
                           char         incremental_path[ static PATH_MAX ],
                           int *        full_is_zstd,
-                          int *        incremental_is_zstd );
+                          int *        incremental_is_zstd,
+                          uchar        full_hash[ static FD_HASH_FOOTPRINT ],
+                          uchar        incremental_hash[ static FD_HASH_FOOTPRINT ] );
 
 /* Given a directory on the file system, remove old snapshots by slot
    age until the number of full snapshots matches the

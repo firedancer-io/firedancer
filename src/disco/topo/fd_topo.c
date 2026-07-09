@@ -220,10 +220,15 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
-  if( FD_UNLIKELY( tile->keyswitch_obj_id ) ) {
+  if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */
-    key_pages = 5UL;
+    key_pages += 5UL;
+  }
+  if( FD_UNLIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    /* Certain tiles using fd_keyload_load need normal pages to hold
+       key material. */
+    key_pages += 5UL;
   }
 
   if( !strcmp( tile->name, "net" ) ) {
@@ -254,8 +259,7 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
       key_pages += 4UL;
   }
 
-  /* All tiles lock one normal page for the fd_log shared lock. */
-  return key_pages+1UL;
+  return key_pages;
 }
 
 FD_FN_PURE static ulong
@@ -325,7 +329,7 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
 }
 
 FD_FN_PURE ulong
-fd_topo_normal_page_cnt( fd_topo_t * topo ) {
+fd_topo_normal_page_cnt( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );

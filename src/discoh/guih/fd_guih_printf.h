@@ -1,0 +1,149 @@
+#ifndef HEADER_fd_src_discoh_guih_fd_guih_printf_h
+#define HEADER_fd_src_discoh_guih_fd_guih_printf_h
+
+#include "fd_guih.h"
+
+/* These functions format the current state of the GUI as various JSON
+   messages into the GUI outgoing message buffer, where they can be sent
+   to a specific WebSocket client, or broadcast out to all clients. */
+
+void fd_guih_printf_version( fd_guih_t * gui );
+void fd_guih_printf_cluster( fd_guih_t * gui );
+void fd_guih_printf_commit_hash( fd_guih_t * gui );
+void fd_guih_printf_identity_key( fd_guih_t * gui );
+void fd_guih_printf_vote_key( fd_guih_t * gui );
+void fd_guih_printf_startup_time_nanos( fd_guih_t * gui );
+void fd_guih_printf_server_time_nanos( fd_guih_t * gui, long now );
+void fd_guih_printf_vote_state( fd_guih_t * gui );
+void fd_guih_printf_vote_distance( fd_guih_t * gui );
+void fd_guih_printf_turbine_slot( fd_guih_t * gui );
+void fd_guih_printf_repair_slot( fd_guih_t * gui );
+void fd_guih_printf_slot_caught_up( fd_guih_t * gui );
+void fd_guih_printf_skipped_history( fd_guih_t * gui, ulong epoch_idx );
+void fd_guih_printf_skipped_history_cluster( fd_guih_t * gui, ulong epoch_idx );
+void fd_guih_printf_vote_latency_history( fd_guih_t * gui );
+void fd_guih_printf_late_votes_history( fd_guih_t * gui );
+void fd_guih_printf_tps_history( fd_guih_t * gui );
+void fd_guih_printf_startup_progress( fd_guih_t * gui );
+void fd_guih_printf_block_engine( fd_guih_t * gui );
+void fd_guih_printf_tiles( fd_guih_t * gui );
+void fd_guih_printf_schedule_strategy( fd_guih_t * gui );
+void fd_guih_printf_identity_balance( fd_guih_t * gui );
+void fd_guih_printf_vote_balance( fd_guih_t * gui );
+void fd_guih_printf_estimated_slot_duration_nanos( fd_guih_t * gui );
+void fd_guih_printf_root_slot( fd_guih_t * gui );
+void fd_guih_printf_optimistically_confirmed_slot( fd_guih_t * gui );
+void fd_guih_printf_completed_slot( fd_guih_t * gui );
+void fd_guih_printf_estimated_slot( fd_guih_t * gui );
+void fd_guih_printf_estimated_tps( fd_guih_t * gui );
+void fd_guih_printf_catch_up_history( fd_guih_t * gui );
+void fd_guih_printf_reset_slot( fd_guih_t * gui );
+void fd_guih_printf_storage_slot( fd_guih_t * gui );
+void fd_guih_printf_active_fork_cnt( fd_guih_t * gui );
+
+void
+fd_guih_printf_null_query_response( fd_http_server_t * http,
+                                   char const *       topic,
+                                   char const *       key,
+                                   ulong              id );
+
+void
+fd_guih_printf_skip_rate( fd_guih_t * gui,
+                         ulong      epoch_idx );
+
+void
+fd_guih_printf_epoch( fd_guih_t * gui,
+                     ulong      epoch_idx );
+
+void
+fd_guih_printf_peers_gossip_update( fd_guih_t *          gui,
+                                   ulong const *       updated,
+                                   ulong               updated_cnt,
+                                   fd_pubkey_t const * removed,
+                                   ulong               removed_cnt,
+                                   ulong const *       added,
+                                   ulong               added_cnt );
+
+void
+fd_guih_printf_peers_vote_account_update( fd_guih_t *          gui,
+                                         ulong const *       updated,
+                                         ulong               updated_cnt,
+                                         fd_pubkey_t const * removed,
+                                         ulong               removed_cnt,
+                                         ulong const *       added,
+                                         ulong               added_cnt );
+
+void
+fd_guih_printf_peers_validator_info_update( fd_guih_t *          gui,
+                                           ulong const *       updated,
+                                           ulong               updated_cnt,
+                                           fd_pubkey_t const * removed,
+                                           ulong               removed_cnt,
+                                           ulong const *       added,
+                                           ulong               added_cnt );
+
+void
+fd_guih_printf_peers_all( fd_guih_t * gui );
+
+void
+fd_guih_printf_slot( fd_guih_t * gui,
+                    ulong      slot );
+
+void
+fd_guih_printf_summary_ping( fd_guih_t * gui,
+                            ulong      id );
+
+void
+fd_guih_printf_slot_request( fd_guih_t * gui,
+                            ulong      slot,
+                            ulong      id );
+
+void
+fd_guih_printf_slot_rankings_request( fd_guih_t * gui,
+                                     ulong      id,
+                                     int        mine );
+
+
+void
+fd_guih_printf_slot_request_detailed( fd_guih_t * gui,
+                                     ulong      slot,
+                                     ulong      id );
+
+void
+fd_guih_printf_slot_transactions_request( fd_guih_t * gui,
+                                         ulong      _slot,
+                                         ulong      id );
+
+void
+fd_guih_printf_slot_query_shreds( fd_guih_t * gui,
+                                 ulong      _slot,
+                                 ulong      id );
+
+void
+fd_guih_printf_shred_rebroadcast( fd_guih_t * gui, long after );
+
+void
+fd_guih_printf_live_tile_timers( fd_guih_t * gui );
+
+void
+fd_guih_printf_live_network_metrics( fd_guih_t *                     gui,
+                                    fd_guih_network_stats_t const * cur );
+
+void
+fd_guih_printf_live_tile_metrics( fd_guih_t * gui );
+
+void
+fd_guih_printf_live_txn_waterfall( fd_guih_t *                     gui,
+                                  fd_guih_txn_waterfall_t const * prev,
+                                  fd_guih_txn_waterfall_t const * cur,
+                                  ulong                          next_leader_slot );
+
+void
+fd_guih_printf_live_tile_stats( fd_guih_t *                  gui,
+                               fd_guih_tile_stats_t const * prev,
+                               fd_guih_tile_stats_t const * cur );
+
+void
+fd_guih_printf_health( fd_guih_t * gui );
+
+#endif /* HEADER_fd_src_discoh_guih_fd_guih_printf_h */

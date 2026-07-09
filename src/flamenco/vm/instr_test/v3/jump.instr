@@ -1,0 +1,193 @@
+# SIMD-0377: JMP32 tests
+# off=ffff -> spinloop (err), off=0000 -> nop (ok), off=aaaa -> OOB (vfy)
+
+# jeq32 imm
+$ op=16 dst=0 src=0 off=aaaa r0=5 imm=5                       : vfy  # OOB
+$ op=16 dst=0 src=0 off=ffff r0=5 imm=5                       : err  #     taken
+$ op=16 dst=0 src=0 off=ffff r0=100000005 imm=5               : err  #     taken (upper bits differ)
+$ op=16 dst=0 src=0 off=0000 r0=5 imm=6                       : ok   # not taken
+$ op=16 dst=0 src=0 off=ffff r0=0 imm=0                       : err  #     taken (both zero)
+$ op=16 dst=0 src=0 off=ffff r0=ffffffffffffffff imm=ffffffff : err  #     taken (both max)
+$ op=16 dst=0 src=0 off=0000 r0=ffffffff00000000 imm=1        : ok   # not taken (lo32=0)
+$ op=16 dst=0 src=0 off=ffff r0=ffffffff00000000 imm=0        : err  #     taken (lo32=0)
+$ op=16 dst=a src=1 off=0000                                  : vfy
+$ op=16 dst=9 src=b off=0000                                  : vfy
+
+# jeq32 reg
+
+$ op=1e dst=0 src=1 off=aaaa r0=5 r1=5                 : vfy
+$ op=1e dst=0 src=1 off=ffff r0=5 r1=5                 : err   # taken
+$ op=1e dst=0 src=1 off=0000 r0=5 r1=6                 : ok    # not taken
+$ op=1e dst=0 src=1 off=ffff r0=100000005 r1=200000005 : err   # taken: upper differs, lower matches
+$ op=1e dst=0 src=1 off=0000 r0=100000005 r1=200000006 : ok    # not taken: lower differs
+$ op=1e dst=a src=1 off=0000                           : vfy
+$ op=1e dst=9 src=b off=0000                           : vfy
+
+# jgt32 imm
+
+$ op=26 dst=0 src=0 off=aaaa r0=6 imm=5                : vfy
+$ op=26 dst=0 src=0 off=ffff r0=6 imm=5                : err   # taken: 6 > 5
+$ op=26 dst=0 src=0 off=0000 r0=5 imm=5                : ok    # not taken: 5 > 5 is false
+$ op=26 dst=0 src=0 off=0000 r0=4 imm=5                : ok    # not taken: 4 > 5
+$ op=26 dst=0 src=0 off=ffff r0=ffffffffffffffff imm=0 : err   # taken: UINT32_MAX > 0
+$ op=26 dst=0 src=0 off=0000 r0=0 imm=ffffffff         : ok    # not taken: 0 > UINT32_MAX
+$ op=26 dst=0 src=0 off=ffff r0=100000006 imm=5        : err   # taken: lower 6 > 5
+$ op=26 dst=a src=1 off=0000                           : vfy
+$ op=26 dst=9 src=b off=0000                           : vfy
+
+# jgt32 reg
+
+$ op=2e dst=0 src=1 off=ffff r0=6 r1=5 : err   # taken
+$ op=2e dst=0 src=1 off=0000 r0=5 r1=5 : ok    # not taken: equal
+$ op=2e dst=0 src=1 off=0000 r0=4 r1=5 : ok    # not taken: less
+$ op=2e dst=a src=1 off=0000           : vfy
+$ op=2e dst=9 src=b off=0000           : vfy
+
+# jge32 imm
+
+$ op=36 dst=0 src=0 off=ffff r0=5 imm=5                       : err   # taken: 5 >= 5
+$ op=36 dst=0 src=0 off=ffff r0=6 imm=5                       : err   # taken: 6 >= 5
+$ op=36 dst=0 src=0 off=0000 r0=4 imm=5                       : ok    # not taken: 4 >= 5
+$ op=36 dst=0 src=0 off=ffff r0=ffffffff80000000 imm=7fffffff : err   # taken
+$ op=36 dst=a src=1 off=0000                                  : vfy
+$ op=36 dst=9 src=b off=0000                                  : vfy
+
+# jge32 reg
+
+$ op=3e dst=0 src=1 off=ffff r0=5 r1=5 : err   # taken: equal
+$ op=3e dst=0 src=1 off=0000 r0=4 r1=5 : ok    # not taken
+$ op=3e dst=a src=1 off=0000           : vfy
+$ op=3e dst=9 src=b off=0000           : vfy
+
+# jset32 imm
+
+$ op=46 dst=0 src=0 off=ffff r0=3 imm=1                       : err   # taken: 3 & 1 = 1
+$ op=46 dst=0 src=0 off=0000 r0=4 imm=2                       : ok    # not taken: 100 & 010 = 0
+$ op=46 dst=0 src=0 off=ffff r0=ffffffffffffffff imm=ffffffff : err   # taken: all bits
+$ op=46 dst=0 src=0 off=0000 r0=aaaaaaaaaaaaaaaa imm=55555555 : ok    # not taken: alternating
+$ op=46 dst=0 src=0 off=ffff r0=ffffffff80000000 imm=80000000 : err   # taken: high bit
+$ op=46 dst=0 src=0 off=0000 r0=ffff000000000000 imm=0        : ok   # not taken
+$ op=46 dst=a src=1 off=0000                                  : vfy
+$ op=46 dst=9 src=b off=0000                                  : vfy
+
+# jset32 reg
+
+$ op=4e dst=0 src=1 off=ffff r0=3 r1=1                               : err   # taken
+$ op=4e dst=0 src=1 off=0000 r0=4 r1=2                               : ok    # not taken
+$ op=4e dst=0 src=1 off=0000 r0=ffff000000000000 r1=ffff000000000000 : ok   # not taken
+$ op=4e dst=a src=1 off=0000                                         : vfy
+$ op=4e dst=9 src=b off=0000                                         : vfy
+
+# jne32 imm
+
+$ op=56 dst=0 src=0 off=ffff r0=5 imm=6         : err   # taken: 5 != 6
+$ op=56 dst=0 src=0 off=0000 r0=5 imm=5         : ok    # not taken: 5 == 5
+$ op=56 dst=0 src=0 off=0000 r0=100000005 imm=5 : ok
+$ op=56 dst=a src=1 off=0000                    : vfy
+$ op=56 dst=9 src=b off=0000                    : vfy
+
+# jne32 reg
+
+$ op=5e dst=0 src=1 off=ffff r0=5 r1=6                       : err   # taken
+$ op=5e dst=0 src=1 off=0000 r0=5 r1=5                       : ok    # not taken
+$ op=5e dst=0 src=1 off=0000 r0=dead00000042 r1=beef00000042 : ok   # not taken: lower match
+$ op=5e dst=a src=1 off=0000                                 : vfy
+$ op=5e dst=9 src=b off=0000                                 : vfy
+
+# jsgt32 imm
+
+$ op=66 dst=0 src=0 off=ffff r0=1 imm=0                       : err   # taken: 1 > 0
+$ op=66 dst=0 src=0 off=0000 r0=0 imm=0                       : ok    # not taken: 0 > 0 is false
+$ op=66 dst=0 src=0 off=0000 r0=ffffffffffffffff imm=0        : ok    # not taken
+$ op=66 dst=0 src=0 off=ffff r0=0 imm=80000000                : err   # taken: 0 > -2147483648
+$ op=66 dst=0 src=0 off=ffff r0=7fffffff imm=80000000         : err   # taken
+$ op=66 dst=0 src=0 off=0000 r0=fffffffffffffffe imm=ffffffff : ok    # not taken
+$ op=66 dst=0 src=0 off=ffff r0=ffffffffffffffff imm=fffffffe : err   # taken
+$ op=66 dst=a src=1 off=0000                                  : vfy
+$ op=66 dst=9 src=b off=0000                                  : vfy
+
+# jsgt32 reg
+
+$ op=6e dst=0 src=1 off=ffff r0=1 r1=0                : err  # taken
+$ op=6e dst=0 src=1 off=0000 r0=0 r1=0                : ok   # not taken
+$ op=6e dst=0 src=1 off=0000 r0=ffffffffffffffff r1=0 : ok   # not taken: -1 > 0
+$ op=6e dst=a src=1 off=0000                          : vfy
+$ op=6e dst=9 src=b off=0000                          : vfy
+
+# jsge32 imm
+
+$ op=76 dst=0 src=0 off=ffff r0=0 imm=0                       : err  # taken: 0 >= 0
+$ op=76 dst=0 src=0 off=ffff r0=1 imm=0                       : err  # taken: 1 >= 0
+$ op=76 dst=0 src=0 off=0000 r0=ffffffffffffffff imm=0        : ok   # not taken: -1 >= 0
+$ op=76 dst=0 src=0 off=0000 r0=ffffffff80000000 imm=7fffffff : ok
+$ op=76 dst=a src=1 off=0000                                  : vfy
+$ op=76 dst=9 src=b off=0000                                  : vfy
+
+# jsge32 reg
+
+$ op=7e dst=0 src=1 off=ffff r0=0 r1=0                : err   # taken: equal
+$ op=7e dst=0 src=1 off=0000 r0=ffffffffffffffff r1=0 : ok    # not taken: -1 >= 0
+$ op=7e dst=a src=1 off=0000                          : vfy
+$ op=7e dst=9 src=b off=0000                          : vfy
+
+# jlt32 imm
+
+$ op=a6 dst=0 src=0 off=ffff r0=4 imm=5               : err   # taken: 4 < 5
+$ op=a6 dst=0 src=0 off=0000 r0=5 imm=5               : ok    # not taken: 5 < 5
+$ op=a6 dst=0 src=0 off=0000 r0=6 imm=5               : ok    # not taken: 6 < 5
+$ op=a6 dst=0 src=0 off=ffff r0=7fffffff imm=80000000 : err   # taken
+$ op=a6 dst=a src=1 off=0000                          : vfy
+$ op=a6 dst=9 src=b off=0000                          : vfy
+
+# jlt32 reg
+
+$ op=ae dst=0 src=1 off=ffff r0=4 r1=5 : err   # taken
+$ op=ae dst=0 src=1 off=0000 r0=5 r1=5 : ok    # not taken: equal
+$ op=ae dst=a src=1 off=0000           : vfy
+$ op=ae dst=9 src=b off=0000           : vfy
+
+# jle32 imm
+
+$ op=b6 dst=0 src=0 off=ffff r0=5 imm=5 : err   # taken: 5 <= 5
+$ op=b6 dst=0 src=0 off=ffff r0=4 imm=5 : err   # taken: 4 <= 5
+$ op=b6 dst=0 src=0 off=0000 r0=6 imm=5 : ok    # not taken: 6 <= 5
+$ op=b6 dst=a src=1 off=0000            : vfy
+$ op=b6 dst=9 src=b off=0000            : vfy
+
+# jle32 reg
+
+$ op=be dst=0 src=1 off=ffff r0=5 r1=5 : err   # taken: equal
+$ op=be dst=0 src=1 off=0000 r0=6 r1=5 : ok    # not taken
+$ op=be dst=a src=1 off=0000           : vfy
+$ op=be dst=9 src=b off=0000           : vfy
+
+# jslt32 imm
+
+$ op=c6 dst=0 src=0 off=ffff r0=ffffffffffffffff imm=0 : err   # taken: -1 < 0
+$ op=c6 dst=0 src=0 off=0000 r0=0 imm=0                : ok    # not taken: 0 < 0
+$ op=c6 dst=0 src=0 off=0000 r0=1 imm=0                : ok    # not taken: 1 < 0
+$ op=c6 dst=0 src=0 off=0000 r0=7fffffff imm=80000000  : ok    # not taken
+$ op=c6 dst=a src=1 off=0000                           : vfy
+$ op=c6 dst=9 src=b off=0000                           : vfy
+
+# jslt32 reg
+
+$ op=ce dst=0 src=1 off=ffff r0=ffffffffffffffff r1=0 : err   # taken: -1 < 0
+$ op=ce dst=0 src=1 off=0000 r0=0 r1=0                : ok    # not taken: 0 < 0
+$ op=ce dst=a src=1 off=0000                           : vfy
+$ op=ce dst=9 src=b off=0000                           : vfy
+
+# jsle32 imm
+
+$ op=d6 dst=0 src=0 off=ffff r0=0 imm=0                : err   # taken: 0 <= 0
+$ op=d6 dst=0 src=0 off=ffff r0=ffffffffffffffff imm=0 : err   # taken: -1 <= 0
+$ op=d6 dst=0 src=0 off=0000 r0=1 imm=0                : ok    # not taken: 1 <= 0
+$ op=d6 dst=a src=1 off=0000                           : vfy
+$ op=d6 dst=9 src=b off=0000                           : vfy
+
+# jsle32 reg
+
+$ op=de dst=0 src=1 off=ffff r0=0 r1=0                : err   # taken: 0 <= 0
+$ op=de dst=0 src=1 off=0000 r0=1 r1=0                : ok    # not taken: 1 <= 0
+$ op=de dst=a src=1 off=0000                          : vfy
+$ op=de dst=9 src=b off=0000                          : vfy

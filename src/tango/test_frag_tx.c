@@ -1,5 +1,9 @@
 #include "fd_tango.h"
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
 #include <math.h> /* For expm1f */

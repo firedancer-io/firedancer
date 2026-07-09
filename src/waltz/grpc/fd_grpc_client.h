@@ -5,7 +5,7 @@
    streaming gRPC requests over HTTP/2+TLS. */
 
 #include "fd_grpc_codec.h"
-#include "../../ballet/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
+#include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
 #if FD_HAS_OPENSSL
 #include <openssl/types.h> /* SSL */
 #endif
@@ -24,7 +24,7 @@ typedef struct fd_grpc_h2_stream fd_grpc_h2_stream_t;
 
 /* FD_GRPC_DEADLINE_* identify different types of request deadlines. */
 
-#define FD_GRPC_DEADLINE_HEADER 1 /* deadline by which Response-Headers are recevied */
+#define FD_GRPC_DEADLINE_HEADER 1 /* deadline by which Response-Headers are received */
 #define FD_GRPC_DEADLINE_RX_END 2 /* deadline by which 'end of stream' must have been reached */
 
 /* fd_grpc_client_metrics_t hold counters that are incremented by a
@@ -217,7 +217,8 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
    OpenSSL->h2 or h2->OpenSSL writes to directly place data into the
    target buffer.
 
-   Returns 1 on success and 0 if there is an unrecoverable SSL error. */
+   Returns 0 on success and -1 if there is an unrecoverable SSL
+   error. */
 
 int
 fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,

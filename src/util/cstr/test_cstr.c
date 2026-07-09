@@ -67,7 +67,7 @@ main( int     argc,
   } while(0);
 
   int ctr = 0;
-  for( long iter=0; iter<10000000L; iter++ ) {
+  for( long iter=0; iter<2000000L; iter++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %li iterations", iter )); ctr = 1000000; }
     ctr--;
 

@@ -120,8 +120,8 @@ beta software, thank you for being on the bleeding edge.
 Firedancer is beta software and you should expect hiccups when getting
 started with, and when operating the validator. The Firedancer
 development team can help diagnose any issues. The main place to discuss
-Firedancer operational issues is the #firedancer channel in the [Solana
-Tech discord](https://discord.com/invite/solana).
+Firedancer operational issues is the `#firedancer-operators` channel in
+the [Solana Tech discord](https://discord.com/invite/solana).
 
 ## Contributing
 Firedancer is open source and being developed on GitHub. All

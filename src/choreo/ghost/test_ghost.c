@@ -1,5 +1,4 @@
-#include "fd_ghost.h"
-#include "fd_ghost_private.h"
+#include "fd_ghost.c"
 
 void setup_block_ids( fd_hash_t * block_ids, ulong cnt ) {
   for( ulong i = 0; i < cnt; i++ ) block_ids[i] = (fd_hash_t){ .ul = { i } };
@@ -24,13 +23,13 @@ setup_ghost( fd_wksp_t * wksp, ulong blk_max, ulong vtr_max ) {
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, blk_max, vtr_max, 42UL ) );
   FD_TEST( ghost );
   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
-  fd_ghost_insert( ghost, &block_ids[0], NULL         , 0 );
-  fd_ghost_insert( ghost, &block_ids[1], &block_ids[0], 1 );
-  fd_ghost_insert( ghost, &block_ids[2], &block_ids[1], 2 );
-  fd_ghost_insert( ghost, &block_ids[3], &block_ids[1], 3 );
-  fd_ghost_insert( ghost, &block_ids[4], &block_ids[2], 4 );
-  fd_ghost_insert( ghost, &block_ids[5], &block_ids[3], 5 );
-  fd_ghost_insert( ghost, &block_ids[6], &block_ids[5], 6 );
+  fd_ghost_init(   ghost, 0, 0, &block_ids[0] );
+  fd_ghost_insert( ghost, 1, 1, &block_ids[1], &block_ids[0] );
+  fd_ghost_insert( ghost, 2, 2, &block_ids[2], &block_ids[1] );
+  fd_ghost_insert( ghost, 3, 3, &block_ids[3], &block_ids[1] );
+  fd_ghost_insert( ghost, 4, 4, &block_ids[4], &block_ids[2] );
+  fd_ghost_insert( ghost, 5, 5, &block_ids[5], &block_ids[3] );
+  fd_ghost_insert( ghost, 6, 6, &block_ids[6], &block_ids[5] );
   return ghost;
 }
 
@@ -39,11 +38,11 @@ teardown_ghost( fd_ghost_t * ghost ) {
   fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ghost ) ) );
 }
 
-// fd_tower_accts_t *
-// setup_tower_accts( fd_wksp_t * wksp, ulong max, ... ) {
-//   void * mem = fd_wksp_alloc_laddr( wksp, fd_tower_accts_align(), fd_tower_accts_footprint( max ), 1UL );
-//   fd_tower_accts_t * tower_accts = fd_tower_accts_join( fd_tower_accts_new( mem, max ) );
-//   FD_TEST( tower_accts );
+// fd_tower_vtr_t *
+// setup_tower_voters( fd_wksp_t * wksp, ulong max, ... ) {
+//   void * mem = fd_wksp_alloc_laddr( wksp, fd_tower_vtr_align(), fd_tower_vtr_footprint( max ), 1UL );
+//   fd_tower_vtr_t * tower_voters = fd_tower_vtr_join( fd_tower_vtr_new( mem, max ) );
+//   FD_TEST( tower_voters );
 
 //   va_list ap;
 //   va_start( ap, max );
@@ -54,20 +53,20 @@ teardown_ghost( fd_ghost_t * ghost ) {
 
 //     uchar data[3762];
 //     memset( data, 0, sizeof(data) );
-//     fd_voter_state_t * state = (fd_voter_state_t *)fd_type_pun( data );
-//     state->kind = FD_VOTER_STATE_CURRENT;
+//     fd_vote_acc_state_t * state = (fd_vote_acc_state_t *)fd_type_pun( data );
+//     state->kind = fd_vote_acc_STATE_CURRENT;
 //     state->cnt  = 1;
-//     state->votes[0] = (fd_voter_vote_t){ .slot = vote };
+//     state->votes[0] = (fd_vote_acc_vote_t){ .slot = vote };
 
-//     fd_tower_accts_push_tail( tower_accts, (fd_tower_accts_t){ .addr = (fd_pubkey_t){ .ul = { addr } }, .stake = stake, .data = data } );
+//     fd_tower_vtr_push_tail( tower_voters, (fd_tower_vtr_t){ .addr = (fd_pubkey_t){ .ul = { addr } }, .stake = stake, .data = data } );
 //   }
 //   va_end( ap );
-//   return tower_accts;
+//   return tower_voters;
 // }
 
 // void
-// teardown_tower_accts( fd_tower_accts_t * accts ) {
-//   fd_wksp_free_laddr( fd_tower_accts_delete( fd_tower_accts_leave( accts ) ) );
+// teardown_tower_voters( fd_tower_vtr_t * accts ) {
+//   fd_wksp_free_laddr( fd_tower_vtr_delete( fd_tower_vtr_leave( accts ) ) );
 // }
 
 void
@@ -109,9 +108,13 @@ test_publish_left( fd_wksp_t * wksp ) {
   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
   fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
 
+  FD_TEST( ghost->width == 2 );
+
   fd_ghost_blk_t * blk2 = fd_ghost_query( ghost, &block_ids[2] );
   FD_TEST( blk2 );
   fd_ghost_publish( ghost, blk2 );
+
+  FD_TEST( ghost->width == 1 );
 
   FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
   FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
@@ -158,9 +161,13 @@ test_publish_right( fd_wksp_t * wksp ) {
   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
 
+  FD_TEST( ghost->width == 2 );
+
   fd_ghost_blk_t * blk3 = fd_ghost_query( ghost, &block_ids[3] );
   FD_TEST( blk3 );
   fd_ghost_publish( ghost, blk3 );
+
+  FD_TEST( ghost->width == 1 );
 
   FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
   FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
@@ -217,6 +224,30 @@ test_best( fd_wksp_t * wksp ){
   teardown_ghost( ghost );
 }
 
+void
+test_ignore_out_of_order_vote( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
+
+  fd_pubkey_t voter = { .ul = { 0xc } };
+  ulong       stake = 100UL;
+
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[5] ), &voter, stake, 5UL );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[5] )->stake == stake );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 6UL );
+
+  /* Vote for slot 4 arrives after slot 5.  Since 4 < 5, this vote
+     should be ignored and should not move stake to the other fork. */
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[4] ), &voter, stake, 4UL );
+
+  FD_TEST( fd_ghost_query( ghost, &block_ids[5] )->stake == stake );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[4] )->stake == 0UL  );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 6UL );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  teardown_ghost( ghost );
+}
+
 // void
 // test_vote_leaves( fd_wksp_t * wksp ) {
 //   ulong blk_max     = 8;
@@ -244,7 +275,7 @@ test_best( fd_wksp_t * wksp ){
 //   /* one validator changes votes along leaves */
 //   int d = 3;
 //   ulong first_leaf = fd_ulong_pow2(d-1) - 1;
-//   fd_voter_t v = { .key = { { 0 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
+//   fd_vote_acc_t v = { .key = { { 0 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
 //   for( ulong i = first_leaf; i < blk_max - 1; i++){
 //     fd_ghost_count_vote( ghost, &v, &block_ids[i] );
 //   }
@@ -281,7 +312,7 @@ test_best( fd_wksp_t * wksp ){
 
 //   /* have other validators vote for rest of leaves */
 //   for ( ulong i = first_leaf; i < blk_max - 2; i++){
-//     fd_voter_t v = { .key = { .key = { (uchar)i }  }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
+//     fd_vote_acc_t v = { .key = { .key = { (uchar)i }  }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
 //     fd_ghost_count_vote( ghost, &v, &hash_arr[i] );
 //     FD_TEST( !fd_ghost_verify( ghost ) );
 //   }
@@ -324,7 +355,7 @@ test_best( fd_wksp_t * wksp ){
 //   fd_ghost_init( ghost, 0, &hash_arr[0] );
 //   for ( ulong i = 1; i < blk_max - 1; i++ ) {
 //     fd_ghost_update( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
-//     fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
+//     fd_vote_acc_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
 //     fd_ghost_count_vote( ghost, &v, &hash_arr[i] );
 //   }
 
@@ -335,7 +366,7 @@ test_best( fd_wksp_t * wksp ){
 //   (void)total_stake;
 // # endif
 
-//   fd_voter_t switch_voter = { .key = { { 5 } }, .stake = 5, .replay_vote = { .slot = 5 } };
+//   fd_vote_acc_t switch_voter = { .key = { { 5 } }, .stake = 5, .replay_vote = { .slot = 5 } };
 //   fd_ghost_count_vote( ghost, &switch_voter, &hash_arr[9] );
 //   /* switching to vote 9, from voting 5, that is > than the root */
 // # if PRINT
@@ -351,7 +382,7 @@ test_best( fd_wksp_t * wksp ){
 
 //   fd_ghost_publish( ghost, &hash_arr[3] ); /* cut down to blks 3,7,8 */
 //   /* now previously voted 2 ( < the root ) votes for 7 */
-//   fd_voter_t switch_voter2 = { .key = { { 2 } }, .stake = 2, .replay_vote = { .slot = 2 } };
+//   fd_vote_acc_t switch_voter2 = { .key = { { 2 } }, .stake = 2, .replay_vote = { .slot = 2 } };
 //   fd_ghost_count_vote( ghost, &switch_voter2, &hash_arr[7] );
 
 // # if PRINT
@@ -385,7 +416,7 @@ test_best( fd_wksp_t * wksp ){
 
 //   for ( ulong i = 1; i < blk_max - 1; i++ ) {
 //     fd_ghost_update( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
-//     fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
+//     fd_vote_acc_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
 //     fd_ghost_count_vote( ghost, &v, &hash_arr[i] );
 //   }
 
@@ -408,7 +439,7 @@ test_best( fd_wksp_t * wksp ){
 //   /* add one more blk */
 
 //   fd_ghost_update( ghost, &hash_arr[(blk_max-2)/2], blk_max - 1, &hash_arr[blk_max - 1], total_stake );
-//   fd_voter_t v = { .key = { { (uchar)( blk_max - 1 ) } }, .stake = blk_max - 1, .replay_vote = { .slot = FD_SLOT_NULL } };
+//   fd_vote_acc_t v = { .key = { { (uchar)( blk_max - 1 ) } }, .stake = blk_max - 1, .replay_vote = { .slot = FD_SLOT_NULL } };
 //   fd_ghost_count_vote( ghost, &v, &hash_arr[blk_max - 1]);
 
 //   FD_TEST( !fd_ghost_verify( ghost ) );
@@ -437,8 +468,8 @@ test_best( fd_wksp_t * wksp ){
 //   fd_pubkey_t  pk2   = { { 2 } };
 //   ulong        total = 150;
 //   fd_epoch_t * epoch = mock_epoch( wksp, 150, 2, pk1, 50, pk2, 100 );
-//   fd_voter_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
-//   fd_voter_t * v2    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk2, NULL );
+//   fd_vote_acc_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
+//   fd_vote_acc_t * v2    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk2, NULL );
 
 //   fd_hash_t hash_10 = { .key = { 10 } };
 //   fd_hash_t hash_11 = { .key = { 11 } };
@@ -598,7 +629,7 @@ test_best( fd_wksp_t * wksp ){
 //   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
 
 //   /* Vote down the left branch */
-//   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
+//   fd_vote_acc_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
 //   fd_ghost_count_vote( ghost, &v1, &hash_4 );
 // }
 
@@ -706,7 +737,7 @@ test_best( fd_wksp_t * wksp ){
 //   FD_TEST( fd_dup_seen_map_query( dup_map, 2, NULL ) );
 //   FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 1 );
 
-//   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
+//   fd_vote_acc_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
 //   fd_ghost_count_vote( ghost, &v1, &hash_3 );
 
 //   FD_TEST( is_duplicate_confirmed( ghost, &hash_3, total_stake ) );
@@ -744,7 +775,7 @@ test_best( fd_wksp_t * wksp ){
 //   fd_ghost_update( ghost, &hash_2, 3, &hash_3, total_stake );
 
 //   FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
-//   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
+//   fd_vote_acc_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
 //   fd_ghost_count_vote( ghost, &v1, &hash_3 );
 
 //   FD_TEST( is_duplicate_confirmed( ghost, &hash_3, total_stake ) );
@@ -838,14 +869,113 @@ test_best( fd_wksp_t * wksp ){
 // }
 
 
+void
+test_npow2_init( fd_wksp_t * wksp ) {
+  ulong npow2_blk_maxs[] = { 7, 10, 13, 17, 33, 65, 100 };
+  ulong cnt = sizeof(npow2_blk_maxs) / sizeof(npow2_blk_maxs[0]);
+
+  for( ulong i = 0; i < cnt; i++ ) {
+    ulong blk_max = npow2_blk_maxs[i];
+    ulong vtr_max = blk_max;
+
+    /* Verify footprint is nonzero. */
+    ulong footprint = fd_ghost_footprint( blk_max, vtr_max );
+    FD_TEST( footprint );
+
+    /* new / join */
+    void * mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), footprint, 42UL );
+    FD_TEST( mem );
+    fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, blk_max, vtr_max, 42UL ) );
+    FD_TEST( ghost );
+
+    /* Insert a small tree and verify. */
+    fd_hash_t ids[4];
+    for( ulong j = 0; j < 4; j++ ) ids[j] = (fd_hash_t){ .ul = { j + 1 } };
+    fd_ghost_init(   ghost, 0, 0, &ids[0] );
+    fd_ghost_insert( ghost, 1, 1, &ids[1], &ids[0] );
+    fd_ghost_insert( ghost, 2, 2, &ids[2], &ids[1] );
+    fd_ghost_insert( ghost, 3, 3, &ids[3], &ids[1] );
+
+    FD_TEST( fd_ghost_query( ghost, &ids[0] ) );
+    FD_TEST( fd_ghost_query( ghost, &ids[1] ) );
+    FD_TEST( fd_ghost_query( ghost, &ids[2] ) );
+    FD_TEST( fd_ghost_query( ghost, &ids[3] ) );
+    FD_TEST( !fd_ghost_verify( ghost ) );
+
+    /* Cleanup */
+    fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ghost ) ) );
+  }
+}
+
+/* test_vtr_release_on_publish exercises the vtr lifecycle fix: vtrs are
+   acquired from the vtr_pool on first vote, parked on the dlist of the
+   block they voted for, and released back to the pool when that block
+   is pruned by fd_ghost_publish.
+
+         0
+         |
+         1
+        / \
+       2   3
+       |   |
+       4   5
+           |
+           6
+
+   Publishing 3 prunes {0,1,2,4}; survivors {3,5,6}. */
+
+void
+test_vtr_release_on_publish( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
+
+  vtr_pool_t * vp   = vtr_pool( ghost );
+  ulong        vmax = vtr_pool_max( vp );
+  FD_TEST( vtr_pool_free( vp )==vmax ); /* no voters tracked yet */
+
+  fd_pubkey_t a = { .ul = { 0xa } };
+  fd_pubkey_t b = { .ul = { 0xb } };
+  fd_pubkey_t c = { .ul = { 0xc } };
+
+  /* a -> slot 4 (left fork), b -> slot 2 (left fork), c -> slot 3 (right fork). */
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[4] ), &a, 10, 4 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[2] ), &b, 10, 2 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[3] ), &c, 10, 3 );
+  FD_TEST( vtr_pool_free( vp )==vmax-3 ); /* three vtrs acquired */
+
+  /* Publish slot 3.  a and b lived on the pruned left fork, so their
+     vtrs must be released; c is on a surviving block, so it stays. */
+  fd_ghost_publish( ghost, fd_ghost_query( ghost, &block_ids[3] ) );
+
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[2] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[3] ) );
+  FD_TEST( vtr_pool_free( vp )==vmax-1 );                                /* a and b reclaimed, c kept */
+  FD_TEST(  vtr_map_ele_query( vtr_map( ghost ), &c, NULL, vp ) );       /* c still tracked */
+  FD_TEST( !vtr_map_ele_query( vtr_map( ghost ), &a, NULL, vp ) );       /* a released */
+  FD_TEST( !vtr_map_ele_query( vtr_map( ghost ), &b, NULL, vp ) );       /* b released */
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  /* Freed slots are reusable: a brand-new voter and a previously-released
+     voter both (re)acquire fresh vtrs on the surviving fork. */
+  fd_pubkey_t d = { .ul = { 0xd } };
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[6] ), &d, 10, 6 );
+  FD_TEST( vtr_pool_free( vp )==vmax-2 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[5] ), &a, 10, 5 );
+  FD_TEST( vtr_pool_free( vp )==vmax-3 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  teardown_ghost( ghost );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong  page_cnt  = 1;
-  char * _page_sz  = "gigantic";
-  ulong  numa_idx  = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                      );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
+  fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
   // // test_print( wksp );
@@ -853,6 +983,9 @@ main( int argc, char ** argv ) {
   test_publish_left( wksp );
   test_publish_right( wksp );
   test_best( wksp );
+  test_ignore_out_of_order_vote( wksp );
+  test_vtr_release_on_publish( wksp );
+  test_npow2_init( wksp );
   // test_vote_leaves( wksp );
   // test_best_full_tree( wksp );
   // test_rooted_vote( wksp );

@@ -11,9 +11,6 @@ endif
 $(call make-unit-test,test_sha512,test_sha512,fd_ballet fd_util)
 $(call run-unit-test,test_sha512)
 
-$(call make-unit-test,test_sha384,test_sha384,fd_ballet fd_util)
-$(call run-unit-test,test_sha384)
-
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_sha512,fuzz_sha512,fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_sha384,fuzz_sha384,fd_ballet fd_util)

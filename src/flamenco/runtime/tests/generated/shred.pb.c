@@ -6,19 +6,21 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(FD_EXEC_TEST_SHRED_BINARY, fd_exec_test_shred_binary_t, AUTO)
+PB_BIND(FD_EXEC_TEST_SHRED_FEATURES, fd_exec_test_shred_features_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_DATA_HEADER, fd_exec_test_data_header_t, AUTO)
+PB_BIND(FD_EXEC_TEST_SHRED_PARSE_CONTEXT, fd_exec_test_shred_parse_context_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_CODE_HEADER, fd_exec_test_code_header_t, AUTO)
+PB_BIND(FD_EXEC_TEST_FEC_SET_PARSE_RESULT, fd_exec_test_fec_set_parse_result_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_PARSED_SHRED, fd_exec_test_parsed_shred_t, AUTO)
+PB_BIND(FD_EXEC_TEST_SHRED_PARSE_EFFECTS, fd_exec_test_shred_parse_effects_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_ACCEPTS_SHRED, fd_exec_test_accepts_shred_t, AUTO)
+PB_BIND(FD_EXEC_TEST_SHRED_PARSE_FIXTURE, fd_exec_test_shred_parse_fixture_t, AUTO)
+
+
 
 
 

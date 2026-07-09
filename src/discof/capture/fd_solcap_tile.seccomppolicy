@@ -3,7 +3,7 @@
 #
 # solcap_fd_0: The first solcap capture file (single file mode or recent_0.solcap)
 # solcap_fd_1: The second solcap capture file (recent_1.solcap in recent_only mode)
-unsigned int logfile_fd, uint solcap_fd_0, uint solcap_fd_1
+uint logfile_fd, uint solcap_fd_0, uint solcap_fd_1
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -41,3 +41,6 @@ ftruncate: (or (eq (arg 0) solcap_fd_0)
 fsync: (or (eq (arg 0) logfile_fd)
            (eq (arg 0) solcap_fd_0)
            (eq (arg 0) solcap_fd_1))
+
+# startup: sleep until snapshot loaded
+clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)

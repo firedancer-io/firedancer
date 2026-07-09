@@ -1,3 +1,4 @@
+ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_racesan_base.h fd_racesan.h)
 $(call add-objs,fd_racesan,fd_util)
 
@@ -8,4 +9,5 @@ $(call add-objs,fd_racesan_weave,fd_util)
 
 ifdef FD_HAS_RACESAN
 $(call make-unit-test,test_racesan,test_racesan,fd_util)
+endif
 endif

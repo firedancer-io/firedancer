@@ -31,7 +31,7 @@ main( int     argc,
   double recal_frac = fd_env_strip_cmdline_double( &argc, &argv, "--recal-frac", NULL, 0.         ); /* 0 -> use default */
   double tau_meas   = fd_env_strip_cmdline_double( &argc, &argv, "--tau-meas",   NULL, 1e5        );
   long   tau_stat   = fd_env_strip_cmdline_long  ( &argc, &argv, "--tau-stat",   NULL, (long) 1e9 );
-  long   tau_run    = fd_env_strip_cmdline_long  ( &argc, &argv, "--tau-run",    NULL, (long)10e9 );
+  long   tau_run    = fd_env_strip_cmdline_long  ( &argc, &argv, "--tau-run",    NULL, (long)3e9 );
 
   FD_LOG_NOTICE(( "Testing (--recal-avg %li ns --recal-jit %li ns --recal-hist %e --recal-frac %e --tau-meas %e ns --tau-stat %li ns --tau-run %li ns)",
                   recal_avg, recal_jit, recal_hist, recal_frac, tau_meas, tau_stat, tau_run ));

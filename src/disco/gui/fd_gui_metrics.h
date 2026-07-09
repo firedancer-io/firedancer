@@ -37,17 +37,20 @@ fd_gui_metrics_gossip_total_ingress_bytes( fd_topo_t const * topo, ulong gossvf_
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_WALLCLOCK) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_SIGNATURE) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_SHRED_VERSION) )
+       + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_REQUEST_MASK_BITS) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PRUNE_DESTINATION) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PRUNE_WALLCLOCK) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PRUNE_SIGNATURE) )
+       + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_LOOPBACK) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PUSH_NO_VALID_CRDS) )
+       + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_LOOPBACK) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PULL_RESPONSE_NO_VALID_CRDS) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PING_SIGNATURE) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, MESSAGE_RX_BYTES_DROPPED_PONG_SIGNATURE) );
 }
 
 static inline ulong
-fd_gui_metrics_gosip_total_egress_bytes( fd_topo_t const * topo, ulong gossip_tile_cnt ) {
+fd_gui_metrics_gossip_total_egress_bytes( fd_topo_t const * topo, ulong gossip_tile_cnt ) {
   return fd_gui_metrics_sum_tiles_counter( topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PONG ) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PRUNE ) )

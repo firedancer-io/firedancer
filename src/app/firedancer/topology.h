@@ -20,18 +20,7 @@ setup_topo_banks( fd_topo_t *  topo,
                   ulong        max_fork_width,
                   int          larger_max_cost_per_block );
 
-fd_topo_obj_t *
-setup_topo_banks_locks( fd_topo_t *  topo,
-                        char const * wksp_name );
-
-fd_topo_obj_t *
-setup_topo_funk( fd_topo_t *  topo,
-                 char const * wksp_name,
-                 ulong        max_account_records,
-                 ulong        max_database_transactions,
-                 ulong        heap_size_gib );
-
-fd_topo_obj_t *
+void
 setup_topo_progcache( fd_topo_t *  topo,
                       char const * wksp_name,
                       ulong        max_cache_entries,
@@ -42,25 +31,31 @@ fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
-                  uint         part_cnt );
+                  uint         part_cnt,
+                  ulong        fec_data_max );
 
 fd_topo_obj_t *
-setup_topo_acc_pool( fd_topo_t * topo,
-                     ulong       account_cnt );
+setup_topo_fec_sets( fd_topo_t *  topo,
+                     char const * wksp_name,
+                     ulong        sz );
+
+fd_topo_obj_t *
+setup_topo_accdb( fd_topo_t *  topo,
+                  char const * wksp_name,
+                  ulong        max_accounts,
+                  ulong        max_live_slots,
+                  ulong        max_account_writes_per_slot,
+                  ulong        partition_cnt,
+                  ulong        partition_sz,
+                  ulong        cache_footprint,
+                  int          bundle_enabled,
+                  ulong        joiner_cnt );
 
 fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot );
-
-void
-setup_topo_accdb_meta( fd_topo_t *    topo,
-                       fd_configf_t * config );
-
-fd_topo_obj_t *
-setup_topo_accdb_cache( fd_topo_t *    topo,
-                        fd_configf_t * config );
 
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,

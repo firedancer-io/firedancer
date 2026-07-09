@@ -143,7 +143,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_add_syscall( res, in, 64, 0 /*LE*/ );
+        fd_bn254_g1_add_syscall( res, in, 128, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_add_syscall", iter, dt );
@@ -214,10 +214,10 @@ int main( int     argc,
     }
 
     {
-      ulong iter = 10000000UL;
+      ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g2_add_syscall( res, in, 128, 0 /*LE*/ );
+        fd_bn254_g2_add_syscall( res, in, 256, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g2_add_syscall", iter, dt );
@@ -339,6 +339,9 @@ int main( int     argc,
       // test 0
       "b79f0a1a8b26021de64856aed703474cd5b9e59cb4a75c4f9242b1f3d0e6d32b04b2fdce66ae0c39c819464aaddf492ece090930701d2f5e9185afa6e01c6121c215fa50e78c1311000000000000000000000000000000000000000000000000",
       "5c1ec3139c6c2aeea4f553a074b2478aeffae834d429bee4ca5321986a8d0a07fc1a98c6cec30e6915f3f0f44b074319f0b0d5cdf989b9ffa9a3eb14e98c1b03",
+      // test 1: worst-case 254-bit scalar (r_ord-2) for benchmarking
+      "e3eb0f940f3dfacc5880f0095622359098f214064861d193452fe94c58b0871af6f8f9f72bd933dcef9699f57c6dcd0f4b5081ff7d00e97eccad6d1f953c2f1affffffef93f5e1439170b97948e833285d588181b64550b829a031e1724e6430",
+      "501c967e05bd7c47e7e14539d2ea869b9c8733189c76e0996cc5b3eb494ed6037716ea15b9958538c4ad02f372e73088da4c6004785863d73970a541bf0dfc22",
     };
 
     len=sizeof(tests_le)/8/2;
@@ -357,7 +360,7 @@ int main( int     argc,
     }
 
     {
-      ulong iter = 1000UL;
+      ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
         fd_bn254_g1_scalar_mul_syscall( res, in, 96, 0 /*LE*/ );
@@ -594,12 +597,12 @@ int main( int     argc,
       /* test G2 compress > decompress */
       FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 1 /*BE*/ ) );
       FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 1 /*BE*/ ) );
-      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+      if( !fd_memeq( &in[64], g2d, 128 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 /*BE*/, 0 /* no length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
@@ -636,12 +639,12 @@ int main( int     argc,
       /* test G2 compress > decompress */
       FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
       FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
-      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+      if( !fd_memeq( &in[64], g2d, 128 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
       fd_bn254_el_bswap( exp );
@@ -675,12 +678,12 @@ int main( int     argc,
       /* test G2 compress > decompress */
       FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
       FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
-      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+      if( !fd_memeq( &in[64], g2d, 128 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
 
       fd_hex_decode( exp, tests_le[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
@@ -689,6 +692,14 @@ int main( int     argc,
         FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
       }
     }
+
+    /* negative tests: input length not a multiple of 192 must be rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 0UL,   0 /*LE*/ )==0  ); /* 0 is a multiple of 192, empty pairing succeeds */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 1UL,   0 /*LE*/ )==-1 ); /* 1 byte: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 191UL, 0 /*LE*/ )==-1 ); /* 192 - 1: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 193UL, 0 /*LE*/ )==-1 ); /* 192 + 1: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 191UL, 1 /*BE*/ )==-1 ); /* big endian, 192 - 1: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 193UL, 1 /*BE*/ )==-1 ); /* big endian, 192 + 1: rejected */
 
     {
       ulong iter = 10000UL;
@@ -730,7 +741,7 @@ int main( int     argc,
       ulong iter = 100UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ );
+        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_pairing_is_one_syscall", iter, dt );
@@ -813,6 +824,47 @@ int main( int     argc,
         FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
       }
     }
+  }
+
+
+  /* compress/decompress edge cases */
+  {
+    uchar FD_ALIGNED input[64] = {0};
+    input[63] = 0x40; /* Infinity flag in LE Y coordinate high byte */
+
+    uchar FD_ALIGNED out[32];
+    FD_TEST( fd_bn254_g1_compress( out, input, 0 /*LE*/ ) );
+
+    uchar FD_ALIGNED expected[32];
+    fd_hex_decode( expected, "0000000000000000000000000000000000000000000000000000000000000040", 32UL );
+    FD_TEST( fd_memeq( expected, out, 32 ) );
+  }
+  {
+    uchar FD_ALIGNED input[128] = {0};
+    input[127] = 0x40; /* FLAG_INF in Y coord el[1], LE flag byte */
+
+    uchar FD_ALIGNED out[64];
+    FD_TEST( fd_bn254_g2_compress( out, input, 0 /*LE*/ ) );
+
+    uchar FD_ALIGNED expected[64];
+    fd_hex_decode( expected, "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040", 64UL );
+    FD_TEST( fd_memeq( expected, out, 64 ) );
+
+    uchar FD_ALIGNED round[128] = { 0 };
+    FD_TEST( fd_bn254_g2_decompress( round, out, 0 /*LE*/ ) );
+    const uchar zeroes[128] = { 0 };
+    FD_TEST( fd_memeq( zeroes, round, 128 ) );
+  }
+  {
+    uchar FD_ALIGNED input[128] = {0};
+    input[64] = 0x40; /* FLAG_INF in Y coord el[1], BE flag byte */
+
+    uchar FD_ALIGNED out[64];
+    FD_TEST( fd_bn254_g2_compress( out, input, 1 /*BE*/ ) );
+
+    uchar FD_ALIGNED expected[64];
+    fd_hex_decode( expected, "40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", 64UL );
+    FD_TEST( fd_memeq( expected, out, 64 ) );
   }
 
   FD_LOG_NOTICE(( "pass" ));

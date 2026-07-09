@@ -5,6 +5,7 @@
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
 #include "../net/fd_net_tile.h"
+#include "../fd_clock_tile.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/io/fd_io.h"
 
@@ -17,9 +18,8 @@ typedef struct {
 
   fd_stem_context_t * stem;
 
-  long       now;        /* current time in ns     */
-  fd_clock_t clock[1];   /* memory for fd_clock_t   */
-  long       recal_next; /* next recalibration time (ns) */
+  long            now; /* current time in ns */
+  fd_clock_tile_t clock[1];
 
   fd_quic_t * quic;
   fd_aio_t    quic_tx_aio[1];
@@ -65,8 +65,6 @@ typedef struct {
     ulong quic_txn_too_small;
     ulong quic_txn_too_large;
   } metrics;
-
-  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 } fd_quic_ctx_t;
 
 #endif /* HEADER_fd_src_disco_quic_fd_quic_tile_h */

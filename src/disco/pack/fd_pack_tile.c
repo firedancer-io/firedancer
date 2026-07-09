@@ -8,6 +8,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard.h"
+#include "../keyguard/fd_keyguard_client.h"
 #include "../metrics/fd_metrics.h"
 #include "../pack/fd_pack.h"
 #include "../pack/fd_pack_cost.h"
@@ -29,8 +30,9 @@
 #define IN_KIND_EXECUTED_TXN (5UL)
 
 /* Pace microblocks, but only slightly.  This helps keep performance
-   more stable.  This limit is 2,000 microblocks/second/execle.  At 31
-   transactions/microblock, that's 62k txn/sec/execle. */
+   more stable.  This limit is 2,000 microblocks/second/execle.  At
+   MAX_TXN_PER_MICROBLOCK transactions/microblock, that's
+   2000*MAX_TXN_PER_MICROBLOCK txn/sec/execle. */
 #define MICROBLOCK_DURATION_NS  (0L)
 
 /* There are 151 accepted blockhashes, but those don't include skips.
@@ -65,14 +67,15 @@ const float VOTE_FRACTION = 0.75f; /* TODO: Is this the right value? */
 /* There's overhead associated with each microblock the execle tile
    tries to execute it, so the optimal strategy is not to produce a
    microblock with a single transaction as soon as we receive it.
-   Basically, if we have less than 31 transactions, we want to wait a
-   little to see if we receive additional transactions before we
-   schedule a microblock.  We can model the optimum amount of time to
-   wait, but the equation is complicated enough that we want to compute
-   it before compile time. wait_duration[i] for i in [0, 31] gives the
-   time in nanoseconds pack should wait after receiving its most recent
-   transaction before scheduling if it has i transactions available.
-   Unsurprisingly, wait_duration[31] is 0.  wait_duration[0] is
+   Basically, if we have less than MAX_TXN_PER_MICROBLOCK transactions,
+   we want to wait a little to see if we receive additional transactions
+   before we schedule a microblock.  We can model the optimum amount of
+   time to wait, but the equation is complicated enough that we want to
+   compute it before compile time. wait_duration[i] for i in
+   [0, MAX_TXN_PER_MICROBLOCK] gives the time in nanoseconds pack should
+   wait after receiving its most recent transaction before scheduling if
+   it has i transactions available.  Unsurprisingly,
+   wait_duration[MAX_TXN_PER_MICROBLOCK] is 0.  wait_duration[0] is
    ULONG_MAX, so we'll always wait if we have 0 transactions. */
 FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 #endif
@@ -106,9 +109,8 @@ FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 /* Sync with src/app/shared/fd_config.c */
 #define FD_PACK_STRATEGY_PERF     0
 #define FD_PACK_STRATEGY_BALANCED 1
-#define FD_PACK_STRATEGY_BUNDLE   2
 
-static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "BUN" };
+static char const * const schedule_strategy_strings[2] = { "PRF", "BAL" };
 
 
 typedef struct {
@@ -133,6 +135,7 @@ typedef struct {
   int          is_bundle; /* is the current transaction a bundle */
 
   uchar executed_txn_sig[ 64UL ];
+  uchar txn_committed;
 
   /* One of the FD_PACK_STRATEGY_* values defined above */
   int      strategy;
@@ -174,6 +177,8 @@ typedef struct {
     ulong slot_max_cost;
     ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
+    ulong slot_max_allocated_data_per_block;
+    ulong slot_max_data_shreds;
   } limits;
 
   /* If drain_execle is non-zero, then the pack tile must wait until all
@@ -203,6 +208,15 @@ typedef struct {
   /* The end wallclock time of the leader slot we are currently packing
      for, if we are currently packing for a slot.*/
   long slot_end_ns;
+
+  /* The current dynamic upper bound on total microblocks for this slot.
+     Monotonically decreasing over the slot lifetime. */
+  ulong slot_dynamic_max_microblocks;
+
+  /* Set by during_housekeeping when the dynamic bound drops below
+     slot_max_microblocks.  Consumed by after_credit which publishes
+     the updated bound to POH over the pack_poh link. */
+  int pending_reduce_mb_bound;
 
   /* pacer and ticks_per_ns are used for pacing CUs through the slot,
      i.e. deciding when to schedule a microblock given the number of CUs
@@ -345,7 +359,7 @@ remove_ib( fd_pack_ctx_t * ctx ) {
      try deleting it just in case. */
   if( FD_UNLIKELY( ctx->crank->enabled & ctx->crank->ib_inserted ) ) {
     ulong deleted = fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)ctx->crank->last_sig );
-    FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+    FD_MCNT_INC( PACK, TXN_DELETED, deleted );
   }
   ctx->crank->ib_inserted = 0;
 }
@@ -359,12 +373,13 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
-    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
-    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
-    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
-    .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
-    .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
-    .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
+    .max_cost_per_block           = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
+    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
+    .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
+    .max_data_bytes_per_block     = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
+    .max_microblocks_per_block    = (ulong)UINT_MAX, /* Limit not known yet */
+    .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
   }};
 
   ulong l = FD_LAYOUT_INIT;
@@ -385,15 +400,15 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
                        long            now,
                        char const    * reason,
                        ulong           cus_consumed_in_block ) {
-#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
-#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, AVAILABLE_TRANSACTIONS_##m) ])
-    FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
+#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULED_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
+#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_AVAILABLE_##m) ])
+    FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
           ctx->leader_slot, reason, ctx->execle_idle_bitset, now-ctx->last_sched_metrics->time,
-          DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
+          DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( ALLOC_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
           AVAIL(REGULAR), AVAIL(VOTES), AVAIL(BUNDLES), AVAIL(CONFLICTING),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, SMALLEST_PENDING_TRANSACTION) ]),
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_PENDING_SMALLEST_CU) ]),
           (cus_consumed_in_block),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ])
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, BLOCK_CU_CONSUMED) ])
     ));
 #undef AVAIL
 #undef DELTA
@@ -405,22 +420,24 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
     done_packing->end_slot_reason = reason;
     fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
-#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] = DELTA( start_block_sched_metrics, TAKEN      );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] = DELTA( start_block_sched_metrics, CU_LIMIT   );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] = DELTA( start_block_sched_metrics, FAST_PATH  );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ] = DELTA( start_block_sched_metrics, BYTE_LIMIT );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ] = DELTA( start_block_sched_metrics, WRITE_COST );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX  ] = DELTA( start_block_sched_metrics, SLOW_PATH  );
-    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ] = DELTA( start_block_sched_metrics, DEFER_SKIP );
+#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULED_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] = DELTA( start_block_sched_metrics, TAKEN       );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX    ] = DELTA( start_block_sched_metrics, CU_LIMIT    );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX   ] = DELTA( start_block_sched_metrics, FAST_PATH   );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX  ] = DELTA( start_block_sched_metrics, BYTE_LIMIT  );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ] = DELTA( start_block_sched_metrics, ALLOC_LIMIT );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX  ] = DELTA( start_block_sched_metrics, WRITE_COST  );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX   ] = DELTA( start_block_sched_metrics, SLOW_PATH   );
+    done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] = DELTA( start_block_sched_metrics, DEFER_SKIP  );
 
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] = DELTA( last_sched_metrics, TAKEN      );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] = DELTA( last_sched_metrics, CU_LIMIT   );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] = DELTA( last_sched_metrics, FAST_PATH  );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ] = DELTA( last_sched_metrics, BYTE_LIMIT );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ] = DELTA( last_sched_metrics, WRITE_COST );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX  ] = DELTA( last_sched_metrics, SLOW_PATH  );
-    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ] = DELTA( last_sched_metrics, DEFER_SKIP );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] = DELTA( last_sched_metrics, TAKEN       );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX    ] = DELTA( last_sched_metrics, CU_LIMIT    );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX   ] = DELTA( last_sched_metrics, FAST_PATH   );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX  ] = DELTA( last_sched_metrics, BYTE_LIMIT  );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ] = DELTA( last_sched_metrics, ALLOC_LIMIT );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX  ] = DELTA( last_sched_metrics, WRITE_COST  );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX   ] = DELTA( last_sched_metrics, SLOW_PATH   );
+    done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] = DELTA( last_sched_metrics, DEFER_SKIP  );
 #undef DELTA
 
   fd_pack_get_pending_smallest( ctx->pack, done_packing->pending_smallest, done_packing->pending_votes_smallest );
@@ -428,15 +445,49 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
 
 static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
-  FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
-  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_STATUS,           ctx->crank->metrics );
+  FD_MCNT_ENUM_COPY( PACK, TXN_INSERTED,          ctx->insert_result  );
+  FD_MCNT_ENUM_COPY( PACK, STATE_DURATION_NANOS,        ((ulong*)ctx->metric_timing) );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_RESULT,           ctx->crank->metrics );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
-  FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
+  FD_MHIST_COPY( PACK, NO_SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
   FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
 
   fd_pack_metrics_write( ctx->pack );
+}
+
+/* compute_dynamic_max_microblocks: Computes the upper bound on total
+   microblocks based on remaining time and bank count.
+
+   The basic idea here is that if there is 1ms left in the slot, we
+   don't expect to schedule 130k microblocks.  We can reduce our
+   remaining budget which allows POH to advance hashing a bit further
+   and avoid having to do a lot of hashing after the slot ends.
+
+   The fastest we can execute a transaction is about 1us.  With n
+   execle tiles, that means we can execute at most n txn/us.  If we have
+   k ms left in the block, only reserve up to k*n*1000 microblocks. */
+
+static inline ulong
+compute_dynamic_max_microblocks( fd_pack_ctx_t * ctx ) {
+  long  now = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+  long  end = ctx->slot_end_ns;
+
+  /* If the slot has ended, don't reserve any more microblocks. */
+  if( FD_UNLIKELY( now>=end ) ) return ctx->slot_microblock_cnt;
+
+  /* remaining_ns * n / 1000 = (remaining_ns/1e6 ms) * n * 1000.
+
+     Overflow: remaining_ns is at most ~4e8, n at most 64, so
+     remaining_ns * n is at most ~2.6e10 << 1.8e19. */
+
+  ulong remaining_ns = (ulong)(end - now);
+  ulong n            = ctx->execle_cnt;
+  ulong cnt          = ctx->slot_microblock_cnt;
+  ulong R            = ctx->slot_max_microblocks - cnt;
+  ulong can_execute  = remaining_ns * n / 1000UL;
+
+  return cnt + fd_ulong_min( R, can_execute );
 }
 
 static inline void
@@ -447,6 +498,34 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->crank->enabled && fd_keyswitch_state_query( ctx->crank->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_memcpy( ctx->crank->identity_pubkey, ctx->crank->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->crank->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
+    ulong raw = compute_dynamic_max_microblocks( ctx );
+    ulong prev = ctx->slot_dynamic_max_microblocks;
+
+    /* Enforce monotonically decreasing. This ensures pack's bound is
+       always smaller than POH's.  */
+    ctx->slot_dynamic_max_microblocks = fd_ulong_min( raw, prev );
+
+    /* If the bound decreased, we must update pack's internal scheduling
+       limit.  Otherwise, pack could schedule a microblock that exceeds
+       the remaining capacity from the tile's and poh's perspectives
+       (e.g. pack might produce a 5-transaction microblock when only 4
+       microblocks worth of space remain). */
+    if( FD_UNLIKELY( ctx->slot_dynamic_max_microblocks < prev ) ) {
+      fd_pack_limits_t limits[1];
+      limits->max_cost_per_block           = ctx->limits.slot_max_cost;
+      limits->max_data_bytes_per_block     = ctx->slot_max_data;
+      limits->max_microblocks_per_block    = ctx->slot_dynamic_max_microblocks;
+      limits->max_vote_cost_per_block      = ctx->limits.slot_max_vote_cost;
+      limits->max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
+      limits->max_txn_per_microblock       = ULONG_MAX; /* unused */
+      limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
+      fd_pack_set_block_limits( ctx->pack, limits );
+
+      ctx->pending_reduce_mb_bound = 1; /* publish bound decrease */
+    }
   }
 }
 
@@ -502,10 +581,10 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot, &deleted );
   insert_duration      += fd_tickcount();
 
-  FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+  FD_MCNT_INC( PACK, TXN_DELETED, deleted );
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-  FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, 1UL );
+  FD_MCNT_INC( PACK, TXN_EXTRA_RETRIEVED, 1UL );
   return result;
 }
 #endif
@@ -513,10 +592,8 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
@@ -623,19 +700,31 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       /* Pack notifies poh when execle are drained so that poh can
          relinquish pack's ownership over the slot execle (by decrementing
-         its Arc). We do this by sending a ULONG_MAX sig over the
-         pack_poh mcache.
+         its Arc). We do this by sending a FD_PACK_MSG_DONE_DRAINING
+         sig over the pack_poh mcache.
 
          TODO: This is only needed for Frankendancer, not Firedancer,
          which manages bank lifetime different. */
-      fd_stem_publish( stem, 1UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, 1UL, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      *charge_busy = 1;
+      return;
     } else {
       return;
     }
   }
 
+  if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
+    ctx->pending_reduce_mb_bound = 0;
+    ulong * dst = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+    *dst = ctx->slot_dynamic_max_microblocks;
+    fd_stem_publish( stem, 1UL, FD_PACK_MSG_REDUCE_MB_BOUND, ctx->poh_out_chunk, sizeof(ulong), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(ulong), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+    *charge_busy = 1;
+    return;
+  }
+
   /* Have I sent the max allowed microblocks? Nothing to do. */
-  if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
+  if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_dynamic_max_microblocks ) ) return;
 
   /* Do I have enough transactions and/or have I waited enough time? */
 #if !SMALL_MICROBLOCKS
@@ -666,7 +755,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
         fd_pack_set_initializer_bundles_ready( ctx->pack );
-        ctx->crank->metrics[ 0 ]++; /* BUNDLE_CRANK_STATUS_NOT_NEEDED */
+        ctx->crank->metrics[ 0 ]++; /* BUNDLE_CRANK_RESULT_NOT_NEEDED */
       }
       else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
         bundle[0]->txnp->payload_sz  = (ushort)txn_sz;
@@ -683,10 +772,10 @@ after_credit( fd_pack_ctx_t *     ctx,
         ctx->crank->ib_inserted = 1;
         ulong deleted;
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL, &deleted );
-        FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+        FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
         if( FD_UNLIKELY( retval<0 ) ) {
-          ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_STATUS_INSERTION_FAILED */
+          ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_RESULT_INSERTION_FAILED */
           FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
         } else {
           /* Update the cached copy of the on-chain state.  This seems a
@@ -708,12 +797,12 @@ after_credit( fd_pack_ctx_t *     ctx,
              that these are the right values to use. */
           fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
                                  ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
-          ctx->crank->metrics[ 1 ]++; /* BUNDLE_CRANK_STATUS_INSERTED */
+          ctx->crank->metrics[ 1 ]++; /* BUNDLE_CRANK_RESULT_INSERTED */
         }
       } else {
         /* Already logged a warning in this case */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
-        ctx->crank->metrics[ 2 ]++; /* BUNDLE_CRANK_STATUS_CREATION_FAILED' */
+        ctx->crank->metrics[ 2 ]++; /* BUNDLE_CRANK_RESULT_CREATION_FAILED' */
       }
     }
   }
@@ -741,13 +830,9 @@ after_credit( fd_pack_ctx_t *     ctx,
         flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,                FD_PACK_SCHEDULE_BUNDLE, 0 )
                                       | fd_int_if( i<pacing_execle_cnt, FD_PACK_SCHEDULE_TXN,    0 );
         break;
-      case FD_PACK_STRATEGY_BUNDLE:
-        flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE
-                                      | fd_int_if( ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L, FD_PACK_SCHEDULE_TXN,  0 );
-        break;
     }
 
-    fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
+    fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
@@ -759,14 +844,18 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed execle was idle */
       ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
       ulong chunk  = ctx->execle_out_chunk;
-      ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
+      ulong msg_sz = schedule_cnt*sizeof(fd_txn_e_t);
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
-      trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
+      trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
+
+      /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
+         to execle, there must be room for the trailer at the end. */
+      FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
@@ -810,14 +899,16 @@ after_credit( fd_pack_ctx_t *     ctx,
 #endif
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
-  if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_max_microblocks )) {
+  if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_dynamic_max_microblocks )) {
+    *charge_busy = 1;
+
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,      0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
     /* The pack object also does this accounting and increases this
        metric, but we end the slot early so won't see it unless we also
        increment it here. */
-    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
+    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT_REACHED, 1UL );
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_MICROBLOCK );
@@ -833,6 +924,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     remove_ib( ctx );
+
+    return;
   }
 }
 
@@ -853,6 +946,13 @@ during_frag( fd_pack_ctx_t * ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY: {
+    if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
+      fd_replay_txn_executed_t const * txn_executed = fd_type_pun_const( dcache_entry );
+      ctx->txn_committed = !!txn_executed->is_committable;
+      if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
+      memcpy( ctx->executed_txn_sig, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
+      return;
+    }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
 
     /* There was a leader transition.  Handle it. */
@@ -913,7 +1013,7 @@ during_frag( fd_pack_ctx_t * ctx,
          happen if we are getting transactions. */
       ctx->highest_observed_slot = sig;
       ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-      FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+      FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
     }
 
 
@@ -922,7 +1022,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->is_bundle = 1;
       if( FD_LIKELY( bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
+          FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                 = bundle_id;
@@ -931,7 +1031,7 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->txn_received       = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, 1UL );
+          FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE, 1UL );
           ctx->current_bundle->id = 0UL;
           return;
         }
@@ -951,7 +1051,7 @@ during_frag( fd_pack_ctx_t * ctx,
       } else {
         if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
           extra_txn_deq_remove_head( ctx->extra_txn_deq );
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
+          FD_MCNT_INC( PACK, TXN_EXTRA_DROPPED, 1UL );
         }
         ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
         /* We want to store the current time in cur_spot so that we can
@@ -959,7 +1059,7 @@ during_frag( fd_pack_ctx_t * ctx,
            fields, since those aren't important right now. */
         ctx->cur_spot->txnp->blockhash_slot = sig;
         ctx->insert_to_extra                = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
+        FD_MCNT_INC( PACK, TXN_EXTRA_INSERTED, 1UL );
       }
 #else
       ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
@@ -968,7 +1068,7 @@ during_frag( fd_pack_ctx_t * ctx,
 
     /* We get transactions from the resolv tile.
        The transactions should have been parsed and verified. */
-    FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
+    FD_MCNT_INC( PACK, TXN_NORMAL_RX, 1UL );
 
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
@@ -1012,6 +1112,10 @@ after_frag( fd_pack_ctx_t *     ctx,
   ulong leader_slot = ULONG_MAX;
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY:
+      if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED && ctx->txn_committed ) ) {
+        ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
+        FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED, deleted );
+      }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
       leader_slot = ctx->_became_leader->slot;
 
@@ -1052,18 +1156,41 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_slot = leader_slot;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+    FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
 
     ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
+
+    ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
+    if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
+      /* Compute base_max_data to ensure that we don't overflow
+         slot_max_data_shreds. See FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX in
+         fd_shred_batch.h. Some of the terms are
+         based on the worst-case number of FEC sets in a block, which
+         scales with the slot time reductions:
+         - pad_ohead = per-batch padding (OHEAD_PAD in fd_shred_batch.h)
+         - hdr_ohead = per-batch header (OHEAD_HDR in fd_shred_batch.h)
+         - reg_ohead = only used for the last batch
+                       (OHEAD_REG in fd_shred_batch.h) */
+      ulong fec_set_cnt     = ctx->_became_leader->limits.slot_max_data_shreds/32UL;
+      ulong pad_ohead       = ( fec_set_cnt/2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+      ulong hdr_ohead       = fec_set_cnt*8UL;
+      ulong reg_ohead       = 8192UL;
+      FD_TEST( fec_set_cnt >= 2UL ); /* guard against underflow */
+      ulong fec_data        = ( fec_set_cnt - 2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+      FD_TEST( fec_data    >= pad_ohead+hdr_ohead+reg_ohead );
+      base_max_data         = fec_data - pad_ohead - hdr_ohead - reg_ohead;
+    }
     /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
+    ctx->slot_max_data        = base_max_data
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
 
-    ctx->limits.slot_max_cost                = ctx->_became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_vote_cost           = ctx->_became_leader->limits.slot_max_vote_cost;
-    ctx->limits.slot_max_write_cost_per_acct = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+    ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
+    ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
+    ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+    ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
+    ctx->limits.slot_max_data_shreds              = ctx->_became_leader->limits.slot_max_data_shreds;
 
     /* ticks_per_ns is probably relatively stable over 400ms, but not
        over several hours, so we need to compute the slot duration in
@@ -1088,6 +1215,8 @@ after_frag( fd_pack_ctx_t *     ctx,
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
 
     ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
+    ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
+    ctx->pending_reduce_mb_bound       = 0;
     fd_pack_limits_t limits[ 1 ];
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
     limits->max_data_bytes_per_block = ctx->slot_max_data;
@@ -1095,6 +1224,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     limits->max_vote_cost_per_block = ctx->limits.slot_max_vote_cost;
     limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
     limits->max_txn_per_microblock = ULONG_MAX; /* unused */
+    limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
     fd_pack_set_block_limits( ctx->pack, limits );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
 
@@ -1123,7 +1253,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg, &deleted );
         insert_duration      += fd_tickcount();
-        FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+        FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
@@ -1134,7 +1264,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       long insert_duration = -fd_tickcount();
       int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
       insert_duration      += fd_tickcount();
-      FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+      FD_MCNT_INC( PACK, TXN_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
@@ -1146,7 +1276,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   }
   case IN_KIND_EXECUTED_TXN: {
     ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-    FD_MCNT_INC( PACK, TRANSACTION_ALREADY_EXECUTED, deleted );
+    FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED, deleted );
     break;
   }
   }
@@ -1155,8 +1285,8 @@ after_frag( fd_pack_ctx_t *     ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   if( FD_LIKELY( !tile->pack.bundle.enabled ) ) return;
   if( FD_UNLIKELY( !tile->pack.bundle.vote_account_path[0] ) ) {
     FD_LOG_WARNING(( "Disabling bundle crank because no vote account was specified" ));
@@ -1181,19 +1311,20 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
 
   fd_pack_limits_t limits_upper[1] = {{
-    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
-    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
-    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
-    .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
-    .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
-    .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
+    .max_cost_per_block           = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND,
+    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
+    .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
+    .max_data_bytes_per_block     = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
+    .max_microblocks_per_block    = (ulong)UINT_MAX, /* Limit not known yet */
+    .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
   }};
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count, limits_upper );
@@ -1204,17 +1335,20 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   fd_pack_limits_t limits_lower[1] = {{
-    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND,
-    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND,
-    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND,
-    .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
-    .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
-    .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
+    .max_cost_per_block           = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND,
+    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND,
+    .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND,
+    .max_data_bytes_per_block     = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
+    .max_microblocks_per_block    = (ulong)UINT_MAX, /* Limit not known yet */
+    .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
   }};
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
                                          tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count,
-                                         limits_lower, rng ) );
+                                         limits_lower,
+                                         fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt,
+                                         rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
@@ -1224,14 +1358,14 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
     if( FD_LIKELY(      !strcmp( link->name, "resolv_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "resolh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "pohh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "execle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
-    else if( FD_LIKELY( !strcmp( link->name, "exec_sig"     ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
@@ -1248,7 +1382,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( execle_cnt>FD_PACK_MAX_EXECLE_TILES       ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
   // if( FD_UNLIKELY( execle_cnt!=tile->pack.execle_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu execle tiles, but tile->pack.execle_tile_count is %lu", execle_cnt, tile->pack.execle_tile_count ));
 
-  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BUNDLE) );
+  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BALANCED) );
 
   ctx->crank->enabled = tile->pack.bundle.enabled;
   if( FD_UNLIKELY( tile->pack.bundle.enabled ) ) {
@@ -1264,8 +1398,8 @@ unprivileged_init( fd_topo_t *      topo,
     ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_pack", tile->kind_id );
     ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_sign", tile->kind_id );
     FD_TEST( sign_in_idx!=ULONG_MAX );
-    fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
-    fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+    fd_topo_link_t const * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
+    fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
     if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->crank->keyguard_client,
             sign_out->mcache,
             sign_out->dcache,
@@ -1285,7 +1419,7 @@ unprivileged_init( fd_topo_t *      topo,
     memset( ctx->crank->last_sig,           '\0', 64UL );
     ctx->crank->ib_inserted    = 0;
     ctx->crank->epoch          = 0UL;
-    ctx->crank->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+    ctx->crank->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
     FD_TEST( ctx->crank->keyswitch );
   } else {
     memset( ctx->crank, '\0', sizeof(ctx->crank) );
@@ -1308,6 +1442,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;
   ctx->slot_max_microblocks          = 0UL;
+  ctx->slot_dynamic_max_microblocks  = 0UL;
+  ctx->pending_reduce_mb_bound       = 0;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->drain_execle                  = 0;
@@ -1350,8 +1486,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -1372,8 +1508,8 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
   fd_histf_join( fd_histf_new( ctx->schedule_duration, FD_MHIST_SECONDS_MIN( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->no_sched_duration, FD_MHIST_SECONDS_MIN( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ),
-                                                       FD_MHIST_SECONDS_MAX( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->no_sched_duration, FD_MHIST_SECONDS_MIN( PACK, NO_SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, NO_SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
   fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
@@ -1389,10 +1525,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu execle tiles using strategy %i", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.execle_tile_count, ctx->strategy ));
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
 }
 
 static ulong
@@ -1424,7 +1559,25 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+/* Pack can publish a frag in the following scenarios:
+
+   after_credit:
+     A. TIMED_OUT. Sets ctx->leader_slot=ULONG_MAX. return.
+     B. DONE_DRAINING. *after* DONE_PACKING. return.
+     C. REDUCE_MB_BOUND. return.
+     D. SCHEDULE_MB. *doesn't* return.
+     E. EXHAUST_MICROBLOCKS. Sets ctx->leader_slot=ULONG_MAX. return.
+   after_frag:
+   	 F. LEADER_SWITCH. Requires ctx->leader_slot!=ULONG_MAX
+
+     It isn't possible to get a burst of 3, but a burst of 2 is possible
+     in these situations.
+
+     C -> F
+     D -> F
+     D -> E
+ */
+#define STEM_BURST (2UL)
 
 /* We want lazy (measured in ns) to be small enough that the producer
     and the consumer never have to wait for credits.  For most tango
