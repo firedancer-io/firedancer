@@ -25,6 +25,7 @@ struct fd_event_reporter {
   fd_frag_meta_t * mcache;  /* mcache of the event link (joined) */
   ulong            depth;   /* mcache depth */
   ulong            seq;     /* next sequence number to publish */
+  ulong *          seq_store; /* mcache header seq */
 
   fd_wksp_t *      mem;     /* workspace containing the dcache (chunk base) */
   ulong            chunk;   /* current write chunk */
@@ -73,6 +74,7 @@ fd_event_report_( ulong        type,
   fd_mcache_publish( r->mcache, r->depth, r->seq, type, r->chunk, sz, 0UL, 0UL, tspub );
   r->seq   = fd_seq_inc( r->seq, 1UL );
   r->chunk = fd_dcache_compact_next( r->chunk, sz, r->chunk0, r->wmark );
+  fd_mcache_seq_update( r->seq_store, r->seq );
 }
 
 FD_PROTOTYPES_END

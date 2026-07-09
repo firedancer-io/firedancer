@@ -101,6 +101,10 @@ struct fd_backt_tile {
   uchar pending[ FD_SHRED_MAX_SZ ];
 
   volatile ulong const * event_metrics;
+
+  ulong         event_in_cnt;
+  ulong const * event_in_prod[ 64 ];
+  ulong const * event_in_cons[ 64 ];
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -392,16 +396,24 @@ returnable_frag( fd_backt_tile_t *   ctx,
           ctx->src = NULL;
         }
         if( FD_UNLIKELY( ctx->event_metrics ) ) {
-          /* Wait for the event tile to drain its internal buffers before exiting the backtest run */
-          FD_LOG_NOTICE(( "draining %lu unsent events before exit", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
-          long hard_deadline = fd_log_wallclock() + (long)120e9;
-          while( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ]>0UL ) {
-            if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) break;
-            if( FD_UNLIKELY( fd_log_wallclock()>hard_deadline ) ) break;
+          long deadline = fd_log_wallclock() + (long)120e9;
+          for(;;) {
+            int drained = 1;
+            for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
+              if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
+            }
+            drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
+            if( FD_LIKELY( drained ) ) break;
+            if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
+              FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+              break;
+            }
+            if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+              FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+              break;
+            }
             FD_SPIN_PAUSE();
           }
-          long grace_period = fd_log_wallclock() + (long)250e6;
-          while( fd_log_wallclock()<grace_period ) FD_SPIN_PAUSE();
         }
         exit(0);
       }
@@ -467,9 +479,19 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->idle_cnt = 0UL;
 
   ctx->event_metrics = NULL;
+  ctx->event_in_cnt  = 0UL;
   ulong event_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
   if( FD_UNLIKELY( event_tile_idx!=ULONG_MAX && topo->tiles[ event_tile_idx ].metrics ) ) {
-    ctx->event_metrics = fd_metrics_tile( topo->tiles[ event_tile_idx ].metrics );
+    fd_topo_tile_t const * event_tile = &topo->tiles[ event_tile_idx ];
+    ctx->event_metrics = fd_metrics_tile( event_tile->metrics );
+    for( ulong i=0UL; i<event_tile->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !event_tile->in_link_poll[ i ] ) ) continue;
+      if( FD_UNLIKELY( !event_tile->in_link_fseq[ i ] ) ) continue;
+      FD_TEST( ctx->event_in_cnt<sizeof(ctx->event_in_prod)/sizeof(ctx->event_in_prod[0]) );
+      ctx->event_in_prod[ ctx->event_in_cnt ] = fd_mcache_seq_laddr_const( topo->links[ event_tile->in_link_id[ i ] ].mcache );
+      ctx->event_in_cons[ ctx->event_in_cnt ] = event_tile->in_link_fseq[ i ];
+      ctx->event_in_cnt++;
+    }
   }
 
   ctx->end_slot = tile->backtest.end_slot ? tile->backtest.end_slot : ULONG_MAX;
