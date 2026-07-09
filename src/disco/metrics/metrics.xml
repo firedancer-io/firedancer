@@ -1723,6 +1723,9 @@ EXAMPLES
 <tile name="genesi">
 </tile>
 
+<tile name="admin">
+</tile>
+
 <enum name="ConnCloseResult">
     <int value="0" name="Ok" label="Closed normally" />
     <int value="1" name="Error" label="Closed abnormally" />

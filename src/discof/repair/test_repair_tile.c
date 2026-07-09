@@ -861,6 +861,112 @@ test_parent_edge_mismatch_with_verified_fec0( fd_wksp_t * wksp ) {
    FD_LOG_NOTICE(( "pass: test_parent_edge_mismatch_with_verified_fec0" ));
 }
 
+static void
+test_after_fec0_parent_update_unconfirmed_stale_parent( fd_wksp_t * wksp ) {
+
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp, 512 );
+
+  ulong const root_slot         = 40UL;
+  ulong const real_parent_slot  = 41UL;
+  ulong const stale_parent_slot = 42UL;
+  ulong const child_slot        = 43UL;
+
+  fd_forest_init( ctx->forest, root_slot );
+
+  fd_hash_t empty_mr  = {0};
+  fd_hash_t mr_root   = (fd_hash_t){ .ul = { 400 } };
+  fd_hash_t mr_41     = (fd_hash_t){ .ul = { 410 } };
+  fd_hash_t mr_42     = (fd_hash_t){ .ul = { 420 } };
+  fd_hash_t mr_43     = (fd_hash_t){ .ul = { 430 } };
+  fd_hash_t mr_43_fec = (fd_hash_t){ .ul = { 431 } };
+
+  fd_shred_t shred_hdr[1];
+  /* Complete slot 41 on top of the root without confirming it. */
+  memset( shred_hdr, 0, sizeof(fd_shred_t) );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->slot            = real_parent_slot;
+  shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
+  shred_hdr->fec_set_idx     = 0;
+  shred_hdr->data.parent_off = (ushort)( real_parent_slot - root_slot );
+  shred_hdr->data.flags      = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+  FD_TEST( !after_fec( ctx, shred_hdr, &mr_41, &mr_root ) );
+
+  /* Complete slot 42 as an unconfirmed local branch. */
+  memset( shred_hdr, 0, sizeof(fd_shred_t) );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->slot            = stale_parent_slot;
+  shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
+  shred_hdr->fec_set_idx     = 0;
+  shred_hdr->data.parent_off = (ushort)( stale_parent_slot - real_parent_slot );
+  shred_hdr->data.flags      = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+  FD_TEST( !after_fec( ctx, shred_hdr, &mr_42, &mr_41 ) );
+
+  /* Verify the stale branch is complete but not duplicate-confirmed. */
+  fd_forest_blk_t * slot42 = fd_forest_query( ctx->forest, stale_parent_slot );
+  FD_TEST( slot42 );
+  FD_TEST( slot42->complete_idx == FD_FEC_SHRED_CNT - 1U );
+  FD_TEST( !slot42->chain_confirmed );
+  FD_TEST( fd_hash_eq( &slot42->confirmed_bid, &empty_mr ) );
+
+  /* Link slot 43 under slot 42 using a later-FEC shred. */
+  memset( shred_hdr, 0, sizeof(fd_shred_t) );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->slot            = child_slot;
+  shred_hdr->idx             = FD_FEC_SHRED_CNT;
+  shred_hdr->fec_set_idx     = FD_FEC_SHRED_CNT;
+  shred_hdr->data.parent_off = (ushort)( child_slot - stale_parent_slot );
+  after_shred( ctx, SHRED_SIG_SRC_TURBINE, shred_hdr, 0, &mr_43_fec, &mr_42 );
+
+  /* Verify the stale parent link exists before FEC 0 arrives.*/
+  fd_forest_blk_t * slot43 = fd_forest_query( ctx->forest, child_slot );
+  FD_TEST( slot43 );
+  FD_TEST( slot43->parent_slot == stale_parent_slot );
+  FD_TEST( slot43->complete_idx == UINT_MAX );
+
+  /* Complete slot 43 FEC 0 with slot 41 as its actual parent. */
+  memset( shred_hdr, 0, sizeof(fd_shred_t) );
+  shred_hdr->variant         = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->slot            = child_slot;
+  shred_hdr->idx             = FD_FEC_SHRED_CNT - 1U;
+  shred_hdr->fec_set_idx     = 0;
+  shred_hdr->data.parent_off = (ushort)( child_slot - real_parent_slot );
+  shred_hdr->data.flags      = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+  FD_TEST( !after_fec( ctx, shred_hdr, &mr_43, &mr_41 ) );
+
+  /* Verify FEC 0 reparented slot 43 to slot 41. */
+  slot43 = fd_forest_query( ctx->forest, child_slot );
+  FD_TEST( slot43 );
+  FD_TEST( slot43->parent_slot == real_parent_slot );
+  FD_TEST( slot43->complete_idx == FD_FEC_SHRED_CNT - 1U );
+  FD_TEST( slot43->buffered_idx == slot43->complete_idx );
+
+  fd_tower_slot_confirmed_t confirmed_msg[1];
+  /* Duplicate-confirm only slot 43. */
+  memset( confirmed_msg, 0, sizeof(*confirmed_msg) );
+  confirmed_msg->level    = FD_TOWER_SLOT_CONFIRMED_DUPLICATE;
+  confirmed_msg->fwd      = 0;
+  confirmed_msg->slot     = child_slot;
+  confirmed_msg->block_id = mr_43;
+  after_tower( ctx, FD_TOWER_SIG_SLOT_CONFIRMED, (uchar *)confirmed_msg );
+
+  /* Verify the stale unconfirmed slot 42 was not touched. */
+  fd_forest_blk_t * slot41 = fd_forest_query( ctx->forest, real_parent_slot );
+  slot42 = fd_forest_query( ctx->forest, stale_parent_slot );
+  slot43 = fd_forest_query( ctx->forest, child_slot );
+  FD_TEST( slot41 );
+  FD_TEST( slot42 );
+  FD_TEST( slot43 );
+  FD_TEST( slot41->chain_confirmed );
+  FD_TEST( !slot42->chain_confirmed );
+  FD_TEST( slot43->chain_confirmed );
+  FD_TEST( fd_hash_eq( &slot41->confirmed_bid, &mr_41 ) );
+  FD_TEST( fd_hash_eq( &slot42->confirmed_bid, &empty_mr ) );
+  FD_TEST( slot42->complete_idx == FD_FEC_SHRED_CNT - 1U );
+  FD_TEST( !fd_forest_verify( ctx->forest ) );
+
+  FD_LOG_NOTICE(( "pass: test_after_fec0_parent_update_unconfirmed_stale_parent" ));
+}
 
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -887,6 +993,11 @@ int main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1UL );
   test_parent_edge_mismatch_with_verified_fec0( wksp );
+
+  fd_wksp_reset( wksp, 1UL );
+  test_after_fec0_parent_update_unconfirmed_stale_parent( wksp );
+
+
 
   fd_halt();
   return 0;

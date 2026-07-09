@@ -6,9 +6,9 @@
 
 #define USE_FIAT_32 0
 #if USE_FIAT_32
-#include "../../fiat-crypto/curve25519_32.c"
+#include "../../../third_party/fiat-crypto/curve25519_32.c"
 #else
-#include "../../fiat-crypto/curve25519_64.c"
+#include "../../../third_party/fiat-crypto/curve25519_64.c"
 #endif
 
 /* A fd_f25519_t stores a curve25519 field element in 10 uint (32 bit),

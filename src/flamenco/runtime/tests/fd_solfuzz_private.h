@@ -6,8 +6,8 @@
 
 #include "fd_solfuzz.h"
 #include "../../features/fd_features.h"
-#include "../../../ballet/nanopb/pb_encode.h"
-#include "../../../ballet/nanopb/pb_decode.h"
+#include "../../../third_party/nanopb/pb_encode.h"
+#include "../../../third_party/nanopb/pb_decode.h"
 #include "generated/context.pb.h"
 
 FD_PROTOTYPES_BEGIN

@@ -1,9 +1,9 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 
-#include "../../ballet/json/cJSON_alloc.h"
+#include "../../third_party/cjson/cJSON_alloc.h"
 #include "../../ballet/base64/fd_base64.h"
-#include "../../ballet/json/cJSON.h"
+#include "../../third_party/cjson/cJSON.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -32,7 +32,7 @@
 #endif
 
 #include "../../util/archive/fd_tar.h"
-#include "../../ballet/bzip2/bzlib.h"
+#include "../../third_party/bzip2/bzlib.h"
 
 #include "generated/fd_rpc_tile_seccomp.h"
 

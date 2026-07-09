@@ -8,7 +8,7 @@
    into every caller, which would bloat compile time and code size. */
 
 #include "./fd_bn254_internal.h"
-#include "../fiat-crypto/bn254_64.c"
+#include "../../third_party/fiat-crypto/bn254_64.c"
 #if FD_HAS_S2NBIGNUM
 #include <s2n-bignum.h>
 #endif

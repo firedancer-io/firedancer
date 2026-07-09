@@ -78,6 +78,15 @@
 
 </div>
 
+## Admin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
 ## Snapct Tile
 
 <div class="metrics">

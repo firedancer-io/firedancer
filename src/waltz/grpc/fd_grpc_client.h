@@ -5,7 +5,7 @@
    streaming gRPC requests over HTTP/2+TLS. */
 
 #include "fd_grpc_codec.h"
-#include "../../ballet/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
+#include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
 #if FD_HAS_OPENSSL
 #include <openssl/types.h> /* SSL */
 #endif

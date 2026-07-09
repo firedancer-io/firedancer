@@ -184,6 +184,7 @@ static tile_spec_t const FIREDANCER_TILES[] = {
   /* floating tiles */
   { "netlnk", 1 },
   { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
+  { "admin",  1 },
   /* ordered tiles (36) */
   { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
   { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "poh",    1 },
@@ -358,6 +359,7 @@ static char const * const FRANK_32X2[] = {
 static tile_spec_t const FD_FEWER_TILES[] = {
   { "netlnk", 1 },
   { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
+  { "admin",  1 },
   { "net",    2 }, { "quic",   1 }, { "verify", 2 }, { "dedup",  1 },
   { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "poh",    1 },
   { "shred",  1 }, { "sign",   2 }, { "gui",    1 }, { "gossvf", 2 },

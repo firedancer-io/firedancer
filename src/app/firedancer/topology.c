@@ -433,6 +433,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "tower"  );
   fd_topob_wksp( topo, "txsend" );
   fd_topob_wksp( topo, "sign"   )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
+  fd_topob_wksp( topo, "admin"  )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
 
   if( leader_enabled ) {
     fd_topob_wksp( topo, "quic"   );
@@ -696,6 +697,16 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( solcap_enabled ) ) {
     fd_topob_wksp( topo, "solcap" );
     fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  }
+
+  /* Grant the admin tile access to every keyswitch object in the
+     topology for add authorized voters and set identity. */
+  fd_topo_tile_t * admin_tile = fd_topob_tile( topo, "admin", "admin", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topo_obj_t * admin_ctl = fd_topob_obj_named( topo, "adminctl", "admin", "admin" );
+  fd_topob_tile_uses( topo, admin_tile, admin_ctl, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( topo->tiles[ i ].av_keyswitch_obj_id!=ULONG_MAX ) fd_topob_tile_uses( topo, admin_tile, &topo->objs[ topo->tiles[ i ].av_keyswitch_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
@@ -1302,6 +1313,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->genesi.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->genesi.accdb_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     FD_TEST( tile->genesi.accdb_obj_id!=ULONG_MAX );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "admin" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 

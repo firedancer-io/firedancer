@@ -1,4 +1,4 @@
-Legal notices below.  See LICENSE and CONTRIBUTORS for additional
+Legal notices below.  See LICENSE for additional
 information.  All links were valid at the time they were added to
 this file.
 
@@ -264,7 +264,7 @@ with this software. If not, see
 
 =======================================================================
 
-'src/ballet/nanopb' is currently a copy of the Nanopb library at
+'src/third_party/nanopb' is currently a copy of the Nanopb library at
 https://jpa.kapsi.fi/nanopb/ (imported ca 2023-Nov).
 
 Copyright (c) 2011 Petteri Aimonen <jpa at nanopb.mail.kapsi.fi>
@@ -290,7 +290,7 @@ redistribute it freely, subject to the following restrictions:
 
 =======================================================================
 
-'src/ballet/http' contains a copy of the PicoHTTPParser library at
+'src/third_party/picohttpparser' contains a copy of the PicoHTTPParser library at
 https://github.com/h2o/picohttpparser (imported ca 2023-Nov). Commit
 hash 066d2b1e9ab820703db0837a7255d92d30f0c9f5
 
@@ -320,7 +320,7 @@ IN THE SOFTWARE.
 
 =======================================================================
 
-'src/ballet/http' conains a modified copy of the teeny-sha1 library at
+'src/ballet/sha1' contains a modified copy of the teeny-sha1 library at
 https://github.com/CTrabant/teeny-sha1 (imported ca 2024-Jun). Commit
 hash f05a2d0019e12850bb482274c1a21ae7a4fb84bd
 
@@ -348,7 +348,7 @@ SOFTWARE.
 
 =======================================================================
 
-'src/ballet/json' is a copy of the cJSON library at
+'src/third_party/cjson' is a copy of the cJSON library at
 https://github.com/DaveGamble/cJSON (imported ca 2023-Dec). Commit
 hash cb8693b058ba302f4829ec6d03f609ac6f848546
 
@@ -384,7 +384,7 @@ license information.  SPDX-License-Identifier: MIT or Apache-2.0
 
 =======================================================================
 
-The code in src/ballet/fiat-crypto was generated using Fiat-Crypto.
+The code in src/third_party/fiat-crypto was generated using Fiat-Crypto.
 
 The Apache License, Version 2.0 (Apache-2.0)
 
@@ -507,7 +507,7 @@ The IP address data in src/disco/gui/dbip.bin is powered by DB-IP.com
 
 =======================================================================
 
-src/ballet/bzip2 contains a copy of bzip2 version 1.0.8.
+src/third_party/bzip2 contains a copy of bzip2 version 1.0.8.
 
 This program, "bzip2", the associated library "libbzip2", and all
 documentation, are copyright (C) 1996-2019 Julian R Seward.  All

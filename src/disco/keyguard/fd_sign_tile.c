@@ -6,6 +6,7 @@
 #include "../keyguard/fd_keyguard.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
+#include "../../discof/admin/fd_adminctl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../metrics/fd_metrics.h"
 
@@ -105,6 +106,7 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
     if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
       FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
       fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+      ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS;
       fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
       return;
     }
@@ -113,6 +115,7 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
         FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
         FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+        ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER;
         fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
         return;
       }
