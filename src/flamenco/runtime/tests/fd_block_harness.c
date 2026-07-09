@@ -138,7 +138,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Attach a fork off the runner's root for context loading */
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
-  bank->accdb_fork_id = fork_id;
+  bank->accdb_fork_id        = fork_id;
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );

@@ -54,6 +54,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
   runner->bank->f.slot            = slot;
   runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
   runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
 
   FD_TEST( test_ctx->has_bank );

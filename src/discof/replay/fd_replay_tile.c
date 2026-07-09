@@ -258,9 +258,10 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
-  bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
-  bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
-  bank->accdb_fork_id     = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
+  bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   ulong new_epoch  = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, slot, NULL );
   ulong root_epoch = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, ctx->published_root_slot, NULL );
@@ -550,9 +551,10 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
 
   ctx->leader_bank->f.slot = slot;
 
-  ctx->leader_bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
-  ctx->leader_bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
-  ctx->leader_bank->accdb_fork_id     = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
+  ctx->leader_bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  ctx->leader_bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -1050,6 +1052,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
 
@@ -1160,6 +1163,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
     bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+    bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
     ulong snapshot_slot = bank->f.slot;
 

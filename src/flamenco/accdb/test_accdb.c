@@ -148,6 +148,112 @@ accdb_write( fd_accdb_t *       accdb,
   fd_accdb_release( accdb, 1UL, acc );
 }
 
+static void
+accdb_write_pd( fd_accdb_t *       accdb,
+                fd_accdb_fork_id_t fork_id,
+                uchar const *      pubkey,
+                ulong              lamports,
+                uchar const *      data,
+                ulong              data_len,
+                uchar const *      owner,
+                int                pd_write ) {
+  uchar const * pks[1] = { pubkey };
+  int wr[1] = { 1 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[0].lamports = lamports;
+  acc[0].data_len = data_len;
+  memcpy( acc[0].owner, owner, 32UL );
+  if( data_len && data ) memcpy( acc[0].data, data, data_len );
+  acc[0].commit   = 1;
+  acc[0].pd_write = pd_write;
+  fd_accdb_release( accdb, 1UL, acc );
+}
+
+void
+test_pd_write_bit_and_probe( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f1   = fd_accdb_attach_child( accdb, root );
+
+  uchar owner[32]; memset( owner, 0xAB, 32UL );
+  uchar pk[32];    memset( pk, 0x11, 32UL );
+  uchar data[128]; memset( data, 0x22, sizeof(data) );
+
+  int   pd;
+  ulong len;
+
+  /* Write on f1 with pd_write=1 -> probe on f1 sees bit=1, gen-match,
+     returns the committed data_len. */
+  accdb_write_pd( accdb, f1, pk, 500UL, data, sizeof(data), owner, 1 );
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len )==1 );
+  FD_TEST( pd==1 );
+  FD_TEST( len==sizeof(data) );
+
+  /* Probe on a child fork of f1: generation mismatch -> returns 0, pd=0,
+     out_data_len untouched. */
+  fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, f1 );
+  pd = 1; len = 0xdeadUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len )==0 );
+  FD_TEST( pd==0 );
+  FD_TEST( len==0xdeadUL ); /* untouched */
+
+  /* OR-sticky: overwrite on f1 with pd_write=0 must NOT clear the bit. */
+  accdb_write_pd( accdb, f1, pk, 501UL, data, sizeof(data), owner, 0 );
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len )==1 );
+  FD_TEST( pd==1 ); /* survived the pd_write=0 overwrite */
+
+  /* New version on child fork c with pd_write=0 -> probe on c sees bit=0
+     (new current-gen version, no deploy-status write this slot). */
+  accdb_write_pd( accdb, c, pk, 502UL, data, sizeof(data), owner, 0 );
+  pd = 1; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len )==1 );
+  FD_TEST( pd==0 );
+  FD_TEST( len==sizeof(data) );
+
+  /* Closed-this-slot: a lamports==0 current-generation tombstone with
+     pd_write=1 must still report pd==1 (the exists()-clone lamports
+     trap; Close is the fails-open case). */
+  uchar pk2[32]; memset( pk2, 0x33, 32UL );
+  fd_accdb_fork_id_t f2 = fd_accdb_attach_child( accdb, root );
+  accdb_write_pd( accdb, f2, pk2, 999UL, data, 64UL, owner, 0 ); /* fund it first */
+  accdb_write_pd( accdb, f2, pk2, 0UL,   NULL, 4UL,  owner, 1 ); /* close: lamports=0, pd_write=1 */
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len )==1 );
+  FD_TEST( pd==1 );      /* bit reported despite lamports==0 */
+  FD_TEST( len==4UL );   /* post-close committed len */
+
+  /* Not-found -> returns 0, pd=0, out_data_len untouched. */
+  uchar pk3[32]; memset( pk3, 0x44, 32UL );
+  pd = 1; len = 0xbeefUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk3, &pd, &len )==0 );
+  FD_TEST( pd==0 );
+  FD_TEST( len==0xbeefUL );
+
+  /* Mask discipline: a 1 MiB account with pd_write=1 reads back with the
+     correct length (SIZE_DATA excludes bit 28). */
+  uchar pk4[32]; memset( pk4, 0x55, 32UL );
+  ulong big = 1UL<<20;
+  uchar * bigbuf = aligned_alloc( 64UL, big );
+  FD_TEST( bigbuf ); memset( bigbuf, 0x66, big );
+  accdb_write_pd( accdb, f1, pk4, 700UL, bigbuf, big, owner, 1 );
+  ulong rlen = 0UL;
+  FD_TEST( accdb_read( accdb, f1, pk4, NULL, NULL, &rlen, NULL )==1 );
+  FD_TEST( rlen==big );
+  pd = 0; len = ULONG_MAX;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk4, &pd, &len )==1 );
+  FD_TEST( pd==1 );
+  FD_TEST( len==big );
+  free( bigbuf );
+
+  test_teardown( accdb, fd );
+}
+
 void
 test_background_preevict_ignores_uninitialized_tail( void ) {
   int fd;
@@ -1351,6 +1457,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();
+
+  FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
+  test_pd_write_bit_and_probe();
 
   FD_LOG_NOTICE(( "success" ));
 

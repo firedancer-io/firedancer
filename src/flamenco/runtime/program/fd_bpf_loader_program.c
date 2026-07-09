@@ -943,6 +943,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
+  programdata_account.acc->pd_write = 1;
 
   /* Max msg_sz: 41 - 2 + 20 = 57 < 127 => we can use printf
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1532-L1536 */
@@ -1362,6 +1363,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
+        programdata.acc->pd_write = 1;
 
         /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L675-L689 */
         if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>fd_borrowed_account_get_data_len( &programdata ) ) ) {
@@ -1648,6 +1650,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
+        programdata.acc->pd_write = 1;
 
         /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L875 */
         /* We want to copy over the data and zero out the rest */
@@ -2063,6 +2066,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
               close_account_state );
           if( FD_UNLIKELY( err ) ) return err;
 
+          /* Mark the closed programdata pd_write via the txn account (no
+             borrow is live here, and buffer/uninitialized closes going
+             through common_close_account must not set the bit). */
+          ushort pd_idx_in_txn;
+          err = fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( instr_ctx, 0U, &pd_idx_in_txn );
+          if( FD_UNLIKELY( err ) ) return err; /* unreachable */
+          instr_ctx->txn_out->accounts.account[ pd_idx_in_txn ]->pd_write = 1;
+
           /* The Agave client updates the account state upon closing an account
              in their loaded program cache. Checking for a program can be
              checked by checking to see if the programdata account's loader state
@@ -2184,6 +2195,13 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
      account's respective program data account is uninitialized. This should only
      happen when the account is closed.
 
+     The programdata account here is fetched via fd_runtime_get_executable_account,
+     which may return a copy read from the parent fork.  A parent copy's
+     program_data.slot cannot reflect a current-slot deploy/upgrade/extend/close,
+     so the DelayVisibility gate below is provenance-aware: current-fork copies keep
+     the slot comparison, parent-fork copies gate on the accdb pd_write probe
+     result instead.
+
      Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
   uchar is_deprecated = !memcmp( program_account.acc->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
@@ -2213,7 +2231,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     fd_pubkey_t * programdata_pubkey = &program_account_state->inner.program.programdata_address;
-    progdata_ro = fd_runtime_get_executable_account( ctx->txn_out, programdata_pubkey );
+    int from_parent_copy   = 0;
+    int pd_write_this_slot = 0;
+    progdata_ro = fd_runtime_get_executable_account( ctx->txn_out, programdata_pubkey, &from_parent_copy, &pd_write_this_slot );
     if( FD_UNLIKELY( !progdata_ro ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2240,11 +2260,18 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     ulong program_data_slot = program_data_account_state->inner.program_data.slot;
-    if( FD_UNLIKELY( program_data_slot>=ctx->bank->f.slot ) ) {
-      /* The account was likely just deployed or upgraded. Corresponds to
-         'LoadedProgramType::DelayVisibility' */
-      fd_log_collector_msg_literal( ctx, "Program is not deployed" );
-      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    if( FD_LIKELY( !from_parent_copy ) ) {
+      if( FD_UNLIKELY( program_data_slot>=ctx->bank->f.slot ) ) {
+        /* The account was likely just deployed or upgraded. Corresponds to
+           'LoadedProgramType::DelayVisibility' */
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+    } else {
+      if( FD_UNLIKELY( pd_write_this_slot ) ) {
+        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
     }
   }
 

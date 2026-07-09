@@ -39,6 +39,7 @@ struct fd_accdb_entry {
   uchar * prior_data;
 
   int     commit;
+  int     pd_write;
 
   int     _writable;
   int     _overwrite;
@@ -301,6 +302,18 @@ fd_accdb_purge( fd_accdb_t *       accdb,
    to release the bank after the acquire call returns, and this will not
    cause the acquired accounts to be evicted from the cache.
 
+   The refcnt does not have to be on the bank of fork_idx itself: a
+   refcnt on a live child bank of fork_idx also suffices.  This is the
+   executor's pattern, it holds a refcnt on the executing child bank
+   and read-only acquires implicit programdata on that bank's (frozen)
+   parent fork.  It works because a fork with a live (refcnt>0) child
+   bank can be neither advanced-past nor purged, so fork_idx cannot be
+   recycled out from under the acquire.  advance_root(fork_idx) itself
+   (rooting the queried fork) IS permitted concurrently with a read-only
+   acquire on fork_idx (see the THREADING MODEL section); what remains
+   forbidden is advancing PAST fork_idx or purging it while any acquire
+   on it is outstanding.
+
    pubkeys_cnt is the number of accounts to acquire, and pubkeys is an
    array of pointers to the 32-byte pubkeys of the accounts to acquire.
    writable is an array of flags indicating whether each corresponding
@@ -334,6 +347,14 @@ fd_accdb_purge( fd_accdb_t *       accdb,
        not activate a child block until the parent block is fully done.
        Concurrent acquires across unrelated sibling forks have no
        ordering requirement.
+     - A read-only acquire on a frozen ancestor fork may begin after
+       descendant-fork acquires (read or write) have already begun.  The
+       executor relies on this: while a child bank executes (writably
+       acquiring its own-fork accounts), it also read-only acquires the
+       program's implicit programdata on the frozen parent fork.  This
+       is safe because the parent is frozen, no writer ever commits to
+       it so the read-only acquire cannot overlap any same-fork write,
+       and read-only acquires never mutate acc pool or fork state.
 
    Violating this contract is undefined behavior and will likely crash
    with an assertion failure inside the cache refcount logic.  In
@@ -435,6 +456,27 @@ int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey );
+
+/* fd_accdb_probe_pd_this_fork checks whether the newest version of
+   pubkey visible on fork_id was committed on fork_id itself.  If so,
+   returns 1, sets *out_pd_write to that version's pd_write flag, and
+   sets *out_data_len to its data length.  Otherwise returns 0, sets
+   *out_pd_write to 0, and leaves *out_data_len untouched.
+
+   Reads only metadata (never account data) and does not consider
+   lamports: a programdata closed this slot is a lamports==0 tombstone
+   that must still report pd_write=1.
+
+   Safe to call concurrently with writers on fork_id; a racing commit
+   may be observed either before or after (see the loader gate comment
+   for why both answers are acceptable).  Full join only. */
+
+int
+fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
+                             fd_accdb_fork_id_t fork_id,
+                             uchar const *      pubkey,
+                             int *              out_pd_write,
+                             ulong *            out_data_len );
 
 /* fd_accdb_read_one_nocache reads one account at fork_id into
    caller-provided output buffers.  Suitable for processes that mmap the
@@ -577,8 +619,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
      T3 (executor tiles, 1..N): call acquire and release.
 
    acquire and release may be called concurrently from T1 and any number
-   of T3 threads.  They must never be called concurrently with
-   advance_root or purge on the same fork.
+   of T3 threads.
+
+   Read-only acquire/release on a fork F may run concurrently with
+   advance_root(F) (rooting F itself).
 
    fd_accdb_background must be called from exactly one thread (T2). It
    must not be called concurrently with itself.

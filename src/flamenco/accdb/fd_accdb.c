@@ -2485,6 +2485,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       memset( out_accs[ i ].prior_owner, 0, 32UL );
       out_accs[ i ].prior_data = NULL;
       out_accs[ i ].commit = 0;
+      out_accs[ i ].pd_write = 0;
       out_accs[ i ]._writable = 0;
       out_accs[ i ]._original_size_class = ULONG_MAX;
       out_accs[ i ]._original_cache_idx = ULONG_MAX;
@@ -2513,6 +2514,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     out_accs[ i ].prior_data       = (uchar *)(original_cache_line[ i ] ? (original_cache_line[ i ]+1UL) : NULL);
 
     out_accs[ i ].commit = 0;
+    out_accs[ i ].pd_write = 0;
     out_accs[ i ]._writable = writable[ i ];
     if( FD_UNLIKELY( writable[ i ] && accmetas[ i ] ) ) out_accs[ i ]._overwrite = accdb->fork_pool[ fork_id.val ].shmem->generation==accmetas[ i ]->key.generation;
     else                                            out_accs[ i ]._overwrite = 0;
@@ -3128,9 +3130,12 @@ release_inner( fd_accdb_t * accdb,
          (a concurrent evict_clear_acc_cache_ref or acc_unlink may
          hold it) and clears VALID; a plain store would clobber CLAIM
          and break those protocols. */
+      uint pd = accs[ i ].pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U;
       for(;;) {
         uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
-        uint nxt = (cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable );
+        uint nxt = (cur & (FD_ACCDB_SIZE_CACHE_CLAIM_BIT|FD_ACCDB_SIZE_PD_WRITE_BIT))
+                 | FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable )
+                 | pd;
         if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, nxt )==cur ) ) break;
         FD_SPIN_PAUSE();
       }
@@ -3161,7 +3166,8 @@ release_inner( fd_accdb_t * accdb,
       ulong acc_idx = acc_pool_idx( accdb->acc_pool_join, accmeta );
       fd_memcpy( accmeta->key.pubkey, accs[ i ].pubkey, 32UL );
       accmeta->lamports        = accs[ i ].lamports;
-      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable );
+      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable )
+                               | (accs[ i ].pd_write ? FD_ACCDB_SIZE_PD_WRITE_BIT : 0U);
       accmeta->key.generation  = accs[ i ]._generation;
       accmeta->offset_fork     = fd_accdb_acc_pack_offset_fork( FD_ACCDB_OFF_INVAL, accs[ i ]._fork_id );
 
@@ -3524,6 +3530,51 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
   return result;
+}
+
+int
+fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
+                             fd_accdb_fork_id_t fork_id,
+                             uchar const *      pubkey,
+                             int *              out_pd_write,
+                             ulong *            out_data_len ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  while( acc!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
+    uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
+
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      acc = next_acc;
+      continue;
+    }
+
+    break;
+  }
+
+  int   pd        = 0;
+  int   gen_match = 0;
+  ulong len       = 0UL;
+  if( FD_LIKELY( acc!=UINT_MAX ) ) {
+    fd_accdb_accmeta_t const * m = &accdb->acc_pool[ acc ];
+    uint es   = FD_VOLATILE_CONST( m->executable_size );
+    gen_match = ( m->key.generation==fork->shmem->generation );
+    pd        = gen_match && FD_ACCDB_SIZE_PD_WRITE( es );
+    len       = FD_ACCDB_SIZE_DATA( es );
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+
+  *out_pd_write = pd;
+  if( gen_match ) *out_data_len = len;
+  return gen_match;
 }
 
 ulong

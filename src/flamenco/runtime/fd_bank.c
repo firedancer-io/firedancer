@@ -531,6 +531,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->stake_rewards_fork_id             = UCHAR_MAX;
   bank->stake_delegations_fork_id         = USHORT_MAX;
   bank->new_votes_fork_id                 = USHORT_MAX;
+  bank->parent_accdb_fork_id.val          = USHORT_MAX;
   bank->cost_tracker_pool_idx             = fd_bank_cost_tracker_pool_idx_null( fd_banks_get_cost_tracker_pool( banks ) );
   bank->first_fec_set_received_nanos      = fd_log_wallclock();
   bank->preparation_begin_nanos           = 0L;
@@ -936,6 +937,9 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     child_idx = child_bank->sibling_idx;
   }
 
+  fd_bank_t * cand = fd_banks_pool_ele( bank_pool, advance_candidate_idx );
+  FD_CHECK_CRIT( cand->state==FD_BANK_STATE_FROZEN, "advancing root to non-frozen bank" );
+
   *advanceable_bank_idx_out = advance_candidate_idx;
   return 1;
 }
@@ -966,6 +970,7 @@ fd_banks_new_bank( fd_banks_t * banks,
 
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
+  child_bank->parent_accdb_fork_id.val  = USHORT_MAX;
 
   /* Then make sure that the parent bank is valid and frozen. */
 

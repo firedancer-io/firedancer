@@ -50,8 +50,9 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
 
-  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
-  runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->progcache_fork_id    = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
+  runner->bank->accdb_fork_id        = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;

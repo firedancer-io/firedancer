@@ -28,8 +28,11 @@
 
    ### Cache fill policy
 
-   fd_progcache is lazily filled on reads, and eagerly invalidated
-   if underlying programs are written to.
+   fd_progcache is lazily filled on reads.  Writes do not invalidate
+   the cache; coherence comes from keying records on deploy_slot plus
+   fork cancel, and from the BPF loader's pd_write gate failing an
+   invoke before fd_progcache_pull if the programdata was superseded
+   this slot.
 
    ### Cache evict policy
 

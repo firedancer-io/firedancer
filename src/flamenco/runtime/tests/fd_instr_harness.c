@@ -17,8 +17,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary fork for account loading */
 
-  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
-  runner->bank->accdb_fork_id     = fd_accdb_attach_child( runner->accdb, runner->root_fork_id );
+  runner->bank->progcache_fork_id    = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
+  runner->bank->accdb_fork_id        = fd_accdb_attach_child( runner->accdb, runner->root_fork_id );
+  runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
 
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
@@ -40,6 +41,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     txn_out->accounts.executable[ j ] = &runtime->accounts.executable[ j ];
   }
   txn_out->accounts.executable_cnt = 0UL;
+  fd_memset( txn_out->accounts.executable_from_parent, 0, sizeof(txn_out->accounts.executable_from_parent) );
+  fd_memset( txn_out->accounts.executable_pd_write,    0, sizeof(txn_out->accounts.executable_pd_write) );
+  txn_out->accounts.executable_skipped_cnt = 0;
 
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
