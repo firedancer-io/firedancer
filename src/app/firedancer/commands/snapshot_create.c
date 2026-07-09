@@ -1,45 +1,8 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 #include "../../../disco/metrics/fd_metrics.h"
+#include "../../../discof/admin/fd_adminctl.h"
 #include "../../../discof/backup/fd_backup.h"
-#include "../../../discof/replay/fd_replay_tile.h"
-
-#if !FD_HAS_ATOMIC
-#error "This compile unit requires FD_HAS_ATOMIC"
-#endif
-
-static ulong
-send_admin_cmd( fd_frag_meta_t *       admin_cmd,
-                fd_frag_meta_t const * admin_rsp,
-                ulong                  orig ) {
-  /* Send request */
-  ulong   cmd_depth = fd_mcache_depth( admin_cmd );
-  ulong * seq_next  = &fd_mcache_seq_laddr( admin_cmd )[1];
-  ulong   seq       = FD_ATOMIC_FETCH_AND_ADD( seq_next, 1UL );
-  ulong   ctl       = fd_frag_meta_ctl( orig, 0, 0, 0 );
-  ulong   tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( admin_cmd, cmd_depth, seq, 0UL, 0UL, 0UL, ctl, 0UL, tspub );
-
-  /* Spin-wait for reply */
-  ulong rsp_depth = fd_mcache_depth( admin_rsp );
-  fd_frag_meta_t meta;
-  for(;;) {
-    fd_frag_meta_t const * mline;
-    ulong                  seq_found;
-    long                   seq_diff;
-    ulong                  poll_max = 0UL;
-    FD_MCACHE_WAIT( &meta, mline, seq_found, seq_diff, poll_max, admin_rsp, rsp_depth, seq );
-    (void)mline; (void)seq_diff;
-    if( FD_UNLIKELY( fd_seq_gt( seq_found, seq ) ) ) {
-      FD_LOG_ERR(( "corrupt admin queue (seq=%lu seq_found=%lu)", seq, seq_found ));
-    }
-    if( FD_UNLIKELY( fd_seq_eq( seq_found, seq ) ) ) break;
-    fd_log_sleep( (long)1e6 ); /* sleep 1ms */
-    /* FIXME also check the replay tile's heartbeat to bail if it's down */
-  }
-
-  return meta.sig;
-}
 
 static fd_topo_tile_t *
 join_tile_metrics( fd_topo_t * topo,
@@ -98,6 +61,50 @@ fmt_bytes( char * buf,
 
   FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%11s", tmp ) );
   return buf;
+}
+
+static char const *
+snapshot_create_result_strerror( ulong result ) {
+  switch( result ) {
+  case FD_ADMINCTL_RESULT_SUCCESS:                         return "success";
+  case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:                 return "unknown command";
+  case FD_SNAPSHOT_CREATE_RESULT_BUSY:                     return "busy";
+  case FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED:              return "unsupported command";
+  case FD_SNAPSHOT_CREATE_RESULT_NOT_READY:                return "not ready";
+  case FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_PAYLOAD_SIZE:  return "unexpected payload size";
+  case FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE:      return "unexpected response";
+  default:                                                 return "?";
+  }
+}
+
+static ulong
+send_snapshot_create_cmd( fd_topo_t * topo ) {
+  fd_topo_obj_t const * admin_ctl_obj = fd_topo_find_obj( topo, "adminctl", "admin", ULONG_MAX );
+  if( FD_UNLIKELY( !admin_ctl_obj ) ) FD_LOG_ERR(( "admin tile command endpoint not found" ));
+
+  fd_topo_wksp_t * admin_ctl_wksp = &topo->workspaces[ admin_ctl_obj->wksp_id ];
+  fd_topo_join_workspace( topo, admin_ctl_wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  fd_topo_workspace_fill( topo, admin_ctl_wksp );
+
+  fd_adminctl_t * adminctl = fd_adminctl_join( fd_topo_obj_laddr( topo, admin_ctl_obj->id ) );
+  if( FD_UNLIKELY( !adminctl ) ) {
+    FD_LOG_ERR(( "Failed to request snapshot creation as the command could not communicate with the "
+                 "running Firedancer process. It is possible you are running the command from an "
+                 "older or newer version of Firedancer that is no longer compatible." ));
+  }
+
+  void * payload     = NULL;
+  ulong  payload_max = 0UL;
+  ulong  slot_idx    = fd_adminctl_reserve( adminctl, &payload, &payload_max );
+  (void)payload; (void)payload_max;
+  if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) {
+    FD_LOG_ERR(( "Failed to process `snapshot-create` command as there are other pending "
+                 "commands that are being processed. Please wait for other commands to complete "
+                 "or forcefully terminate the other processes and retry the command." ));
+  }
+
+  fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_SNAP_CREATE, 0UL );
+  return fd_adminctl_wait( adminctl, slot_idx );
 }
 
 static char *
@@ -355,18 +362,7 @@ snapshot_create_cmd_args_help( fd_action_help_t * help ) {
 static void
 snapshot_create_cmd_fn( args_t *   args,
                         config_t * config ) {
-  /* Topology boilerplate: Find admin command/response queues */
   fd_topo_t * topo = &config->topo;
-  ulong admin_cmd_wksp_id = fd_topo_find_wksp( topo, "admin_replay" ); FD_TEST( admin_cmd_wksp_id!=ULONG_MAX );
-  fd_topo_wksp_t * admin_topo_wksp = &topo->workspaces[ admin_cmd_wksp_id ];
-  fd_topo_join_workspace( topo, admin_topo_wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_REGULAR );
-  fd_topo_workspace_fill( topo, admin_topo_wksp );
-  ulong admin_cmd_link_id = fd_topo_find_link( topo, "admin_replay", 0UL ); FD_TEST( admin_cmd_link_id!=ULONG_MAX );
-  ulong admin_rsp_link_id = fd_topo_find_link( topo, "replay_admin", 0UL ); FD_TEST( admin_rsp_link_id!=ULONG_MAX );
-  fd_topo_link_t const * admin_cmd_link   = &topo->links[ admin_cmd_link_id ];
-  fd_topo_link_t const * admin_rsp_link   = &topo->links[ admin_rsp_link_id ];
-  fd_frag_meta_t *       admin_cmd_mcache = admin_cmd_link->mcache;
-  fd_frag_meta_t const * admin_rsp_mcache = admin_rsp_link->mcache;
 
   fd_topo_tile_t const * snapmk_tile = join_tile_metrics_by_kind( topo, "snapmk", 0UL ); FD_TEST( snapmk_tile );
   fd_topo_tile_t const * snaprd_tile = join_tile_metrics_by_kind( topo, "snaprd", 0UL ); FD_TEST( snaprd_tile );
@@ -381,12 +377,12 @@ snapshot_create_cmd_fn( args_t *   args,
   long  start_time          = fd_log_wallclock();
 
   /* Send snapshot create command */
-  ulong err = send_admin_cmd( admin_cmd_mcache, admin_rsp_mcache, REPLAY_ADMIN_CMD_SNAP_CREATE );
-  if( FD_UNLIKELY( err ) ) {
-    if( FD_LIKELY( args->snapshot_create.cont && err==REPLAY_ADMIN_ERR_BUSY ) ) {
+  ulong result = send_snapshot_create_cmd( topo );
+  if( FD_UNLIKELY( result ) ) {
+    if( FD_LIKELY( args->snapshot_create.cont && result==FD_SNAPSHOT_CREATE_RESULT_BUSY ) ) {
       FD_LOG_NOTICE(( "snapshot creation already in progress; continuing progress display" ));
     } else {
-      FD_LOG_ERR(( "failed to request snapshot creation %lu-%s", err, fd_replay_admin_strerror( err ) ));
+      FD_LOG_ERR(( "failed to request snapshot creation %lu-%s", result, snapshot_create_result_strerror( result ) ));
     }
   } else {
     FD_LOG_NOTICE(( "Snapshot creation started" ));
@@ -396,7 +392,7 @@ snapshot_create_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "snapshot creation was accepted, but no snapmk tile was found" ));
   }
 
-  wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, args->snapshot_create.cont && err==REPLAY_ADMIN_ERR_BUSY, &final_bytes_written );
+  wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, args->snapshot_create.cont && result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &final_bytes_written );
   FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%.3f GB)",
                   (double)( fd_log_wallclock() - start_time )/1e9,
                   (double)final_bytes_written/1e9 ));

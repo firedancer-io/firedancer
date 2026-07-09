@@ -1,12 +1,15 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../replay/fd_replay_tile.h"
 
 #include "fd_adminctl.h"
 #include "generated/fd_admin_tile_seccomp.h"
 
 struct fd_admin_tile_ctx {
   fd_adminctl_t *  adminctl;
+  ulong            replay_out_idx;
+  ulong            pending_snap_create_slot_idx;
   fd_keyswitch_t * tower_av_keyswitch;
   fd_keyswitch_t * sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
   ulong            sign_av_keyswitch_cnt;
@@ -31,12 +34,23 @@ unprivileged_init( fd_topo_t const *      topo,
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
+  ctx->replay_out_idx               = ULONG_MAX;
+  ctx->pending_snap_create_slot_idx = ULONG_MAX;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
   FD_TEST( adminctl_obj );
 
   ctx->adminctl = fd_adminctl_join( fd_topo_obj_laddr( topo, adminctl_obj->id ) );
   FD_TEST( ctx->adminctl );
+
+  ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "admin_replay", 0UL );
+
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( strcmp( link->name, "replay_admin" ) ) ) {
+      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+    }
+  }
 
   ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
   FD_TEST( tower_idx!=ULONG_MAX );
@@ -257,10 +271,73 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
   fd_adminctl_complete( adminctl, slot_idx, result );
 }
 
+static ulong
+map_replay_admin_result( ulong err ) {
+  switch( err ) {
+  case REPLAY_ADMIN_SUCCESS:         return FD_ADMINCTL_RESULT_SUCCESS;
+  case REPLAY_ADMIN_ERR_BUSY:        return FD_SNAPSHOT_CREATE_RESULT_BUSY;
+  case REPLAY_ADMIN_ERR_UNSUPPORTED: return FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED;
+  case REPLAY_ADMIN_ERR_NOT_READY:   return FD_SNAPSHOT_CREATE_RESULT_NOT_READY;
+  default:                           return FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE;
+  }
+}
+
+static void
+snapshot_create( fd_admin_tile_ctx_t * ctx,
+                 fd_stem_context_t *   stem,
+                 ulong                 slot_idx,
+                 ulong                 payload_sz ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+
+  if( FD_UNLIKELY( payload_sz ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl snapshot-create payload_sz %lu", payload_sz ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->replay_out_idx==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but admin tile has no replay command link" ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->pending_snap_create_slot_idx!=ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but another snapshot-create command is pending replay response" ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
+  ulong ctl   = fd_frag_meta_ctl( REPLAY_ADMIN_CMD_SNAP_CREATE, 0, 0, 0 );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->replay_out_idx, 0UL, 0UL, 0UL, ctl, 0UL, tspub );
+  ctx->pending_snap_create_slot_idx = slot_idx;
+}
+
+static void
+snapshot_create_response( fd_admin_tile_ctx_t * ctx,
+                          ulong                 sig,
+                          ulong                 ctl ) {
+  if( FD_UNLIKELY( ctx->pending_snap_create_slot_idx==ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "unexpected replay snapshot-create response with no pending adminctl command" ));
+    return;
+  }
+
+  ulong result = FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE;
+  if( FD_LIKELY( fd_frag_meta_ctl_orig( ctl )==REPLAY_ADMIN_CMD_SNAP_CREATE ) ) {
+    result = map_replay_admin_result( sig );
+  } else {
+    FD_LOG_WARNING(( "unexpected replay admin response orig %lu", fd_frag_meta_ctl_orig( ctl ) ));
+  }
+
+  fd_adminctl_complete( ctx->adminctl, ctx->pending_snap_create_slot_idx, result );
+  ctx->pending_snap_create_slot_idx = ULONG_MAX;
+}
+
 static inline void FD_FN_SENSITIVE
 after_credit( fd_admin_tile_ctx_t * ctx,
-              fd_stem_context_t *   stem FD_PARAM_UNUSED,
-              int *                 opt_poll_in FD_PARAM_UNUSED,
+              fd_stem_context_t *   stem,
+              int *                 opt_poll_in,
               int *                 charge_busy ) {
 
   fd_adminctl_t * adminctl   = ctx->adminctl;
@@ -276,10 +353,26 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       add_authorized_voter( ctx, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       break;
+    case FD_ADMINCTL_CMD_SNAP_CREATE:
+      snapshot_create( ctx, stem, slot_idx, payload_sz );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      break;
     default:
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   }
+}
+
+static void
+during_frag( fd_admin_tile_ctx_t * ctx,
+             ulong                 in_idx FD_PARAM_UNUSED,
+             ulong                 seq FD_PARAM_UNUSED,
+             ulong                 sig,
+             ulong                 chunk FD_PARAM_UNUSED,
+             ulong                 sz FD_PARAM_UNUSED,
+             ulong                 ctl ) {
+  snapshot_create_response( ctx, sig, ctl );
 }
 
 static ulong
@@ -314,6 +407,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_admin_tile_ctx_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_DURING_FRAG  during_frag
 
 #include "../../disco/stem/fd_stem.c"
 
