@@ -9,10 +9,8 @@ FD_UNALIGNED_ACCESS_STYLE:=0
 CPPFLAGS+=-DFD_UNALIGNED_ACCESS_STYLE=0
 
 LDFLAGS+=-fsanitize=undefined
-ifndef LIBCXX
 # UBSan runtime uses C++ RTTI
 LDFLAGS+=-lstdc++
-endif
 
 CPPFLAGS+=-fsanitize=undefined \
           -fsanitize=shift -fsanitize=shift-exponent -fsanitize=shift-base \

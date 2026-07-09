@@ -9,7 +9,6 @@ SHELL:=bash
 CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv
-CXXFLAGS=-std=c++17
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
@@ -33,15 +32,11 @@ CBMC?=cbmc
 
 # Default compiler configuration, if not already set
 CC?=gcc
-CXX?=g++
-LD?=$(CXX)
+LD?=$(CC)
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov
 LLVM_PROFDATA?=llvm-profdata
-
-# C++ support (libstdc++ and default exception handler)
-#FD_HAS_CXX:=1
 
 # Rust
 RUST_PROFILE=debug

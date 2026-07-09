@@ -19,9 +19,7 @@ LD:=$(CROSS_LD)
 
 ifdef FD_USING_GCC
 CROSS_CC?=$(TARGET)-$(CC)
-CROSS_CXX?=$(TARGET)-$(CXX)
 CC:=$(CROSS_CC)
-CXX:=$(CROSS_CXX)
 endif
 
 ifdef FD_USING_CLANG

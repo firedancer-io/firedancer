@@ -122,30 +122,11 @@ checkout_repo () {
   echo
 }
 
-checkout_llvm () {
-  if [[ -d "$PREFIX/git/llvm" ]]; then
-    echo "[~] Skipping LLVM download; already exists"
-    return
-  fi
-
-  echo "[+] Downloading LLVM"
-  (
-    cd "$PREFIX/git"
-    curl --proto '=https' -sSLf https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/llvm-project-19.1.0.src.tar.xz \
-    | tar -xJ
-    mv llvm-project-19.1.0.src llvm
-  )
-  cd -
-}
-
 fetch () {
   git submodule update --init
 
   mkdir -pv "$PREFIX/git"
 
-  if [[ $MSAN == 1 ]]; then
-    checkout_llvm
-  fi
   checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "cba3956c"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
@@ -392,36 +373,6 @@ check () {
   fi
 }
 
-install_libcxx () {
-  cd "$PREFIX/git/llvm"
-
-  echo "[+] Configuring libcxx"
-  rm -rf build
-  mkdir build
-  cd build
-  cmake ../runtimes \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS="-fcf-protection=return" \
-    -DCMAKE_CXX_FLAGS="-fcf-protection=return" \
-    -DLLVM_DIR=".." \
-    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
-    -DLLVM_USE_SANITIZER=Memory \
-    -DLLVM_ENABLE_PIC=ON \
-    -DLLVM_INCLUDE_TESTS=OFF \
-    -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
-    -DLIBCXXABI_USE_LLVM_UNWINDER=OFF
-
-  echo "[+] Building libcxx"
-  "${MAKE[@]}" cxx cxxabi
-
-  echo "[+] Installing libcxx to $PREFIX"
-  "${MAKE[@]}" install-cxx install-cxxabi
-  echo "[+] Successfully installed libcxx"
-}
-
 install_zstd () {
   cd "$PREFIX/git/zstd/lib"
 
@@ -617,10 +568,6 @@ install () {
 
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
-  if [[ $MSAN == 1 ]]; then
-    ( install_libcxx    )
-  echo
-  fi
   ( install_zstd      )
   ( install_s2n       )
   ( install_openssl   )
@@ -655,10 +602,7 @@ while [[ $# -gt 0 ]]; do
       MSAN=1
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
-      _CXX=clang++
       EXTRA_CFLAGS+=" -fsanitize=memory"
-      EXTRA_CXXFLAGS+=" $EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
-      EXTRA_LDFLAGS+=" $PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;
     "+dev")
       shift

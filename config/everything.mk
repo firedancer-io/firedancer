@@ -46,8 +46,6 @@ help:
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
 	# CFLAGS          = $(CFLAGS)
-	# CXX             = $(CXX)
-	# CXXFLAGS        = $(CXXFLAGS)
 	# LD              = $(LD)
 	# LDFLAGS         = $(LDFLAGS)
 	# AR              = $(AR)
@@ -306,11 +304,6 @@ $(OBJDIR)/obj/%.o : src/%.c
 	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(OBJDIR)/obj/%.o : src/%.cxx
-	@echo -e "CXX\t$(notdir $@)"
-	$(Q)$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
-
 $(OBJDIR)/obj/%.o : src/%.S
 	@echo -e "AS\t$(notdir $@)"
 	$(Q)$(MKDIR) $(dir $@) && \
@@ -322,25 +315,12 @@ $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
-$(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
-
 $(OBJDIR)/obj/%.i : src/%.c
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -E $< -o $@
-
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
-
-$(OBJDIR)/obj/%.check : src/%.cxx
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
 	@echo -e "AR\t$(notdir $@)"
