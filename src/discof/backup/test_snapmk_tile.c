@@ -532,6 +532,211 @@ FD_UNIT_TEST( batch_straddle ) {
   FD_TEST( parse->pub_acc_idx==3U );
 }
 
+static int
+new_tmp_fd( char * path,
+            ulong  path_sz ) {
+  static char const tmpl[] = "/tmp/test_snapmk_tile_zstd_XXXXXX";
+  FD_TEST( path_sz>=sizeof(tmpl) );
+  memcpy( path, tmpl, sizeof(tmpl) );
+  int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
+  return fd;
+}
+
+static fd_snapmk_t *
+new_snapmk_writer( int              fd,
+                   ulong volatile * file_off,
+                   void **          zstd_mem ) {
+  ulong ctx_mem_sz = fd_ulong_align_up( sizeof(fd_snapmk_t), alignof(fd_snapmk_t) );
+  fd_snapmk_t * ctx = aligned_alloc( alignof(fd_snapmk_t), ctx_mem_sz );
+  FD_TEST( ctx );
+  memset( ctx, 0, sizeof(fd_snapmk_t) );
+
+  ulong zstd_mem_sz = fd_ulong_align_up( ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ), 32UL );
+  *zstd_mem = aligned_alloc( 32UL, zstd_mem_sz );
+  FD_TEST( *zstd_mem );
+
+  ctx->zst = ZSTD_initStaticCStream( *zstd_mem, zstd_mem_sz );
+  FD_TEST( ctx->zst );
+  ulong zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, FD_ZSTD_LEVEL );
+  FD_TEST( !ZSTD_isError( zst_err ) );
+
+  ctx->out_fd      = fd;
+  ctx->zp_file_off = file_off;
+  ctx->raw_buf     = (ZSTD_inBuffer ){ .src = ctx->raw,  .size = 0UL,         .pos = 0UL };
+  ctx->comp_buf    = (ZSTD_outBuffer){ .dst = ctx->comp, .size = COMP_BUF_SZ, .pos = 0UL };
+  return ctx;
+}
+
+static void
+snapmk_write_raw( fd_snapmk_t *     ctx,
+                  void const *      data,
+                  ulong             data_sz,
+                  ZSTD_EndDirective directive ) {
+  FD_TEST( data_sz<=RAW_BUF_SZ );
+  FD_TEST( !ctx->raw_buf.pos  );
+  FD_TEST( !ctx->raw_buf.size );
+  memcpy( ctx->raw, data, data_sz );
+  ctx->raw_buf.size = data_sz;
+  flush_buffer( ctx, directive );
+  FD_TEST( !ctx->raw_buf.pos  );
+  FD_TEST( !ctx->raw_buf.size );
+}
+
+static void
+write_skippable_frame( int   fd,
+                       ulong frame_sz ) {
+  FD_TEST( frame_sz>=8UL );
+  FD_TEST( frame_sz-8UL<=UINT_MAX );
+
+  uchar hdr[ 8 ];
+  FD_STORE( uint, hdr,   ZSTD_MAGIC_SKIPPABLE_START );
+  FD_STORE( uint, hdr+4, (uint)( frame_sz-8UL ) );
+
+  long wr = write( fd, hdr, sizeof(hdr) );
+  FD_TEST( wr==(long)sizeof(hdr) );
+
+  static uchar const zero[ 4096UL ] = {0};
+  for( ulong rem=frame_sz-8UL; rem; ) {
+    ulong chunk = fd_ulong_min( rem, sizeof(zero) );
+    wr = write( fd, zero, chunk );
+    FD_TEST( wr==(long)chunk );
+    rem -= chunk;
+  }
+}
+
+static ulong
+read_fd_all( int      fd,
+             uchar ** out ) {
+  long file_sz = lseek( fd, 0L, SEEK_END );
+  FD_TEST( file_sz>=0L );
+  FD_TEST( lseek( fd, 0L, SEEK_SET )==0L );
+
+  uchar * buf = malloc( (ulong)file_sz );
+  FD_TEST( buf || !file_sz );
+  for( ulong off=0UL; off<(ulong)file_sz; ) {
+    long rd = read( fd, buf+off, (ulong)file_sz-off );
+    FD_TEST( rd>0L );
+    off += (ulong)rd;
+  }
+
+  *out = buf;
+  return (ulong)file_sz;
+}
+
+static ulong
+zstd_decompress_all( uchar const * comp,
+                     ulong         comp_sz,
+                     uchar *       out,
+                     ulong         out_cap ) {
+  ZSTD_DCtx * dctx = ZSTD_createDCtx();
+  FD_TEST( dctx );
+
+  ZSTD_inBuffer  in  = { .src = comp, .size = comp_sz, .pos = 0UL };
+  ZSTD_outBuffer dec = { .dst = out,  .size = out_cap, .pos = 0UL };
+  ulong last_ret = 0UL;
+  while( in.pos<in.size ) {
+    ulong old_in  = in .pos;
+    ulong old_out = dec.pos;
+    last_ret = ZSTD_decompressStream( dctx, &dec, &in );
+    FD_TEST( !ZSTD_isError( last_ret ) );
+    FD_TEST( in.pos>old_in || dec.pos>old_out || !last_ret );
+  }
+  FD_TEST( !last_ret );
+
+  FD_TEST( ZSTD_freeDCtx( dctx )==0UL );
+  return dec.pos;
+}
+
+static void
+verify_zstd_file( int           fd,
+                  uchar const * expected,
+                  ulong         expected_sz ) {
+  uchar * comp = NULL;
+  ulong comp_sz = read_fd_all( fd, &comp );
+  FD_TEST( comp_sz );
+
+  uchar * dec = malloc( expected_sz );
+  FD_TEST( dec || !expected_sz );
+  ulong dec_sz = zstd_decompress_all( comp, comp_sz, dec, expected_sz );
+  FD_TEST( dec_sz==expected_sz );
+  FD_TEST( !memcmp( dec, expected, expected_sz ) );
+
+  free( dec );
+  free( comp );
+}
+
+/* zstd_roundtrip verifies that snapmk's compressed byte stream is a valid
+   concatenation of zstd frames, including an align_stream skippable frame. */
+FD_UNIT_TEST( zstd_roundtrip ) {
+  char path[ sizeof("/tmp/test_snapmk_tile_zstd_XXXXXX") ];
+  int fd = new_tmp_fd( path, sizeof(path) );
+
+  ulong volatile file_off = ULONG_MAX;
+  void * zstd_mem = NULL;
+  fd_snapmk_t * ctx = new_snapmk_writer( fd, &file_off, &zstd_mem );
+
+  static uchar const part0[] = "snapmk zstd frame 0: header bytes\n";
+  static uchar const part1[] = "snapmk zstd frame 0: payload bytes\n";
+  static uchar const part2[] = "snapmk zstd frame 1: after skippable alignment\n";
+
+  snapmk_write_raw( ctx, part0, sizeof(part0)-1UL, ZSTD_e_continue );
+  snapmk_write_raw( ctx, part1, sizeof(part1)-1UL, ZSTD_e_end      );
+
+  long off_before = lseek( fd, 0L, SEEK_CUR );
+  FD_TEST( off_before>0L );
+  ulong pad_sz = fd_ulong_align_up( (ulong)off_before, 4096UL ) - (ulong)off_before;
+  FD_TEST( pad_sz>8UL );
+
+  align_stream( ctx );
+  long off_after = lseek( fd, 0L, SEEK_CUR );
+  FD_TEST( off_after>off_before );
+  FD_TEST( fd_ulong_is_aligned( (ulong)off_after, 4096UL ) );
+  FD_TEST( file_off==(ulong)off_after );
+
+  snapmk_write_raw( ctx, part2, sizeof(part2)-1UL, ZSTD_e_end );
+
+  uchar expected[ (sizeof(part0)-1UL) + (sizeof(part1)-1UL) + (sizeof(part2)-1UL) ];
+  uchar * p = expected;
+  memcpy( p, part0, sizeof(part0)-1UL ); p += sizeof(part0)-1UL;
+  memcpy( p, part1, sizeof(part1)-1UL ); p += sizeof(part1)-1UL;
+  memcpy( p, part2, sizeof(part2)-1UL ); p += sizeof(part2)-1UL;
+  FD_TEST( p==expected+sizeof(expected) );
+  verify_zstd_file( fd, expected, sizeof(expected) );
+
+  FD_TEST( close( fd )==0 );
+  FD_TEST( unlink( path )==0 );
+  free( zstd_mem );
+  free( ctx );
+}
+
+/* zstd_short_pad forces align_stream's pad_sz<8 branch */
+FD_UNIT_TEST( zstd_short_pad ) {
+  char path[ sizeof("/tmp/test_snapmk_tile_zstd_XXXXXX") ];
+  int fd = new_tmp_fd( path, sizeof(path) );
+
+  ulong volatile file_off = ULONG_MAX;
+  void * zstd_mem = NULL;
+  fd_snapmk_t * ctx = new_snapmk_writer( fd, &file_off, &zstd_mem );
+
+  write_skippable_frame( fd, 4091UL );
+  FD_TEST( lseek( fd, 0L, SEEK_CUR )==4091L );
+
+  align_stream( ctx );
+  long off_after = lseek( fd, 0L, SEEK_CUR );
+  FD_TEST( off_after==8192L );
+  FD_TEST( file_off==8192UL );
+
+  static uchar const payload[] = "snapmk zstd frame after short padding\n";
+  snapmk_write_raw( ctx, payload, sizeof(payload)-1UL, ZSTD_e_end );
+  verify_zstd_file( fd, payload, sizeof(payload)-1UL );
+
+  FD_TEST( close( fd )==0 );
+  FD_TEST( unlink( path )==0 );
+  free( zstd_mem );
+  free( ctx );
+}
+
 /* release exercises the snaprd shadow-ring watermark, in particular the
    caught-up (no-floor) deadlock guard. */
 FD_UNIT_TEST( release ) {
