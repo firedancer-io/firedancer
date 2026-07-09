@@ -582,6 +582,7 @@ test_bank_evictable( void * mem ) {
 
   ulong evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_J->idx );
+  FD_TEST( banks->prunable_idx==bank_J->idx );
 
   FD_TEST( bank_J->state==FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_A->state!=FD_BANK_STATE_PRUNABLE );
@@ -597,9 +598,11 @@ test_bank_evictable( void * mem ) {
 
   FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+  FD_TEST( banks->prunable_idx==ULONG_MAX );
 
   evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_H->idx );
+  FD_TEST( banks->prunable_idx==bank_H->idx );
   FD_TEST( bank_H->state==FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_C->state!=FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_D->state!=FD_BANK_STATE_PRUNABLE );
@@ -607,20 +610,25 @@ test_bank_evictable( void * mem ) {
 
   FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+  FD_TEST( banks->prunable_idx==ULONG_MAX );
 
   evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_E->idx );
+  FD_TEST( banks->prunable_idx==bank_E->idx );
   FD_TEST( bank_E->state==FD_BANK_STATE_PRUNABLE );
 
   FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+  FD_TEST( banks->prunable_idx==ULONG_MAX );
 
   evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_C->idx );
+  FD_TEST( banks->prunable_idx==bank_C->idx );
   FD_TEST( bank_C->state==FD_BANK_STATE_PRUNABLE );
 
   FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+  FD_TEST( banks->prunable_idx==ULONG_MAX );
 }
 
 static void

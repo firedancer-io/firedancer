@@ -1379,8 +1379,8 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
 }
 
 static int
-replay( fd_replay_tile_t *  ctx,
-        fd_stem_context_t * stem ) {
+try_replay( fd_replay_tile_t *  ctx,
+            fd_stem_context_t * stem ) {
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
@@ -1449,6 +1449,8 @@ can_process_fec( fd_replay_tile_t * ctx,
   ctx->metrics.reasm_latest_slot    = fec->slot;
   ctx->metrics.reasm_latest_fec_idx = fec->fec_set_idx;
 
+  /* If the FEC we are building off of is for a prunable bank, we must
+     wait to process the FEC until the bank has been evicted. */
   fd_bank_t * parent_fec_bank = parent->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
   if( FD_UNLIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && parent_fec_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
     FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, fec->fec_set_idx ));
@@ -1729,7 +1731,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
      parent is marked eqvoc (and not replayed), but the child gets
      confirmed and delivered. */
   fd_bank_t * parent_fec_bank = parent->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
-  int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq || parent_fec_bank->state==FD_BANK_STATE_PRUNABLE;
+  int parent_bank_invalid = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
   /* If the upcoming FEC is either the start of an equivocating chain,
      chains off of a bank that was evicted, OR is the child of an
@@ -1740,6 +1742,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( !parent_bank_invalid && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
+    /* TODO:FIXME: key problem is that we can backfill up to a
+       prunable bank. should we just drop the fec in this case??? */
     backfill_fec_sets( ctx, stem, reasm_fec );
   }
 }
@@ -1751,7 +1755,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
-     evicted, we can't advance the root. */
+     evicted, we can't advance the root.  Try again later. */
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
@@ -1903,7 +1907,7 @@ try_process_fec( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( evict_banks ) ) {
     ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks );
     if( FD_UNLIKELY( evictable_bank_idx==ULONG_MAX ) ) {
-      FD_LOG_DEBUG(( "replay has no banks to mark as prunable, possible that there is one bank already marked as prunable" ));
+      FD_LOG_DEBUG(( "replay has no banks to mark as prunable, it's possible that there is one bank already marked as prunable" ));
       return 0;
     }
 
@@ -1952,6 +1956,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( try_prune_sched( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   if( FD_UNLIKELY( try_prune_bank( ctx ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
@@ -1970,19 +1980,13 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_prune_sched( ctx ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
   if( FD_UNLIKELY( try_advance_published_root( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
   }
 
-  if( FD_LIKELY( replay( ctx, stem ) ) ) {
+  if( FD_LIKELY( try_replay( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;

@@ -149,8 +149,9 @@ FD_PROTOTYPES_BEGIN
     pressure on the banks.  Additional references on the bank should not
     be accumulated after the bank has been marked prunable and once
     references reach zero, it is safe to evict the bank and free any
-    related resources.  Any bank that is not inactive or dead can be
-    marked prunable.
+    related resources.  At most one bank may be prunable.  It must be a
+    non-root, non-leader leaf in the initialized, replayable, or frozen
+    state.
 
   The usage pattern is as follows:
 
@@ -388,11 +389,6 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 #define DEQUE_MAX  FD_BANKS_MAX_BANKS
 #include "../../util/tmpl/fd_deque.c"
 
-#define DEQUE_NAME fd_banks_prune
-#define DEQUE_T    fd_bank_idx_seq_t
-#define DEQUE_MAX  FD_BANKS_MAX_BANKS
-#include "../../util/tmpl/fd_deque.c"
-
 struct fd_banks {
   ulong magic;              /* ==FD_BANKS_MAGIC */
   ulong max_total_banks;    /* Maximum number of banks */
@@ -402,7 +398,7 @@ struct fd_banks {
   ulong root_idx;           /* root idx */
   ulong bank_seq;           /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
   ulong evict_rr_idx;       /* internal index for round-robin banks eviction */
-  uchar has_prunable;       /* nonzero if a prunable bank is waiting to be pruned */
+  ulong prunable_idx;       /* index of pending prunable bank, ULONG_MAX if none */
 
   ulong curr_fork_width;
 
@@ -417,7 +413,6 @@ struct fd_banks {
   ulong stake_rewards_offset;
 
   ulong dead_banks_deque_offset;
-  ulong prune_banks_deque_offset;
 
   ulong epoch_credits_offset;
   ulong epoch_credits_len;
@@ -749,7 +744,7 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank );
    After a call to fd_banks_clone_from_parent, the bank will be
    replayable.  This assumes that there is a parent bank which exists
    and that there are available bank indices in the bank pool.  It also
-   assumes that the parent bank is not dead or inactive. */
+   assumes that the parent bank is not dead, inactive, or prunable. */
 
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
@@ -759,10 +754,13 @@ fd_banks_new_bank( fd_banks_t * banks,
 
 
 /* fd_banks_get_evictable_bank selects one evictable leaf according to
-   the current fd_banks eviction policy, marks it prunable, queues it
-   for pruning, and returns its bank index.  Eviction rotates across
-   root-child subtrees and picks the leftmost evictable leaf within the
-   selected subtree.  The root, leader banks, dead banks, inactive
+   the current fd_banks eviction policy, marks it prunable, records it
+   as pending, and returns its bank index.  Eviction collects all
+   eligible leaves in DFS order (left-child, then siblings) and picks
+   banks->evict_rr_idx % leaf_count, then increments evict_rr_idx.
+   Only a single leaf may be prunable at a time (prunable_idx).
+   evict_rr_idx is sticky across prunes and is reset on root advance
+   and banks clear.  The root, leader banks, dead banks, inactive
    banks, and already prunable banks are not evictable.  Returns
    ULONG_MAX if there is no evictable bank, or if a prunable bank is
    already pending pruning. */
@@ -777,7 +775,6 @@ fd_banks_get_evictable_bank( fd_banks_t * banks );
 
 int
 fd_banks_can_start_bank( fd_banks_t * banks );
-
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in

@@ -41,11 +41,6 @@ fd_banks_get_dead_banks_deque( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
 }
 
-static fd_bank_idx_seq_t *
-fd_banks_get_prune_banks_deque( fd_banks_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->prune_banks_deque_offset );
-}
-
 static fd_epoch_leaders_t *
 fd_banks_get_epoch_leaders( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
@@ -217,7 +212,7 @@ fd_banks_get_parent( fd_banks_t * banks,
 int
 fd_banks_can_start_bank( fd_banks_t * banks ) {
   if( FD_UNLIKELY( fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL ) ) return 0;
-  if( FD_UNLIKELY( banks->curr_fork_width+1UL>=banks->max_fork_width ) ) return 0;
+  if( FD_UNLIKELY( banks->curr_fork_width>=banks->max_fork_width ) ) return 0;
   return 1;
 }
 
@@ -259,7 +254,6 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_banks_prune_align(),            fd_banks_prune_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( max_vote_accounts, fd_ulong_min( max_vote_accounts, expected_vote_accounts ), max_fork_width ) );
@@ -306,7 +300,6 @@ fd_banks_new( void * shmem,
   void *       epoch_leaders_mem       = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * epoch_leaders_footprint );
   void *       pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   void *       dead_banks_deque_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
-  void *       prune_banks_deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_prune_align(),            fd_banks_prune_footprint() );
   void *       cost_tracker_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   void *       stake_rewards_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_fork_width ) );
   void *       vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( max_vote_accounts, expected_vote_accounts, max_fork_width ) );
@@ -337,13 +330,6 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   banks_data->dead_banks_deque_offset = (ulong)banks_dead_deque - (ulong)banks_data;
-
-  fd_bank_idx_seq_t * banks_prune_deque = fd_banks_prune_join( fd_banks_prune_new( prune_banks_deque_mem ) );
-  if( FD_UNLIKELY( !banks_prune_deque ) ) {
-    FD_LOG_WARNING(( "Failed to create banks prune deque" ));
-    return NULL;
-  }
-  banks_data->prune_banks_deque_offset = (ulong)banks_prune_deque - (ulong)banks_data;
 
   banks_data->epoch_leaders_offset           = (ulong)epoch_leaders_mem - (ulong)banks_data;
   banks_data->epoch_leaders_footprint        = epoch_leaders_footprint;
@@ -428,7 +414,7 @@ fd_banks_new( void * shmem,
   banks_data->max_vote_accounts  = max_vote_accounts;
   banks_data->root_idx           = ULONG_MAX;
   banks_data->evict_rr_idx       = 0UL;
-  banks_data->has_prunable       = 0;
+  banks_data->prunable_idx       = ULONG_MAX;
   banks_data->curr_fork_width    = 0UL;
   banks_data->bank_seq           = 1UL;
 
@@ -467,7 +453,6 @@ fd_banks_join( void * banks_data_mem ) {
   void * epoch_leaders_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,            2UL * banks_data->epoch_leaders_footprint );
   void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( banks_data->max_total_banks ) );
   void * dead_banks_deque_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
-  void * prune_banks_deque_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_prune_align(),            fd_banks_prune_footprint() );
   void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_fork_width ) );
   void * vote_stakes_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( banks_data->max_vote_accounts, expected_vote_accounts, banks_data->max_fork_width ) );
@@ -494,12 +479,6 @@ fd_banks_join( void * banks_data_mem ) {
   fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( dead_banks_deque_mem );
   if( FD_UNLIKELY( !banks_dead_deque ) ) {
     FD_LOG_WARNING(( "Failed to join banks dead deque" ));
-    return NULL;
-  }
-
-  fd_bank_idx_seq_t * banks_prune_deque = fd_banks_prune_join( prune_banks_deque_mem );
-  if( FD_UNLIKELY( !banks_prune_deque ) ) {
-    FD_LOG_WARNING(( "Failed to join banks prune deque" ));
     return NULL;
   }
 
@@ -574,7 +553,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   banks->root_idx = bank->idx;
   banks->evict_rr_idx    = 0UL;
   banks->curr_fork_width = 1UL;
-  banks->has_prunable    = 0;
+  banks->prunable_idx    = null_idx;
 
   FD_LOG_DEBUG(( "init bank (idx=%lu, vote_stakes_idx=%u, stake_rewards_idx=%u, stake_delegations_idx=%u, new_votes_idx=%u)",
                  bank->idx,
@@ -876,7 +855,10 @@ fd_banks_advance_root( fd_banks_t * banks,
       head->stake_delegations_fork_id = USHORT_MAX;
     }
 
-    if( FD_UNLIKELY( head->state==FD_BANK_STATE_PRUNABLE ) ) banks->has_prunable = 0;
+    if( FD_UNLIKELY( head->state==FD_BANK_STATE_PRUNABLE ) ) {
+      FD_TEST( banks->prunable_idx==head->idx );
+      banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );
+    }
     head->state = FD_BANK_STATE_INACTIVE;
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
@@ -1008,10 +990,14 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
 
-  /* Then make sure that the parent bank is valid and frozen. */
+  /* Then make sure that the parent bank is valid.  PRUNABLE parents are
+     rejected so eviction victims remain leaves until pruned. */
 
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, parent_bank_idx );
-  FD_CHECK_CRIT( parent_bank->state!=FD_BANK_STATE_INACTIVE && parent_bank->state!=FD_BANK_STATE_DEAD, "invariant violation: parent bank is dead or inactive" );
+  FD_CHECK_CRIT( parent_bank->state!=FD_BANK_STATE_INACTIVE &&
+                 parent_bank->state!=FD_BANK_STATE_DEAD &&
+                 parent_bank->state!=FD_BANK_STATE_PRUNABLE,
+                 "invariant violation: parent bank is dead, inactive, or prunable" );
 
   /* Link node->parent */
   child_bank->parent_idx = parent_bank_idx;
@@ -1046,7 +1032,10 @@ fd_banks_subtree_mark_dead( fd_banks_t * banks,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
 
   ulong idxs_cnt = 0UL;
-  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) banks->has_prunable = 0;
+  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+    FD_TEST( banks->prunable_idx==bank->idx );
+    banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );
+  }
   bank->state = FD_BANK_STATE_DEAD;
   fd_banks_dead_push_head( fd_banks_get_dead_banks_deque( banks ), (fd_bank_idx_seq_t){ .idx = bank->idx, .seq = bank->bank_seq } );
   if( opt_idxs ) opt_idxs[ idxs_cnt ] = bank->idx;
@@ -1074,34 +1063,6 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
 
   ulong idxs_cnt = fd_banks_subtree_mark_dead( banks, bank_pool, bank, opt_idxs );
   if( opt_idxs_cnt ) *opt_idxs_cnt = idxs_cnt;
-}
-
-static ulong
-fd_banks_subtree_mark_prunable( fd_banks_t * banks,
-                                fd_bank_t *  bank_pool,
-                                fd_bank_t *  bank,
-                                ulong *      opt_idxs ) {
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
-
-  ulong idxs_cnt = 0UL;
-  FD_TEST( bank->state!=FD_BANK_STATE_INACTIVE && bank->state!=FD_BANK_STATE_DEAD );
-  bank->state = FD_BANK_STATE_PRUNABLE;
-  /* Child nodes should always be popped off before their parents to
-     enforce invariant that nodes being popped off have no active
-     children nodes. */
-  fd_banks_prune_push_head( fd_banks_get_prune_banks_deque( banks ), (fd_bank_idx_seq_t){ .idx = bank->idx, .seq = bank->bank_seq } );
-  if( opt_idxs ) opt_idxs[ idxs_cnt ] = bank->idx;
-  idxs_cnt++;
-
-  ulong child_idx = bank->child_idx;
-  while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
-    fd_bank_t * child      = fd_banks_pool_ele( bank_pool, child_idx );
-    ulong *     child_idxs = opt_idxs ? opt_idxs+idxs_cnt : NULL;
-    idxs_cnt += fd_banks_subtree_mark_prunable( banks, bank_pool, child, child_idxs );
-    child_idx = child->sibling_idx;
-  }
-
-  return idxs_cnt;
 }
 
 static int
@@ -1162,7 +1123,10 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
     }
   }
 
-  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) banks->has_prunable = 0;
+  if( FD_UNLIKELY( bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+    FD_TEST( banks->prunable_idx==bank->idx );
+    banks->prunable_idx = null_idx;
+  }
   bank->state = FD_BANK_STATE_INACTIVE;
 
   fd_banks_pool_ele_release( bank_pool, bank );
@@ -1173,8 +1137,8 @@ int
 fd_banks_prune_one_bank( fd_banks_t *                   banks,
                          fd_banks_prune_cancel_info_t * cancel ) {
   fd_bank_idx_seq_t * dead_banks_queue = fd_banks_get_dead_banks_deque( banks );
-  fd_bank_idx_seq_t * prune_banks_queue = fd_banks_get_prune_banks_deque( banks );
   fd_bank_t *         bank_pool        = fd_banks_get_bank_pool( banks );
+  ulong               null_idx         = fd_banks_pool_idx_null( bank_pool );
   while( !fd_banks_dead_empty( dead_banks_queue ) ) {
     fd_bank_idx_seq_t * head = fd_banks_dead_peek_head( dead_banks_queue );
     fd_bank_t *         bank = fd_banks_pool_ele( bank_pool, head->idx );
@@ -1191,22 +1155,14 @@ fd_banks_prune_one_bank( fd_banks_t *                   banks,
     return fd_banks_prune_one_leaf( banks, bank_pool, bank, cancel );
   }
 
-  while( !fd_banks_prune_empty( prune_banks_queue ) ) {
-    fd_bank_idx_seq_t * head = fd_banks_prune_peek_head( prune_banks_queue );
-    fd_bank_t *         bank = fd_banks_pool_ele( bank_pool, head->idx );
-    if( bank->state==FD_BANK_STATE_INACTIVE || bank->bank_seq!=head->seq ) {
-      fd_banks_prune_pop_head( prune_banks_queue );
-      continue;
-    } else if( bank->refcnt!=0UL ) {
-      break;
-    }
+  if( FD_LIKELY( banks->prunable_idx==null_idx ) ) return 0;
 
-    FD_LOG_DEBUG(( "pruning bank (idx=%lu)", bank->idx ));
+  fd_bank_t * bank = fd_banks_pool_ele( bank_pool, banks->prunable_idx );
+  FD_TEST( bank->state==FD_BANK_STATE_PRUNABLE );
+  if( FD_UNLIKELY( bank->refcnt!=0UL ) ) return 0;
 
-    fd_banks_prune_pop_head( prune_banks_queue );
-    return fd_banks_prune_one_leaf( banks, bank_pool, bank, cancel );
-  }
-  return 0;
+  FD_LOG_DEBUG(( "pruning evictable bank (idx=%lu)", bank->idx ));
+  return fd_banks_prune_one_leaf( banks, bank_pool, bank, cancel );
 }
 
 void
@@ -1264,9 +1220,9 @@ fd_banks_get_evictable_private( fd_banks_t * banks,
 ulong
 fd_banks_get_evictable_bank( fd_banks_t * banks ) {
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-  ulong null_idx = fd_banks_pool_idx_null( bank_pool );
+  ulong       null_idx  = fd_banks_pool_idx_null( bank_pool );
 
-  if( FD_UNLIKELY( banks->has_prunable ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( banks->prunable_idx!=null_idx ) ) return ULONG_MAX;
 
   fd_bank_t * root = fd_banks_root( banks );
   if( FD_UNLIKELY( root->child_idx==null_idx ) ) return ULONG_MAX;
@@ -1279,8 +1235,11 @@ fd_banks_get_evictable_bank( fd_banks_t * banks ) {
   fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, NULL, &target );
   if( FD_UNLIKELY( !evictable ) ) FD_LOG_CRIT(( "invariant violation: evictable bank not found" ));
 
-  fd_banks_subtree_mark_prunable( banks, bank_pool, evictable, NULL );
-  banks->has_prunable = 1;
+  /* Eviction only selects leaves, and prunable_idx is a single pending
+     victim.  Non-leaf prunables would break both invariants. */
+  FD_TEST( evictable->child_idx==null_idx );
+  evictable->state = FD_BANK_STATE_PRUNABLE;
+  banks->prunable_idx = evictable->idx;
   return evictable->idx;
 }
 
@@ -1327,9 +1286,8 @@ fd_banks_clear( fd_banks_t * banks ) {
   fd_banks_pool_reset( bank_pool );
   fd_bank_cost_tracker_pool_reset( cost_tracker_pool );
   fd_banks_dead_remove_all( fd_banks_get_dead_banks_deque( banks ) );
-  fd_banks_prune_remove_all( fd_banks_get_prune_banks_deque( banks ) );
   banks->evict_rr_idx = 0UL;
-  banks->has_prunable = 0;
+  banks->prunable_idx = fd_banks_pool_idx_null( bank_pool );
 
   fd_vote_stakes_reset( fd_banks_get_vote_stakes( banks ) );
   fd_new_votes_reset( fd_banks_get_new_votes( banks ) );
