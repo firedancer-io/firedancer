@@ -1,0 +1,2 @@
+query: MapKeyMutation.ql
+postprocess: InlineExpectationsTestQuery.ql
