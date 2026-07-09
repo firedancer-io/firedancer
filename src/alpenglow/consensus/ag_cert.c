@@ -275,22 +275,72 @@ ag_cert_check_sig( ag_cert_t const *       self,
   }
 }
 
+/* deserializers */
+
+/* Returns AG_CERT_DE_ERR_TRUNCATED on underflow. */
+
+#define READ_U8( dst, data, sz ) do {                               \
+  if( FD_UNLIKELY( 1UL>(*(sz)) ) ) return AG_CERT_DE_ERR_TRUNCATED; \
+  (dst) = FD_LOAD( uchar, *(data) );                                \
+  *(data) += 1UL;                                                   \
+  *(sz)   -= 1UL;                                                   \
+} while( 0 )
+
+#define READ_U16( dst, data, sz ) do {                              \
+  if( FD_UNLIKELY( 2UL>(*(sz)) ) ) return AG_CERT_DE_ERR_TRUNCATED; \
+  (dst) = FD_LOAD( ushort, *(data) );                               \
+  *(data) += 2UL;                                                   \
+  *(sz)   -= 2UL;                                                   \
+} while( 0 )
+
+#define READ_U32( dst, data, sz ) do {                              \
+  if( FD_UNLIKELY( 4UL>(*(sz)) ) ) return AG_CERT_DE_ERR_TRUNCATED; \
+  (dst) = FD_LOAD( uint, *(data) );                                 \
+  *(data) += 4UL;                                                   \
+  *(sz)   -= 4UL;                                                   \
+} while( 0 )
+
+#define READ_U64( dst, data, sz ) do {                              \
+  if( FD_UNLIKELY( 8UL>(*(sz)) ) ) return AG_CERT_DE_ERR_TRUNCATED; \
+  (dst) = FD_LOAD( ulong, *(data) );                                \
+  *(data) += 8UL;                                                   \
+  *(sz)   -= 8UL;                                                   \
+} while( 0 )
+
+#define READ_HASH( dst, data, sz ) do {                                           \
+  if( FD_UNLIKELY( sizeof(fd_hash_t)>(*(sz)) ) ) return AG_CERT_DE_ERR_TRUNCATED; \
+  fd_memcpy( (dst).uc, *(data), sizeof(fd_hash_t) );                              \
+  *(data) += sizeof(fd_hash_t);                                                   \
+  *(sz)   -= sizeof(fd_hash_t);                                                   \
+} while( 0 )
+
+#define SKIP_BYTES( n, data, sz ) do {                              \
+  if( FD_UNLIKELY( (n)>(*(sz)) ) ) return AG_CERT_DE_ERR_TRUNCATED; \
+  *(data) += (n);                                                   \
+  *(sz)   -= (n);                                                   \
+} while( 0 )
+
+/* Bitmap version bytes */
+
+#define BASE2_BITMAP (0)
+#define BASE3_BITMAP (1)
+
 static int
 de_base2_bitmap( ag_aggsig_t * agg,
                  uchar const * b,
                  ulong         b_sz ) {
-  if( FD_UNLIKELY( b_sz<3UL    ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  if( FD_UNLIKELY( b[0]!=0     ) ) return AG_CERT_DE_ERR_UNSUPPORTED;
-  ulong nbits      = (ulong)FD_LOAD( ushort, b+1UL );
-  if( FD_UNLIKELY( nbits>AG_AGGSIG_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
-  ulong payload_sz = (nbits+7UL)/8UL;
-  if( FD_UNLIKELY( b_sz<3UL+payload_sz ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uchar const * bits = b+3UL;
+  uchar  version;
+  ushort nbits;
+  READ_U8 ( version, &b, &b_sz );
+  READ_U16( nbits,   &b, &b_sz );
+  if( FD_UNLIKELY( version!=BASE2_BITMAP              ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( (ulong)nbits>AG_AGGSIG_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( b_sz!=((ulong)nbits+7UL)/8UL       ) ) return AG_CERT_DE_ERR_MALFORMED; /* exact payload sz */
 
-  ag_aggsig_init( agg, nbits );
+  ag_aggsig_init( agg, (ulong)nbits ); /* sets nbits, zeroes bitmask and sig */
 
-  for( ulong i=0UL; i<nbits; i++ ) {
-    if( (bits[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
+  for( ulong i=0UL; i<(ulong)nbits; i++ ) {
+    if( (b[ i>>3 ] >> (i&7U)) & 1U ) signer_set_insert( agg->bitmask, i );
   }
   return AG_CERT_DE_SUCCESS;
 }
@@ -300,21 +350,22 @@ de_base3_bitmap( ag_aggsig_t * base,
                  ag_aggsig_t * fb,
                  uchar const * b,
                  ulong         b_sz ) {
-  if( FD_UNLIKELY( b_sz<3UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  if( FD_UNLIKELY( b[0]!=1   ) ) return AG_CERT_DE_ERR_MALFORMED;
-  ulong nbits   = (ulong)FD_LOAD( ushort, b+1UL );
-  if( FD_UNLIKELY( nbits>AG_AGGSIG_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
-  ulong nchunks = (nbits+4UL)/5UL;
-  if( FD_UNLIKELY( b_sz<3UL+nchunks ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uchar const * data = b+3UL;
+  uchar  version;
+  ushort nbits;
+  READ_U8 ( version, &b, &b_sz );
+  READ_U16( nbits,   &b, &b_sz );
+  if( FD_UNLIKELY( version!=BASE3_BITMAP              ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( FD_UNLIKELY( (ulong)nbits>AG_AGGSIG_MAX_SIGNERS ) ) return AG_CERT_DE_ERR_MALFORMED;
+  ulong nchunks = ((ulong)nbits+4UL)/5UL;
+  if( FD_UNLIKELY( b_sz!=nchunks                      ) ) return AG_CERT_DE_ERR_MALFORMED; /* exact payload sz */
 
-  ag_aggsig_init( base, nbits );
-  ag_aggsig_init( fb,   nbits );
+  ag_aggsig_init( base, (ulong)nbits );
+  ag_aggsig_init( fb,   (ulong)nbits );
 
   for( ulong chunk=0UL; chunk<nchunks; chunk++ ) {
-    uint  block = (uint)data[ chunk ];
+    uint  block = (uint)b[ chunk ];
     ulong start = chunk*5UL;
-    ulong end   = fd_ulong_min( start+5UL, nbits );
+    ulong end   = fd_ulong_min( start+5UL, (ulong)nbits );
     for( ulong i=start; i<end; i++ ) {
       uint digit = block % 3U; block /= 3U;
       if(      digit==1U ) signer_set_insert( base->bitmask, i );
@@ -328,10 +379,11 @@ int
 ag_cert_de( ag_cert_t *   out,
             uchar const * in,
             ulong         in_sz ) {
-  ulong off = 0UL;
+  ulong remaining = in_sz;
 
-  if( FD_UNLIKELY( in_sz<off+4UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uint tag = FD_LOAD( uint, in+off ); off += 4UL;
+  /* cert_type: u32 LE tag + payload (Slot or Block). */
+  uint tag;
+  READ_U32( tag, &in, &remaining );
 
   ulong     slot = 0UL;
   fd_hash_t block_hash;
@@ -339,85 +391,86 @@ ag_cert_de( ag_cert_t *   out,
 
   switch( tag ) {
   case AG_CERT_TYPE_FINAL:
-  case AG_CERT_TYPE_SKIP:
-    if( FD_UNLIKELY( in_sz<off+8UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    slot = FD_LOAD( ulong, in+off ); off += 8UL;
+  case AG_CERT_TYPE_SKIP:               /* Slot payload */
+    READ_U64( slot, &in, &remaining );
     break;
   case AG_CERT_TYPE_FAST_FINAL:
   case AG_CERT_TYPE_NOTAR:
   case AG_CERT_TYPE_NOTAR_FALLBACK:
-  case AG_CERT_TYPE_GENESIS:
-    if( FD_UNLIKELY( in_sz<off+40UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    slot = FD_LOAD( ulong, in+off ); off += 8UL;
-    fd_memcpy( block_hash.uc, in+off, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+  case AG_CERT_TYPE_GENESIS:            /* Block { slot, block_id } payload */
+    READ_U64( slot, &in, &remaining );
+    READ_HASH( block_hash, &in, &remaining );
     break;
   default:
     return AG_CERT_DE_ERR_MALFORMED;
   }
 
+  /* genesis is not yet supported. */
   if( tag==AG_CERT_TYPE_GENESIS ) return AG_CERT_DE_ERR_UNSUPPORTED;
 
-  if( FD_UNLIKELY( in_sz<off+AG_AGGSIG_SIG_SZ ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uchar const * sig = in+off; off += AG_AGGSIG_SIG_SZ;
+  uchar const * sig = in;
+  SKIP_BYTES( AG_AGGSIG_SIG_SZ, &in, &remaining );
 
-  if( FD_UNLIKELY( in_sz<off+8UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  ulong bm_len = FD_LOAD( ulong, in+off ); off += 8UL;
-  if( FD_UNLIKELY( in_sz<off+bm_len ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uchar const * bm = in+off;
+  /* bitmap: u64 LE length prefix + bytes */
+  ulong bm_len;
+  READ_U64( bm_len, &in, &remaining );
+  uchar const * bm = in;
+  SKIP_BYTES( bm_len, &in, &remaining );
 
   fd_memset( out, 0, sizeof(ag_cert_t) );
   int err;
   switch( tag ) {
   case AG_CERT_TYPE_FINAL:
-    out->kind      = AG_CERT_TYPE_FINAL;
+    out->kind              = AG_CERT_TYPE_FINAL;
     out->inner.final_.slot = slot;
-    err = de_base2_bitmap(  &out->inner.final_.agg_sig, bm, bm_len );
-    if( FD_UNLIKELY( err ) ) return err;
-    fd_memcpy( out->inner.final_.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ );
+    if( FD_UNLIKELY( err = de_base2_bitmap(  &out->inner.final_.agg_sig, bm, bm_len ) ) ) return err;
+    fd_memcpy( out->inner.final_.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ ); /* after init zeroed it */
     break;
   case AG_CERT_TYPE_FAST_FINAL:
-    out->kind                = AG_CERT_TYPE_FAST_FINAL;
+    out->kind                        = AG_CERT_TYPE_FAST_FINAL;
     out->inner.fast_final.slot       = slot;
     out->inner.fast_final.block_hash = block_hash;
-    err = de_base2_bitmap(  &out->inner.fast_final.agg_sig, bm, bm_len );
-    if( FD_UNLIKELY( err ) ) return err;
-    fd_memcpy( out->inner.fast_final.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ );
+    if( FD_UNLIKELY( err = de_base2_bitmap(  &out->inner.fast_final.agg_sig, bm, bm_len ) ) ) return err;
+    fd_memcpy( out->inner.fast_final.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ ); /* after init zeroed it */
     break;
   case AG_CERT_TYPE_NOTAR:
-    out->kind           = AG_CERT_TYPE_NOTAR;
+    out->kind                   = AG_CERT_TYPE_NOTAR;
     out->inner.notar.slot       = slot;
     out->inner.notar.block_hash = block_hash;
-    err = de_base2_bitmap(  &out->inner.notar.agg_sig, bm, bm_len );
-    if( FD_UNLIKELY( err ) ) return err;
-    fd_memcpy( out->inner.notar.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ );
+    if( FD_UNLIKELY( err = de_base2_bitmap(  &out->inner.notar.agg_sig, bm, bm_len ) ) ) return err;
+    fd_memcpy( out->inner.notar.agg_sig.sig, sig, AG_AGGSIG_SIG_SZ ); /* after init zeroed it */
     break;
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
-
+    /* mixed cert with no fallback voters is encoded Base2; otherwise
+        Base3 (both sets).  Dispatch on the version byte.  On the Base2
+        path leave the fallback set empty */
     ag_aggsig_t * b = &out->inner.notar_fallback.agg_sig_notar;
     ag_aggsig_t * f = &out->inner.notar_fallback.agg_sig_notar_fallback;
-    out->kind                    = AG_CERT_TYPE_NOTAR_FALLBACK;
+    out->kind                            = AG_CERT_TYPE_NOTAR_FALLBACK;
     out->inner.notar_fallback.slot       = slot;
     out->inner.notar_fallback.block_hash = block_hash;
     if( FD_UNLIKELY( bm_len<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    if( bm[0]==0 ) { err = de_base2_bitmap( b, bm, bm_len );    if( FD_UNLIKELY( err ) ) return err; ag_aggsig_init( f, b->nbits ); }
-    else           { err = de_base3_bitmap( b, f, bm, bm_len ); if( FD_UNLIKELY( err ) ) return err; }
-    fd_memcpy( b->sig, sig, AG_AGGSIG_SIG_SZ );
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = de_base2_bitmap( b,    bm, bm_len ) ) ) return err; ag_aggsig_init( f, b->nbits ); }
+    else                      { if( FD_UNLIKELY( err = de_base3_bitmap( b, f, bm, bm_len ) ) ) return err; }
+    fd_memcpy( b->sig, sig, AG_AGGSIG_SIG_SZ ); /* one wire sig, put in the base agg. TODO consider just a diff aggsig type for the fallback */
     break;
   }
   case AG_CERT_TYPE_SKIP: {
     ag_aggsig_t * b = &out->inner.skip.agg_sig_skip;
     ag_aggsig_t * f = &out->inner.skip.agg_sig_skip_fallback;
-    out->kind    = AG_CERT_TYPE_SKIP;
+    out->kind            = AG_CERT_TYPE_SKIP;
     out->inner.skip.slot = slot;
     if( FD_UNLIKELY( bm_len<1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-    if( bm[0]==0 ) { err = de_base2_bitmap( b, bm, bm_len );    if( FD_UNLIKELY( err ) ) return err; ag_aggsig_init( f, b->nbits ); }
-    else           { err = de_base3_bitmap( b, f, bm, bm_len ); if( FD_UNLIKELY( err ) ) return err; }
+    if( bm[0]==BASE2_BITMAP ) { if( FD_UNLIKELY( err = de_base2_bitmap( b,    bm, bm_len ) ) ) return err; ag_aggsig_init( f, b->nbits ); }
+    else                      { if( FD_UNLIKELY( err = de_base3_bitmap( b, f, bm, bm_len ) ) ) return err; }
     fd_memcpy( b->sig, sig, AG_AGGSIG_SIG_SZ );
     break;
   }
   default:
     return AG_CERT_DE_ERR_MALFORMED;
   }
+
+  //if( FD_UNLIKELY( remaining!=0UL ) ) return AG_CERT_DE_ERR_MALFORMED;
 
   return AG_CERT_DE_SUCCESS;
 }
@@ -472,9 +525,9 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
     ag_aggsig_t notar_agg[1];
     err = de_footer_aggregate( notar_agg, in+off, in_sz-off, &consumed );
     if( FD_UNLIKELY( err ) ) return err;
-    out[0].kind                 = AG_CERT_TYPE_FINAL;
-    out[0].inner.final_.slot    = slot;
-    out[0].inner.final_.agg_sig = *final_agg;
+    out[0].kind                   = AG_CERT_TYPE_FINAL;
+    out[0].inner.final_.slot      = slot;
+    out[0].inner.final_.agg_sig   = *final_agg;
     out[1].kind                   = AG_CERT_TYPE_NOTAR;
     out[1].inner.notar.slot       = slot;
     out[1].inner.notar.block_hash = block_hash;
@@ -482,7 +535,7 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
     *out_cert_cnt = 2UL;
   } else {
     /* Fast finalization: a single FinalizeFast cert. */
-    out[0].kind                      = AG_CERT_TYPE_FAST_FINAL;
+    out[0].kind                        = AG_CERT_TYPE_FAST_FINAL;
     out[0].inner.fast_final.slot       = slot;
     out[0].inner.fast_final.block_hash = block_hash;
     out[0].inner.fast_final.agg_sig    = *final_agg;

@@ -12,7 +12,7 @@
 #define AG_AGGSIG_PUBKEY_COMPRESSED_SZ (48UL)
 #define AG_AGGSIG_SIG_SZ               (192UL) /* uncompressed G2 (min_sig) */
 #define AG_AGGSIG_SIG_COMPRESSED_SZ    (96UL)
-#define AG_AGGSIG_MAX_SIGNERS          (2048UL)
+#define AG_AGGSIG_MAX_SIGNERS          (2000UL)
 
 struct ag_aggsig_sk { uchar v[ AG_AGGSIG_SECKEY_SZ ]; };
 typedef struct ag_aggsig_sk ag_aggsig_sk_t;
