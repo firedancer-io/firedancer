@@ -426,7 +426,7 @@ before_frag( fd_shred_ctx_t * ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     ctx->poh_in_expect_seq = seq+1UL;
     return (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) &
-           (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT) &
+           (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_SHRED_EPOCH_MSG) &
            (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_LEADER_BANK);
   }
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
@@ -566,9 +566,6 @@ during_frag( fd_shred_ctx_t * ctx,
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, fd_type_pun_const( dcache_entry ) );
-    /* TODO(frankendancer): update
-       ctx->{prev,current,next}_max_shred_idx here when we add support
-       for Agave 4.2 (the reduce_slot_time feature gates). */
     return;
   }
 
@@ -591,21 +588,31 @@ during_frag( fd_shred_ctx_t * ctx,
       return;
     }
 
-    if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_FEAT_ACT_SLOT) ) ) {
-      /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
-          the shred tile needs to be aware of.  Since this requires the
-          bank, we are forced (so far) to receive them from the poh tile
-          (as a POH_PKT_TYPE_FEAT_ACT_SLOT). */
+    if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_SHRED_EPOCH_MSG) ) ) {
+      /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots
+          that the shred tile needs to be aware of, as well as
+          shred limits that can change at epoch boundaries. Since these
+          require the bank, we are forced (so far) to receive them from
+          the poh tile (as a POH_PKT_TYPE_SHRED_EPOCH_MSG). */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_epoch_msg_t)) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
               ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-      fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
-      memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
+      fd_shred_epoch_msg_t const * msg = (fd_shred_epoch_msg_t const *)dcache_entry;
 
+      *ctx->features_activation = msg->features_activation;
       fd_fec_resolver_set_discard_unexpected_data_complete_shreds( ctx->resolver,
         ctx->features_activation->discard_unexpected_data_complete_shreds );
+
+      if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
+        fd_shred_slot_limits_t const * lim    = &msg->slot_limits;
+        ctx->prev_max_shred_idx               = lim->prev_max_shred_idx;
+        ctx->current_max_shred_idx            = lim->current_max_shred_idx;
+        ctx->next_max_shred_idx               = lim->next_max_shred_idx;
+        ctx->current_max_shred_idx_start_slot = lim->current_start_slot;
+        ctx->next_max_shred_idx_start_slot    = lim->next_start_slot;
+      }
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
