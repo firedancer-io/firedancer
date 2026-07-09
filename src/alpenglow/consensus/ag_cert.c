@@ -484,15 +484,20 @@ de_footer_aggregate( ag_aggsig_t * agg,
                      uchar const * in,
                      ulong         in_sz,
                      ulong *       consumed ) {
-  ulong off = AG_AGGSIG_SIG_COMPRESSED_SZ+2UL;
-  if( FD_UNLIKELY( in_sz<off ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uchar const * csig   = in;
-  ulong         bm_len = (ulong)FD_LOAD( ushort, in+AG_AGGSIG_SIG_COMPRESSED_SZ );
-  if( FD_UNLIKELY( in_sz<off+bm_len ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  int err = de_base2_bitmap( agg, in+off, bm_len ); /* rejects base3 as unsupported */
-  if( FD_UNLIKELY( err ) ) return err;
-  fd_memcpy( agg->sig, csig, AG_AGGSIG_SIG_COMPRESSED_SZ ); /* after init zeroed it */
-  *consumed = off+bm_len;
+  ulong remaining = in_sz;
+
+  uchar const * csig = in;
+  SKIP_BYTES( AG_AGGSIG_SIG_COMPRESSED_SZ, &in, &remaining );
+
+  ushort bm_len;
+  READ_U16( bm_len, &in, &remaining );
+
+  uchar const * bm = in;
+  SKIP_BYTES( bm_len, &in, &remaining );
+
+  int err = de_base2_bitmap( agg, bm, bm_len );  if( FD_UNLIKELY( err ) ) return err;
+  fd_memcpy( agg->sig, csig, AG_AGGSIG_SIG_COMPRESSED_SZ );
+  *consumed = in_sz - remaining;
   return AG_CERT_DE_SUCCESS;
 }
 
@@ -501,21 +506,19 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
                         ulong *       out_cert_cnt,
                         uchar const * in,
                         ulong         in_sz ) {
-  ulong off = 0UL;
-
-  if( FD_UNLIKELY( in_sz<8UL+sizeof(fd_hash_t) ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  ulong     slot = FD_LOAD( ulong, in ); off += 8UL;
-  fd_hash_t block_hash;
-  fd_memcpy( block_hash.uc, in+off, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+  ulong remaining = in_sz;
+  ulong slot;  fd_hash_t block_hash;
+  READ_U64( slot, &in, &remaining );
+  READ_HASH( block_hash, &in, &remaining );
 
   ag_aggsig_t final_agg[1];
   ulong       consumed;
-  int err = de_footer_aggregate( final_agg, in+off, in_sz-off, &consumed );
+  int err = de_footer_aggregate( final_agg, in, remaining, &consumed );
   if( FD_UNLIKELY( err ) ) return err;
-  off += consumed;
+  SKIP_BYTES( consumed, &in, &remaining );
 
-  if( FD_UNLIKELY( in_sz<off+1UL ) ) return AG_CERT_DE_ERR_TRUNCATED;
-  uchar has_notar = in[ off++ ];
+  uchar has_notar;
+  READ_U8( has_notar, &in, &remaining );
   if( FD_UNLIKELY( has_notar>1 ) ) return AG_CERT_DE_ERR_MALFORMED;
 
   fd_memset( out, 0, 2UL*sizeof(ag_cert_t) );
@@ -523,7 +526,7 @@ ag_block_final_cert_de( ag_cert_t     out[ 2 ],
     /* Slow finalization: Finalize cert over the slot + Notarize cert over the
        block (ValidatedBlockFinalizationCertKind::Finalize). */
     ag_aggsig_t notar_agg[1];
-    err = de_footer_aggregate( notar_agg, in+off, in_sz-off, &consumed );
+    err = de_footer_aggregate( notar_agg, in, remaining, &consumed );
     if( FD_UNLIKELY( err ) ) return err;
     out[0].kind                   = AG_CERT_TYPE_FINAL;
     out[0].inner.final_.slot      = slot;
