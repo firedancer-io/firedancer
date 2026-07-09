@@ -1085,12 +1085,14 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
+  long t_cp0 = fd_log_wallclock();
   uint128 total_points = calculate_reward_points_partitioned(
       bank,
       stake_delegations,
       stake_history,
       rewarded_epoch,
       runtime_stack );
+  long t_cp1 = fd_log_wallclock();
 
   /* If there are no points, then we set the rewards to 0. */
   *rewards_out = total_points>0UL ? *rewards_out: 0UL;
@@ -1108,6 +1110,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   /* Calculate the stake and vote rewards for each account. We want to
      use the vote states from the end of the current_epoch. */
+  long t_rr0 = fd_log_wallclock();
   calculate_stake_vote_rewards(
       bank,
       stake_delegations,
@@ -1118,6 +1121,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       total_points,
       runtime_stack,
       0 );
+  long t_rr1 = fd_log_wallclock();
 
   fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   ulong             starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
@@ -1126,6 +1130,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 runtime_stack->stakes.stake_rewards_cnt,
                                                                                 bank->f.slot_params.stake_account_stores_per_block );
 
+  long t_sp0 = fd_log_wallclock();
   setup_stake_partitions(
       bank,
       stake_history,
@@ -1137,6 +1142,11 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       rewarded_epoch,
       *rewards_out,
       total_points );
+  long t_sp1 = fd_log_wallclock();
+
+  FD_LOG_NOTICE(( "EPOCHBND-FD-rewards calc_points_us=%ld redeem_rewards_us=%ld setup_partitions_hash_us=%ld num_partitions=%u stake_rewards_cnt=%lu",
+                  (t_cp1-t_cp0)/1000L, (t_rr1-t_rr0)/1000L, (t_sp1-t_sp0)/1000L,
+                  num_partitions, runtime_stack->stakes.stake_rewards_cnt ));
 
   fd_accdb_unread_one( accdb, &ro );
   return total_points;
@@ -1207,6 +1217,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       prev_epoch,
                                       rewards_calc_result );
 
+  long t_vp0 = fd_log_wallclock();
 
   /* Iterate over all the vote reward nodes and distribute the rewards
      to the vote accounts.  After each reward has been paid out,
@@ -1230,6 +1241,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     fd_accdb_svm_credit( bank, accdb, capture_ctx, vote_pubkey, rewards );
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
   }
+  long t_vp1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "EPOCHBND-FD-vote-payout store_commission_accounts_us=%ld distributed_vote_lamports=%lu", (t_vp1-t_vp0)/1000L, distributed_rewards ));
 
   /* Verify that we didn't pay any more than we expected to */
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
