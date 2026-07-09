@@ -733,8 +733,9 @@ fd_guih_printf_epoch( fd_guih_t * gui,
       else                                                                    jsonp_null( gui->http, "start_time_nanos" );
       if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].end_time!=LONG_MAX ) ) jsonp_ulong_as_str( gui->http, "end_time_nanos", (ulong)gui->epoch.epochs[ epoch_idx ].end_time );
       else                                                                  jsonp_null( gui->http, "end_time_nanos" );
-      jsonp_ulong( gui->http, "start_slot",              gui->epoch.epochs[ epoch_idx ].start_slot );
-      jsonp_ulong( gui->http, "end_slot",                gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui->http, "start_slot",                 gui->epoch.epochs[ epoch_idx ].start_slot );
+      jsonp_ulong( gui->http, "end_slot",                   gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui->http, "target_slot_duration_nanos", gui->epoch.epochs[ epoch_idx ].target_slot_duration_nanos );
       jsonp_ulong_as_str( gui->http, "excluded_stake_lamports", 0UL );
       jsonp_open_array( gui->http, "staked_pubkeys" );
         fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;

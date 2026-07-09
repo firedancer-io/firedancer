@@ -1710,11 +1710,12 @@ fd_guih_handle_leader_schedule( fd_guih_t *                    gui,
   ulong idx = leader_schedule->epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
 
-  gui->epoch.epochs[ idx ].epoch            = leader_schedule->epoch;
-  gui->epoch.epochs[ idx ].start_slot       = leader_schedule->start_slot;
-  gui->epoch.epochs[ idx ].end_slot         = leader_schedule->start_slot + leader_schedule->slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
-  gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+  gui->epoch.epochs[ idx ].epoch                      = leader_schedule->epoch;
+  gui->epoch.epochs[ idx ].start_slot                 = leader_schedule->start_slot;
+  gui->epoch.epochs[ idx ].end_slot                   = leader_schedule->start_slot + leader_schedule->slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].target_slot_duration_nanos = leader_schedule->ns_per_slot;
+  gui->epoch.epochs[ idx ].my_total_slots             = 0UL;
+  gui->epoch.epochs[ idx ].my_skipped_slots           = 0UL;
 
   memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
   memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );
@@ -2333,7 +2334,7 @@ fd_guih_plugin_message( fd_guih_t *   gui,
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "new fields breaks things" );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==7*sizeof(ulong), "new fields breaks things" );
       fd_guih_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }
