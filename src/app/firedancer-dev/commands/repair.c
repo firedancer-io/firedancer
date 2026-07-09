@@ -111,6 +111,7 @@ repair_generate_epoch_info_msg( ulong                                       epoc
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_id_stake = 0UL;
+  epoch_info_msg->ns_per_slot       = FD_SLOT_PARAMS_400MS.ns_per_slot;
 
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 

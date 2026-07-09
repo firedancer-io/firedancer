@@ -151,3 +151,17 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-dc-deleted-vote-per -m 
 # vat-activate-10k: VAT PENDING at genesis -> activates @ slot 256 (transition epoch 1); boots epoch-0 (VAT inactive),
 # 10k stake accounts, 2nd vote acct voting across the transition w/ commission 100 (epoch0) -> 0 (epoch1+, max split delta).
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activate-10k -m 2000000 -e 1020
+# SIMD-525 shorter slot times combined with raise_block_limits_to_100m.
+# There are 2 sets of ledgers: one with the expected order of activation,
+# and one with an out-of-order activation. There is a ledger for each
+# feature gate in each run.
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_350ms --zst 2 -m 50000 -e 585
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_300ms --zst 2 -m 50000 -e 1099
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_250ms --zst 2 -m 50000 -e 1612
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_200ms --zst 2 -m 50000 -e 2123
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m --zst 2 -m 50000 -e 2364
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_200ms-out-of-order --zst 2 -m 50000 -e 580
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_350ms-out-of-order --zst 2 -m 50000 -e 1102
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m-out-of-order --zst 2 -m 50000 -e 1357
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_250ms-out-of-order --zst 2 -m 50000 -e 1865
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l reduce_slot_time_to_300ms-out-of-order --zst 2 -m 50000 -e 2364

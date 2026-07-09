@@ -479,7 +479,9 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   /* Default slots_per_year matches Solana mainnet genesis defaults
      (target_tick_duration=6250000ns, ticks_per_slot=64). */
-  bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / 6250000.0) / 64.0;
+  bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / 6250000.0) / 64.0;
+  bank->f.slot_params_default        = bank->f.slot_params;
 
   if( params->rent ) {
     bank->f.rent = *params->rent;

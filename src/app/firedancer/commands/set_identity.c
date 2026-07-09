@@ -198,6 +198,7 @@ poll_keyswitch( fd_topo_t *   topo,
                 ulong *       state,
                 ulong *       halted_seq,
                 uchar const * keypair,
+                ulong         identity_outset,
                 int           require_tower,
                 int           force_lock ) {
   switch( *state ) {
@@ -264,7 +265,8 @@ poll_keyswitch( fd_topo_t *   topo,
         }
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
 
-        if( !strcmp( tile->name, "tower" ) ) tile_ks->param = !!require_tower;
+        if( !strcmp( tile->name, "tower" ) )  tile_ks->param = !!require_tower;
+        if( !strcmp( tile->name, "gossip" ) ) tile_ks->param = identity_outset;
 
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
@@ -350,6 +352,7 @@ poll_keyswitch( fd_topo_t *   topo,
                        !strcmp( topo->tiles[ i ].name, "tower" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
+        if( !strcmp( topo->tiles[ i ].name, "gossvf" ) ) tile_ks->param = identity_outset;
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -510,10 +513,18 @@ set_identity( args_t *   args,
     fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   }
 
-  ulong state = FD_SET_IDENTITY_STATE_UNLOCKED;
-  ulong halted_seq = 0UL;
+  ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
+  ulong halted_seq      = 0UL;
+  ulong identity_outset = (ulong)fd_log_wallclock();
+
   for(;;) {
-    poll_keyswitch( &config->topo, &state, &halted_seq, args->set_identity.keypair, args->set_identity.require_tower, args->set_identity.force );
+    poll_keyswitch( &config->topo,
+                    &state,
+                    &halted_seq,
+                    args->set_identity.keypair,
+                    identity_outset,
+                    args->set_identity.require_tower,
+                    args->set_identity.force );
     if( FD_UNLIKELY( FD_SET_IDENTITY_STATE_UNLOCKED==state ) ) break;
   }
 

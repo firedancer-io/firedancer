@@ -76,6 +76,7 @@ fd_gui_new( void *                   shmem,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
+            char const *             accounts_database_path,
             fd_topo_t const *        topo,
             fd_accdb_shmem_t const * accdb_shmem,
             long                     now ) {
@@ -149,6 +150,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.is_full_client                = is_full_client;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
+  fd_cstr_ncpy( gui->summary.accounts_database_path, accounts_database_path, sizeof(gui->summary.accounts_database_path) );
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
   gui->summary.expected_shred_version        = expected_shred_version;
   gui->summary.wfs_enabled          = 0;
@@ -499,10 +501,11 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_POSTFRAG_IDX        ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG )        ];
     cur[ i ].timers[ FD_METRICS_ENUM_TILE_REGIME_V_PROCESSING_POSTFRAG_IDX       ] = tile_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_PROCESSING_POSTFRAG )       ];
 
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_WAIT_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_WAIT )   ];
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_USER_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_USER )   ];
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_SYSTEM_IDX ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_SYSTEM ) ];
-    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_IDLE_IDX   ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_IDLE )   ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_WAIT_IDX      ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_WAIT )      ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_USER_IDX      ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_USER )      ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_SYSTEM_IDX    ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_SYSTEM )    ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_IDLE_IDX      ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_IDLE )      ];
+    cur[ i ].sched_timers[ FD_METRICS_ENUM_CPU_REGIME_V_INTERRUPT_IDX ] = tile_metrics[ MIDX( COUNTER, TILE, CPU_DURATION_NANOS_INTERRUPT ) ];
 
     cur[ i ].in_backp  = (int)tile_metrics[ MIDX(GAUGE, TILE, IN_BACKPRESSURE) ];
     cur[ i ].status    = (uchar)tile_metrics[ MIDX( GAUGE, TILE, STATUS ) ];
@@ -513,7 +516,9 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
     cur[ i ].minflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MINOR ) ];
     cur[ i ].majflt    = tile_metrics[ MIDX( COUNTER, TILE, PAGE_FAULT_MAJOR ) ];
     cur[ i ].last_cpu  = (ushort)tile_metrics[ MIDX( GAUGE, TILE, LAST_CPU ) ];
-    cur[ i ].interrupts = tile_metrics[ MIDX( COUNTER, TILE, IRQ_PREEMPTED ) ];
+    cur[ i ].interrupts     = tile_metrics[ MIDX( COUNTER, TILE, IRQ_PREEMPTED ) ];
+    cur[ i ].tlb_shootdowns = tile_metrics[ MIDX( COUNTER, TILE, TLB_SHOOTDOWN ) ];
+    cur[ i ].timer_ticks    = tile_metrics[ MIDX( COUNTER, TILE, TIMER_TICK ) ];
   }
 }
 
@@ -2024,11 +2029,12 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   ulong idx = epoch_info->epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
 
-  gui->epoch.epochs[ idx ].epoch            = epoch_info->epoch;
-  gui->epoch.epochs[ idx ].start_slot       = epoch_info->start_slot;
-  gui->epoch.epochs[ idx ].end_slot         = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
-  gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+  gui->epoch.epochs[ idx ].epoch                      = epoch_info->epoch;
+  gui->epoch.epochs[ idx ].start_slot                 = epoch_info->start_slot;
+  gui->epoch.epochs[ idx ].end_slot                   = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].target_slot_duration_nanos = epoch_info->ns_per_slot;
+  gui->epoch.epochs[ idx ].my_total_slots             = 0UL;
+  gui->epoch.epochs[ idx ].my_skipped_slots           = 0UL;
 
   memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
   memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );

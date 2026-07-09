@@ -39,8 +39,11 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
+  &fd_cfg_stage_sysfs_poll,
   NULL,
 };
+
+FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage_array_larger_than_configure_stage_count );
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;

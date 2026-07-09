@@ -487,8 +487,10 @@ main( int     argc,
 
   /* Netdev table */
   setup_netdev_table( ctx );
-  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
-  FD_TEST( ctx->gre_tunnel_ip==gre0_outer_dst_ip );
+  net_gre_tunnel_ip( ctx );
+  FD_TEST( ctx->gre_tunnel_ip[0]==gre0_outer_dst_ip );
+  FD_TEST( ctx->gre_tunnel_ip[1]==gre1_outer_dst_ip );
+  for( ulong i=2UL; i<MAX_GRE_CNT; i++ ) FD_TEST( ctx->gre_tunnel_ip[i]==0U );
 
   /* ctx->in */
   ctx->in[ 0 ].mem    = fd_wksp_containing( app_tx_dcache_mem );
@@ -789,7 +791,7 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth1_src_mac_addr, 6 );
 
         xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
-        rx_pkt_gre.outer_ip4.saddr = ctx->gre_tunnel_ip;
+        rx_pkt_gre.outer_ip4.saddr = gre1_outer_dst_ip;
         rx_pkt_gre.outer_ip4.daddr = gre1_outer_src_ip;
 
         before_credit_input       = &rx_pkt_gre;

@@ -2371,6 +2371,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].tick_sigverify_done = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_done = LONG_MAX;
+  sched->txn_info_pool[ txn_idx ].index_in_slot  = block->txn_parsed_cnt;
   block->txn_idx[ block->txn_parsed_cnt ] = txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;

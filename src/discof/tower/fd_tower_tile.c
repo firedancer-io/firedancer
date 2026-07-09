@@ -2009,10 +2009,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_block_equivocated_t) ?
+         sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_block_equivocated_t);
+}
+
 fd_topo_run_tile_t fd_tile_tower = {
   .name                     = "tower",
-  .max_event_sz             = sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_block_equivocated_t) ?
-                              sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_block_equivocated_t),
+  .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

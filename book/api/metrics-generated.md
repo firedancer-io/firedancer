@@ -47,8 +47,10 @@
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">idle</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Idle (task was not runnable)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">user</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (User (task was scheduled and executing in user mode)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">system</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (System (task was scheduled and executing in kernel mode)) |
+| <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">interrupt</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)) |
 | <span class="metrics-name">tile_&#8203;irq_&#8203;preempted</span> | counter | Times the tile was interrupted by an IRQ (fixed tiles only) |
 | <span class="metrics-name">tile_&#8203;tlb_&#8203;shootdown</span> | counter | TLB shootdowns observed on the tile CPU (fixed tiles only) |
+| <span class="metrics-name">tile_&#8203;timer_&#8203;tick</span> | counter | Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only) |
 
 </div>
 
@@ -204,6 +206,15 @@
 | <span class="metrics-name">snaprd_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database file |
 | <span class="metrics-name">snaprd_&#8203;export_&#8203;progress_&#8203;bytes</span> | gauge | Account database read progress in bytes of the current snapshot creation job |
 | <span class="metrics-name">snaprd_&#8203;export_&#8203;total_&#8203;bytes</span> | gauge | Total bytes to be read from account database for the current snapshot creation job |
+
+</div>
+
+## Admin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
 
 </div>
 

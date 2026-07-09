@@ -596,7 +596,7 @@ fd_event_client_grpc_conn_dead( void * app_ctx,
   FD_LOG_WARNING(( "Event gRPC connection closed %s (%u-%s)",
                    closed_by ? "by peer" : "due to error",
                    h2_err, fd_h2_strerror( h2_err ) ));
-  disconnect( client, DISCONNECT_REASON_PEER_CLOSED, 0, 1 );
+  client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
 }
 
 static void
@@ -801,10 +801,6 @@ fd_event_client_poll( fd_event_client_t * client,
     }
   }
 
-  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
-    fd_event_client_try_send_authenticate( client );
-  }
-
   if( FD_UNLIKELY( client->defer_disconnect!=INT_MAX ) ) {
     int reason = client->defer_disconnect;
     client->defer_disconnect = INT_MAX;
@@ -812,6 +808,10 @@ fd_event_client_poll( fd_event_client_t * client,
     if( reason==DISCONNECT_REASON_INVALID_PROTOBUF ) client->metrics.invalid_msg_cnt++;
     disconnect( client, reason, 0, 1 );
     return;
+  }
+
+  if( FD_UNLIKELY( client->state==FD_EVENT_CLIENT_STATE_AUTHENTICATING && client->auth_send_pending ) ) {
+    fd_event_client_try_send_authenticate( client );
   }
 
   if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_CONNECTED ) ) {

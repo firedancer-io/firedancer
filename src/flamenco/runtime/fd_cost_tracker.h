@@ -13,14 +13,9 @@
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
 
-#define FD_WRITE_LOCK_UNITS                   (      300U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
-#define FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA (100000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42 */
-#define FD_MAX_WRITABLE_ACCOUNT_UNITS         ( 12000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0207          ( 50000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L50-L56 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000U) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000U) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
-#define FD_MAX_VOTE_UNITS                     ( 36000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
-#define FD_SIMPLE_VOTE_USAGE_COST             (     3428U) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
+#define FD_WRITE_LOCK_UNITS       (      300U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
+#define FD_MAX_VOTE_UNITS         ( 36000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
+#define FD_SIMPLE_VOTE_USAGE_COST (     3428U) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS                                     (0)
@@ -105,6 +100,7 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong block_cost_limit;
   ulong vote_cost_limit;
   ulong account_cost_limit;
+  ulong data_size_limit;
 
   int larger_max_cost_per_block;
   int remove_simple_vote_from_cost_model;
@@ -175,9 +171,10 @@ fd_cost_tracker_t *
 fd_cost_tracker_join( void * shct );
 
 void
-fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
-                      fd_features_t const * features,
-                      ulong                 slot );
+fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
+                      fd_features_t const *    features,
+                      fd_slot_params_t const * slot_params,
+                      ulong                    slot );
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE uint

@@ -130,7 +130,8 @@ fd_gossip_active_set_metrics2( fd_gossip_t const * gossip );
 void
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
-                        long          now );
+                        long          now,
+                        ulong         identity_outset );
 
 void
 fd_gossip_set_shred_version( fd_gossip_t * gossip,

@@ -43,18 +43,23 @@
 
 #define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
-#define TEST_SLOTS_PER_EPOCH (3UL)
+#define TEST_SLOTS_PER_EPOCH (12UL)
 #define TEST_VAT_EPOCH       (3UL)
-#define TEST_VAT_ACTIVATION_SLOT (TEST_SLOTS_PER_EPOCH * TEST_VAT_EPOCH) /* 9 */
+#define TEST_VAT_ACTIVATION_SLOT (TEST_SLOTS_PER_EPOCH * TEST_VAT_EPOCH) /* 36 */
 
-/* 4s per slot: drift bounds at k=1 become whole seconds
-     poh_offset      = 4s
-     slow bound 150% = +6s -> unix-epoch_start = 10 (whale counted)
-     fast bound  25% = -1s -> unix-epoch_start =  3 (whale filtered) */
-#define NS_PER_SLOT          (4000000000UL)
-#define D_SLOT_SECONDS       (4L)
-#define CLOCK_DELTA_WHALE     (10L) /* slow-bound at k=1 */
-#define CLOCK_DELTA_NO_WHALE  (3L)  /* fast-bound at k=1 */
+/* Firedancer derives the clock's slot duration from the slot-time
+   feature gates, using a default of 400ms, so the test cannot choose
+   an arbitrary slot length.  Instead we measure the clock
+   TEST_CLOCK_SLOTS slots into the epoch, where 10 * 400ms = 4s makes
+   the drift bounds land on whole seconds:
+     poh_offset      = 10 slots * 400ms = 4s
+     slow bound 150% = +6s -> unix - epoch_start = 10 (whale counted)
+     fast bound  25% = -1s -> unix - epoch_start =  3 (whale filtered)
+   (TEST_SLOTS_PER_EPOCH must exceed TEST_CLOCK_SLOTS so k stays
+   within the epoch.) */
+#define TEST_CLOCK_SLOTS      (10UL)
+#define CLOCK_DELTA_WHALE     (10L) /* slow-bound at k=TEST_CLOCK_SLOTS (poh_offset 4s) */
+#define CLOCK_DELTA_NO_WHALE  (3L)  /* fast-bound at k=TEST_CLOCK_SLOTS (poh_offset 4s) */
 
 #define GENESIS_CREATION_TIME (1700000000L)
 
@@ -366,11 +371,12 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
 
   env->bank = fd_banks_init_bank( env->banks );
   FD_TEST( env->bank );
-  env->bank->f.slot                 = 1UL;
-  env->bank->f.epoch                = 1UL;
-  env->bank->f.genesis_creation_time = (ulong)GENESIS_CREATION_TIME;
-  env->bank->f.ns_per_slot          = (fd_w_u128_t){ .ud = (uint128)NS_PER_SLOT };
-  env->bank->f.ticks_per_slot       = 64UL;
+  env->bank->f.slot                    = 1UL;
+  env->bank->f.epoch                   = 1UL;
+  env->bank->f.genesis_creation_time   = (ulong)GENESIS_CREATION_TIME;
+  env->bank->f.slot_params             = FD_SLOT_PARAMS_400MS;
+  env->bank->f.slot_params_default     = FD_SLOT_PARAMS_400MS;
+  env->bank->f.ticks_per_slot          = 64UL;
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -496,27 +502,29 @@ clock_delta( test_env_t * env ) {
   return clock->unix_timestamp - clock->epoch_start_timestamp;
 }
 
-/* Advance to the k=1 (second) slot of epoch E.  Voters' cached last
-   vote is primed for E at the last slot of E-1 so that the boundary
-   refresh seeds the clock's top_votes_t_2 with a non-delinquent vote. */
+/* Advance to slot k=TEST_CLOCK_SLOTS of epoch E, so that the POH offset
+   is a whole number of seconds.  Voters' cached last vote is primed
+   for E at the last slot of E-1 so that the boundary refresh seeds
+   the clock's top_votes_t_2 with a non-delinquent
+   vote. */
 static void
-advance_into_epoch_k1( test_env_t * env, ulong epoch ) {
+advance_into_epoch( test_env_t * env, ulong epoch ) {
   ulong boundary = epoch*TEST_SLOTS_PER_EPOCH;          /* first slot of E   */
   while( env->bank->f.slot < boundary-2UL ) step_slot( env, 0UL );
   step_slot( env, epoch );   /* last slot of E-1: prep votes for E */
   step_slot( env, 0UL );     /* boundary slot of E (refresh seeds top_votes_t_2) */
-  step_slot( env, 0UL );     /* k=1 slot of E */
+  for( ulong k=0UL; k<TEST_CLOCK_SLOTS; k++ ) step_slot( env, 0UL ); /* advance to slot k=TEST_CLOCK_SLOTS of E */
   FD_TEST( env->bank->f.epoch==epoch );
-  FD_TEST( env->bank->f.slot==boundary+1UL );
+  FD_TEST( env->bank->f.slot==boundary+TEST_CLOCK_SLOTS );
 }
 
-/* Like advance_into_epoch_k1, but additionally flips voter `flip_i`'s
+/* Like advance_into_epoch, but additionally flips voter `flip_i`'s
    validity (vote-program owner) at the last slot of E-1, before the
    epoch-E boundary refresh runs.  This models a vote account being
    closed/recreated as a non-vote account (set_valid=0) or restored
    (set_valid=1) right before the boundary. */
 static void
-advance_into_epoch_k1_flip( test_env_t * env, ulong epoch, ulong flip_i, int set_valid ) {
+advance_into_epoch_flip( test_env_t * env, ulong epoch, ulong flip_i, int set_valid ) {
   ulong boundary = epoch*TEST_SLOTS_PER_EPOCH;
   while( env->bank->f.slot < boundary-2UL ) step_slot( env, 0UL );
 
@@ -527,9 +535,9 @@ advance_into_epoch_k1_flip( test_env_t * env, ulong epoch, ulong flip_i, int set
   step_slot( env, epoch );
 
   step_slot( env, 0UL );     /* boundary slot of E (refresh sees the flip) */
-  step_slot( env, 0UL );     /* k=1 slot of E */
+  for( ulong k=0UL; k<TEST_CLOCK_SLOTS; k++ ) step_slot( env, 0UL ); /* advance to slot k=TEST_CLOCK_SLOTS of E */
   FD_TEST( env->bank->f.epoch==epoch );
-  FD_TEST( env->bank->f.slot==boundary+1UL );
+  FD_TEST( env->bank->f.slot==boundary+TEST_CLOCK_SLOTS );
 }
 
 /* ---------------------------------------------------------------- */
@@ -554,7 +562,7 @@ test_vat_transition( fd_wksp_t * wksp ) {
   test_env_create( env, wksp );
 
   for( ulong epoch=2UL; epoch<=TEST_VAT_EPOCH+2UL; epoch++ ) {
-    advance_into_epoch_k1( env, epoch );
+    advance_into_epoch( env, epoch );
     fd_bank_t * bank = env->bank;
 
     int filtered = epoch>=TEST_VAT_EPOCH; /* VAT feature active -> top_votes filtered */
@@ -580,9 +588,10 @@ test_vat_transition( fd_wksp_t * wksp ) {
        whale votes far in the future with a dominant stake, so while it is
        counted the estimate is pinned to the slow drift bound; once it is
        filtered out the eligible (past-voting) accounts pull the estimate
-       to the fast bound.  k=1 -> 10s (whale) vs 3s (no whale).  (The
-       per-epoch stake bumps are tiny, so the whale stays dominant and the
-       bound, hence the delta, is unaffected by them.) */
+       to the fast bound.  At k=TEST_CLOCK_SLOTS (poh_offset 4s):
+       delta 10 (whale) vs 3 (no whale).  (The per-epoch stake bumps
+       are tiny, so the whale stays dominant and the bound, hence the
+       delta, is unaffected by them.) */
     long expected_delta = ( epoch>=TEST_VAT_EPOCH+1UL ) ? CLOCK_DELTA_NO_WHALE : CLOCK_DELTA_WHALE;
     FD_TEST( clock_delta( env )==expected_delta );
 
@@ -655,7 +664,7 @@ test_vat_invalidate_revalidate( fd_wksp_t * wksp ) {
 
   /* vat+1: first epoch the clock reads the filtered top_votes_t_2.
      Whale present, valid, counted. */
-  advance_into_epoch_k1( env, TEST_VAT_EPOCH+1UL );
+  advance_into_epoch( env, TEST_VAT_EPOCH+1UL );
   FD_TEST( FD_FEATURE_ACTIVE_BANK( env->bank, validator_admission_ticket ) );
   FD_TEST( top_votes_t1_cnt( env->bank )==NUM_VOTERS );
   FD_TEST( whale_counted_in_clock( env )==1 );
@@ -663,17 +672,17 @@ test_vat_invalidate_revalidate( fd_wksp_t * wksp ) {
   /* vat+2: whale closed/recreated as a non-vote account right before the
      boundary.  Its top_votes_t_2 entry is marked invalid (still present)
      and the clock drops it. */
-  advance_into_epoch_k1_flip( env, TEST_VAT_EPOCH+2UL, whale, 0 /*invalid*/ );
+  advance_into_epoch_flip( env, TEST_VAT_EPOCH+2UL, whale, 0 /*invalid*/ );
   FD_TEST( whale_counted_in_clock( env )==0 );
 
   /* vat+3: whale restored to a valid vote account, but it has been
      flushed out of the t-2 snapshot by the pipeline, so it is still not
      counted this epoch. */
-  advance_into_epoch_k1_flip( env, TEST_VAT_EPOCH+3UL, whale, 1 /*valid*/ );
+  advance_into_epoch_flip( env, TEST_VAT_EPOCH+3UL, whale, 1 /*valid*/ );
   FD_TEST( whale_counted_in_clock( env )==0 );
 
   /* vat+4: whale has re-entered t-2 and is valid -> counted again. */
-  advance_into_epoch_k1( env, TEST_VAT_EPOCH+4UL );
+  advance_into_epoch( env, TEST_VAT_EPOCH+4UL );
   FD_TEST( whale_counted_in_clock( env )==1 );
 
   bls_mask_override = 0;

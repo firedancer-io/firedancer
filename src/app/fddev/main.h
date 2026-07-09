@@ -34,6 +34,7 @@ extern configure_stage_t fd_cfg_stage_kill;
 extern configure_stage_t fd_cfg_stage_genesis;
 extern configure_stage_t fd_cfg_stage_keys;
 extern configure_stage_t fd_cfg_stage_blockstore;
+extern configure_stage_t fd_cfg_stage_sysfs_poll;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
@@ -47,8 +48,11 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
   &fd_cfg_stage_blockstore,
+  &fd_cfg_stage_sysfs_poll,
   NULL,
 };
+
+FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage_array_larger_than_configure_stage_count );
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;

@@ -177,6 +177,8 @@ typedef struct {
     ulong slot_max_cost;
     ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
+    ulong slot_max_allocated_data_per_block;
+    ulong slot_max_data_shreds;
   } limits;
 
   /* If drain_execle is non-zero, then the pack tile must wait until all
@@ -519,7 +521,7 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
       limits->max_vote_cost_per_block      = ctx->limits.slot_max_vote_cost;
       limits->max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
       limits->max_txn_per_microblock       = ULONG_MAX; /* unused */
-      limits->max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
+      limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
       fd_pack_set_block_limits( ctx->pack, limits );
 
       ctx->pending_reduce_mb_bound = 1; /* publish bound decrease */
@@ -1159,13 +1161,36 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
+
+    ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
+    if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
+      /* Compute base_max_data to ensure that we don't overflow
+         slot_max_data_shreds. See FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX in
+         fd_shred_batch.h. Some of the terms are
+         based on the worst-case number of FEC sets in a block, which
+         scales with the slot time reductions:
+         - pad_ohead = per-batch padding (OHEAD_PAD in fd_shred_batch.h)
+         - hdr_ohead = per-batch header (OHEAD_HDR in fd_shred_batch.h)
+         - reg_ohead = only used for the last batch
+                       (OHEAD_REG in fd_shred_batch.h) */
+      ulong fec_set_cnt     = ctx->_became_leader->limits.slot_max_data_shreds/32UL;
+      ulong pad_ohead       = ( fec_set_cnt/2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+      ulong hdr_ohead       = fec_set_cnt*8UL;
+      ulong reg_ohead       = 8192UL;
+      FD_TEST( fec_set_cnt >= 2UL ); /* guard against underflow */
+      ulong fec_data        = ( fec_set_cnt - 2UL )*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+      FD_TEST( fec_data    >= pad_ohead+hdr_ohead+reg_ohead );
+      base_max_data         = fec_data - pad_ohead - hdr_ohead - reg_ohead;
+    }
     /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
+    ctx->slot_max_data        = base_max_data
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
 
-    ctx->limits.slot_max_cost                = ctx->_became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_vote_cost           = ctx->_became_leader->limits.slot_max_vote_cost;
-    ctx->limits.slot_max_write_cost_per_acct = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+    ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
+    ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
+    ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
+    ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
+    ctx->limits.slot_max_data_shreds              = ctx->_became_leader->limits.slot_max_data_shreds;
 
     /* ticks_per_ns is probably relatively stable over 400ms, but not
        over several hours, so we need to compute the slot duration in
@@ -1199,7 +1224,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     limits->max_vote_cost_per_block = ctx->limits.slot_max_vote_cost;
     limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
     limits->max_txn_per_microblock = ULONG_MAX; /* unused */
-    limits->max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
+    limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
     fd_pack_set_block_limits( ctx->pack, limits );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
 

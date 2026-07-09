@@ -222,9 +222,16 @@ failed:
   return 0UL;
 }
 
-ulong
-fd_proc_interrupts_tlb( int   fd,
-                        ulong per_cpu[ FD_TILE_MAX ] ) {
+/* proc_interrupts_named_row parses a single named row (e.g. "TLB:" or
+   "LOC:") in /proc/interrupts.  Returns the number of CPUs found.  On
+   return, per_cpu[i] contains the counter for CPU i, or 0 if the row
+   was not found. */
+
+static ulong
+proc_interrupts_named_row( int          fd,
+                           char const * row_prefix,
+                           ulong        row_prefix_len,
+                           ulong        per_cpu[ FD_TILE_MAX ] ) {
   fd_io_buffered_istream_t is[1];
   char buf[ 4096 ];
   fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
@@ -247,7 +254,7 @@ fd_proc_interrupts_tlb( int   fd,
 
     char const * prefix     = fd_io_buffered_istream_peek   ( is );
     ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
-    if( FD_UNLIKELY( prefix_max>=4UL && fd_memeq( prefix, "TLB:", 4UL ) ) ) {
+    if( FD_UNLIKELY( prefix_max>=row_prefix_len && fd_memeq( prefix, row_prefix, row_prefix_len ) ) ) {
       err = read_until( is, 0UL, skip_token );
       if( FD_UNLIKELY( err!=0 ) ) goto failed;
 
@@ -275,6 +282,18 @@ failed:
     FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
   }
   return 0UL;
+}
+
+ulong
+fd_proc_interrupts_tlb( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  return proc_interrupts_named_row( fd, "TLB:", 4UL, per_cpu );
+}
+
+ulong
+fd_proc_interrupts_loc( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  return proc_interrupts_named_row( fd, "LOC:", 4UL, per_cpu );
 }
 
 ulong
@@ -338,6 +357,79 @@ fd_proc_softirqs_sum( int   fd,
       goto failed;
     }
 
+  }
+  return cpu_cnt;
+
+failed:
+  if( err!=0 ) {
+    FD_LOG_WARNING(( "read failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+  return 0UL;
+}
+
+ulong
+fd_proc_stat_irq_ticks( int   fd,
+                        ulong per_cpu[ FD_TILE_MAX ] ) {
+  fd_io_buffered_istream_t is[1];
+  char buf[ 4096 ];
+  fd_io_buffered_istream_init( is, fd, buf, sizeof(buf) );
+
+  for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ ) {
+    per_cpu[ cpu ] = 0UL;
+  }
+
+  /* Per-CPU rows look like this ("cpu" summary row has no digit):
+     "cpu7 134688 9390 52162 76129767 4217 3283 2069 0 0 0"
+     Fields after the cpuN token: user nice system idle iowait irq
+     softirq steal guest guest_nice. */
+
+  ulong cpu_cnt = 0UL;
+  int   err;
+  for(;;) {
+    err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err!=0 ) ) goto failed;
+    if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
+
+    char const * prefix     = fd_io_buffered_istream_peek   ( is );
+    ulong        prefix_max = fd_io_buffered_istream_peek_sz( is );
+
+    /* Rows are ordered: "cpu", "cpu0".."cpuN", then non-cpu rows.  Stop
+       at the first non-cpu row. */
+    if( FD_UNLIKELY( prefix_max<4UL || !fd_memeq( prefix, "cpu", 3UL ) ) ) return cpu_cnt;
+    if( FD_UNLIKELY( !isdigit( prefix[ 3 ] ) ) ) { /* "cpu" summary row */
+      err = read_until( is, 0UL, skip_line );
+      if( FD_UNLIKELY( err!=0 ) ) { if( err==-1 ) break; goto failed; }
+      continue;
+    }
+
+    fd_io_buffered_istream_skip( is, 3UL );
+    ulong cpu_idx = read_ulong( is );
+    if( FD_UNLIKELY( cpu_idx==ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "failed to parse cpu index in /proc/stat" ));
+      return 0UL;
+    }
+
+    /* Sum fields 6 (irq), 7 (softirq) and 8 (steal), 1-indexed after
+       the cpuN token. */
+    ulong ticks = 0UL;
+    for( ulong field_idx=1UL; field_idx<=8UL; field_idx++ ) {
+      err = read_until( is, 21UL, skip_spaces );
+      if( FD_UNLIKELY( err!=0 ) ) goto failed;
+
+      ulong val = read_ulong( is );
+      val = fd_ulong_if( val!=ULONG_MAX, val, 0UL );
+      if( field_idx>=6UL ) ticks += val;
+    }
+    if( FD_LIKELY( cpu_idx<FD_TILE_MAX ) ) {
+      per_cpu[ cpu_idx ] = ticks;
+      cpu_cnt = fd_ulong_max( cpu_cnt, cpu_idx+1UL );
+    }
+
+    err = read_until( is, 0UL, skip_line );
+    if( FD_UNLIKELY( err!=0 ) ) {
+      if( err==-1 ) break;
+      goto failed;
+    }
   }
   return cpu_cnt;
 

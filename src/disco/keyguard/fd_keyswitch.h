@@ -18,7 +18,6 @@
 #define FD_KEYSWITCH_STATE_FAILED         (4UL)
 #define FD_KEYSWITCH_STATE_COMPLETED      (5UL)
 
-
 struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {
   ulong magic;     /* ==FD_KEYSWITCH_MAGIC */
   ulong state;

@@ -293,7 +293,7 @@ fd_reedsol_private_recover_var_128( ulong           shred_sz,
 
     fd_reedsol_ifft_128_0( ALL_VARS_REF );
 
-    FD_REEDSOL_GENERATE_FDERIV( 128, ALL_VARS );
+    fd_reedsol_fderiv_128( ALL_VARS_REF );
 
     fd_reedsol_fft_128_0( ALL_VARS_REF );
 
@@ -583,8 +583,8 @@ fd_reedsol_private_recover_var_128( ulong           shred_sz,
 
     ulong shreds_remaining = shred_cnt-fd_ulong_min( shred_cnt, 128UL );
     if( shreds_remaining>0UL ) {
-      FD_REEDSOL_GENERATE_IFFT( 128,  0, ALL_VARS );
-      FD_REEDSOL_GENERATE_FFT(  128, 128, ALL_VARS );
+      fd_reedsol_ifft_128_0( ALL_VARS_REF );
+      fd_reedsol_fft_128_128( ALL_VARS_REF );
 
       switch( fd_ulong_min( shreds_remaining, 128UL ) ) {
         case  6UL: STORE_COMPARE( 133, in05 ); FALLTHRU

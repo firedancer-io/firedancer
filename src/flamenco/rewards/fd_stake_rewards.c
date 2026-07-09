@@ -6,36 +6,6 @@
 
 #define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
 
-struct index_key {
-  fd_pubkey_t pubkey;
-  ulong       lamports;
-  ulong       credits_observed;
-};
-typedef struct index_key index_key_t;
-
-struct index_ele {
-  union {
-    struct {
-      fd_pubkey_t pubkey;
-      ulong       lamports;
-      ulong       credits_observed;
-    };
-    index_key_t index_key;
-  };
-  uint next;
-};
-typedef struct index_ele index_ele_t;
-
-#define MAP_NAME               index_map
-#define MAP_KEY_T              index_key_t
-#define MAP_ELE_T              index_ele_t
-#define MAP_KEY                index_key
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(index_key_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(index_key_t) ))
-#define MAP_NEXT               next
-#define MAP_IDX_T              uint
-#include "../../util/tmpl/fd_map_chain.c"
-
 struct fork {
   int next;
 };
@@ -47,9 +17,11 @@ typedef struct fork fork_t;
 #define POOL_IDX_T int
 #include "../../util/tmpl/fd_pool.c"
 
-struct partition_ele  {
-  uint index;
-  uint next;
+struct partition_ele {
+  fd_pubkey_t pubkey;
+  ulong       lamports;
+  ulong       credits_observed;
+  uint        next;
 };
 typedef struct partition_ele partition_ele_t;
 
@@ -60,18 +32,14 @@ struct fork_info {
   uint  partition_idxs_tail[MAX_PARTITIONS_PER_EPOCH];
   ulong starting_block_height;
   ulong total_stake_rewards;
-
 };
 typedef struct fork_info fork_info_t;
 
 struct fd_stake_rewards {
   ulong       magic;
-  uint        total_ele_used;
   ulong       max_stake_accounts;
   fork_info_t fork_info[MAX_SUPPORTED_FORKS];
   ulong       fork_pool_offset;
-  ulong       index_pool_offset;
-  ulong       index_map_offset;
   ulong       partitions_offset;
   ulong       epoch;
 
@@ -84,14 +52,6 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 static inline fork_t *
 get_fork_pool( fd_stake_rewards_t const * stake_rewards ) {
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->fork_pool_offset );
-}
-static inline index_ele_t *
-get_index_pool( fd_stake_rewards_t const * stake_rewards ) {
-  return fd_type_pun( (uchar *)stake_rewards + stake_rewards->index_pool_offset );
-}
-static inline index_map_t *
-get_index_map( fd_stake_rewards_t const * stake_rewards ) {
-  return fd_type_pun( (uchar *)stake_rewards + stake_rewards->index_map_offset );
 }
 
 static inline partition_ele_t *
@@ -111,29 +71,20 @@ fd_stake_rewards_align( void ) {
 
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
-                            ulong expected_stake_accs,
                             ulong max_fork_width ) {
-  ulong map_chain_cnt = index_map_chain_cnt_est( expected_stake_accs );
+  ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
   l  = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),  sizeof(fd_stake_rewards_t) );
   l =  FD_LAYOUT_APPEND( l, fork_pool_align(),         fork_pool_footprint( max_fork_width ) );
-  l  = FD_LAYOUT_APPEND( l, alignof(index_ele_t),      sizeof(index_ele_t) * max_stake_accounts );
-  l  = FD_LAYOUT_APPEND( l, index_map_align(),         index_map_footprint( map_chain_cnt ) );
-  l  = FD_LAYOUT_APPEND( l, alignof(partition_ele_t),  max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
-
-  /* we take advantage of the fact that the number of partitions * 8192
-     is always == fd_ulong_align_up( max_stake_accounts, 8192UL ) */
-
+  l  = FD_LAYOUT_APPEND( l, alignof(partition_ele_t),  fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
   return FD_LAYOUT_FINI( l, fd_stake_rewards_align() );
 }
 
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  expected_stake_accs,
-                      ulong  max_fork_width,
-                      ulong  seed ) {
+                      ulong  max_fork_width ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -143,14 +94,16 @@ fd_stake_rewards_new( void * shmem,
     return NULL;
   }
 
-  ulong map_chain_cnt = index_map_chain_cnt_est( expected_stake_accs );
+  if( FD_UNLIKELY( max_stake_accounts>(ulong)UINT_MAX ) ) {
+    FD_LOG_WARNING(( "max_stake_accounts is too large" ));
+    return NULL;
+  }
+  ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
   void *               fork_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
-  void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(index_ele_t),     sizeof(index_ele_t) * max_stake_accounts );
-  void *               index_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),        index_map_footprint( map_chain_cnt ) );
-  void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
+  void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
 
   fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_fork_width ) );
   if( FD_UNLIKELY( !fork_pool ) ) {
@@ -159,18 +112,9 @@ fd_stake_rewards_new( void * shmem,
   }
   stake_rewards->fork_pool_offset = (ulong)fork_pool - (ulong)shmem;
 
-  stake_rewards->index_pool_offset = (ulong)index_pool_mem - (ulong)shmem;
-
-  index_map_t * index_map = index_map_join( index_map_new( index_map_mem, map_chain_cnt, seed ) );
-  if( FD_UNLIKELY( !index_map ) ) {
-    FD_LOG_WARNING(( "Failed to create index map" ));
-    return NULL;
-  }
-  stake_rewards->index_map_offset   = (ulong)index_map - (ulong)shmem;
-  stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
-  stake_rewards->max_stake_accounts = max_stake_accounts;
-  stake_rewards->epoch              = ULONG_MAX;
-  stake_rewards->total_ele_used     = 0UL;
+  stake_rewards->partitions_offset   = (ulong)partitions_mem - (ulong)shmem;
+  stake_rewards->max_stake_accounts  = max_stake_accounts;
+  stake_rewards->epoch               = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_rewards->magic ) = FD_STAKE_REWARDS_MAGIC;
@@ -202,9 +146,7 @@ fd_stake_rewards_join( void * shmem ) {
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
   fork_pool_reset( get_fork_pool( stake_rewards ) );
-  index_map_reset( get_index_map( stake_rewards ) );
-  stake_rewards->epoch          = ULONG_MAX;
-  stake_rewards->total_ele_used = 0UL;
+  stake_rewards->epoch = ULONG_MAX;
 }
 
 uchar
@@ -213,16 +155,13 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt ) {
-  index_map_t * index_map = get_index_map( stake_rewards );
-  fork_t *      fork_pool = get_fork_pool( stake_rewards );
+  fork_t * fork_pool = get_fork_pool( stake_rewards );
 
-  /* If this is the first reference to the stake rewards, we need to
-     reset the backing map and pool all the forks will share. */
+  /* If this is the first reference to the stake rewards for this epoch,
+     reset the fork pool shared by the epoch's reward partitions. */
   if( FD_LIKELY( stake_rewards->epoch!=epoch ) ) {
     fork_pool_reset( fork_pool );
-    index_map_reset( index_map );
-    stake_rewards->epoch          = epoch;
-    stake_rewards->total_ele_used = 0UL;
+    stake_rewards->epoch = epoch;
   }
 
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
@@ -246,29 +185,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
                          ulong                credits_observed ) {
-  index_ele_t * index_ele = get_index_pool( stake_rewards );
-  index_map_t * index_map = get_index_map( stake_rewards );
 
-  index_key_t index_key = {
-    .pubkey           = *pubkey,
-    .lamports         = lamports,
-    .credits_observed = credits_observed,
-  };
-
-  uint index = (uint)index_map_idx_query( index_map, &index_key, UINT_MAX, index_ele );
-  if( FD_LIKELY( index==UINT_MAX ) ) {
-    index = stake_rewards->total_ele_used;
-    stake_rewards->total_ele_used++;
-    if( FD_UNLIKELY( index>=stake_rewards->max_stake_accounts ) ) {
-      FD_LOG_CRIT(( "invariant violation: index>=stake_rewards->max_stake_accounts" ));
-    }
-    index_ele_t * ele = (index_ele_t *)index_ele + index;
-    ele->index_key = index_key;
-    index_map_ele_insert( index_map, ele, index_ele );
-  }
-
-  /* We have an invariant that there can never be more than 8192 entries
-     in a partition. */
   fd_siphash13_t sip[ 1 ];
   *sip = *stake_rewards->primed_hasher;
   fd_siphash13_append( sip, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
@@ -282,8 +199,10 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   }
 
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );
-  partition_ele->index = index;
-  partition_ele->next  = UINT_MAX;
+  partition_ele->pubkey           = *pubkey;
+  partition_ele->lamports         = lamports;
+  partition_ele->credits_observed = credits_observed;
+  partition_ele->next             = UINT_MAX;
 
   int is_first_ele = stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index] == UINT_MAX;
 
@@ -328,10 +247,9 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            ulong *              credits_observed_out ) {
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->iter_curr_fork_idx );
 
-  index_ele_t * index_ele = get_index_pool( stake_rewards ) + partition_ele->index;
-  *pubkey_out = index_ele->index_key.pubkey;
-  *lamports_out = index_ele->index_key.lamports;
-  *credits_observed_out = index_ele->index_key.credits_observed;
+  *pubkey_out           = partition_ele->pubkey;
+  *lamports_out         = partition_ele->lamports;
+  *credits_observed_out = partition_ele->credits_observed;
 }
 
 ulong

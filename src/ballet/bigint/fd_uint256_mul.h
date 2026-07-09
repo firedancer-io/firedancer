@@ -26,7 +26,11 @@
 #endif
 
 #if FD_HAS_X86
-#include <x86intrin.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#include <x86gprintrin.h>
+#else
+#include <immintrin.h>
+#endif
 #endif
 
 /* Utility functions for fd_uint256_mul_mod_p.

@@ -977,6 +977,34 @@ dynamic_port_range = "8900-9000"
         # "operation not supported".
         xdp_zero_copy = false
 
+        # The poll_mode option determines how Firedancer polls NAPI (Linux's
+        # high perf networking mechanisms).  Its possible values are:
+        #
+        #  "softirq" (default)
+        #   Relies significantly more on Linux to manage NAPI through wakeups,
+        #   softirqs, and under higher network load, a separate ksoftirqd
+        #   thread which Linux schedules onto a separate core.
+        #
+        #  "prefbusy"
+        #   Experimental option which gives Firedancer significantly more
+        #   control over how and when NAPI is polled.  Reduces networking
+        #   related IRQs and ksoftirqds to near zero on well supported NIC
+        #   drivers, increasing determinism and stability during DoS attacks
+        #   and high net load.
+        #
+        #   Hardware Support: Currently best supported on mlx5 (Mellanox).
+        #   Depending on the driver, XDP Copy Mode can see noticeable throughput
+        #   gains (up to 2.4x on mlx5, 1.5x on i40e).  Zero-copy RX throughput
+        #   generally remains the same across both poll modes.
+        #
+        # Extra info
+        #
+        #  Requires a kernel version of at least v5.11 (Feb 2021).
+        #
+        #  Prefbusy mode increases tail latency for other applications on
+        #  the system sharing the same network interface.
+        poll_mode = "softirq"
+
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
         # This setting defines the number of entries in these metadata

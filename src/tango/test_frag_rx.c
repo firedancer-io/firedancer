@@ -1,5 +1,9 @@
 #include "fd_tango.h"
 
+#if FD_HAS_X86
+#include <x86intrin.h>
+#endif
+
 #if FD_HAS_HOSTED && FD_HAS_AVX
 
 FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );

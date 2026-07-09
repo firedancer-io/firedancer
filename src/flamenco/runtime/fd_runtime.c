@@ -1,4 +1,5 @@
 #include "fd_runtime.h"
+#include "../events/fd_event_runtime.h"
 
 #include "../types/fd_cast.h"
 #include "fd_alut.h"
@@ -559,6 +560,8 @@ fd_runtime_process_new_epoch( fd_banks_t *         banks,
 
   fd_compute_and_apply_new_feature_activations( bank, accdb, runtime_stack, capture_ctx );
 
+  bank->f.slot_params = fd_slot_params_at_slot( bank, bank->f.slot );
+
   /* Update the cached warmup/cooldown rate epoch now that features may
      have changed (reduce_stake_warmup_cooldown may have just activated). */
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule,
@@ -742,7 +745,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   if( FD_LIKELY( bank->f.slot ) ) {
     fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
     FD_TEST( cost_tracker );
-    fd_cost_tracker_init( cost_tracker, &bank->f.features, bank->f.slot );
+    fd_cost_tracker_init( cost_tracker, &bank->f.features, &bank->f.slot_params, bank->f.slot );
   }
 
   fd_features_prepopulate_upcoming( bank, accdb );
@@ -972,9 +975,11 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
    function should probably be moved to fd_executor.c. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out ) {
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs ) {
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_ticks = fd_tickcount();
@@ -1043,7 +1048,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     if( FD_UNLIKELY( txn_out->details.tips ) ) FD_ATOMIC_FETCH_AND_ADD( &bank->f.tips, txn_out->details.tips );
   }
 
-  FD_ATOMIC_FETCH_AND_ADD( &bank->f.txn_count,       1UL );
+  txn_out->details.commit_index_in_slot = FD_ATOMIC_FETCH_AND_ADD( &bank->f.txn_count, 1UL );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.execution_fees,  txn_out->details.execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.priority_fees,   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( &bank->f.signature_count, txn_out->details.signature_count );
@@ -1112,6 +1117,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
+  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
                          txn_out->accounts.cnt, runtime->accounts.account,
@@ -1121,10 +1128,15 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 }
 
 void
-fd_runtime_cancel_txn( fd_runtime_t * runtime,
-                       fd_txn_out_t * txn_out ) {
+fd_runtime_cancel_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs ) {
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
+
+  if( FD_UNLIKELY( report_transaction_diffs ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   fd_accdb_release_ab( runtime->accdb,
                        txn_out->accounts.cnt, runtime->accounts.account,
@@ -1207,7 +1219,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
   txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
-  txn_out->err.exec_err_idx   = INT_MAX;
+  txn_out->err.exec_err_idx   = UINT_MAX;
   txn_out->err.custom_err     = 0;
 }
 
@@ -1366,12 +1378,17 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   fee_rate_governor->max_lamports_per_signature    = genesis->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = genesis->fee_rate_governor.burn_percent;
 
-  bank->f.max_tick_height = genesis->poh.ticks_per_slot * (bank->f.slot + 1);
-  bank->f.hashes_per_tick = genesis->poh.hashes_per_tick;
-  bank->f.ns_per_slot = (fd_w_u128_t) { .ud=target_tick_duration * genesis->poh.ticks_per_slot };
+  bank->f.max_tick_height                  = genesis->poh.ticks_per_slot * (bank->f.slot + 1);
+  bank->f.slot_params                      = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.ns_per_slot          = (ulong)( target_tick_duration * genesis->poh.ticks_per_slot );
+  bank->f.slot_params.ns_per_slot_adjusted = fd_ulong_sat_sub( bank->f.slot_params.ns_per_slot, FD_TARGET_SLOT_ADJUSTMENT_NS );
+  bank->f.slot_params.slots_per_year       = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
+  bank->f.slot_params.hashes_per_tick      = genesis->poh.hashes_per_tick;
+  bank->f.slot_params_default              = bank->f.slot_params;
+
   bank->f.ticks_per_slot = genesis->poh.ticks_per_slot;
   bank->f.genesis_creation_time = genesis->creation_time;
-  bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
+
   bank->f.signature_count = 0UL;
 
   /* Derive epoch stakes */
@@ -1470,7 +1487,7 @@ fd_runtime_process_genesis_block( fd_bank_t *          bank,
                                   fd_accdb_t *         accdb,
                                   fd_capture_ctx_t *   capture_ctx,
                                   fd_runtime_stack_t * runtime_stack ) {
-  fd_sha256_hash_32_repeated( bank->f.poh.hash, bank->f.poh.hash, bank->f.hashes_per_tick * bank->f.ticks_per_slot );
+  fd_sha256_hash_32_repeated( bank->f.poh.hash, bank->f.poh.hash, bank->f.slot_params.hashes_per_tick * bank->f.ticks_per_slot );
 
   bank->f.execution_fees = 0UL;
   bank->f.priority_fees = 0UL;

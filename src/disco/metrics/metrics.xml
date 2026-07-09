@@ -390,6 +390,7 @@ EXAMPLES
     <int value="1" name="Idle" label="Idle (task was not runnable)" />
     <int value="2" name="User" label="User (task was scheduled and executing in user mode)" />
     <int value="3" name="System" label="System (task was scheduled and executing in kernel mode)" />
+    <int value="4" name="Interrupt" label="Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" />
 </enum>
 
 <common>
@@ -408,6 +409,7 @@ EXAMPLES
     <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime, in nanoseconds" />
     <counter name="IrqPreempted" summary="Times the tile was interrupted by an IRQ (fixed tiles only)" />
     <counter name="TlbShootdown" summary="TLB shootdowns observed on the tile CPU (fixed tiles only)" />
+    <counter name="TimerTick" summary="Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only)" />
 </common>
 
 <tile name="net">
@@ -1748,6 +1750,9 @@ EXAMPLES
 </tile>
 
 <tile name="genesi">
+</tile>
+
+<tile name="admin">
 </tile>
 
 <enum name="ConnCloseResult">

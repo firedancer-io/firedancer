@@ -50,21 +50,21 @@ ENCODE_FN {
     break;
   }
   case STATE_COUNTERS: {
-    PUSH_VAL( ulong,  bank->f.txn_count             );
-    PUSH_VAL( ulong,  bank->f.tick_height           );
-    PUSH_VAL( ulong,  bank->f.signature_count       );
-    PUSH_VAL( ulong,  bank->f.capitalization        );
-    PUSH_VAL( ulong,  bank->f.max_tick_height       );
-    PUSH_VAL( uchar,  1                             );
-    PUSH_VAL( ulong,  bank->f.hashes_per_tick       );
-    PUSH_VAL( ulong,  bank->f.ticks_per_slot        );
-    PUSH_VAL( fd_w_u128_t, bank->f.ns_per_slot      );
-    PUSH_VAL( ulong,  bank->f.genesis_creation_time );
-    PUSH_VAL( double, bank->f.slots_per_year        );
+    PUSH_VAL( ulong,  bank->f.txn_count                                           );
+    PUSH_VAL( ulong,  bank->f.tick_height                                         );
+    PUSH_VAL( ulong,  bank->f.signature_count                                     );
+    PUSH_VAL( ulong,  bank->f.capitalization                                      );
+    PUSH_VAL( ulong,  bank->f.max_tick_height                                     );
+    PUSH_VAL( uchar,  1                                                           );
+    PUSH_VAL( ulong,  bank->f.slot_params.hashes_per_tick                         );
+    PUSH_VAL( ulong,  bank->f.ticks_per_slot                                      );
+    PUSH_VAL( fd_w_u128_t, (fd_w_u128_t){ .ud = bank->f.slot_params.ns_per_slot } );
+    PUSH_VAL( ulong,  bank->f.genesis_creation_time                               );
+    PUSH_VAL( double, bank->f.slot_params.slots_per_year                          );
     PUSH_VAL( ulong,  0UL ); /* accounts_data_len, unused */
-    PUSH_VAL( ulong,  bank->f.slot                  );
-    PUSH_VAL( ulong,  bank->f.epoch                 );
-    PUSH_VAL( ulong,  bank->f.block_height          );
+    PUSH_VAL( ulong,  bank->f.slot                                                );
+    PUSH_VAL( ulong,  bank->f.epoch                                               );
+    PUSH_VAL( ulong,  bank->f.block_height                                        );
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* leader_id, unused */
     PUSH_VAL( ulong, 0UL ); /* unused_collector_fees */
     PUSH_VAL( ulong, 0UL ); /* unused_fee_calculator */
@@ -80,20 +80,20 @@ ENCODE_FN {
 
     fd_epoch_schedule_t const * es = &bank->f.epoch_schedule;
     fd_rent_t const * rent = &bank->f.rent;
-    PUSH_VAL( ulong,  es->slots_per_epoch             );
-    PUSH_VAL( ulong,  es->leader_schedule_slot_offset );
-    PUSH_VAL( uchar,  es->warmup                      );
-    PUSH_VAL( ulong,  es->first_normal_epoch          );
-    PUSH_VAL( ulong,  es->first_normal_slot           );
-    PUSH_VAL( double, bank->f.slots_per_year          );
-    PUSH_VAL( ulong,  rent->lamports_per_uint8_year   );
-    PUSH_VAL( double, rent->exemption_threshold       );
-    PUSH_VAL( uchar,  rent->burn_percent              );
-    PUSH_VAL( ulong,  es->slots_per_epoch             );
-    PUSH_VAL( ulong,  es->leader_schedule_slot_offset );
-    PUSH_VAL( uchar,  es->warmup                      );
-    PUSH_VAL( ulong,  es->first_normal_epoch          );
-    PUSH_VAL( ulong,  es->first_normal_slot           );
+    PUSH_VAL( ulong,  es->slots_per_epoch                );
+    PUSH_VAL( ulong,  es->leader_schedule_slot_offset    );
+    PUSH_VAL( uchar,  es->warmup                         );
+    PUSH_VAL( ulong,  es->first_normal_epoch             );
+    PUSH_VAL( ulong,  es->first_normal_slot              );
+    PUSH_VAL( double, bank->f.slot_params.slots_per_year );
+    PUSH_VAL( ulong,  rent->lamports_per_uint8_year      );
+    PUSH_VAL( double, rent->exemption_threshold          );
+    PUSH_VAL( uchar,  rent->burn_percent                 );
+    PUSH_VAL( ulong,  es->slots_per_epoch                );
+    PUSH_VAL( ulong,  es->leader_schedule_slot_offset    );
+    PUSH_VAL( uchar,  es->warmup                         );
+    PUSH_VAL( ulong,  es->first_normal_epoch             );
+    PUSH_VAL( ulong,  es->first_normal_slot              );
 
     fd_inflation_t const * inf = &bank->f.inflation;
     PUSH_VAL( double, inf->initial        );

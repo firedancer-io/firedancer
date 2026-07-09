@@ -64,6 +64,8 @@ struct fd_became_leader {
     ulong slot_max_cost;
     ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
+    ulong slot_max_allocated_data_per_block;
+    ulong slot_max_data_shreds;
   } limits;
 
   /* Information from the accounts database as of the start of the slot

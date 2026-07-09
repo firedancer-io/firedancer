@@ -374,8 +374,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
      None gets treated as 0 for hash verification. */
-  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) bank->f.hashes_per_tick = manifest->hashes_per_tick;
-  else                                             bank->f.hashes_per_tick = 0UL;
+  ulong restored_hashes_per_tick = manifest->has_hashes_per_tick ? manifest->hashes_per_tick : 0UL;
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
@@ -396,18 +395,21 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) bank->f.poh = *last_hash;
 
-  bank->f.capitalization = manifest->capitalization;
-  bank->f.txn_count = manifest->transaction_count;
-  bank->f.signature_count = manifest->signature_count;
-  bank->f.tick_height = manifest->tick_height;
-  bank->f.max_tick_height = manifest->max_tick_height;
-  bank->f.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
-  bank->f.ticks_per_slot = manifest->ticks_per_slot;
-  bank->f.genesis_creation_time = manifest->creation_time_seconds;
-  bank->f.slots_per_year = manifest->slots_per_year;
-  bank->f.block_height = manifest->block_height;
-  bank->f.execution_fees = manifest->collector_fees;
-  bank->f.priority_fees = 0UL;
+  bank->f.capitalization                   = manifest->capitalization;
+  bank->f.txn_count                        = manifest->transaction_count;
+  bank->f.signature_count                  = manifest->signature_count;
+  bank->f.tick_height                      = manifest->tick_height;
+  bank->f.max_tick_height                  = manifest->max_tick_height;
+  bank->f.ticks_per_slot                   = manifest->ticks_per_slot;
+  bank->f.genesis_creation_time            = manifest->creation_time_seconds;
+  bank->f.slot_params                      = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.ns_per_slot          = manifest->ns_per_slot;
+  bank->f.slot_params.ns_per_slot_adjusted = fd_ulong_sat_sub( bank->f.slot_params.ns_per_slot, FD_TARGET_SLOT_ADJUSTMENT_NS );
+  bank->f.slot_params.slots_per_year       = manifest->slots_per_year;
+  bank->f.slot_params.hashes_per_tick      = restored_hashes_per_tick;
+  bank->f.block_height                     = manifest->block_height;
+  bank->f.execution_fees                   = manifest->collector_fees;
+  bank->f.priority_fees                    = 0UL;
 
   /* Set the cluster type based on the genesis creation time.  This is
      later cross referenced against the genesis hash. */

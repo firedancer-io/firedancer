@@ -97,6 +97,7 @@ struct fd_sched_txn_info {
    long  tick_sigverify_done;
    long  tick_exec_disp;
    long  tick_exec_done;
+   ulong index_in_slot; /* 0-indexed position of this transaction within its block. */
 };
 typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 

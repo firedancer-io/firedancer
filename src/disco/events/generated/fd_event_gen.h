@@ -124,9 +124,169 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX (398UL)
 
+/* Transaction execution error */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SUCCESS                                 (1) /* Transaction succeeded */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_LOADED_TWICE                    (2) /* A Pubkey appears twice in the transaction's account_keys */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ACCOUNT_NOT_FOUND                       (3) /* Attempt to debit an account but found no record of a prior credit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND               (4) /* Attempt to load a program that does not exist */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE              (5) /* Fee payer has insufficient lamports to cover the transaction fee */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ACCOUNT_FOR_FEE                 (6) /* This account may not be used to pay transaction fees */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ALREADY_PROCESSED                       (7) /* The bank has seen this transaction before */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NOT_FOUND                     (8) /* The bank has not seen the given recent_blockhash or the transaction is too old and the recent_blockhash has been discarded. */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSTRUCTION_ERROR                       (9) /* An error occurred while processing an instruction, look at exec_err for more details */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SIGNATURE_FAILURE                       (10) /* Transaction did not pass signature verification */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION           (11) /* This program may not be used for executing instructions */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_SANITIZE_FAILURE                        (12) /* Transaction failed to sanitize accounts offsets correctly */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT       (13) /* Transaction would exceed max Block Cost Limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT     (14) /* Transaction would exceed max account limit within the block */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT   (15) /* Transaction would exceed account data limit within the block */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS                  (16) /* Transaction locked too many accounts */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND          (17) /* Transaction loads an address table account that doesn't exist */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER      (18) /* Transaction loads an address table account with an invalid owner */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA       (19) /* Transaction loads an address table account with invalid data */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX      (20) /* Transaction address table lookup uses an invalid index */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT        (21) /* Transaction would exceed max Vote Cost Limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT   (22) /* Transaction would exceed total account data limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_DUPLICATE_INSTRUCTION                   (23) /* Transaction contains a duplicate instruction that is not allowed */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT             (24) /* Transaction results in an account with insufficient funds for rent */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED  (25) /* Transaction exceeded max loaded accounts data size cap */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (26) /* Transaction requested a zero loaded-accounts-data-size limit */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_UNBALANCED_TRANSACTION                  (27) /* Sum of account balances before and after transaction do not match */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BUNDLE_PEER                             (28) /* Transaction was part of a bundle in which another transaction failed */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED        (29) /* Durable-nonce txn was rejected because its nonce account has already been advanced */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR      (30) /* Durable-nonce txn failed to advance its nonce account */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE              (31) /* Durable-nonce txn's recent_blockhash did not match the stored nonce */
+
+/* Instruction execution error; success unless txn_err = instruction_error */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_SUCCESS                            (1) /* instruction succeeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_GENERIC_ERR                        (2) /* The program instruction returned an error */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ARG                        (3) /* The arguments provided to a program were invalid */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_INSTR_DATA                 (4) /* An instruction's data contents were invalid */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ACC_DATA                   (5) /* An account's data contents was invalid */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_DATA_TOO_SMALL                 (6) /* An account's data was too small */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INSUFFICIENT_FUNDS                 (7) /* An account's balance was too small to complete the instruction */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INCORRECT_PROGRAM_ID               (8) /* The account did not have the expected program id */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MISSING_REQUIRED_SIGNATURE         (9) /* A signature was required but not found */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_ALREADY_INITIALIZED            (10) /* An initialize instruction was sent to an account that has already been initialized. */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNINITIALIZED_ACCOUNT              (11) /* An attempt to operate on an account that hasn't been initialized. */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNBALANCED_INSTR                   (12) /* Program's instruction lamport balance does not equal the balance after the instruction */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MODIFIED_PROGRAM_ID                (13) /* Program illegally modified an account's program id */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND     (14) /* Program spent the lamports of an account that doesn't belong to it */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXTERNAL_DATA_MODIFIED             (15) /* Program modified the data of an account that doesn't belong to it */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_READONLY_LAMPORT_CHANGE            (16) /* Read-only account's lamports modified */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_READONLY_DATA_MODIFIED             (17) /* Read-only account's data was modified */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_MODIFIED                (18) /* Executable bit on account changed, but shouldn't have */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_NOT_ENOUGH_ACC_KEYS                (19) /* The instruction expected additional account keys */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_DATA_SIZE_CHANGED              (20) /* Program other than the account's owner changed the size of the account data */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_FAILED                  (21) /* Failed to borrow a reference to account data, already borrowed */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_BORROW_OUTSTANDING             (22) /* Account data has an outstanding reference after a program's execution */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_CUSTOM_ERR                         (23) /* Allows on-chain programs to implement program-specific error types and see them returned by the runtime. */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ERR                        (24) /* The return value from the program was invalid. */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT (25) /* Executable accounts must be rent exempt */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_PROGRAM_ID             (26) /* Unsupported program id */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_CALL_DEPTH                         (27) /* Cross-program invocation call depth too deep */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MISSING_ACC                        (28) /* An account required by the instruction is missing */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_REENTRANCY_NOT_ALLOWED             (29) /* Cross-program invocation reentrancy not allowed for this instruction */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_SEED_LENGTH_EXCEEDED           (30) /* Length of the seed is too long for address generation */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_SEEDS                      (31) /* Provided seeds do not result in a valid address */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_REALLOC                    (32) /* Failed to reallocate account data of this length */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_COMPUTE_BUDGET_EXCEEDED            (33) /* Computational budget exceeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PRIVILEGE_ESCALATION               (34) /* Cross-program invocation with unauthorized signer or writable account */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  (35) /* Failed to create program execution environment */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_PROGRAM_FAILED_TO_COMPLETE         (36) /* Program failed to complete */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_IMMUTABLE                      (37) /* Account is immutable */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INCORRECT_AUTHORITY                (38) /* Incorrect authority provided */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BORSH_IO_ERROR                     (39) /* Failed to serialize or deserialize account data */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ACC_NOT_RENT_EXEMPT                (40) /* An account does not have enough lamports to be rent-exempt */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_INVALID_ACC_OWNER                  (41) /* Invalid account owner */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ARITHMETIC_OVERFLOW                (42) /* Program arithmetic overflowed */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_UNSUPPORTED_SYSVAR                 (43) /* Unsupported sysvar */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_ILLEGAL_OWNER                      (44) /* Provided owner is not allowed */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED      (45) /* Account data allocation exceeded the maximum accounts data size limit */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_ACCS_EXCEEDED                  (46) /* Max accounts exceeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_MAX_INSN_TRACE_LENS_EXCEEDED       (47) /* Max instruction trace length exceeded */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_BUILTINS_MUST_CONSUME_CUS          (48) /* Builtin programs must consume compute units */
+
+/* Source kind of exec_err; none unless txn_err = instruction_error */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_NONE    (1) /* no instruction error */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_EBPF    (2) /* eBPF VM error */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_SYSCALL (3) /* Syscall error */
+#define FD_EVENT_RUNTIME_TXN_EXEC_ERR_KIND_INSTR   (4) /* Instruction error */
+
+/* Per-account diff entry */
+struct fd_event_runtime_txn_account_diffs {
+  uchar pubkey[ 32UL ];     /* Account pubkey */
+  uchar owner[ 32UL ];      /* Post-state owner pubkey */
+  uchar prev_owner[ 32UL ]; /* Pre-state owner pubkey */
+  ulong lamports;           /* Post-state lamports */
+  ulong prev_lamports;      /* Pre-state lamports */
+  ulong data_sz;            /* Post-state data size in bytes */
+  ulong prev_data_sz;       /* Pre-state data size in bytes */
+  int   is_executable;      /* True if the post-state account is executable */
+  int   is_stake_update;    /* True if this write touched the stake cache */
+  int   is_vote_update;     /* True if this write touched the vote cache */
+  int   is_new_vote;        /* True if this write created a new vote account */
+  int   is_rm_vote;         /* True if this write removed a vote account */
+};
+typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
+
+/* One row per dispatched transaction (committable or not), with the execution results */
+struct fd_event_runtime_txn {
+  ulong                                bank_seq;                          /* Monotonic sequence number identifying this block within the current run; the join key to block_completed. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong                                slot;                              /* Bank slot in which this transaction was executed */
+  ulong                                index_in_slot;                     /* 0-indexed position of this transaction within its block */
+  ulong                                commit_index_in_slot;              /* 0-indexed commit-completion order within this slot */
+  uchar                                fec_merkle_root[ 32UL ];           /* FEC merkle root that was the current block_id of the bank when this txn was dispatched; NULL on the leader path */
+  ulong                                epoch;                             /* Epoch the transaction was executed in */
+  uchar                                signature[ 64UL ];                 /* First signature of the transaction (64 bytes) */
+  uchar                                blockhash[ 32UL ];                 /* Blockhash referenced by the transaction */
+  uchar                                fee_payer[ 32UL ];                 /* Fee-payer pubkey */
+  int                                  is_simple_vote;                    /* True if the transaction was classified as a simple vote, false otherwise */
+  int                                  is_bundle;                         /* True if the transaction is part of a bundle, false otherwise */
+  int                                  is_committable;                    /* True if the transaction was committable (landed on-chain) */
+  int                                  is_fees_only;                      /* True if the transaction landed but only fees were charged (e.g. account loading failure) */
+  int                                  txn_err;                           /* Transaction execution error */
+  int                                  exec_err;                          /* Instruction execution error; success unless txn_err = instruction_error */
+  int                                  exec_err_kind;                     /* Source kind of exec_err; none unless txn_err = instruction_error */
+  uint                                 exec_err_idx;                      /* Instruction index that failed (UINT_MAX if not applicable) */
+  uint                                 custom_err;                        /* Custom error code returned by the program (UINT_MAX if not applicable) */
+  ulong                                compute_unit_limit;                /* Compute unit limit requested by the transaction */
+  ulong                                compute_unit_price;                /* Compute unit price (micro-lamports per CU) requested by the transaction */
+  ulong                                compute_units_consumed;            /* compute_unit_limit minus the remaining compute meter at commit */
+  ulong                                heap_size;                         /* Requested heap size for the VM */
+  ulong                                num_builtin_instrs;                /* Number of builtin program instructions in the transaction */
+  ulong                                num_non_builtin_instrs;            /* Number of BPF (non-builtin) program instructions */
+  ulong                                loaded_accounts_data_size;         /* Total bytes of account data loaded for this transaction */
+  ulong                                loaded_accounts_data_size_limit;   /* Configured loaded-accounts-data-size limit for this transaction */
+  long                                 accounts_resize_delta;             /* Net delta in writable account data sizes during execution (negative when the writable account data net shrunk) */
+  ulong                                execution_fee;                     /* Execution (base) fee charged to the fee payer, pre-burn (50% is burned at settlement) */
+  ulong                                priority_fee;                      /* Priority fee charged to the fee payer, pre-burn (priority fees are not burned) */
+  ulong                                tips;                              /* Gross tips credited to tip accounts by this transaction, before the block-level tip commission */
+  ulong                                signature_count;                   /* Number of signatures in the transaction */
+  uint                                 cost_signature;                    /* Cost-tracker signature cost */
+  uint                                 cost_write_lock;                   /* Cost-tracker write-lock cost */
+  uint                                 cost_data_bytes;                   /* Cost-tracker data-bytes cost */
+  uint                                 cost_programs_execution;           /* Cost-tracker programs-execution cost */
+  uint                                 cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
+  ulong                                cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
+  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account diffs for writable accounts that were modified */
+  ulong                                account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
+  uchar                                writable_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as writable */
+  ulong                                writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
+  uchar                                readonly_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as readonly, in account-order */
+  ulong                                readonly_accounts_cnt;             /* Number of readonly_accounts entries (<= 64) */
+  uchar                                program_ids[ 64UL ][ 32UL ];       /* Distinct program pubkeys invoked at the top level of this transaction */
+  ulong                                program_ids_cnt;                   /* Number of program_ids entries (<= 64) */
+};
+typedef struct fd_event_runtime_txn fd_event_runtime_txn_t;
+
+/* Worst-case encoded size of a runtime_txn event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_TXN_BUF_MAX (23234UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size. */
-#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ))
+#define FD_EVENT_GEN_STRUCT_MAX (( sizeof(fd_event_runtime_txn_t) > ( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ) ? sizeof(fd_event_runtime_txn_t) : ( sizeof(fd_event_block_equivocated_t) > ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ? sizeof(fd_event_block_equivocated_t) : ( sizeof(fd_event_accdb_partition_added_t) > ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ? sizeof(fd_event_accdb_partition_added_t) : ( sizeof(fd_event_accdb_compaction_completed_t) > ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ? sizeof(fd_event_accdb_compaction_completed_t) : ( sizeof(fd_event_slot_confirmed_t) > sizeof(fd_event_signed_vote_t) ? sizeof(fd_event_slot_confirmed_t) : sizeof(fd_event_signed_vote_t) ) ) ) ) ))
 
 FD_PROTOTYPES_BEGIN
 
@@ -180,6 +340,16 @@ fd_event_block_equivocated_serialize( fd_circq_t *                         circq
                                       ulong                                link_seq,
                                       fd_event_block_equivocated_t const * msg );
 
+/* Serialize a runtime_txn event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_txn_serialize( fd_circq_t *                   circq,
+                                fd_event_client_t *            client,
+                                long                           timestamp_nanos,
+                                ulong                          link_seq,
+                                fd_event_runtime_txn_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -224,6 +394,13 @@ fd_event_report_accdb_partition_added( fd_event_accdb_partition_added_t const * 
 static inline void
 fd_event_report_block_equivocated( fd_event_block_equivocated_t const * msg ) {
   fd_event_report_( 7UL, msg, sizeof(fd_event_block_equivocated_t) );
+}
+
+/* Report a runtime_txn event (RuntimeTxn, id 8) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_txn( fd_event_runtime_txn_t const * msg ) {
+  fd_event_report_( 8UL, msg, sizeof(fd_event_runtime_txn_t) );
 }
 
 FD_PROTOTYPES_END

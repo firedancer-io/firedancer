@@ -1,11 +1,4 @@
-#include "./fd_bn254_internal.h"
-
-#include "./fd_bn254_field.c"
-#include "./fd_bn254_field_ext.c"
-#include "./fd_bn254_glv.h"
-#include "./fd_bn254_g1.c"
-#include "./fd_bn254_g2.c"
-#include "./fd_bn254_pairing.c"
+#include "./fd_bn254_field_inl.h"
 
 /* Compress/Decompress */
 

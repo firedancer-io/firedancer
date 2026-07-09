@@ -11,7 +11,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_mcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_dcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
-extern fd_topo_obj_callbacks_t fd_obj_cb_cnc;
+extern fd_topo_obj_callbacks_t fd_obj_cb_adminctl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
@@ -32,7 +32,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_dcache,
   &fd_obj_cb_fseq,
   &fd_obj_cb_metrics,
-  &fd_obj_cb_cnc,
+  &fd_obj_cb_adminctl,
   &fd_obj_cb_netdev_tbl,
   &fd_obj_cb_neigh4_hmap,
   &fd_obj_cb_fib4,
@@ -64,11 +64,18 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_irq_balance,
   &fd_cfg_stage_irq_affinity,
+  &fd_cfg_stage_sysfs_poll,
+  &fd_cfg_stage_kworkers,
+  &fd_cfg_stage_cpuset,
+  &fd_cfg_stage_nohz_full,
+  &fd_cfg_stage_rcu_nocbs,
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
   &fd_cfg_stage_snapshots,
   NULL,
 };
+
+FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage_array_larger_than_configure_stage_count );
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
@@ -95,6 +102,7 @@ extern fd_topo_run_tile_t fd_tile_pktgen;
 extern fd_topo_run_tile_t fd_tile_udpecho;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
+extern fd_topo_run_tile_t fd_tile_admin;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
@@ -163,6 +171,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapwr,
   &fd_tile_genesi,
   &fd_tile_ipecho,
+  &fd_tile_admin,
   &fd_tile_solcap,
   &fd_tile_snapmk,
   &fd_tile_snapzp,

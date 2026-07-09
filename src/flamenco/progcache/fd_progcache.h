@@ -4,7 +4,7 @@
 /* fd_progcache.h provides program cache data structures.
 
    Lock ordering:
-   global txn lock, txn lock, clock lock, recm chain_lock, rec.lock */
+   global txn lock, clock lock, txn lock, recm chain_lock, rec.lock */
 
 #include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
 #include "fd_progcache_xid.h"

@@ -51,6 +51,54 @@
 #define XSK_IDX_MAIN 0
 #define XSK_IDX_LO   1
 
+/* XSK 'busy_poll_usecs' value (max amount of time
+   spent spinning in a NAPI poll before returning back to
+   userspace if the processing budget hasn't already ran out).
+
+   64us chosen based on napibusy configuration tested and
+   shown in https://lwn.net/Articles/997491/ Linux patch
+   cover letter.  Chosen over fullbusy since for Firedancer
+   the values of fullbusy are unnecessarily high and could
+   cause some extra latency to regular non-Firedancer traffic.*/
+#define PREFBUSY_TIME_BUDGET_MICROS (64L)
+
+/* PREFBUSY_RX_BUDGET is the NAPI RX processing budget (max num RX
+   packets that the NIC driver can move from the hw rings into the
+   XSK rings per poll).
+
+   Default RX budget used by NIC drivers is 64, therefore
+   it is safest to use 64 in prefbusy polling.  Also reduces
+   TX starvation risks as the TX budget set by the NIC driver
+   is also generally 64. */
+#define PREFBUSY_RX_BUDGET (64L)
+
+/* Min time between each prefbusy poll.  Necessary to avoid a no RX
+   scenario livelocking TX with overly frequent sendto calls, given
+   prefbusy polls whenever the RX queue is empty.
+
+   Value chosen based on experimentation on ixgbe, mlx5 and i40e as well
+   as on varying CPUs and clock speeds.  Too low -> lower max TX
+   throughput when RX is very low.  Too high -> lower max RX and TX throughput. */
+#define PREFBUSY_MIN_INTERVAL_NS (5e3) /* 5us */
+
+/* Max time since last prefbusy poll before a prefbusy poll is
+   forced (has been read that polling can sometimes resolve a stall).
+
+   Exact value again not particularly important as this is just extra
+   protection against stalls which have not been observed in testing but
+   are still good to protect against since there is no cost to doing so.
+
+   Value of 150us chosen since it is easily large enough to not interfere
+   with standard prefbusy runtime unless there is a serious problem. */
+#define PREFBUSY_STALL_TIMEOUT_NS (150e3) /* 150us */
+
+/* MAX_GRE_CNT is the maximum number of GRE tunnels the XDP tile will
+   monitor.  If a packet comes in with a source IP that doesn't match
+   the endpoint of one of the first MAX_GRE_CNT tunnels (in the order
+   the OS enumerates them), it will be dropped.  This is limited for
+   performance reasons. */
+#define MAX_GRE_CNT 4UL
+
 /* fd_net_in_ctx_t contains consumer information for an incoming tango
    link.  It is used as part of the TX path. */
 
@@ -94,10 +142,17 @@ struct fd_net_flusher {
      wakeup.  This can result in the tail of a burst getting delayed or
      overrun.  If more than tail_flush_backoff ticks pass since the last
      sendto() wakeup and there are still unacknowledged packets in the
-     TX ring, issues another wakeup. */
+     TX ring, issues another wakeup. Only used by "softirq" poll mode. */
   long next_tail_flush_ticks;
   long tail_flush_backoff;
 
+  /* When the most recent prefbusy poll was. */
+  long prefbusy_last_poll_ticks;
+  /* Min time between each prefbusy poll. */
+  long prefbusy_min_interval_ticks;
+  /* Max time since last prefbusy poll before a prefbusy poll is
+     forced (has been read that polling can sometimes resolve a stall). */
+  long prefbusy_stall_timeout_ticks;
 };
 
 typedef struct fd_net_flusher fd_net_flusher_t;
@@ -238,9 +293,9 @@ typedef struct {
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
   /* Netdev table */
-  fd_netdev_tbl_join_t netdev_tbl;        /* local copy in scratch (hot path) */
-  fd_netdev_tbl_join_t netdev_shared;     /* shared table in netbase (seqlock protected) */
-  uint                 gre_tunnel_ip;     /* 0 means GRE disabled */
+  fd_netdev_tbl_join_t netdev_tbl;                 /* local copy in scratch (hot path) */
+  fd_netdev_tbl_join_t netdev_shared;              /* shared table in netbase (seqlock protected) */
+  uint                 gre_tunnel_ip[MAX_GRE_CNT]; /* 0 means unused */
 
   struct {
     ulong rx_pkt_cnt;
@@ -372,19 +427,24 @@ net_is_fatal_xdp_error( int err ) {
          err==EPERM;
 }
 
-/* net_gre_tunnel_ip returns the IP address of the GRE tunnel peer if an
-   untagged GRE tunnel exists, returns 0 otherwise. */
+/* net_gre_tunnel_ip fills ctx->gre_tunnel_ip.  The first gre_tunnel_cnt
+   entries will be populated with the IP address of the GRE tunnel peer
+   for the first gre_tunnel_cnt untagged GRE tunnels, and the rest of
+   the entries will be set to 0, where gre_tunnel_cnt = min(MAX_GRE_CNT,
+   the number of untagged GRE tunnels).  Returns gre_tunnel_cnt. */
 
-static uint
+static ulong
 net_gre_tunnel_ip( fd_net_ctx_t * ctx ) {
   fd_netdev_t * dev_tbl = ctx->netdev_tbl.dev_tbl;
   ushort        dev_cnt = ctx->netdev_tbl.hdr->dev_cnt;
 
-  for( ushort if_idx = 0; if_idx<dev_cnt; if_idx++ ) {
+  ulong gre_tunnel_cnt = 0UL;
+  memset( ctx->gre_tunnel_ip, '\0', MAX_GRE_CNT*sizeof(uint) );
+  for( ushort if_idx = 0; (if_idx<dev_cnt) & (gre_tunnel_cnt<MAX_GRE_CNT); if_idx++ ) {
     fd_netdev_t const * dev = dev_tbl+if_idx;
-    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) return dev->gre_dst_ip;
+    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) ctx->gre_tunnel_ip[ gre_tunnel_cnt++ ] = dev->gre_dst_ip;
   }
-  return 0U;
+  return gre_tunnel_cnt;
 }
 
 
@@ -480,7 +540,7 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
     fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
   }
-  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
+  net_gre_tunnel_ip( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -895,7 +955,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   int is_packet_gre = 0;
   /* Discard the GRE overhead (outer iphdr and gre hdr) */
   if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
-    if( FD_UNLIKELY( !ctx->gre_tunnel_ip ) ) {
+    if( FD_UNLIKELY( !ctx->gre_tunnel_ip[0] ) ) { /* if the first entry is 0, they all are */
       ctx->metrics.rx_gre_ignored_cnt++;
       return;
     }
@@ -907,7 +967,9 @@ net_rx_packet( fd_net_ctx_t * ctx,
       return;
     }
 
-    if( FD_UNLIKELY( iphdr->saddr!=ctx->gre_tunnel_ip ) ) {
+    int found = 0;
+    for( ulong i=0UL; i<MAX_GRE_CNT; i++ ) found |= (iphdr->saddr==ctx->gre_tunnel_ip[i]);
+    if( FD_UNLIKELY( (!found) | (iphdr->saddr==0U) ) ) {
       ctx->metrics.rx_src_addr_invalid_cnt++;
       return;
     }
@@ -915,7 +977,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
     ulong overhead = gre_iplen + sizeof(fd_gre_hdr_t);
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-      ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
+      ctx->metrics.rx_undersz_cnt++;  /* inner ip4 header invalid */
       return;
     }
 
@@ -1122,6 +1184,91 @@ net_rx_event( fd_net_ctx_t * ctx,
   fill_ring->cached_prod = fill_prod+1U;
 }
 
+static void
+before_credit_softirq( fd_net_ctx_t *      ctx,
+                       int *               charge_busy,
+                       uint                rr_idx,
+                       fd_xsk_t *          rr_xsk ) {
+
+  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
+
+  /* Fire RX event if we have RX desc avail */
+  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
+    *charge_busy = 1;
+    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+  } else {
+    net_rx_wakeup( ctx, rr_xsk, charge_busy );
+
+    /* Iterate onto the next NAPI queue. */
+    ctx->rr_idx++;
+    ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+  }
+}
+
+static int
+net_prefbusy_poll_ready( fd_xsk_t *         rr_xsk,
+                         fd_net_flusher_t * flusher,
+                         long               now ) {
+
+  if( FD_LIKELY( now < ( flusher->prefbusy_last_poll_ticks + flusher->prefbusy_min_interval_ticks ) ) ) return 0;
+  if( FD_UNLIKELY( now > ( flusher->prefbusy_last_poll_ticks + flusher->prefbusy_stall_timeout_ticks ) ) ) return 1;
+
+  int rx_empty = fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS );
+
+  return rx_empty;
+}
+
+static void
+net_prefbusy_poll_flush( fd_net_flusher_t * flusher,
+                         long               now ) {
+  flusher->prefbusy_last_poll_ticks = now;
+}
+
+static void
+before_credit_prefbusy( fd_net_ctx_t *      ctx,
+                        int *               charge_busy,
+                        uint                rr_idx,
+                        fd_xsk_t *          rr_xsk ) {
+
+  fd_net_flusher_t * flusher = ctx->tx_flusher+rr_idx;
+  if( FD_UNLIKELY( net_prefbusy_poll_ready( rr_xsk, flusher, fd_tickcount() ) ) ) {
+    /* NAPI needs to be polled to process new TX from
+       Firedancer's net tile and process new RX from the NIC. */
+
+    FD_VOLATILE( *rr_xsk->ring_tx.prod ) = rr_xsk->ring_tx.cached_prod; /* write-back local copies to fseqs */
+    FD_VOLATILE( *rr_xsk->ring_cr.cons ) = rr_xsk->ring_cr.cached_cons;
+    FD_VOLATILE( *rr_xsk->ring_rx.cons ) = rr_xsk->ring_rx.cached_cons;
+    FD_VOLATILE( *rr_xsk->ring_fr.prod ) = rr_xsk->ring_fr.cached_prod;
+
+    if( FD_UNLIKELY( -1==sendto( rr_xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+      if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
+        FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s)", rr_xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+      }
+      if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+        long ts = fd_log_wallclock();
+        if( ts > rr_xsk->log_suppress_until_ns ) {
+          FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%i-%s)", rr_xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+          rr_xsk->log_suppress_until_ns = ts + (long)1e9;
+        }
+      }
+    }
+    /* Since xsk sendmsg in prefbusy mode drives both rx and tx, both are incremented */
+    ctx->metrics.xsk_tx_wakeup_cnt++;
+    ctx->metrics.xsk_rx_wakeup_cnt++;
+
+    net_prefbusy_poll_flush( flusher, fd_tickcount() );
+  }
+
+  /* Process new RX from xsk ring if there is any. */
+  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
+    *charge_busy = 1;
+    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+  }
+  /* Iterate onto the next NAPI queue. */
+  ctx->rr_idx++;
+  ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+}
+
 /* before_credit is called every loop iteration. */
 
 static void
@@ -1148,16 +1295,11 @@ before_credit( fd_net_ctx_t *      ctx,
   uint       rr_idx = ctx->rr_idx;
   fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
 
-  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
-
-  /* Fire RX event if we have RX desc avail */
-  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
-    *charge_busy = 1;
-    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+  if( FD_LIKELY( !rr_xsk->prefbusy_poll_enabled ) ) {
+    /* Default poll mode which relies on irqs and wakeups */
+    before_credit_softirq( ctx, charge_busy, rr_idx, rr_xsk );
   } else {
-    net_rx_wakeup( ctx, rr_xsk, charge_busy );
-    ctx->rr_idx++;
-    ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+    before_credit_prefbusy( ctx, charge_busy, rr_idx, rr_xsk );
   }
 
   /* Fire comp event if we have comp desc avail */
@@ -1288,6 +1430,10 @@ privileged_init( fd_topo_t const *      topo,
        (e.g. 5.14.0-503.23.1.el9_5 with i40e) */
     .bind_flags  = tile->xdp.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
 
+    .prefbusy_time_budget_micros = PREFBUSY_TIME_BUDGET_MICROS,
+
+    .prefbusy_rx_budget = PREFBUSY_RX_BUDGET,
+
     .fr_depth  = tile->xdp.xdp_rx_queue_size*2,
     .rx_depth  = tile->xdp.xdp_rx_queue_size,
     .cr_depth  = tile->xdp.xdp_tx_queue_size,
@@ -1299,6 +1445,8 @@ privileged_init( fd_topo_t const *      topo,
 
     .core_dump = tile->xdp.xsk_core_dump,
   };
+
+  fd_cstr_ncpy( params0.poll_mode, tile->xdp.poll_mode, sizeof(params0.poll_mode) );
 
   /* Re-derive XDP file descriptors */
 
@@ -1496,6 +1644,10 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
     ctx->tx_flusher[ j ].tail_flush_backoff    = (long)( (double)tile->xdp.tx_flush_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
     ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
+
+    ctx->tx_flusher[ j ].prefbusy_last_poll_ticks     = 0L;
+    ctx->tx_flusher[ j ].prefbusy_min_interval_ticks  = (long)( PREFBUSY_MIN_INTERVAL_NS * fd_tempo_tick_per_ns( NULL ) );
+    ctx->tx_flusher[ j ].prefbusy_stall_timeout_ticks = (long)( PREFBUSY_STALL_TIMEOUT_NS * fd_tempo_tick_per_ns( NULL ) );
   }
 
   /* Join netbase objects */

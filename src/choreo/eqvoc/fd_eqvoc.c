@@ -795,6 +795,9 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   off += sizeof(ulong);
 
   if( FD_UNLIKELY( prf->buf_sz - off < shred1_sz ) ) goto cleanup;
+  /* We use FD_SHRED_BLK_MAX as max_shred_idx because that is what
+     Agave does here (Shred::new_from_serialized_shred in into_shreds):
+     https://github.com/anza-xyz/agave/blob/v4.2/gossip/src/duplicate_shred.rs#L350-L351 */
   fd_shred_t const * shred1 = fd_shred_parse( prf->buf + off, shred1_sz, FD_SHRED_BLK_MAX );
   if( FD_UNLIKELY( !shred1 || fd_shred_sz( shred1 )!=shred1_sz ) ) goto cleanup; /* check the sz matches parsed shred's type */
   off += shred1_sz;

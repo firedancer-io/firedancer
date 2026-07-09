@@ -91,8 +91,10 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, runner->bank->accdb_fork_id, &test_ctx->account_shared_data[i], i );
   }
 
-  runner->bank->f.ticks_per_slot = 64;
-  runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.ticks_per_slot             = 64;
+  runner->bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
+  runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
@@ -308,7 +310,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
-    fd_runtime_cancel_txn( runner->runtime, txn_out );
+    fd_runtime_cancel_txn( runner->runtime, NULL, NULL, txn_out, 0 );
     fd_solfuzz_txn_ctx_destroy( runner );
 
     *output = txn_result;

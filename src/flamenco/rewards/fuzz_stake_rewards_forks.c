@@ -305,7 +305,6 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_log_level_logfile_set( 4 );
 
   ulong footprint = fd_stake_rewards_footprint( FUZZ_MAX_STAKE_ACCOUNTS,
-                                                FUZZ_EXPECTED_ACCOUNTS,
                                                 FUZZ_MAX_FORKS );
   fuzz_mem = aligned_alloc( fd_stake_rewards_align(),
                             FD_ULONG_ALIGN_UP( footprint, fd_stake_rewards_align() ) );
@@ -322,9 +321,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .salt = 0xa5c31f27d4e6b890UL ^ data_sz
   };
 
-
-  ulong seed = fuzz_u64( &r );
-  void * _stake_rewards = fd_stake_rewards_new( fuzz_mem, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_EXPECTED_ACCOUNTS, FUZZ_MAX_FORKS, seed );
+  void * _stake_rewards = fd_stake_rewards_new( fuzz_mem, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_MAX_FORKS );
   fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( _stake_rewards);
   if( FD_UNLIKELY( !stake_rewards ) ) FD_LOG_ERR(( "failed to initialize stake rewards" ));
 

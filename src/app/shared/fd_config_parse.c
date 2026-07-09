@@ -187,6 +187,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.ingress_buffer_size                          );
   CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );
   CFG_POP      ( bool,   net.xdp.xdp_zero_copy                            );
+  CFG_POP      ( cstr,   net.xdp.poll_mode                                );
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
@@ -317,6 +318,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
+  CFG_POP      ( bool,   development.event.report_transaction_diffs       );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );

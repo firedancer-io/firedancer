@@ -524,6 +524,7 @@ Some interesting transitions are,
 	"key": "boot_progress",
     "value": {
         "phase": "waiting_for_supermajority",
+        "accounts_database_path": "/path/to/accounts.db",
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -570,6 +571,7 @@ Some interesting transitions are,
 | Field                                                                 | Type            | Description |
 |-----------------------------------------------------------------------|-----------------|-------------|
 | phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
+| accounts_database_path                                                | `string`        | Absolute path to the on-disk accounts database file that this validator loads accounts into |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
@@ -1213,6 +1215,7 @@ whatever regime was running when the tile got switched out.
     "idle",
     "user",
     "system",
+    "interrupt",
 ]
 ```
 
@@ -1221,7 +1224,11 @@ The regimes mean the following
 - wait: the time a tile's process spent waiting in the runqueue before being dispatched
 - user: the time a tile's process spent executing in user mode
 - system: the time a tile's process spent executing in kernel mode
-- idle: Any remaining wallclock time not accounted for by the other 3 regimes
+- interrupt: the time stolen from the tile's CPU by hardirq/softirq
+  handlers or a hypervisor. Only reported for fixed (pinned) tiles;
+  floating tiles report `0`. Requires a kernel with
+  `CONFIG_IRQ_TIME_ACCOUNTING` for accurate accounting
+- idle: Any remaining wallclock time not accounted for by the other 4 regimes
 
 The tile indices `i` appear in the same order here that they are
 reported when you first connect by the `summary.tiles` message.
@@ -1239,8 +1246,8 @@ reported when you first connect by the `summary.tiles` message.
             ...
         ],
         "sched_timers": [
-            [20.5, 29.5, 49.0, 1.0],
-            [10.5, 39.5, 39.0, 11.0],
+            [20.5, 29.5, 49.0, 1.0, 0.0],
+            [10.5, 39.5, 38.5, 11.0, 0.5],
             ...
         ],
         "in_backp": [
@@ -1288,10 +1295,20 @@ reported when you first connect by the `summary.tiles` message.
             5821,
             ...
         ],
+        "tlb_shootdowns": [
+            0,
+            42,
+            ...
+        ],
         "priority": [
             "normal",
             "critical",
             ...
+        ],
+        "timer_ticks": [
+          1234,
+          0,
+          ...
         ]
     }
 }
@@ -1313,6 +1330,8 @@ reported when you first connect by the `summary.tiles` message.
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
 | interrupts   | `number[]`           | `interrupts[i]` is the number of device IRQs handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
+| tlb_shootdowns | `number[]`         | `tlb_shootdowns[i]` is the number of TLB shootdowns handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
+| timer_ticks  | `number[]`           | `timer_ticks[i]` is the number of local timer interrupts (LOC) handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0`. Near-zero on `nohz_full` CPUs running a single task |
 | priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
 Note that a `null` entry in `timers` field indicates that the tile has
@@ -1805,6 +1824,7 @@ once they are confirmed (the prior epoch has fully rooted).
     "end_time_nanos": "1719910299914232",
     "start_slot": 274752000,
     "end_slot": 275183999,
+    "target_slot_duration_nanos": 400000000,
     "excluded_stake_lamports": "0",
     "staked_pubkeys": [
         "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
@@ -1839,6 +1859,7 @@ once they are confirmed (the prior epoch has fully rooted).
 | end_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
+| target_slot_duration_nanos | `number` | The cluster-wide target slot duration, in nanoseconds, for the epoch. This is typically `400000000` (400ms) on most clusters unless a `reduce_slot_time` feature gate is in effect |
 | excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But it is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
 | staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch

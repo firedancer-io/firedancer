@@ -530,6 +530,11 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
+
+    if( 0!=strcmp( config->net.xdp.poll_mode, "prefbusy" ) && 0!=strcmp( config->net.xdp.poll_mode, "softirq" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.poll_mode`: must be \"prefbusy\" or \"softirq\"" ));
+    }
+
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
     if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&

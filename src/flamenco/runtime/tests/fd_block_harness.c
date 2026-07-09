@@ -1,5 +1,6 @@
 #include "fd_solfuzz_private.h"
 #include "../fd_cost_tracker.h"
+#include "../fd_slot_params.h"
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"
 #include "../fd_runtime_helpers.h"
@@ -214,11 +215,15 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Using default configuration of 64 ticks per slot
      https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
-  uint128 ns_per_slot = FD_LOAD(uint128, block_bank->ns_per_slot );
-  bank->f.ns_per_slot = (fd_w_u128_t){ .ud = ns_per_slot };
-  bank->f.ticks_per_slot = 64UL;
-  runner->bank->f.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
-  bank->f.hashes_per_tick = (slot+1UL)*64UL;
+  uint128 ns_per_slot_128                    = FD_LOAD(uint128, block_bank->ns_per_slot );
+  FD_TEST( ns_per_slot_128<=(uint128)ULONG_MAX );
+  ulong   ns_per_slot                        = (ulong)ns_per_slot_128;
+  bank->f.slot_params                        = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.ns_per_slot            = ns_per_slot;
+  bank->f.ticks_per_slot                     = 64UL;
+  runner->bank->f.slot_params.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
+  bank->f.slot_params.hashes_per_tick        = (slot+1UL)*64UL;
+  bank->f.slot_params_default                = bank->f.slot_params;
 
   /* Load in accounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
@@ -403,13 +408,13 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       txn_out->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
-        fd_runtime_cancel_txn( runtime, txn_out );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, txn_out, 0 );
         has_err = 1;
         continue;
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, txn_out );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, txn_out, 0 );
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         has_err = 1;
@@ -576,7 +581,6 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
-      .vote_cost  = cost_tracker ? cost_tracker->vote_cost  : 0UL,
     };
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */

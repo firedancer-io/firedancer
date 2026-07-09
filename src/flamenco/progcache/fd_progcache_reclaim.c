@@ -83,18 +83,23 @@ fd_prog_delete_rec( fd_progcache_join_t * cache,
                     fd_progcache_rec_t *  rec ) {
   if( !rec ) return -1L;
 
+  /* rec may be reclaimed and reused while this delete waits for the map
+     chain.  Use a stable key for the entire transaction. */
+  fd_progcache_rec_key_t pair = rec->pair;
+
   /* Prepare index removal, and bail if rec is no longer present in map */
   struct {
     fd_prog_recm_txn_t txn[1];
     fd_prog_recm_txn_private_info_t info[1];
   } _map_txn;
   fd_prog_recm_txn_t * map_txn = fd_prog_recm_txn_init( _map_txn.txn, cache->rec.map, 1UL );
-  fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
+  fd_prog_recm_txn_add( map_txn, &pair, 1 );
+  fd_racesan_hook( "prog_delete_rec:post_txn_add" );
   int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
   if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) )
     FD_LOG_CRIT(( "fd_prog_recm_txn_try failed: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
   fd_prog_recm_query_t query[1];
-  int q_err = fd_prog_recm_txn_query( cache->rec.map, &rec->pair, NULL, query, 0 );
+  int q_err = fd_prog_recm_txn_query( cache->rec.map, &pair, NULL, query, 0 );
   if( q_err==FD_MAP_ERR_KEY || query->ele!=rec ) {
     fd_prog_recm_txn_test( map_txn );
     fd_prog_recm_txn_fini( map_txn );
@@ -102,7 +107,7 @@ fd_prog_delete_rec( fd_progcache_join_t * cache,
   }
 
   /* Drop record */
-  int rm_err = fd_prog_recm_txn_remove( cache->rec.map, &rec->pair, NULL, query, 0 );
+  int rm_err = fd_prog_recm_txn_remove( cache->rec.map, &pair, NULL, query, 0 );
   if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) )
     FD_LOG_CRIT(( "fd_prog_recm_txn_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
   int test_err = fd_prog_recm_txn_test( map_txn );

@@ -20,10 +20,10 @@ fsync: (eq (arg 0) logfile_fd)
 # metrics: retrieve number of context switches by rereading /proc
 #
 # arg 0 is the file descriptor to seek.  It can be any of the
-# /proc/status file descriptors or /proc/interrupts or /proc/softirqs
-# opened during privileged init.  To accommodate this, we allow any file
-# descriptor except those which we know are not these /proc/status
-# files, which are the log file and STDOUT.
+# /proc/status file descriptors or /proc/interrupts, /proc/softirqs
+# or /proc/stat opened during privileged init.  To accommodate this,
+# we allow any file descriptor except those which we know are not
+# these /proc/status files, which are the log file and STDOUT.
 lseek: (and (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)))
             (eq (arg 1) 0)
@@ -32,10 +32,10 @@ lseek: (and (not (or (eq (arg 0) 2)
 # metrics: retrieve number of context switches by rereading /proc
 #
 # arg 0 is the file descriptor to read.  It can be any of the
-# /proc/status file descriptors or /proc/interrupts or /proc/softirqs
-# opened during privileged init.  To accommodate this, we allow any file
-# descriptor except those which we know are not these /proc/status
-# files, which are the log file and STDOUT.
+# /proc/status file descriptors or /proc/interrupts, /proc/softirqs
+# or /proc/stat opened during privileged init.  To accommodate this,
+# we allow any file descriptor except those which we know are not
+# these /proc/status files, which are the log file and STDOUT.
 read: (not (or (eq (arg 0) 2)
                (eq (arg 0) logfile_fd)))
 

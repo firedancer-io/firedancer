@@ -28,7 +28,6 @@ typedef enum fd_exec_test_warmup_cooldown_rate {
 /* Struct definitions */
 typedef struct fd_exec_test_cost_tracker {
     uint64_t block_cost;
-    uint64_t vote_cost;
 } fd_exec_test_cost_tracker_t;
 
 typedef struct fd_exec_test_inflation {
@@ -175,7 +174,7 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0, 0}
+#define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT   {0, 0, 0}
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
@@ -184,7 +183,7 @@ extern "C" {
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
-#define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0, 0}
+#define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO      {0, 0, 0}
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
@@ -196,7 +195,6 @@ extern "C" {
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_COST_TRACKER_BLOCK_COST_TAG 1
-#define FD_EXEC_TEST_COST_TRACKER_VOTE_COST_TAG  2
 #define FD_EXEC_TEST_INFLATION_INITIAL_TAG       1
 #define FD_EXEC_TEST_INFLATION_TERMINAL_TAG      2
 #define FD_EXEC_TEST_INFLATION_TAPER_TAG         3
@@ -247,8 +245,7 @@ extern "C" {
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_COST_TRACKER_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT64,   block_cost,        1) \
-X(a, STATIC,   SINGULAR, UINT64,   vote_cost,         2)
+X(a, STATIC,   SINGULAR, UINT64,   block_cost,        1)
 #define FD_EXEC_TEST_COST_TRACKER_CALLBACK NULL
 #define FD_EXEC_TEST_COST_TRACKER_DEFAULT NULL
 
@@ -372,8 +369,8 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 /* fd_exec_test_BlockBank_size depends on runtime parameters */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          146
-#define FD_EXEC_TEST_COST_TRACKER_SIZE           22
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          135
+#define FD_EXEC_TEST_COST_TRACKER_SIZE           11
 #define FD_EXEC_TEST_EPOCH_CREDIT_SIZE           33
 #define FD_EXEC_TEST_INFLATION_SIZE              45
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_SIZE 73
