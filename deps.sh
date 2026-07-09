@@ -144,7 +144,6 @@ check_fedora_pkgs () {
     diffutils          # build system
     make               # build system
     pkgconf            # build system
-    patch              # build system
     zstd               # build system
     gzip               # build system
     gcc                # compiler
@@ -225,7 +224,6 @@ check_alpine_pkgs () {
     build-base       # C/C++ compiler
     curl             # download rustup
     linux-headers    # base dependency
-    patch            # build system
     zstd             # build system
     gzip             # build system
     grep             # build system

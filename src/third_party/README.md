@@ -13,8 +13,7 @@ Each dependency gets one directory, `src/third_party/<dep>/`,
 containing:
 
 - **Upstream sources**, copied verbatim.  Do not hand-edit vendored
-  files; fix bugs upstream or carry a patch file applied at build time
-  (see `picohttpparser/`).
+  files; fix bugs upstream.
 - **`vendor.sh`** (or `fetch.sh`) — non-interactive re-import script
   pinned to an exact upstream tag or commit, with sha256 verification
   of every imported file where practical (see `bzip2/vendor.sh` for

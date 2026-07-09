@@ -17,7 +17,6 @@ ARFLAGS:=rcs
 RANLIB:=ranlib
 CP:=cp -p
 RM:=rm -f
-PATCH:=patch
 MKDIR:=mkdir -p
 RMDIR:=rm -rf
 TOUCH:=touch
