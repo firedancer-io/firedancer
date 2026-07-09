@@ -764,7 +764,8 @@ fd_banks_new_bank( fd_banks_t * banks,
    root-child subtrees and picks the leftmost evictable leaf within the
    selected subtree.  The root, leader banks, dead banks, inactive
    banks, and already prunable banks are not evictable.  Returns
-   ULONG_MAX if there is no evictable bank. */
+   ULONG_MAX if there is no evictable bank, or if a prunable bank is
+   already pending pruning. */
 
 ulong
 fd_banks_get_evictable_bank( fd_banks_t * banks );

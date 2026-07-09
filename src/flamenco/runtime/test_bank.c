@@ -525,6 +525,13 @@ test_bank_evictable( void * mem ) {
 
   fd_bank_t * bank_A = fd_banks_init_bank( banks );
   FD_TEST( bank_A );
+  bank_A->f.epoch_schedule = (fd_epoch_schedule_t) {
+    .slots_per_epoch             = 32UL,
+    .leader_schedule_slot_offset = 32UL,
+    .warmup                      = 0,
+    .first_normal_epoch          = 0UL,
+    .first_normal_slot           = 0UL
+  };
 
   fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_A->idx, 0L, 0 );
   bank_B = fd_banks_clone_from_parent( banks, bank_B->idx );
@@ -588,6 +595,9 @@ test_bank_evictable( void * mem ) {
   FD_TEST( bank_I->state!=FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_L->state!=FD_BANK_STATE_PRUNABLE );
 
+  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+
   evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_H->idx );
   FD_TEST( bank_H->state==FD_BANK_STATE_PRUNABLE );
@@ -595,13 +605,22 @@ test_bank_evictable( void * mem ) {
   FD_TEST( bank_D->state!=FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_E->state!=FD_BANK_STATE_PRUNABLE );
 
+  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+
   evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_E->idx );
   FD_TEST( bank_E->state==FD_BANK_STATE_PRUNABLE );
 
+  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+
   evictable_bank_idx = fd_banks_get_evictable_bank( banks );
   FD_TEST( evictable_bank_idx==bank_C->idx );
   FD_TEST( bank_C->state==FD_BANK_STATE_PRUNABLE );
+
+  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
 }
 
 static void
