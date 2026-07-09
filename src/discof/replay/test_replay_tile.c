@@ -47,6 +47,8 @@ static fd_sched_fec_t mock_sched_last_fec;
 static ulong          mock_sched_fec_ingest_cnt;
 static ulong          mock_sched_abandon_cnt;
 static ulong          mock_sched_abandon_idx;
+static ulong          mock_sched_root_notify_cnt;
+static ulong          mock_sched_root_notify_idx;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_fec_t * f ) {
   mock_sched_last_fec = *f;
@@ -64,6 +66,10 @@ ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULON
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
 ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
+void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
+  mock_sched_root_notify_cnt++;
+  mock_sched_root_notify_idx = i;
+}
 
 #define fd_sched_fec_ingest        mock_sched_fec_ingest_fn
 #define fd_sched_can_ingest_cnt    mock_sched_can_ingest_fn
@@ -74,6 +80,7 @@ ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn
+#define fd_sched_root_notify       mock_sched_root_notify_fn
 
 /* ---- Mock leader setup dependencies ---- */
 
@@ -305,6 +312,8 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   mock_accdb_fork_id_next     = 0U;
   mock_sched_abandon_cnt      = 0UL;
   mock_sched_abandon_idx      = ULONG_MAX;
+  mock_sched_root_notify_cnt  = 0UL;
+  mock_sched_root_notify_idx  = ULONG_MAX;
   mock_epoch_boundary_enabled = 0;
   mock_epoch_boundary_fork_cnt = 0UL;
   mock_epoch_boundary_fork_max = ULONG_MAX;
@@ -447,6 +456,84 @@ start_non_epoch_boundary_fec( fd_replay_tile_t * ctx,
                               fd_reasm_fec_t *   fec,
                               int                freeze_bank ) {
   start_fec_with_epoch_boundary_mode( ctx, fec, freeze_bank, 0 );
+}
+
+static void
+test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  memset( ctx, 0, sizeof(*ctx) );
+  setup_stem( ctx, wksp );
+
+  ulong const bank_cnt = 4UL;
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
+  FD_TEST( banks_mem );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, bank_cnt, bank_cnt, 8UL, 8UL, 0, 43UL ) );
+  FD_TEST( ctx->banks );
+
+  fd_bank_t * root = fd_banks_init_bank( ctx->banks );
+  FD_TEST( root );
+  root->f.slot = 0UL;
+  fd_epoch_schedule_derive( &root->f.epoch_schedule, 128UL, 128UL, 0 );
+
+  fd_hash_t root_id  = { .ul = { 100UL } };
+  fd_hash_t child_id = { .ul = { 200UL } };
+  root->f.block_id = root_id;
+
+  ulong chain_cnt = fd_block_id_map_chain_cnt_est( bank_cnt );
+  ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t)*bank_cnt, 1UL );
+  FD_TEST( ctx->block_id_arr );
+  memset( ctx->block_id_arr, 0, sizeof(fd_block_id_ele_t)*bank_cnt );
+  void * map_mem = fd_wksp_alloc_laddr( wksp, fd_block_id_map_align(), fd_block_id_map_footprint( chain_cnt ), 1UL );
+  FD_TEST( map_mem );
+  ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
+  FD_TEST( ctx->block_id_map );
+  ctx->block_id_len = bank_cnt;
+
+  fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  child = fd_banks_clone_from_parent( ctx->banks, child->idx );
+  FD_TEST( child );
+  child->f.slot     = 1UL;
+  child->f.block_id = child_id;
+  fd_banks_mark_bank_frozen( child );
+
+  fd_block_id_ele_t * child_ele = &ctx->block_id_arr[ child->idx ];
+  child_ele->latest_mr    = child_id;
+  child_ele->slot         = child->f.slot;
+  child_ele->bank_seq     = child->bank_seq;
+  child_ele->block_id_seen = 1;
+  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, child_ele, ctx->block_id_arr ) );
+
+  ctx->resolv_tile_cnt   = 1UL;
+  ctx->consensus_root    = root_id;
+  ctx->consensus_root_slot = 0UL;
+  ctx->notified_root     = root_id;
+  ctx->notified_root_slot = 0UL;
+
+  publish_root_advanced( ctx, test_stem, root );
+  FD_TEST( root->refcnt==1UL );
+
+  ctx->consensus_root      = child_id;
+  ctx->consensus_root_slot = child->f.slot;
+
+  ulong advanceable_idx = ULONG_MAX;
+  FD_TEST( !fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable_idx ) );
+
+  FD_TEST( try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( mock_sched_root_notify_cnt==1UL );
+  FD_TEST( mock_sched_root_notify_idx==child->idx );
+  FD_TEST( child->refcnt==1UL );
+
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( mock_sched_root_notify_cnt==1UL );
+  FD_TEST( child->refcnt==1UL );
+
+  process_resolv_slot_completed( ctx, root->idx );
+  FD_TEST( root->refcnt==0UL );
+  FD_TEST( fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable_idx ) );
+  FD_TEST( advanceable_idx==child->idx );
+
+  child->refcnt = 0UL;
+  FD_LOG_NOTICE(( "pass: test_consensus_root_notification_handoff" ));
 }
 
 static void
@@ -1377,11 +1464,23 @@ test_eqvoc_child_confirm( fd_wksp_t * wksp ) {
   FD_TEST( fec );
   FD_TEST( fec->slot==1 && fec->fec_set_idx==32 );
 
-  /* 9. drive_one_fec on FEC 32_B.  process_fec_set will do
-     fd_banks_bank_query(parent->bank_idx) where parent is FEC 0_B
-     whose bank_idx is ULONG_MAX → segfault on unfixed code. */
+  /* 9. FEC 32_B requires backfill because its parent FEC 0_B has no
+     bank.  If banks cannot allocate, can_process_fec must leave FEC
+     32_B queued instead of popping it and failing partway through
+     backfill. */
 
   FD_TEST( f1_0_b->bank_idx==ULONG_MAX );
+
+  ulong saved_fork_width = ctx->banks->curr_fork_width;
+  ctx->banks->curr_fork_width = ctx->banks->max_fork_width;
+
+  int evict_banks = 0;
+  FD_TEST( !can_process_fec( ctx, &evict_banks ) );
+  FD_TEST( evict_banks );
+  FD_TEST( !f1_32_b->popped );
+  FD_TEST( fd_reasm_peek( reasm )==f1_32_b );
+
+  ctx->banks->curr_fork_width = saved_fork_width;
   fec = drive_one_fec( ctx, 1UL, 32U );
 
   FD_LOG_NOTICE(( "pass: test_eqvoc_child_confirm" ));
@@ -1529,6 +1628,7 @@ main( int     argc,
   fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_consensus_root_notification_handoff( wksp );
   test_epoch_boundary_fork_width_evict( wksp );
   test_banks_full_prune_leaf( wksp );
   test_banks_evict_backfill( wksp );

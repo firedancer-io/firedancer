@@ -837,11 +837,16 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     ulong prev_epoch = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.parent_slot, NULL );
     ulong new_epoch  = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.slot, NULL );
-    if( FD_UNLIKELY( prev_epoch!=new_epoch && head->stake_rewards_fork_id!=UCHAR_MAX && head->stake_rewards_fork_id!=new_root->stake_rewards_fork_id ) ) {
-      fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
+    if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
+      if( FD_LIKELY( head->vote_stakes_fork_id!=USHORT_MAX && head->vote_stakes_fork_id!=new_root->vote_stakes_fork_id ) ) {
+        fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), head->vote_stakes_fork_id );
+      }
+      if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX && head->stake_rewards_fork_id!=new_root->stake_rewards_fork_id ) ) {
+        fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
+      }
     }
     head->stake_rewards_fork_id = UCHAR_MAX;
-    head->vote_stakes_fork_id = USHORT_MAX;
+    head->vote_stakes_fork_id   = USHORT_MAX;
 
     if( head->new_votes_fork_id!=USHORT_MAX ) {
       FD_LOG_DEBUG(( "evicting new votes fork (bank_idx=%lu, fork_idx=%u)", head->idx, head->new_votes_fork_id ));
@@ -987,6 +992,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->is_leader   = is_leader;
   child_bank->f.block_id  = (fd_hash_t){0};
 
+  child_bank->vote_stakes_fork_id       = USHORT_MAX;
+  child_bank->stake_rewards_fork_id     = UCHAR_MAX;
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
 

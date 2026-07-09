@@ -796,7 +796,9 @@ try_become_leader( fd_replay_tile_t *  ctx,
   }
 
   /* If we have evicted the reset bank we can't become leader it may be
-     inactive or have been resused, we can't become leader. */
+     inactive or have been resused, we can't become leader.  We may miss
+     our leader slot if we happen to evict our reset bank.  As soon as
+     we re-replay the slot, we will be able to become leader again. */
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
@@ -1072,6 +1074,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
+  ctx->notified_root           = ctx->initial_block_id;
+  ctx->notified_root_slot      = 0UL;
   ctx->published_root_slot     = 0UL;
   ctx->published_root_bank_idx = 0UL;
 
@@ -1194,6 +1198,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
+    ctx->notified_root           = manifest_block_id;
+    ctx->notified_root_slot      = snapshot_slot;
     ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->published_root_bank_idx = 0UL;
 
@@ -1483,27 +1489,26 @@ can_process_fec( fd_replay_tile_t * ctx,
      2. sched is drained: pending txns could complete a block and
         eventually advance the root.
      AND
-     3. next reasm FEC start a new block.  A fec that chains off of a
+     3. next reasm FEC needs a new bank.  A fec that chains off of a
         bank that is already allocated can be processed.  A FEC can
-        trigger a new block in two ways:
+        require a new bank in three ways:
         - fec_set_idx==0: we don't have any free banks to provision a
           new bank for this FEC.
         - equivocation: a FEC may be in the middle of a block, but if
           it's the first equivocating FEC detected, we need to allocate
-          a new bank for the version of the block. */
-  int is_new_block = fec->fec_set_idx==0U;
-  int is_eqvoc     = fec->eqvoc && !parent->eqvoc;
-  fd_reasm_fec_t * bank_start = fec;
-  if( FD_UNLIKELY( is_eqvoc && !is_new_block ) ) {
-    do {
-      bank_start = fd_reasm_parent( ctx->reasm, bank_start );
-      FD_TEST( bank_start );
-    } while( bank_start->fec_set_idx );
-  }
-  if( FD_UNLIKELY( (is_new_block || is_eqvoc) && !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    ctx->metrics.banks_full++;
-    if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
-    return 0;
+          a new bank for the version of the block.
+        - backfill: the parent FEC's bank was never created or has been
+          evicted and must be reconstructed. */
+
+  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
+    int is_new_block   = fec->fec_set_idx==0U;
+    int is_eqvoc       = fec->eqvoc && !parent->eqvoc;
+    int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
+    if( FD_UNLIKELY( is_new_block || is_eqvoc || invalid_parent ) ) {
+      ctx->metrics.banks_full++;
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
+      return 0;
+    }
   }
 
   /* Otherwise, banks may not be full, so we can always create a new
@@ -1742,15 +1747,36 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( !parent_bank_invalid && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
-    /* TODO:FIXME: key problem is that we can backfill up to a
-       prunable bank. should we just drop the fec in this case??? */
     backfill_fec_sets( ctx, stem, reasm_fec );
   }
 }
 
 static int
-try_advance_published_root( fd_replay_tile_t *  ctx,
-                            fd_stem_context_t * stem ) {
+try_notify_consensus_root( fd_replay_tile_t *  ctx,
+                           fd_stem_context_t * stem ) {
+
+  if( FD_LIKELY( ctx->notified_root_slot==ctx->consensus_root_slot &&
+                 fd_hash_eq( &ctx->notified_root, &ctx->consensus_root ) ) ) return 0;
+
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !block_id_ele ) ) return 0;
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
+  if( FD_UNLIKELY( !bank ||
+                   bank->bank_seq!=block_id_ele->bank_seq ||
+                   !fd_hash_eq( &bank->f.block_id, &ctx->consensus_root ) ||
+                   bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+
+  fd_sched_root_notify( ctx->sched, bank->idx );
+  publish_root_advanced( ctx, stem, bank );
+
+  ctx->notified_root      = ctx->consensus_root;
+  ctx->notified_root_slot = ctx->consensus_root_slot;
+  return 1;
+}
+
+static int
+try_advance_published_root( fd_replay_tile_t * ctx ) {
 
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
@@ -1759,9 +1785,10 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * target_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !target_bank ) ) return 0;
-  if( FD_UNLIKELY( !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ) ) return 0;
-  if( FD_UNLIKELY( target_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+  if( FD_UNLIKELY( !target_bank ||
+                   target_bank->bank_seq!=block_id_ele->bank_seq ||
+                   !fd_hash_eq( &target_bank->f.block_id, &ctx->consensus_root ) ||
+                   target_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
@@ -1784,15 +1811,12 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   ulong advanceable_root_slot = bank->f.slot;
-  fd_sched_root_notify( ctx->sched, advanceable_root_idx );
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_progcache_advance_root( ctx->progcache, bank->progcache_fork_id );
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
   fd_reasm_publish( ctx->reasm, &advanceable_root_ele->latest_mr, ctx->store );
-
-  publish_root_advanced( ctx, stem, bank );
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
@@ -1942,8 +1966,8 @@ after_credit( fd_replay_tile_t *  ctx,
         c. clearing any pending bank eviction victims.
      2. Drain outstanding bank references from the scheduler.  This
         happens after a block gets completed or a fork gets pruned.
-     3. Advance the root.  If the consensus root has been advanced, but
-        the storage root is behind, to advance it.
+     3. Notify sched and bank consumers of a new consensus root, then
+        advance the storage root once old references drain.
      4. Replay.  If there is work to do for replay, do it.  This is
         more important than ingesting more FEC sets.
      5. If replay has nothing to do, ingest more FEC sets.
@@ -1957,6 +1981,12 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( try_prune_sched( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_notify_consensus_root( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1980,7 +2010,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_advance_published_root( ctx, stem ) ) ) {
+  if( FD_UNLIKELY( try_advance_published_root( ctx ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2659,6 +2689,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
+  ctx->notified_root_slot  = ULONG_MAX;
+  ctx->notified_root       = ctx->initial_block_id;
   ctx->published_root_slot = ULONG_MAX;
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;

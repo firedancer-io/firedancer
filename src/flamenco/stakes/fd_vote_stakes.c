@@ -42,7 +42,7 @@ fd_vote_stakes_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_fork_width>MAX_FORK_WIDTH ) ) {
+  if( FD_UNLIKELY( max_fork_width>FD_VOTE_STAKES_MAX_FORK_WIDTH ) ) {
     FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }

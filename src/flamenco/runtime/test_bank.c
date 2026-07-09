@@ -875,6 +875,50 @@ test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
 }
 
 static void
+test_bank_advance_root_purges_losing_vote_stakes_fork( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 6667UL ) );
+  FD_TEST( banks );
+
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+  root->f.epoch_schedule = (fd_epoch_schedule_t) {
+    .slots_per_epoch             = 32UL,
+    .leader_schedule_slot_offset = 32UL,
+    .warmup                      = 0,
+    .first_normal_epoch          = 0UL,
+    .first_normal_slot           = 0UL
+  };
+  root->f.parent_slot = 29UL;
+  root->f.slot        = 30UL;
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( root );
+  ushort root_fork_idx = fd_vote_stakes_get_root_idx( vote_stakes );
+
+  fd_bank_t * winner = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+  winner = fd_banks_clone_from_parent( banks, winner->idx );
+  FD_TEST( winner );
+  winner->f.slot = 31UL; /* Does not cross the epoch boundary. */
+  FD_TEST( winner->vote_stakes_fork_id==root_fork_idx );
+  fd_banks_mark_bank_frozen( winner );
+
+  fd_bank_t * loser = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+  ulong loser_idx = loser->idx;
+  loser = fd_banks_clone_from_parent( banks, loser_idx );
+  FD_TEST( loser );
+  loser->f.slot = 32UL; /* Crosses the epoch boundary. */
+  ushort loser_fork_idx = fd_vote_stakes_new_child( vote_stakes );
+  loser->vote_stakes_fork_id = loser_fork_idx;
+  fd_banks_mark_bank_frozen( loser );
+
+  fd_banks_advance_root( banks, winner->idx );
+
+  FD_TEST( !fd_banks_bank_query( banks, loser_idx ) );
+  FD_TEST( fd_vote_stakes_new_child( vote_stakes )==loser_fork_idx );
+
+  fd_banks_clear( banks );
+}
+
+static void
 test_bank_clear( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 7777UL ) );
   FD_TEST( banks );
@@ -1284,6 +1328,8 @@ main( int argc, char ** argv ) {
   test_bank_new_votes_fork_indices( mem );
 
   test_bank_advance_root_preserves_inherited_stake_rewards( mem );
+
+  test_bank_advance_root_purges_losing_vote_stakes_fork( mem );
 
   test_bank_clear( mem );
 

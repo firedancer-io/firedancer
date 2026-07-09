@@ -264,6 +264,8 @@ struct fd_replay_tile {
      */
   fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower. */
   ulong     consensus_root_slot;     /* slot number of the above. */
+  fd_hash_t notified_root;           /* The most recent consensus root sent to sched, RPC, and resolv. */
+  ulong     notified_root_slot;      /* slot number of the above. */
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
 
