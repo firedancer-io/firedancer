@@ -14,6 +14,7 @@ import semmle.code.cpp.dataflow.new.DataFlow
 import fdpool
 import semmle.code.cpp.ir.IR
 import semmle.code.cpp.controlflow.IRGuards
+import filter
 
 module AcquireToNullCheck implements DataFlow::ConfigSig {
   predicate isSource(DataFlow::Node source) {
@@ -36,6 +37,8 @@ from Flow::PathNode sourceNode, Flow::PathNode sinkNode
 where
   // only intra-procedural flow to reduce FPs
   sourceNode.getNode().getEnclosingCallable() = sinkNode.getNode().getEnclosingCallable() and
+  included(sourceNode.getLocation()) and
+  included(sinkNode.getLocation()) and
   Flow::flowPath(sourceNode, sinkNode)
 select sinkNode, sourceNode, sinkNode,
   "Result of $@ cannot be null; checking it indicates a misunderstanding.", sourceNode,

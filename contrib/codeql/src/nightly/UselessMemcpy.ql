@@ -12,11 +12,13 @@
 import cpp
 import semmle.code.cpp.valuenumbering.GlobalValueNumbering
 import fd_memcpy
+import filter
 
 predicate isSamePointer(Expr e1, Expr e2) { globalValueNumber(e1) = globalValueNumber(e2) }
 
 from MemcpyFunction memcpy, FunctionCall call
 where
+  included(call.getLocation()) and
   call.getTarget() = memcpy and
   isSamePointer(call.getArgument(0), call.getArgument(1))
 select call,

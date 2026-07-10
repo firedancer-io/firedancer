@@ -7,9 +7,10 @@
  */
 
 import cpp
+import filter
 
 predicate include(Location l) {
-    l.getFile().getRelativePath().matches("src/")
+    included(l)
     and not l.getFile().getBaseName().matches("fd_cstr%")
 }
 
