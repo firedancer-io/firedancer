@@ -2,6 +2,7 @@
 #include "../../../shared_dev/commands/bench/bench.h"
 
 #include "../../fd_config.h"
+#include "../../fd_bootinfo.h"
 #include "../../../platform/fd_cap_chk.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -535,6 +536,7 @@ reconstruct_topo( config_t *   config,
 void
 monitor_cmd_fn( args_t *   args,
                 config_t * config ) {
+  if( FD_LIKELY( args->monitor.drain_output_fd==-1 ) ) fd_bootinfo_adopt( config );
   reconstruct_topo( config, args->monitor.topo );
 
   if( FD_UNLIKELY( args->monitor.with_bench ) ) {
@@ -573,6 +575,7 @@ monitor_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -631,7 +634,7 @@ action_t fd_action_monitor = {
   .name           = "monitor",
   .args           = monitor_cmd_args,
   .fn             = monitor_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = monitor_cmd_perm,
   .description    = "Monitor a locally running Firedancer instance with a terminal GUI",
   .detail         = "Connects to a running validator and continuously renders a terminal\n"

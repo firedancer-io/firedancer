@@ -1,15 +1,13 @@
 #define _GNU_SOURCE
+#include "adminctl_client.h"
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 
 #include <unistd.h>
 #include "../../platform/fd_cap_chk.h"
 #include "../../../disco/keyguard/fd_keyload.h"
-#include "../../../disco/topo/fd_topo.h"
-#include "../../../discof/admin/fd_adminctl.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
-#include "../../../util/pod/fd_pod.h"
 
 #include <strings.h>
 #include <unistd.h>
@@ -28,6 +26,9 @@ void
 set_identity_cmd_args( int *    pargc,
                        char *** pargv,
                        args_t * args) {
+
+  char const * name = fd_env_strip_cmdline_cstr( pargc, pargv, "--name", NULL, NULL );
+  if( FD_UNLIKELY( name ) ) fd_cstr_ncpy( args->set_identity.name, name, sizeof(args->set_identity.name) );
 
   if( FD_UNLIKELY( *pargc<1 ) ) goto err;
 
@@ -65,19 +66,7 @@ set_identity( args_t *   args,
   fd_base58_encode_32( args->set_identity.keypair+32UL, NULL, identity_key_base58 );
   identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
-  ulong admin_ctl_obj_id = fd_pod_query_ulong( config->topo.props, "adminctl", ULONG_MAX );
-  if( FD_UNLIKELY( admin_ctl_obj_id==ULONG_MAX ) ) FD_LOG_ERR(( "Failed to set identity as the command could not communicate with the "
-                                                                "running Firedancer process.  It is possible you are running the command from an "
-                                                                "older or newer version of Firedancer that is no longer compatible." ));
-
-  fd_topo_obj_t const * admin_ctl_obj = &config->topo.objs[ admin_ctl_obj_id ];
-
-  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ admin_ctl_obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-
-  fd_adminctl_t * adminctl = fd_adminctl_join( fd_topo_obj_laddr( &config->topo, admin_ctl_obj->id ) );
-  if( FD_UNLIKELY( !adminctl ) ) FD_LOG_ERR(( "Failed to set identity as the command could not communicate with the "
-                                              "running Firedancer process.  It is possible you are running the command from an "
-                                              "older or newer version of Firedancer that is no longer compatible." ));
+  fd_adminctl_t * adminctl = adminctl_client_attach( config, args->set_identity.name );
 
   void * payload     = NULL;
   ulong  payload_max = 0UL;
@@ -127,16 +116,18 @@ set_identity_cmd_fn( args_t *   args,
 
 static void
 set_identity_args_help( fd_action_help_t * help ) {
-  fd_action_help_arg( help, "<keypair>", NULL, "Path to the new identity keypair, in the standard Solana keypair file\n"
-                                               "format (the 64-byte JSON array).  Pass `-` to read the same JSON\n"
-                                               "array from stdin instead of from a file" );
+  fd_action_help_arg( help, "<keypair>", NULL,   "Path to the new identity keypair, in the standard Solana keypair file\n"
+                                                 "format (the 64-byte JSON array).  Pass `-` to read the same JSON\n"
+                                                 "array from stdin instead of from a file" );
+  fd_action_help_arg( help, "--name", "<name>",  "Name of the validator instance to attach to, if more than one is\n"
+                                                 "running on this host" );
 }
 
 action_t fd_action_set_identity = {
   .name           = "set-identity",
   .args           = set_identity_cmd_args,
   .fn             = set_identity_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = set_identity_cmd_perm,
   .description    = "Change the identity of a running validator",
   .detail         = "Switches the gossip/voting/block-production identity key of an already\n"
@@ -147,16 +138,15 @@ action_t fd_action_set_identity = {
                     "and exits 0; on any error it exits non-zero and the identity is unchanged.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
-                    "running.  It finds the running validator from the shared memory described by\n"
-                    "the configuration file, so you must point --config at the same config file the\n"
-                    "validator was started with, and run it from a binary built from the same git\n"
-                    "commit (compare this binary's `--version` against the running validator's).  If\n"
-                    "the config or binary differ, the layout will not match and the command fails\n"
-                    "without changing anything.\n"
+                    "running.  With no arguments it discovers the running validator automatically.\n"
+                    "If multiple validators are running, pass --name to select one.  If --config is\n"
+                    "given, the validator is instead located from the configuration file; only the\n"
+                    "name and [hugetlbfs.mount_path] values are used, and they must match the\n"
+                    "running validator.\n"
                     "\n"
                     "The change is live only: it is not written back to the config file, so the\n"
                     "validator reverts to the configured [paths.identity_key] on its next restart.\n"
                     "To make the new identity permanent, also update that path in the config.\n",
-  .usage          = "set-identity <keypair>",
+  .usage          = "set-identity <keypair> [--name <name>]",
   .args_help      = set_identity_args_help,
 };

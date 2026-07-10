@@ -1,30 +1,24 @@
 #define _GNU_SOURCE
+#include "adminctl_client.h"
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 
-#include "../../../disco/topo/fd_topo.h"
-#include "../../../discof/admin/fd_adminctl.h"
 #include "../../../ballet/base58/fd_base58.h"
-#include "../../../util/pod/fd_pod.h"
 
 #include <unistd.h>
 
 void
-get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
+get_identity_cmd_args( int *    pargc,
+                       char *** pargv,
+                       args_t * args ) {
+  char const * name = fd_env_strip_cmdline_cstr( pargc, pargv, "--name", NULL, NULL );
+  if( FD_UNLIKELY( name ) ) fd_cstr_ncpy( args->get_identity.name, name, sizeof(args->get_identity.name) );
+}
+
+void
+get_identity_cmd_fn( args_t *   args,
                      config_t * config ) {
-  ulong admin_ctl_obj_id = fd_pod_query_ulong( config->topo.props, "adminctl", ULONG_MAX );
-  if( FD_UNLIKELY( admin_ctl_obj_id==ULONG_MAX ) ) FD_LOG_ERR(( "Failed to get identity as the command could not communicate with the "
-                                                                "running Firedancer process.  It is possible you are running the command from an "
-                                                                "older or newer version of Firedancer that is no longer compatible." ));
-
-  fd_topo_obj_t const * admin_ctl_obj = &config->topo.objs[ admin_ctl_obj_id ];
-
-  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ admin_ctl_obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-
-  fd_adminctl_t * adminctl = fd_adminctl_join( fd_topo_obj_laddr( &config->topo, admin_ctl_obj->id ) );
-  if( FD_UNLIKELY( !adminctl ) ) FD_LOG_ERR(( "Failed to get identity as the command could not communicate with the "
-                                              "running Firedancer process.  It is possible you are running the command from an "
-                                              "older or newer version of Firedancer that is no longer compatible." ));
+  fd_adminctl_t * adminctl = adminctl_client_attach( config, args->get_identity.name );
 
   void * payload     = NULL;
   ulong  payload_max = 0UL;
@@ -69,11 +63,17 @@ get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   }
 }
 
+static void
+get_identity_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--name", "<name>", "Name of the validator instance to attach to, if more than one is\n"
+                                                "running on this host" );
+}
+
 action_t fd_action_get_identity = {
   .name           = "get-identity",
-  .args           = NULL,
+  .args           = get_identity_cmd_args,
   .fn             = get_identity_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = NULL,
   .description    = "Get the current active identity of the running validator",
   .detail         = "Prints the base58 encoded identity public key the running validator is\n"
@@ -82,8 +82,11 @@ action_t fd_action_get_identity = {
                     "changed at runtime with `set-identity`.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
-                    "running.  It finds the running validator from the shared memory described by\n"
-                    "the configuration file, so you must point --config at the same config file the\n"
-                    "validator was started with, and run it from a binary built from the same git\n"
-                    "commit (compare this binary's `--version` against the running validator's).\n",
+                    "running.  With no arguments it discovers the running validator automatically.\n"
+                    "If multiple validators are running, pass --name to select one.  If --config is\n"
+                    "given, the validator is instead located from the configuration file; only the\n"
+                    "name and [hugetlbfs.mount_path] values are used, and they must match the\n"
+                    "running validator.\n",
+  .usage          = "get-identity [--name <name>]",
+  .args_help      = get_identity_args_help,
 };

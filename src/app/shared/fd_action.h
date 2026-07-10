@@ -44,11 +44,21 @@ union fdctl_args {
     int     require_vote_history;
     int     force;
     uchar const * keypair;
+    char    name[ 64UL ];
   } set_identity;
 
   struct {
     uchar const * keypair;
+    char    name[ 64UL ];
   } add_authorized_voter;
+
+  struct {
+    char name[ 64UL ];
+  } get_identity;
+
+  struct {
+    int clean;
+  } ps;
 
   struct {
     int  parent_pipefd;

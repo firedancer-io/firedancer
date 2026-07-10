@@ -56,6 +56,7 @@ SYSCALL_ARGS = {
     "poll":            ( "long",  "int",   "int",   None,   None,    None  ),
     "ppoll":           ( "long",  "int",  "long", "long", "long",    None  ),
     "pread64":         (  "int", "long",  "long", "long",   None,    None  ),
+    "pselect6":        (  "int", "long",  "long", "long", "long",  "long"  ),
     "preadv2":         (  "int", "long",   "int", "long", "long",   "int"  ),
     "pwrite64":        (  "int", "long",  "long", "long",   None,    None  ),
     "pwritev2":        (  "int", "long",   "int", "long", "long",   "int"  ),

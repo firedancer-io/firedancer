@@ -728,6 +728,8 @@ struct fd_topo {
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
+
+  ulong          layout_hash;
 };
 typedef struct fd_topo fd_topo_t;
 

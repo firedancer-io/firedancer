@@ -1,5 +1,6 @@
 #include "configure.h"
 
+#include "../../fd_bootinfo.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_sys_util.h"
 
@@ -240,6 +241,8 @@ static int
 fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
+
+  fd_bootinfo_unlink( config );
 
   /* Not used by fdctl but might be created by other debugging tools
      on the system. */

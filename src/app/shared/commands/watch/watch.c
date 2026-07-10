@@ -1,6 +1,8 @@
 #include "watch.h"
 #include "generated/watch_seccomp.h"
 
+#include "../../fd_bootinfo.h"
+
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../discof/gossip/fd_gossip_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -1584,6 +1586,10 @@ watch_cmd_args( int *    pargc FD_PARAM_UNUSED,
 void
 watch_cmd_fn( args_t *   args,
               config_t * config ) {
+  /* Development commands spawn watch internally with the validator's
+     own config, only discover when invoked standalone. */
+  if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_adopt( config );
+
   int allow_fds[ 5 ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
@@ -1594,6 +1600,7 @@ watch_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->watch.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->watch.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
+  if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -1629,7 +1636,7 @@ action_t fd_action_watch = {
   .name           = "watch",
   .args           = watch_cmd_args,
   .fn             = watch_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = watch_cmd_perm,
   .description    = "Watch a locally running Firedancer instance with a terminal GUI",
   .detail         = "Connects to a running validator and renders a terminal dashboard of the\n"

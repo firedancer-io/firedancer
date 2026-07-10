@@ -1,4 +1,5 @@
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_bootinfo.h"
 #include "../../shared/fd_action.h"
 #include "../../../disco/metrics/fd_metrics.h"
 
@@ -99,6 +100,7 @@ metrics_record_cmd_fn( args_t *      args,
 
   reconstruct_topo( config, args->metrics_record.topo );
 
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 

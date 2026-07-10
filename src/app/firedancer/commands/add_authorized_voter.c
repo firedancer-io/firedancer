@@ -1,11 +1,9 @@
+#include "adminctl_client.h"
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 
-#include "../../../disco/topo/fd_topo.h"
 #include "../../../disco/keyguard/fd_keyload.h"
-#include "../../../discof/admin/fd_adminctl.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
-#include "../../../util/pod/fd_pod.h"
 
 #include <unistd.h>
 
@@ -13,6 +11,9 @@ void
 add_authorized_voter_cmd_args( int *    pargc,
                                char *** pargv,
                                args_t * args ) {
+
+  char const * name = fd_env_strip_cmdline_cstr( pargc, pargv, "--name", NULL, NULL );
+  if( FD_UNLIKELY( name ) ) fd_cstr_ncpy( args->add_authorized_voter.name, name, sizeof(args->add_authorized_voter.name) );
 
   if( FD_UNLIKELY( *pargc<1 ) ) {
     FD_LOG_ERR(( "Usage: %s add-authorized-voter <keypair>", FD_BINARY_NAME ));
@@ -46,20 +47,7 @@ add_authorized_voter( args_t *   args,
                  "Firedancer will not use the key pair to sign as it might leak the private key." ));
   }
 
-  /* Join the adminctl object.  Once joined, we can publish a request to
-     the admin tile. */
-  ulong admin_ctl_obj_id = fd_pod_query_ulong( config->topo.props, "adminctl", ULONG_MAX );
-  if( FD_UNLIKELY( admin_ctl_obj_id==ULONG_MAX ) ) FD_LOG_ERR(( "Failed to add an authorized voter as the command could not communicate with the "
-                                                                "running Firedancer process.  It is possible you are running the command from an "
-                                                                "older or newer version of Firedancer that is no longer compatible." ));
-  fd_topo_obj_t const * admin_ctl_obj = &config->topo.objs[ admin_ctl_obj_id ];
-
-  fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ admin_ctl_obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
-
-  fd_adminctl_t * adminctl = fd_adminctl_join( fd_topo_obj_laddr( &config->topo, admin_ctl_obj->id ) );
-  if( FD_UNLIKELY( !adminctl ) ) FD_LOG_ERR(( "Failed to add an authorized voter as the command could not communicate with the "
-                                              "running Firedancer process.  It is possible you are running the command from an "
-                                              "older or newer version of Firedancer that is no longer compatible." ));
+  fd_adminctl_t * adminctl = adminctl_client_attach( config, args->add_authorized_voter.name );
 
   void * payload     = NULL;
   ulong  payload_max = 0UL;
@@ -114,18 +102,20 @@ add_authorized_voter_cmd_fn( args_t *   args,
 
 static void
 add_authorized_voter_args_help( fd_action_help_t * help ) {
-  fd_action_help_arg( help, "<keypair>", NULL, "Path to the authorized voter keypair to add, in the standard Solana\n"
-                                               "keypair file format (the 64-byte JSON array).  The full keypair is\n"
-                                               "required, not just the public key, because the validator must sign\n"
-                                               "votes with it.  Pass `-` to read the same JSON array from stdin\n"
-                                               "instead of from a file" );
+  fd_action_help_arg( help, "<keypair>", NULL,  "Path to the authorized voter keypair to add, in the standard Solana\n"
+                                                "keypair file format (the 64-byte JSON array).  The full keypair is\n"
+                                                "required, not just the public key, because the validator must sign\n"
+                                                "votes with it.  Pass `-` to read the same JSON array from stdin\n"
+                                                "instead of from a file" );
+  fd_action_help_arg( help, "--name", "<name>", "Name of the validator instance to attach to, if more than one is\n"
+                                                "running on this host" );
 }
 
 action_t fd_action_add_authorized_voter = {
   .name           = "add-authorized-voter",
   .args           = add_authorized_voter_cmd_args,
   .fn             = add_authorized_voter_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = NULL,
   .description    = "Add an authorized voter to the validator",
   .detail         = "Registers an additional authorized voter key with an already running\n"
@@ -136,16 +126,15 @@ action_t fd_action_add_authorized_voter = {
                     "the maximum of 16 authorized voters.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
-                    "running.  It finds the running validator from the shared memory described by\n"
-                    "the configuration file, so you must point --config at the SAME config file the\n"
-                    "validator was started with, and run it from a binary built from the SAME git\n"
-                    "commit (compare this binary's `--version` against the running validator's).  If\n"
-                    "the config or binary differ, the layout will not match and the command fails\n"
-                    "without changing anything.\n"
+                    "running.  With no arguments it discovers the running validator automatically.\n"
+                    "If multiple validators are running, pass --name to select one.  If --config is\n"
+                    "given, the validator is instead located from the configuration file; only the\n"
+                    "name and [hugetlbfs.mount_path] values are used, and they must match the\n"
+                    "running validator.\n"
                     "\n"
                     "The change is live only: it is not written back to the config file, so the\n"
                     "voter is dropped on the validator's next restart.  To keep it across restarts,\n"
                     "also add the keypair path to [paths.authorized_voter_paths] in the config.",
-  .usage          = "add-authorized-voter <keypair>",
+  .usage          = "add-authorized-voter <keypair> [--name <name>]",
   .args_help      = add_authorized_voter_args_help,
 };

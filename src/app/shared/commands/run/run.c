@@ -10,6 +10,7 @@
 #include "generated/pidns_seccomp.h"
 #endif
 
+#include "../../fd_bootinfo.h"
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
@@ -896,6 +897,7 @@ run_firedancer_init( config_t * config,
   if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
+  fd_bootinfo_write( config );
 }
 
 void

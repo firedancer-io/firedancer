@@ -14,6 +14,7 @@
    QUIC packets. */
 
 #include "fd_quic_trace.h"
+#include "../../../shared/fd_bootinfo.h"
 
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
@@ -185,6 +186,7 @@ void
 quic_trace_cmd_fn( args_t *   args,
                    config_t * config ) {
   fd_topo_t * topo = &config->topo;
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );
 

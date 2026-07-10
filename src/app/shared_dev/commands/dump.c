@@ -1,4 +1,5 @@
 #include "../../shared/fd_config.h"
+#include "../../shared/fd_bootinfo.h"
 #include "../../shared/fd_action.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/fd_clock_tile.h"
@@ -291,6 +292,7 @@ dump_cmd_fn( args_t      * args,
   FD_TEST( 0==fd_pcap_ostream_hdr( &ctx.ostream, FD_PCAP_LINK_LAYER_USER0 ) );
 
   fd_topo_t * topo = &config->topo;
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );
 
