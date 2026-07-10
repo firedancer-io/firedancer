@@ -596,3 +596,14 @@ Copyright (c) 2011-2020, Yann Collet
 All rights reserved.
 
 See src/third_party/lz4/LICENSE for the full license text.
+
+=======================================================================
+
+'src/third_party/zlib' contains a compress-only subset of the zlib
+library (tag v1.3.1).
+
+https://github.com/madler/zlib
+
+Copyright (C) 1995-2022 Jean-loup Gailly and Mark Adler
+
+See src/third_party/zlib/LICENSE for the full license text.

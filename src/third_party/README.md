@@ -76,3 +76,4 @@ containing:
 | `blst/` | https://github.com/supranational/blst | Apache-2.0 |
 | `zstd/` | https://github.com/facebook/zstd | BSD-3-Clause (of dual BSD/GPL-2) |
 | `lz4/` | https://github.com/lz4/lz4 (lib/ only) | BSD-2-Clause |
+| `zlib/` | https://github.com/madler/zlib (deflate side only) | zlib |

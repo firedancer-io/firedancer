@@ -127,10 +127,8 @@ fetch () {
 
   mkdir -pv "$PREFIX/git"
 
-  checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo lz4     https://github.com/lz4/lz4                  "v1.10.0"
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.1.1"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
   fi
@@ -142,8 +140,6 @@ check_fedora_pkgs () {
     diffutils          # build system
     make               # build system
     pkgconf            # build system
-    zstd               # build system
-    gzip               # build system
     gcc                # compiler
     gcc-c++            # compiler
 
@@ -184,8 +180,6 @@ check_debian_pkgs () {
     diffutils          # build system
     build-essential    # C/C++ compiler
     pkgconf            # build system
-    zstd               # build system
-    gzip               # build system
 
     cmake              # Agave (protobuf-src)
     libclang-dev       # Agave (bindgen)
@@ -222,8 +216,6 @@ check_alpine_pkgs () {
     build-base       # C/C++ compiler
     curl             # download rustup
     linux-headers    # base dependency
-    zstd             # build system
-    gzip             # build system
     grep             # build system
     make             # build system
     perl             # OpenSSL
@@ -277,7 +269,6 @@ check_arch_pkgs () {
   local REQUIRED_PKGS=(
     base-devel        # C/C++ compiler, make, etc.
     curl              # download rustup
-    zstd              # build system
     cmake             # Agave (protobuf-src)
     clang             # Agave (bindgen)
     perl              # Agave (OpenSSL)
@@ -367,22 +358,6 @@ check () {
         ;;
     esac
   fi
-}
-
-install_zstd () {
-  cd "$PREFIX/git/zstd/lib"
-
-  echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC $EXTRA_CFLAGS" install-pc install-static install-includes
-  echo "[+] Successfully installed zstd"
-}
-
-install_lz4 () {
-  cd "$PREFIX/git/lz4/lib"
-
-  echo "[+] Installing lz4 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no CFLAGS="-fPIC $EXTRA_CFLAGS" install
-  echo "[+] Successfully installed lz4"
 }
 
 install_openssl () {
@@ -480,7 +455,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
   ROCKSDB_USE_IO_URING=0 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread -fPIC $EXTRA_CXXFLAGS" \
+  CFLAGS="-isystem $(pwd)/../../include -isystem $(pwd)/../../../src/third_party/lz4/lib -isystem $(pwd)/../../../src/third_party/zstd/lib -g0 -DSNAPPY -DZSTD -DLZ4 -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread -fPIC $EXTRA_CXXFLAGS" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
@@ -530,10 +505,8 @@ install () {
 
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
-  ( install_zstd      )
   ( install_openssl   )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_lz4       )
     ( install_snappy    )
     ( install_rocksdb   )
   fi
