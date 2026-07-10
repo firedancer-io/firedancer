@@ -1675,6 +1675,12 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_CLEAR_PENDING ) ) {
+    auth_vtr_clear( ctx->auth_vtr );
+    ctx->auth_vtr_path_cnt = 0UL;
+    fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
   /* FIXME: Currently, the tower tile doesn't support set-identity with
      a tower file.  When support for a tower file is added, we need to
      swap the file that is running and sync it to the local state of
