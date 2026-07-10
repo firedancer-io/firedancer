@@ -62,6 +62,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_cpuset,
   &fd_cfg_stage_nohz_full,
   &fd_cfg_stage_rcu_nocbs,
+  &fd_cfg_stage_console,
   &fd_cfg_stage_snapshots,
   NULL,
 };

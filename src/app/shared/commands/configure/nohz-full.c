@@ -52,7 +52,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( !fd_cpu_isolation_read_list( NOHZ_FULL_PATH, nohz ) ) ) {
     FD_LOG_WARNING(( "kernel has no nohz_full support (missing `" NOHZ_FULL_PATH "`). Firedancer tiles will be "
                      "interrupted by periodic timer ticks. For lower jitter, use a kernel with CONFIG_NO_HZ_FULL "
-                     "and boot with `nohz_full=%s rcu_nocbs=%s`.", suggested, suggested ));
+                     "and boot with `nohz_full=%s`.", suggested ));
     CONFIGURE_OK();
   }
 
@@ -62,8 +62,8 @@ check( config_t const * config,
     char missing_str[ FD_CPU_ISOLATION_LIST_MAX ];
     fd_cpu_isolation_format_list( missing_str, sizeof(missing_str), missing );
     FD_LOG_WARNING(( "tile cpus %s are not in the kernel `nohz_full=` set and will be interrupted by "
-                     "periodic timer ticks. For lower jitter, boot with `nohz_full=%s rcu_nocbs=%s`.",
-                     missing_str, suggested, suggested ));
+                     "periodic timer ticks. For lower jitter, boot with `nohz_full=%s`.",
+                     missing_str, suggested ));
   }
 
   CONFIGURE_OK();

@@ -259,6 +259,9 @@ from tile CPUs.
 maintenance) away from tile CPUs.
  * **cpuset** places tile CPUs in an isolated cgroup partition so no
 other process can be scheduled onto them at all.
+ * **console** quiets periodic kernel console rendering (cursor blink,
+warning-level message drawing), which runs on the CPU that generated
+it and so cannot be steered away by the stages above.
 
 Additionally, two kernel boot parameters remove the last sources of
 interruption. These cannot be set at runtime, and Firedancer will
