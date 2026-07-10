@@ -761,11 +761,11 @@ fd_banks_new_bank( fd_banks_t * banks,
    Only a single leaf may be prunable at a time (prunable_idx).
    The eviction is selected in a round-robin manner to avoid a livelock
    where we repeatedly evict and replay the same bank, halting progress.
-   The root, leader banks, dead banks, inactive banks, already prunable
-   banks, and protected_bank are not evictable.  Pass NULL for
-   protected_bank if no additional bank needs protection.  Returns
-   ULONG_MAX if there is no evictable bank, or if a prunable bank is
-   already pending pruning.
+   The root, leader banks (or banks we were previously leaders for),
+   dead banks, inactive banks, already prunable banks, and
+   protected_bank are not evictable.  Pass NULL for protected_bank if no
+   additional bank needs protection.  Returns ULONG_MAX if there is no
+   evictable bank, or if a prunable bank is already pending pruning.
    TODO: It is possible that we can still wedge under very adverse
    conditions even with the round-robin eviction policy.  The starting
    evict_idx is different for each validator, ensuring that some nodes

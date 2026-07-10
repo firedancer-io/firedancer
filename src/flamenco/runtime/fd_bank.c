@@ -551,7 +551,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->is_leader = 0;
 
   banks->root_idx = bank->idx;
-  banks->evict_rr_idx    = 0UL;
   banks->curr_fork_width = 1UL;
   banks->prunable_idx    = null_idx;
 
