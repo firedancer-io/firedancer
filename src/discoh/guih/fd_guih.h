@@ -295,6 +295,8 @@ struct fd_guih_tile_timers {
   ulong  minflt;
   ulong  majflt;
   ulong  interrupts;
+  ulong  tlb_shootdowns;
+  ulong  timer_ticks;
 };
 
 typedef struct fd_guih_tile_timers fd_guih_tile_timers_t;
