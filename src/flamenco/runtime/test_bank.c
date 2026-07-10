@@ -511,6 +511,7 @@ test_bank_dead_eviction( void * mem ) {
 static void
 test_bank_evictable( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 8UL, 2048UL, 2048UL, 0, 8888UL ) );
+  banks->evict_rr_idx = 0UL; /* This test verifies a specific RR order. */
 
   /*     A
         / \
