@@ -24,30 +24,6 @@ read_uint_file( char const * path,
   return value;
 }
 
-static ulong
-fd_topo_cpu_cnt( void ) {
-  char path[ PATH_MAX ];
-  fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/devices/system/cpu/present" );
-
-  char line[ 128 ];
-  int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  long bytes_read = read( fd, line, sizeof( line ) );
-  if( FD_UNLIKELY( -1==bytes_read ) ) FD_LOG_ERR(( "read( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  else if ( FD_UNLIKELY( (ulong)bytes_read>=sizeof( line ) ) ) FD_LOG_ERR(( "read( \"%s\" ) failed: buffer too small", path ));
-
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  line[ bytes_read ] = '\0';
-  char * saveptr;
-  char * token = strtok_r( line, "-", &saveptr );
-  token = strtok_r( NULL, "-", &saveptr );
-  ulong end = fd_cstr_to_ulong( token );
-
-  return end+1UL;
-}
-
 static int
 fd_topo_cpus_online( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx==0UL ) ) return 1; /* Cannot set cpu0 to offline */
@@ -60,18 +36,24 @@ fd_topo_cpus_online( ulong cpu_idx ) {
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
   cpus->numa_node_cnt = fd_numa_node_cnt();
-  cpus->cpu_cnt = fd_topo_cpu_cnt();
+  cpus->cpu_cnt = fd_numa_cpu_cnt();
   if( FD_UNLIKELY( cpus->cpu_cnt > FD_TILE_MAX ) ) {
     FD_LOG_ERR(( "unsupported system: Firedancer supports up to %lu CPUs", FD_TILE_MAX ));
   }
 
+  ulong online_cnt = 0;
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
     cpus->cpu[ i ].numa_node = fd_numa_node_idx( i );
-    if( FD_LIKELY( cpus->cpu[ i ].online ) ) cpus->cpu[ i ].sibling = fd_tile_private_sibling_idx( i );
-    else                                     cpus->cpu[ i ].sibling = ULONG_MAX;
+    if( FD_LIKELY( cpus->cpu[ i ].online ) ) {
+      cpus->cpu[ i ].sibling = fd_tile_private_sibling_idx( i );
+      online_cnt++;
+    } else {
+      cpus->cpu[ i ].sibling = ULONG_MAX;
+    }
   }
+  cpus->cpu_online_cnt = online_cnt;
 }
 
 void

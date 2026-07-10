@@ -35,8 +35,9 @@ static void
 make_cpus( fd_topo_cpus_t * cpus,
            ulong            physical_cores ) {
   fd_memset( cpus, 0, sizeof(*cpus) );
-  cpus->numa_node_cnt = 1UL;
-  cpus->cpu_cnt       = 2UL * physical_cores;
+  cpus->numa_node_cnt  = 1UL;
+  cpus->cpu_cnt        = 2UL * physical_cores;
+  cpus->cpu_online_cnt = cpus->cpu_cnt;
   for( ulong i=0UL; i<physical_cores; i++ ) {
     cpus->cpu[ i ].idx       = i;
     cpus->cpu[ i ].online    = 1;

@@ -619,7 +619,7 @@ auto_tile_cpu( fd_topo_tile_t * tile,
               _Bool             skip_ht_pairs ) {
   ulong cpu_idx = *cpu_idx_p;
 
-  ulong cpu_cnt = cpus->cpu_cnt;
+  ulong cpu_cnt = cpus->cpu_online_cnt;
   while( cpu_idx<cpu_cnt && cpu_bv_test( cpu_assigned, cpu_ordering[ cpu_idx ] ) ) cpu_idx++;
   if( FD_UNLIKELY( cpu_idx>=cpu_cnt ) ) {
     FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
@@ -645,7 +645,7 @@ auto_tile_cpu( fd_topo_tile_t * tile,
            ( cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX &&
              cpu_bv_test( cpu_assigned, cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ) ) ) {
       try_assign++;
-      if( FD_UNLIKELY( try_assign>=cpus->cpu_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
+      if( FD_UNLIKELY( try_assign>=cpus->cpu_online_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
     }
 
     ulong sibling = cpus->cpu[ cpu_ordering[ try_assign ] ].sibling;
@@ -684,14 +684,17 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
       fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
 
-      if( FD_UNLIKELY( cpu_bv_test( pairs_assigned, j ) || cpu->numa_node!=i ) ) continue;
+      if( FD_UNLIKELY( cpu_bv_test( pairs_assigned, j ) || cpu->numa_node!=i || !cpu->online ) ) continue;
 
       FD_TEST( next_cpu_idx<FD_TILE_MAX );
       cpu_ordering[ next_cpu_idx++ ] = (ushort)j;
 
-      if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
-        /* If the CPU has a HT pair, place it immediately after so they
-           are sequentially assigned. */
+      if( FD_UNLIKELY( cpu->sibling<cpus->cpu_cnt && cpus->cpu[ cpu->sibling ].online ) ) {
+        /* If the CPU has an online HT pair, place it immediately after
+           so they are sequentially assigned.
+           When a sibling is offline, cpu->sibling should be ULONG_MAX,
+           so the online check is useless in real life cases. Keep it
+           for correctness.*/
         FD_TEST( next_cpu_idx<FD_TILE_MAX );
         cpu_ordering[ next_cpu_idx++ ] = (ushort)cpu->sibling;
         cpu_bv_insert( pairs_assigned, cpu->sibling );
@@ -699,7 +702,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     }
   }
 
-  FD_TEST( next_cpu_idx==cpus->cpu_cnt );
+  FD_TEST( next_cpu_idx==cpus->cpu_online_cnt );
 
   /* excluded cpus are simply considered already assigned */
   cpu_bv_t cpu_assigned[ cpu_bv_word_cnt ];
@@ -714,6 +717,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     if( !cpu_bv_test( cpu_assigned, i   ) &&
         !cpu_bv_test( pairs_assigned, i ) &&
+        cpus->cpu[ i ].online               &&
         ( cpus->cpu[ i ].sibling==ULONG_MAX ||
           !cpu_bv_test( cpu_assigned, cpus->cpu[ i ].sibling ) ) ) {
       available_physical++;
@@ -805,8 +809,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
 
   topo->agave_affinity_cnt = 0UL;
   if( FD_UNLIKELY( reserve_agave_cores ) ) {
-    for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
-      if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
+    for( ulong i=cpu_idx; i<cpus->cpu_online_cnt; i++ ) {
       if( FD_UNLIKELY( cpu_bv_test( cpu_assigned, cpu_ordering[ i ] ) ) ) continue;
 
       if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {

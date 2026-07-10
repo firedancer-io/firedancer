@@ -39,6 +39,9 @@ fd_numa_node_cnt( void );
 ulong
 fd_numa_cpu_cnt( void );
 
+ulong
+fd_numa_available_cpu_cnt( void );
+
 /* fd_numa_node_idx determines the numa node closest to the given
    cpu_idx (roughly equivalent to libnuma's numa_node_of_cpu).  Returns
    ULONG_MAX if this could not be determined (logs details on failure).

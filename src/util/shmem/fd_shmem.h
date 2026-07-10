@@ -281,8 +281,9 @@ fd_shmem_leave_anonymous( void *                 join,
    [1,FD_SHMEM_NUMA_MAX] and similarly for logical cpus.  This value is
    determined at thread group boot.  cpu_cnt>=numa_cnt. */
 
-FD_FN_PURE ulong fd_shmem_numa_cnt( void );
-FD_FN_PURE ulong fd_shmem_cpu_cnt ( void );
+FD_FN_PURE ulong fd_shmem_numa_cnt         ( void );
+FD_FN_PURE ulong fd_shmem_cpu_cnt          ( void );
+FD_FN_PURE ulong fd_shmem_available_cpu_cnt( void );
 
 /* fd_shmem_numa_idx returns the closest numa node to the given logical
    cpu_idx.  Given a cpu_idx in [0,fd_shmem_cpu_cnt()), returns a value
@@ -294,7 +295,8 @@ FD_FN_PURE ulong fd_shmem_numa_idx( ulong cpu_idx );
 /* fd_shmem_cpu_idx returns the smallest cpu_idx of a cpu close to
    numa_idx.  Given a numa_idx in [0,fd_shmem_numa_cnt()), returns a
    value in [0,fd_shmem_cpu_cnt()).  Returns ULONG_MAX otherwise.  The
-   numa -> cpu mapping is determined at thread group boot. */
+   numa -> cpu mapping is determined at thread group boot.
+   The returned cpu may be offline. */
 
 FD_FN_PURE ulong fd_shmem_cpu_idx( ulong numa_idx );
 
