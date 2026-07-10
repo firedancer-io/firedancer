@@ -580,7 +580,7 @@ test_bank_evictable( void * mem ) {
   FD_TEST( bank_J );
   fd_banks_mark_bank_frozen( bank_J );
 
-  ulong evictable_bank_idx = fd_banks_get_evictable_bank( banks );
+  ulong evictable_bank_idx = fd_banks_get_evictable_bank( banks, NULL );
   FD_TEST( evictable_bank_idx==bank_J->idx );
   FD_TEST( banks->prunable_idx==bank_J->idx );
 
@@ -596,11 +596,11 @@ test_bank_evictable( void * mem ) {
   FD_TEST( bank_I->state!=FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_L->state!=FD_BANK_STATE_PRUNABLE );
 
-  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_get_evictable_bank( banks, NULL )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
   FD_TEST( banks->prunable_idx==ULONG_MAX );
 
-  evictable_bank_idx = fd_banks_get_evictable_bank( banks );
+  evictable_bank_idx = fd_banks_get_evictable_bank( banks, NULL );
   FD_TEST( evictable_bank_idx==bank_H->idx );
   FD_TEST( banks->prunable_idx==bank_H->idx );
   FD_TEST( bank_H->state==FD_BANK_STATE_PRUNABLE );
@@ -608,27 +608,66 @@ test_bank_evictable( void * mem ) {
   FD_TEST( bank_D->state!=FD_BANK_STATE_PRUNABLE );
   FD_TEST( bank_E->state!=FD_BANK_STATE_PRUNABLE );
 
-  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_get_evictable_bank( banks, NULL )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
   FD_TEST( banks->prunable_idx==ULONG_MAX );
 
-  evictable_bank_idx = fd_banks_get_evictable_bank( banks );
+  evictable_bank_idx = fd_banks_get_evictable_bank( banks, NULL );
   FD_TEST( evictable_bank_idx==bank_E->idx );
   FD_TEST( banks->prunable_idx==bank_E->idx );
   FD_TEST( bank_E->state==FD_BANK_STATE_PRUNABLE );
 
-  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_get_evictable_bank( banks, NULL )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
   FD_TEST( banks->prunable_idx==ULONG_MAX );
 
-  evictable_bank_idx = fd_banks_get_evictable_bank( banks );
+  evictable_bank_idx = fd_banks_get_evictable_bank( banks, NULL );
   FD_TEST( evictable_bank_idx==bank_C->idx );
   FD_TEST( banks->prunable_idx==bank_C->idx );
   FD_TEST( bank_C->state==FD_BANK_STATE_PRUNABLE );
 
-  FD_TEST( fd_banks_get_evictable_bank( banks )==ULONG_MAX );
+  FD_TEST( fd_banks_get_evictable_bank( banks, NULL )==ULONG_MAX );
   FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
   FD_TEST( banks->prunable_idx==ULONG_MAX );
+}
+
+static void
+test_bank_evictable_protected( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 4UL, 4UL, 8UL, 8UL, 0, 8889UL ) );
+  FD_TEST( banks );
+
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+  root->f.epoch_schedule = (fd_epoch_schedule_t) {
+    .slots_per_epoch             = 32UL,
+    .leader_schedule_slot_offset = 32UL,
+    .warmup                      = 0,
+    .first_normal_epoch          = 0UL,
+    .first_normal_slot           = 0UL
+  };
+
+  fd_bank_t * protected = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+  protected = fd_banks_clone_from_parent( banks, protected->idx );
+  FD_TEST( protected );
+  protected->f.slot = 1UL;
+  fd_banks_mark_bank_frozen( protected );
+
+  fd_bank_t * sibling = fd_banks_new_bank( banks, root->idx, 0L, 0 );
+  ulong sibling_idx = sibling->idx;
+  sibling = fd_banks_clone_from_parent( banks, sibling_idx );
+  FD_TEST( sibling );
+  sibling->f.slot = 2UL;
+  fd_banks_mark_bank_frozen( sibling );
+
+  FD_TEST( fd_banks_get_evictable_bank( banks, protected )==sibling_idx );
+  FD_TEST( protected->state!=FD_BANK_STATE_PRUNABLE );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+
+  FD_TEST( fd_banks_get_evictable_bank( banks, protected )==ULONG_MAX );
+
+  FD_TEST( fd_banks_get_evictable_bank( banks, NULL )==protected->idx );
+  FD_TEST( fd_banks_prune_one_bank( banks, NULL ) );
+  fd_banks_clear( banks );
 }
 
 static void
@@ -1320,6 +1359,8 @@ main( int argc, char ** argv ) {
   test_bank_dead_eviction( mem );
 
   test_bank_evictable( mem );
+
+  test_bank_evictable_protected( mem );
 
   test_bank_stake_delegations_dynamic_sizing( mem );
 

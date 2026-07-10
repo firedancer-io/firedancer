@@ -835,14 +835,19 @@ fd_banks_advance_root( fd_banks_t * banks,
       head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
     }
 
-    ulong prev_epoch = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.parent_slot, NULL );
-    ulong new_epoch  = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.slot, NULL );
-    if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
-      if( FD_LIKELY( head->vote_stakes_fork_id!=USHORT_MAX && head->vote_stakes_fork_id!=new_root->vote_stakes_fork_id ) ) {
-        fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), head->vote_stakes_fork_id );
-      }
-      if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX && head->stake_rewards_fork_id!=new_root->stake_rewards_fork_id ) ) {
-        fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
+    if( FD_LIKELY( head->vote_stakes_fork_id!=USHORT_MAX ) ) {
+      ulong prev_epoch = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.parent_slot, NULL );
+      ulong new_epoch  = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.slot, NULL );
+      /* vote_stakes and stake_rewards are allocated only at epoch
+         boundaries.  Non-boundary banks inherit their parent's fork ids
+         but don't own them. */
+      if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
+        if( FD_LIKELY( head->vote_stakes_fork_id!=new_root->vote_stakes_fork_id ) ) {
+          fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), head->vote_stakes_fork_id );
+        }
+        if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX && head->stake_rewards_fork_id!=new_root->stake_rewards_fork_id ) ) {
+          fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
+        }
       }
     }
     head->stake_rewards_fork_id = UCHAR_MAX;
@@ -1110,11 +1115,14 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
   fd_new_votes_evict_fork( new_votes, bank->new_votes_fork_id );
   bank->new_votes_fork_id = USHORT_MAX;
 
-  ulong prev_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL );
-  ulong new_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
-  if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
-    if( FD_LIKELY( bank->vote_stakes_fork_id!=USHORT_MAX ) )  fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), bank->vote_stakes_fork_id );
-    if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
+  if( FD_LIKELY( bank->vote_stakes_fork_id!=USHORT_MAX ) ) {
+    ulong prev_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL );
+    ulong new_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
+    /* Only prune vote_stakes/stake_rewards for epoch boundary banks */
+    if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
+      fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), bank->vote_stakes_fork_id );
+      if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
+    }
   }
   bank->vote_stakes_fork_id   = USHORT_MAX;
   bank->stake_rewards_fork_id = UCHAR_MAX;
@@ -1185,11 +1193,12 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
 }
 
 static fd_bank_t *
-fd_banks_get_evictable_private( fd_banks_t * banks,
-                                fd_bank_t *  bank_pool,
-                                ulong        bank_idx,
-                                ulong *      evictable_cnt,
-                                ulong *      target ) {
+fd_banks_get_evictable_private( fd_banks_t *      banks,
+                                fd_bank_t *       bank_pool,
+                                ulong             bank_idx,
+                                fd_bank_t const * protected_bank,
+                                ulong *           evictable_cnt,
+                                ulong *           target ) {
   /* Return any leaf node that is eligible for eviction.  We consider
      a bank to be eligibile iff:
      - it is a leaf
@@ -1204,7 +1213,7 @@ fd_banks_get_evictable_private( fd_banks_t * banks,
 
   ulong child_idx = bank->child_idx;
   while( child_idx!=null_idx ) {
-    fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, child_idx, evictable_cnt, target );
+    fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, child_idx, protected_bank, evictable_cnt, target );
     if( FD_LIKELY( evictable ) ) return evictable;
     fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
     child_idx = child->sibling_idx;
@@ -1212,6 +1221,7 @@ fd_banks_get_evictable_private( fd_banks_t * banks,
 
   if( bank->child_idx!=null_idx ) return NULL;
   if( bank->idx==banks->root_idx ) return NULL;
+  if( bank==protected_bank ) return NULL;
   if( bank->is_leader ) return NULL;
   if( bank->state==FD_BANK_STATE_INACTIVE || bank->state==FD_BANK_STATE_DEAD || bank->state==FD_BANK_STATE_PRUNABLE ) return NULL;
 
@@ -1225,7 +1235,8 @@ fd_banks_get_evictable_private( fd_banks_t * banks,
 }
 
 ulong
-fd_banks_get_evictable_bank( fd_banks_t * banks ) {
+fd_banks_get_evictable_bank( fd_banks_t *      banks,
+                             fd_bank_t const * protected_bank ) {
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   ulong       null_idx  = fd_banks_pool_idx_null( bank_pool );
 
@@ -1235,11 +1246,11 @@ fd_banks_get_evictable_bank( fd_banks_t * banks ) {
   if( FD_UNLIKELY( root->child_idx==null_idx ) ) return ULONG_MAX;
 
   ulong evictable_cnt = 0UL;
-  fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, &evictable_cnt, NULL );
+  fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, &evictable_cnt, NULL );
   if( FD_UNLIKELY( !evictable_cnt ) ) return ULONG_MAX;
 
   ulong target = banks->evict_rr_idx++ % evictable_cnt;
-  fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, NULL, &target );
+  fd_bank_t * evictable = fd_banks_get_evictable_private( banks, bank_pool, banks->root_idx, protected_bank, NULL, &target );
   if( FD_UNLIKELY( !evictable ) ) FD_LOG_CRIT(( "invariant violation: evictable bank not found" ));
 
   /* Eviction only selects leaves, and prunable_idx is a single pending

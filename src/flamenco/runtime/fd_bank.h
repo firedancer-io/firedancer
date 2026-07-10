@@ -761,12 +761,14 @@ fd_banks_new_bank( fd_banks_t * banks,
    Only a single leaf may be prunable at a time (prunable_idx).
    evict_rr_idx is sticky across prunes and is reset on root advance
    and banks clear.  The root, leader banks, dead banks, inactive
-   banks, and already prunable banks are not evictable.  Returns
-   ULONG_MAX if there is no evictable bank, or if a prunable bank is
-   already pending pruning. */
+   banks, already prunable banks, and protected_bank are not evictable.
+   Pass NULL for protected_bank if no additional bank needs protection.
+   Returns ULONG_MAX if there is no evictable bank, or if a prunable
+   bank is already pending pruning. */
 
 ulong
-fd_banks_get_evictable_bank( fd_banks_t * banks );
+fd_banks_get_evictable_bank( fd_banks_t *      banks,
+                             fd_bank_t const * protected_bank );
 
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
    preparing another child bank.  This check is currently conservative,

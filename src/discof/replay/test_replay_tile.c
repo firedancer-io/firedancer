@@ -508,6 +508,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->consensus_root_slot = 0UL;
   ctx->notified_root     = root_id;
   ctx->notified_root_slot = 0UL;
+  ctx->notified_root_bank = root;
 
   publish_root_advanced( ctx, test_stem, root );
   FD_TEST( root->refcnt==1UL );

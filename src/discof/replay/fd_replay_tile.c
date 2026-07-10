@@ -1076,6 +1076,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->consensus_root_slot     = 0UL;
   ctx->notified_root           = ctx->initial_block_id;
   ctx->notified_root_slot      = 0UL;
+  ctx->notified_root_bank      = bank;
   ctx->published_root_slot     = 0UL;
   ctx->published_root_bank_idx = 0UL;
 
@@ -1200,6 +1201,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->consensus_root_slot     = snapshot_slot;
     ctx->notified_root           = manifest_block_id;
     ctx->notified_root_slot      = snapshot_slot;
+    ctx->notified_root_bank      = bank;
     ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->published_root_bank_idx = 0UL;
 
@@ -1772,6 +1774,7 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
 
   ctx->notified_root      = ctx->consensus_root;
   ctx->notified_root_slot = ctx->consensus_root_slot;
+  ctx->notified_root_bank = bank;
   return 1;
 }
 
@@ -1929,7 +1932,7 @@ try_process_fec( fd_replay_tile_t *  ctx,
      marked prunable by fd_banks_get_evictable_bank and pruned once refs
      drain. */
   if( FD_UNLIKELY( evict_banks ) ) {
-    ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks );
+    ulong evictable_bank_idx = fd_banks_get_evictable_bank( ctx->banks, ctx->notified_root_bank );
     if( FD_UNLIKELY( evictable_bank_idx==ULONG_MAX ) ) {
       FD_LOG_DEBUG(( "replay has no banks to mark as prunable, it's possible that there is one bank already marked as prunable" ));
       return 0;
@@ -2148,7 +2151,6 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->refcnt--;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for tower", replay_bank->idx, msg->replay_slot, replay_bank->refcnt ));
-  FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, replay_slot=%lu, root_slot=%lu, seqno=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->replay_slot, msg->root_slot, seq ));
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
     ctx->consensus_root_slot = msg->root_slot;
@@ -2218,7 +2220,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   ulong distance = 0UL;
   fd_bank_t * parent = bank;
   while( parent ) {
-    if( FD_UNLIKELY( !parent || fd_hash_eq( &parent->f.block_id, &ctx->consensus_root ) ) ) break;
+    if( FD_UNLIKELY( fd_hash_eq( &parent->f.block_id, &ctx->consensus_root ) ) ) break;
     parent = fd_banks_get_parent( ctx->banks, parent );
     distance++;
   }
@@ -2691,6 +2693,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->consensus_root      = ctx->initial_block_id;
   ctx->notified_root_slot  = ULONG_MAX;
   ctx->notified_root       = ctx->initial_block_id;
+  ctx->notified_root_bank = NULL;
   ctx->published_root_slot = ULONG_MAX;
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
