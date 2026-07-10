@@ -90,7 +90,8 @@ dedup_evict( fd_reqlim_t * dedup ) {
 int
 fd_reqlim_next( fd_reqlim_t * dedup, ulong key, long now ) {
   fd_reqlim_ele_t * ele = fd_reqlim_map_ele_query( dedup->map, &key, NULL, dedup->pool );
-  if( FD_UNLIKELY( !ele ) ) {
+  int is_new = !ele;
+  if( FD_UNLIKELY( is_new ) ) {
     if( FD_UNLIKELY( !fd_reqlim_pool_free( dedup->pool ) ) ) dedup_evict( dedup );
     ele         = fd_reqlim_pool_ele_acquire( dedup->pool );
     ele->key    = key;
@@ -104,6 +105,10 @@ fd_reqlim_next( fd_reqlim_t * dedup, ulong key, long now ) {
     return 1;
   }
   ele->req_ts = now;
+  if( FD_LIKELY( !is_new ) ) {
+    fd_reqlim_lru_ele_remove   ( dedup->lru, ele, dedup->pool );
+    fd_reqlim_lru_ele_push_tail( dedup->lru, ele, dedup->pool );
+  }
   return 0;
 }
 
