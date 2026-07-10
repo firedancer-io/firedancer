@@ -28,8 +28,10 @@ DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
   WATCH=( "--no-watch" )
-  LOG_LEVEL_STDERR=INFO
+  LOG_LEVEL_STDERR=NOTICE
 fi
+
+BACKTEST_TIMEOUT=${BACKTEST_TIMEOUT:-0}
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -263,14 +265,14 @@ echo_notice "Running backtest for $LEDGER"
 
 sudo killall firedancer-dev &> /dev/null || true
 
-set -x
-if [[ -n "$CI" ]]; then
-  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
-  { status=$?; set +x; } &> /dev/null
-else
-  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
-  { status=$?; set +x; }
+TIMEOUT=( )
+if [[ "$BACKTEST_TIMEOUT" -gt 0 ]]; then
+  TIMEOUT=( timeout -k 15 "$BACKTEST_TIMEOUT" )
 fi
+
+set -x
+"${TIMEOUT[@]}" "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+{ status=$?; set +x; } &> /dev/null
 
 echo "Log for ledger $LEDGER at $LOG"
 
@@ -292,7 +294,12 @@ if [ "$status" -eq 0 ]; then
   exit 0
 fi
 
-tail -n 10 $LOG
+if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+  echo "Backtest timed out after ${BACKTEST_TIMEOUT}s (hang?)"
+  tail -n 100 $LOG
+else
+  tail -n 10 $LOG
+fi
 echo "Failed with status: $status"
 
 exit $status
