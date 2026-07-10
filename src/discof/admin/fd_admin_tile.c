@@ -1,5 +1,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
 #include "fd_adminctl.h"
@@ -8,6 +9,7 @@
 struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
   fd_adminctl_t *   adminctl;
+  uchar             identity_pubkey[ 32UL ];
   fd_keyswitch_t *  tower_av_keyswitch;
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
   ulong             sign_av_keyswitch_cnt;
@@ -27,11 +29,23 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
+  fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
+
+  if( FD_UNLIKELY( !strcmp( tile->admin.identity_key_path, "" ) ) )
+    FD_LOG_ERR(( "identity_key_path not set" ));
+
+  fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
-  fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -532,7 +546,46 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     if( FD_UNLIKELY( poll_set_identity( ctx, &state, &halted_seq, identity_outset, req->keypair ) ) ) break;
   }
 
+  memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
+
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+}
+
+static void
+get_identity( fd_admin_tile_ctx_t * ctx,
+              ulong                 slot_idx,
+              void *                data,
+              ulong                 data_sz ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+
+  if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
+    FD_LOG_WARNING(( "adminctl get-identity payload too small: %lu", data_sz ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL );
+    return;
+  }
+
+  ulong version = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( version!=FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION ) ) {
+    FD_LOG_WARNING(( "unsupported adminctl get-identity payload version %lu", version ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    return;
+  }
+
+  if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_get_identity_req_t) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl get-identity payload_sz %lu", data_sz ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    return;
+  }
+
+  /* Adminctl commands are serviced one at a time by this tile, which is
+     the only driver of identity switches, so the tracked identity
+     cannot be mid-switch here. */
+  fd_adminctl_get_identity_resp_t resp;
+  resp.version = FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION;
+  memcpy( resp.identity_pubkey, ctx->identity_pubkey, 32UL );
+
+  fd_adminctl_complete_response( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS, &resp, sizeof(resp) );
 }
 
 /* The process of adding an authorized voter to the validator must be
@@ -758,6 +811,10 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       set_identity( ctx, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       break;
+    case FD_ADMINCTL_CMD_GET_IDENTITY:
+      get_identity( ctx, slot_idx, payload, payload_sz );
+      *charge_busy = 1;
+      break;
     default:
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
@@ -805,6 +862,7 @@ fd_topo_run_tile_t fd_tile_admin = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

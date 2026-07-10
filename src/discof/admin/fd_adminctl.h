@@ -34,6 +34,7 @@
 #define FD_ADMINCTL_CMD_IDLE           (0UL)
 #define FD_ADMINCTL_CMD_ADD_AUTH_VOTER (1UL)
 #define FD_ADMINCTL_CMD_SET_IDENTITY   (2UL)
+#define FD_ADMINCTL_CMD_GET_IDENTITY   (3UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -71,6 +72,22 @@ typedef struct fd_adminctl_set_identity_v1 fd_adminctl_set_identity_t;
 #define FD_SET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
 #define FD_SET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH            (5UL)
+
+struct fd_adminctl_get_identity_req_v1 {
+  ulong version; /* ==FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION */
+};
+typedef struct fd_adminctl_get_identity_req_v1 fd_adminctl_get_identity_req_t;
+
+struct fd_adminctl_get_identity_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION */
+  uchar identity_pubkey[ 32UL ];
+};
+typedef struct fd_adminctl_get_identity_resp_v1 fd_adminctl_get_identity_resp_t;
+#define FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION (1UL)
+
+#define FD_GET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL           (2UL)
+#define FD_GET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
+#define FD_GET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 
@@ -122,6 +139,18 @@ ulong
 fd_adminctl_wait( fd_adminctl_t * adminctl,
                   ulong           slot_id );
 
+/* fd_adminctl_wait_response is fd_adminctl_wait for commands that also
+   return a response payload.  Before the slot is reclaimed, up to
+   resp_max bytes of the response payload are copied into resp and the
+   response payload size is stored in resp_sz_out. */
+
+ulong
+fd_adminctl_wait_response( fd_adminctl_t * adminctl,
+                           ulong           slot_id,
+                           void *          resp,
+                           ulong           resp_max,
+                           ulong *         resp_sz_out );
+
 /* fd_adminctl_poll checks a command slot at a time and returns the
    command id and payload if a command is available.  The command is now
    ready to be processed by the app process.  If no command is
@@ -144,6 +173,18 @@ void
 fd_adminctl_complete( fd_adminctl_t * adminctl,
                       ulong           slot_id,
                       ulong           result );
+
+/* fd_adminctl_complete_response is fd_adminctl_complete for commands
+   that also return a response payload.  The request payload is zeroed
+   and replaced with the resp_sz bytes at resp before the result is
+   published. */
+
+void
+fd_adminctl_complete_response( fd_adminctl_t * adminctl,
+                               ulong           slot_id,
+                               ulong           result,
+                               void const *    resp,
+                               ulong           resp_sz );
 
 FD_PROTOTYPES_END
 

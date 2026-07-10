@@ -22,6 +22,7 @@ $(call add-objs,callbacks,fd_firedancer)
 $(call add-objs,commands/add_authorized_voter,fd_firedancer)
 $(call add-objs,commands/shred_version,fd_firedancer)
 $(call add-objs,commands/set_identity,fd_firedancer)
+$(call add-objs,commands/get_identity,fd_firedancer)
 $(call add-objs,commands/monitor_gossip/monitor_gossip commands/monitor_gossip/gossip_diag,fd_firedancer)
 
 ifdef FD_HAS_SSE
