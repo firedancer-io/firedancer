@@ -881,7 +881,6 @@ fd_banks_advance_root( fd_banks_t * banks,
   banks->root_idx       = new_root->idx;
   FD_TEST( banks->curr_fork_width>pruned_leaf_cnt );
   banks->curr_fork_width -= pruned_leaf_cnt;
-  banks->evict_rr_idx  = 0UL;
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_vote_stakes_advance_root( vote_stakes, new_root->vote_stakes_fork_id );

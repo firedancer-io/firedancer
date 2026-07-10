@@ -2153,6 +2153,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for tower", replay_bank->idx, msg->replay_slot, replay_bank->refcnt ));
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
+    FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     ctx->consensus_root_slot = msg->root_slot;
     ctx->consensus_root      = msg->root_block_id;
   }
