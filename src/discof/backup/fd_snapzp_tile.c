@@ -354,7 +354,7 @@ process_accounts_cached( fd_snapzp_t * ctx,
     if( acc_idx==UINT_MAX ) continue;
     /* copy cached account into snapshot stream */
     ulong raw_buf_start = buf->size;
-    int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, buf, RAW_BUF_SZ );
+    int err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
     if( err==FD_BACKUP_CACHE_ERR_MISS ) {
       wait_disk_visible_and_clear_visited( ctx, pubkey, acc_idx );
       continue;
@@ -363,7 +363,7 @@ process_accounts_cached( fd_snapzp_t * ctx,
       /* not enough buffer space, flush and retry */
       flush( ctx );
       raw_buf_start = buf->size;
-      err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, buf, RAW_BUF_SZ );
+      err = fd_backup_cache_read( ctx->acc_cache, pubkey, acc_idx, ctx->raw, &buf->size, RAW_BUF_SZ );
       if( err==FD_BACKUP_CACHE_ERR_MISS ) {
         wait_disk_visible_and_clear_visited( ctx, pubkey, acc_idx );
         continue;
@@ -426,7 +426,7 @@ begin_disk_account( fd_snapzp_t * ctx,
     FD_LOG_ERR(( "disk account not found in account index" ));
   }
 
-  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( (ulong)ctx->raw_buf.src + ctx->raw_buf.size );
+  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + ctx->raw_buf.size );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
   hdr->pubkey    = ctx->disk.pubkey;
   hdr->owner     = ctx->disk.owner;
@@ -478,7 +478,7 @@ process_account_disk( fd_snapzp_t * ctx,
   ulong take = fd_ulong_min( ctx->disk.data_rem, frag_sz );
   if( FD_LIKELY( take ) ) {
     FD_TEST( ctx->raw_buf.size + take <= RAW_BUF_SZ );
-    fd_memcpy( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, frag, take );
+    fd_memcpy( ctx->raw + ctx->raw_buf.size, frag, take );
     ctx->raw_buf.size  += take;
     ctx->disk.data_rem -= take;
     frag_sz            -= take;
@@ -496,7 +496,7 @@ process_account_disk( fd_snapzp_t * ctx,
     }
     if( ctx->disk.data_pad ) {
       FD_TEST( ctx->raw_buf.size + ctx->disk.data_pad <= RAW_BUF_SZ );
-      fd_memset( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, 0, ctx->disk.data_pad );
+      fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->disk.data_pad );
       ctx->raw_buf.size += ctx->disk.data_pad;
     }
     metrics_account_packed_add( ctx, sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_SIZE_DATA( ctx->disk.size ), 8UL ) );
@@ -587,7 +587,7 @@ process_disk_batch( fd_snapzp_t * ctx,
     }
     if( FD_UNLIKELY( ctx->raw_buf.size + rec_sz > RAW_BUF_SZ ) ) flush( ctx );
 
-    snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( (ulong)ctx->raw_buf.src + ctx->raw_buf.size );
+    snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + ctx->raw_buf.size );
     memset( hdr, 0, sizeof(snap_acc_hdr_t) );
     hdr->pubkey     = batch->pubkey[ i ];
     memcpy( hdr->owner.uc, dm->owner, sizeof(fd_pubkey_t) );
@@ -598,11 +598,11 @@ process_disk_batch( fd_snapzp_t * ctx,
 
     if( FD_LIKELY( data_len ) ) {
       uchar const * data = base + batch->frag_off[ i ] + sizeof(fd_accdb_disk_meta_t);
-      fd_memcpy( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, data, data_len );
+      fd_memcpy( ctx->raw + ctx->raw_buf.size, data, data_len );
       ctx->raw_buf.size += data_len;
     }
     if( data_pad ) {
-      fd_memset( (uchar *)ctx->raw_buf.src + ctx->raw_buf.size, 0, data_pad );
+      fd_memset( ctx->raw + ctx->raw_buf.size, 0, data_pad );
       ctx->raw_buf.size += data_pad;
     }
     metrics_account_packed_add( ctx, rec_sz );

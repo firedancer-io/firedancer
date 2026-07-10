@@ -12,7 +12,6 @@
 #define FD_ACCDB_NO_FORK_ID
 #include "../../flamenco/accdb/fd_accdb_private.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
-#include <zstd.h>
 
 #define SNAPZP_TILE_MAX 64
 
@@ -112,9 +111,9 @@ fd_backup_cache_reset( fd_backup_cache_t * backup,
   backup->cache_idx       = 0;
 }
 
-/* fd_backup_cache_read copy-reads a possibly cached account into a
-   Zstandard compress buffer.  The account is laid out in snapshot
-   storage format. */
+/* fd_backup_cache_read copy-reads a possibly cached account into out.
+   *out_sz is the current size of out and is advanced on success.  The
+   account is laid out in snapshot storage format. */
 
 #define FD_BACKUP_CACHE_SUCCESS   0 /* ok */
 #define FD_BACKUP_CACHE_ERR_SPACE 1 /* not enough buffer space */
@@ -124,7 +123,8 @@ int
 fd_backup_cache_read( fd_backup_cache_t * ctx,
                       fd_pubkey_t const * pubkey,
                       uint                acc_idx,
-                      ZSTD_inBuffer *     out,
+                      uchar *             out,
+                      ulong *             out_sz,
                       ulong               out_max );
 
 FD_PROTOTYPES_END

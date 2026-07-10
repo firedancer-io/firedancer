@@ -224,7 +224,8 @@ int
 fd_backup_cache_read( fd_backup_cache_t * ctx,
                       fd_pubkey_t const * pubkey,
                       uint                acc_idx,
-                      ZSTD_inBuffer *     out,
+                      uchar *             out,
+                      ulong *             out_sz,
                       ulong               out_max ) {
   FD_TEST( pubkey );
 
@@ -232,7 +233,7 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
     return FD_BACKUP_CACHE_ERR_MISS;
   }
 
-  if( FD_UNLIKELY( out->size + sizeof(snap_acc_hdr_t) > out_max ) ) {
+  if( FD_UNLIKELY( *out_sz + sizeof(snap_acc_hdr_t) > out_max ) ) {
     return FD_BACKUP_CACHE_ERR_SPACE;
   }
 
@@ -268,7 +269,7 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
   ulong rec_sz        = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
   ulong data_pad      = fd_ulong_align_up( data_len, 8UL ) - data_len;
-  if( FD_UNLIKELY( out->size + rec_sz > out_max ) ) {
+  if( FD_UNLIKELY( *out_sz + rec_sz > out_max ) ) {
     return FD_BACKUP_CACHE_ERR_SPACE;
   }
 
@@ -290,7 +291,7 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   ulong idx = FD_ACCDB_ACC_CIDX_IDX  ( snap_cidx );
   fd_accdb_cache_line_t * line = cache_line( ctx, cls, idx );
 
-  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( (ulong)out->src + out->size );
+  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( out + *out_sz );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
   memcpy( hdr->pubkey.uc, pubkey->uc, sizeof(fd_pubkey_t) );
 
@@ -325,6 +326,6 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   hdr->lamports   = snap_lamports;
   hdr->executable = !!executable;
   hdr->data_len   = data_len;
-  out->size += rec_sz;
+  *out_sz += rec_sz;
   return FD_BACKUP_CACHE_SUCCESS;
 }

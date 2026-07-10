@@ -1190,7 +1190,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong buf_rem = RAW_BUF_SZ - ctx->raw_buf.size;
     ulong chunk_sz = fd_snap_manifest_serialize(
         ctx->manifest_writer,
-        (uchar *)ctx->raw_buf.src + ctx->raw_buf.size,
+        ctx->raw + ctx->raw_buf.size,
         buf_rem );
     ctx->raw_buf.size += chunk_sz;
     if( FD_UNLIKELY( !chunk_sz ) ) {
@@ -1318,7 +1318,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong buf_rem  = RAW_BUF_SZ - ctx->raw_buf.size;
     ulong chunk_sz = fd_txncache_writer_serialize(
         ctx->txncache_writer,
-        (uchar *)ctx->raw_buf.src + ctx->raw_buf.size,
+        ctx->raw + ctx->raw_buf.size,
         buf_rem );
     ctx->raw_buf.size += chunk_sz;
     if( FD_UNLIKELY( !chunk_sz ) ) {
