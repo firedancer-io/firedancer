@@ -674,12 +674,15 @@ submit_cmd( fd_accdb_t * accdb,
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id ) {
-  /* fork_pool_acquire is not NULL-checked: replay gates attaches on
-     fd_banks_is_full, and wait_cmd ensures the prior advance_root has
-     fully run on T2, so live + deferred forks <= max_live_slots. */
   wait_cmd( accdb );
 
   fd_accdb_fork_shmem_t * acquired = fork_pool_acquire( accdb->fork_shmem_pool );
+  if( FD_UNLIKELY( !acquired ) ) {
+    submit_cmd( accdb, FD_ACCDB_CMD_DRAIN_DEFERRED, USHORT_MAX );
+    wait_cmd( accdb );
+    acquired = fork_pool_acquire( accdb->fork_shmem_pool );
+    FD_CHECK_CRIT( acquired, "accdb fork pool exhausted after deferred drain" );
+  }
   ulong idx = fork_pool_idx( accdb->fork_shmem_pool, acquired );
 
   fd_accdb_fork_t * fork = &accdb->fork_pool[ idx ];
@@ -4023,6 +4026,9 @@ fd_accdb_background( fd_accdb_t * accdb,
         break;
       case FD_ACCDB_CMD_PURGE:
         background_purge( accdb, fork_id );
+        break;
+      case FD_ACCDB_CMD_DRAIN_DEFERRED:
+        drain_deferred_frees( accdb );
         break;
       case FD_ACCDB_CMD_CLEAR_DEFERRED: {
         /* Posted by fd_accdb_reset after it clobbers shared pools.

@@ -550,6 +550,7 @@ struct fd_accdb_shmem_private {
 #define FD_ACCDB_CMD_ADVANCE_ROOT    (1U)
 #define FD_ACCDB_CMD_PURGE           (2U)
 #define FD_ACCDB_CMD_CLEAR_DEFERRED  (3U)
+#define FD_ACCDB_CMD_DRAIN_DEFERRED  (4U)
 
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */

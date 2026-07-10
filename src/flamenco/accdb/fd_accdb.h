@@ -238,7 +238,12 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
    For non-root forks, parent_fork_id must refer to a fork that has
    already been attached.  The ancestry must form a tree and it is
-   undefined behavior to create cycles. */
+   undefined behavior to create cycles.
+
+   If the fork pool is full but contains deferred forks, this call
+   blocks until reader epochs drain and a deferred slot can be reused.
+   The caller should never call this function unless there are either
+   free fork ids or deferred ones. */
 
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,

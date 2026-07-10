@@ -9,6 +9,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -97,6 +98,22 @@ static void
 drain_background( fd_accdb_t * accdb ) {
   int charge_busy = 0;
   fd_accdb_background( accdb, &charge_busy );
+}
+
+typedef struct {
+  fd_accdb_t * accdb;
+  int          stop;
+} test_background_ctx_t;
+
+static void *
+run_background( void * _ctx ) {
+  test_background_ctx_t * ctx = _ctx;
+  while( !FD_VOLATILE_CONST( ctx->stop ) ) {
+    int charge_busy = 0;
+    fd_accdb_background( ctx->accdb, &charge_busy );
+    if( FD_LIKELY( !charge_busy ) ) FD_SPIN_PAUSE();
+  }
+  return NULL;
 }
 
 /* Helper: read a single account via acquire/release.  Returns 1 if
@@ -505,6 +522,35 @@ test_purge( void ) {
 
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* A completed purge leaves its fork slot deferred until a later drain.
+   If the pool is otherwise full, attach_child must request that drain,
+   block for reader quiescence, and retry the allocation. */
+void
+test_attach_child_drains_deferred_fork( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 64UL, 3UL, 64UL, 64UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t keep = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t drop = fd_accdb_attach_child( accdb, root );
+
+  fd_accdb_purge( accdb, drop );
+
+  test_background_ctx_t bg = { .accdb = accdb, .stop = 0 };
+  pthread_t thread;
+  FD_TEST( !pthread_create( &thread, NULL, run_background, &bg ) );
+
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, keep );
+  FD_TEST( child.val==drop.val );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_COMPILER_MFENCE();
+  FD_TEST( !pthread_join( thread, NULL ) );
 
   test_teardown( accdb, fd );
 }
@@ -1315,6 +1361,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_purge ..." ));
   test_purge();
+
+  FD_LOG_NOTICE(( "test_attach_child_drains_deferred_fork ..." ));
+  test_attach_child_drains_deferred_fork();
 
   FD_LOG_NOTICE(( "test_child_inherits_parent ..." ));
   test_child_inherits_parent();
