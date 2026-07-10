@@ -129,7 +129,6 @@ fetch () {
 
   checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
-  checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo lz4     https://github.com/lz4/lz4                  "v1.10.0"
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.1.1"
@@ -388,20 +387,6 @@ install_lz4 () {
   echo "[+] Successfully installed lz4"
 }
 
-install_blst () {
-  cd "$PREFIX/git/blst"
-
-  echo "[+] Building blst"
-  CFLAGS="-O2 -fno-builtin -fPIC -Wall -Wextra -Werror $EXTRA_CFLAGS" ./build.sh
-  echo "[+] Successfully built blst"
-
-  echo "[+] Installing blst to $PREFIX"
-  cp "$PREFIX/git/blst/libblst.a" "$PREFIX/lib/"
-  cp "$PREFIX/git/blst/bindings/blst.h" "$PREFIX/include/"
-  cp "$PREFIX/git/blst/bindings/blst_aux.h" "$PREFIX/include/"
-  echo "[+] Successfully installed blst"
-}
-
 install_openssl () {
   cd "$PREFIX/git/openssl"
 
@@ -549,7 +534,6 @@ install () {
 
   ( install_zstd      )
   ( install_openssl   )
-  ( install_blst      )
   if [[ $DEVMODE == 1 ]]; then
     ( install_lz4       )
     ( install_snappy    )

@@ -108,6 +108,18 @@ https://github.com/supranational/blst (`src/third_party/blst`)
 Cryptographic routines for the BLS12-381 curve by Supranational.
 Written in assembly language and C.
 
+### Zstandard
+
+https://github.com/facebook/zstd (`src/third_party/zstd`)
+
+Data compression library by Meta. Written in C.
+
+### LZ4
+
+https://github.com/lz4/lz4 (`src/third_party/lz4`)
+
+Data compression library. Written in C.
+
 ## External
 
 External dependencies are downloaded and installed when running
@@ -118,12 +130,6 @@ pinned.
 
 All production external dependencies are statically linked into the
 Firedancer executable.
-
-### Zstandard
-
-https://github.com/facebook/zstd
-
-Data compression library by Meta. Written in C.
 
 ### OpenSSL
 

@@ -571,3 +571,28 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 implied.  See the License for the specific language governing
 permissions and limitations under the License.
+
+=======================================================================
+
+'src/third_party/zstd' contains a subset of the Zstandard library
+(tag v1.5.7), taken under its BSD-3-Clause license option (zstd is
+dual-licensed BSD-3-Clause OR GPL-2.0; the GPL option is not used
+and its text is not distributed here).
+
+https://github.com/facebook/zstd
+
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+
+See src/third_party/zstd/LICENSE for the full license text.
+
+=======================================================================
+
+'src/third_party/lz4' contains a subset of the LZ4 library
+(tag v1.10.0, lib/ only, which is BSD-2-Clause licensed).
+
+https://github.com/lz4/lz4
+
+Copyright (c) 2011-2020, Yann Collet
+All rights reserved.
+
+See src/third_party/lz4/LICENSE for the full license text.
