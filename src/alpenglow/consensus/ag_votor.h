@@ -6,8 +6,6 @@
 #include "ag_cert.h"
 #include "ag_pool_event.h"
 
-#define AG_VOTOR_PARENTS_READY_MAX (8UL)
-
 #define AG_CONSENSUS_MESSAGE_VOTE (0U)
 #define AG_CONSENSUS_MESSAGE_CERT (1U)
 
@@ -40,6 +38,14 @@ struct ag_votor_out {
 };
 typedef struct ag_votor_out ag_votor_out_t;
 
+/* BlockInfo in blockstore.rs */
+
+struct ag_block_info {
+  fd_hash_t     hash;
+  ag_block_id_t parent;
+};
+typedef struct ag_block_info ag_block_info_t;
+
 #define AG_VOTOR_BLOCKSTORE_EVENT_FIRST_SHRED   (0U)
 #define AG_VOTOR_BLOCKSTORE_EVENT_BLOCK         (1U)
 #define AG_VOTOR_BLOCKSTORE_EVENT_INVALID_BLOCK (2U)
@@ -58,25 +64,24 @@ struct ag_votor_blockstore_event {
 };
 typedef struct ag_votor_blockstore_event ag_votor_blockstore_event_t;
 
+/* Mirrors SlotState in votor.rs (same field names and order); slot/next
+   are fd_pool/fd_map_chain plumbing.  Option<Hash> fields use the
+   all-zeros hash as None.  parents_ready (a per-slot BTreeSet<BlockId>
+   in Rust) is flattened into a votor-level (slot, parent) map. */
+
 struct __attribute__((aligned(128UL))) ag_votor_slot_state {
-  ulong slot;
-  ulong next;
+  ulong slot; /* map key */
+  ulong next; /* reserved for pool and map_chain */
 
-  int   voted;
-  int   has_voted_notar;
+  int       voted;
   fd_hash_t voted_notar;
-  int   bad_window;
-  int   has_block_notarized;
+  int       bad_window;
   fd_hash_t block_notarized;
-
-  ulong         parents_ready_cnt;
-  ag_block_id_t parents_ready[ AG_VOTOR_PARENTS_READY_MAX ];
 
   int   received_shred;
 
-  int           has_pending_block;
-  ag_block_id_t pending_block_id;
-  ag_block_id_t pending_parent_block_id;
+  int             has_pending_block;
+  ag_block_info_t pending_block;
 
   int   retired;
 };

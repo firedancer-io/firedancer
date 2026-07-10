@@ -169,6 +169,85 @@ ag_skip_cert_try_new( ag_skip_cert_t *                out,
   return AG_CERT_SUCCESS;
 }
 
+static ulong
+agg_stake( ag_aggsig_t const *         agg,
+           ag_validator_info_t const * validators,
+           ulong                       validator_cnt ) {
+  ulong stake = 0UL;
+  for( ulong i=0UL; i<validator_cnt; i++ ) if( ag_aggsig_is_signer( agg, i ) ) stake += validators[i].stake;
+  return stake;
+}
+
+void
+ag_notar_cert_from_agg( ag_notar_cert_t *           out,
+                        ulong                       slot,
+                        fd_hash_t const *           block_hash,
+                        ag_aggsig_t const *         agg,
+                        ag_validator_info_t const * validators,
+                        ulong                       validator_cnt ) {
+  out->slot       = slot;
+  out->block_hash = *block_hash;
+  out->agg_sig    = *agg;
+  out->stake      = agg_stake( agg, validators, validator_cnt );
+}
+
+void
+ag_fast_final_cert_from_agg( ag_fast_final_cert_t *      out,
+                             ulong                       slot,
+                             fd_hash_t const *           block_hash,
+                             ag_aggsig_t const *         agg,
+                             ag_validator_info_t const * validators,
+                             ulong                       validator_cnt ) {
+  out->slot       = slot;
+  out->block_hash = *block_hash;
+  out->agg_sig    = *agg;
+  out->stake      = agg_stake( agg, validators, validator_cnt );
+}
+
+void
+ag_final_cert_from_agg( ag_final_cert_t *           out,
+                        ulong                       slot,
+                        ag_aggsig_t const *         agg,
+                        ag_validator_info_t const * validators,
+                        ulong                       validator_cnt ) {
+  out->slot    = slot;
+  out->agg_sig = *agg;
+  out->stake   = agg_stake( agg, validators, validator_cnt );
+}
+
+void
+ag_notar_fallback_cert_from_aggs( ag_notar_fallback_cert_t *  out,
+                                  ulong                       slot,
+                                  fd_hash_t const *           block_hash,
+                                  ag_aggsig_t const *         notar_agg,
+                                  ag_aggsig_t const *         nf_agg,
+                                  ag_validator_info_t const * validators,
+                                  ulong                       validator_cnt ) {
+  FD_TEST( notar_agg || nf_agg );
+  out->slot       = slot;
+  out->block_hash = *block_hash;
+  if( notar_agg ) out->agg_sig_notar          = *notar_agg; else ag_aggsig_init( &out->agg_sig_notar,          validator_cnt );
+  if( nf_agg    ) out->agg_sig_notar_fallback = *nf_agg;    else ag_aggsig_init( &out->agg_sig_notar_fallback, validator_cnt );
+  out->stake = agg_stake( &out->agg_sig_notar,          validators, validator_cnt )
+             + agg_stake( &out->agg_sig_notar_fallback, validators, validator_cnt );
+  ag_aggsig_merge_sig( &out->agg_sig_notar, &out->agg_sig_notar_fallback );
+}
+
+void
+ag_skip_cert_from_aggs( ag_skip_cert_t *            out,
+                        ulong                       slot,
+                        ag_aggsig_t const *         skip_agg,
+                        ag_aggsig_t const *         sf_agg,
+                        ag_validator_info_t const * validators,
+                        ulong                       validator_cnt ) {
+  out->slot                  = slot;
+  out->agg_sig_skip          = *skip_agg;
+  out->agg_sig_skip_fallback = *sf_agg;
+  out->stake = agg_stake( skip_agg, validators, validator_cnt )
+             + agg_stake( sf_agg,   validators, validator_cnt );
+  ag_aggsig_merge_sig( &out->agg_sig_skip, &out->agg_sig_skip_fallback );
+}
+
 ulong
 ag_cert_slot( ag_cert_t const * self ) {
   switch( self->kind ) {

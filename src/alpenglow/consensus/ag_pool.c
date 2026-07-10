@@ -75,6 +75,23 @@ slot_state_region( ag_pool_t const * self,
   return self->ss_arena + i*self->ss_footprint;
 }
 
+FD_FN_CONST char const *
+ag_pool_strerror( int err ) {
+  switch( err ) {
+  case AG_POOL_SUCCESS:                    return "success";
+  case AG_ADD_VOTE_ERR_SLOT_OUT_OF_BOUNDS: return "slot is either too old or too far in the future";
+  case AG_ADD_VOTE_ERR_UNKNOWN_SIGNER:     return "signer is not a validator in the current epoch";
+  case AG_ADD_VOTE_ERR_INVALID_SIGNATURE:  return "invalid signature on the vote";
+  case AG_ADD_VOTE_ERR_DUPLICATE:          return "duplicate vote";
+  case AG_ADD_VOTE_ERR_SLASHABLE:          return "vote constitutes a slashable offence";
+  case AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS: return "slot is either too old or too far in the future";
+  case AG_ADD_CERT_ERR_THRESHOLD_NOT_MET:  return "stake threshold not met";
+  case AG_ADD_CERT_ERR_INVALID_SIGNATURE:  return "invalid signature on the cert";
+  case AG_ADD_CERT_ERR_DUPLICATE:          return "duplicate cert";
+  default:                                 return "unknown";
+  }
+}
+
 ulong
 ag_pool_align( void ) {
   return alignof(ag_pool_t);
@@ -396,9 +413,6 @@ int
 ag_pool_add_cert( ag_pool_t *             self,
                   ag_cert_t       const * cert,
                   ag_epoch_info_t const * epoch_info ) {
-  FD_TEST( !self->votor_event_cnt );
-  FD_TEST( !self->repair_cnt      );
-
   ulong slot = ag_cert_slot( cert );
 
   ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_ALPENGLOW_SLOTS_PER_EPOCH;
@@ -476,9 +490,6 @@ void
 ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id ) {
-  FD_TEST( !self->votor_event_cnt );
-  FD_TEST( !self->repair_cnt      );
-
   FD_TEST( block_id->slot > parent_id->slot );
 
   /* unlike handle_finalization, add_block does not prune (Rust inlines
@@ -645,9 +656,6 @@ ag_pool_recover_from_standstill( ag_pool_t * self,
                                  ag_vote_t * votes,
                                  ulong *     votes_cnt,
                                  ulong       votes_max ) {
-  FD_TEST( !self->votor_event_cnt );
-  FD_TEST( !self->repair_cnt      );
-
   ulong slot = ag_pool_finalized_slot( self );
   *certs_cnt = 0UL;
   *votes_cnt = 0UL;

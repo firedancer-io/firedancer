@@ -17,12 +17,13 @@
 #define AG_ADD_VOTE_ERR_DUPLICATE          (-4)
 #define AG_ADD_VOTE_ERR_SLASHABLE          (-5)
 
-/* AddCertError (pool.rs). */
+/* AddCertError (pool.rs).  Disjoint from AG_ADD_VOTE_ERR_* so
+   ag_pool_strerror can map either. */
 
-#define AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS (-1)
-#define AG_ADD_CERT_ERR_THRESHOLD_NOT_MET  (-2)
-#define AG_ADD_CERT_ERR_INVALID_SIGNATURE  (-3)
-#define AG_ADD_CERT_ERR_DUPLICATE          (-4)
+#define AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS (-6)
+#define AG_ADD_CERT_ERR_THRESHOLD_NOT_MET  (-7)
+#define AG_ADD_CERT_ERR_INVALID_SIGNATURE  (-8)
+#define AG_ADD_CERT_ERR_DUPLICATE          (-9)
 
 /* ag_pool_event_t (Rust PoolEvent). */
 
@@ -32,6 +33,12 @@
 typedef struct ag_pool ag_pool_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* ag_pool_strerror converts an AG_POOL_SUCCESS / AG_ADD_VOTE_ERR_* /
+   AG_ADD_CERT_ERR_* code into a cstr (the Rust #[error] strings). */
+
+FD_FN_CONST char const *
+ag_pool_strerror( int err );
 
 FD_FN_CONST ulong
 ag_pool_align( void );

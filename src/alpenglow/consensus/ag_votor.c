@@ -14,11 +14,44 @@
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* SlotState::parents_ready in votor.rs, flattened into one votor-level
+   map keyed by (window start, parent). */
+
+#define AG_VOTOR_PARENTS_READY_MAX (8UL) /* per window start */
+
+struct ag_votor_parent_ready_key {
+  ulong         slot;
+  ag_block_id_t parent;
+};
+typedef struct ag_votor_parent_ready_key ag_votor_parent_ready_key_t;
+
+struct ag_votor_parent_ready {
+  ag_votor_parent_ready_key_t key;
+  ulong                       next;
+};
+typedef struct ag_votor_parent_ready ag_votor_parent_ready_t;
+
+#define POOL_NAME parent_ready_pool
+#define POOL_T    ag_votor_parent_ready_t
+#define POOL_NEXT next
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               parent_ready_map
+#define MAP_ELE_T              ag_votor_parent_ready_t
+#define MAP_KEY_T              ag_votor_parent_ready_key_t
+#define MAP_KEY_EQ(k0,k1)      ((k0)->slot==(k1)->slot && ag_block_id_eq( &(k0)->parent, &(k1)->parent ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(ag_votor_parent_ready_key_t) ))
+#define MAP_NEXT               next
+#include "../../util/tmpl/fd_map_chain.c"
+
 typedef ag_votor_slot_state_t slot_pool_t;
 
 struct __attribute__((aligned(128UL))) ag_votor {
   slot_pool_t *  slot_pool;
   slot_map_t *   slot_map;
+
+  ag_votor_parent_ready_t * parent_ready_pool;
+  parent_ready_map_t *      parent_ready_map;
 
   ushort         validator_index;
   ag_aggsig_sk_t voting_key;
@@ -32,18 +65,29 @@ ag_votor_align( void ) {
   return alignof(ag_votor_t);
 }
 
+static ulong
+parent_ready_max( ulong slot_max ) {
+  return fd_ulong_max( slot_max/AG_ALPENGLOW_SLOTS_PER_WINDOW, 1UL )*AG_VOTOR_PARENTS_READY_MAX;
+}
+
 ulong
 ag_votor_footprint( ulong slot_max ) {
   slot_max = fd_ulong_pow2_up( slot_max );
-  ulong chain_cnt = slot_map_chain_cnt_est( slot_max );
+  ulong chain_cnt    = slot_map_chain_cnt_est( slot_max );
+  ulong pr_max       = parent_ready_max( slot_max );
+  ulong pr_chain_cnt = parent_ready_map_chain_cnt_est( pr_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(ag_votor_t), sizeof(ag_votor_t)            ),
-      slot_pool_align(),   slot_pool_footprint( slot_max ) ),
-      slot_map_align(),    slot_map_footprint ( chain_cnt ) ),
+      alignof(ag_votor_t),       sizeof(ag_votor_t)                          ),
+      slot_pool_align(),         slot_pool_footprint( slot_max )             ),
+      slot_map_align(),          slot_map_footprint ( chain_cnt )            ),
+      parent_ready_pool_align(), parent_ready_pool_footprint( pr_max )       ),
+      parent_ready_map_align(),  parent_ready_map_footprint ( pr_chain_cnt ) ),
     ag_votor_align() );
 }
 
@@ -68,6 +112,26 @@ static ag_votor_slot_state_t const *
 slot_state_query_const( ag_votor_t const * self,
                         ulong              slot ) {
   return slot_map_ele_query_const( self->slot_map, &slot, NULL, self->slot_pool );
+}
+
+static int
+parent_ready_contains( ag_votor_t const *    self,
+                       ulong                 slot,
+                       ag_block_id_t const * parent ) {
+  ag_votor_parent_ready_key_t key = { .slot = slot, .parent = *parent };
+  return !!parent_ready_map_ele_query_const( self->parent_ready_map, &key, NULL, self->parent_ready_pool );
+}
+
+static void
+parent_ready_insert( ag_votor_t *          self,
+                     ulong                 slot,
+                     ag_block_id_t const * parent ) {
+  if( parent_ready_contains( self, slot, parent ) ) return;
+  FD_TEST( parent_ready_pool_free( self->parent_ready_pool ) );
+  ag_votor_parent_ready_t * e = parent_ready_pool_ele_acquire( self->parent_ready_pool );
+  e->key.slot   = slot;
+  e->key.parent = *parent;
+  parent_ready_map_ele_insert( self->parent_ready_map, e, self->parent_ready_pool );
 }
 
 static void
@@ -152,8 +216,8 @@ try_final( ag_votor_t *      self,
            fd_hash_t const * hash ) {
   FD_TEST( slot >= first_unpruned_slot( self ) );
   ag_votor_slot_state_t const * s = slot_state_query_const( self, slot );
-  int notarized   = s && s->has_block_notarized && !memcmp( s->block_notarized.uc, hash->uc, sizeof(fd_hash_t) );
-  int voted_notar = s && s->has_voted_notar     && !memcmp( s->voted_notar.uc,     hash->uc, sizeof(fd_hash_t) );
+  int notarized   = s && !memcmp( s->block_notarized.uc, hash->uc, sizeof(fd_hash_t) );
+  int voted_notar = s && !memcmp( s->voted_notar.uc,     hash->uc, sizeof(fd_hash_t) );
   int not_bad     = !( s && s->bad_window );
   if( notarized && voted_notar && not_bad ) {
     ag_vote_t vote;
@@ -164,29 +228,21 @@ try_final( ag_votor_t *      self,
 }
 
 static int
-try_notar( ag_votor_t *          self,
-           ulong                 slot,
-           ag_block_id_t const * block_id,
-           ag_block_id_t const * parent_block_id ) {
+try_notar( ag_votor_t *            self,
+           ulong                   slot,
+           ag_block_info_t const * block_info ) {
   FD_TEST( slot >= first_unpruned_slot( self ) );
-  fd_hash_t const * hash        = &block_id->hash;
-  ulong             parent_slot = parent_block_id->slot;
-  fd_hash_t const * parent_hash = &parent_block_id->hash;
+  fd_hash_t const * hash        = &block_info->hash;
+  ulong             parent_slot = block_info->parent.slot;
+  fd_hash_t const * parent_hash = &block_info->parent.hash;
   ulong             first_slot  = ag_alpenglow_first_slot_in_window( slot );
 
   if( slot==first_slot ) {
-    int valid_parent = 0;
-    ag_votor_slot_state_t const * s = slot_state_query_const( self, slot );
-    if( s ) {
-      for( ulong i=0UL; i<s->parents_ready_cnt; i++ ) {
-        if( ag_block_id_eq( &s->parents_ready[i], parent_block_id ) ) { valid_parent = 1; break; }
-      }
-    }
-    if( !valid_parent ) return 0;
+    if( !parent_ready_contains( self, slot, &block_info->parent ) ) return 0;
   } else {
     if( parent_slot != slot-1UL ) return 0;
     ag_votor_slot_state_t const * ps = slot_state_query_const( self, parent_slot );
-    int matches = ps && ps->has_voted_notar && !memcmp( ps->voted_notar.uc, parent_hash->uc, sizeof(fd_hash_t) );
+    int matches = ps && !memcmp( ps->voted_notar.uc, parent_hash->uc, sizeof(fd_hash_t) );
     if( !matches ) return 0;
   }
 
@@ -198,7 +254,6 @@ try_notar( ag_votor_t *          self,
 
   ag_votor_slot_state_t * state = slot_state_mut( self, slot );
   state->voted             = 1;
-  state->has_voted_notar   = 1;
   state->voted_notar       = *hash;
   state->has_pending_block = 0;
 
@@ -234,10 +289,9 @@ check_pending_blocks( ag_votor_t * self ) {
        iter = slot_map_iter_next( iter, map, pool ) ) {
     ag_votor_slot_state_t * s = slot_map_iter_ele( iter, map, pool );
     if( !s->has_pending_block ) continue;
-    ulong         slot            = s->slot;
-    ag_block_id_t block_id        = s->pending_block_id;
-    ag_block_id_t parent_block_id = s->pending_parent_block_id;
-    try_notar( self, slot, &block_id, &parent_block_id );
+    ulong           slot       = s->slot;
+    ag_block_info_t block_info = s->pending_block;
+    try_notar( self, slot, &block_info );
   }
 }
 
@@ -262,6 +316,25 @@ prune( ag_votor_t * self ) {
       }
     }
   }
+
+  ag_votor_parent_ready_t * pr_pool = self->parent_ready_pool;
+  parent_ready_map_t *      pr_map  = self->parent_ready_map;
+
+  again = 1;
+  while( again ) {
+    again = 0;
+    for( parent_ready_map_iter_t iter = parent_ready_map_iter_init( pr_map, pr_pool );
+         !parent_ready_map_iter_done( iter, pr_map, pr_pool );
+         iter = parent_ready_map_iter_next( iter, pr_map, pr_pool ) ) {
+      ag_votor_parent_ready_t * e = parent_ready_map_iter_ele( iter, pr_map, pr_pool );
+      if( e->key.slot < cutoff ) {
+        parent_ready_map_ele_remove( pr_map, &e->key, NULL, pr_pool );
+        parent_ready_pool_ele_release( pr_pool, e );
+        again = 1;
+        break;
+      }
+    }
+  }
 }
 
 static void
@@ -273,8 +346,7 @@ handle_cert_created( ag_votor_t *      votor,
     ulong             slot = ag_cert_slot( cert );
 
     ag_votor_slot_state_t * s = slot_state_mut( votor, slot );
-    s->has_block_notarized = 1;
-    s->block_notarized     = *hash;
+    s->block_notarized = *hash;
     try_final( votor, slot, hash );
     break;
   }
@@ -330,16 +402,7 @@ ag_votor_handle_pool_event( ag_votor_t *            votor,
   case AG_POOL_EVENT_PARENT_READY: {
     ulong               slot   = event->inner.parent_ready.slot;
     ag_block_id_t const parent = event->inner.parent_ready.parent;
-    ag_votor_slot_state_t * s = slot_state_mut( votor, slot );
-
-    int present = 0;
-    for( ulong i=0UL; i<s->parents_ready_cnt; i++ ) {
-      if( ag_block_id_eq( &s->parents_ready[i], &parent ) ) { present = 1; break; }
-    }
-    if( !present ) {
-      FD_TEST( s->parents_ready_cnt < AG_VOTOR_PARENTS_READY_MAX );
-      s->parents_ready[ s->parents_ready_cnt++ ] = parent;
-    }
+    parent_ready_insert( votor, slot, &parent );
     check_pending_blocks( votor );
     set_timeouts( votor, slot );
     break;
@@ -405,16 +468,17 @@ ag_votor_handle_blockstore_event( ag_votor_t *                        votor,
     break;
 
   case AG_VOTOR_BLOCKSTORE_EVENT_BLOCK: {
-    ag_block_id_t const block_id        = event->inner.block.block_id;
-    ag_block_id_t const parent_block_id = event->inner.block.parent_block_id;
+    ag_block_info_t const block_info = {
+      .hash   = event->inner.block.block_id.hash,
+      .parent = event->inner.block.parent_block_id,
+    };
     if( has_voted( votor, slot ) ) return;
-    if( try_notar( votor, slot, &block_id, &parent_block_id ) ) {
+    if( try_notar( votor, slot, &block_info ) ) {
       check_pending_blocks( votor );
     } else {
       ag_votor_slot_state_t * s = slot_state_mut( votor, slot );
-      s->has_pending_block        = 1;
-      s->pending_block_id         = block_id;
-      s->pending_parent_block_id  = parent_block_id;
+      s->has_pending_block = 1;
+      s->pending_block     = block_info;
     }
     break;
   }
@@ -468,17 +532,23 @@ ag_votor_new( void *                 shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  slot_max        = fd_ulong_pow2_up( slot_max );
-  ulong chain_cnt = slot_map_chain_cnt_est( slot_max );
+  slot_max           = fd_ulong_pow2_up( slot_max );
+  ulong chain_cnt    = slot_map_chain_cnt_est( slot_max );
+  ulong pr_max       = parent_ready_max( slot_max );
+  ulong pr_chain_cnt = parent_ready_map_chain_cnt_est( pr_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  ag_votor_t * votor     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_votor_t), sizeof(ag_votor_t)              );
-  void *       slot_pool = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),   slot_pool_footprint( slot_max ) );
-  void *       slot_map  = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),    slot_map_footprint ( chain_cnt) );
+  ag_votor_t * votor     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_votor_t),       sizeof(ag_votor_t)                          );
+  void *       slot_pool = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),         slot_pool_footprint( slot_max )             );
+  void *       slot_map  = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),          slot_map_footprint ( chain_cnt )            );
+  void *       pr_pool   = FD_SCRATCH_ALLOC_APPEND( l, parent_ready_pool_align(), parent_ready_pool_footprint( pr_max )       );
+  void *       pr_map    = FD_SCRATCH_ALLOC_APPEND( l, parent_ready_map_align(),  parent_ready_map_footprint ( pr_chain_cnt ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, ag_votor_align() ) == (ulong)shmem + footprint );
 
   votor->slot_pool               = slot_pool_join( slot_pool_new( slot_pool, slot_max        ) );
   votor->slot_map                = slot_map_join ( slot_map_new ( slot_map,  chain_cnt, seed ) );
+  votor->parent_ready_pool       = parent_ready_pool_join( parent_ready_pool_new( pr_pool, pr_max             ) );
+  votor->parent_ready_map        = parent_ready_map_join ( parent_ready_map_new ( pr_map,  pr_chain_cnt, seed ) );
   votor->validator_index         = validator_index;
   votor->voting_key              = *voting_key;
   votor->highest_final_cert_slot = 0UL;
@@ -487,14 +557,12 @@ ag_votor_new( void *                 shmem,
     ag_votor_slot_state_t * g = slot_state_mut( votor, 0UL  );
     fd_hash_t genesis_hash; fd_memset( &genesis_hash, 0, sizeof(fd_hash_t) );
     g->voted                = 1;
-    g->has_voted_notar      = 1;
     g->voted_notar          = genesis_hash;
-    g->has_block_notarized  = 1;
     g->block_notarized      = genesis_hash;
-    g->parents_ready_cnt    = 1UL;
-    g->parents_ready[0].slot = 0UL;
-    g->parents_ready[0].hash = genesis_hash;
     g->retired              = 1;
+
+    ag_block_id_t genesis_parent = { .slot = 0UL, .hash = genesis_hash };
+    parent_ready_insert( votor, 0UL, &genesis_parent );
   }
 
   set_timeouts( votor, 0UL );

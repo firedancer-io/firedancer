@@ -111,6 +111,52 @@ int ag_final_cert_try_new( ag_final_cert_t *           out,
                            ag_validator_info_t const * validators,
                            ulong                       validator_cnt );
 
+/* from-agg constructors: build a cert directly from Pool's running
+   aggregate(s) (ag_slot_state stores per-kind aggregates, not individual
+   votes); stake is recomputed from the signer bitmask(s) like the
+   vote-array constructors.  For the dual-aggregate certs a NULL aggregate
+   means no votes of that kind (initialized empty, at least one required). */
+
+void
+ag_notar_cert_from_agg( ag_notar_cert_t *           out,
+                        ulong                       slot,
+                        fd_hash_t const *           block_hash,
+                        ag_aggsig_t const *         agg,
+                        ag_validator_info_t const * validators,
+                        ulong                       validator_cnt );
+
+void
+ag_fast_final_cert_from_agg( ag_fast_final_cert_t *      out,
+                             ulong                       slot,
+                             fd_hash_t const *           block_hash,
+                             ag_aggsig_t const *         agg,
+                             ag_validator_info_t const * validators,
+                             ulong                       validator_cnt );
+
+void
+ag_final_cert_from_agg( ag_final_cert_t *           out,
+                        ulong                       slot,
+                        ag_aggsig_t const *         agg,
+                        ag_validator_info_t const * validators,
+                        ulong                       validator_cnt );
+
+void
+ag_notar_fallback_cert_from_aggs( ag_notar_fallback_cert_t *  out,
+                                  ulong                       slot,
+                                  fd_hash_t const *           block_hash,
+                                  ag_aggsig_t const *         notar_agg,
+                                  ag_aggsig_t const *         nf_agg,
+                                  ag_validator_info_t const * validators,
+                                  ulong                       validator_cnt );
+
+void
+ag_skip_cert_from_aggs( ag_skip_cert_t *            out,
+                        ulong                       slot,
+                        ag_aggsig_t const *         skip_agg,
+                        ag_aggsig_t const *         sf_agg,
+                        ag_validator_info_t const * validators,
+                        ulong                       validator_cnt );
+
 FD_FN_PURE ulong ag_cert_slot ( ag_cert_t const * self );
 FD_FN_PURE ulong ag_cert_stake( ag_cert_t const * self );
 
