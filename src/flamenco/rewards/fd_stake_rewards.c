@@ -198,10 +198,8 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                lamports,
                          ulong                credits_observed ) {
 
-  fd_siphash13_t sip[ 1 ];
-  *sip = *stake_rewards->primed_hasher;
-  fd_siphash13_append( sip, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
-  ulong hash64 = fd_siphash13_fini( sip );
+  FD_STATIC_ASSERT( sizeof(fd_pubkey_t)==32UL, partition_hash_size );
+  ulong hash64 = fd_siphash13_fini_x32( stake_rewards->primed_hasher, pubkey->uc );
 
   ulong partition_index = (ulong)((uint128)stake_rewards->fork_info[fork_idx].partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
