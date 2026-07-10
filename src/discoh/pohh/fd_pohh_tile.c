@@ -403,6 +403,8 @@ struct fd_pohh_tile {
     ulong slot_max_cost;
     ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
+    ulong slot_max_allocated_data_per_block;
+    ulong slot_max_data_shreds;
   } limits;
 
   /* The current slot and hashcnt within that slot of the proof of
@@ -582,8 +584,8 @@ struct fd_pohh_tile {
   fd_histf_t slot_done_delay[ 1 ];
   fd_histf_t bundle_init_delay[ 1 ];
 
-  ulong features_activation_avail;
-  fd_shred_features_activation_t features_activation[1];
+  ulong                shred_epoch_msg_avail;
+  fd_shred_epoch_msg_t shred_epoch_msg[1];
 
   ulong parent_slot;
   uchar parent_block_id[ 32 ];
@@ -1090,13 +1092,11 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   leader->bundle->config[0]       = config[0];
   leader->slot                    = slot;
 
-  leader->limits.slot_max_cost                = ctx->limits.slot_max_cost;
-  leader->limits.slot_max_vote_cost           = ctx->limits.slot_max_vote_cost;
-  leader->limits.slot_max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
-  /* FIXME(frankendancer): source these properly from Agave.
-     For now we just hardcode the current values. */
-  leader->limits.slot_max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
-  leader->limits.slot_max_data_shreds              = FD_SHRED_BLK_MAX;
+  leader->limits.slot_max_cost                     = ctx->limits.slot_max_cost;
+  leader->limits.slot_max_vote_cost                = ctx->limits.slot_max_vote_cost;
+  leader->limits.slot_max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
+  leader->limits.slot_max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
+  leader->limits.slot_max_data_shreds              = ctx->limits.slot_max_data_shreds;
 
   memcpy( leader->bundle->last_blockhash,     ctx->reset_hash,    32UL );
   memcpy( leader->bundle->tip_receiver_owner, tip_receiver_owner, 32UL );
@@ -1145,7 +1145,9 @@ fd_ext_poh_begin_leader( void const * bank,
                          ulong        hashcnt_per_tick,
                          ulong        cus_block_limit,
                          ulong        cus_vote_cost_limit,
-                         ulong        cus_account_cost_limit ) {
+                         ulong        cus_account_cost_limit,
+                         ulong        cus_allocated_data_size_limit,
+                         ulong        max_data_shreds ) {
   fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   FD_TEST( !ctx->current_leader_bank );
@@ -1196,9 +1198,11 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
 
-  ctx->limits.slot_max_cost                = cus_block_limit;
-  ctx->limits.slot_max_vote_cost           = cus_vote_cost_limit;
-  ctx->limits.slot_max_write_cost_per_acct = cus_account_cost_limit;
+  ctx->limits.slot_max_cost                     = cus_block_limit;
+  ctx->limits.slot_max_vote_cost                = cus_vote_cost_limit;
+  ctx->limits.slot_max_write_cost_per_acct      = cus_account_cost_limit;
+  ctx->limits.slot_max_allocated_data_per_block = cus_allocated_data_size_limit;
+  ctx->limits.slot_max_data_shreds              = max_data_shreds;
 
   /* clamp and warn if we are underutilizing CUs */
   if( FD_UNLIKELY( ctx->limits.slot_max_cost > FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND ) ) {
@@ -1252,7 +1256,8 @@ next_leader_slot( fd_pohh_tile_t * ctx ) {
 
 extern int
 fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
-                               int           require_tower );
+                               int           require_tower,
+                               int           require_vote_history );
 
 static inline int FD_FN_SENSITIVE
 maybe_change_identity( fd_pohh_tile_t * ctx,
@@ -1270,7 +1275,8 @@ maybe_change_identity( fd_pohh_tile_t * ctx,
   if( FD_UNLIKELY( is_leader ) ) return 0;
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, fd_keyswitch_param_query( ctx->keyswitch )==1 );
+    ulong param = fd_keyswitch_param_query( ctx->keyswitch );
+    int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, (int)(param & 1UL), (int)((param>>1) & 1UL) );
     fd_memzero_explicit( ctx->keyswitch->bytes, 32UL );
     FD_COMPILER_MFENCE();
     if( FD_UNLIKELY( failed==-1 ) ) {
@@ -1339,7 +1345,8 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
                   uchar const * reset_blockhash,     /* The hash of the last tick in the produced block */
                   ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
                   uchar const * parent_block_id,     /* The block id of the parent block */
-                  ulong const * features_activation  /* The activation slot of shred-tile features */ ) {
+                  ulong const * features_activation, /* The activation slot of shred-tile features */
+                  ulong const * shred_slot_limits    /* The shred slot limits for the epoch */ ) {
   fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
@@ -1436,15 +1443,20 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   }
 
   /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
-      the shred tile needs to be aware of.  Since their computation
+      the shred tile needs to be aware of, as well as shred limits that
+      can change at epoch boundaries.  Since their computation
       requires the bank, we are forced (so far) to receive them here
       from the Rust side, before forwarding them to the shred tile as
-      POH_PKT_TYPE_FEAT_ACT_SLOT.  This is not elegant, and it should
+      POH_PKT_TYPE_SHRED_EPOCH_MSG.  This is not elegant, and it should
       be revised in the future (TODO), but it provides a "temporary"
-      working solution to handle features activation. */
-  if( FD_UNLIKELY( !fd_memeq( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) ) ) ) {
-    fd_memcpy( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) );
-    ctx->features_activation_avail = 1UL;
+      working solution. */
+  if( FD_UNLIKELY( !fd_memeq( &ctx->shred_epoch_msg->features_activation, features_activation, sizeof(fd_shred_features_activation_t) ) ) ) {
+    fd_memcpy( &ctx->shred_epoch_msg->features_activation, features_activation, sizeof(fd_shred_features_activation_t) );
+    ctx->shred_epoch_msg_avail = 1UL;
+  }
+  if( FD_UNLIKELY( !fd_memeq( &ctx->shred_epoch_msg->slot_limits, shred_slot_limits, sizeof(fd_shred_slot_limits_t) ) ) ) {
+    fd_memcpy( &ctx->shred_epoch_msg->slot_limits, shred_slot_limits, sizeof(fd_shred_slot_limits_t) );
+    ctx->shred_epoch_msg_avail = 1UL;
   }
 
   fd_ext_poh_write_unlock();
@@ -1549,15 +1561,14 @@ publish_tick( fd_pohh_tile_t *      ctx,
 }
 
 static inline void
-publish_features_activation(  fd_pohh_tile_t *    ctx,
-                              fd_stem_context_t * stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
-  fd_shred_features_activation_t * act_data = (fd_shred_features_activation_t *)dst;
-  fd_memcpy( act_data, ctx->features_activation, sizeof(fd_shred_features_activation_t) );
+publish_shred_epoch_msg( fd_pohh_tile_t *    ctx,
+                         fd_stem_context_t * stem ) {
+  fd_shred_epoch_msg_t * emsg = (fd_shred_epoch_msg_t *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+  *emsg = *ctx->shred_epoch_msg;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sz = sizeof(fd_shred_features_activation_t);
-  ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_FEAT_ACT_SLOT, 0UL );
+  ulong sz = sizeof(fd_shred_epoch_msg_t);
+  ulong sig = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_SHRED_EPOCH_MSG, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
@@ -1586,12 +1597,12 @@ after_credit( fd_pohh_tile_t *    ctx,
   }
   FD_COMPILER_MFENCE();
 
-  if( FD_UNLIKELY( ctx->features_activation_avail ) ) {
-    /* If we have received an update on features_activation, then
-        forward them to the shred tile.  In principle, this should
-        happen at most once per slot. */
-    publish_features_activation( ctx, stem );
-    ctx->features_activation_avail = 0UL;
+  if( FD_UNLIKELY( ctx->shred_epoch_msg_avail ) ) {
+    /* If we received a fresh feature activations or shred slot limits,
+       we need to forward this to the shred tile.  In principle, this
+       happens at most once per slot. */
+    publish_shred_epoch_msg( ctx, stem );
+    ctx->shred_epoch_msg_avail = 0UL;
   }
 
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
@@ -2494,9 +2505,15 @@ unprivileged_init( fd_topo_t const *      topo,
     *ctx->plugin_out = out1( topo, tile, "pohh_plugin" );
   }
 
-  ctx->features_activation_avail = 0UL;
+  ctx->shred_epoch_msg_avail = 0UL;
   for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ )
-    ctx->features_activation->slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
+    ctx->shred_epoch_msg->features_activation.slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
+
+  ctx->shred_epoch_msg->slot_limits.prev_max_shred_idx    = FD_SHRED_BLK_MAX;
+  ctx->shred_epoch_msg->slot_limits.current_max_shred_idx = FD_SHRED_BLK_MAX;
+  ctx->shred_epoch_msg->slot_limits.next_max_shred_idx    = FD_SHRED_BLK_MAX;
+  ctx->shred_epoch_msg->slot_limits.current_start_slot    = 0UL;
+  ctx->shred_epoch_msg->slot_limits.next_start_slot       = ULONG_MAX;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

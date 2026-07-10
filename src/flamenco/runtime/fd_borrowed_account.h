@@ -133,14 +133,13 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
                                   ulong                   lamports );
 
 /* fd_borrowed_account_set_data_from_slice mirrors Agave function
-   solana_sdk::transaction_context::BorrowedAccount::set_data_from_slice.
+   solana_transaction_context::instruction_accounts::BorrowedInstructionAccount::set_data_from_slice.
 
-   In the firedancer client, it also mirrors the Agave function
-   solana_sdk::transaction_context::BorrowedAccount::set_data.
-   Assumes that destination account already has enough space to fit
-   data.  Acquires a writable handle.
+   Firedancer account storage is preallocated, so the destination
+   account must already have enough space to fit data.  Acquires a
+   writable handle.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L864 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L177-L192 */
 
 int
 fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
@@ -148,10 +147,10 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
                                          ulong                   data_sz );
 
 /* fd_borrowed_account_set_data_length mirrors Agave function
-   solana_sdk::transaction_context::BorrowedAccount::set_data_length.
+   solana_transaction_context::instruction_accounts::BorrowedInstructionAccount::set_data_length.
 
    Acquires a writable handle. Returns 0 on success.
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L882 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L194-L207 */
 
 int
 fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
@@ -344,7 +343,7 @@ fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_
 /* fd_borrowed_account_can_data_be_resized mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::can_data_be_resized
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1092 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L351-L357 */
 
 int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,

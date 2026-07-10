@@ -94,6 +94,32 @@ https://gitlab.com/bzip2/bzip2 (`src/third_party/bzip2`)
 
 Data compression library. Written in C.
 
+### s2n-bignum
+
+https://github.com/awslabs/s2n-bignum (`src/third_party/s2n-bignum`)
+
+Collection of cryptographic integer arithmetic routines by AWS Labs.
+Written in assembly language.  Pinned by commit SHA.
+
+### blst
+
+https://github.com/supranational/blst (`src/third_party/blst`)
+
+Cryptographic routines for the BLS12-381 curve by Supranational.
+Written in assembly language and C.
+
+### Zstandard
+
+https://github.com/facebook/zstd (`src/third_party/zstd`)
+
+Data compression library by Meta. Written in C.
+
+### LZ4
+
+https://github.com/lz4/lz4 (`src/third_party/lz4`)
+
+Data compression library. Written in C.
+
 ## External
 
 External dependencies are downloaded and installed when running
@@ -105,31 +131,11 @@ pinned.
 All production external dependencies are statically linked into the
 Firedancer executable.
 
-### Zstandard
-
-https://github.com/facebook/zstd
-
-Data compression library by Meta. Written in C.
-
-### s2n-bignum
-
-https://github.com/awslabs/s2n-bignum
-
-Collection of cryptographic integer arithmetic routines by AWS Labs.
-Written in assembly language.
-
 ### OpenSSL
 
 https://github.com/openssl/openssl
 
 Widely used TLS library. Written in C.
-
-### blst
-
-https://github.com/supranational/blst
-
-Cryptographic routines for the BLS12-381 curve by Supranational.
-Written in assembly language and C.
 
 ---
 

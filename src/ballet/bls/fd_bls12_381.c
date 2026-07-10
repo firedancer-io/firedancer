@@ -1,7 +1,7 @@
 #include "fd_bls12_381.h"
 #include "../bigint/fd_uint256.h"
 
-#include <blst.h>
+#include "../../third_party/blst/bindings/blst.h"
 
 /* Scalar */
 

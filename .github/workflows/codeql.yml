@@ -56,8 +56,6 @@ jobs:
           queries: ./contrib/codeql/src/nightly
           config: |
               disable-default-queries: true
-              paths-ignore:
-                - src/third_party
       - if: matrix.build-mode == 'manual'
         shell: bash
         run: |

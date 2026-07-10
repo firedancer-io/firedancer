@@ -394,7 +394,7 @@ if [[ $NO_GCC -ne 1 ]]; then
             inf "Skipping - $compiler $MACHINE $target\n"
             continue
           fi
-          FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} MACHINE=${MACHINE} CC=gcc CXX=g++ make -j "$target" >> "$LOG_FILE" 2>&1
+          FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} MACHINE=${MACHINE} CC=gcc make -j "$target" >> "$LOG_FILE" 2>&1
           if [[ $? -ne 0 ]]; then
             FAILED+=( "$target" )
             FAIL=1
@@ -412,7 +412,7 @@ if [[ $NO_GCC -ne 1 ]]; then
           echo "  ./deps.sh nuke"
           echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=gcc CXX=g++ ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=gcc CXX=g++ make -j ${FAILED[*]}"
+          echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=gcc make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
             cat "$LOG_FILE"
@@ -512,7 +512,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
             inf "Skipping - $compiler $MACHINE $target\n"
             continue
           fi
-          FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} MACHINE=${MACHINE} CC=clang CXX=clang++ make -j "$target" >> "$LOG_FILE" 2>&1
+          FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} MACHINE=${MACHINE} CC=clang make -j "$target" >> "$LOG_FILE" 2>&1
           if [[ $? -ne 0 ]]; then
             FAILED+=( "$target" )
             FAIL=1
@@ -529,7 +529,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
           echo "  ./deps.sh nuke"
           echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=clang CXX=clang++ ./deps.sh +dev fetch check install"
           echo "  make -j distclean"
-          echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=clang CXX=clang++ make -j ${FAILED[*]}"
+          echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=clang make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
             err "Failure Logs:\n"
             cat "$LOG_FILE"

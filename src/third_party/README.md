@@ -13,8 +13,7 @@ Each dependency gets one directory, `src/third_party/<dep>/`,
 containing:
 
 - **Upstream sources**, copied verbatim.  Do not hand-edit vendored
-  files; fix bugs upstream or carry a patch file applied at build time
-  (see `picohttpparser/`).
+  files; fix bugs upstream.
 - **`vendor.sh`** (or `fetch.sh`) — non-interactive re-import script
   pinned to an exact upstream tag or commit, with sha256 verification
   of every imported file where practical (see `bzip2/vendor.sh` for
@@ -73,3 +72,8 @@ containing:
 | `fiat-crypto/` | https://github.com/mit-plv/fiat-crypto (generated output) | MIT/Apache-2.0/BSD-1-Clause |
 | `nanopb/` | https://github.com/nanopb/nanopb | zlib |
 | `picohttpparser/` | https://github.com/h2o/picohttpparser | MIT/Perl |
+| `s2n-bignum/` | https://github.com/awslabs/s2n-bignum | Apache-2.0/ISC/MIT-0 |
+| `blst/` | https://github.com/supranational/blst | Apache-2.0 |
+| `zstd/` | https://github.com/facebook/zstd | BSD-3-Clause (of dual BSD/GPL-2) |
+| `lz4/` | https://github.com/lz4/lz4 (lib/ only) | BSD-2-Clause |
+| `zlib/` | https://github.com/madler/zlib (deflate side only) | zlib |

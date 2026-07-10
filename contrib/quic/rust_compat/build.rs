@@ -18,8 +18,6 @@ fn main() {
     lib_path.push("lib");
     println!("cargo:rustc-link-search={}", lib_path.to_str().unwrap());
 
-    let opt_lib_path = firedancer_path.join("opt").join("lib");
-    println!("cargo:rustc-link-search={}", opt_lib_path.to_str().unwrap());
     for lib in &[
         "fd_quic",
         "fd_waltz", // net
@@ -36,11 +34,6 @@ fn main() {
         );
     }
 
-    println!("cargo:rustc-link-lib=static=s2nbignum");
-    println!(
-        "cargo:rerun-if-changed={}",
-        opt_lib_path.join("libs2nbignum.a").to_str().unwrap()
-    );
     println!("cargo:rustc-link-lib=stdc++");
 
     let mut include_path = build_path.clone();

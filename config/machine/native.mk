@@ -19,13 +19,11 @@ ifeq ($(FD_IS_GNU),1)
 endif
 
 ifdef FD_USING_GCC
-  CXX?=$(dir $(shell which $(CC)))g++
-  LD?=$(CXX)
+  LD?=$(CC)
   include config/base.mk
 include config/extra/with-gcc.mk
 else ifdef FD_USING_CLANG
-  CXX?=$(dir $(shell which $(CC)))clang++
-  LD?=$(CXX)
+  LD?=$(CC)
   include config/base.mk
 include config/extra/with-clang.mk
 endif

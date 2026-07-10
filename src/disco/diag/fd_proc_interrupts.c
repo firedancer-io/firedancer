@@ -3,32 +3,40 @@
 #include "../../util/io/fd_io.h" /* fd_io_buffered_istream */
 #include <ctype.h> /* isdigit */
 
-static void
+/* The skip_* helpers consume a run of bytes from is.  Each returns 1 if
+   it stopped at a genuine terminator and 0 if it consumed every
+   buffered byte without reaching a terminator. */
+
+static int
 skip_spaces( fd_io_buffered_istream_t * is ) {
   char const * peek    = fd_io_buffered_istream_peek   ( is );
   ulong        peek_sz = fd_io_buffered_istream_peek_sz( is );
   ulong j;
   for( j=0UL; j<peek_sz && peek[j]==' '; j++ ) {}
   fd_io_buffered_istream_skip( is, j );
+  return j<peek_sz; /* complete iff we stopped on a non-space */
 }
 
-static void
+static int
 skip_token( fd_io_buffered_istream_t * is ) {
   char const * peek    = fd_io_buffered_istream_peek   ( is );
   ulong        peek_sz = fd_io_buffered_istream_peek_sz( is );
   ulong j;
   for( j=0UL; j<peek_sz && peek[j]!=' ' && peek[j]!='\n'; j++ ) {}
   fd_io_buffered_istream_skip( is, j );
+  return j<peek_sz; /* complete iff we stopped on a delimiter */
 }
 
-static void
+static int
 skip_line( fd_io_buffered_istream_t * is ) {
   char const * peek    = fd_io_buffered_istream_peek   ( is );
   ulong        peek_sz = fd_io_buffered_istream_peek_sz( is );
   ulong j;
   for( j=0UL; j<peek_sz && peek[j]!='\n'; j++ ) {}
-  if( j<peek_sz && peek[j]=='\n' ) j++;
+  int complete = j<peek_sz; /* found the '\n' */
+  if( complete ) j++;       /* consume the '\n' */
   fd_io_buffered_istream_skip( is, j );
+  return complete;
 }
 
 /* read_ulong consumes a decimal ulong from buffered unconsumed chars in
@@ -51,8 +59,8 @@ read_ulong( fd_io_buffered_istream_t * is ) {
 
 static int
 read_until( fd_io_buffered_istream_t * is,
-            ulong                      min_sz,
-            void (*skip)( fd_io_buffered_istream_t * is ) ) {
+           ulong                      min_sz,
+           int (*skip)( fd_io_buffered_istream_t * is ) ) {
 
   ulong buf_sz = fd_io_buffered_istream_rbuf_sz( is );
   min_sz = fd_ulong_min( min_sz, buf_sz );
@@ -60,8 +68,7 @@ read_until( fd_io_buffered_istream_t * is,
   /* Read until 'skip' leaves some bytes */
 
   for(;;) {
-    skip( is );
-    if( fd_io_buffered_istream_peek_sz( is )>0 ) break;
+    if( skip( is ) ) break; /* unit complete */
     int err = fd_io_buffered_istream_fetch( is );
     if( err==0 ) {
       continue;
@@ -185,6 +192,7 @@ fd_proc_interrupts_colwise( int   fd,
 
     /* Read prefix */
     err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
     if( !isdigit( ((char const *)fd_io_buffered_istream_peek( is ))[0] ) ) {
@@ -249,6 +257,7 @@ proc_interrupts_named_row( int          fd,
 
   for(;;) {
     err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
 
@@ -323,6 +332,7 @@ fd_proc_softirqs_sum( int   fd,
 
     /* Read prefix */
     err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
 
@@ -387,6 +397,7 @@ fd_proc_stat_irq_ticks( int   fd,
   int   err;
   for(;;) {
     err = read_until( is, 64UL, skip_spaces );
+    if( FD_UNLIKELY( err==-1 ) ) return cpu_cnt; /* end of input */
     if( FD_UNLIKELY( err!=0 ) ) goto failed;
     if( fd_io_buffered_istream_peek_sz( is )==0 ) return cpu_cnt;
 

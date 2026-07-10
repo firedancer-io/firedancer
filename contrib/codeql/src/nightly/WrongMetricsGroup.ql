@@ -9,6 +9,7 @@
 
 import cpp
 import fd_topo_run_tile
+import filter
 
 class Tile extends File {
   Tile() { this.getBaseName().matches("%_tile.%") }
@@ -23,6 +24,7 @@ class Tile extends File {
 
 from ArrayExpr arrayAccess, MacroAccess ma, Tile t, string metricsGroup
 where
+  included(arrayAccess.getLocation()) and
   arrayAccess.getArrayBase().toString() = "fd_metrics_tl" and
   inmacroexpansion(arrayAccess.getArrayOffset(), ma) and
   ma.getMacroName().matches("FD_METRICS_%") and

@@ -292,7 +292,16 @@ struct fd_txn_out {
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
-    uchar      executable_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+    int        executable_from_parent[ MAX_TX_ACCOUNT_LOCKS ]; /* 1 => read-only copy from the parent fork (loader gates on pd_write); 0 => current-fork copy (loader keeps the slot check) */
+    int        executable_pd_write[ MAX_TX_ACCOUNT_LOCKS ];    /* probe result: deploy-status-changing write committed on the current fork this slot */
+    ulong      executable_cur_len[ MAX_TX_ACCOUNT_LOCKS ];     /* current-fork committed data length, ULONG_MAX if none; for loaded-account-size accounting */
+
+    /* Programdata deployed this slot has no executable[] entry, but
+       Agave still counts its size toward loaded-accounts-data-size
+       before the invoke fails; recorded here at setup. */
+    ushort      executable_skipped_cnt;
+    fd_pubkey_t executable_skipped_key[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       executable_skipped_len[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */

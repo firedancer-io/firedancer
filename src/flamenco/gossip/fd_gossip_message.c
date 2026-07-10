@@ -388,13 +388,12 @@ deser_contact_info( fd_gossip_value_t * value,
     SKIP_BYTES( bytes_len, payload, payload_sz );
   }
 
-  /* Duplicate IPs are not allowed */
+  /* Ipv6 and duplicate IPs are not allowed
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/gossip/src/contact_info.rs#L667-L676 */
   for( ulong i=0UL; i<addrs_len; i++ ) {
-    for( ulong j=0UL; j<addrs_len; j++ ) {
-      if( i==j ) continue;
-      if( is_ip6[ i ] != is_ip6[ j ] ) continue;
-      if( FD_LIKELY( !is_ip6[ i ] ) ) CHECK( ips[ i ].ip4!=ips[ j ].ip4 );
-      else CHECK( memcmp( ips[ i ].ip6, ips[ j ].ip6, 16UL ) );
+    CHECK( !is_ip6[ i ] );
+    for( ulong j=0UL; j<i; j++ ) {
+      CHECK( ips[ i ].ip4!=ips[ j ].ip4 );
     }
   }
 

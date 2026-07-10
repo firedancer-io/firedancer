@@ -1812,7 +1812,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x12\xc0\xcc\x9e\x1c\x42\x5c\xf5\xc7\xde\x6c\x39\x5e\xc1\xbf\xdc\x21\x5a\x01\x3e\x68\x94\x70\x0e\x15\xa2\x20\x46\x17\x7a\xfb\x7b"},
                                  /* 2GCrNXbzmt4xrwdcKS2RdsLzsgu4V5zHAemW57pcHT6a */
     .name                      = "remove_simple_vote_from_cost_model",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, limit_instruction_accounts)>>3,
     .id                        = {"\x52\xd1\xb6\xb3\x5a\x56\x28\x74\x22\x0c\xa4\x14\xc4\x5b\xf8\xb5\x41\xa9\xab\xc4\xe9\x73\x7d\xf5\xc7\x62\x41\x5a\x84\xd7\x5b\x33"},

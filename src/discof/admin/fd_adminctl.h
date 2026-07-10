@@ -33,6 +33,7 @@
 
 #define FD_ADMINCTL_CMD_IDLE           (0UL)
 #define FD_ADMINCTL_CMD_ADD_AUTH_VOTER (1UL)
+#define FD_ADMINCTL_CMD_SET_IDENTITY   (2UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -44,6 +45,14 @@
 
 /* App-specific command result codes.
    NOTE: It is important these codes start at 2UL. */
+
+struct fd_adminctl_add_auth_voter_v1 {
+  ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
+  uchar keypair[ 64UL ];
+};
+typedef struct fd_adminctl_add_auth_voter_v1 fd_adminctl_add_auth_voter_t;
+#define FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION (1UL)
+
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_PAYLOAD_TOO_SMALL           (2UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
@@ -51,13 +60,17 @@
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS             (6UL)
 #define FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER        (7UL)
 
-#define FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION (1UL)
-
-struct fd_adminctl_add_auth_voter_v1 {
-  ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
+struct fd_adminctl_set_identity_v1 {
+  ulong version; /* ==FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION */
   uchar keypair[ 64UL ];
 };
-typedef struct fd_adminctl_add_auth_voter_v1 fd_adminctl_add_auth_voter_t;
+typedef struct fd_adminctl_set_identity_v1 fd_adminctl_set_identity_t;
+#define FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION (1UL)
+
+#define FD_SET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL           (2UL)
+#define FD_SET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
+#define FD_SET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
+#define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH            (5UL)
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 

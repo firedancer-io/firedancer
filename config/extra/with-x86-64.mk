@@ -12,6 +12,9 @@ endif
 # -falign-functions since Clang/LLVM 7
 # -falign-loops     since Clang/LLVM 13
 
+FD_HAS_X86:=1
+FD_ARCH_SUPPORTS_SANDBOX:=1
+
 ifndef FD_NODEPS
 include config/extra/with-s2nbignum.mk
 include config/extra/with-blst.mk
@@ -20,6 +23,3 @@ include config/extra/with-lz4.mk
 include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
 endif
-
-FD_HAS_X86:=1
-FD_ARCH_SUPPORTS_SANDBOX:=1

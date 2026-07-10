@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <s2n-bignum.h>
+#include "../../third_party/s2n-bignum/include/s2n-bignum.h"
 
 #ifndef __ADX__
 #define curve25519_x25519_byte      curve25519_x25519_byte_alt

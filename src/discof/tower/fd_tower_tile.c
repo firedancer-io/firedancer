@@ -1182,7 +1182,7 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
        count_vote_txn will reject txns whose signer can't match. */
 
     fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, pubkey.uc );
-    if( FD_LIKELY( ro.lamports ) ) {
+    if( FD_LIKELY( ro.lamports && fd_vsv_is_correct_size_owner_and_init( ro.owner, ro.data, ro.data_len ) ) ) {
       fd_pubkey_t identity[1];
       ulong dummy_idx;
       vote_account_config( ctx, ro.data, ro.data_len, epoch, &vtr->auth_vtr, &dummy_idx, identity );

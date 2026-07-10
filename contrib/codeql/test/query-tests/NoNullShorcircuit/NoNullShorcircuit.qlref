@@ -1,0 +1,2 @@
+query: NoNullShorcircuit.ql
+postprocess: InlineExpectationsTestQuery.ql
