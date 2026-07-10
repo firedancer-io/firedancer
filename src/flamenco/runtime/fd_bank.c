@@ -413,7 +413,7 @@ fd_banks_new( void * shmem,
   banks_data->max_stake_accounts = max_stake_accounts;
   banks_data->max_vote_accounts  = max_vote_accounts;
   banks_data->root_idx           = ULONG_MAX;
-  banks_data->evict_rr_idx       = 0UL;
+  banks_data->evict_rr_idx       = seed;
   banks_data->prunable_idx       = ULONG_MAX;
   banks_data->curr_fork_width    = 0UL;
   banks_data->bank_seq           = 1UL;
