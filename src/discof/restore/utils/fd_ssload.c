@@ -520,6 +520,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
      snapshot is in epoch T. */
   for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
+    FD_BASE58_ENCODE_32_BYTES( elem->vote,     vote_out     );
+    FD_BASE58_ENCODE_32_BYTES( elem->identity, identity_out );
 
     fd_vote_stakes_root_insert_key(
         vote_stakes,
@@ -528,8 +530,13 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
         elem->stake,
         elem->commission,
         bank->f.epoch );
+    FD_LOG_DEBUG(( "vote_stakes_insert source=ssload_t1 bank_epoch=%lu epoch_stakes_idx=%lu vote=%s identity=%s stake_t_1=%lu commission_t_1=%u",
+                   bank->f.epoch, t_1_idx, vote_out, identity_out, elem->stake, (uint)elem->commission ));
 
     fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+    int admitted = fd_top_votes_query( top_votes_t_1, (fd_pubkey_t *)elem->vote, NULL, NULL, NULL, NULL, NULL, NULL );
+    FD_LOG_DEBUG(( "top_votes_insert source=ssload_t1 bank_epoch=%lu epoch_stakes_idx=%lu vote=%s identity=%s stake=%lu commission=%u admitted=%d",
+                   bank->f.epoch, t_1_idx, vote_out, identity_out, elem->stake, (uint)elem->commission, admitted ));
 
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
@@ -549,8 +556,13 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   if( has_t_2 ) {
     for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
+      FD_BASE58_ENCODE_32_BYTES( elem->vote,     vote_out     );
+      FD_BASE58_ENCODE_32_BYTES( elem->identity, identity_out );
 
       fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+      int admitted = fd_top_votes_query( top_votes_t_2, (fd_pubkey_t *)elem->vote, NULL, NULL, NULL, NULL, NULL, NULL );
+      FD_LOG_DEBUG(( "top_votes_insert source=ssload_t2 bank_epoch=%lu epoch_stakes_idx=%lu vote=%s identity=%s stake=%lu commission=%u admitted=%d",
+                     bank->f.epoch, t_2_idx, vote_out, identity_out, elem->stake, (uint)elem->commission, admitted ));
       fd_vote_stakes_root_update_meta(
           vote_stakes,
           (fd_pubkey_t *)elem->vote,
@@ -558,6 +570,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
           elem->stake,
           elem->commission,
           bank->f.epoch );
+      FD_LOG_DEBUG(( "vote_stakes_insert source=ssload_t2 bank_epoch=%lu epoch_stakes_idx=%lu vote=%s identity=%s stake_t_2=%lu commission_t_2=%u",
+                     bank->f.epoch, t_2_idx, vote_out, identity_out, elem->stake, (uint)elem->commission ));
     }
   }
 

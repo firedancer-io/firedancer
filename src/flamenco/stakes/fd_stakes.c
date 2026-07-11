@@ -452,6 +452,11 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
 
     fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
+    int admitted = fd_top_votes_query( top_votes_t_1, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+    FD_BASE58_ENCODE_32_BYTES( stake_accum->pubkey.uc, vote_out     );
+    FD_BASE58_ENCODE_32_BYTES( node_account_t_1.uc,    identity_out );
+    FD_LOG_DEBUG(( "top_votes_insert source=epoch_vat bank_epoch=%lu vote=%s identity=%s stake=%lu commission=%u admitted=%d",
+                   bank->f.epoch, vote_out, identity_out, stake_t_1, (uint)commission_t_1, admitted ));
     fd_accdb_unread_one( accdb, &acc );
   }
 
@@ -582,6 +587,10 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
           vote_stakes, vs_child_idx, &scratch[i].pubkey,
           &node_account_t_1, &node_account_t_2,
           0UL, stake_t_2, 0, commission_t_2, 0, 1, bank->f.epoch );
+      FD_BASE58_ENCODE_32_BYTES( scratch[i].pubkey.uc, vote_out     );
+      FD_BASE58_ENCODE_32_BYTES( node_account_t_2.uc,  identity_out );
+      FD_LOG_DEBUG(( "vote_stakes_insert source=epoch_vat_transition bank_epoch=%lu fork_idx=%u vote=%s identity_t_2=%s stake_t_1=0 stake_t_2=%lu commission_t_1=0 commission_t_2=%u exists_t_1=0 exists_t_2=1",
+                     bank->f.epoch, (uint)vs_child_idx, vote_out, identity_out, stake_t_2, (uint)commission_t_2 ));
     }
   }
 }
@@ -806,6 +815,11 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       vote_reward_cnt++;
 
       fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
+      int admitted = fd_top_votes_query( top_votes_t_1, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+      FD_BASE58_ENCODE_32_BYTES( stake_accum->pubkey.uc, vote_out     );
+      FD_BASE58_ENCODE_32_BYTES( node_account_t_1.uc,    identity_out );
+      FD_LOG_DEBUG(( "top_votes_insert source=epoch_no_vat bank_epoch=%lu vote=%s identity=%s stake=%lu commission=%u admitted=%d",
+                     bank->f.epoch, vote_out, identity_out, stake_t_1, (uint)commission_t_1, admitted ));
       fd_accdb_unread_one( accdb, &acc );
     }
 
@@ -817,6 +831,12 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
         commission_t_1, commission_t_2,
         (uchar)exists_t_1, (uchar)exists_t_2,
         bank->f.epoch );
+    FD_BASE58_ENCODE_32_BYTES( stake_accum->pubkey.uc, vote_out       );
+    FD_BASE58_ENCODE_32_BYTES( node_account_t_1.uc,    identity_t_1_out );
+    FD_BASE58_ENCODE_32_BYTES( node_account_t_2.uc,    identity_t_2_out );
+    FD_LOG_DEBUG(( "vote_stakes_insert source=epoch_no_vat bank_epoch=%lu fork_idx=%u vote=%s identity_t_1=%s identity_t_2=%s stake_t_1=%lu stake_t_2=%lu commission_t_1=%u commission_t_2=%u exists_t_1=%d exists_t_2=%d",
+                   bank->f.epoch, (uint)child_idx, vote_out, identity_t_1_out, identity_t_2_out,
+                   stake_t_1, stake_t_2, (uint)commission_t_1, (uint)commission_t_2, exists_t_1, exists_t_2 ));
   }
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
 }
