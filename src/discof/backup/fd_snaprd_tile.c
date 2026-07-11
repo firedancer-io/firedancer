@@ -150,9 +150,11 @@ backup_disk_begin( fd_snaprd_t * ctx ) {
   for( ulong i=0UL; i<part_max; i++ ) {
     fd_accdb_shmem_partition_info_t info[1];
     fd_accdb_shmem_partition_info( ctx->accdb, i, info );
-    /* Freeze the byte ranges for this disk pass.  The active accdb
-       write head can advance while snaprd is reading; following it live
-       would let the parser consume records outside the snapshot pass. */
+    /* the accdb partitions might grow after we save offsets into
+       ctx->part, but we can safely ignore any future data (newly added
+       rooted accounts will have been saved from cache, and non-rooted
+       accounts are ignored regardless) */
+    if( !info->write_offset ) continue;
     ctx->part[ ctx->part_cnt ].file_off = info->file_offset;
     ctx->part[ ctx->part_cnt ].sz       = info->write_offset;
     ctx->part_cnt++;

@@ -135,6 +135,7 @@ fd_backup_tar_file_hdr( fd_tar_meta_t * tar_meta,
                         ulong           sz ) {
   *tar_meta = (fd_tar_meta_t){
     .magic    = { 'u','s','t','a','r',' ' },
+    .version  = { ' ','\0' },
     .mode     = "644",
     .uid      = "0",
     .gid      = "0",
@@ -149,6 +150,7 @@ FD_FN_UNUSED static fd_tar_meta_t *
 fd_backup_tar_dir_hdr( fd_tar_meta_t * tar_meta ) {
   *tar_meta = (fd_tar_meta_t){
     .magic    = { 'u','s','t','a','r',' ' },
+    .version  = { ' ','\0' },
     .mode     = "755",
     .uid      = "0",
     .gid      = "0",

@@ -37,6 +37,12 @@
    or monitoring tools.  The ctx is a user-provided context object from
    when the stem tile was initialized.
 
+     CHECK_CREDIT
+   Is called every iteration of the stem run loop. This callback
+   overrides the default backpressure check (can the run loop produce
+   STEM_BURST frags on any out link without exceeding flow control
+   credits).
+
      BEFORE_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not.  This callback is also still

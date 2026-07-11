@@ -803,7 +803,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->snaprd_in_mtu && ctx->snaprd_in_mtu<=UINT_MAX );
 
   FD_TEST( tile->out_cnt >= 2 );
-  FD_TEST( tile->out_cnt <= SNAPZP_TILE_MAX );
+  FD_TEST( tile->out_cnt <= FD_TOPO_MAX_TILE_OUT_LINKS );
   ctx->zp_cnt = tile->out_cnt - 1UL;
   for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];

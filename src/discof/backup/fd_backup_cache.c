@@ -153,7 +153,7 @@ filter_batch( fd_backup_cache_t * backup,
   uint const                 root_gen = backup->root_generation;
 
   /* filter out non-rooted accounts */
-  static uint const dead_gen = (ulong)UINT_MAX;
+  uint const dead_gen = UINT_MAX;
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
     uint         acc_idx = frag->acc_idx[ i ];
     uint const * gen = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ].key.generation : &dead_gen;

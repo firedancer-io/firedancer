@@ -145,6 +145,9 @@ fd_tar_meta_set_mtime( fd_tar_meta_t * meta,
   return fd_tar_set_octal( meta->mtime, sizeof(meta->mtime), mtime );
 }
 
+/* fd_tar_meta_set_chksum derives the TAR header checksum.  Assumes
+   that the chksum field itself is filled with spaces. */
+
 static inline void
 fd_tar_meta_set_chksum( fd_tar_meta_t * meta ) {
   ulong check = 0UL;

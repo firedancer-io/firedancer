@@ -257,7 +257,8 @@ flush( fd_snapzp_t * ctx ) {
   ctx->raw_buf.pos  = 0UL;
   ctx->raw_buf.size = 0UL;
 
-  /* Prepend compression frame with a TAR header */
+  /* Prepend compression frame with a TAR header
+     (Zstandard frame with a 512 byte uncompressed block) */
   uchar * comp_head = (uchar *)ctx->comp_buf.dst - COMP_HEAD;
   memcpy( comp_head, (uchar[]){0x28,0xB5,0x2F,0xFD,0x60,0x00,0x01,0x01,0x10,0x00}, 10 );
   fd_tar_meta_t meta; fd_backup_tar_file_hdr( &meta, content_usz );

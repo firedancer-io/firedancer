@@ -2454,6 +2454,7 @@ admin_snap_create( fd_replay_tile_t *  ctx,
   }
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_CHECK_CRIT( bank, "invalid published_root_bank_idx" );
   bank->refcnt++;
 
   fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
