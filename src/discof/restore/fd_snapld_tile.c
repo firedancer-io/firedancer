@@ -399,8 +399,8 @@ after_credit( fd_snapld_tile_t *  ctx,
             meta->resolved_slot = resolved_slot;
             fd_memcpy( meta->resolved_hash, fd_sshttp_resolved_hash( ctx->sshttp ), FD_HASH_FOOTPRINT );
             fd_cstr_ncpy( meta->resolved_name, resolved_name, PATH_MAX );
-            FD_LOG_NOTICE(( "redirect resolved to `%s` (slot %lu) for %s snapshot",
-                            resolved_name, resolved_slot, ctx->load_full ? "full" : "incremental" ));
+            FD_LOG_INFO(( "redirect resolved to `%s` (slot %lu) for %s snapshot",
+                          resolved_name, resolved_slot, ctx->load_full ? "full" : "incremental" ));
           }
 
           ctx->sent_meta = 1;
@@ -445,7 +445,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           fd_sshttp_cancel( ctx->sshttp );
           break;
         }
-        FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
+        FD_LOG_INFO(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;

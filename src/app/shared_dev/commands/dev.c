@@ -24,6 +24,7 @@ dev_cmd_args( int *    pargc,
               args_t * args ) {
   args->dev.parent_pipefd = -1;
   args->dev.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+  args->dev.full_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--full-watch" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
   args->dev.no_init_workspaces = fd_env_strip_cmdline_contains( pargc, pargv, "--no-init-workspaces" );
   args->dev.no_agave = fd_env_strip_cmdline_contains( pargc, pargv, "--no-agave"  ) ||
@@ -182,6 +183,7 @@ dev_cmd_fn( args_t *   args,
 
       args_t watch_args;
       watch_args.watch.drain_output_fd = pipefd[0];
+      watch_args.watch.full = args->dev.full_watch;
 
       watch_pid = fork();
       if( !watch_pid ) watch_cmd_fn( &watch_args, config );
@@ -195,10 +197,10 @@ dev_cmd_fn( args_t *   args,
       char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == watch_pid ? "watch" : "unknown";
       int exit_code = 0;
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR(( "%s exited unexpectedly with signal %d (%s)", exited_child, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+        FD_LOG_ERR(( "%s%s%s exited unexpectedly with signal %d %s(%s)%s", fd_log_style_bold(), exited_child, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
         exit_code = WTERMSIG( wstatus );
       } else {
-        FD_LOG_ERR(( "%s exited unexpectedly with code %d", exited_child, WEXITSTATUS( wstatus ) ));
+        FD_LOG_ERR(( "%s%s%s exited unexpectedly with code %d", fd_log_style_bold(), exited_child, fd_log_style_normal(), WEXITSTATUS( wstatus ) ));
         if( FD_UNLIKELY( exited_pid==watch_pid && !WEXITSTATUS( wstatus ) ) ) exit_code = EXIT_FAILURE;
         else exit_code = WEXITSTATUS( wstatus );
       }
@@ -217,6 +219,7 @@ dev_cmd_fn( args_t *   args,
 
       args_t watch_args;
       watch_args.watch.drain_output_fd = pipefd[0];
+      watch_args.watch.full = args->dev.full_watch;
       fd_log_private_restore_stderr = dup( STDERR_FILENO );
       if( FD_UNLIKELY( fd_log_private_restore_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

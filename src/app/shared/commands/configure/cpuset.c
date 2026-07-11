@@ -150,22 +150,22 @@ init( config_t const * config ) {
 
   /* The parent must delegate the cpuset controller before a child can
      use it.  "+cpuset" is idempotent. */
-  FD_LOG_NOTICE(( "RUN: `echo \"+cpuset\" > " SUBTREE_CONTROL "`" ));
+  FD_LOG_NOTICE(( "%sRUN: `echo \"+cpuset\" > " SUBTREE_CONTROL "`%s", fd_log_style_dim(), fd_log_style_normal() ));
   if( FD_UNLIKELY( !write_cstr( SUBTREE_CONTROL, "+cpuset" ) ) )
     FD_LOG_ERR(( "could not enable the cpuset controller in `" SUBTREE_CONTROL "` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_LOG_NOTICE(( "RUN: `mkdir %s`", cgroup ));
+  FD_LOG_NOTICE(( "%sRUN: `mkdir %s`%s", fd_log_style_dim(), cgroup , fd_log_style_normal() ));
   if( FD_UNLIKELY( mkdir( cgroup, 0755 ) && errno!=EEXIST ) )
     FD_LOG_ERR(( "mkdir(%s) failed (%i-%s)", cgroup, errno, fd_io_strerror( errno ) ));
 
   char path[ PATH_MAX ];
   cgroup_path( path, config, "cpuset.cpus" );
-  FD_LOG_NOTICE(( "RUN: `echo \"%s\" > %s`", list, path ));
+  FD_LOG_NOTICE(( "%sRUN: `echo \"%s\" > %s`%s", fd_log_style_dim(), list, path , fd_log_style_normal() ));
   if( FD_UNLIKELY( !write_cstr( path, list ) ) )
     FD_LOG_ERR(( "write(%s,\"%s\") failed (%i-%s)", path, list, errno, fd_io_strerror( errno ) ));
 
   cgroup_path( path, config, "cpuset.cpus.partition" );
-  FD_LOG_NOTICE(( "RUN: `echo \"isolated\" > %s`", path ));
+  FD_LOG_NOTICE(( "%sRUN: `echo \"isolated\" > %s`%s", fd_log_style_dim(), path , fd_log_style_normal() ));
   if( FD_UNLIKELY( !write_cstr( path, "isolated" ) ) )
     FD_LOG_ERR(( "write(%s,\"isolated\") failed (%i-%s). The kernel may be too old for isolated cpuset "
                  "partitions, or a sibling cgroup may have explicitly claimed one of the CPUs `%s`",
@@ -192,7 +192,7 @@ fini( config_t const * config,
   if( FD_UNLIKELY( !write_cstr( path, "member" ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "write(%s,\"member\") failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-  FD_LOG_NOTICE(( "RUN: `rmdir %s`", cgroup ));
+  FD_LOG_NOTICE(( "%sRUN: `rmdir %s`%s", fd_log_style_dim(), cgroup , fd_log_style_normal() ));
   if( FD_UNLIKELY( rmdir( cgroup ) && errno!=ENOENT ) ) {
     if( FD_LIKELY( errno==EBUSY ) ) {
       FD_LOG_ERR(( "Removal of the CPU isolation cgroup `%s` failed because processes are still inside it, "

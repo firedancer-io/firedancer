@@ -154,7 +154,7 @@ fd_topo_wksp_new( fd_topo_t const *          topo,
       long ts = -fd_log_wallclock();
       if( FD_LIKELY( callbacks[ j ]->new ) ) callbacks[ j ]->new( topo, obj );
       long elapsed = fd_log_wallclock() + ts;
-      if( FD_UNLIKELY( elapsed>(1000L*1000L*100L ) ) ) FD_LOG_WARNING(( "fd_topo_wksp_new(%s) took %ld ms", obj->name, elapsed/(1000L*1000L) ));
+      if( FD_UNLIKELY( elapsed>(1000L*1000L*150L ) ) ) FD_LOG_WARNING(( "fd_topo_wksp_new(%s) took %ld ms", obj->name, elapsed/(1000L*1000L) ));
       else if( FD_UNLIKELY( elapsed>(1000L*1000L*5L ) ) ) FD_LOG_INFO(( "fd_topo_wksp_new(%s) took %ld ms", obj->name, elapsed/(1000L*1000L) ));
       break;
     }

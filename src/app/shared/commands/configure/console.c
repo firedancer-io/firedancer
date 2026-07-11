@@ -72,7 +72,7 @@ read_ulong_field( char const * path,
 static void
 write_cstr( char const * path,
             char const * val ) {
-  FD_LOG_NOTICE(( "RUN: `echo \"%s\" > %s`", val, path ));
+  FD_LOG_NOTICE(( "%sRUN: `echo \"%s\" > %s`%s", fd_log_style_dim(), val, path , fd_log_style_normal() ));
 
   int fd = open( path, O_WRONLY );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));

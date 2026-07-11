@@ -51,11 +51,11 @@ maybe_kill( config_t const * config,
   if( FD_LIKELY( cmdline_len>=5UL ) ) {
     if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5UL), "fddev" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is fddev", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfddev%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     } else if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "fdctl" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is fdctl", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfdctl%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
@@ -63,7 +63,7 @@ maybe_kill( config_t const * config,
   if( FD_LIKELY( cmdline_len>=10UL ) ) {
     if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-10UL), "firedancer" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfiredancer%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
@@ -71,7 +71,7 @@ maybe_kill( config_t const * config,
   if( FD_LIKELY( cmdline_len>=14UL ) ) {
     if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-14UL), "firedancer-dev" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer-dev", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfiredancer-dev%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }

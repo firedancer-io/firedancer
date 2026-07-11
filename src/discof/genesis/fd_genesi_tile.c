@@ -227,7 +227,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, msg_sz, 0UL, 0UL, 0UL );
     *charge_busy = 1;
-    FD_LOG_NOTICE(( "loaded local genesis.bin from file `%s`", ctx->genesis_path ));
+    FD_LOG_NOTICE(( "loaded local genesis.bin from file %s%s%s", fd_log_style_dim(), ctx->genesis_path, fd_log_style_normal() ));
 
     ctx->shutdown = 1;
   } else {
@@ -339,8 +339,9 @@ after_credit( fd_genesi_tile_t *  ctx,
     int err = renameat2( ctx->out_dir_fd, basename_partial, ctx->out_dir_fd, basename, RENAME_NOREPLACE );
     if( FD_UNLIKELY( -1==err ) ) FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    FD_LOG_NOTICE(( "retrieved genesis `%s` from peer at http://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2",
-                    ctx->genesis_path, FD_IP4_ADDR_FMT_ARGS( peer.addr ), peer.port ));
+    FD_LOG_NOTICE(( "retrieved genesis %s%s%s from peer at %shttp://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2%s",
+                    fd_log_style_dim(), ctx->genesis_path, fd_log_style_normal(),
+                    fd_log_style_dim(), FD_IP4_ADDR_FMT_ARGS( peer.addr ), peer.port, fd_log_style_normal() ));
 
     ctx->shutdown = 1;
   }
@@ -394,8 +395,11 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   if( FD_LIKELY( ctx->has_expected_genesis_hash && memcmp( ctx->genesis_hash, ctx->expected_genesis_hash, 32UL ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
     FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc,      genesis_hash_b58          );
-    FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
-                 "but the genesis hash derived from the genesis file at `%s` has unexpected hash `%s`", expected_genesis_hash_b58, genesis_path, genesis_hash_b58 ));
+    FD_LOG_ERR(( "An expected genesis hash of %s%s%s has been set in your configuration file at [consensus.expected_genesis_hash] "
+                 "but the genesis hash derived from the genesis file at %s%s%s has unexpected hash %s%s%s",
+                 fd_log_style_bold(), expected_genesis_hash_b58, fd_log_style_normal(),
+                 fd_log_style_dim(), genesis_path, fd_log_style_normal(),
+                 fd_log_style_bold(), genesis_hash_b58, fd_log_style_normal() ));
   }
 }
 

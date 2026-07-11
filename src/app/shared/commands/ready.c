@@ -41,7 +41,7 @@ ready_cmd_fn( args_t *   args,
         FD_LOG_ERR(( "status for tile %s:%lu is in bad state %lu", tile->name, tile->kind_id, status ));
 
       if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 2L*1000*1000*1000L ) ) {
-        FD_LOG_NOTICE(( "waiting for tile %s:%lu to be ready", tile->name, tile->kind_id ));
+        FD_LOG_NOTICE(( "waiting for tile %s%s:%lu%s to be ready", fd_log_style_bold(), tile->name, tile->kind_id, fd_log_style_normal() ));
         printed = 1;
       }
     } while(1);
@@ -63,7 +63,7 @@ ready_cmd_fn( args_t *   args,
       if( FD_LIKELY( reset_slot>=args->ready.ready_slot ) ) break;
 
       if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 4e9L ) ) {
-        FD_LOG_NOTICE(( "waiting for reset slot to reach %lu (currently %lu)", args->ready.ready_slot, reset_slot ));
+        FD_LOG_NOTICE(( "waiting for reset slot to reach %lu %s(currently %lu)%s", args->ready.ready_slot, fd_log_style_dim(), reset_slot, fd_log_style_normal() ));
         printed = 1;
       }
     } while(1);

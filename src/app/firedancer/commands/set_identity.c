@@ -91,7 +91,7 @@ set_identity( args_t *   args,
   ulong result = fd_adminctl_wait( adminctl, slot_idx );
   switch( result ) {
     case FD_ADMINCTL_RESULT_SUCCESS:
-      FD_LOG_NOTICE(( "Validator identity key switched to `%s`", identity_key_base58 ));
+      FD_LOG_NOTICE(( "validator identity key switched to %s%s%s", fd_log_style_bold(), identity_key_base58, fd_log_style_normal() ));
       break;
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_SET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL:

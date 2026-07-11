@@ -3,6 +3,7 @@
 #include "../../shared/fd_action.h"
 
 #include "../../../disco/keyguard/fd_keyload.h"
+#include "../../../ballet/base58/fd_base58.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
 
 #include <unistd.h>
@@ -71,8 +72,12 @@ add_authorized_voter( args_t *   args,
   ulong result = fd_adminctl_wait( adminctl, slot_idx );
   switch( result ) {
     case FD_ADMINCTL_RESULT_SUCCESS:
-      FD_LOG_NOTICE(( "Authorized voter key added successfully" ));
+      {
+      char voter_key_base58[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( public_key, NULL, voter_key_base58 );
+      FD_LOG_NOTICE(( "authorized voter key %s%s%s added successfully", fd_log_style_bold(), voter_key_base58, fd_log_style_normal() ));
       break;
+    }
     case FD_ADD_AUTHORIZED_VOTER_RESULT_PAYLOAD_TOO_SMALL:
     case FD_ADD_AUTHORIZED_VOTER_RESULT_UNSUPPORTED_PAYLOAD_VERSION:
     case FD_ADD_AUTHORIZED_VOTER_RESULT_UNEXPECTED_PAYLOAD_SIZE:

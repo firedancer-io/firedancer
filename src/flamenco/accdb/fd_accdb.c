@@ -1856,7 +1856,7 @@ background_compact( fd_accdb_t * accdb,
   compact->compaction_offset += record_sz;
 
   if( FD_UNLIKELY( compact->compaction_offset>=compact->write_offset ) ) {
-    FD_LOG_NOTICE(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
+    FD_LOG_INFO(( "compaction of partition %lu completed", partition_pool_idx( accdb->partition_pool, compact ) ));
 
     fd_event_accdb_compaction_completed_t ev = {
       .partition_idx      = partition_pool_idx( accdb->partition_pool, compact ),
@@ -1903,7 +1903,7 @@ background_compact( fd_accdb_t * accdb,
       accdb->shmem->shmetrics->in_compaction = 0;
     } else {
       fd_accdb_partition_t * next = compaction_dlist_ele_peek_head( accdb->compaction_dlist[ src_layer ], accdb->partition_pool );
-      FD_LOG_NOTICE(( "compaction of layer %lu partition %lu started", src_layer, partition_pool_idx( accdb->partition_pool, next ) ));
+      FD_LOG_INFO(( "compaction of layer %lu partition %lu started", src_layer, partition_pool_idx( accdb->partition_pool, next ) ));
     }
 
     spin_lock_release( &accdb->shmem->partition_lock );

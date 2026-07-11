@@ -61,6 +61,7 @@ ulong const fd_log_build_info_sz                             = 1UL;
 
 #define TEXT_NORMAL    "\033[0m"
 #define TEXT_BOLD      "\033[1m"
+#define TEXT_DIM       "\033[2m"
 #define TEXT_UNDERLINE "\033[4m"
 #define TEXT_BLINK     "\033[5m"
 
@@ -531,6 +532,10 @@ static int fd_log_private_unclean_exit;
 static int fd_log_private_signal_handler;
 
 int fd_log_colorize     ( void ) { return FD_VOLATILE_CONST( fd_log_private_colorize      ); }
+
+char const * fd_log_style_bold  ( void ) { return fd_log_colorize() ? TEXT_BOLD   : ""; }
+char const * fd_log_style_dim   ( void ) { return fd_log_colorize() ? TEXT_DIM    : ""; }
+char const * fd_log_style_normal( void ) { return fd_log_colorize() ? TEXT_NORMAL : ""; }
 int fd_log_level_logfile( void ) { return FD_VOLATILE_CONST( fd_log_private_level_logfile ); }
 int fd_log_level_stderr ( void ) { return FD_VOLATILE_CONST( fd_log_private_level_stderr  ); }
 int fd_log_level_flush  ( void ) { return FD_VOLATILE_CONST( fd_log_private_level_flush   ); }
@@ -816,10 +821,30 @@ fd_log_private_1( int          level,
     /* 7 */ "EMERG  "
   };
 
+  /* Messages may carry terminal escapes for stderr, keep the logfile
+     plain text. */
+  char const * logfile_msg = msg;
+  static FD_TL char stripped[ FD_LOG_BUF_SZ ];
+  if( FD_UNLIKELY( strchr( msg, '\033' ) ) ) {
+    char const * s = msg;
+    char *       w = stripped;
+    while( *s ) {
+      if( FD_UNLIKELY( s[0]=='\033' && s[1]=='[' ) ) {
+        s += 2;
+        while( *s && !( (*s>='@') & (*s<='~') ) ) s++;
+        if( *s ) s++;
+      } else {
+        *w++ = *s++;
+      }
+    }
+    *w = '\0';
+    logfile_msg = stripped;
+  }
+
   if( to_logfile )
     fd_log_private_fprintf_0( log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
                               level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                              fd_log_app(),fd_log_group(),thread, file,line,func, msg );
+                              fd_log_app(),fd_log_group(),thread, file,line,func, logfile_msg );
 
   if( to_stderr ) {
     static char const * color_level_cstr[] = {
@@ -835,9 +860,12 @@ fd_log_private_1( int          level,
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
     char const * stem = strrchr( file, '/' );
     char const * file_name = stem ? stem+1 : file;
-    fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
-                              fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
-                              now_short_cstr, tid,cpu,thread, file_name, line, msg );
+    if( FD_LIKELY( fd_log_private_colorize ) )
+      fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s " TEXT_DIM "%s" TEXT_NORMAL " %-9s " TEXT_DIM "%s(%i):" TEXT_NORMAL " %s\n",
+                                color_level_cstr[level], now_short_cstr, thread, file_name, line, msg );
+    else
+      fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s %s %-9s %s(%i): %s\n",
+                                level_cstr[level], now_short_cstr, thread, file_name, line, msg );
   }
 
   if( level<fd_log_level_flush() ) return;
@@ -1004,7 +1032,13 @@ fd_log_private_open_path( int          cmdline,
       fd_log_private_fprintf_0( STDERR_FILENO, "open failed (--log-path \"%s\"); unable to boot (%d-%s)\n", fd_log_private_path, errno, fd_io_strerror( errno ) );
       exit(1);
     }
-    fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+    /* When a process reruns itself (e.g. elevating to root) it passes
+       the already announced log path along, don't print it twice. */
+    char const * announced = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "FD_LOG_PATH_ANNOUNCED", NULL );
+    if( FD_LIKELY( !announced || strcmp( announced, fd_log_private_path ) ) ) {
+      if( fd_log_colorize() ) fd_log_private_fprintf_0( STDERR_FILENO, TEXT_DIM "Log at \"%s\"" TEXT_NORMAL "\n", fd_log_private_path );
+      else                    fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+    }
   }
   return log_fileno;
 }

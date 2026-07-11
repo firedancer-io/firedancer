@@ -520,7 +520,7 @@ purge_stale( fd_txncache_t * tc ) {
      Unfortunately, frontier eviction means that any blockcache in the
      fork tree can have stale transactions. */
   purge_stale_on_fork( tc, root );
-  FD_LOG_NOTICE(( "purge_stale: txnpages_free %hu -> %hu", free_before, tc->shmem->txnpages_free_cnt ));
+  FD_LOG_WARNING(( "purge_stale: txnpages_free %hu -> %hu", free_before, tc->shmem->txnpages_free_cnt ));
 }
 
 void

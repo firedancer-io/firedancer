@@ -282,8 +282,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       ctx->peer_sat_hwm_nanos = now;
     } else if( FD_UNLIKELY( peer_cnt>1UL && ctx->peer_sat_hwm_nanos!=0L &&
                             (now-ctx->peer_sat_hwm_nanos)>FD_GOSSIP_PEER_SAT_QUIET_NS ) ) {
-      FD_LOG_NOTICE(( "gossip peer table saturated (%lu peers, quiet for %ld ms)",
-                      peer_cnt, (now-ctx->peer_sat_hwm_nanos)/(1000L*1000L) ));
+      FD_LOG_INFO(( "gossip peer table saturated (%lu peers, quiet for %ld ms)",
+                    peer_cnt, (now-ctx->peer_sat_hwm_nanos)/(1000L*1000L) ));
       fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_PEER_SATURATED, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
       ctx->peer_sat_published = 1;
       *opt_poll_in = 0;
