@@ -59,6 +59,11 @@ parent_signal( int sig ) {
   if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
   if( FD_LIKELY( watch_pid ) )      kill( watch_pid, SIGKILL );
 
+  /* Skip the logfile fsync for the shutdown message: it can stall for
+     many seconds behind dirty page writeback (e.g. freshly written
+     snapshots), and durability does not matter when exiting cleanly. */
+  fd_log_level_flush_set( 5 );
+
   if( FD_LIKELY( -1!=fd_log_private_restore_stderr ) ) {
     if( FD_UNLIKELY( -1==dup2( fd_log_private_restore_stderr, STDERR_FILENO ) ) ) FD_LOG_STDOUT(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
