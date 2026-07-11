@@ -39,6 +39,7 @@
 #include "../../util/fd_util.h"
 #include "../../util/racesan/fd_racesan_async.h"
 #include "../../util/racesan/fd_racesan_weave.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -279,6 +280,32 @@ struct fiber {
     struct {
       int steps;        /* number of fd_accdb_background calls to issue */
     } compact_loop;
+
+    struct {
+      fd_accdb_fork_id_t fork_id;
+      uchar              pubkey[ 32UL ];
+    } probe;
+
+    struct {
+      fd_accdb_fork_id_t fork_id;
+      uchar              pubkey[ 32UL ];
+      int                pd_write;
+    } pd_commit;
+
+    struct {
+      fd_accdb_fork_id_t fork_w;          /* executing fork: acquire_a X writable  */
+      fd_accdb_fork_id_t fork_r;          /* programdata fork: acquire_b D ro      */
+      uchar              pubkey_x[ 32UL ];
+      uchar              pubkey_d[ 32UL ];
+      ulong              expect_lamports; /* D stability oracle (0 = don't check)  */
+      uchar              expect_owner0;
+    } acquire_ab;
+
+    struct {
+      fd_accdb_fork_id_t fork_id;
+      uchar              pubkey[ 32UL ];
+      int                rounds;
+    } overwrite_n;
   };
 };
 typedef struct fiber fiber_t;
@@ -601,6 +628,154 @@ fiber_compact_loop( fiber_t *    fiber,
   fiber->accdb              = accdb;
   fiber->compact_loop.steps = steps;
   fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_compact_loop_exec, fiber );
+  return fiber->async;
+}
+
+/* probe fiber: runs fd_accdb_probe_pd_this_fork on fork_id.  Asserts the
+   result is self-consistent (pd in {0,1}; a gen-match return implies a
+   defined data_len) and, above all, never crashes when racing a
+   concurrent writer that toggles the pd_write bit / rewrites the chain
+   head.  Both a pre- and post-commit answer are acceptable. */
+static void
+fiber_probe_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  int   pd  = 7;          /* poison: probe must overwrite */
+  ulong len = 0xdeadUL;
+  int   r   = fd_accdb_probe_pd_this_fork( f->accdb, f->probe.fork_id, f->probe.pubkey, &pd, &len );
+  FD_TEST( pd==0 || pd==1 );
+  FD_TEST( r==0 || r==1 );
+  if( !r ) FD_TEST( len==0xdeadUL ); /* no gen-match => out_data_len untouched */
+}
+
+static fd_racesan_async_t *
+fiber_probe( fiber_t *          fiber,
+             fd_accdb_t *       accdb,
+             fd_accdb_fork_id_t fork_id,
+             uchar const *      pubkey ) {
+  fiber->accdb          = accdb;
+  fiber->probe.fork_id  = fork_id;
+  memcpy( fiber->probe.pubkey, pubkey, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_probe_exec, fiber );
+  return fiber->async;
+}
+
+/* pd_commit fiber: an overwrite commit that sets pd_write, exercising the
+   OR-sticky bit CAS in fd_accdb_release racing the probe walk above. */
+static void
+fiber_pd_commit_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  uchar const * pks[1] = { f->pd_commit.pubkey };
+  int wr[1] = { 1 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( f->accdb, f->pd_commit.fork_id, 1UL, pks, wr, acc );
+  acc[0].lamports = LAMP_B;
+  acc[0].data_len = 0UL;
+  memset( acc[0].owner, 0, 32UL ); acc[0].owner[0] = TAG_B;
+  acc[0].commit   = 1;
+  acc[0].pd_write = f->pd_commit.pd_write;
+  fd_accdb_release( f->accdb, 1UL, acc );
+}
+
+static fd_racesan_async_t *
+fiber_pd_commit( fiber_t *          fiber,
+                 fd_accdb_t *       accdb,
+                 fd_accdb_fork_id_t fork_id,
+                 uchar const *      pubkey,
+                 int                pd_write ) {
+  fiber->accdb            = accdb;
+  fiber->pd_commit.fork_id  = fork_id;
+  fiber->pd_commit.pd_write = pd_write;
+  memcpy( fiber->pd_commit.pubkey, pubkey, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_pd_commit_exec, fiber );
+  return fiber->async;
+}
+
+/* acquire_ab fiber: the executor's implicit-programdata shape.
+   acquire_a of X writable on fork_w (the executing fork), then
+   acquire_b of D read-only on fork_r, exactly like
+   fd_executor_setup_accounts_for_txn.  When expect_lamports!=0, asserts
+   D's {lamports, owner[0]} pair matches at pin time and again before
+   release (a concurrent writer on another fork must never mutate the
+   pinned copy). */
+static void
+fiber_acquire_ab_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+
+  uchar const * pka[1] = { f->acquire_ab.pubkey_x };
+  int           wra[1] = { 1 };
+  fd_acc_t acc_a[1]; memset( acc_a, 0, sizeof(acc_a) );
+  fd_accdb_acquire_a( f->accdb, f->acquire_ab.fork_w, 1UL, pka, wra, acc_a );
+
+  uchar const * pkb[1] = { f->acquire_ab.pubkey_d };
+  int           wrb[1] = { 0 };
+  fd_acc_t acc_b[1]; memset( acc_b, 0, sizeof(acc_b) );
+  fd_accdb_acquire_b( f->accdb, f->acquire_ab.fork_r, 1UL, 1UL, pkb, wrb, acc_b );
+
+  if( f->acquire_ab.expect_lamports ) {
+    FD_TEST( acc_b[0].lamports==f->acquire_ab.expect_lamports );
+    FD_TEST( acc_b[0].owner[0]==f->acquire_ab.expect_owner0   );
+  }
+  fd_racesan_hook( "pdtest:held" ); /* interleave point mid-hold */
+  if( f->acquire_ab.expect_lamports ) {
+    FD_TEST( FD_VOLATILE_CONST( acc_b[0].lamports )==f->acquire_ab.expect_lamports );
+    FD_TEST( FD_VOLATILE_CONST( acc_b[0].owner[0] )==f->acquire_ab.expect_owner0   );
+  }
+
+  fd_accdb_release_ab( f->accdb, 1UL, acc_a, 1UL, acc_b );
+}
+
+static fd_racesan_async_t *
+fiber_acquire_ab( fiber_t *          fiber,
+                  fd_accdb_t *       accdb,
+                  fd_accdb_fork_id_t fork_w,
+                  fd_accdb_fork_id_t fork_r,
+                  uchar const *      pubkey_x,
+                  uchar const *      pubkey_d,
+                  ulong              expect_lamports,
+                  uchar              expect_owner0 ) {
+  fiber->accdb                      = accdb;
+  fiber->acquire_ab.fork_w          = fork_w;
+  fiber->acquire_ab.fork_r          = fork_r;
+  fiber->acquire_ab.expect_lamports = expect_lamports;
+  fiber->acquire_ab.expect_owner0   = expect_owner0;
+  memcpy( fiber->acquire_ab.pubkey_x, pubkey_x, 32UL );
+  memcpy( fiber->acquire_ab.pubkey_d, pubkey_d, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_acquire_ab_exec, fiber );
+  return fiber->async;
+}
+
+/* overwrite_n fiber: `rounds` same-size-class overwrite commits of D
+   (data_len 0 -> class 0 -> the second commit takes the in-place reuse
+   branch and its FD_TEST(refcnt==1U)). */
+static void
+fiber_overwrite_n_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  for( int r=0; r<f->overwrite_n.rounds; r++ ) {
+    uchar const * pks[1] = { f->overwrite_n.pubkey };
+    int wr[1] = { 1 };
+    fd_acc_t acc[1];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( f->accdb, f->overwrite_n.fork_id, 1UL, pks, wr, acc );
+    acc[0].lamports = LAMP_B;
+    acc[0].data_len = 0UL;
+    memset( acc[0].owner, 0, 32UL ); acc[0].owner[0] = TAG_B;
+    acc[0].commit = 1;
+    fd_accdb_release( f->accdb, 1UL, acc );
+  }
+}
+
+static fd_racesan_async_t *
+fiber_overwrite_n( fiber_t *          fiber,
+                   fd_accdb_t *       accdb,
+                   fd_accdb_fork_id_t fork_id,
+                   uchar const *      pubkey,
+                   int                rounds ) {
+  fiber->accdb               = accdb;
+  fiber->overwrite_n.fork_id = fork_id;
+  fiber->overwrite_n.rounds  = rounds;
+  memcpy( fiber->overwrite_n.pubkey, pubkey, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_overwrite_n_exec, fiber );
   return fiber->async;
 }
 
@@ -2140,6 +2315,418 @@ test_step14_orphan_no_hang( void ) {
   test_teardown( accdb, fd );
 }
 
+/* ------------------------------------------------------------------ */
+/* Stray-pin cases: cache_try_pin's transient pin vs line recycling    */
+/* ------------------------------------------------------------------ */
+
+/* A reader that loaded acc->cache_idx before an eviction can call
+   cache_try_pin on a line that has since been evicted, freed, and
+   recycled.  The pin CAS transiently bumps refcnt on a line the reader
+   no longer owns; the ABA recheck then fails and unpins.  Historically
+   the free-list pop (acquire_cache_line priority 1) and the
+   uncommitted-destination cleanup (release_inner) mutated refcnt with
+   plain stores, which wiped such a transient pin; the stray's later
+   decrement then dropped the new owner's refcnt to 0 (or underflowed it
+   to EVICT_SENTINEL), letting CLOCK steal a line still in use.
+   Observed in production as near-simultaneous handholding failures in
+   acquire STEP 4 (rc>0 && rc!=SENTINEL), STEP 14 (key mismatch on a
+   pinned line) and release STEP 2 (refcnt>0) across several exec tiles.
+
+   test_stray_pin_vs_freepop proves the free-list pop waits out the
+   stray pin instead of clobbering it:
+     1. P resident in class-0 line L; reader R suspends at
+        accdb_acquire:pre_try_pin having captured L from P's cache_idx.
+     2. Main evicts L (L -> free list, gen=UINT_MAX, refcnt=0).
+     3. R resumes to accdb_try_pin:post_cas: its CAS pinned the
+        free-listed L (refcnt 0->1); R now holds the stray pin.
+     4. Writer W (new account Q) pops L as its class-0 destination and
+        must WAIT at accdb_freepop:refcnt_wait (a plain refcnt=1 store
+        here would let R's later unpin zero out W's pin).
+     5. R resumes: ABA recheck fails (gen==UINT_MAX), unpins,
+        cold-loads P from disk, completes.
+     6. W resumes: its CAS 0->1 now succeeds; W commits Q into L.
+     7. Oracle: P and Q both read back intact. */
+static void
+test_stray_pin_vs_freepop( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_Q  [ 32 ] = { 'Q', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  write_acc( accdb, root0, key_P, 100UL, owner_P, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  /* R captures P's cache_idx, suspends before pinning. */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict L: P written back to disk, L pushed to the class-0 free
+     list. */
+  fd_accdb_debug_clock_evict_line( accdb, cls, idx );
+
+  /* R pins the free-listed line (stray pin), suspends before the ABA
+     recheck. */
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* W pops L as its class-0 destination and must wait for the stray
+     pin to drop.  A regression to the plain store never reaches this
+     hook (W runs to exit) and the FD_TEST fails. */
+  fd_racesan_async_t * w = fiber_release_write( &g_fiber[1], accdb, root0, key_Q, 400UL );
+  FD_TEST( fd_racesan_async_step_until( w, "accdb_freepop:refcnt_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* R: ABA recheck fails, unpin, cold-load P from disk, complete. */
+  for(;;) {
+    int rc = fd_racesan_async_step( ar );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* W: pop CAS now wins; Q commits into L. */
+  for(;;) {
+    int rc = fd_racesan_async_step( w );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* Oracle: both accounts intact. */
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==100UL );
+    fd_accdb_release( accdb, 1UL, a );
+
+    pks[0] = key_Q;
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==400UL );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
+/* test_stray_pin_vs_release_cleanup proves the uncommitted-destination
+   cleanup in release_inner waits out a stray pin on a destination line
+   instead of plain-storing refcnt=0 over it:
+     1. P resident in class-0 line L; reader R suspends at
+        accdb_acquire:pre_try_pin having captured L.
+     2. Main evicts L (free list).
+     3. Writer W (writable acquire of new account Q, never commits)
+        pops L as its class-0 destination (refcnt 0->1) and parks at
+        accdb_acquire:pre_step7_meta, mid-bracket.
+     4. R resumes to accdb_try_pin:post_cas: CAS 1->2, stray pin on
+        W's destination line.
+     5. W resumes into release (no commit): the destination cleanup
+        must WAIT at accdb_release:dest_refcnt_wait (a plain refcnt=0
+        store here would be underflowed to EVICT_SENTINEL by R's
+        later unpin).
+     6. R resumes: ABA recheck fails, unpins (2->1), completes.
+     7. W resumes: CAS 1->0 now wins, L is freed cleanly.
+     8. Oracle: P reads back intact. */
+static void
+test_stray_pin_vs_release_cleanup( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_Q  [ 32 ] = { 'Q', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  write_acc( accdb, root0, key_P, 100UL, owner_P, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  /* R captures P's cache_idx, suspends before pinning. */
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 100UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Evict L to the free list. */
+  fd_accdb_debug_clock_evict_line( accdb, cls, idx );
+
+  /* W: writable acquire of Q pops L as its class-0 destination
+     (refcnt 0->1), parks mid-bracket before release. */
+  static read_fiber_t wf[1];
+  wf->accdb   = accdb;
+  wf->fork_id = root0;
+  wf->pubkey  = key_Q;
+  void * wf_stack = fd_racesan_stack_create( READ_FIBER_STACK_SZ );
+  fd_racesan_async_new( wf->async, wf_stack, READ_FIBER_STACK_SZ, read_fiber_exec, wf );
+  FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_acquire:pre_step7_meta", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* R pins W's destination line (stray pin: refcnt 1->2), suspends
+     before the ABA recheck. */
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* W: release without commit; the destination cleanup must wait for
+     the stray pin.  A regression to the plain store never reaches
+     this hook. */
+  FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_release:dest_refcnt_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* R: ABA recheck fails, unpin (2->1), cold-load P, complete. */
+  for(;;) {
+    int rc = fd_racesan_async_step( ar );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* W: cleanup CAS now wins (1->0), L freed cleanly. */
+  for(;;) {
+    int rc = fd_racesan_async_step( wf->async );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fd_racesan_async_delete( wf->async );
+  fd_racesan_stack_destroy( wf_stack, READ_FIBER_STACK_SZ );
+
+  /* Oracle: P intact. */
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==100UL );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+/* test_probe_vs_pd_commit the pd_write probe walk raced
+   against a same-fork overwrite commit that sets pd_write=1.  The probe
+   is designed to be called concurrently with writers on its fork; it
+   must never tear (bit+len come from ONE volatile executable_size load),
+   never crash (epoch-protected chain walk), and return either the pre-
+   or post-commit answer.  After the weave the writer's pd_write=1 commit
+   is durable, so a final probe must deterministically report pd==1. */
+static void
+test_probe_vs_pd_commit( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new(); /* probe join */
+  fd_accdb_t * jw  = join_new(); /* writer join */
+
+  uchar key[ 32UL ]; mk_key( 42UL, key );
+  uchar owner[ 32UL ] = { 7, 0 };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_accdb_fork_id_t a = fd_accdb_attach_child( ctl, root );
+    /* Seed a version of key on A so the writer's commit is an in-place
+       same-fork overwrite (exercising the OR-sticky bit CAS). */
+    seq_write( ctl, a, key, 100UL+i, owner );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_probe    ( &g_fiber[0], jr, a, key    ) );
+    fd_racesan_weave_add( w, fiber_pd_commit ( &g_fiber[1], jw, a, key, 1 ) );
+
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+
+    /* Post-commit: the pd_write=1 overwrite is durable on A. */
+    int   pd  = 0;
+    ulong len = ULONG_MAX;
+    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, a, key, &pd, &len )==1 );
+    FD_TEST( pd==1 );
+
+    fd_accdb_advance_root( ctl, a );
+    drain_background( ctl );
+    root = a;
+  }
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jw );
+  test_shmem_delete();
+}
+
+/* test_pd_same_fork_read_vs_write (T0 repro, plan §4): the PRE-FIX
+   implicit-programdata shape.  Reader does acquire_a(X writable) +
+   acquire_b(D read-only) on fork F -- rdisp never saw D, so a concurrent
+   txn write-locking D commits on the SAME fork while the reader holds
+   D's pin.  The writer's second same-size-class commit takes the
+   in-place reuse branch and its FD_TEST(refcnt==1U) trips on the
+   reader's pin (fd_accdb.c ~:3045).  Contract-violating by design;
+   opt-in only.  The fix moves the reader to the parent fork --
+   test_pd_parent_read_vs_child_write runs the same schedules green. */
+static void
+test_pd_same_fork_read_vs_write( void ) {
+  if( FD_UNLIKELY( !g_explicit ) ) { FD_LOG_NOTICE(( "  (skipped: contract-violating demo; run by name)" )); return; }
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jw  = join_new();
+
+  uchar key_d[ 32UL ]; mk_key( 42UL, key_d );
+  uchar key_x[ 32UL ]; mk_key( 43UL, key_x );
+  uchar owner[ 32UL ] = { TAG_A, 0 };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_accdb_fork_id_t f = fd_accdb_attach_child( ctl, root );
+    seq_write( ctl, f, key_d, LAMP_A, owner );
+    seq_write( ctl, f, key_x, LAMP_A, owner );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    /* no stability oracle: the crash IS the expected witness */
+    fd_racesan_weave_add( w, fiber_acquire_ab ( &g_fiber[0], jr, f, f, key_x, key_d, 0UL, 0 ) );
+    fd_racesan_weave_add( w, fiber_overwrite_n( &g_fiber[1], jw, f, key_d, 2 ) );
+
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+
+    fd_accdb_advance_root( ctl, f );
+    drain_background( ctl );
+    root = f;
+  }
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jw );
+  test_shmem_delete();
+}
+
+/* test_pd_parent_read_vs_child_write (§8.2 R0-flip + R1): the FIXED
+   shape.  Reader acquire_a's X writable on child C and acquire_b's D
+   read-only on frozen parent P while a writer commits D twice on C
+   (same size class -- the schedules that crashed pre-fix).  Oracle: the
+   parent copy is never mutated under the pin (P is frozen, overwrite
+   requires generation equality), both commits succeed, and the probe on
+   C reflects the committed pd_write. */
+static void
+test_pd_parent_read_vs_child_write( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jw  = join_new();
+
+  uchar key_d[ 32UL ]; mk_key( 42UL, key_d );
+  uchar key_x[ 32UL ]; mk_key( 43UL, key_x );
+  uchar owner[ 32UL ] = { TAG_A, 0 };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_accdb_fork_id_t p = fd_accdb_attach_child( ctl, root );
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( ctl, p );
+    seq_write( ctl, p, key_d, LAMP_A, owner ); /* parent copy: the stability oracle */
+    seq_write( ctl, c, key_x, LAMP_A, owner );
+    /* first child version of D so the writer's commits are overwrites */
+    seq_write( ctl, c, key_d, LAMP_B, owner );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_acquire_ab ( &g_fiber[0], jr, c, p, key_x, key_d, LAMP_A, TAG_A ) );
+    fd_racesan_weave_add( w, fiber_overwrite_n( &g_fiber[1], jw, c, key_d, 2 ) );
+
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+
+    /* writer's commits landed on C, parent copy intact */
+    int   pd  = 0;
+    ulong len = ULONG_MAX;
+    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, c, key_d, &pd, &len )==1 );
+    FD_TEST( pd==0 ); /* plain lamport writes: no pd_write */
+
+    fd_accdb_advance_root( ctl, p );
+    drain_background( ctl );
+    fd_accdb_advance_root( ctl, c );
+    drain_background( ctl );
+    root = c;
+  }
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jw );
+  test_shmem_delete();
+}
+
+/* test_pd_parent_hold_vs_advance_root (§8.2 R2a + R2c): the
+   newly-blessed interleaving -- read-only acquire_b(P) walk + hold
+   concurrent with background_advance_root(P) (rooting P itself while
+   its child executes).  Covers the descends_set_null(P) and old-root
+   bit-remove races against the reader's chain walk; the generation fast
+   path must resolve them (see fork_slot_defer comment case (a)). */
+static void
+test_pd_parent_hold_vs_advance_root( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar key_d[ 32UL ]; mk_key( 42UL, key_d );
+  uchar key_x[ 32UL ]; mk_key( 43UL, key_x );
+  uchar owner[ 32UL ] = { TAG_A, 0 };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, root, key_d, LAMP_B, owner ); /* superseded rooted version: advance_root(P) unlinks it */
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_accdb_fork_id_t p = fd_accdb_attach_child( ctl, root );
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( ctl, p );
+    seq_write( ctl, p, key_d, LAMP_A, owner ); /* P's version; reader must select this one */
+    seq_write( ctl, c, key_x, LAMP_A, owner );
+
+    fd_accdb_advance_root( ctl, p ); /* executed by the background fiber mid-walk/hold */
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_acquire_ab( &g_fiber[0], jr, c, p, key_x, key_d, LAMP_A, TAG_A ) );
+    fd_racesan_weave_add( w, fiber_background( &g_fiber[1], jb ) );
+
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+
+    /* P is root; leave its version of D as the superseded rooted
+       version for the next iteration and collapse onto C. */
+    fd_accdb_advance_root( ctl, c );
+    drain_background( ctl );
+    root = c;
+    seq_write( ctl, root, key_d, LAMP_B, owner );
+  }
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -2171,6 +2758,12 @@ main( int     argc,
     TEST( test_tombstone_orphan_ebr_poison ),
     TEST( test_sentinel_unlink_no_poison ),
     TEST( test_step14_orphan_no_hang ),
+    TEST( test_stray_pin_vs_freepop ),
+    TEST( test_stray_pin_vs_release_cleanup ),
+    TEST( test_probe_vs_pd_commit ),
+    TEST( test_pd_same_fork_read_vs_write ),
+    TEST( test_pd_parent_read_vs_child_write ),
+    TEST( test_pd_parent_hold_vs_advance_root ),
     {0}
   };
 # undef TEST

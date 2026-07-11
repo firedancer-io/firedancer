@@ -23,6 +23,10 @@ device.
 * **cpuset** Creates an isolated cgroup cpuset partition over the CPU
   cores used by Firedancer, so no other process can be scheduled onto
   them (via `/sys/fs/cgroup`).
+* **console** Quiets periodic kernel console rendering work that runs
+  on the CPU that generated it, including CPU cores used by Firedancer
+  (via `/proc/sys/kernel/printk` and
+  `/sys/class/graphics/fbcon/cursor_blink`).
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
@@ -42,7 +46,8 @@ where `mode` is one of:
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
 `bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
-`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, and `snapshots`
+`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `console`, and
+`snapshots`
 and these stages are described below. You can also use the stage `all`
 which will configure everything.
 
@@ -374,9 +379,10 @@ system.
 
 ::: tip NOTE
 
-The `kworkers` and `cpuset` stages are optional hardening: Firedancer
-runs correctly without them, and they are recommended for production
-validator deployments to reduce scheduling jitter on tile CPUs.
+The `kworkers`, `cpuset`, and `console` stages are optional hardening:
+Firedancer runs correctly without them, and they are recommended for
+production validator deployments to reduce scheduling jitter on tile
+CPUs.
 
 When starting Firedancer, two additional read-only checks run
 alongside these stages: `nohz-full` and `rcu-nocbs`. These verify the
@@ -389,6 +395,44 @@ They can also be run manually with `configure check nohz-full
 rcu-nocbs`.
 
 :::
+
+## console
+The kernel renders its own log messages onto the machine's console.
+When that console is a framebuffer (the VGA/BMC text screen), two
+periodic sources of rendering work can land on Firedancer tile CPUs,
+and neither the `cpuset` partition nor the `kworkers` mask can prevent
+them, because both use per-CPU (bound) kernel work that always runs on
+the CPU that queued it:
+
+ * The console cursor blink is driven by a timer that re-arms itself
+on whichever CPU it last fired on. If it lands on a tile CPU (for
+example because a kernel message was once printed from that CPU), it
+preempts the tile several times per second, indefinitely.
+ * Any kernel message at or below the console loglevel queues display
+rendering work on the CPU that printed it. Kernel warnings are often
+emitted inside a system call, in which case the printing CPU is the
+CPU the calling process runs on — a rate-limited kernel warning
+triggered by a tile's own system call schedules console rendering
+onto that tile's core. On a serial console this is worse: the UART
+write runs synchronously inside the system call itself.
+
+The `console` stage disables the framebuffer cursor blink and lowers
+the console loglevel to 4, so that only messages of error severity and
+above render on the console. Kernel oopses, panics, and hardware
+errors still appear on an attached screen or BMC KVM; warning-level
+messages no longer do. All messages continue to be recorded in the
+kernel ring buffer and are visible with `dmesg` or in the system
+journal regardless of the console loglevel. The console itself is
+never disabled or unbound, so a crash cart still shows a panic.
+
+<<< @/snippets/console.ansi
+
+The `init` mode requires root privileges. The `fini` mode restores the
+kernel defaults (cursor blink on, console loglevel 7); if the operator
+had customized these values before `init`, that customization is not
+restored. The visible effect of the stage is that the cursor on the
+physical console does not blink. Terminals over SSH or serial are
+rendered by the connecting client and are unaffected.
 
 ## snapshots
 When starting up, validators must load a snapshot to catch up to the

@@ -458,7 +458,8 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   /* Create the root fork in accdb */
   fd_accdb_fork_id_t root_fork_id = fd_accdb_attach_child( accdb, SENTINEL );
-  bank->accdb_fork_id = root_fork_id;
+  bank->accdb_fork_id        = root_fork_id;
+  bank->parent_accdb_fork_id = root_fork_id;
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
@@ -648,9 +649,10 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   ulong bank_idx = bank->idx;
   bank->f.slot = child_slot;
 
-  bank->progcache_fork_id = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
-  bank->txncache_fork_id  = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
-  bank->accdb_fork_id     = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
+  bank->progcache_fork_id    = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
+  bank->txncache_fork_id     = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
+  bank->accdb_fork_id        = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
+  bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( mini->banks, bank, accdb, mini->runtime_stack, NULL, &is_epoch_boundary );

@@ -215,6 +215,10 @@ struct fd_topo_tile {
       ulong neigh4_obj_id;         /* neigh4 hash map */
     } netlink;
 
+    struct {
+      char identity_key_path[ PATH_MAX ];
+    } admin;
+
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL
 
     struct {

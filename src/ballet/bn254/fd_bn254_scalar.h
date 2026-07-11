@@ -12,7 +12,7 @@
 
 #include "../fd_ballet_base.h"
 #include "../bigint/fd_uint256.h"
-#include "../fiat-crypto/bn254_scalar_64.c"
+#include "../../third_party/fiat-crypto/bn254_scalar_64.c"
 
 /* The implementation is based on fiat-crypto.
    Unfortunately mul is dramatically slow on gcc, so we reimplemented

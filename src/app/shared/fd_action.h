@@ -41,6 +41,7 @@ union fdctl_args {
 
   struct {
     int     require_tower;
+    int     require_vote_history;
     int     force;
     uchar const * keypair;
   } set_identity;

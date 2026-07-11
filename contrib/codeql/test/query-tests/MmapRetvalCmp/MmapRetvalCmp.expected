@@ -1,0 +1,5 @@
+| src/MmapRetvalCmp.c:12:16:12:19 | call to mmap | This call to mmap is not checked for failure. |
+| src/MmapRetvalCmp.c:19:9:19:12 | call to mmap | This call to mmap is not checked for failure. |
+| src/MmapRetvalCmp.c:56:7:56:10 | call to mmap | This call to mmap is not checked for failure. |
+| src/MmapRetvalCmp.c:63:7:63:10 | call to mmap | This call to mmap is not checked for failure. |
+| src/MmapRetvalCmp.c:84:14:84:17 | call to mmap | This call to mmap is not checked for failure. |

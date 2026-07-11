@@ -12,6 +12,7 @@
  */
 
 import cpp
+import filter
 
 class LockCall extends FunctionCall {
   LockCall() { this.getTarget().hasName(["fd_rwlock_read", "fd_rwlock_write"]) }
@@ -30,6 +31,7 @@ predicate noUnlock(LockCall l) { exists(ReturnStmt r | r = nextNoUnlock*(l)) }
 
 from LockCall l
 where
+  included(l.getLocation()) and
   l.getASuccessor*() instanceof UnlockCall and
   noUnlock(l)
 select l, "Missing unlock"

@@ -18,6 +18,7 @@ struct fd_stake_weight_msg_t {
   ulong             staked_id_cnt;     /* Number of staked nodes */
   ulong             start_slot;        /* Start slot of the epoch */
   ulong             slot_cnt;          /* Number of slots in the epoch */
+  ulong             ns_per_slot;       /* Slot time duration */
   ulong             excluded_id_stake; /* Total stake that is excluded for shred dests */
 };
 typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;

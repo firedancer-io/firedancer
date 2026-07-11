@@ -12,7 +12,7 @@
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
 #include "../../waltz/openssl/fd_openssl.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/nanopb/pb_decode.h"
+#include "../../third_party/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <fcntl.h>

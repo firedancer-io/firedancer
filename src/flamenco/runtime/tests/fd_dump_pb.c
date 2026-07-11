@@ -8,7 +8,7 @@
 #include "../fd_runtime.h"
 #include "../fd_alut.h"
 #include "../program/fd_precompiles.h"
-#include "../../../ballet/nanopb/pb_encode.h"
+#include "../../../third_party/nanopb/pb_encode.h"
 #include "../fd_runtime_stack.h"
 
 #include <stdio.h> /* fopen */

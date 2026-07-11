@@ -7,9 +7,11 @@
  */
 
 import cpp
+import filter
 
 from StringLiteral s, FunctionCall fc, Function f
 where
+  included(fc.getLocation()) and
   f = fc.getTarget() and
   s.getValueText().regexpMatch(".*%[A-z0-9$].*") and
   s.getParent() = fc and

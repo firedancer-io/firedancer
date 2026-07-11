@@ -19,24 +19,24 @@ LD:=$(CROSS_LD)
 
 ifdef FD_USING_GCC
 CROSS_CC?=$(TARGET)-$(CC)
-CROSS_CXX?=$(TARGET)-$(CXX)
 CC:=$(CROSS_CC)
-CXX:=$(CROSS_CXX)
 endif
 
 ifdef FD_USING_CLANG
 CPPFLAGS+=-target $(TARGET)
 endif
 
-else # CROSS=0
+endif
 
 include config/extra/with-s2nbignum.mk
 include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
 include config/extra/with-lz4.mk
+
+# After with-zstd.mk: with-rocksdb.mk keys on FD_HAS_ZSTD
+ifneq ($(CROSS),1)
 include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
-
 endif
 
 FD_ARCH_SUPPORTS_SANDBOX:=1

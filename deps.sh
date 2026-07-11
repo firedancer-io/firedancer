@@ -122,36 +122,13 @@ checkout_repo () {
   echo
 }
 
-checkout_llvm () {
-  if [[ -d "$PREFIX/git/llvm" ]]; then
-    echo "[~] Skipping LLVM download; already exists"
-    return
-  fi
-
-  echo "[+] Downloading LLVM"
-  (
-    cd "$PREFIX/git"
-    curl --proto '=https' -sSLf https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/llvm-project-19.1.0.src.tar.xz \
-    | tar -xJ
-    mv llvm-project-19.1.0.src llvm
-  )
-  cd -
-}
-
 fetch () {
   git submodule update --init
 
   mkdir -pv "$PREFIX/git"
 
-  if [[ $MSAN == 1 ]]; then
-    checkout_llvm
-  fi
-  checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
-  checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "cba3956c"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
-  checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo lz4     https://github.com/lz4/lz4                  "v1.10.0"
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.1.1"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
   fi
@@ -163,9 +140,6 @@ check_fedora_pkgs () {
     diffutils          # build system
     make               # build system
     pkgconf            # build system
-    patch              # build system
-    zstd               # build system
-    gzip               # build system
     gcc                # compiler
     gcc-c++            # compiler
 
@@ -206,8 +180,6 @@ check_debian_pkgs () {
     diffutils          # build system
     build-essential    # C/C++ compiler
     pkgconf            # build system
-    zstd               # build system
-    gzip               # build system
 
     cmake              # Agave (protobuf-src)
     libclang-dev       # Agave (bindgen)
@@ -244,9 +216,6 @@ check_alpine_pkgs () {
     build-base       # C/C++ compiler
     curl             # download rustup
     linux-headers    # base dependency
-    patch            # build system
-    zstd             # build system
-    gzip             # build system
     grep             # build system
     make             # build system
     perl             # OpenSSL
@@ -300,7 +269,6 @@ check_arch_pkgs () {
   local REQUIRED_PKGS=(
     base-devel        # C/C++ compiler, make, etc.
     curl              # download rustup
-    zstd              # build system
     cmake             # Agave (protobuf-src)
     clang             # Agave (bindgen)
     perl              # Agave (OpenSSL)
@@ -390,86 +358,6 @@ check () {
         ;;
     esac
   fi
-}
-
-install_libcxx () {
-  cd "$PREFIX/git/llvm"
-
-  echo "[+] Configuring libcxx"
-  rm -rf build
-  mkdir build
-  cd build
-  cmake ../runtimes \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS="-fcf-protection=return" \
-    -DCMAKE_CXX_FLAGS="-fcf-protection=return" \
-    -DLLVM_DIR=".." \
-    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
-    -DLLVM_USE_SANITIZER=Memory \
-    -DLLVM_ENABLE_PIC=ON \
-    -DLLVM_INCLUDE_TESTS=OFF \
-    -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
-    -DLIBCXXABI_USE_LLVM_UNWINDER=OFF
-
-  echo "[+] Building libcxx"
-  "${MAKE[@]}" cxx cxxabi
-
-  echo "[+] Installing libcxx to $PREFIX"
-  "${MAKE[@]}" install-cxx install-cxxabi
-  echo "[+] Successfully installed libcxx"
-}
-
-install_zstd () {
-  cd "$PREFIX/git/zstd/lib"
-
-  echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC $EXTRA_CFLAGS" install-pc install-static install-includes
-  echo "[+] Successfully installed zstd"
-}
-
-install_lz4 () {
-  cd "$PREFIX/git/lz4/lib"
-
-  echo "[+] Installing lz4 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" BUILD_SHARED=no CFLAGS="-fPIC $EXTRA_CFLAGS" install
-  echo "[+] Successfully installed lz4"
-}
-
-install_s2n () {
-  cd "$PREFIX/git/s2n"
-
-  echo "[+] Installing s2n-bignum to $PREFIX"
-  if [[ "$(uname -m)" == x86_64 ]]; then
-    if [[ "$(uname -s)" == Linux ]]; then
-      make -C x86 PREPROCESS="$CC -E -fcf-protection=return -I../include -DWINDOWS_ABI=0 \$(SYMBOL_HIDING) -xassembler-with-cpp -"
-    else
-      make -C x86
-    fi
-    cp x86/libs2nbignum.a "$PREFIX/lib"
-  elif [[ "$(uname -m)" == aarch64 ]]; then
-    make -C arm
-    cp arm/libs2nbignum.a "$PREFIX/lib"
-  fi
-
-  cp include/* "$PREFIX/include"
-  echo "[+] Successfully installed s2n-bignum"
-}
-
-install_blst () {
-  cd "$PREFIX/git/blst"
-
-  echo "[+] Building blst"
-  CFLAGS="-O2 -fno-builtin -fPIC -Wall -Wextra -Werror $EXTRA_CFLAGS" ./build.sh
-  echo "[+] Successfully built blst"
-
-  echo "[+] Installing blst to $PREFIX"
-  cp "$PREFIX/git/blst/libblst.a" "$PREFIX/lib/"
-  cp "$PREFIX/git/blst/bindings/blst.h" "$PREFIX/include/"
-  cp "$PREFIX/git/blst/bindings/blst_aux.h" "$PREFIX/include/"
-  echo "[+] Successfully installed blst"
 }
 
 install_openssl () {
@@ -567,7 +455,7 @@ install_rocksdb () {
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
   ROCKSDB_USE_IO_URING=0 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread -fPIC $EXTRA_CXXFLAGS" \
+  CFLAGS="-isystem $(pwd)/../../include -isystem $(pwd)/../../../src/third_party/lz4/lib -isystem $(pwd)/../../../src/third_party/zstd/lib -g0 -DSNAPPY -DZSTD -DLZ4 -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread -fPIC $EXTRA_CXXFLAGS" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
@@ -617,16 +505,8 @@ install () {
 
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
-  if [[ $MSAN == 1 ]]; then
-    ( install_libcxx    )
-  echo
-  fi
-  ( install_zstd      )
-  ( install_s2n       )
   ( install_openssl   )
-  ( install_blst      )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_lz4       )
     ( install_snappy    )
     ( install_rocksdb   )
   fi
@@ -655,10 +535,7 @@ while [[ $# -gt 0 ]]; do
       MSAN=1
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
-      _CXX=clang++
       EXTRA_CFLAGS+=" -fsanitize=memory"
-      EXTRA_CXXFLAGS+=" $EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
-      EXTRA_LDFLAGS+=" $PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;
     "+dev")
       shift

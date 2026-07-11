@@ -3,9 +3,9 @@
 
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_ip4.h"
-#include "../../../waltz/http/picohttpparser.h"
+#include "../../../third_party/picohttpparser/picohttpparser.h"
 #include "../../../waltz/http/fd_http.h"
-#include "../../../ballet/json/cJSON.h"
+#include "../../../third_party/cjson/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
 
 #include <math.h>

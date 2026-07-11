@@ -5,7 +5,7 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../disco/events/generated/fd_event_gen.h"
-#include "../../ballet/bzip2/bzlib.h"
+#include "../../third_party/bzip2/bzlib.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"

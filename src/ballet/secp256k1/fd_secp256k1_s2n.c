@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <s2n-bignum.h>
+#include "../../third_party/s2n-bignum/include/s2n-bignum.h"
 
 /* On CPUs without ADX (mulx/adcx/adox), redirect the ADX-optimized
    s2n-bignum symbols to their _alt equivalents, which use only base

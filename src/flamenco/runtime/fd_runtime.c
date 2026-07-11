@@ -1203,13 +1203,19 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
-  /* For bundle txns the resolved key list and executable list are bound
-     once up-front by fd_runtime_prepare_bundle_accounts (before this
-     runs per-txn), so preserve them here.  For a non-bundle txn they are
-     rebuilt in fd_executor_setup_accounts_for_txn, so reset them. */
+  /* For bundle txns the resolved key list and executable list (incl the
+     provenance/pd_write/skipped-size arrays) are bound once up-front by
+     fd_runtime_prepare_bundle_accounts (before this runs per-txn), so
+     preserve them here.  For a non-bundle txn they are rebuilt in
+     fd_executor_setup_accounts_for_txn, so reset them.
+     executable_cur_len needs no reset: it is written per-element for
+     every i in [0, executable_cnt) before any read (its sentinel is
+     ULONG_MAX, so a zero memset would be wrong anyway). */
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
-    memset( txn_out->accounts.executable_acquired, 0, sizeof(txn_out->accounts.executable_acquired) );
-    txn_out->accounts.executable_cnt            = 0UL;
+    memset( txn_out->accounts.executable_from_parent, 0, sizeof(txn_out->accounts.executable_from_parent) );
+    memset( txn_out->accounts.executable_pd_write,    0, sizeof(txn_out->accounts.executable_pd_write) );
+    txn_out->accounts.executable_cnt         = 0UL;
+    txn_out->accounts.executable_skipped_cnt = 0;
   }
   txn_out->accounts.nonce_rollback_data_len     = 0UL;
   txn_out->accounts.fee_payer_rollback_lamports = 0UL;
@@ -1587,7 +1593,9 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
 
 fd_acc_t *
 fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
-                                   fd_pubkey_t const * pubkey ) {
+                                   fd_pubkey_t const * pubkey,
+                                   int *               from_parent_copy,
+                                   int *               pd_write_this_slot ) {
   /* First try to fetch the executable account from the existing
      borrowed accounts.  If the pubkey is in the account keys, then we
      want to re-use that borrowed account since it reflects changes from
@@ -1596,6 +1604,9 @@ fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
      to in a prior instruction (e.g. program upgrade + invoke within the
      same txn) */
 
+  if( FD_UNLIKELY( from_parent_copy   ) ) *from_parent_copy   = 0;
+  if( FD_UNLIKELY( pd_write_this_slot ) ) *pd_write_this_slot = 0;
+
   ulong account_idx = fd_runtime_find_index_of_account( txn_out, pubkey );
   if( FD_LIKELY( account_idx!=ULONG_MAX && txn_out->accounts.account[ account_idx ]->lamports ) ) return txn_out->accounts.account[ account_idx ];
 
@@ -1603,6 +1614,8 @@ fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
     fd_acc_t * ro = txn_out->accounts.executable[ i ];
     if( FD_UNLIKELY( !memcmp( pubkey->uc, ro->pubkey, 32UL ) ) ) {
       if( FD_UNLIKELY( !ro->lamports ) ) return NULL;
+      if( FD_UNLIKELY( from_parent_copy   ) ) *from_parent_copy   = txn_out->accounts.executable_from_parent[ i ];
+      if( FD_UNLIKELY( pd_write_this_slot ) ) *pd_write_this_slot = txn_out->accounts.executable_pd_write[ i ];
       return ro;
     }
   }
@@ -1829,7 +1842,14 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
   uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
   int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
+  int           pd_probe_write  [ FD_BUNDLE_ACCT_MAX ]; /* current-fork pd_write probe, per acquire_b pool entry */
+  ulong         pd_probe_len    [ FD_BUNDLE_ACCT_MAX ]; /* current-fork committed size (ULONG_MAX = no gen-match) */
   ulong         pd_cnt = 0UL;
+  fd_pubkey_t   skip_keys[ FD_BUNDLE_ACCT_MAX ]; /* deployed-this-slot programdata: size-only accounting */
+  ulong         skip_lens[ FD_BUNDLE_ACCT_MAX ];
+  ulong         skip_cnt = 0UL;
+
+  FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
 
   for( ulong i=0UL; i<runtime->accounts.account_cnt; i++ ) {
     fd_acc_t * acc = &runtime->accounts.account[ i ];
@@ -1839,7 +1859,25 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
 
     fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
-    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, programdata_key->uc ) ) ) continue;
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
+      /* Deployed this slot: no parent copy to acquire, but Agave still
+         counts its current-fork size toward loaded-accounts-data-size
+         before the invoke fails.  Record for the binding loop below
+         (mirrors the single-txn skipped-key probe). */
+      int   skip_pd  = 0;
+      ulong skip_len = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+        int dup = 0;
+        for( ulong u=0UL; u<skip_cnt; u++ ) if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, programdata_key->uc, 32UL ) ) ) { dup = 1; break; }
+        if( !dup ) {
+          FD_TEST( skip_cnt<FD_BUNDLE_ACCT_MAX );
+          skip_keys[ skip_cnt ] = *programdata_key;
+          skip_lens[ skip_cnt ] = skip_len;
+          skip_cnt++;
+        }
+      }
+      continue;
+    }
 
     /* Already part of the transaction account pool, or already queued. */
     if( reuse_bundle_executable( runtime, programdata_key ) ) continue;
@@ -1859,9 +1897,17 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     programdata.  Skip it entirely for an empty bundle (nothing was
     reserved and nothing is executable). */
   if( FD_LIKELY( acquire_cnt || pd_cnt ) ) {
-    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
+    fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
   }
   runtime->accounts.executable_cnt = pd_cnt;
+
+  for( ulong u=0UL; u<pd_cnt; u++ ) {
+    int   pd  = 0;
+    ulong len = ULONG_MAX;
+    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len );
+    pd_probe_write[ u ] = pd;
+    pd_probe_len  [ u ] = len;
+  }
 
   /* Bind each txn's BPF-upgradeable programdata accounts to the shared
     pre-acquired pool, once and for all here.  This is the per-txn
@@ -1874,6 +1920,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_out_t * txn_out = &txn_outs[ i ];
     ushort         exe_cnt = 0;
+    txn_out->accounts.executable_skipped_cnt = 0;
     for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
       fd_acc_t * acc = reuse_bundle_executable( runtime, &txn_out->accounts.keys[ j ] );
       if( FD_UNLIKELY( !acc ) ) continue;
@@ -1883,9 +1930,33 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
       if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
 
       fd_acc_t * programdata = reuse_bundle_executable( runtime, &program_loader_state->inner.program.programdata_address );
-      if( FD_UNLIKELY( !programdata ) ) continue;
-      txn_out->accounts.executable[ exe_cnt ]          = programdata;
-      txn_out->accounts.executable_acquired[ exe_cnt ] = 0U;
+      if( FD_UNLIKELY( !programdata ) ) {
+        /* Deployed this slot (no parent copy, no pool binding): forward
+           the size-only record so fd_collect_loaded_account still counts
+           it, as Agave does before the DelayVisibility failure. */
+        for( ulong u=0UL; u<skip_cnt; u++ ) {
+          if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, program_loader_state->inner.program.programdata_address.uc, 32UL ) ) ) {
+            ushort s = txn_out->accounts.executable_skipped_cnt++;
+            txn_out->accounts.executable_skipped_key[ s ] = skip_keys[ u ];
+            txn_out->accounts.executable_skipped_len[ s ] = skip_lens[ u ];
+            break;
+          }
+        }
+        continue;
+      }
+      int from_parent = ( programdata>=runtime->accounts.executable ) &&
+                        ( programdata< runtime->accounts.executable+runtime->accounts.executable_cnt ) &&
+                        ( bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
+      txn_out->accounts.executable[ exe_cnt ]             = programdata;
+      txn_out->accounts.executable_from_parent[ exe_cnt ] = from_parent;
+      if( from_parent ) {
+        ulong pool_idx = (ulong)( programdata - runtime->accounts.executable );
+        txn_out->accounts.executable_pd_write[ exe_cnt ] = pd_probe_write[ pool_idx ];
+        txn_out->accounts.executable_cur_len[ exe_cnt ]  = pd_probe_len  [ pool_idx ];
+      } else {
+        txn_out->accounts.executable_pd_write[ exe_cnt ] = 0;
+        txn_out->accounts.executable_cur_len[ exe_cnt ]  = ULONG_MAX;
+      }
       exe_cnt++;
     }
     txn_out->accounts.executable_cnt = exe_cnt;

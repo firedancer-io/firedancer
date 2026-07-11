@@ -68,9 +68,10 @@ test_oring( void ) {
     .ws_message = NULL,
   };
 
-  uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
+  /* zstd cctx estimate assumes the single-threaded vendored build */
+  uchar scratch[ 1632896 ] __attribute__((aligned(128UL)));
 #if FD_HAS_ZSTD
-  FD_TEST( fd_http_server_footprint( params )==1633024 );
+  FD_TEST( fd_http_server_footprint( params )==1632896 );
 #else
   FD_TEST( fd_http_server_footprint( params )==329344 );
   FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );

@@ -4,7 +4,7 @@
 #ifndef PB_ORG_SOLANA_SEALEVEL_V1_VM_SERIALIZATION_PB_H_INCLUDED
 #define PB_ORG_SOLANA_SEALEVEL_V1_VM_SERIALIZATION_PB_H_INCLUDED
 
-#include "../../../../ballet/nanopb/pb_firedancer.h"
+#include "../../../../third_party/nanopb/pb_firedancer.h"
 #include "instr.pb.h"
 #include "metadata.pb.h"
 

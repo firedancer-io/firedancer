@@ -1,0 +1,4 @@
+| src/NoNullShorcircuit.c:10:10:10:35 | ... & ... | A pointer is checked for null but dereferenced by a non-short-circuiting operation. |
+| src/NoNullShorcircuit.c:16:10:16:35 | ... \| ... | A pointer is checked for null but dereferenced by a non-short-circuiting operation. |
+| src/NoNullShorcircuit.c:22:10:22:28 | ... \| ... | A pointer is checked for null but dereferenced by a non-short-circuiting operation. |
+| src/NoNullShorcircuit.c:28:10:28:35 | ... & ... | A pointer is checked for null but dereferenced by a non-short-circuiting operation. |
