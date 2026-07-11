@@ -77,7 +77,7 @@ struct fd_snapmk_accparse {
   visited_set_t *            visited_set;
   ulong                      max_accounts;
   ulong                      acc_seed;
-  ulong                      acc_chain_mask;
+  uint                       acc_chain_mask;
   uint                       root_generation;
 
   /* Prestaged disk batch (see fd_snapmk_accparse_prestage).  ps_cnt!=0
@@ -227,7 +227,7 @@ fd_snapmk_accparse_reset( fd_snapmk_accparse_t *     parse,
                           visited_set_t *            visited_set,
                           ulong                      max_accounts,
                           ulong                      acc_seed,
-                          ulong                      acc_chain_mask,
+                          uint                       acc_chain_mask,
                           ulong                      root_generation ) {
   *parse = (fd_snapmk_accparse_t) {
     .acc_keep        = 1U,
@@ -566,7 +566,7 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
   ulong const meta_sz = sizeof(fd_accdb_disk_meta_t);
   ulong hash[ FD_BACKUP_DISK_PARA ];
   ulong seed       = parse->acc_seed;
-  uint  chain_mask = (uint)parse->acc_chain_mask;
+  uint  chain_mask = parse->acc_chain_mask;
   uint const *               acc_map  = parse->acc_map;
   fd_accdb_accmeta_t const * acc_pool = parse->acc_pool;
   ulong n = 0UL;

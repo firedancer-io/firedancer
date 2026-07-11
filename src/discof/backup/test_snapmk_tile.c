@@ -135,7 +135,7 @@ FD_UNIT_TEST( split ) {
   for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
 
   ulong seed = 0x1234UL;
-  ulong mask = MAP_CNT-1UL;
+  uint  mask = MAP_CNT-1U;
   uint  root_gen = 7U;
 
   fd_pubkey_t pk_a, pk_b, pk_c, pk_d, pk_e, owner_a, owner_b, owner_c, owner_d, owner_e;
@@ -228,7 +228,7 @@ FD_UNIT_TEST( offsets ) {
   for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
 
   ulong seed = 0x1234UL;
-  ulong mask = MAP_CNT-1UL;
+  uint  mask = MAP_CNT-1U;
   uint  root_gen = 7U;
 
   fd_pubkey_t pk_a, pk_b, owner_a, owner_b;
@@ -273,7 +273,7 @@ FD_UNIT_TEST( visited ) {
   for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
 
   ulong seed = 0x1234UL;
-  ulong mask = MAP_CNT-1UL;
+  uint  mask = MAP_CNT-1U;
   uint  root_gen = 7U;
 
   fd_pubkey_t pk_a, owner_a;
@@ -389,7 +389,7 @@ FD_UNIT_TEST( batch ) {
   for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
 
   ulong seed = 0x1234UL;
-  ulong mask = MAP_CNT-1UL;
+  uint  mask = MAP_CNT-1U;
   uint  root_gen = 7U;
 
   fd_pubkey_t pk_a, pk_b, pk_c, pk_d, owner_a, owner_b, owner_c, owner_d;
@@ -451,7 +451,7 @@ FD_UNIT_TEST( batch_large_frag_offset ) {
   for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
 
   ulong seed = 4321UL;
-  ulong mask = MAP_CNT-1UL;
+  uint  mask = MAP_CNT-1U;
   uint  root_gen = 7U;
 
   fd_pubkey_t pk_a, owner_a;
@@ -489,7 +489,7 @@ FD_UNIT_TEST( batch_straddle ) {
   for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
 
   ulong seed = 0x1234UL;
-  ulong mask = MAP_CNT-1UL;
+  uint  mask = MAP_CNT-1U;
   uint  root_gen = 7U;
 
   fd_pubkey_t pk_a, pk_b, pk_c, owner_a, owner_b, owner_c;
