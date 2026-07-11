@@ -349,21 +349,10 @@ wait_snapshot_create( fd_topo_tile_t const *            snapmk_tile,
 }
 
 static void
-snapshot_create_cmd_args( int *    pargc,
-                          char *** pargv,
-                          args_t * args ) {
-  args->snapshot_create.cont = fd_env_strip_cmdline_contains( pargc, pargv, "--continue" );
-}
-
-static void
-snapshot_create_cmd_args_help( fd_action_help_t * help ) {
-  fd_action_help_arg( help, "--continue", NULL, "If a snapshot is already being created, attach to it and show progress\n"
-                                                "instead of failing with busy." );
-}
-
-static void
 snapshot_create_cmd_fn( args_t *   args,
                         config_t * config ) {
+  (void)args;
+
   fd_bootinfo_adopt( config );
   fd_bootinfo_check_layout( config );
 
@@ -387,14 +376,14 @@ snapshot_create_cmd_fn( args_t *   args,
   /* Send snapshot create command */
   ulong result = send_snapshot_create_cmd( topo );
   if( FD_UNLIKELY( result ) ) {
-    if( FD_LIKELY( args->snapshot_create.cont && result==FD_SNAPSHOT_CREATE_RESULT_BUSY ) ) {
-      FD_LOG_NOTICE(( "snapshot creation already in progress; continuing progress display" ));
+    if( FD_LIKELY( result==FD_SNAPSHOT_CREATE_RESULT_BUSY ) ) {
+      FD_LOG_NOTICE(( "snapshot creation already in progress, attaching ..." ));
     } else {
       FD_LOG_ERR(( "failed to request snapshot creation %lu-%s", result, snapshot_create_result_strerror( result ) ));
     }
   }
 
-  wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, args->snapshot_create.cont && result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &final_bytes_written );
+  wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &final_bytes_written );
   FD_LOG_NOTICE(( "snapshot created in %.3f seconds (%.3f GB)",
                   (double)( fd_log_wallclock() - start_time )/1e9,
                   (double)final_bytes_written/1e9 ));
@@ -402,9 +391,7 @@ snapshot_create_cmd_fn( args_t *   args,
 
 action_t fd_action_snapshot_create = {
   .name           = "snapshot-create",
-  .args           = snapshot_create_cmd_args,
   .fn             = snapshot_create_cmd_fn,
   .description    = "Create a snapshot",
-  .usage          = "snapshot-create [OPTIONS]",
-  .args_help      = snapshot_create_cmd_args_help
+  .usage          = "snapshot-create"
 };
