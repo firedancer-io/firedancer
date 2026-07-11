@@ -1,5 +1,6 @@
 #include "../fd_config.h"
 #include "../fd_action.h"
+#include "../fd_bootinfo.h"
 
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
@@ -12,6 +13,7 @@
 void
 netconf_cmd_fn( args_t *   args,
                 config_t * config ) {
+  fd_bootinfo_adopt( config );
   (void)args;
 
   fd_topo_t * topo = &config->topo;
@@ -27,6 +29,7 @@ netconf_cmd_fn( args_t *   args,
   }
   fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
 
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspace( topo, netbase, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   puts( "\nINTERFACES\n" );
@@ -65,7 +68,7 @@ action_t fd_action_netconf = {
   .name           = "netconf",
   .args           = NULL,
   .fn             = netconf_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = NULL,
   .description    = "Print network configuration",
   .detail         = "Connects to a running validator and prints the networking state its\n"

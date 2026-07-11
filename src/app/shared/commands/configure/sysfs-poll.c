@@ -83,7 +83,7 @@ sysfs_net_set( char const * device,
     char path[ PATH_MAX ];
     fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/%s", interfaces[ i ], setting );
 
-    FD_LOG_NOTICE(( "RUN: `echo \"%lu\" > %s`", value, path ));
+    FD_LOG_NOTICE(( "%sRUN: `echo \"%lu\" > %s`%s", fd_log_style_dim(), value, path , fd_log_style_normal() ));
     if( FD_UNLIKELY( -1==fd_file_util_write_uint( path, (uint)value ) ) ) {
       FD_LOG_ERR(( "could not write to `%s` (%i-%s), 'prefbusy' poll mode may not be supported for this network configuration, consider switching back 'poll_mode' within your config to 'softirq' mode.", path, errno, fd_io_strerror( errno ) ));
     }

@@ -1,5 +1,5 @@
 name: cpusonline
-description: 'Switch all CPUs to online'
+description: 'Switch all CPUs to online and dissolve stale CPU isolation partitions'
 inputs: {}
 outputs: {}
 runs:
@@ -12,4 +12,17 @@ runs:
           if [ "$(cat "$cpu/online")" -eq 0 ]; then
             echo 1 | sudo tee "$cpu/online" > /dev/null
           fi
+        done
+
+        # A crashed validator or test can leave behind an isolated cpuset
+        # partition, which removes its CPUs from every other cgroup and
+        # breaks CPU pinning for subsequent jobs on this runner.
+        for cg in /sys/fs/cgroup/*/cpuset.cpus.partition; do
+          [ -e "$cg" ] || continue
+          grep -q isolated "$cg" || continue
+          dir="$(dirname "$cg")"
+          while read -r pid; do
+            echo "$pid" | sudo tee /sys/fs/cgroup/cgroup.procs > /dev/null || true
+          done < "$dir/cgroup.procs"
+          sudo rmdir "$dir" || true
         done

@@ -583,9 +583,10 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   client->metrics.transport_success_cnt++;
   client->state = FD_EVENT_CLIENT_STATE_CONNECTED;
   client->connected.connected_timestamp = fd_log_wallclock();
-  FD_LOG_NOTICE(( "connected to event server " FD_IP4_ADDR_FMT ":%u (%.*s)",
-                  FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port,
-                  (int)client->server_fqdn_len, client->server_fqdn ));
+  FD_LOG_NOTICE(( "connected to telemetry server %s%s://%.*s:%u%s",
+                  fd_log_style_bold(), client->use_tls ? "https" : "http",
+                  (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port,
+                  fd_log_style_normal() ));
 }
 
 static void

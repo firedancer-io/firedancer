@@ -11,6 +11,7 @@
 #include "generated/pidns_seccomp.h"
 #endif
 
+#include "../../fd_bootinfo.h"
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
@@ -555,7 +556,7 @@ main_pid_namespace( void * _args ) {
       ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+        FD_LOG_ERR_NOEXIT(( "tile %s%s:%lu%s exited with signal %d %s(%s)%s", fd_log_style_bold(), tile_name, tile_id, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
         fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
       } else {
         int exit_code = WEXITSTATUS( wstatus );
@@ -563,7 +564,7 @@ main_pid_namespace( void * _args ) {
           found = 1;
           FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+          FD_LOG_ERR_NOEXIT(( "tile %s%s:%lu%s exited with code %d", fd_log_style_bold(), tile_name, tile_id, fd_log_style_normal(), exit_code ));
           fd_sys_util_exit_group( exit_code ? exit_code : 1 );
         }
       }
@@ -918,6 +919,7 @@ run_firedancer_init( config_t * config,
   if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
+  fd_bootinfo_write( config );
 }
 
 void

@@ -443,6 +443,8 @@ struct fd_topo_tile {
 
       /* not specified in TOML */
 
+      long boot_timestamp_nanos;
+
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
 
@@ -752,6 +754,8 @@ struct fd_topo {
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
+
+  ulong          layout_hash;
 };
 typedef struct fd_topo fd_topo_t;
 

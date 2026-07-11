@@ -65,8 +65,7 @@ determine_cpu_used( config_t const * config,
 static configure_result_t
 check( config_t const * config,
        int              check_type ) {
-  if( !( check_type==FD_CONFIGURE_CHECK_TYPE_PRE_INIT ||
-         check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
+  if( !( check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
          check_type==FD_CONFIGURE_CHECK_TYPE_RUN ) ) CONFIGURE_OK();
 
   fd_topo_cpus_t cpus[1];

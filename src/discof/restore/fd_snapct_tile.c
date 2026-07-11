@@ -572,9 +572,11 @@ log_download( fd_snapct_tile_t * ctx,
     if( ci_entry->rpc_addr.l==addr.l ) {
       FD_TEST( ci_entry->allowed );
       FD_BASE58_ENCODE_32_BYTES( ci_entry->pubkey.uc, pubkey_b58 );
-      FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from allowed gossip peer %s at " FD_IP4_ADDR_FMT ":%hu",
-                      full ? "full" : "incremental", slot, pubkey_b58,
-                      FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+      FD_LOG_NOTICE(( "downloading %s snapshot from gossip peer %s%s%s",
+                      full ? "full" : "incremental", fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
+      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from allowed gossip peer %s at " FD_IP4_ADDR_FMT ":%hu",
+                    full ? "full" : "incremental", slot, pubkey_b58,
+                    FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       return;
     }
   }
@@ -582,13 +584,19 @@ log_download( fd_snapct_tile_t * ctx,
   for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
     if( addr.l==ctx->config.sources.servers[ i ].addr.l ) {
       if( ctx->config.sources.servers[ i ].is_https ) {
-        FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s:%hu",
-                        full ? "full" : "incremental", slot, i,
-                        ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
+        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s:%hu%s",
+                        full ? "full" : "incremental",
+                        fd_log_style_bold(), ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s:%hu",
+                      full ? "full" : "incremental", slot, i,
+                      ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
       } else {
-        FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at " FD_IP4_ADDR_FMT ":%hu",
-                        full ? "full" : "incremental", slot, i,
-                        FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+        FD_LOG_NOTICE(( "downloading %s snapshot from %s" FD_IP4_ADDR_FMT ":%hu%s",
+                        full ? "full" : "incremental",
+                        fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at " FD_IP4_ADDR_FMT ":%hu",
+                      full ? "full" : "incremental", slot, i,
+                      FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       }
       return;
     }
@@ -663,7 +671,8 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         ulong local_slot = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
         send_expected_slot( ctx, stem, local_slot );
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
+        FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
@@ -756,8 +765,9 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( can_use_local_full ) ) {
         send_expected_slot( ctx, stem, local_effective_slot );
 
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
-                        ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
+        FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
+                      ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
@@ -765,9 +775,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
           if( local_effective_slot==ULONG_MAX ) {
             if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
-              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
-                              "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
-                              ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
+              FD_LOG_INFO(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
+                            "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
+                            ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
             } else {
               FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
                               "could be found (cluster slot %lu), downloading instead",
@@ -824,7 +834,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.slot = local_slot;
         send_expected_slot( ctx, stem, local_slot );
 
-        FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+        FD_LOG_NOTICE(( "reading incremental snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.incremental_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
         init_load( ctx, stem, 0, 1 );
       } else {

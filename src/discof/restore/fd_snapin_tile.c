@@ -215,8 +215,8 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
     char  dup_buf   [ 32 ];
     format_count( loaded_buf, sizeof(loaded_buf), ctx->metrics.accounts_loaded );
     format_count( dup_buf,    sizeof(dup_buf),    accounts_dup                 );
-    FD_LOG_NOTICE(( "loaded %s accounts (%s dups) from snapshot in %.3f seconds",
-                    loaded_buf, dup_buf, (double)elapsed_ns/1e9 ));
+    FD_LOG_NOTICE(( "loaded %s accounts %s(%s dups)%s from snapshot in %.3f seconds",
+                    loaded_buf, fd_log_style_dim(), dup_buf, fd_log_style_normal(), (double)elapsed_ns/1e9 ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }

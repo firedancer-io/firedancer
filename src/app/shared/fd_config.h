@@ -245,6 +245,7 @@ struct fd_config {
   uint gid;
 
   int is_firedancer;
+  int has_user_config;
   union {
     fd_configh_t frankendancer;
     fd_configf_t firedancer;

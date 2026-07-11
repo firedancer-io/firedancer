@@ -214,6 +214,7 @@ bench_cmd_fn( args_t *   args,
 
     args_t watch_args;
     watch_args.watch.drain_output_fd = pipefd[0];
+    watch_args.watch.full = 1;
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* FIXME allow running sandboxed/multiprocess */
