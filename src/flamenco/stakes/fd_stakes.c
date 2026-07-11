@@ -348,6 +348,31 @@ get_vote_credits( uchar const *        account_data,
 }
 
 static void
+log_top_votes_membership( char const *           source,
+                          ulong                  bank_epoch,
+                          fd_top_votes_t const * top_votes ) {
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
+       !fd_top_votes_iter_done( top_votes, iter );
+       fd_top_votes_iter_next( top_votes, iter ) ) {
+    fd_pubkey_t vote;
+    fd_pubkey_t identity;
+    ulong       stake;
+    ushort      commission;
+    ulong       last_vote_slot;
+    long        last_vote_timestamp;
+    uchar       is_valid;
+    fd_top_votes_iter_ele( top_votes, iter, &vote, &identity, &stake, &commission,
+                           &last_vote_slot, &last_vote_timestamp, &is_valid );
+    FD_BASE58_ENCODE_32_BYTES( vote.uc,     vote_out     );
+    FD_BASE58_ENCODE_32_BYTES( identity.uc, identity_out );
+    FD_LOG_DEBUG(( "top_votes_membership source=%s bank_epoch=%lu vote=%s identity=%s stake=%lu commission=%u last_vote_slot=%lu last_vote_timestamp=%ld is_valid=%u",
+                   source, bank_epoch, vote_out, identity_out, stake, (uint)commission,
+                   last_vote_slot, last_vote_timestamp, (uint)is_valid ));
+  }
+}
+
+static void
 fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
                               fd_accdb_t *                   accdb,
                               fd_runtime_stack_t *           runtime_stack,
@@ -367,6 +392,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
   fd_memcpy( top_votes_t_2,     top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
   fd_top_votes_init( top_votes_t_1 );
   fd_top_votes_t * top_votes_t_3 = fd_type_pun( top_votes_t_3_mem );
+  log_top_votes_membership( "epoch_vat_t2_after_copy", bank->f.epoch, top_votes_t_2 );
 
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
   ulong epoch              = bank->f.epoch;
@@ -487,6 +513,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
     fd_accdb_unread_one( accdb, &acc );
   }
+  log_top_votes_membership( "epoch_vat_t2_after_refresh", bank->f.epoch, top_votes_t_2 );
 
   /* Populate the vote rewards map with the final set of filtered vote
      accounts. */
@@ -726,6 +753,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
   fd_top_votes_init( top_votes_t_1 );
+  log_top_votes_membership( "epoch_no_vat_t2_after_copy", bank->f.epoch, top_votes_t_2 );
 
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, top_votes_iter_mem );
@@ -752,6 +780,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
     fd_accdb_unread_one( accdb, &acc );
   }
+  log_top_votes_membership( "epoch_no_vat_t2_after_refresh", bank->f.epoch, top_votes_t_2 );
 
   /* Now for each staked vote account, figure out if it is a valid
      account and insert into the vote stakes (an account can not exist
