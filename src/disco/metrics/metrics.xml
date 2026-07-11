@@ -1644,6 +1644,8 @@ EXAMPLES
 
 <tile name="snapmk">
     <gauge name="State" summary="0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail" />
+    <gauge name="LastSnapshotStartTimestampNanos" summary="Timestamp when the most recent snapshot creation started, in nanoseconds since epoch. Zero if no snapshot has started since boot" />
+    <gauge name="LastSnapshotCreateSlot" summary="Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot" />
     <counter name="SnapshotsCreated" summary="Number of snapshots created (includes in-progress)" />
     <counter name="AccountsSeen" summary="Accounts examined while building snapshots" />
     <counter name="DataReadBytes" summary="Account database bytes read while building snapshots" />

@@ -159,6 +159,7 @@ struct fd_snapmk {
   ulong manifest_pad;
   ulong status_cache_pad;
   long  start_time;
+  ulong last_snapshot_create_slot;
 
   /* IPC */
   struct {
@@ -1513,9 +1514,16 @@ snap_begin( fd_snapmk_t * ctx,
   ctx->out_ready = 0UL;
   ctx->disk_out_idx = ULONG_MAX;
   ctx->disk_batch_pending = 0;
-  ctx->start_time = fd_log_wallclock();
+  ctx->start_time                = fd_log_wallclock();
+  ctx->last_snapshot_create_slot = ctx->bank->f.slot;
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_START_TIMESTAMP_NANOS, (ulong)ctx->start_time );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_CREATE_SLOT,            ctx->last_snapshot_create_slot );
+
+  /* SNAPSHOTS_CREATED is the publication word for the snapshot start
+     metadata above.  Readers acquire-load it before sampling the gauges. */
+  ulong snapshots_created = __atomic_load_n( &fd_metrics_tl[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ], __ATOMIC_RELAXED ) + 1UL;
+  __atomic_store_n( &fd_metrics_tl[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ], snapshots_created, __ATOMIC_RELEASE );
   FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
-  FD_MCNT_INC  ( SNAPMK, SNAPSHOTS_CREATED, 1UL );
   FD_LOG_NOTICE(( "Snapshot creation started" ));
 }
 
@@ -1675,7 +1683,9 @@ returnable_frag( fd_snapmk_t *       ctx,
 
 static void
 metrics_write( fd_snapmk_t * ctx ) {
-  FD_MGAUGE_SET( SNAPMK, STATE,                       ctx->state                    );
+  FD_MGAUGE_SET( SNAPMK, STATE,                               ctx->state             );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_START_TIMESTAMP_NANOS, (ulong)ctx->start_time );
+  FD_MGAUGE_SET( SNAPMK, LAST_SNAPSHOT_CREATE_SLOT,            ctx->last_snapshot_create_slot );
   FD_MCNT_SET(   SNAPMK, ACCOUNTS_SEEN,               ctx->metrics.accounts_seen    );
   FD_MCNT_SET(   SNAPMK, DATA_READ_BYTES,             ctx->metrics.data_read_bytes  );
   FD_MCNT_SET(   SNAPMK, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed );

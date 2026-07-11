@@ -294,6 +294,8 @@ wait_snapshot_create( fd_topo_tile_t const *            snapmk_tile,
                       ulong                             snapzp_tile_cnt,
                       ulong                             start_snapshots_created,
                       int                               attach_existing,
+                      long *                            snapshot_start_timestamp_nanos,
+                      ulong *                           snapshot_create_slot,
                       ulong *                           final_bytes_written ) {
   volatile ulong const * snapmk_metrics = fd_metrics_tile( snapmk_tile->metrics );
   volatile ulong const * snaprd_metrics = fd_metrics_tile( snaprd_tile->metrics );
@@ -308,12 +310,18 @@ wait_snapshot_create( fd_topo_tile_t const *            snapmk_tile,
   long next_log = fd_log_wallclock();
   for(;;) {
     ulong state = FD_VOLATILE_CONST( snapmk_metrics[ MIDX( GAUGE, SNAPMK, STATE ) ] );
-    ulong snapshots_created = FD_VOLATILE_CONST( snapmk_metrics[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ] );
+    ulong snapshots_created = __atomic_load_n( &snapmk_metrics[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ], __ATOMIC_ACQUIRE );
 
     if( FD_UNLIKELY( attach_existing ) ) {
-      if( FD_UNLIKELY( state!=SNAPMK_STATE_IDLE ) ) started = 1;
+      if( FD_UNLIKELY( !started && state!=SNAPMK_STATE_IDLE ) ) {
+        started = 1;
+        *snapshot_start_timestamp_nanos = (long)FD_VOLATILE_CONST( snapmk_metrics[ MIDX( GAUGE, SNAPMK, LAST_SNAPSHOT_START_TIMESTAMP_NANOS ) ] );
+        *snapshot_create_slot = FD_VOLATILE_CONST( snapmk_metrics[ MIDX( GAUGE, SNAPMK, LAST_SNAPSHOT_CREATE_SLOT ) ] );
+      }
     } else if( FD_UNLIKELY( !started && snapshots_created!=start_snapshots_created ) ) {
       started = 1;
+      *snapshot_start_timestamp_nanos = (long)FD_VOLATILE_CONST( snapmk_metrics[ MIDX( GAUGE, SNAPMK, LAST_SNAPSHOT_START_TIMESTAMP_NANOS ) ] );
+      *snapshot_create_slot = FD_VOLATILE_CONST( snapmk_metrics[ MIDX( GAUGE, SNAPMK, LAST_SNAPSHOT_CREATE_SLOT ) ] );
       FD_LOG_NOTICE(( "snapshot creation started" ));
     }
     int metrics_ready = started && !metrics_rebased;
@@ -368,9 +376,10 @@ snapshot_create_cmd_fn( args_t *   args,
   ulong start_snapshots_created = 0UL;
   if( FD_LIKELY( snapmk_tile ) ) {
     volatile ulong const * snapmk_metrics = fd_metrics_tile( snapmk_tile->metrics );
-    start_snapshots_created = FD_VOLATILE_CONST( snapmk_metrics[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ] );
+    start_snapshots_created = __atomic_load_n( &snapmk_metrics[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ], __ATOMIC_ACQUIRE );
   }
   ulong final_bytes_written = 0UL;
+  ulong snapshot_create_slot = 0UL;
   long  start_time          = fd_log_wallclock();
 
   /* Send snapshot create command */
@@ -383,9 +392,10 @@ snapshot_create_cmd_fn( args_t *   args,
     }
   }
 
-  wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &final_bytes_written );
-  FD_LOG_NOTICE(( "snapshot created in %.3f seconds (%.3f GB)",
+  wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &start_time, &snapshot_create_slot, &final_bytes_written );
+  FD_LOG_NOTICE(( "snapshot created in %.3f seconds (slot %lu, %.3f GB)",
                   (double)( fd_log_wallclock() - start_time )/1e9,
+                  snapshot_create_slot,
                   (double)final_bytes_written/1e9 ));
 }
 

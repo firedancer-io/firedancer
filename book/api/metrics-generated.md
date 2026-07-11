@@ -160,6 +160,8 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">snapmk_&#8203;state</span> | gauge | 0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;start_&#8203;timestamp_&#8203;nanos</span> | gauge | Timestamp when the most recent snapshot creation started, in nanoseconds since epoch. Zero if no snapshot has started since boot |
+| <span class="metrics-name">snapmk_&#8203;last_&#8203;snapshot_&#8203;create_&#8203;slot</span> | gauge | Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot |
 | <span class="metrics-name">snapmk_&#8203;snapshots_&#8203;created</span> | counter | Number of snapshots created (includes in-progress) |
 | <span class="metrics-name">snapmk_&#8203;accounts_&#8203;seen</span> | counter | Accounts examined while building snapshots |
 | <span class="metrics-name">snapmk_&#8203;data_&#8203;read_&#8203;bytes</span> | counter | Account database bytes read while building snapshots |

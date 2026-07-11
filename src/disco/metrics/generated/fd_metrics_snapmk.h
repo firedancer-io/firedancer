@@ -8,6 +8,8 @@
 
 enum {
   FD_METRICS_GAUGE_SNAPMK_STATE_OFF = FD_METRICS_TILE_OFF,
+  FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_START_TIMESTAMP_NANOS_OFF,
+  FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_CREATE_SLOT_OFF,
   FD_METRICS_COUNTER_SNAPMK_SNAPSHOTS_CREATED_OFF,
   FD_METRICS_COUNTER_SNAPMK_ACCOUNTS_SEEN_OFF,
   FD_METRICS_COUNTER_SNAPMK_DATA_READ_BYTES_OFF,
@@ -28,6 +30,16 @@ enum {
 #define FD_METRICS_GAUGE_SNAPMK_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_SNAPMK_STATE_DESC "0=idle, 1=start, 2=tar headers, 3=manifest, 4=accounts cache, 5=accounts flush 1, 6=accounts flush 2, 7=accounts drain, 8=status cache, 9=EOF marker, 10=done, 11=fail"
 #define FD_METRICS_GAUGE_SNAPMK_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_START_TIMESTAMP_NANOS_NAME "snapmk_last_snapshot_start_timestamp_nanos"
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_START_TIMESTAMP_NANOS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_START_TIMESTAMP_NANOS_DESC "Timestamp when the most recent snapshot creation started, in nanoseconds since epoch. Zero if no snapshot has started since boot"
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_START_TIMESTAMP_NANOS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_CREATE_SLOT_NAME "snapmk_last_snapshot_create_slot"
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_CREATE_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_CREATE_SLOT_DESC "Slot of the most recently started snapshot creation. Zero if no snapshot has started since boot"
+#define FD_METRICS_GAUGE_SNAPMK_LAST_SNAPSHOT_CREATE_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_SNAPMK_SNAPSHOTS_CREATED_NAME "snapmk_snapshots_created"
 #define FD_METRICS_COUNTER_SNAPMK_SNAPSHOTS_CREATED_TYPE (FD_METRICS_TYPE_COUNTER)
@@ -99,7 +111,7 @@ enum {
 #define FD_METRICS_GAUGE_SNAPMK_SNAPRD_INFLIGHT_FRAGS_DESC "Number of snaprd fragments read but not yet released back to snaprd, i.e. still referenced zero-copy by queued zp work (parse cursor minus release watermark; bounded by the snaprd link depth)"
 #define FD_METRICS_GAUGE_SNAPMK_SNAPRD_INFLIGHT_FRAGS_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPMK_TOTAL (15UL)
+#define FD_METRICS_SNAPMK_TOTAL (17UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPMK[FD_METRICS_SNAPMK_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_snapmk_h */
