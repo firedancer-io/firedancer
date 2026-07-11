@@ -193,20 +193,45 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   heap_t *     heap = get_heap( top_votes );
   map_t *      map  = get_map( top_votes );
 
-  if( FD_UNLIKELY( stake==0UL || stake<=top_votes->min_stake_wmark ) ) return;
+  FD_BASE58_ENCODE_32_BYTES( pubkey->uc,       vote_out     );
+  FD_BASE58_ENCODE_32_BYTES( node_account->uc, identity_out );
+
+  if( FD_UNLIKELY( !stake ) ) {
+    FD_LOG_DEBUG(( "top_votes_exclude reason=zero_stake vote=%s identity=%s stake=%lu watermark=%lu",
+                   vote_out, identity_out, stake, top_votes->min_stake_wmark ));
+    return;
+  }
+  if( FD_UNLIKELY( stake<=top_votes->min_stake_wmark ) ) {
+    FD_LOG_DEBUG(( "top_votes_exclude reason=watermark vote=%s identity=%s stake=%lu watermark=%lu",
+                   vote_out, identity_out, stake, top_votes->min_stake_wmark ));
+    return;
+  }
 
   if( FD_UNLIKELY( heap_ele_cnt( heap )==heap_ele_max( heap ) ) ) {
     vote_ele_t * ele       = heap_ele_peek_min( heap, pool );
     ulong        min_stake = ele->stake;
-    if( stake<min_stake ) return;
+    if( stake<min_stake ) {
+      FD_LOG_DEBUG(( "top_votes_exclude reason=below_cutoff vote=%s identity=%s stake=%lu cutoff=%lu watermark=%lu",
+                     vote_out, identity_out, stake, min_stake, top_votes->min_stake_wmark ));
+      return;
+    }
 
     top_votes->min_stake_wmark = min_stake;
     while( (ele=heap_ele_peek_min( heap, pool )) && ele && min_stake==ele->stake ) {
+      FD_BASE58_ENCODE_32_BYTES( ele->pubkey.uc,       evicted_vote_out     );
+      FD_BASE58_ENCODE_32_BYTES( ele->node_account.uc, evicted_identity_out );
+      FD_LOG_DEBUG(( "top_votes_evict reason=cutoff vote=%s identity=%s stake=%lu candidate_vote=%s candidate_identity=%s candidate_stake=%lu cutoff=%lu",
+                     evicted_vote_out, evicted_identity_out, ele->stake,
+                     vote_out, identity_out, stake, min_stake ));
       heap_ele_remove_min( heap, pool );
       map_ele_remove( map, &ele->pubkey, NULL, pool );
       pool_ele_release( pool, ele );
     }
-    if( FD_UNLIKELY( stake==min_stake ) ) return;
+    if( FD_UNLIKELY( stake==min_stake ) ) {
+      FD_LOG_DEBUG(( "top_votes_exclude reason=cutoff_tie vote=%s identity=%s stake=%lu cutoff=%lu watermark=%lu",
+                     vote_out, identity_out, stake, min_stake, top_votes->min_stake_wmark ));
+      return;
+    }
   }
 
   vote_ele_t * ele         = pool_ele_acquire( pool );
@@ -219,6 +244,9 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   ele->is_valid            = 1;
   heap_ele_insert( heap, ele, pool );
   map_ele_insert( map, ele, pool );
+  FD_LOG_DEBUG(( "top_votes_insert vote=%s identity=%s stake=%lu commission=%u count=%lu capacity=%lu watermark=%lu",
+                 vote_out, identity_out, stake, (uint)commission,
+                 heap_ele_cnt( heap ), heap_ele_max( heap ), top_votes->min_stake_wmark ));
 }
 
 void
