@@ -1,5 +1,6 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
+#include "../../shared/fd_bootinfo.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../discof/admin/fd_adminctl.h"
 #include "../../../discof/backup/fd_backup.h"
@@ -311,8 +312,9 @@ wait_snapshot_create( fd_topo_tile_t const *            snapmk_tile,
 
     if( FD_UNLIKELY( attach_existing ) ) {
       if( FD_UNLIKELY( state!=SNAPMK_STATE_IDLE ) ) started = 1;
-    } else if( FD_UNLIKELY( snapshots_created!=start_snapshots_created ) ) {
+    } else if( FD_UNLIKELY( !started && snapshots_created!=start_snapshots_created ) ) {
       started = 1;
+      FD_LOG_NOTICE(( "snapshot creation started" ));
     }
     int metrics_ready = started && !metrics_rebased;
     if( FD_LIKELY( metrics_ready ) ) {
@@ -362,9 +364,15 @@ snapshot_create_cmd_args_help( fd_action_help_t * help ) {
 static void
 snapshot_create_cmd_fn( args_t *   args,
                         config_t * config ) {
+  fd_bootinfo_adopt( config );
+  fd_bootinfo_check_layout( config );
+
   fd_topo_t * topo = &config->topo;
 
-  fd_topo_tile_t const * snapmk_tile = join_tile_metrics_by_kind( topo, "snapmk", 0UL ); FD_TEST( snapmk_tile );
+  fd_topo_tile_t const * snapmk_tile = join_tile_metrics_by_kind( topo, "snapmk", 0UL );
+  if( FD_UNLIKELY( !snapmk_tile ) ) {
+    FD_LOG_ERR(( "snapshot creation is disabled; set [layout.snapzp_tile_count] to a value greater than zero and restart Firedancer" ));
+  }
   fd_topo_tile_t const * snaprd_tile = join_tile_metrics_by_kind( topo, "snaprd", 0UL ); FD_TEST( snaprd_tile );
   fd_topo_tile_t const * snapzp_tiles[ FD_TOPO_MAX_TILES ];
   ulong snapzp_tile_cnt = join_tile_metrics_all( topo, "snapzp", snapzp_tiles, FD_TOPO_MAX_TILES );
@@ -384,16 +392,10 @@ snapshot_create_cmd_fn( args_t *   args,
     } else {
       FD_LOG_ERR(( "failed to request snapshot creation %lu-%s", result, snapshot_create_result_strerror( result ) ));
     }
-  } else {
-    FD_LOG_NOTICE(( "Snapshot creation started" ));
-  }
-
-  if( FD_UNLIKELY( !snapmk_tile ) ) {
-    FD_LOG_ERR(( "snapshot creation was accepted, but no snapmk tile was found" ));
   }
 
   wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, args->snapshot_create.cont && result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &final_bytes_written );
-  FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%.3f GB)",
+  FD_LOG_NOTICE(( "snapshot created in %.3f seconds (%.3f GB)",
                   (double)( fd_log_wallclock() - start_time )/1e9,
                   (double)final_bytes_written/1e9 ));
 }
@@ -404,6 +406,5 @@ action_t fd_action_snapshot_create = {
   .fn             = snapshot_create_cmd_fn,
   .description    = "Create a snapshot",
   .usage          = "snapshot-create [OPTIONS]",
-  .args_help      = snapshot_create_cmd_args_help,
-  .require_config = 1
+  .args_help      = snapshot_create_cmd_args_help
 };

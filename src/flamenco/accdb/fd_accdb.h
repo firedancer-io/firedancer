@@ -644,6 +644,13 @@ void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy );
 
+/* fd_accdb_background_preevict does one unit of background work, but
+   limited to cache pre-eviction. */
+
+void
+fd_accdb_background_preevict( fd_accdb_t * accdb,
+                              int *        charge_busy );
+
 /* fd_accdb_shmetrics returns a pointer to the shared metrics counters
    for the given accdb instance.  The returned pointer remains valid
    for the lifetime of the underlying shmem. */
