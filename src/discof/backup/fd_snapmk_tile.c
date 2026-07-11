@@ -1475,7 +1475,7 @@ snap_begin( fd_snapmk_t * ctx,
   fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
 
-  *ctx->zp_file_off  = 0UL;
+  __atomic_store_n( ctx->zp_file_off, 0UL, __ATOMIC_RELAXED );
   ctx->raw_buf.size  = 0UL;
   ctx->raw_buf.pos   = 0UL;
   ctx->comp_buf.pos  = 0UL;

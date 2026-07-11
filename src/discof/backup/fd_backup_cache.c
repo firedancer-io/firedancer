@@ -187,6 +187,7 @@ filter_batch( fd_backup_cache_t * backup,
     fd_accdb_accmeta_t const * gather[ FD_BACKUP_CACHE_PARA ];
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
       uint acc_idx = head[ i ];
+      FD_DCHECK_CRIT( acc_idx < backup->max_accounts || acc_idx==UINT_MAX, "acc_idx out of bounds" );
       gather[ i ] = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ] : &dead;
     }
 
@@ -251,6 +252,7 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   uint acc_idx2 = FD_VOLATILE_CONST( ctx->acc_map[ hash ] );
   _Bool found = 0;
   while( acc_idx2!=UINT_MAX ) {
+    FD_DCHECK_CRIT( acc_idx2 < ctx->max_accounts, "acc_idx out of bounds" );
     fd_accdb_accmeta_t const * candidate = &ctx->acc_pool[ acc_idx2 ];
     found |= acc_idx==acc_idx2;
     acc_idx2 = FD_VOLATILE_CONST( candidate->map.next );

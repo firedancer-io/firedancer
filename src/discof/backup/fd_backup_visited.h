@@ -27,7 +27,6 @@ fd_backup_visited_insert_if( visited_set_t * set,
                              ulong           idx ) {
   FD_DCHECK_CRIT( visited_set_valid_idx( set, idx ), "idx out of bounds" );
   FD_ATOMIC_FETCH_AND_OR( &set[ idx>>6 ], ((ulong)!!c) << (idx & 63UL) );
-  visited_set_insert_if( set, c, idx );
 }
 
 static inline void
