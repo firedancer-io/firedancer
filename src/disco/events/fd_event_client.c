@@ -53,6 +53,8 @@ struct fd_event_client {
   int       has_genesis_hash;
   fd_hash_t genesis_hash[1];
 
+  int connect_fail_logged;
+
   ushort has_shred_version;
   ushort shred_version;
 
@@ -188,6 +190,7 @@ fd_event_client_new( void *                 shmem,
 
   client->has_genesis_hash = 0;
   client->has_shred_version = 0;
+  client->connect_fail_logged = 0;
 
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
@@ -315,11 +318,15 @@ disconnect( fd_event_client_t * client,
       FD_LOG_INFO(( "disconnected: identity changed" ));
       break;
     case DISCONNECT_REASON_CONNECT_FAILED:
-      FD_LOG_WARNING(( "connecting to " FD_IP4_ADDR_FMT ":%u failed (%i-%s)", FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( !client->connect_fail_logged ) ) FD_LOG_WARNING(( "connecting to telemetry server " FD_IP4_ADDR_FMT ":%u failed %s(%i-%s)%s", FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port, fd_log_style_dim(), errno, fd_io_strerror( errno ), fd_log_style_normal() ));
+      else                                              FD_LOG_INFO((    "connecting to telemetry server " FD_IP4_ADDR_FMT ":%u failed (%i-%s)", FD_IP4_ADDR_FMT_ARGS( client->server_ip4_addr ), client->server_tcp_port, errno, fd_io_strerror( errno ) ));
+      client->connect_fail_logged = 1;
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_DNS_RESOLVE_FAILED:
-      FD_LOG_WARNING(( "failed to resolve host `%.*s` (%d-%s)", (int)client->server_fqdn_len, client->server_fqdn, err, fd_gai_strerror( err ) ));
+      if( FD_UNLIKELY( !client->connect_fail_logged ) ) FD_LOG_WARNING(( "failed to resolve telemetry server host %.*s %s(%d-%s)%s", (int)client->server_fqdn_len, client->server_fqdn, fd_log_style_dim(), err, fd_gai_strerror( err ), fd_log_style_normal() ));
+      else                                              FD_LOG_INFO((    "failed to resolve telemetry server host %.*s (%d-%s)", (int)client->server_fqdn_len, client->server_fqdn, err, fd_gai_strerror( err ) ));
+      client->connect_fail_logged = 1;
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_TIMEOUT:
@@ -327,27 +334,27 @@ disconnect( fd_event_client_t * client,
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_TRANSPORT_FAILED:
-      FD_LOG_WARNING(( "disconnected: transport failed (%d-%s)", err, fd_io_strerror( err ) ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: transport failed %s(%d-%s)%s", fd_log_style_dim(), err, fd_io_strerror( err ), fd_log_style_normal() ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_PEER_CLOSED:
-      FD_LOG_WARNING(( "disconnected: peer closed connection" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: peer closed connection" ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_INVALID_CURSOR:
-      FD_LOG_WARNING(( "disconnected: invalid cursor" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: invalid cursor" ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_AUTH_FAILED:
-      FD_LOG_WARNING(( "disconnected: authentication failed" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: authentication failed" ));
       client->metrics.transport_fail_cnt++;
       break;
     case DISCONNECT_REASON_INVALID_PROTOBUF:
-      FD_LOG_WARNING(( "disconnected: invalid protobuf message received" ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: invalid protobuf message received" ));
       client->metrics.transport_fail_cnt++;
       break;
     default:
-      FD_LOG_WARNING(( "disconnected: unknown reason %d", reason ));
+      FD_LOG_WARNING(( "disconnected from telemetry server: unknown reason %d", reason ));
       client->metrics.transport_fail_cnt++;
       break;
   }
@@ -583,6 +590,7 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   client->metrics.transport_success_cnt++;
   client->state = FD_EVENT_CLIENT_STATE_CONNECTED;
   client->connected.connected_timestamp = fd_log_wallclock();
+  client->connect_fail_logged = 0;
   FD_LOG_NOTICE(( "connected to telemetry server %s%s://%.*s:%u%s",
                   fd_log_style_bold(), client->use_tls ? "https" : "http",
                   (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port,

@@ -571,11 +571,19 @@ log_download( fd_snapct_tile_t * ctx,
     gossip_ci_entry_t const * ci_entry = gossip_ci_map_iter_ele_const( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
     if( ci_entry->rpc_addr.l==addr.l ) {
       FD_TEST( ci_entry->allowed );
+
+      int is_entrypoint = 0;
+      for( ulong i=0UL; i<ctx->config.entrypoints_cnt; i++ ) {
+        if( FD_UNLIKELY( ctx->config.entrypoints[ i ].addr==addr.addr ) ) { is_entrypoint = 1; break; }
+      }
+      char const * kind = ctx->config.sources.gossip.allow_any ? "untrusted gossip peer" : "trusted gossip peer";
+      if( FD_UNLIKELY( is_entrypoint ) ) kind = "entrypoint gossip peer";
+
       FD_BASE58_ENCODE_32_BYTES( ci_entry->pubkey.uc, pubkey_b58 );
-      FD_LOG_NOTICE(( "downloading %s snapshot from gossip peer %s%s%s",
-                      full ? "full" : "incremental", fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
-      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from allowed gossip peer %s at " FD_IP4_ADDR_FMT ":%hu",
-                    full ? "full" : "incremental", slot, pubkey_b58,
+      FD_LOG_NOTICE(( "downloading %s snapshot from %s %s%s%s",
+                      full ? "full" : "incremental", kind, fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
+      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from %s %s at " FD_IP4_ADDR_FMT ":%hu",
+                    full ? "full" : "incremental", slot, kind, pubkey_b58,
                     FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       return;
     }
@@ -584,14 +592,14 @@ log_download( fd_snapct_tile_t * ctx,
   for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
     if( addr.l==ctx->config.sources.servers[ i ].addr.l ) {
       if( ctx->config.sources.servers[ i ].is_https ) {
-        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s:%hu%s",
+        FD_LOG_NOTICE(( "downloading %s snapshot from %shttps://%s:%hu%s",
                         full ? "full" : "incremental",
                         fd_log_style_bold(), ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
         FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s:%hu",
                       full ? "full" : "incremental", slot, i,
                       ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
       } else {
-        FD_LOG_NOTICE(( "downloading %s snapshot from %s" FD_IP4_ADDR_FMT ":%hu%s",
+        FD_LOG_NOTICE(( "downloading %s snapshot from %shttp://" FD_IP4_ADDR_FMT ":%hu%s",
                         full ? "full" : "incremental",
                         fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
         FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at " FD_IP4_ADDR_FMT ":%hu",

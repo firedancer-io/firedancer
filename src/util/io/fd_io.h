@@ -894,6 +894,17 @@ fd_io_strerror( int err );
 FD_FN_CONST char const *
 fd_io_strsignal( int err );
 
+/* fd_io_strsignal_name and fd_io_strsignal_desc are the two halves of
+   fd_io_strsignal: the signal name ("SIGTERM") and the human readable
+   description ("Terminated") respectively.  Same lifetime and thread
+   safety guarantees. */
+
+FD_FN_CONST char const *
+fd_io_strsignal_name( int err );
+
+FD_FN_CONST char const *
+fd_io_strsignal_desc( int err );
+
 /* TODO: ASYNC IO APIS */
 
 FD_PROTOTYPES_END

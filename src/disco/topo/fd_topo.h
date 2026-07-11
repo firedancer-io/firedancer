@@ -597,6 +597,9 @@ struct fd_topo_tile {
     struct fd_topo_tile_snapct {
       char snapshots_path[ PATH_MAX ];
 
+      ulong         entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+
       struct {
         uint max_local_full_effective_age;
         uint max_local_incremental_age;

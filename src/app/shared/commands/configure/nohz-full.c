@@ -40,9 +40,9 @@ check( config_t const * config,
   if( !( check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
          check_type==FD_CONFIGURE_CHECK_TYPE_RUN ) ) CONFIGURE_OK();
 
-  /* Jitter tuning only matters against a live cluster, don't nag in
-     development. */
-  if( FD_LIKELY( !config->is_live_cluster ) ) CONFIGURE_OK();
+  /* Jitter tuning only matters for production validators against a
+     live cluster, don't nag in development. */
+  if( FD_LIKELY( !config->is_live_cluster || config->is_dev ) ) CONFIGURE_OK();
 
   FD_CPUSET_DECL( tile_cpus );
   fd_cpu_isolation_tile_cpus( tile_cpus, &config->topo );
@@ -53,9 +53,11 @@ check( config_t const * config,
 
   FD_CPUSET_DECL( nohz );
   if( FD_UNLIKELY( !fd_cpu_isolation_read_list( NOHZ_FULL_PATH, nohz ) ) ) {
-    FD_LOG_WARNING(( "kernel has no nohz_full support (missing `" NOHZ_FULL_PATH "`). Firedancer tiles will be "
+    FD_LOG_WARNING(( "kernel has no nohz_full support %s(missing " NOHZ_FULL_PATH ")%s. Firedancer tiles will be "
                      "interrupted by periodic timer ticks. For lower jitter, use a kernel with CONFIG_NO_HZ_FULL "
-                     "and boot with `nohz_full=%s`.", suggested ));
+                     "and boot with %snohz_full=%s%s.",
+                     fd_log_style_dim(), fd_log_style_normal(),
+                     fd_log_style_bold(), suggested, fd_log_style_normal() ));
     CONFIGURE_OK();
   }
 
@@ -64,9 +66,9 @@ check( config_t const * config,
   if( FD_UNLIKELY( !fd_cpuset_is_null( missing ) ) ) {
     char missing_str[ FD_CPU_ISOLATION_LIST_MAX ];
     fd_cpu_isolation_format_list( missing_str, sizeof(missing_str), missing );
-    FD_LOG_WARNING(( "tile cpus %s are not in the kernel `nohz_full=` set and will be interrupted by "
-                     "periodic timer ticks. For lower jitter, boot with `nohz_full=%s`.",
-                     missing_str, suggested ));
+    FD_LOG_WARNING(( "tile cpus %s are not in the kernel nohz_full= set and will be interrupted by "
+                     "periodic timer ticks. For lower jitter, boot with %snohz_full=%s%s.",
+                     missing_str, fd_log_style_bold(), suggested, fd_log_style_normal() ));
   }
 
   CONFIGURE_OK();

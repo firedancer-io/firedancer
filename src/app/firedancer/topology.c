@@ -1376,6 +1376,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapct" ) ) ) {
 
     fd_memcpy( tile->snapct.snapshots_path, config->paths.snapshots, PATH_MAX );
+    tile->snapct.entrypoints_cnt = fd_ulong_min( config->gossip.entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
+    fd_memcpy( tile->snapct.entrypoints, config->gossip.resolved_entrypoints, tile->snapct.entrypoints_cnt * sizeof(fd_ip4_port_t) );
     tile->snapct.sources.max_local_full_effective_age = config->firedancer.snapshots.sources.max_local_full_effective_age;
     tile->snapct.sources.max_local_incremental_age    = config->firedancer.snapshots.sources.max_local_incremental_age;
     tile->snapct.incremental_snapshots                = config->firedancer.snapshots.incremental_snapshots;

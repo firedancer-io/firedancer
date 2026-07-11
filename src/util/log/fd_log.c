@@ -968,7 +968,7 @@ fd_log_private_sig_abort( int         sig,
   (void)sig; (void)info; (void)context;
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
-  FD_LOG_ERR_NOEXIT(( "Received signal %s", fd_io_strsignal( sig ) ));
+  FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
 #undef FD_LOG_ERR_NOEXIT
 
 # if FD_HAS_BACKTRACE

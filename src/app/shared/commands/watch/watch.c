@@ -1344,8 +1344,7 @@ write_summary( config_t const *           config,
                ulong const *              cur_tile,
                ulong const *              prev_tile,
                ulong const *              cur_link,
-               ulong const *              prev_link,
-               int                        interposing ) {
+               ulong const *              prev_link ) {
   (void)config;
   (void)prev_tile;
   (void)cur_tile;
@@ -1353,10 +1352,6 @@ write_summary( config_t const *           config,
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
   PRINT( "\033[?7l" ); /* disable autowrap mode */
   lines_printed = 0UL;
-  if( FD_UNLIKELY( interposing ) ) {
-    PRINT( "───────────────" CLEARLN "\n" );
-    lines_printed = 1UL;
-  }
 
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   int shutdown = 1;
@@ -1462,10 +1457,9 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
-  int interposing = drain_output_fd>=0;
 
   frame_len = 0UL;
-  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
   flush_frame();
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -1473,7 +1467,7 @@ run( config_t const * config,
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
         frame_len = 0UL;
-        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
         flush_frame();
       }
     }
@@ -1577,7 +1571,7 @@ run( config_t const * config,
       } else {
         PRINT( "\033[%luA\r", lines_printed );
       }
-      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
       PRINT( "\033[0J" );    /* clear any leftover lines below */
       PRINT( "\033[?25h" ); /* show cursor */
       flush_frame();
