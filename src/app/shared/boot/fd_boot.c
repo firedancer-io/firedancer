@@ -224,7 +224,7 @@ fd_main_init( int *                      pargc,
                               config->log.colorize1,
                               boot_silent ? 2 : config->log.level_logfile1,
                               boot_silent ? 2 : config->log.level_stderr1,
-                              boot_silent ? 3 : config->log.level_flush1,
+                              config->log.level_flush1,
                               5,
                               config->log.log_fd,
                               log_path );

@@ -23,10 +23,6 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
 static void
 parent_signal( int sig ) {
-  /* Skip the logfile fsync for the shutdown message: it can stall for
-     many seconds behind dirty page writeback (e.g. freshly written
-     snapshots), and durability does not matter when exiting cleanly. */
-  fd_log_level_flush_set( 5 );
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s\n%sLog at \"%s\"%s", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_log_private_path, fd_log_style_normal() ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s",                fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
 
