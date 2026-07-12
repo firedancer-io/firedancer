@@ -456,6 +456,7 @@ EXAMPLES
     <counter name="GrePktTxSubmitted" summary="GRE packet transmit jobs submitted" />
     <counter name="GrePktTxNoRoute" summary="GRE packet transmit jobs dropped due to route failure" />
     <counter name="PktRxSrcInvalid" summary="Incoming packets dropped due to invalid source IP address" />
+    <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes installed in the forwarding table" />
 </tile>
 
 <enum name="SocketError">
@@ -1607,7 +1608,6 @@ EXAMPLES
     <counter name="RouteFullSync" summary="Full route table syncs done" />
     <counter name="UpdateProcessed" enum="NetlinkMessage" summary="Netlink live updates processed" />
     <gauge name="InterfaceCount" summary="Network interfaces" />
-    <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes" />
     <counter name="NeighborProbeSent" summary="Neighbor solicit requests sent to kernel" />
     <counter name="NeighborProbeFailed" summary="Neighbor solicit requests that failed to send (kernel too slow)" />
     <counter name="NeighborProbeRateLimitHost" summary="Neighbor solicit requests that exceeded the per-host rate limit" />

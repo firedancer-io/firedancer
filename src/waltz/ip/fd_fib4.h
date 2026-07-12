@@ -9,10 +9,6 @@
    fib4 only supports a minimal set of features required for end devices
    to operate.  Packet forwarding is not supported.
 
-   fib4 supports multi-threaded operation in a x86-TSO like environment.
-   (many reader threads, one writer thread)  Refer to each function for
-   thread safety.
-
    A fib4 always has a dummy route at index 0.
 
    FIXME: CONSIDER TRIE BASED DATA STRUCTURE
@@ -103,13 +99,7 @@ fd_fib4_leave( fd_fib4_t * fib4 );
 void *
 fd_fib4_delete( void * mem );
 
-/* Write APIs *************************************************************
-
-   Currently, any updates to a fib4 require a full rewrite (incremental
-   updates are not supported).  During an update, fd_fib4_lookup calls
-   temporarily return a route entry with FD_FIB4_RTYPE_BLACKHOLE, which
-   means outgoing packets get dropped.  (This is preferable to potentially
-   making an incorrect routing decision based on a partial route table.) */
+/* Write APIs ************************************************************/
 
 /* fd_fib4_clear removes all route table entries but the first. Remove all
    entries in the route hmap. Sets the first route table entry to
@@ -119,28 +109,33 @@ void
 fd_fib4_clear( fd_fib4_t * fib );
 
 /* fd_fib4_insert attempts to add a new route entry to the FIB routing table.
-   Routes with /32 netmask prefix are stored in hashmap for faster lookup. Other
-   routes use the main table. Returns 1 on success, 0 if the internal data
-   structures are full (logs warning in that case).
-   */
+   Routes with /32 netmask prefix are stored in hashmap for faster lookup.
+   Other routes use the main table.  A route with the same destination,
+   prefix, and priority replaces the existing route.  Returns 1 on success,
+   0 if the internal data structures are full (logs warning in that case). */
 
 int
-fd_fib4_insert( fd_fib4_t *     fib,
-                uint            ip4_dst,
-                int             prefix,
-                uint            prio,
-                fd_fib4_hop_t * hop );
+fd_fib4_insert( fd_fib4_t *           fib,
+                uint                  ip4_dst,
+                int                   prefix,
+                uint                  prio,
+                fd_fib4_hop_t const * hop );
+
+/* fd_fib4_remove removes the route identified by destination, prefix, and
+   priority.  Returns 1 if a route was removed and 0 if no exact match exists. */
+
+int
+fd_fib4_remove( fd_fib4_t * fib,
+                uint        ip4_dst,
+                int         prefix,
+                uint        prio );
 
 /* Read APIs *************************************************************/
 
 /* fd_fib4_lookup resolves the next hop for an arbitrary IPv4 address.
-   If route was not found, retval.rtype is set to FD_FIB4_RTYPE_THROW.
-
-   Thread safe: Multiple threads can use the read API concurrently without
-   affecting each other.  If a write by one thread is in progress, all
-   other threads calling fd_fib4_lookup may briefly see a blackhole route
-   being returned.  (Until of the effects of the write become visible to
-   all CPUs in the system) */
+   If multiple /32 routes match, selects the route with the lowest
+   priority value. If route was not found, retval.rtype is set to
+   FD_FIB4_RTYPE_THROW. */
 
 fd_fib4_hop_t
 fd_fib4_lookup( fd_fib4_t const * fib,
