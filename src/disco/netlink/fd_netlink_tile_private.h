@@ -3,7 +3,6 @@
 
 #include "../../waltz/ip/fd_netlink1.h"
 #include "../metrics/generated/fd_metrics_netlnk.h"
-#include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/neigh/fd_neigh4_probe.h"
@@ -11,7 +10,7 @@
 /* FD_NETLINK_TILE_CTX_MAGIC uniquely identifies a fd_netlink_tile_ctx_t.
    CHange this whenever the fd_netlink_tile_ctx_t struct changes. */
 
-#define FD_NETLINK_TILE_CTX_MAGIC (0xec431bf97929c691UL) /* random */
+#define FD_NETLINK_TILE_CTX_MAGIC (0xb86244c543ddca5fUL) /* random */
 
 struct fd_netlink_tile_ctx {
   ulong magic; /* ==FD_NETLINK_TILE_CTX_MAGIC */
@@ -33,9 +32,29 @@ struct fd_netlink_tile_ctx {
   /* Link table (shared, seqlock protected) */
   fd_netdev_tbl_join_t netdev_tbl[1];
 
-  /* Route tables */
-  fd_fib4_t fib4_local[1];
-  fd_fib4_t fib4_main[1];
+  /* Route update output */
+  void * out_mem;
+  ulong  out_chunk;
+  ulong  out_chunk0;
+  ulong  out_wmark;
+  ulong  route_max;
+  ulong  route_peer_max;
+  ulong  dump_route_cnt[2];
+  ulong  dump_peer_cnt[2];
+  int    dump_overflow;
+  uint   dump_table_id;
+  int    dump_active;
+  int    dump_advance;
+  int    dump_intr;
+  fd_netlink_iter_t dump_iter[1];
+  uchar             dump_buf[4096];
+
+  /* A netlink datagram can contain multiple messages.  Retain the
+     unprocessed suffix when a route publication consumes the last
+     available Stem credit. */
+  uchar monitor_buf[16384];
+  long  monitor_buf_sz;
+  long  monitor_buf_off;
 
   /* Neighbor table */
   fd_neigh4_hmap_t neigh4[1];   /* join to global map */

@@ -149,8 +149,6 @@
 | <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">neigh</span>"} | counter | Number of netlink live updates processed (Neighbor Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;updates</span><br/>{netlink_&#8203;msg="<span class="metrics-enum">ipv4_&#8203;route</span>"} | counter | Number of netlink live updates processed (IPv4 Route Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Number of network interfaces |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | Number of IPv4 routes (Local) |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | Number of IPv4 routes (Main) |
 | <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;sent</span> | counter | Number of neighbor solicit requests sent to kernel |
 | <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;fails</span> | counter | Number of neighbor solicit requests that failed to send (kernel too slow) |
 | <span class="metrics-name">netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host</span> | counter | Number of neighbor solicit that exceeded the per-host rate limit |
@@ -193,6 +191,8 @@
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
 | <span class="metrics-name">net_&#8203;rx_&#8203;src_&#8203;addr_&#8203;invalid_&#8203;cnt</span> | counter | Number of incoming packets dropped due to invalid source IP address |
+| <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes installed in the forwarding table (Local) |
+| <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes installed in the forwarding table (Main) |
 
 </div>
 

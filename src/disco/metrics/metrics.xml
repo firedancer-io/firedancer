@@ -95,6 +95,7 @@ metric introduced.
     <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
     <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
     <counter name="RxSrcAddrInvalidCnt" summary="Number of incoming packets dropped due to invalid source IP address" />
+    <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes installed in the forwarding table" />
 </tile>
 
 <enum name="SockErr">
@@ -1117,7 +1118,6 @@ metric introduced.
     <counter name="RouteFullSyncs" summary="Number of full route table syncs done" />
     <counter name="Updates" enum="NetlinkMsg" summary="Number of netlink live updates processed" />
     <gauge name="InterfaceCount" summary="Number of network interfaces" />
-    <gauge name="RouteCount" enum="RouteTable" summary="Number of IPv4 routes" />
     <counter name="NeighProbeSent" summary="Number of neighbor solicit requests sent to kernel" />
     <counter name="NeighProbeFails" summary="Number of neighbor solicit requests that failed to send (kernel too slow)" />
     <counter name="NeighProbeRateLimitHost" summary="Number of neighbor solicit that exceeded the per-host rate limit" />

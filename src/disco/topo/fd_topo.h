@@ -186,8 +186,10 @@ struct fd_topo_tile {
       int    zero_copy;
 
       ulong netdev_tbl_obj_id;
-      ulong fib4_main_obj_id;      /* fib4 containing main route table */
-      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+
+      ulong route_max;
+      ulong route_peer_max;
+      ulong route_peer_seed;
       ulong neigh4_obj_id;         /* neigh4 hash map */
 
       int xsk_core_dump;
@@ -202,8 +204,8 @@ struct fd_topo_tile {
 
     struct {
       ulong netdev_tbl_obj_id;
-      ulong fib4_main_obj_id;      /* fib4 containing main route table */
-      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+      ulong route_max;
+      ulong route_peer_max;
       char  neigh_if[ 16 ];        /* neigh4 interface name */
       ulong neigh4_obj_id;         /* neigh4 hash map */
     } netlink;

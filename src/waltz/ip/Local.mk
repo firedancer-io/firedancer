@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_fib4.h)
+$(call add-hdrs,fd_fib4.h fd_iproute.h)
 $(call add-objs,fd_fib4,fd_waltz)
 ifdef FD_HAS_LINUX
 $(call add-objs,fd_netlink1 fd_fib4_netlink,fd_waltz)
