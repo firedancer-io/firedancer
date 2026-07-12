@@ -686,7 +686,7 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   fd_event_client_t * client = app_ctx;
 
   if( FD_UNLIKELY( resp->h2_status!=200 ) ) {
-    FD_LOG_WARNING(( "Event gRPC request failed (HTTP status %u)", resp->h2_status ));
+    FD_LOG_WARNING(( "telemetry server request failed %s(HTTP status %u)%s", fd_log_style_dim(), resp->h2_status, fd_log_style_normal() ));
     client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
     return;
   }
@@ -700,28 +700,28 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
     switch( request_ctx ) {
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
-      FD_LOG_WARNING(( "Event authentication failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server authentication failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
       return;
     case FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS:
-      FD_LOG_WARNING(( "Event stream failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server event stream failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
       return;
     default:
-      FD_LOG_WARNING(( "Event gRPC request failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server request failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
       return;
     }
   }
 
   if( request_ctx==FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS ) {
-    FD_LOG_INFO(( "Event gRPC stream ended gracefully" ));
+    FD_LOG_INFO(( "telemetry server event stream ended gracefully" ));
     client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
   }
 }

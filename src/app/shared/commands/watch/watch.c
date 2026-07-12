@@ -1284,7 +1284,7 @@ write_node_info( config_t const *       config,
   char const * cluster_str = "unknown";
   if( has_genesis_b58 ) {
     ulong cluster_id = fd_genesis_cluster_identify( genesis_hash_b58 );
-    cluster_str = fd_genesis_cluster_name( cluster_id );
+    cluster_str = cluster_id==FD_CLUSTER_MAINNET_BETA ? "mainnet" : fd_genesis_cluster_name( cluster_id );
   }
 
   char uptime_str[ 32UL ];

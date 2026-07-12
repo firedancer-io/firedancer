@@ -591,20 +591,21 @@ log_download( fd_snapct_tile_t * ctx,
 
   for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
     if( addr.l==ctx->config.sources.servers[ i ].addr.l ) {
-      if( ctx->config.sources.servers[ i ].is_https ) {
-        FD_LOG_NOTICE(( "downloading %s snapshot from %shttps://%s:%hu%s",
+      char const * scheme = ctx->config.sources.servers[ i ].is_https ? "https" : "http";
+      if( ctx->config.sources.servers[ i ].hostname[ 0 ] ) {
+        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
                         full ? "full" : "incremental",
-                        fd_log_style_bold(), ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
-        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s:%hu",
+                        fd_log_style_bold(), scheme, ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://%s:%hu",
                       full ? "full" : "incremental", slot, i,
-                      ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
+                      scheme, ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
       } else {
-        FD_LOG_NOTICE(( "downloading %s snapshot from %shttp://" FD_IP4_ADDR_FMT ":%hu%s",
+        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
                         full ? "full" : "incremental",
-                        fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
-        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at " FD_IP4_ADDR_FMT ":%hu",
+                        fd_log_style_bold(), scheme, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://" FD_IP4_ADDR_FMT ":%hu",
                       full ? "full" : "incremental", slot, i,
-                      FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+                      scheme, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       }
       return;
     }
