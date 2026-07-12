@@ -490,10 +490,17 @@ fd_bootinfo_check_layout( config_t const * config ) {
   if( FD_UNLIKELY( !info.topo_layout_hash ) ) return;
 
   if( FD_UNLIKELY( info.topo_layout_hash!=config->topo.layout_hash ) ) {
-    FD_LOG_ERR(( "The running validator has a different memory layout than this binary. "
-                 "The validator is running commit %s and this binary is commit %s. "
-                 "Attaching would read the wrong memory.  Rerun the command with a binary "
-                 "built from the same commit and the same configuration file the validator "
-                 "was started with.", info.commit_ref, fd_commit_ref_cstr ));
+    if( FD_UNLIKELY( !strcmp( info.commit_ref, fd_commit_ref_cstr ) ) ) {
+      FD_LOG_ERR(( "The configuration file provided to this command is not the one the "
+                   "running validator was started with.  Rerun the command with the "
+                   "validator's configuration file, or without --config to use the "
+                   "running validator's configuration automatically." ));
+    }
+    FD_LOG_ERR(( "This binary is a different version than the running validator.  The "
+                 "validator is running commit %s%.11s%s and this binary is commit "
+                 "%s%.11s%s.  Rerun the command with the same binary the validator was "
+                 "started with.",
+                 fd_log_style_bold(), info.commit_ref, fd_log_style_normal(),
+                 fd_log_style_bold(), fd_commit_ref_cstr, fd_log_style_normal() ));
   }
 }
