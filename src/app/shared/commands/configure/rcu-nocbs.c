@@ -95,9 +95,9 @@ check( config_t const * config,
   if( !( check_type==FD_CONFIGURE_CHECK_TYPE_CHECK ||
          check_type==FD_CONFIGURE_CHECK_TYPE_RUN ) ) CONFIGURE_OK();
 
-  /* Jitter tuning only matters against a live cluster, don't nag in
-     development. */
-  if( FD_LIKELY( !config->is_live_cluster ) ) CONFIGURE_OK();
+  /* Jitter tuning only matters for production validators against a
+     live cluster, don't nag in development. */
+  if( FD_LIKELY( !config->is_live_cluster || config->is_dev ) ) CONFIGURE_OK();
 
   FD_CPUSET_DECL( tile_cpus );
   fd_cpu_isolation_tile_cpus( tile_cpus, &config->topo );
@@ -137,9 +137,9 @@ check( config_t const * config,
   if( FD_UNLIKELY( !fd_cpuset_is_null( missing ) ) ) {
     char missing_str[ FD_CPU_ISOLATION_LIST_MAX ];
     fd_cpu_isolation_format_list( missing_str, sizeof(missing_str), missing );
-    FD_LOG_WARNING(( "tile cpus %s are in neither the `rcu_nocbs=` nor the `nohz_full=` boot parameter; RCU "
-                     "callbacks may run on them. For lower jitter, extend `rcu_nocbs=` to cover them (a full "
-                     "setting for all tile cpus is `rcu_nocbs=%s`).", missing_str, suggested ));
+    FD_LOG_WARNING(( "tile cpus %s are in neither the rcu_nocbs= nor the nohz_full= boot parameter; RCU "
+                     "callbacks may run on them. For lower jitter, boot with %srcu_nocbs=%s%s.",
+                     missing_str, fd_log_style_bold(), suggested, fd_log_style_normal() ));
   }
 
   CONFIGURE_OK();

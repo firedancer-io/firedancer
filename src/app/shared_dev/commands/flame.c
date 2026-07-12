@@ -17,7 +17,7 @@ static int record_pid;
 
 static void
 parent_signal( int sig ) {
-  FD_LOG_NOTICE(( "Received signal %s\n", fd_io_strsignal( sig ) ));
+  FD_LOG_NOTICE(( "Received signal %s%s%s %s(%s)%s\n", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
   if( FD_LIKELY( record_pid ) ) {
     if( FD_UNLIKELY( -1==kill( record_pid, SIGINT ) ) ) FD_LOG_ERR(( "kill() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }

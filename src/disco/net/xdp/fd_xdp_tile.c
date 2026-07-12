@@ -310,7 +310,8 @@ typedef struct {
     ulong tx_submit_cnt;
     ulong tx_complete_cnt;
     ulong tx_bytes_total;
-    ulong tx_route_fail_cnt;
+    ulong tx_route_fail_cnt[ FD_METRICS_COUNTER_NET_PKT_TX_ROUTE_FAIL_CNT ];
+    ulong tx_invalid_cnt;
     ulong tx_no_xdp_cnt;
     ulong tx_neigh_fail_cnt;
     ulong tx_full_fail_cnt;
@@ -357,7 +358,8 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED,     ctx->metrics.tx_submit_cnt     );
   FD_MCNT_SET( NET, PKT_TX_COMPLETED,     ctx->metrics.tx_complete_cnt   );
   FD_MCNT_SET( NET, PKT_TX_BYTES,         ctx->metrics.tx_bytes_total    );
-  FD_MCNT_SET( NET, PKT_TX_NO_ROUTE,    ctx->metrics.tx_route_fail_cnt );
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTE_FAIL, ctx->metrics.tx_route_fail_cnt );
+  FD_MCNT_SET( NET, PKT_TX_INVALID,     ctx->metrics.tx_invalid_cnt    );
   FD_MCNT_SET( NET, PKT_TX_NO_NEIGHBOR, ctx->metrics.tx_neigh_fail_cnt );
   FD_MCNT_SET( NET, PKT_TX_RING_FULL,     ctx->metrics.tx_full_fail_cnt  );
 
@@ -604,13 +606,16 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
-    ctx->metrics.tx_route_fail_cnt++;
+    uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
+        FD_METRICS_ENUM_ROUTE_FAIL_V_NO_ROUTE_IDX,
+        FD_METRICS_ENUM_ROUTE_FAIL_V_ROUTE_TYPE_IDX );
+    ctx->metrics.tx_route_fail_cnt[ reason ]++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->metrics.tx_route_fail_cnt++;
+    ctx->metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_INTERFACE_IDX ]++;
     return 0;
   }
 
@@ -884,18 +889,23 @@ after_frag( fd_net_ctx_t *      ctx,
                   in_idx, fd_ushort_bswap( ethertype ) ));
   }
 
-  if( ver!=0x4 ) {
-    ctx->metrics.tx_route_fail_cnt++; // Not an IPv4 packet. drop
+  if( FD_UNLIKELY( ver!=0x4 ) ) {
+    FD_LOG_WARNING(( "in_idx %lu: invalid IP version (%u)", in_idx, ver ));
+    ctx->metrics.tx_invalid_cnt++;
+    return;
+  }
+
+  if( FD_UNLIKELY( ihl<sizeof(fd_ip4_hdr_t) ||
+                   (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
+    FD_LOG_WARNING(( "in_idx %lu: invalid IHL (%u)", in_idx, ihl ));
+    ctx->metrics.tx_invalid_cnt++;
     return;
   }
 
   if( ip4_saddr==0 ) {
-    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
-                     ihl<sizeof(fd_ip4_hdr_t) ||
-                     (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
+    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ) ) {
       /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
-      /* FIXME should select first IPv4 address of device table here */
-      ctx->metrics.tx_route_fail_cnt++;
+      ctx->metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_SOURCE_IP_IDX ]++;
       return;
     }
     /* Recompute checksum after changing header */

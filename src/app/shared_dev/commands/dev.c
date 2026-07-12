@@ -59,12 +59,17 @@ parent_signal( int sig ) {
   if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
   if( FD_LIKELY( watch_pid ) )      kill( watch_pid, SIGKILL );
 
+  /* Skip the logfile fsync for the shutdown message: it can stall for
+     many seconds behind dirty page writeback (e.g. freshly written
+     snapshots), and durability does not matter when exiting cleanly. */
+  fd_log_level_flush_set( 5 );
+
   if( FD_LIKELY( -1!=fd_log_private_restore_stderr ) ) {
     if( FD_UNLIKELY( -1==dup2( fd_log_private_restore_stderr, STDERR_FILENO ) ) ) FD_LOG_STDOUT(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
-  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
+  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s\n%sLog at \"%s\"%s", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_log_private_path, fd_log_style_normal() ));
+  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s",                fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
 
   if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
   else                           fd_sys_util_exit_group( 0          );

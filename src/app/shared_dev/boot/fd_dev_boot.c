@@ -150,7 +150,10 @@ fd_dev_main( int                        argc,
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
 
-  int is_allowed_live = action->is_diagnostic==1;
+  /* Frankendancer has a separate production binary (fdctl); for
+     Firedancer running the dev binary against a live cluster is a
+     supported flow. */
+  int is_allowed_live = is_firedancer || action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
