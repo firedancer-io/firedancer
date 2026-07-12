@@ -105,11 +105,10 @@ fd_fib4_delete( void * mem );
 
 /* Write APIs *************************************************************
 
-   Currently, any updates to a fib4 require a full rewrite (incremental
-   updates are not supported).  During an update, fd_fib4_lookup calls
-   temporarily return a route entry with FD_FIB4_RTYPE_BLACKHOLE, which
-   means outgoing packets get dropped.  (This is preferable to potentially
-   making an incorrect routing decision based on a partial route table.) */
+   Updates to non-/32 routes require a full rewrite.  During such an update,
+   fd_fib4_lookup calls temporarily return a route entry with
+   FD_FIB4_RTYPE_BLACKHOLE, which means outgoing packets get dropped.  /32
+   routes are stored separately and support incremental updates. */
 
 /* fd_fib4_clear removes all route table entries but the first. Remove all
    entries in the route hmap. Sets the first route table entry to
@@ -130,6 +129,13 @@ fd_fib4_insert( fd_fib4_t *     fib,
                 int             prefix,
                 uint            prio,
                 fd_fib4_hop_t * hop );
+
+/* fd_fib4_remove_peer removes the /32 route for ip4_dst.  Returns 1 if a
+   route was removed and 0 if none existed. */
+
+int
+fd_fib4_remove_peer( fd_fib4_t * fib,
+                     uint        ip4_dst );
 
 /* Read APIs *************************************************************/
 

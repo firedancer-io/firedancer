@@ -904,7 +904,7 @@ after_frag( fd_net_ctx_t *      ctx,
 
   if( ip4_saddr==0 ) {
     if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ) ) {
-      /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
+      /* Outgoing IPv4 packet with unknown src IP */
       ctx->metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_SOURCE_IP_IDX ]++;
       return;
     }

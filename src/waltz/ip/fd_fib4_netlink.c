@@ -160,6 +160,55 @@ fd_fib4_netlink_translate( fd_fib4_t *             fib,
 }
 
 int
+fd_fib4_netlink_apply_message( fd_fib4_t *             fib,
+                               struct nlmsghdr const * msg_hdr,
+                               uint                    table_id ) {
+  if( FD_UNLIKELY( msg_hdr->nlmsg_type!=RTM_NEWROUTE && msg_hdr->nlmsg_type!=RTM_DELROUTE ) ) return 0;
+  if( FD_UNLIKELY( msg_hdr->nlmsg_len<NLMSG_LENGTH( sizeof(struct rtmsg) ) ) ) return 0;
+
+  struct rtmsg const * msg = NLMSG_DATA( msg_hdr );
+  if( FD_UNLIKELY( msg->rtm_family!=AF_INET ) ) return 1;
+  if( FD_UNLIKELY( msg->rtm_flags & RTM_F_CLONED ) ) return 1;
+
+  uint route_table = msg->rtm_table;
+  uint ip4_dst     = 0U;
+  int  have_dst    = 0;
+
+  struct rtattr const * rat    = RTM_RTA( msg );
+  long                  rat_sz = (long)(int)RTM_PAYLOAD( msg_hdr );
+  for( ; RTA_OK( rat, rat_sz ); rat=RTA_NEXT( rat, rat_sz ) ) {
+    void const * rta    = RTA_DATA( rat );
+    ulong        rta_sz = RTA_PAYLOAD( rat );
+
+    switch( rat->rta_type ) {
+    case RTA_DST:
+      if( FD_UNLIKELY( rta_sz!=sizeof(uint) ) ) return 0;
+      ip4_dst  = FD_LOAD( uint, rta );
+      have_dst = 1;
+      break;
+    case RTA_TABLE:
+      if( FD_UNLIKELY( rta_sz!=sizeof(uint) ) ) return 0;
+      route_table = FD_LOAD( uint, rta );
+      break;
+    default:
+      break;
+    }
+  }
+
+  if( FD_UNLIKELY( rat_sz ) ) return 0;
+  if( FD_UNLIKELY( route_table==RT_TABLE_UNSPEC ) ) return 0;
+  if( FD_UNLIKELY( route_table!=table_id ) ) return 1;
+  if( FD_UNLIKELY( msg->rtm_dst_len!=32U || !have_dst || !ip4_dst ) ) return 0;
+
+  if( msg_hdr->nlmsg_type==RTM_DELROUTE ) {
+    fd_fib4_remove_peer( fib, ip4_dst );
+    return 1;
+  }
+
+  return fd_fib4_netlink_translate( fib, msg_hdr, table_id )==0;
+}
+
+int
 fd_fib4_netlink_load_table( fd_fib4_t *    fib,
                             fd_netlink_t * netlink,
                             uint           table_id ) {

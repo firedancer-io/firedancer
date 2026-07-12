@@ -252,10 +252,13 @@ netlink_monitor_read( fd_netlink_tile_ctx_t * ctx,
     ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_LINK_IDX ]++;
     break;
   case RTM_NEWROUTE:
-  case RTM_DELROUTE:
-    ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
+  case RTM_DELROUTE: {
+    int const local_applied = fd_fib4_netlink_apply_message( ctx->fib4_local, nlh, RT_TABLE_LOCAL );
+    int const main_applied  = fd_fib4_netlink_apply_message( ctx->fib4_main,  nlh, RT_TABLE_MAIN  );
+    if( FD_UNLIKELY( !local_applied || !main_applied ) ) ctx->action |= FD_NET_TILE_ACTION_ROUTE4_UPDATE;
     ctx->metrics.update_cnt[ FD_METRICS_ENUM_NETLINK_MESSAGE_V_IPV4_ROUTE_IDX ]++;
     break;
+  }
   case RTM_NEWNEIGH:
   case RTM_DELNEIGH: {
     fd_neigh4_netlink_ingest_message( ctx->neigh4, nlh, ctx->neigh4_ifidx );

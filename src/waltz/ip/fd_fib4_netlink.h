@@ -47,6 +47,16 @@ fd_fib4_netlink_load_table( fd_fib4_t *    fib,
                             fd_netlink_t * netlink,
                             uint           table_id );
 
+/* fd_fib4_netlink_apply_message attempts a fast incremental
+   RTM_NEWROUTE or RTM_DELROUTE update.  Returns 1 if the incremental
+   update was applied to the route table.  Otherwise, returns 0.  In
+   this case, the caller must rebuild the route table from scratch. */
+
+int
+fd_fib4_netlink_apply_message( fd_fib4_t *             fib,
+                               struct nlmsghdr const * msg_hdr,
+                               uint                    table_id );
+
 FD_FN_CONST char const *
 fd_fib4_netlink_strerror( int err );
 

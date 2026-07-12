@@ -193,6 +193,7 @@ test_fib4_hmap_duplicates( fd_fib4_t * fib ) {
 
   /* Insert first hop */
   FD_TEST( fd_fib4_insert( fib, ip, 32, 0, &hop1 ) );
+  FD_TEST( fd_fib4_cnt( fib )==2 );
 
   /* Verify first hop */
   fd_fib4_hop_t lookup_hop;
@@ -203,12 +204,18 @@ test_fib4_hmap_duplicates( fd_fib4_t * fib ) {
 
   /* Insert duplicate - should update existing entry */
   FD_TEST( fd_fib4_insert( fib, ip, 32, 0, &hop2 ) );
+  FD_TEST( fd_fib4_cnt( fib )==2 );
 
   /* Verify second hop overwrote first */
   lookup_hop = fd_fib4_lookup( fib, ip, 0 );
   FD_TEST( lookup_hop.ip4_src == hop2.ip4_src );
   FD_TEST( lookup_hop.if_idx  == hop2.if_idx  );
   FD_TEST( lookup_hop.ip4_gw  == hop2.ip4_gw  );
+
+  FD_TEST( fd_fib4_remove_peer( fib, ip ) );
+  FD_TEST( !fd_fib4_remove_peer( fib, ip ) );
+  FD_TEST( fd_fib4_cnt( fib )==1 );
+  FD_TEST( fd_fib4_lookup( fib, ip, 0 ).rtype==FD_FIB4_RTYPE_THROW );
 }
 
 void

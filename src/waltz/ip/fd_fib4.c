@@ -177,11 +177,13 @@ fd_fib4_hmap_insert_entry( fd_fib4_t *     fib4_join,
 
   FD_TEST( hop );
   fd_fib4_priv_t * fib = fib4_join->priv;
-  if( FD_UNLIKELY( fib->hmap_cnt>=fib->hmap_max ) ) return FD_MAP_ERR_FULL;
 
   fd_fib4_hmap_t * hmap_join = fd_type_pun( fib4_join->hmap_join );
 
   uint key = ip4_dst;
+  int const insert = !fd_fib4_hmap_query( hmap_join, &key );
+  if( FD_UNLIKELY( insert && fib->hmap_cnt>=fib->hmap_max ) ) return FD_MAP_ERR_FULL;
+
   fd_fib4_hmap_entry_t * ele = fd_fib4_hmap_upsert( hmap_join, &key );
   if( FD_UNLIKELY( !ele ) ) return FD_MAP_ERR_FULL;
   fd_fib4_hmap_entry_t to_enter = {
@@ -191,7 +193,7 @@ fd_fib4_hmap_insert_entry( fd_fib4_t *     fib4_join,
   };
   fd_fib4_hmap_entry_st( ele, &to_enter );
 
-  fib->hmap_cnt++;
+  fib->hmap_cnt += (ulong)insert;
 
   return FD_MAP_SUCCESS;
 }
@@ -261,6 +263,21 @@ fd_fib4_insert( fd_fib4_t *     fib_join,
   fib->generation = generation+2UL;
   FD_COMPILER_MFENCE();
 
+  return 1;
+}
+
+int
+fd_fib4_remove_peer( fd_fib4_t * fib_join,
+                     uint        ip4_dst ) {
+  if( FD_UNLIKELY( !ip4_dst ) ) return 0;
+
+  fd_fib4_priv_t * fib = fib_join->priv;
+  fd_fib4_hmap_t * hmap_join = fd_type_pun( fib_join->hmap_join );
+  fd_fib4_hmap_entry_t * ele = fd_fib4_hmap_update( hmap_join, &ip4_dst );
+  if( FD_UNLIKELY( !ele ) ) return 0;
+
+  fd_fib4_hmap_remove( hmap_join, ele );
+  fib->hmap_cnt--;
   return 1;
 }
 
