@@ -78,15 +78,6 @@
 
 </div>
 
-## Admin Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-
-</div>
-
 ## Snapct Tile
 
 <div class="metrics">
@@ -162,6 +153,15 @@
 
 </div>
 
+## Admin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
 ## Netlnk Tile
 
 <div class="metrics">
@@ -200,7 +200,11 @@
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packet transmit jobs marked as completed by the kernel |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Bytes transmitted (including Ethernet header) |
-| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | Packet transmit jobs dropped due to route failure |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Packet transmit jobs dropped due to invalid packet data |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Packet transmit jobs dropped due to route failure (No matching route) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Packet transmit jobs dropped due to route failure (Unsupported route type) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Packet transmit jobs dropped due to route failure (Interface not available) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Packet transmit jobs dropped due to route failure (No source IP address chosen) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Packet transmit jobs dropped due to unresolved neighbor |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;ring_&#8203;full</span> | counter | Packet transmit jobs dropped due to XDP TX ring full or missing completions |
 | <span class="metrics-name">net_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Transmit buffers currently busy |

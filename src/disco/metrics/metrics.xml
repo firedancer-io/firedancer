@@ -412,6 +412,13 @@ EXAMPLES
     <counter name="TimerTick" summary="Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only)" />
 </common>
 
+<enum name="RouteFail">
+    <int value="0" name="NoRoute" label="No matching route" />
+    <int value="1" name="RouteType" label="Unsupported route type" />
+    <int value="2" name="Interface" label="Interface not available" />
+    <int value="3" name="SourceIp" label="No source IP address chosen" />
+</enum>
+
 <tile name="net">
     <counter name="PktRx" summary="Packets received" />
     <counter name="PktRxBytes" summary="Bytes received (including Ethernet header)" />
@@ -424,7 +431,8 @@ EXAMPLES
     <counter name="PktTxSubmitted" summary="Packet transmit jobs submitted" />
     <counter name="PktTxCompleted" summary="Packet transmit jobs marked as completed by the kernel" />
     <counter name="PktTxBytes" summary="Bytes transmitted (including Ethernet header)" />
-    <counter name="PktTxNoRoute" summary="Packet transmit jobs dropped due to route failure" />
+    <counter name="PktTxInvalid" summary="Packet transmit jobs dropped due to invalid packet data" />
+    <counter name="PktTxRouteFail" enum="RouteFail" summary="Packet transmit jobs dropped due to route failure" />
     <counter name="PktTxNoNeighbor" summary="Packet transmit jobs dropped due to unresolved neighbor" />
     <counter name="PktTxRingFull" summary="Packet transmit jobs dropped due to XDP TX ring full or missing completions" />
     <gauge name="TxBufferBusy" summary="Transmit buffers currently busy" />
