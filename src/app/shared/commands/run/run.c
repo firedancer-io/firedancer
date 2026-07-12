@@ -485,11 +485,11 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
     if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
-      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d\n", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
+      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
       fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
     }
   }
