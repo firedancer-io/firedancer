@@ -383,6 +383,28 @@ test_saturating_sub( void ) {
   free( wksp );
 }
 
+static void
+test_pending_keyswitch_before_credit( void ) {
+  FD_LOG_NOTICE(( "TEST pending keyswitch before credit" ));
+
+  fd_bundle_tile_t ctx[1] = {0};
+  fd_keyswitch_t keyswitch = { .state = FD_KEYSWITCH_STATE_SWITCH_PENDING };
+  keyswitch.bytes[0] = 1U;
+  ctx->keyswitch = &keyswitch;
+  ctx->auther.state = FD_BUNDLE_AUTH_STATE_WAIT_TOKENS;
+  ctx->sleep_check_ns = 123L;
+
+  int charge_busy = 0;
+  before_credit( ctx, NULL, &charge_busy );
+
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->auther.pubkey[0]==1U );
+  FD_TEST( ctx->defer_reset );
+  FD_TEST( ctx->sleep_check_ns==0L );
+  FD_TEST( !charge_busy );
+  FD_TEST( ctx->auther.state==FD_BUNDLE_AUTH_STATE_WAIT_TOKENS );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -404,6 +426,7 @@ main( int     argc,
   test_replay_triggers_sleep_transition();
   test_boundary_thresholds();
   test_saturating_sub();
+  test_pending_keyswitch_before_credit();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

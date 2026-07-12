@@ -1,6 +1,7 @@
 #include "test_bundle_common.c"
 #include "proto/block_engine.pb.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../third_party/nanopb/pb_encode.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
@@ -372,6 +373,83 @@ FD_UNIT_TEST( bundle_msg_oversized ) {
   FD_TEST( !state->bundle_subscription_live );
   FD_TEST( state->defer_reset );
 
+  test_bundle_env_destroy( env );
+}
+
+FD_UNIT_TEST( bundle_auth_signature_verifies_cached_identity ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn_empty( env );
+  test_bundle_env_mock_h2_hs( env->state );
+  fd_bundle_tile_t * state = env->state;
+
+  ulong const depth = 8UL;
+  void * request_mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL );
+  void * response_mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL );
+  fd_frag_meta_t * request_mcache = fd_mcache_join( fd_mcache_new( request_mcache_mem, depth, 0UL, 0UL ) );
+  fd_frag_meta_t * response_mcache = fd_mcache_join( fd_mcache_new( response_mcache_mem, depth, 0UL, 0UL ) );
+  FD_TEST( request_mcache && response_mcache );
+
+  ulong request_data_sz = fd_dcache_req_data_sz( 64UL, depth, 1UL, 1 );
+  ulong response_data_sz = fd_dcache_req_data_sz( 64UL, depth, 1UL, 1 );
+  void * request_dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( request_data_sz, 0UL ), 1UL );
+  void * response_dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( response_data_sz, 0UL ), 1UL );
+  uchar * request_data = fd_dcache_join( fd_dcache_new( request_dcache_mem, request_data_sz, 0UL ) );
+  uchar * response_data = fd_dcache_join( fd_dcache_new( response_dcache_mem, response_data_sz, 0UL ) );
+  FD_TEST( request_data && response_data );
+  FD_TEST( fd_keyguard_client_new( state->keyguard_client,
+                                   request_mcache, request_data,
+                                   response_mcache, response_data, 64UL ) );
+
+  uchar public_key[2][32];
+  uchar private_key[2][32];
+  fd_sha512_t sha[1];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  for( ulong key_idx=0UL; key_idx<2UL; key_idx++ ) {
+    for( ulong i=0UL; i<32UL; i++ ) private_key[key_idx][i] = (uchar)( i+1UL+key_idx );
+    fd_ed25519_public_from_private( public_key[key_idx], private_key[key_idx], sha );
+  }
+
+  char const challenge[9] = { '1','2','3','4','5','6','7','8','9' };
+  fd_memcpy( state->auther.pubkey, public_key[0], 32UL );
+  state->auther.access_token_sz = 1U;
+  state->auther.access_token[0] = 'x';
+  uchar payload[55];
+  uchar signature[64];
+  for( ulong attempt=0UL; attempt<2UL; attempt++ ) {
+    ulong signer_idx = !attempt;
+    fd_memcpy( state->auther.challenge, challenge, 9UL );
+    state->auther.state = FD_BUNDLE_AUTH_STATE_REQ_TOKENS;
+    state->auther.needs_poll = 1U;
+
+    ulong payload_sz;
+    fd_base58_encode_32( public_key[signer_idx], &payload_sz, (char *)payload );
+    payload[payload_sz++] = '-';
+    fd_memcpy( payload+payload_sz, challenge, 9UL );
+    payload_sz += 9UL;
+    fd_ed25519_sign( signature, payload, payload_sz, public_key[signer_idx], private_key[signer_idx], sha );
+    fd_memcpy( fd_chunk_to_laddr( state->keyguard_client->response_mem,
+                                  state->keyguard_client->response_chunk0 ), signature, 64UL );
+    fd_mcache_publish( response_mcache, depth, state->keyguard_client->response_seq,
+                       0UL, state->keyguard_client->response_chunk0, 64UL, 0UL, 0UL, 0UL );
+
+    FD_TEST( fd_bundle_client_step_reconnect( state, g_clock ) );
+    if( FD_UNLIKELY( !attempt ) ) {
+      FD_TEST( state->grpc_client->stream_cnt==0UL );
+      FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+      FD_TEST( state->auther.needs_poll && !state->auther.access_token_sz );
+      FD_TEST( !state->auther.access_token[0] && !memcmp( state->auther.challenge, "\0\0\0\0\0\0\0\0\0", 9UL ) );
+    } else {
+      FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_WAIT_TOKENS );
+      FD_TEST( !state->auther.needs_poll && state->grpc_client->stream_cnt==1UL );
+      FD_TEST( state->grpc_client->stream_pool[0].request_ctx==FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens );
+    }
+  }
+
+  fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( request_data ) ) );
+  fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( response_data ) ) );
+  fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( request_mcache ) ) );
+  fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( response_mcache ) ) );
   test_bundle_env_destroy( env );
 }
 
