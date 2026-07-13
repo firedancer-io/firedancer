@@ -672,7 +672,7 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort sd_idx = sd_pool_indices[i-1UL];
     ushort nv_idx = nv_pool_indices[i-1UL];
-    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, stake_delegations, sd_idx );
+    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), stake_delegations, sd_idx );
     fd_new_votes_apply_delta( new_votes, nv_idx );
   }
 }
@@ -700,7 +700,7 @@ fd_bank_stake_delegation_mark_deltas( fd_banks_t *             banks,
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_mark_delta( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, idx );
+    fd_stake_delegations_mark_delta( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), idx );
   }
 }
 
@@ -727,7 +727,7 @@ fd_bank_stake_delegation_unmark_deltas( fd_banks_t *             banks,
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_unmark_delta( stake_delegations, bank->f.epoch-1UL, stake_history, &bank->f.warmup_cooldown_rate_epoch, idx );
+    fd_stake_delegations_unmark_delta( stake_delegations, bank->f.epoch-1UL, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), idx );
   }
 }
 

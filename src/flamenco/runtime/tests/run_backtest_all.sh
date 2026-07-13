@@ -174,3 +174,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_2575
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_1322 -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696 -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1 -m 50000 -e 1795

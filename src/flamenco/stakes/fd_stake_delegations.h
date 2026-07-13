@@ -246,6 +246,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               ulong                      epoch,
                               fd_stake_history_t const * stake_history,
                               ulong *                    warmup_cooldown_rate_epoch,
+                              int                        use_fixed_point_stake_math,
                               fd_accdb_t *               accdb,
                               fd_accdb_fork_id_t         fork_id );
 
@@ -316,6 +317,7 @@ void
 fd_stake_delegations_apply_fork_delta( ulong                      epoch,
                                        fd_stake_history_t const * stake_history,
                                        ulong *                    warmup_cooldown_rate_epoch,
+                                       int                        use_fixed_point_stake_math,
                                        fd_stake_delegations_t *   stake_delegations,
                                        ushort                     fork_idx );
 
@@ -340,6 +342,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
                                  ulong                      epoch,
                                  fd_stake_history_t const * stake_history,
                                  ulong *                    warmup_cooldown_rate_epoch,
+                                 int                        use_fixed_point_stake_math,
                                  ushort                     fork_idx );
 
 void
@@ -347,6 +350,7 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
                                    ulong                      epoch,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    warmup_cooldown_rate_epoch,
+                                   int                        use_fixed_point_stake_math,
                                    ushort                     fork_idx );
 
 /* Iterator API for stake delegations.  The iterator is initialized with

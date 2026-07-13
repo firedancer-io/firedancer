@@ -98,6 +98,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
                                     fd_stake_history_t const *     stake_history,
                                     fd_stake_delegation_t const *  stake,
                                     ulong *                        new_rate_activation_epoch,
+                                    int                            use_fixed_point_stake_math,
                                     fd_calculated_stake_points_t * result ) {
 
   ulong credits_in_stake = stake->credits_observed;
@@ -164,7 +165,8 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
         stake,
         epoch_credits->epoch[ i ],
         stake_history,
-        new_rate_activation_epoch ).effective;
+        new_rate_activation_epoch,
+        use_fixed_point_stake_math ).effective;
 
     points += (uint128)stake_amount * earned_credits;
   }
@@ -388,6 +390,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                         stake_history,
                                         stake_delegation,
                                         &bank->f.warmup_cooldown_rate_epoch,
+                                        FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                         stake_points_result );
 
     total_points += stake_points_result->points.ud;
@@ -507,6 +510,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
           stake_history,
           stake_delegation,
           &bank->f.warmup_cooldown_rate_epoch,
+          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
           stake_points_result_ );
       stake_points_result = stake_points_result_;
     } else {
@@ -628,6 +632,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
           stake_history,
           stake_delegation,
           &bank->f.warmup_cooldown_rate_epoch,
+          FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
           stake_points_result );
 
       /* redeem_rewards is actually just responsible for calculating the
