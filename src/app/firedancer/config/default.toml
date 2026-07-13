@@ -899,7 +899,7 @@ telemetry = true
     # Snapshot creation related tiles do not consume CPU while idle.
     # If set to 0, snapshot creation and all associated tiles are
     # disabled.
-    snapzp_tile_count = 2
+    snapzp_tile_count = 6
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
