@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
-#include "../fd_config.h"
-#include "../fd_action.h"
+#include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 #include "../../../util/fd_util.h"
 #include "../../../ballet/base58/fd_base58.h"
 #include "../../../disco/shred/fd_shred_tile.h"
@@ -8,8 +8,8 @@
 #include <unistd.h>
 
 void
-get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
-                     config_t * config ) {
+get_identityh_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
+                      config_t * config ) {
   /* Find the shred tile which is always present and has the current runtime identity */
   ulong shred_tile_idx = fd_topo_find_tile( &config->topo, "shred", 0UL );
   if( FD_UNLIKELY( shred_tile_idx==ULONG_MAX ) ) {
@@ -82,10 +82,10 @@ get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   FD_LOG_STDOUT(( "%s\n", identity_key_str ));
 }
 
-action_t fd_action_get_identity = {
+action_t fd_action_get_identityh = {
   .name           = "get-identity",
   .args           = NULL,
-  .fn             = get_identity_cmd_fn,
+  .fn             = get_identityh_cmd_fn,
   .require_config = 1,
   .perm           = NULL, /* TODO: This command may require RLIMIT_MLOCK permissions
                              to mlock(2) the workspace in memory. This should be

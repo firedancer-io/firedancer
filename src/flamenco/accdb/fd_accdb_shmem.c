@@ -462,7 +462,7 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
   partition->compaction_ready_epoch = FD_ATOMIC_FETCH_AND_ADD( &accdb->epoch, 1UL );
   partition->queued = 1;
   if( FD_LIKELY( compaction_dlist_is_empty( compaction_dlist, partition_pool ) ) ) {
-    FD_LOG_NOTICE(( "compaction of layer %u partition %lu started", (uint)layer, partition_pool_idx( partition_pool, partition ) ));
+    FD_LOG_INFO(( "compaction of layer %u partition %lu started", (uint)layer, partition_pool_idx( partition_pool, partition ) ));
   }
   compaction_dlist_ele_push_tail( compaction_dlist, partition, partition_pool );
   accdb->shmetrics->in_compaction = 1;

@@ -569,9 +569,9 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  FD_LOG_NOTICE(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
-                  (int)location_len, location ));
+  FD_LOG_INFO(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
+                FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                (int)location_len, location ));
 
   if( FD_UNLIKELY( http->is_https ) ) {
     http->next_state   = FD_SSHTTP_STATE_REDIRECT;

@@ -179,6 +179,7 @@ fd_main_init( int *                      pargc,
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     config->log.log_fd  = -1;
+    config->has_user_config = !!opt_user_config_path;
     thread = "main";
     if( FD_UNLIKELY( log_path ) )
       strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
@@ -223,7 +224,7 @@ fd_main_init( int *                      pargc,
                               config->log.colorize1,
                               boot_silent ? 2 : config->log.level_logfile1,
                               boot_silent ? 2 : config->log.level_stderr1,
-                              boot_silent ? 3 : config->log.level_flush1,
+                              config->log.level_flush1,
                               5,
                               config->log.log_fd,
                               log_path );

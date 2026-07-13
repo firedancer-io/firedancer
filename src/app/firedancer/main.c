@@ -13,7 +13,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
 extern fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
-extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_node_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
@@ -33,7 +32,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_metrics,
   &fd_obj_cb_netdev_tbl,
   &fd_obj_cb_neigh4_hmap,
-  &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_node_info,
   &fd_obj_cb_tile,
@@ -164,6 +162,8 @@ extern action_t fd_action_shred_version;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_set_identity;
+extern action_t fd_action_get_identity;
+extern action_t fd_action_ps;
 extern action_t fd_action_monitor_gossip;
 
 action_t * ACTIONS[] = {
@@ -183,6 +183,8 @@ action_t * ACTIONS[] = {
   &fd_action_watch,
   &fd_action_monitor_gossip,
   &fd_action_set_identity,
+  &fd_action_get_identity,
+  &fd_action_ps,
   NULL,
 };
 

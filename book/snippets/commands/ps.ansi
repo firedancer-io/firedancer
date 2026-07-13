@@ -1,0 +1,4 @@
+$ firedancer ps
+[2mNAME             PID      STATE   UPTIME     VERSION      COMMIT       MOUNT[0m
+[1mfd1             [0m 1071440  [32mlive   [0m 3d7h42m    0.101.40100  24082eea1d   [2m/mnt/.fd[0m
+[1mfd2             [0m 1052113  [93mstale  [0m -          0.101.40100  d4981664c2   [2m/mnt/.fd[0m

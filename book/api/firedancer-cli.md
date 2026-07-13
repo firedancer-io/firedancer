@@ -3,12 +3,11 @@ The Firedancer binary `firedancer` contains many subcommands which can
 be run from the command line. `firedancer` also supports subcommands
 from the `fdctl` binary.
 
-::: warning WARNING
-
-There is no stable release for the `firedancer` binary. Run the client
-and use these commands at your own risk.
-
-:::
+Commands that attach to a running validator fall into two groups.
+`set-identity`, `get-identity`, and `add-authorized-voter` are
+versioned and work across releases. Diagnostic commands like `monitor`,
+`watch`, and `metrics` read the validator's memory directly and must be
+run from the same binary the validator is running.
 
 ## `configure`
 The Firedancer binary supports the `configure` command documented in the
@@ -26,6 +25,40 @@ The Firedancer binary supports the `set-identity` command documented in
 [`fdctl` command reference](/api/cli.md#set-identity), but removes
 configuration options `require-tower` and `force`.
 
+Unlike `fdctl`, the `firedancer` binary does not require the `--config`
+argument: with no arguments the command discovers the running validator
+on the host automatically. If more than one validator is running, pass
+`--name <name>` to select one (see [`ps`](#ps) to list instances). If
+`--config` is given, the validator is instead located from the
+configuration file: only the `name` and `[hugetlbfs.mount_path]` values
+are used, and they must match the running validator. Compatibility with
+the running validator is checked either way, and a version mismatch
+fails cleanly without changing anything.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `<keypair>`       | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+
+## `get-identity`
+Prints the base58 encoded identity public key the running validator is
+currently using for gossip, voting, and block production. This may
+differ from `[paths.identity_key]` in the configuration file if the
+identity was changed at runtime with `set-identity`.
+
+Like `set-identity`, the command discovers the running validator
+automatically when no `--config` is given.
+
+The command exits successfully (with an exit code of 0) and prints the
+key to `stdout` if the identity was retrieved, otherwise it fails and
+prints diagnostic messages to `stderr`.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
@@ -40,16 +73,14 @@ full client validator and not Frankendancer.
 
 :::
 
-::: warning WARNING
-
-`add-authorized-voter` must be called with the configuration file you
-started the validator with, like
-`firedancer add-authorized-voter --config <config.toml>`, if the
-`config` argument is not provided, the command may not add the
-authorized voter key on all tiles and your validator may produce invalid
-votes.
-
-:::
+With no arguments the command discovers the running validator on the
+host automatically. If more than one validator is running, pass
+`--name <name>` to select one (see [`ps`](#ps) to list instances). If
+`--config` is given, the validator is instead located from the
+configuration file: only the `name` and `[hugetlbfs.mount_path]` values
+are used, and they must match the running validator. Compatibility with
+the running validator is checked either way, and a version mismatch
+fails cleanly without changing anything.
 
 It is not generally safe to call `add-authorized-voter`, as another
 validator might be running with the same authorized voter and vote
@@ -72,6 +103,26 @@ than 16).
 | Arguments         | Description |
 |-------------------|-------------|
 | `<keypair>`       | Path to a `voter.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
-| `--config <path>` | Path to a configuration TOML file of the validator to add an authorized voter for. This must be the same configuration file the validator was started with |
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
 
 <<< @/snippets/commands/add-authorized-voter.ansi
+
+## `ps`
+Lists validator instances on this host. Each row shows the instance
+name, the process ID of the validator supervisor, whether the validator
+is currently `live` or `stale`, its uptime, and the version and commit
+of the running build.
+
+A `stale` entry means a validator was stopped or crashed. Stale entries
+are harmless and are cleaned up when the validator next starts, or can
+be removed with `--clean`.
+
+The command exits successfully (with an exit code of 0) even if no
+validators are found.
+
+| Arguments | Description |
+|-----------|-------------|
+| `--clean` | Remove entries for validators that are no longer running |
+
+<<< @/snippets/commands/ps.ansi

@@ -1,5 +1,6 @@
 #include "run/run.h"
 
+#include "../fd_bootinfo.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/metrics/generated/fd_metrics_replay.h"
 
@@ -13,9 +14,11 @@ ready_cmd_args( int *    pargc,
 void
 ready_cmd_fn( args_t *   args,
               config_t * config ) {
+  fd_bootinfo_adopt( config );
   ulong wksp_id = fd_topo_find_wksp( &config->topo, "metric_in" );
   FD_TEST( wksp_id!=ULONG_MAX );
 
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_workspace_fill( &config->topo, &config->topo.workspaces[ wksp_id ] );
 
@@ -38,7 +41,7 @@ ready_cmd_fn( args_t *   args,
         FD_LOG_ERR(( "status for tile %s:%lu is in bad state %lu", tile->name, tile->kind_id, status ));
 
       if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 2L*1000*1000*1000L ) ) {
-        FD_LOG_NOTICE(( "waiting for tile %s:%lu to be ready", tile->name, tile->kind_id ));
+        FD_LOG_NOTICE(( "waiting for tile %s%s:%lu%s to be ready", fd_log_style_bold(), tile->name, tile->kind_id, fd_log_style_normal() ));
         printed = 1;
       }
     } while(1);
@@ -60,7 +63,7 @@ ready_cmd_fn( args_t *   args,
       if( FD_LIKELY( reset_slot>=args->ready.ready_slot ) ) break;
 
       if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 4e9L ) ) {
-        FD_LOG_NOTICE(( "waiting for reset slot to reach %lu (currently %lu)", args->ready.ready_slot, reset_slot ));
+        FD_LOG_NOTICE(( "waiting for reset slot to reach %lu %s(currently %lu)%s", args->ready.ready_slot, fd_log_style_dim(), reset_slot, fd_log_style_normal() ));
         printed = 1;
       }
     } while(1);
@@ -80,7 +83,7 @@ action_t fd_action_ready = {
   .name           = "ready",
   .args           = ready_cmd_args,
   .fn             = ready_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = NULL,
   .description    = "Wait for all tiles to be running",
   .detail         = "Connects to a running validator and blocks until every tile (except\n"

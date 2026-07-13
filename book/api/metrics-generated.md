@@ -78,15 +78,6 @@
 
 </div>
 
-## Admin Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-
-</div>
-
 ## Snapct Tile
 
 <div class="metrics">
@@ -162,6 +153,15 @@
 
 </div>
 
+## Admin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
 ## Netlnk Tile
 
 <div class="metrics">
@@ -175,8 +175,6 @@
 | <span class="metrics-name">netlnk_&#8203;update_&#8203;processed</span><br/>{netlink_&#8203;message="<span class="metrics-enum">neighbor</span>"} | counter | Netlink live updates processed (Neighbor Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;update_&#8203;processed</span><br/>{netlink_&#8203;message="<span class="metrics-enum">ipv4_&#8203;route</span>"} | counter | Netlink live updates processed (IPv4 Route Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Network interfaces |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes (Local) |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes (Main) |
 | <span class="metrics-name">netlnk_&#8203;neighbor_&#8203;probe_&#8203;sent</span> | counter | Neighbor solicit requests sent to kernel |
 | <span class="metrics-name">netlnk_&#8203;neighbor_&#8203;probe_&#8203;failed</span> | counter | Neighbor solicit requests that failed to send (kernel too slow) |
 | <span class="metrics-name">netlnk_&#8203;neighbor_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host</span> | counter | Neighbor solicit requests that exceeded the per-host rate limit |
@@ -200,7 +198,11 @@
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packet transmit jobs marked as completed by the kernel |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Bytes transmitted (including Ethernet header) |
-| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | Packet transmit jobs dropped due to route failure |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Packet transmit jobs dropped due to invalid packet data |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Packet transmit jobs dropped due to route failure (No matching route) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Packet transmit jobs dropped due to route failure (Unsupported route type) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Packet transmit jobs dropped due to route failure (Interface not available) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Packet transmit jobs dropped due to route failure (No source IP address chosen) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Packet transmit jobs dropped due to unresolved neighbor |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;ring_&#8203;full</span> | counter | Packet transmit jobs dropped due to XDP TX ring full or missing completions |
 | <span class="metrics-name">net_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Transmit buffers currently busy |
@@ -219,6 +221,8 @@
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | GRE packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | GRE packet transmit jobs dropped due to route failure |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;src_&#8203;invalid</span> | counter | Incoming packets dropped due to invalid source IP address |
+| <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes installed in the forwarding table (Local) |
+| <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes installed in the forwarding table (Main) |
 
 </div>
 

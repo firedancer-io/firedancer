@@ -17,6 +17,7 @@
 #include "../../topo/fd_topo.h"
 
 #include "../../../waltz/ip/fd_fib4.h"
+#include "../../../waltz/ip/fd_iproute.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
@@ -31,6 +32,7 @@
 #include <linux/if.h> /* struct ifreq */
 #include <sys/ioctl.h>
 #include <linux/if_arp.h>
+#include <linux/rtnetlink.h>
 
 #include "generated/fd_xdp_tile_seccomp.h"
 
@@ -38,6 +40,9 @@
    serve. */
 
 #define MAX_NET_INS (32UL)
+
+#define IN_KIND_NET     (0U)
+#define IN_KIND_IPROUTE (1U)
 
 /* FD_XDP_STATS_INTERVAL_NS controls the XDP stats refresh interval.
    This should be lower than the interval at which the metrics tile
@@ -269,6 +274,8 @@ typedef struct {
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
+  uchar in_kind[ MAX_NET_INS ];
+  fd_iproute_msg_t iproute_msg;
 
   fd_net_out_ctx_t quic_out[1];
   fd_net_out_ctx_t shred_out[1];
@@ -310,7 +317,8 @@ typedef struct {
     ulong tx_submit_cnt;
     ulong tx_complete_cnt;
     ulong tx_bytes_total;
-    ulong tx_route_fail_cnt;
+    ulong tx_route_fail_cnt[ FD_METRICS_COUNTER_NET_PKT_TX_ROUTE_FAIL_CNT ];
+    ulong tx_invalid_cnt;
     ulong tx_no_xdp_cnt;
     ulong tx_neigh_fail_cnt;
     ulong tx_full_fail_cnt;
@@ -328,6 +336,21 @@ typedef struct {
   } metrics;
 } fd_net_ctx_t;
 
+fd_fib4_t *
+fd_net_tile_fib4_join( fd_fib4_t *              out,
+                       fd_topo_t const *         topo,
+                       fd_topo_tile_t const *    tile,
+                       int                      main_table ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  (void)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
+  (void)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->xdp.free_ring_depth*sizeof(ulong) );
+  (void)FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
+  void * local_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_align(), fd_fib4_footprint( tile->xdp.route_max, tile->xdp.route_peer_max ) );
+  void * main_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_align(), fd_fib4_footprint( tile->xdp.route_max, tile->xdp.route_peer_max ) );
+  return fd_fib4_join( out, main_table ? main_mem : local_mem );
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 4096UL;
@@ -339,6 +362,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t)                      );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),        tile->xdp.free_ring_depth * sizeof(ulong) );
   l = FD_LAYOUT_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
+  for( ulong i=0UL; i<2UL; i++ ) l = FD_LAYOUT_APPEND( l, fd_fib4_align(), fd_fib4_footprint( tile->xdp.route_max, tile->xdp.route_peer_max ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -357,7 +381,8 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, PKT_TX_SUBMITTED,     ctx->metrics.tx_submit_cnt     );
   FD_MCNT_SET( NET, PKT_TX_COMPLETED,     ctx->metrics.tx_complete_cnt   );
   FD_MCNT_SET( NET, PKT_TX_BYTES,         ctx->metrics.tx_bytes_total    );
-  FD_MCNT_SET( NET, PKT_TX_NO_ROUTE,    ctx->metrics.tx_route_fail_cnt );
+  FD_MCNT_ENUM_COPY( NET, PKT_TX_ROUTE_FAIL, ctx->metrics.tx_route_fail_cnt );
+  FD_MCNT_SET( NET, PKT_TX_INVALID,     ctx->metrics.tx_invalid_cnt    );
   FD_MCNT_SET( NET, PKT_TX_NO_NEIGHBOR, ctx->metrics.tx_neigh_fail_cnt );
   FD_MCNT_SET( NET, PKT_TX_RING_FULL,     ctx->metrics.tx_full_fail_cnt  );
 
@@ -370,6 +395,9 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, GRE_PKT_TX_SUBMITTED,            ctx->metrics.tx_gre_cnt            );
   FD_MCNT_SET( NET, GRE_PKT_TX_NO_ROUTE, ctx->metrics.tx_gre_route_fail_cnt );
   FD_MCNT_SET( NET, PKT_RX_SRC_INVALID, ctx->metrics.rx_src_addr_invalid_cnt );
+  /* fd_fib4_cnt includes the synthetic throw route at index zero. */
+  FD_MGAUGE_SET( NET, ROUTE_COUNT_LOCAL, fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_local ), 1UL ) );
+  FD_MGAUGE_SET( NET, ROUTE_COUNT_MAIN,  fd_ulong_sat_sub( fd_fib4_cnt( ctx->fib_main  ), 1UL ) );
 }
 
 struct xdp_statistics_v0 {
@@ -604,13 +632,16 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
-    ctx->metrics.tx_route_fail_cnt++;
+    uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
+        FD_METRICS_ENUM_ROUTE_FAIL_V_NO_ROUTE_IDX,
+        FD_METRICS_ENUM_ROUTE_FAIL_V_ROUTE_TYPE_IDX );
+    ctx->metrics.tx_route_fail_cnt[ reason ]++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->metrics.tx_route_fail_cnt++;
+    ctx->metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_INTERFACE_IDX ]++;
     return 0;
   }
 
@@ -677,7 +708,9 @@ before_frag( fd_net_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig ) {
-  (void)in_idx; (void)seq;
+  (void)seq;
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPROUTE ) ) return 0;
 
   /* Find interface index of next packet */
   ulong proto = fd_disco_netmux_sig_proto( sig );
@@ -778,6 +811,12 @@ during_frag( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
+  if( FD_UNLIKELY( ctx->in_kind[in_idx]==IN_KIND_IPROUTE ) ) {
+    if( FD_UNLIKELY( sz!=sizeof(fd_iproute_msg_t) ) ) FD_LOG_ERR(( "invalid iproute message size %lu", sz ));
+    fd_memcpy( &ctx->iproute_msg, fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk ), sizeof(fd_iproute_msg_t) );
+    return;
+  }
+
   if( FD_UNLIKELY( sz<( sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) )
     FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
 
@@ -815,7 +854,28 @@ after_frag( fd_net_ctx_t *      ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
+  (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_IPROUTE ) ) {
+    fd_iproute_msg_t const * msg = &ctx->iproute_msg;
+    if( msg->op==FD_IPROUTE_OP_FLUSH ) {
+      fd_fib4_clear( ctx->fib_local );
+      fd_fib4_clear( ctx->fib_main );
+      return;
+    }
+    fd_fib4_t * fib;
+    if( msg->table_id==RT_TABLE_LOCAL ) fib = ctx->fib_local;
+    else if( msg->table_id==RT_TABLE_MAIN ) fib = ctx->fib_main;
+    else return;
+    if( msg->op==FD_IPROUTE_OP_UPSERT && FD_UNLIKELY( !fd_fib4_insert( fib, msg->dst_addr, msg->prefix, msg->prio, &msg->hop ) ) ) {
+      FD_LOG_WARNING(( "route update dropped: route table full (increase [net.max_routes] or [net.max_peer_routes])" ));
+      if( FD_UNLIKELY( ctx->net_tile_id==0U ) ) {
+        fd_netlink_route4_sync( ctx->neigh4_solicit, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      }
+    }
+    else if( msg->op==FD_IPROUTE_OP_DELETE ) fd_fib4_remove( fib, msg->dst_addr, msg->prefix, msg->prio );
+    return;
+  }
 
   /* Current send operation */
 
@@ -884,18 +944,23 @@ after_frag( fd_net_ctx_t *      ctx,
                   in_idx, fd_ushort_bswap( ethertype ) ));
   }
 
-  if( ver!=0x4 ) {
-    ctx->metrics.tx_route_fail_cnt++; // Not an IPv4 packet. drop
+  if( FD_UNLIKELY( ver!=0x4 ) ) {
+    FD_LOG_WARNING(( "in_idx %lu: invalid IP version (%u)", in_idx, ver ));
+    ctx->metrics.tx_invalid_cnt++;
+    return;
+  }
+
+  if( FD_UNLIKELY( ihl<sizeof(fd_ip4_hdr_t) ||
+                   (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
+    FD_LOG_WARNING(( "in_idx %lu: invalid IHL (%u)", in_idx, ihl ));
+    ctx->metrics.tx_invalid_cnt++;
     return;
   }
 
   if( ip4_saddr==0 ) {
-    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
-                     ihl<sizeof(fd_ip4_hdr_t) ||
-                     (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
+    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ) ) {
       /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
-      /* FIXME should select first IPv4 address of device table here */
-      ctx->metrics.tx_route_fail_cnt++;
+      ctx->metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_SOURCE_IP_IDX ]++;
       return;
     }
     /* Recompute checksum after changing header */
@@ -1543,6 +1608,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->free_tx.queue!=NULL );
   (void)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->xdp.free_ring_depth * sizeof(ulong) );
   void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
+  void * fib_local_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_align(), fd_fib4_footprint( tile->xdp.route_max, tile->xdp.route_peer_max ) );
+  void * fib_main_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_fib4_align(), fd_fib4_footprint( tile->xdp.route_max, tile->xdp.route_peer_max ) );
+  FD_TEST( fd_fib4_join( ctx->fib_local,         fd_fib4_new( fib_local_mem,         tile->xdp.route_max, tile->xdp.route_peer_max, tile->xdp.route_peer_seed ) ) );
+  FD_TEST( fd_fib4_join( ctx->fib_main,          fd_fib4_new( fib_main_mem,          tile->xdp.route_max, tile->xdp.route_peer_max, tile->xdp.route_peer_seed ) ) );
 
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
@@ -1564,7 +1633,11 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->in_cnt<=32 );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link %s does not have a normal MTU", link->name ));
+    if( !strcmp( link->name, "iproute_out" ) ) ctx->in_kind[i] = IN_KIND_IPROUTE;
+    else {
+      ctx->in_kind[i] = IN_KIND_NET;
+      if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link %s does not have a normal MTU", link->name ));
+    }
 
     ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
@@ -1649,10 +1722,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->tx_flusher[ j ].prefbusy_min_interval_ticks  = (long)( PREFBUSY_MIN_INTERVAL_NS * fd_tempo_tick_per_ns( NULL ) );
     ctx->tx_flusher[ j ].prefbusy_stall_timeout_ticks = (long)( PREFBUSY_STALL_TIMEOUT_NS * fd_tempo_tick_per_ns( NULL ) );
   }
-
-  /* Join netbase objects */
-  FD_TEST( fd_fib4_join( ctx->fib_local, fd_topo_obj_laddr( topo, tile->xdp.fib4_local_obj_id ) ) );
-  FD_TEST( fd_fib4_join( ctx->fib_main, fd_topo_obj_laddr( topo, tile->xdp.fib4_main_obj_id  ) ) );
 
   ulong neigh4_obj_id = tile->xdp.neigh4_obj_id;
   ulong ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );

@@ -178,6 +178,7 @@ fddev_test_run( int     argc,
       fd_config_load( 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config, 0 /* dev */ );
 
       config->development.hugetlbfs.min_size = 0;
+      config->has_user_config = 1;
 
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();

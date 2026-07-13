@@ -984,6 +984,18 @@ fd_topob_finish( fd_topo_t *                topo,
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
 
+  /* Fingerprint the computed layout so attaching processes can detect
+     offset divergence from a different build or config. */
+  ulong layout_hash = 0UL;
+  for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
+    fd_topo_obj_t const * obj = &topo->objs[ i ];
+    layout_hash = fd_hash( layout_hash, obj->name, strlen( obj->name ) );
+    layout_hash = fd_hash( layout_hash, topo->workspaces[ obj->wksp_id ].name, strlen( topo->workspaces[ obj->wksp_id ].name ) );
+    layout_hash = fd_hash( layout_hash, &obj->offset, sizeof(obj->offset) );
+    layout_hash = fd_hash( layout_hash, &obj->footprint, sizeof(obj->footprint) );
+  }
+  topo->layout_hash = layout_hash;
+
   initialize_numa_assignments( topo );
 
   fd_topob_validate_cpu_overlaps( topo );

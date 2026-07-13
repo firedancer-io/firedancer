@@ -138,9 +138,18 @@ dynamic_port_range = "8900-9000"
     # for the log file.
     level_stderr = "NOTICE"
 
-    # The minimum log level which will immediately flush the log file to
-    # disk.  Must be one of the levels described above.
-    level_flush = "WARNING"
+    # The minimum log level which will also fsync() the log file to
+    # disk.  One of the levels described above, or "NONE" to never
+    # fsync.
+    #
+    # Log lines are written to the file immediately regardless and
+    # survive a validator crash; fsync() additionally survives kernel
+    # panic or power loss.  The cost is that fsync() can block the
+    # unrelated tile doing the logging for seconds behind disk writeback
+    # (e.g. a snapshot being written), which increases latency.  It is
+    # not recommended to enable this in production unless you have
+    # specific compliance or other durability requirements.
+    level_flush = "NONE"
 
 # The client supports sending health reports, and performance and
 # diagnostic information to a remote server for collection and analysis.

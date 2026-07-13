@@ -1,6 +1,8 @@
 #include "watch.h"
 #include "generated/watch_seccomp.h"
 
+#include "../../fd_bootinfo.h"
+
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../discof/gossip/fd_gossip_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -36,6 +38,10 @@ static int ended_on_newline = 1;
 
 static char  frame_buf[ 65536UL ];
 static ulong frame_len;
+
+/* Show all category detail rows, not just the primary row of each.
+   Set from --full. */
+static int watch_full = 0;
 
 static void
 flush_frame( void ) {
@@ -710,6 +716,8 @@ write_accdb( config_t const * config,
   char * pre_str   = COUNTF( preevicted );
   char * wait_str  = COUNTF( waited   );
 
+  if( FD_LIKELY( !watch_full ) ) return 1;
+
   PRINT( "               "
          " " BOLD "ACQUIRE" UNBOLD " %s /s (%s wr /s)"
          " " BOLD "HIT"     UNBOLD " %5.1f%%"
@@ -1005,6 +1013,8 @@ write_rserve( config_t const * config,
   PRINT( " " BOLD "RPS" UNBOLD " %s (%s valid, %s invalid) /s" CLEARLN "\n",
       total_str, valid_str, invalid_str );
 
+  if( FD_LIKELY( !watch_full ) ) return 1U;
+
   PRINT( "               "
          " " BOLD "MISS"    UNBOLD " %s /s"
          " " BOLD "SIGVFY"  UNBOLD " %s /s"
@@ -1274,7 +1284,7 @@ write_node_info( config_t const *       config,
   char const * cluster_str = "unknown";
   if( has_genesis_b58 ) {
     ulong cluster_id = fd_genesis_cluster_identify( genesis_hash_b58 );
-    cluster_str = fd_genesis_cluster_name( cluster_id );
+    cluster_str = cluster_id==FD_CLUSTER_MAINNET_BETA ? "mainnet" : fd_genesis_cluster_name( cluster_id );
   }
 
   char uptime_str[ 32UL ];
@@ -1318,6 +1328,8 @@ write_node_info( config_t const *       config,
     genesis_short );
   PRINT( CLEARLN "\n" );
 
+  if( FD_LIKELY( !watch_full ) ) return 1U;
+
   PRINT( "                " BOLD "BALANCE" UNBOLD " %s"
          " " BOLD "STAKE"   UNBOLD " %s (%.2f %%)"
          " " BOLD "CREDITS" UNBOLD " %lu" CLEARLN "\n",
@@ -1332,8 +1344,7 @@ write_summary( config_t const *           config,
                ulong const *              cur_tile,
                ulong const *              prev_tile,
                ulong const *              cur_link,
-               ulong const *              prev_link,
-               int                        interposing ) {
+               ulong const *              prev_link ) {
   (void)config;
   (void)prev_tile;
   (void)cur_tile;
@@ -1341,10 +1352,6 @@ write_summary( config_t const *           config,
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
   PRINT( "\033[?7l" ); /* disable autowrap mode */
   lines_printed = 0UL;
-  if( FD_UNLIKELY( interposing ) ) {
-    PRINT( "───────────────" CLEARLN "\n" );
-    lines_printed = 1UL;
-  }
 
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   int shutdown = 1;
@@ -1450,10 +1457,9 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
-  int interposing = drain_output_fd>=0;
 
   frame_len = 0UL;
-  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
   flush_frame();
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -1461,7 +1467,7 @@ run( config_t const * config,
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
         frame_len = 0UL;
-        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
         flush_frame();
       }
     }
@@ -1565,7 +1571,7 @@ run( config_t const * config,
       } else {
         PRINT( "\033[%luA\r", lines_printed );
       }
-      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
       PRINT( "\033[0J" );    /* clear any leftover lines below */
       PRINT( "\033[?25h" ); /* show cursor */
       flush_frame();
@@ -1575,15 +1581,20 @@ run( config_t const * config,
 }
 
 void
-watch_cmd_args( int *    pargc FD_PARAM_UNUSED,
-                char *** pargv FD_PARAM_UNUSED,
+watch_cmd_args( int *    pargc,
+                char *** pargv,
                 args_t * args ) {
   args->watch.drain_output_fd = -1;
+  args->watch.full            = fd_env_strip_cmdline_contains( pargc, pargv, "--full" );
 }
 
 void
 watch_cmd_fn( args_t *   args,
               config_t * config ) {
+  /* Development commands spawn watch internally with the validator's
+     own config, only discover when invoked standalone. */
+  if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_adopt( config );
+
   int allow_fds[ 5 ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
@@ -1594,6 +1605,7 @@ watch_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->watch.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->watch.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
+  if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -1622,16 +1634,24 @@ watch_cmd_fn( args_t *   args,
 
   fd_topo_fill( &config->topo );
 
+  watch_full = args->watch.full;
   run( config, args->watch.drain_output_fd );
+}
+
+static void
+watch_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--full", NULL, "Show all detail rows for each category, not just the primary row" );
 }
 
 action_t fd_action_watch = {
   .name           = "watch",
   .args           = watch_cmd_args,
   .fn             = watch_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = watch_cmd_perm,
   .description    = "Watch a locally running Firedancer instance with a terminal GUI",
   .detail         = "Connects to a running validator and renders a terminal dashboard of the\n"
                     "most important monitoring and operational metrics.",
+  .usage          = "watch [--full]",
+  .args_help      = watch_args_help,
 };

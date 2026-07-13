@@ -336,6 +336,19 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   ctx->metrics.slots_total++;
   ctx->metrics.transactions_total = bank->f.parent_txn_count + bank->f.txn_count;
 
+  /* Caught up once replay completes a slot within a few slots of the
+     cluster tip.  Require the tip to have advanced a few times first so
+     a brief view of the tip right after boot does not count. */
+  if( FD_UNLIKELY( !ctx->caught_up && !is_initial &&
+                   ctx->catch_up_tip_advance_cnt>=12UL &&
+                   ctx->catch_up_max_fec_slot<slot+3UL ) ) {
+    ctx->caught_up = 1;
+    double boot_secs = (double)(fd_log_wallclock()-ctx->boot_timestamp_nanos)/1e9;
+    FD_LOG_NOTICE(( "caught up to cluster at slot %s%lu%s %s(%.1f seconds since boot)%s",
+                    fd_log_style_bold(), slot, fd_log_style_normal(),
+                    fd_log_style_dim(), boot_secs, fd_log_style_normal() ));
+  }
+
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
   slot_info->root_slot             = ctx->consensus_root_slot;
@@ -1664,51 +1677,46 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
   FD_TEST( !!parent );
 
-  fd_reasm_fec_t * path[ FD_BANKS_MAX_BANKS ];
+  fd_reasm_fec_t * path[ FD_FEC_BLK_MAX ];
   ulong            path_cnt = 0UL;
-  path[ path_cnt++ ] = reasm_fec;
+  ulong            path_slot = reasm_fec->slot;
 
-  /* Collect all of the slot completes starting from the current FEC
-     iterating through the tree until we hit a FEC that is a slot
-     complete that corresponds to a valid bank. */
+  /* Walk backward from the candidate FEC until we find one with an
+     associated bank that we consider 'valid'.  A FEC is considered
+     valid to backfill off of if the bank matches the seq we expect and
+     if its latest mr matches.  We must check the latest MR in the case
+     of equivocation. */
   for( fd_reasm_fec_t * curr = reasm_fec;; ) {
+    fd_bank_t *         curr_bank    = curr->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
+    fd_block_id_ele_t * block_id_ele = curr_bank ? &ctx->block_id_arr[ curr_bank->idx ] : NULL;
+    if( FD_LIKELY( curr_bank &&
+                   curr_bank->bank_seq==curr->bank_seq &&
+                   curr_bank->state!=FD_BANK_STATE_PRUNABLE &&
+                   block_id_ele->bank_seq==curr->bank_seq &&
+                   fd_hash_eq( &block_id_ele->latest_mr, &curr->key ) ) ) break;
+
+    if( FD_UNLIKELY( curr->slot!=path_slot ) ) {
+      path_cnt  = 0UL;
+      path_slot = curr->slot;
+    }
+
+    FD_TEST( path_cnt<FD_FEC_BLK_MAX );
+    path[ path_cnt++ ] = curr;
+
     curr = fd_reasm_parent( ctx->reasm, curr );
     FD_TEST( curr );
-    if( FD_LIKELY( !curr->slot_complete ) ) continue;
-
-    fd_bank_t * curr_bank = curr->bank_idx==ULONG_MAX ? NULL : fd_banks_bank_query( ctx->banks, curr->bank_idx );
-    if( FD_LIKELY( curr_bank && curr_bank->bank_seq==curr->bank_seq && curr_bank->state!=FD_BANK_STATE_PRUNABLE ) ) break;
-
-    FD_TEST( path_cnt<FD_BANKS_MAX_BANKS );
-    path[ path_cnt++ ] = curr;
   }
 
-  /* For each bank's worth of FECs, insert all of the FECs into the
-     scheduler.  Ensure that only a full bank's worth of FECs are
-     inserted at a time.  If there's no capacity in the banks or the
-     scheduler, backoff for now and try again later. */
-  for( ulong i=path_cnt; i>0UL; i-- ) {
-    fd_reasm_fec_t * leaf = path[ i-1 ];
+  /* Now that we have queued up the potential path of FECs to backfill,
+     ingest as much as sched can allow. */
+  fd_reasm_fec_t * first = path[ path_cnt-1UL ];
+  fd_reasm_fec_t * last  = path[ 0 ];
+  FD_LOG_DEBUG(( "backfilling FEC sets for slot %lu from fec_set_idx %u to fec_set_idx %u", first->slot, first->fec_set_idx, last->fec_set_idx ));
 
-    /* Gather all FECs for this slot */
-    fd_reasm_fec_t * slot_fecs[ FD_FEC_BLK_MAX ];
-    fd_reasm_fec_t * curr = leaf;
-    for(;;) {
-      slot_fecs[ curr->fec_set_idx/FD_FEC_SHRED_CNT ] = curr;
-      if( curr->fec_set_idx==0U ) break;
-      curr = fd_reasm_parent( ctx->reasm, curr );
-      FD_TEST( curr );
-    }
-    FD_LOG_NOTICE(( "backfilling FEC sets for slot %lu from fec_set_idx %u to fec_set_idx %u", leaf->slot, leaf->fec_set_idx, curr->fec_set_idx ));
-
-    /* If there's no capacity in the sched or banks, return early and
-       drop the FEC.  We have inserted as much as we can for now. */
-    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )<(leaf->fec_set_idx/FD_FEC_SHRED_CNT + 1) ) ) return;
-    if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return;
-
-    for( ulong j=0UL; j<=leaf->fec_set_idx/FD_FEC_SHRED_CNT; j++ ) {
-      if( FD_UNLIKELY( insert_fec_set( ctx, stem, slot_fecs[ j ] ) ) ) return;
-    }
+  ulong sched_capacity = fd_sched_can_ingest_cnt( ctx->sched );
+  ulong path_idx_min   = path_cnt - fd_ulong_min( sched_capacity, path_cnt );
+  for( ulong i=path_cnt; i>path_idx_min; i-- ) {
+    if( FD_UNLIKELY( insert_fec_set( ctx, stem, path[ i-1UL ] ) ) ) return;
   }
 }
 
@@ -2255,6 +2263,13 @@ process_fec_complete( fd_replay_tile_t *  ctx,
       fd_store_remove( ctx->store, merkle_root );
     }
     return;
+  }
+
+  /* Track the cluster tip: the highest slot seen in FEC sets from the
+     network (leader FECs are our own blocks, not evidence of the tip). */
+  if( FD_LIKELY( !is_leader_fec && ( ctx->catch_up_max_fec_slot==ULONG_MAX || shred->slot>ctx->catch_up_max_fec_slot ) ) ) {
+    ctx->catch_up_max_fec_slot = shred->slot;
+    ctx->catch_up_tip_advance_cnt++;
   }
 
   if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
@@ -2808,6 +2823,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+
+  ctx->caught_up                = 0;
+  ctx->catch_up_max_fec_slot    = ULONG_MAX;
+  ctx->catch_up_tip_advance_cnt = 0UL;
+  ctx->boot_timestamp_nanos     = tile->replay.boot_timestamp_nanos;
   ctx->leader_bank = NULL;
 
   ctx->block_id_len = tile->replay.max_live_slots;
