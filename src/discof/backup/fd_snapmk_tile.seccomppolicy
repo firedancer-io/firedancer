@@ -65,5 +65,8 @@ renameat: (and (eq (arg 0) dir_fd)
 # acknowledge the pause.
 sched_yield
 
+# power saving: sleep briefly after the tile has been idle
+clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
+
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)

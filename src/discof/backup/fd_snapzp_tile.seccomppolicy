@@ -31,5 +31,8 @@ fsync: (eq (arg 0) logfile_fd)
 pwrite64: (and (>= (arg 0) pool_min_fd)
                (<= (arg 0) pool_max_fd))
 
+# power saving: sleep briefly after the tile has been idle
+clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
+
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)

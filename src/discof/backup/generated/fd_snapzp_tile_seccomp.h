@@ -31,24 +31,26 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_snapzp_tile_instr_cnt = 29;
+static const uint sock_filter_policy_fd_snapzp_tile_instr_cnt = 34;
 
-static void populate_sock_filter_policy_fd_snapzp_tile( ulong out_cnt, struct sock_filter out[ static 29 ], uint logfile_fd, uint pool_min_fd, uint pool_max_fd ) {
-  FD_TEST( out_cnt >= 29 );
-  struct sock_filter filter[29] = {
+static void populate_sock_filter_policy_fd_snapzp_tile( ulong out_cnt, struct sock_filter out[ static 34 ], uint logfile_fd, uint pool_min_fd, uint pool_max_fd ) {
+  FD_TEST( out_cnt >= 34 );
+  struct sock_filter filter[34] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 5 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 6 ),
     /* load syscall number */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) )),
     /* check write */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 5, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 6, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 11, 0 ),
     /* check pwrite64 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwrite64, /* check_pwrite64 */ 13, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwrite64, /* check_pwrite64 */ 14, 0 ),
+    /* check clock_nanosleep */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 19, 0 ),
     /* check exit */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 18, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 22, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -86,6 +88,14 @@ static void populate_sock_filter_policy_fd_snapzp_tile( ulong out_cnt, struct so
 //  pwrite64_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  pwrite64_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_clock_nanosleep:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(CLOCK_REALTIME), /* clock_nanosleep_ALLOW */ 1, /* clock_nanosleep_KILL */ 0 ),
+//  clock_nanosleep_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  clock_nanosleep_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
 //  check_exit:
     /* arg 0 low 32 bits */

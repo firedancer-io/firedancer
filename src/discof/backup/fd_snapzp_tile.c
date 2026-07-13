@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
+#include <time.h>
 #include "fd_backup.h"
 #include "fd_backup_cache.h"
 #include "fd_backup_pool.h"
@@ -225,10 +226,14 @@ static void
 before_credit( fd_snapzp_t *       ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)ctx; (void)stem; (void)charge_busy;
-  // if( FD_UNLIKELY( ctx->idle_cnt++ > 65536UL ) ) {
-  //   fd_log_sleep( (long)1e6 );
-  // }
+  (void)stem; (void)charge_busy;
+  if( FD_LIKELY( ctx->fd>=0 ) ) {
+    ctx->idle_cnt = 0UL;
+    return;
+  }
+  if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL ) ) {
+    fd_log_sleep( (long)1e6 );
+  }
 }
 
 static void

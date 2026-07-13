@@ -326,6 +326,25 @@ FD_UNIT_TEST( state ) {
   FD_TEST( !charge_busy );
 }
 
+FD_UNIT_TEST( idle_sleep_only_between_snapshots ) {
+  fd_snapmk_t ctx[1];
+  fd_stem_context_t stem[1];
+  memset( ctx,  0, sizeof(fd_snapmk_t)       );
+  memset( stem, 0, sizeof(fd_stem_context_t) );
+
+  int charge_busy = 0;
+  int is_backpressured = 0;
+
+  ctx->state       = SNAPMK_STATE_TAR_HEADERS;
+  ctx->in_idle_cnt = 16385UL;
+  check_credit( ctx, stem, &charge_busy, &is_backpressured );
+  FD_TEST( ctx->in_idle_cnt==0UL );
+
+  ctx->state = SNAPMK_STATE_IDLE;
+  check_credit( ctx, stem, &charge_busy, &is_backpressured );
+  FD_TEST( ctx->in_idle_cnt==1UL );
+}
+
 /* flow_control uses consumer fseqs, not stale stem credits, for flush
    barriers. */
 FD_UNIT_TEST( flow_control ) {

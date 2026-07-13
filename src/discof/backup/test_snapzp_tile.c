@@ -14,6 +14,21 @@
 static uchar raw[ RAW_BUF_SZ ] __attribute__((aligned(4096)));
 static fd_wksp_t * wksp;
 
+FD_UNIT_TEST( idle_sleep_only_between_snapshots ) {
+  fd_snapzp_t ctx[1];
+  int charge_busy = 0;
+  memset( ctx, 0, sizeof(fd_snapzp_t) );
+
+  ctx->fd       = 1;
+  ctx->idle_cnt = 16385UL;
+  before_credit( ctx, NULL, &charge_busy );
+  FD_TEST( ctx->idle_cnt==0UL );
+
+  ctx->fd = -1;
+  before_credit( ctx, NULL, &charge_busy );
+  FD_TEST( ctx->idle_cnt==1UL );
+}
+
 static void
 fill_key( fd_pubkey_t * key,
           uchar         seed ) {

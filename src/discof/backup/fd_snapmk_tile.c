@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -944,9 +945,10 @@ check_credit( fd_snapmk_t *       ctx,
               int *               charge_busy,
               int *               is_backpressured ) {
   (void)stem; (void)is_backpressured;
+  if( FD_LIKELY( ctx->state!=SNAPMK_STATE_IDLE ) ) ctx->in_idle_cnt = 0UL;
   switch( ctx->state ) {
   case SNAPMK_STATE_IDLE:
-    // if( ctx->in_idle_cnt++ > 128 ) fd_log_sleep( (long)1e6 );
+    if( FD_UNLIKELY( ctx->in_idle_cnt++ > 16384UL ) ) fd_log_sleep( (long)1e6 );
     *charge_busy = 0;
     *is_backpressured = 0;
     break;
