@@ -107,6 +107,7 @@ while true; do
         mkdir -p $OLD_SNAPSHOTS_DIR
         cd $LEDGER_DIR
         wget $GENESIS_FILE
+        tar -xjf genesis.tar.bz2
 
         SOLANA_BUCKET_PATH=${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}
         send_slack_message "Downloading rocksdb from \`$SOLANA_BUCKET_PATH\` to \`$LEDGER_DIR/rocksdb\`"
