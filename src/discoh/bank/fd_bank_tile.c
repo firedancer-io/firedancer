@@ -51,7 +51,7 @@ typedef struct {
 
   struct {
     ulong txn_load_address_lookup_tables[ 6 ];
-    ulong transaction_result[ 42 ];
+    ulong transaction_result[ 41 ];
     ulong processing_failed;
     ulong fee_only;
     ulong exec_failed;
