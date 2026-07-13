@@ -863,7 +863,7 @@ fd_pack_new( void                   * mem,
 
   (void)trp_pool_leave( pool );
 
-  penalty_map_new( _penalty_map, lg_penalty_trp, 0UL );
+  penalty_map_new( _penalty_map, lg_penalty_trp, fd_rng_ulong( rng ) );
 
   /* These treaps can have at most pack_depth elements at any moment,
      but they come from a pool of size pack_depth+extra_depth. */
@@ -881,9 +881,9 @@ fd_pack_new( void                   * mem,
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
-  acct_uses_new( _uses,        lg_uses_tbl_sz, 0UL );
-  acct_uses_new( _writer_cost, lg_max_writers, 0UL );
-  acct_uses_new( _bundle_temp, lg_bundle_temp, 0UL );
+  acct_uses_new( _uses,        lg_uses_tbl_sz, fd_rng_ulong( rng ) );
+  acct_uses_new( _writer_cost, lg_max_writers, fd_rng_ulong( rng ) );
+  acct_uses_new( _bundle_temp, lg_bundle_temp, fd_rng_ulong( rng ) );
 
   pack->written_list     = _written_lst;
   pack->written_list_cnt = 0UL;
@@ -927,7 +927,7 @@ fd_pack_new( void                   * mem,
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
   pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
 
-  bitset_map_new( _acct_bitset, lg_acct_in_trp, 0UL );
+  bitset_map_new( _acct_bitset, lg_acct_in_trp, fd_rng_ulong( rng ) );
 
   fd_chkdup_new( pack->chkdup, rng );
 
