@@ -396,8 +396,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   return total_points;
 }
 
-/* TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/dab0f7961180b6ba8290d8ca41b6ba334c07615d/runtime/src/inflation_rewards/mod.rs#L161-L173 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L161-L173 */
 static int
 delegation_may_need_adjustment( ulong current_delegation,
                                 ulong new_delegation_with_rewards,
@@ -468,7 +467,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
     /* Stake account may need to be adjusted to meet rent-exempt minimum
        balance requirements based on new rent and delegation parameters.
-       https://github.com/anza-xyz/agave/blob/dab0f7961180b6ba8290d8ca41b6ba334c07615d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L568-L608 */
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L568-L608 */
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) {
       if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
@@ -531,9 +530,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       /* Even if there is an error computing rewards for the stake
          account, there may be a required balance update for the stake
          account if rent increased.
-         TODO: Change the commit SHA to a version tag once a release is
-         cut.
-         https://github.com/anza-xyz/agave/blob/dab0f7961180b6ba8290d8ca41b6ba334c07615d/runtime/src/inflation_rewards/mod.rs#L132-L152 */
+         https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L132-L152 */
       if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
 
       /* staker rewards is 0 in the error case, so we can just use
@@ -650,9 +647,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
         /* Even if there is an error computing rewards for the stake
            account, there may be a required balance update for the stake
            account if rent increased.
-           TODO: Change the commit SHA to a version tag once a release is
-           cut.
-           https://github.com/anza-xyz/agave/blob/dab0f7961180b6ba8290d8ca41b6ba334c07615d/runtime/src/inflation_rewards/mod.rs#L132-L152 */
+           https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L132-L152 */
         if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
 
         /* staker rewards is 0 in the error case, so we can just use
@@ -866,8 +861,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
 /* Note: modifies delegation in-place, adjusting it for rent-exempt
    minimum balance requirements.
-   TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/dab0f7961180b6ba8290d8ca41b6ba334c07615d/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L55-L76 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L55-L76 */
 static void
 adjust_delegation_for_rent( fd_delegation_t * delegation,
                             ulong             rewarded_epoch,
@@ -916,8 +910,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
   stake_state->stake.stake.credits_observed = new_credits_observed;
   stake_state->stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->stake.stake.delegation.stake, reward_lamports );
 
-  /* TODO: Change the commit SHA to a version tag once a release is cut.
-     https://github.com/anza-xyz/agave/blob/dab0f7961180b6ba8290d8ca41b6ba334c07615d/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L259-L283 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L259-L283 */
   fd_stake_t * new_stake = &stake_state->stake.stake;
   if( FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) {
     ulong minimum_balance = fd_rent_exempt_minimum_balance( &bank->f.rent, acc.data_len );

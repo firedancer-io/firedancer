@@ -174,21 +174,20 @@ fd_executor_check_rent_state_with_account( fd_pubkey_t const *     pubkey,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L75-L95 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L75-L95 */
 static fd_rent_state_t
 get_account_rent_state( ulong account_lamports,
                         ulong account_size,
                         ulong min_balance ) {
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L85-L86 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L85-L86 */
   if( FD_UNLIKELY( account_lamports==0UL ) ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_UNINITIALIZED };
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L87-L88 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L87-L88 */
   if( FD_LIKELY( account_lamports>=min_balance ) ) {
     return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_RENT_EXEMPT };
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L89-L93 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L89-L93 */
   return (fd_rent_state_t){
     .discriminant = FD_RENT_STATE_RENT_PAYING,
     .lamports     = account_lamports,
@@ -196,8 +195,7 @@ get_account_rent_state( ulong account_lamports,
   };
 }
 
-/* TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L97-L112 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L97-L112 */
 static fd_rent_state_t
 get_pre_exec_account_rent_state( ulong account_lamports,
                                  ulong account_size,
@@ -210,8 +208,7 @@ get_pre_exec_account_rent_state( ulong account_lamports,
   return rent_state;
 }
 
-/* TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L114-L142 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L114-L142 */
 static fd_rent_state_t
 get_post_exec_account_rent_state( ulong                   account_lamports,
                                   ulong                   account_size,
@@ -219,23 +216,23 @@ get_post_exec_account_rent_state( ulong                   account_lamports,
                                   fd_rent_state_t const * pre_rent_state,
                                   ulong                   pre_exec_balance,
                                   int                     relax_rent_exempt_criteria ) {
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L127-L129 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L127-L129 */
   if( !relax_rent_exempt_criteria ) {
     return get_account_rent_state( account_lamports, account_size, min_balance );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L132 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L132 */
   if( FD_UNLIKELY( account_lamports==0UL ) ) {
     return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_UNINITIALIZED };
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L133 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L133 */
   if( FD_LIKELY( account_lamports>=min_balance ) ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_RENT_EXEMPT };
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L134-L136 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L134-L136 */
   if( account_lamports>=pre_exec_balance && pre_rent_state->discriminant==FD_RENT_STATE_RENT_EXEMPT ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_RENT_EXEMPT };
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L137-L140 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L137-L140 */
   return (fd_rent_state_t){
     .discriminant = FD_RENT_STATE_RENT_PAYING,
     .lamports     = account_lamports,
@@ -249,10 +246,10 @@ fd_executor_check_static_account_rent_state_transition( ulong             pre_ex
                                                         ulong             data_size,
                                                         fd_rent_t const * rent,
                                                         int               relax_post_exec_min_balance_check ) {
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L155 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L155 */
   ulong rent_min_balance = fd_rent_exempt_minimum_balance( rent, data_size );
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L156C21-L162 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L156-L162 */
   fd_rent_state_t pre_state = get_pre_exec_account_rent_state(
     pre_exec_balance,
     data_size,
@@ -260,7 +257,7 @@ fd_executor_check_static_account_rent_state_transition( ulong             pre_ex
     relax_post_exec_min_balance_check
   );
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L163-L170 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L163-L170 */
   fd_rent_state_t post_state = get_post_exec_account_rent_state(
     post_exec_balance,
     data_size,
@@ -270,7 +267,7 @@ fd_executor_check_static_account_rent_state_transition( ulong             pre_ex
     relax_post_exec_min_balance_check
   );
 
-  /* https://github.com/anza-xyz/agave/blob/master/svm/src/rent_calculator.rs#L172-L174 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L172-L174 */
   if( FD_UNLIKELY( !fd_executor_rent_transition_allowed( &pre_state, &post_state ) ) ) {
     return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
   }
@@ -278,46 +275,45 @@ fd_executor_check_static_account_rent_state_transition( ulong             pre_ex
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L351-L404 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L351-L404 */
 static int
 fd_validate_fee_payer( fd_acc_t *        acc,
                        fd_rent_t const * rent,
                        ulong             fee,
                        int               relax_post_exec_min_balance_check ) {
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L364-L367 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L364-L367 */
   if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L368-L371 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L368-L371 */
   int system_account_kind = fd_get_system_account_kind( acc );
   if( FD_UNLIKELY( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L372-L379 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L372-L379 */
   ulong min_balance = 0UL;
   if( FD_UNLIKELY( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE ) ) {
     min_balance = fd_rent_exempt_minimum_balance( rent, FD_SYSTEM_PROGRAM_NONCE_DLEN );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L381-L388 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L381-L388 */
   if( FD_UNLIKELY( min_balance>acc->lamports || fee>acc->lamports-min_balance ) ) {
     return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L390 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L390 */
   ulong pre_balance = acc->lamports;
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L391-L393 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L391-L393 */
   if( FD_UNLIKELY( fd_account_meta_checked_sub_lamports( acc, fee )!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L394 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L394 */
   ulong post_balance = acc->lamports;
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/account_loader.rs#L396-L403 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L396-L403 */
   return fd_executor_check_static_account_rent_state_transition(
     pre_balance,
     post_balance,
@@ -1440,7 +1436,7 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
 static int
 fd_executor_txn_check( fd_bank_t *    bank,
                        fd_txn_out_t * txn_out ) {
-  int   err                 = 0UL;
+  int   err                 = 0;
   ulong starting_lamports_l = 0UL;
   ulong starting_lamports_h = 0UL;
   ulong ending_lamports_l   = 0UL;
@@ -1475,7 +1471,7 @@ fd_executor_txn_check( fd_bank_t *    bank,
 
 
     /* Get pre-exec rent states
-       https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/transaction_processor.rs#L942-L947 */
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1012-L1019 */
     fd_rent_state_t pre_state = get_pre_exec_account_rent_state(
       starting_lamports,
       txn_out->accounts.starting_data_len[ i ],
@@ -1484,8 +1480,8 @@ fd_executor_txn_check( fd_bank_t *    bank,
     );
 
     /* Post-exec rent states
-       https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/transaction_processor.rs#L995-L1001 */
-    int relax_rent_exempt_criteria = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check) &&
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1065-L1079 */
+    int relax_rent_exempt_criteria = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) &&
                                      txn_out->accounts.starting_data_len[ i ]>=acc->data_len &&
                                      pre_state.discriminant==FD_RENT_STATE_RENT_EXEMPT &&
                                      !memcmp( &txn_out->accounts.starting_owner[ i ], acc->owner, sizeof(fd_pubkey_t) );
@@ -1498,7 +1494,7 @@ fd_executor_txn_check( fd_bank_t *    bank,
       relax_rent_exempt_criteria
     );
 
-    /* https://github.com/anza-xyz/agave/blob/master/svm/src/transaction_account_state_info.rs#L105-L125 */
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_account_state_info.rs#L105-L125 */
     err = fd_executor_check_rent_state_with_account( &txn_out->accounts.keys[ i ], &pre_state, &post_state );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
@@ -1506,7 +1502,7 @@ fd_executor_txn_check( fd_bank_t *    bank,
     else if( !memcmp( acc->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[ i ] = 1;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/transaction_processor.rs#L1054-L1060 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1126-L1132 */
   if( FD_UNLIKELY( ending_lamports_l!=starting_lamports_l || ending_lamports_h!=starting_lamports_h ) ) {
     return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
   }

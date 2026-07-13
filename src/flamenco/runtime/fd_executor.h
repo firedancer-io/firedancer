@@ -56,8 +56,7 @@ int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
                         fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
 
-/* TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/svm/src/rent_calculator.rs#L144-L178 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int
 fd_executor_check_static_account_rent_state_transition( ulong             pre_exec_balance,
                                                         ulong             post_exec_balance,

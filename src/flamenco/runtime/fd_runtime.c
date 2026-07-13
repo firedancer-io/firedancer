@@ -208,18 +208,17 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
    system program or if the fee collector's rent state transition is
    invalid.
 
-   TODO: Change the commit SHA to a version tag once a release is cut.
-   https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/fee_distribution.rs#L206-L230 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L230 */
 static int
 fd_runtime_validate_fee_collector( fd_bank_t const * bank,
                                    fd_acc_t const *  collector,
                                    ulong             fee ) {
   FD_TEST( fee );
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/fee_distribution.rs#L206-L208 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L208 */
   if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
 
-  /* https://github.com/anza-xyz/agave/blob/7f70cf81ebb62590bfcd6c0064cafc303e668d4a/runtime/src/bank/fee_distribution.rs#L210 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L229 */
   ulong pre_balance = collector->lamports;
   ulong post_balance;
   FD_TEST( !__builtin_uaddl_overflow( pre_balance, fee, &post_balance ) );
