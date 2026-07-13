@@ -333,9 +333,8 @@ telemetry = true
 # to join the network quickly, as they do not need to replay all
 # transactions since genesis, just those since a recent snapshot.
 #
-# Firedancer does not support creating or serving snapshots to other
-# nodes, and all snapshot related configuration is for downloading and
-# using snapshots when booting the validator.
+# Firedancer supports creating, downloading, and unpacking snapshots.
+# It does not yet support serving snapshots to other nodes.
 [snapshots]
     # Whether to enable loading from incremental snapshots.
     #
@@ -378,8 +377,7 @@ telemetry = true
     # Controls how many downloaded snapshots are allowed to be kept in
     # the snapshots directory on disk.
     #
-    # Firedancer does not currently support creating snapshots, and so
-    # these values are only checked once on boot.  Any excess snapshots
+    # These values are only checked once on boot.  Any excess snapshots
     # will be deleted, oldest snapshot slot first.
     max_full_snapshots_to_keep = 1
     max_incremental_snapshots_to_keep = 1
@@ -402,6 +400,20 @@ telemetry = true
     # before aborting startup.  Applies when waiting for either full or
     # incremental snapshot peers.
     wait_for_peers_timeout_seconds = 30
+
+    # Interval in slots between periodic full snapshot creations.
+    #
+    # Set to 0 to disable periodic snapshot creation.
+    # When enabled, a full snapshot is created every time the rooted
+    # fork crosses a multiple of this interval.  If snapshot production
+    # falls too far behind, snapshots are skipped.
+    #
+    # If this option is non-zero, while [layout.snapzp_tile_count] is 0,
+    # the validator will refuse to start.
+    #
+    # Snapshots can also be created on demand with the
+    # `snapshot-create` command, independent of this option.
+    full_snapshot_interval_slots = 0
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
@@ -873,6 +885,12 @@ telemetry = true
     # done in parallel without blocking.  Multiple execrp tiles exploit
     # this parallelism supported by the accounts database.
     execrp_tile_count = 10
+
+    # How many snapshot compressor tiles to run.
+    # Snapshot creation related tiles do not consume CPU while idle.
+    # If set to 0, snapshot creation and all associated tiles are
+    # disabled.
+    snapzp_tile_count = 2
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

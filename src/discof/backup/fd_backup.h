@@ -14,7 +14,7 @@
 #define FD_BACKUP_ORIG_ACC_CACHE    2  /* mk->zp: pointers to cached account */
 #define FD_BACKUP_ORIG_ACC_DISK     3  /* mk->zp: disk offset to cold account */
 #define FD_BACKUP_ORIG_FLUSH        4  /* mk->zp: flush compress buffer */
-#define FD_BACKUP_ORIG_DONE         5  /* mk->zp: stop compressing */
+#define FD_BACKUP_ORIG_DONE         5  /* mk->zp: stop compressing; mk->replay: free bank_idx */
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6 /* mk->zp: batch of cold accounts within one rd frag */
 #define FD_BACKUP_ORIG_DISK_START  16  /* mk->rd: start reading from disk */
 #define FD_BACKUP_ORIG_DISK_FRAG   17  /* rd->mk: accdb file frag */

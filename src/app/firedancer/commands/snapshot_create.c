@@ -64,22 +64,9 @@ fmt_bytes( char * buf,
   return buf;
 }
 
-static char const *
-snapshot_create_result_strerror( ulong result ) {
-  switch( result ) {
-  case FD_ADMINCTL_RESULT_SUCCESS:                         return "success";
-  case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:                 return "unknown command";
-  case FD_SNAPSHOT_CREATE_RESULT_BUSY:                     return "busy";
-  case FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED:              return "unsupported command";
-  case FD_SNAPSHOT_CREATE_RESULT_NOT_READY:                return "not ready";
-  case FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_PAYLOAD_SIZE:  return "unexpected payload size";
-  case FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE:      return "unexpected response";
-  default:                                                 return "?";
-  }
-}
-
 static ulong
-send_snapshot_create_cmd( fd_topo_t * topo ) {
+send_snapshot_create_cmd( fd_topo_t * topo,
+                          ulong       target_slot ) {
   fd_topo_obj_t const * admin_ctl_obj = fd_topo_find_obj( topo, "adminctl", "admin", ULONG_MAX );
   if( FD_UNLIKELY( !admin_ctl_obj ) ) FD_LOG_ERR(( "admin tile command endpoint not found" ));
 
@@ -97,14 +84,18 @@ send_snapshot_create_cmd( fd_topo_t * topo ) {
   void * payload     = NULL;
   ulong  payload_max = 0UL;
   ulong  slot_idx    = fd_adminctl_reserve( adminctl, &payload, &payload_max );
-  (void)payload; (void)payload_max;
   if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) {
     FD_LOG_ERR(( "Failed to process `snapshot-create` command as there are other pending "
                  "commands that are being processed. Please wait for other commands to complete "
                  "or forcefully terminate the other processes and retry the command." ));
   }
+  FD_TEST( payload_max>=sizeof(fd_adminctl_snap_create_t) );
 
-  fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_SNAP_CREATE, 0UL );
+  fd_adminctl_snap_create_t * req = payload;
+  req->version = FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION;
+  req->slot    = target_slot;
+
+  fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_SNAP_CREATE, sizeof(fd_adminctl_snap_create_t) );
   return fd_adminctl_wait( adminctl, slot_idx );
 }
 
@@ -357,10 +348,15 @@ wait_snapshot_create( fd_topo_tile_t const *            snapmk_tile,
 }
 
 static void
+snapshot_create_cmd_args( int *    pargc,
+                          char *** pargv,
+                          args_t * args ) {
+  args->snapshot_create.slot = fd_env_strip_cmdline_ulong( pargc, pargv, "--slot", NULL, 0UL );
+}
+
+static void
 snapshot_create_cmd_fn( args_t *   args,
                         config_t * config ) {
-  (void)args;
-
   fd_bootinfo_adopt( config );
   fd_bootinfo_check_layout( config );
 
@@ -383,13 +379,15 @@ snapshot_create_cmd_fn( args_t *   args,
   long  start_time          = fd_log_wallclock();
 
   /* Send snapshot create command */
-  ulong result = send_snapshot_create_cmd( topo );
+  ulong result = send_snapshot_create_cmd( topo, args->snapshot_create.slot );
   if( FD_UNLIKELY( result ) ) {
-    if( FD_LIKELY( result==FD_SNAPSHOT_CREATE_RESULT_BUSY ) ) {
+    if( FD_LIKELY( result==FD_SNAPSHOT_CREATE_RESULT_BUSY && !args->snapshot_create.slot ) ) {
       FD_LOG_NOTICE(( "snapshot creation already in progress, attaching ..." ));
     } else {
-      FD_LOG_ERR(( "failed to request snapshot creation %lu-%s", result, snapshot_create_result_strerror( result ) ));
+      FD_LOG_ERR(( "failed to request snapshot creation (%lu)", result ));
     }
+  } else if( FD_UNLIKELY( args->snapshot_create.slot ) ) {
+    FD_LOG_NOTICE(( "snapshot creation scheduled at slot %lu, waiting ...", args->snapshot_create.slot ));
   }
 
   wait_snapshot_create( snapmk_tile, snaprd_tile, snapzp_tiles, snapzp_tile_cnt, start_snapshots_created, result==FD_SNAPSHOT_CREATE_RESULT_BUSY, &start_time, &snapshot_create_slot, &final_bytes_written );
@@ -399,9 +397,20 @@ snapshot_create_cmd_fn( args_t *   args,
                   (double)final_bytes_written/1e9 ));
 }
 
+static void
+snapshot_create_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--slot", "<slot>",
+      "Schedule snapshot creation at a slot in the future rather than\n"
+      "creating one immediately.  Rooting stops at the first rooted slot at\n"
+      "or after <slot> and a snapshot of it is created (default 0, which\n"
+      "snapshots the current root immediately)" );
+}
+
 action_t fd_action_snapshot_create = {
   .name           = "snapshot-create",
+  .args           = snapshot_create_cmd_args,
   .fn             = snapshot_create_cmd_fn,
   .description    = "Create a snapshot",
-  .usage          = "snapshot-create"
+  .usage          = "snapshot-create [OPTIONS]",
+  .args_help      = snapshot_create_args_help,
 };

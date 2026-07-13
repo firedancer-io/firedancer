@@ -1333,6 +1333,34 @@ test_double_confirm_backfill( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_double_confirm_backfill" ));
 }
 
+static void
+test_snapmk_completion_releases_requested_bank( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_bank_t * requested_bank = fd_banks_root( ctx->banks );
+  fd_bank_t * current_bank   = fd_banks_new_bank( ctx->banks, requested_bank->idx, 0L, 0 );
+  FD_TEST( requested_bank && current_bank );
+
+  requested_bank->refcnt = 1UL;
+  current_bank->refcnt   = 1UL;
+
+  /* The refcnt normally keeps published_root_bank_idx stable while a
+     snapshot is running.  Set it to a different bank here to verify
+     that the completion protocol is self-identifying regardless. */
+  ctx->published_root_bank_idx = current_bank->idx;
+  ctx->is_creating_snap        = 1;
+  ctx->in_kind[ 0 ]            = IN_KIND_SNAPMK;
+
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, requested_bank->idx,
+                             0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( !ctx->is_creating_snap );
+  FD_TEST( requested_bank->refcnt==0UL );
+  FD_TEST( current_bank->refcnt==1UL );
+
+  FD_LOG_NOTICE(( "pass: test_snapmk_completion_releases_requested_bank" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1354,6 +1382,7 @@ main( int     argc,
   test_stale_redeliver( wksp );
   test_eqvoc_child_confirm( wksp );
   test_double_confirm_backfill( wksp );
+  test_snapmk_completion_releases_requested_bank( wksp );
 
   fd_halt();
   return 0;

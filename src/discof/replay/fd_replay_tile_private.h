@@ -322,6 +322,11 @@ struct fd_replay_tile {
   uint        supports_leader : 1;
   uint        supports_snap_create : 1;
   uint        is_creating_snap : 1;
+
+  ulong       full_snapshot_interval_slots; /* 0 means disabled */
+  ulong       next_full_snapshot_slot; /* periodic scheduled */
+  ulong       scheduled_snapshot_slot; /* manual scheduled */
+
   int         recv_poh;
   ulong       next_leader_slot;
   long        next_leader_tickcount;

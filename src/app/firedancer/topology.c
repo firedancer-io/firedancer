@@ -408,6 +408,10 @@ fd_topo_initialize( config_t * config ) {
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int snapmk_enabled    = !!snapzp_tile_cnt;
+
+  if( FD_UNLIKELY( config->firedancer.snapshots.full_snapshot_interval_slots && !snapmk_enabled ) ) {
+    FD_LOG_ERR(( "[snapshots.full_snapshot_interval_slots] is set but snapshot creation is disabled; set [layout.snapzp_tile_count] to a value greater than zero" ));
+  }
   int rpc_enabled       = config->tiles.rpc.enabled;
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
@@ -1554,6 +1558,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
     tile->replay.max_live_slots    = config->firedancer.runtime.max_live_slots;
+
+    tile->replay.full_snapshot_interval_slots = config->firedancer.snapshots.full_snapshot_interval_slots;
 
     fd_cstr_ncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 

@@ -766,20 +766,20 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl add-authorized-voter payload too small: %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_PAYLOAD_TOO_SMALL );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
   ulong version = FD_LOAD( ulong, data );
   if( FD_UNLIKELY( version!=FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION ) ) {
     FD_LOG_WARNING(( "unsupported adminctl add-authorized-voter payload version %lu", version ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
     return;
   }
 
   if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_add_auth_voter_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl add-authorized-voter payload_sz %lu", data_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADD_AUTHORIZED_VOTER_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
 
@@ -807,15 +807,23 @@ static void
 snapshot_create( fd_admin_tile_ctx_t * ctx,
                  fd_stem_context_t *   stem,
                  ulong                 slot_idx,
+                 void const *          payload,
                  ulong                 payload_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
 
-  if( FD_UNLIKELY( payload_sz ) ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_adminctl_snap_create_t) ) ) {
     FD_LOG_WARNING(( "unexpected adminctl snapshot-create payload_sz %lu", payload_sz ));
-    fd_adminctl_complete( adminctl, slot_idx, FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
     return;
   }
+  fd_adminctl_snap_create_t const * req = fd_type_pun_const( payload );
+  if( FD_UNLIKELY( req->version!=FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION ) ) {
+    FD_LOG_WARNING(( "unsupported adminctl snapshot-create payload version %lu", req->version ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
+    return;
+  }
+  ulong target_slot = req->slot;
 
   if( FD_UNLIKELY( ctx->replay_out_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but admin tile has no replay command link" ));
@@ -831,7 +839,7 @@ snapshot_create( fd_admin_tile_ctx_t * ctx,
 
   ulong ctl   = fd_frag_meta_ctl( FD_ADMINCTL_CMD_SNAP_CREATE, 0, 0, 0 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->replay_out_idx, 0UL, 0UL, 0UL, ctl, 0UL, tspub );
+  fd_stem_publish( stem, ctx->replay_out_idx, target_slot, 0UL, 0UL, ctl, 0UL, tspub );
   ctx->snap_create_slot_idx = slot_idx;
 }
 
@@ -880,7 +888,7 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       *charge_busy = 1;
       break;
     case FD_ADMINCTL_CMD_SNAP_CREATE:
-      snapshot_create( ctx, stem, slot_idx, payload_sz );
+      snapshot_create( ctx, stem, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       *opt_poll_in = 0;
       break;

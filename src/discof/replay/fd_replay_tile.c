@@ -1742,8 +1742,37 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 }
 
+static void
+begin_snapshot_create( fd_replay_tile_t *  ctx,
+                       fd_stem_context_t * stem );
+
+/* snapshot_target_slot returns the slot at which root advancement has
+   to stop to create a snapshot (the first rooted slot >= the target is
+   snapshotted), or ULONG_MAX if no snapshot is pending.  Lazily
+   initializes the periodic schedule off the boot slot on the first
+   root advancement. */
+
+static ulong
+snapshot_target_slot( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->supports_snap_create ) ) return ULONG_MAX;
+
+  ulong interval = ctx->full_snapshot_interval_slots;
+  ulong periodic = ULONG_MAX;
+  if( FD_UNLIKELY( interval ) ) {
+    if( FD_UNLIKELY( ctx->next_full_snapshot_slot==ULONG_MAX ) ) {
+      ctx->next_full_snapshot_slot = ((ctx->published_root_slot/interval)+1UL)*interval;
+    }
+    /* If snapshot production fell behind by more than one interval,
+       then skip ahead */
+    periodic = fd_ulong_max( ctx->next_full_snapshot_slot, (ctx->consensus_root_slot/interval)*interval );
+  }
+
+  return fd_ulong_min( periodic, ctx->scheduled_snapshot_slot );
+}
+
 static int
-try_advance_published_root( fd_replay_tile_t * ctx ) {
+try_advance_published_root( fd_replay_tile_t *  ctx,
+                            fd_stem_context_t * stem ) {
 
   if( FD_LIKELY( ctx->consensus_root_bank_idx==ctx->published_root_bank_idx ) ) return 0;
 
@@ -1783,12 +1812,33 @@ try_advance_published_root( fd_replay_tile_t * ctx ) {
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
 
+  /* Compute the snapshot stop slot before advancing so the periodic
+     schedule initializes off the pre-advance root (the boot slot on
+     the first advancement). */
+  ulong snap_target_slot = snapshot_target_slot( ctx );
+
   /* Reasm also prunes from the store during its publish. */
 
   fd_reasm_publish( ctx->reasm, &advanceable_root_ele->latest_mr, ctx->store );
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
+
+  /* Root advancement is one level at a time, so this is the first
+     rooted slot >= the snapshot target: snapshot it.  The refcnt taken
+     on the new root pins rooting to this exact slot until snapmk
+     completes.  A snapshot triggered here can satisfy both the
+     periodic schedule and a one-shot scheduled request at once, and
+     can cover multiple skipped interval multiples at once. */
+  if( FD_UNLIKELY( advanceable_root_slot>=snap_target_slot ) ) {
+    begin_snapshot_create( ctx, stem );
+    if( FD_LIKELY( ctx->full_snapshot_interval_slots && advanceable_root_slot>=ctx->next_full_snapshot_slot ) ) {
+      ctx->next_full_snapshot_slot = ((advanceable_root_slot/ctx->full_snapshot_interval_slots)+1UL)*ctx->full_snapshot_interval_slots;
+    }
+    if( FD_UNLIKELY( advanceable_root_slot>=ctx->scheduled_snapshot_slot ) ) {
+      ctx->scheduled_snapshot_slot = ULONG_MAX;
+    }
+  }
 
   return 1;
 }
@@ -1979,7 +2029,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_advance_published_root( ctx ) ) ) {
+  if( FD_UNLIKELY( try_advance_published_root( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2431,9 +2481,31 @@ admin_respond( fd_replay_tile_t *  ctx,
   fd_stem_publish( stem, ctx->admin_out_idx, err, 0UL, 0UL, ctl, 0UL, tspub );
 }
 
+/* begin_snapshot_create requests snapmk to create a snapshot of the
+   published root bank.  The refcnt held on the bank blocks any further
+   root advancement until snapmk reports completion, keeping the root
+   pinned to the snapshot slot for the duration of the creation. */
+
+static void
+begin_snapshot_create( fd_replay_tile_t *  ctx,
+                       fd_stem_context_t * stem ) {
+  FD_CHECK_CRIT( !ctx->is_creating_snap, "snapshot creation already in progress" );
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_CHECK_CRIT( bank, "invalid published_root_bank_idx" );
+  bank->refcnt++;
+
+  fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->bank_idx = ctx->published_root_bank_idx;
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  ctx->is_creating_snap = 1;
+}
+
 static void
 admin_snap_create( fd_replay_tile_t *  ctx,
-                   fd_stem_context_t * stem ) {
+                   fd_stem_context_t * stem,
+                   ulong               target_slot ) {
 
   if( FD_UNLIKELY( !ctx->supports_snap_create ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but current config cannot create snapshots. increase [layout.snapzp_tile_count]?" ));
@@ -2447,31 +2519,47 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( target_slot ) ) {
+    /* Schedule creation for when rooting reaches the target slot.
+       Rooting will stop at the first rooted slot >= target_slot and
+       snapshot it (the target slot itself may be skipped and never
+       root). */
+    if( FD_UNLIKELY( target_slot<=ctx->published_root_slot ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation at slot %lu, but rooting is already past it (published root slot %lu)", target_slot, ctx->published_root_slot ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST );
+      return;
+    }
+
+    if( FD_UNLIKELY( ctx->scheduled_snapshot_slot!=ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation at slot %lu, but a snapshot is already scheduled at slot %lu. ignoring ...", target_slot, ctx->scheduled_snapshot_slot ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+      return;
+    }
+
+    ctx->scheduled_snapshot_slot = target_slot;
+    FD_LOG_NOTICE(( "snapshot creation scheduled at slot %lu", target_slot ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->is_creating_snap ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
     return;
   }
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
-  FD_CHECK_CRIT( bank, "invalid published_root_bank_idx" );
-  bank->refcnt++;
-
-  fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->bank_idx = ctx->published_root_bank_idx;
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  begin_snapshot_create( ctx, stem );
   admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
-  ctx->is_creating_snap = 1;
 }
 
 static void
 admin_cmd( fd_replay_tile_t *  ctx,
            fd_stem_context_t * stem,
-           ulong               orig ) {
+           ulong               orig,
+           ulong               sig ) {
   switch( orig ) {
   case FD_ADMINCTL_CMD_SNAP_CREATE:
-    admin_snap_create( ctx, stem );
+    admin_snap_create( ctx, stem, sig );
     break;
   default:
     FD_LOG_CRIT(( "unrecognized admin cmd orig=%#lx", orig ));
@@ -2610,12 +2698,16 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_ADMIN: {
-      admin_cmd( ctx, stem, fd_frag_meta_ctl_orig( ctl ) );
+      admin_cmd( ctx, stem, fd_frag_meta_ctl_orig( ctl ), sig );
       break;
     }
     case IN_KIND_SNAPMK: {
       ctx->is_creating_snap = 0;
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+      /* snapmk echoes the bank_idx from REPLAY_SIG_SNAP_CREATE in sig.
+         Release that exact bank instead of relying on the root-pinning
+         invariant that currently keeps published_root_bank_idx stable. */
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sig );
+      FD_TEST( bank );
       FD_TEST( bank->refcnt>0UL );
       bank->refcnt--;
       break;
@@ -2843,6 +2935,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->is_creating_snap      = 0;
   ctx->supports_snap_create  = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
+
+  ctx->full_snapshot_interval_slots = tile->replay.full_snapshot_interval_slots;
+  ctx->next_full_snapshot_slot      = ULONG_MAX;
+  ctx->scheduled_snapshot_slot      = ULONG_MAX;
+  if( FD_UNLIKELY( ctx->full_snapshot_interval_slots && !ctx->supports_snap_create ) ) {
+    FD_LOG_ERR(( "[snapshots.full_snapshot_interval_slots] is set but snapshot creation is disabled; set [layout.snapzp_tile_count] to a value greater than zero" ));
+  }
   ctx->reset_slot            = 0UL;
   ctx->reset_bank            = NULL;
   ctx->reset_block_id        = ctx->initial_block_id;
@@ -3002,10 +3101,11 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* counting carefully, after_credit can generate at most 7 frags and
-   returnable_frag boot_genesis can also generate at most 7 frags, so 14
-   is a conservative bound. */
-#define STEM_BURST (14UL)
+/* counting carefully, after_credit can generate at most 8 frags (7
+   plus a snapshot create request when root advancement crosses a
+   snapshot slot) and returnable_frag boot_genesis can also generate at
+   most 7 frags, so 15 is a conservative bound. */
+#define STEM_BURST (15UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent

@@ -1386,7 +1386,7 @@ after_credit( fd_snapmk_t *       ctx,
     if( published_done ) break;
     if( ctx->out_flush_pending ) break;
 
-    fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+    fd_stem_publish( stem, ctx->out_meta_idx, ctx->bank->idx, 0UL, 0UL, ctl, 0UL, 0UL );
     /* resume accdb compaction */
     while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
     fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
