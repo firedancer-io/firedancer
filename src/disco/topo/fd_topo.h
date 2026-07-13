@@ -589,8 +589,6 @@ struct fd_topo_tile {
     struct {
       ushort repair_serve_listen_port;
       char   identity_key_path[ PATH_MAX ];
-      char   shredb_path[ PATH_MAX ];
-      ulong  shred_storage_limit_gib;
       ulong  ping_cache_entries;
     } rserve;
 

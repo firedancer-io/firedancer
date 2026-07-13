@@ -15,10 +15,11 @@
    same FEC metadata operations used by replay: insert, confirm, pop,
    remove, and publish. */
 
-#define FUZZ_FEC_MAX   (16UL)
-#define FUZZ_NODE_MAX  (26UL)
-#define FUZZ_OP_MAX    (96UL)
-#define FUZZ_WKSP_PG   (256UL)
+#define FUZZ_FEC_MAX       (16UL)
+#define FUZZ_STORE_FEC_MAX (FUZZ_FEC_MAX+2UL)
+#define FUZZ_NODE_MAX      (26UL)
+#define FUZZ_OP_MAX        (96UL)
+#define FUZZ_WKSP_PG       (256UL)
 
 #define FUZZ_OP_INSERT  0U
 #define FUZZ_OP_CONFIRM 1U
@@ -68,6 +69,9 @@ typedef struct {
 
 static fd_wksp_t * fuzz_wksp;
 static void *      fuzz_reasm_mem;
+static void *      fuzz_store_mem;
+static fd_store_t * fuzz_store;
+static fd_store_map_t fuzz_store_map[1];
 
 static fuzz_node_desc_t const fuzz_desc[ FUZZ_NODE_MAX ] = {
   /* parent,           slot, fec_idx, parent_off, data_cnt, dc, sc, ldr, invalid */
@@ -137,6 +141,9 @@ LLVMFuzzerInitialize( int  *   argc,
   FD_TEST( fuzz_wksp );
   fuzz_reasm_mem = fd_wksp_alloc_laddr( fuzz_wksp, fd_reasm_align(), fd_reasm_footprint( FUZZ_FEC_MAX ), 1UL );
   FD_TEST( fuzz_reasm_mem );
+  fuzz_store_mem = fd_wksp_alloc_laddr( fuzz_wksp, fd_store_align(),
+      fd_store_footprint( FUZZ_STORE_FEC_MAX, 1UL, 0UL, 1UL, 0UL ), 1UL );
+  FD_TEST( fuzz_store_mem );
   atexit( fuzz_fini );
   return 0;
 }
@@ -217,6 +224,8 @@ fuzz_model_refresh( fuzz_model_t * model,
     /* A present FEC may only vanish as a result of a remove, publish or
        eviction.  pop, confirm and query never drop a FEC. */
     if( FD_UNLIKELY( !fec && node->present ) ) FD_TEST( may_drop );
+
+    FD_TEST( !!fd_store_query( fuzz_store_map, node->key )==!!fec );
 
     node->present = !!fec;
   }
@@ -349,6 +358,9 @@ fuzz_insert( fuzz_cursor_t * cur,
      accept/reject decision against the static node table. */
   fd_reasm_fec_t * parent = fd_reasm_query( reasm, node->cmr );
 
+  fd_store_fec_t * store_fec;
+  FD_TEST( !fd_store_insert( fuzz_store, fuzz_store_map, node->key, &store_fec ) && store_fec );
+
   fd_reasm_fec_t * evicted = NULL;
   fd_reasm_fec_t * inserted = fd_reasm_insert( reasm,
                                                node->key,
@@ -360,7 +372,8 @@ fuzz_insert( fuzz_cursor_t * cur,
                                                !!desc->data_complete,
                                                !!desc->slot_complete,
                                                !!desc->is_leader,
-                                               NULL,
+                                               fuzz_store,
+                                               fuzz_store_map,
                                                &evicted );
 
   if( FD_UNLIKELY( evicted ) ) {
@@ -383,6 +396,7 @@ fuzz_insert( fuzz_cursor_t * cur,
       FD_TEST( subtrees_ele_query( reasm->subtrees, node->key, NULL, reasm_pool( reasm ) ) );
   } else {
     FD_TEST( !fd_reasm_query( reasm, node->key ) );
+    fd_store_remove( fuzz_store, fuzz_store_map, node->key );
   }
 }
 
@@ -429,7 +443,7 @@ fuzz_remove( fuzz_cursor_t * cur,
   fd_reasm_fec_t * head = fuzz_pick_removable( cur, model, reasm );
   if( FD_UNLIKELY( !head ) ) return;
 
-  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, head, NULL );
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, head, fuzz_store, fuzz_store_map );
   FD_TEST( evicted );
   model->remove_cnt++;
   fuzz_release_chain( reasm, evicted );
@@ -446,7 +460,7 @@ fuzz_publish( fuzz_cursor_t * cur,
   if( FD_UNLIKELY( !fec->popped ) ) return;
 
   fd_hash_t key = fec->key;
-  fd_reasm_fec_t * root = fd_reasm_publish( reasm, &key, NULL );
+  fd_reasm_fec_t * root = fd_reasm_publish( reasm, &key, fuzz_store, fuzz_store_map );
   FD_TEST( root );
   FD_TEST( fd_hash_eq( &root->key, &key ) );
 }
@@ -479,6 +493,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( fuzz_reasm_mem, FUZZ_FEC_MAX, fuzz_bounded( &cur, 1024UL ) ) );
   FD_TEST( reasm );
+  fuzz_store = fd_store_join( fd_store_new( fuzz_store_mem, FUZZ_STORE_FEC_MAX, 1UL, 0UL, 1UL, 0UL,
+                                            "/tmp/fuzz_reasm.store", fuzz_bounded( &cur, 1024UL ) ) );
+  FD_TEST( fuzz_store );
+  FD_TEST( fd_store_map_ljoin( fuzz_store, fuzz_store_map ) );
   FD_TEST( fd_reasm_init( reasm, root_key, 0UL ) );
   FD_TEST( fd_reasm_root( reasm ) );
 

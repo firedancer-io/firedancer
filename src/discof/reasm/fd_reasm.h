@@ -336,7 +336,11 @@ fd_reasm_init( fd_reasm_t *      reasm,
    to the pool the evicted reasm_fec_t chain before the next
    fd_reasm_insert or fd_reasm_remove call.
 
-   See top-level documentation for further details on insertion. */
+   See top-level documentation for further details on insertion.
+
+   opt_store and opt_map_join must either both be NULL or identify the
+   same store.  When supplied, reasm releases corresponding store FECs
+   whenever insertion evicts reassembly entries. */
 
 fd_reasm_fec_t *
 fd_reasm_insert( fd_reasm_t *      reasm,
@@ -350,6 +354,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               leader,
                  fd_store_t      * opt_store,
+                 fd_store_map_t  * opt_map_join,
                  fd_reasm_fec_t ** evicted );
 
 /* fd_reasm_remove removes a leaf node or a chain of nodes that
@@ -368,7 +373,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
    Note that an invariant reasm_remove guarantees is that from the
    returned head to the end of the chain, it is a linear chain of nodes
    with no branches.  This is important because it allows the caller to
-   traverse the chain without needing to BFS.
+   traverse the chain without needing to BFS.  opt_store and
+   opt_map_join follow the same contract as fd_reasm_insert.
 
    The evicted fd_reasm_fec_t will be returned as a pointer to a pool
    element. At this point the evicted pool element will still be
@@ -380,7 +386,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 fd_reasm_fec_t *
 fd_reasm_remove( fd_reasm_t     * reasm,
                  fd_reasm_fec_t * head,
-                 fd_store_t     * opt_store );
+                 fd_store_t     * opt_store,
+                 fd_store_map_t * opt_map_join );
 
 /* fd_reasm_pool_release releases a reasm_fec element back to the pool.
    Assumes ele is a valid pointer to a pool element inside reasm.  This
@@ -424,12 +431,14 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
 
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
    (ie. map remove and pool release) any FEC sets that do not descend
-   from this new root. */
+   from this new root.  opt_store and opt_map_join follow the same
+   contract as fd_reasm_insert. */
 
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root,
-                  fd_store_t      * opt_store );
+                  fd_store_t      * opt_store,
+                  fd_store_map_t  * opt_map_join );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

@@ -3,16 +3,9 @@
 
    Follows the pattern of test_repair_tile.c and test_tower_tile.c:
    mock heavy dependencies via #define before including the tile .c. */
-/* ---- Mock store lock macros ----
-   Include fd_store.h first to get the type definitions, then override
-   the lock macros to no-ops. */
-
 #define _GNU_SOURCE
 #include "../../disco/store/fd_store.h"
-#undef  FD_STORE_SLOCK_BEGIN
-#undef  FD_STORE_SLOCK_END
-#define FD_STORE_SLOCK_BEGIN(store) { (void)(store);
-#define FD_STORE_SLOCK_END }
+#include <fcntl.h>
 
 /* ---- Pull in type definitions we need for mock function signatures.
    These headers are guarded, so the re-include from fd_replay_tile.c
@@ -38,14 +31,41 @@
 
 static fd_store_fec_t mock_store_fec;
 static uchar          mock_store_data[ 4096 ];
+static ulong          mock_store_view_call_cnt;
+static ulong          mock_store_view_success_cnt;
+static ulong          mock_store_view_release_cnt;
 
 fd_store_fec_t *
-mock_store_query_fn( fd_store_t *      store FD_PARAM_UNUSED,
+mock_store_query_fn( fd_store_map_t *  map FD_PARAM_UNUSED,
                      fd_hash_t const * merkle_root FD_PARAM_UNUSED ) {
   return &mock_store_fec;
 }
 
+int
+mock_store_fec_data_view_fn( fd_store_t *               store FD_PARAM_UNUSED,
+                             int                        disk_fd FD_PARAM_UNUSED,
+                             fd_store_fec_t *           fec FD_PARAM_UNUSED,
+                             fd_store_fec_data_view_t * view ) {
+  mock_store_view_call_cnt++;
+  view->data = mock_store_data;
+  view->fec = &mock_store_fec;
+  view->flags = 0U;
+  mock_store_view_success_cnt++;
+  return 0;
+}
+
+void
+mock_store_fec_data_view_release_fn( fd_store_t *                     store FD_PARAM_UNUSED,
+                                     fd_store_fec_data_view_t *       view ) {
+  FD_TEST( view && view->fec );
+  mock_store_view_release_cnt++;
+  view->data = NULL;
+  view->fec  = NULL;
+}
+
 #define fd_store_query mock_store_query_fn
+#define fd_store_fec_data_view mock_store_fec_data_view_fn
+#define fd_store_fec_data_view_release mock_store_fec_data_view_release_fn
 
 /* ---- Mock sched ---- */
 
@@ -313,6 +333,10 @@ static void
 setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
                            fd_wksp_t *        wksp,
                            ulong              max_fork_width ) {
+  FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
+  mock_store_view_call_cnt    = 0UL;
+  mock_store_view_success_cnt = 0UL;
+  mock_store_view_release_cnt = 0UL;
   memset( ctx, 0, sizeof(*ctx) );
   setup_timing( ctx, wksp );
 
@@ -344,13 +368,11 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   FD_TEST( ctx->reception_stats );
   for( ulong i=0UL; i<ctx->reception_stats_cnt; i++ ) ctx->reception_stats[ i ].slot = ULONG_MAX;
 
-  /* Mock store — fd_store_fec_data needs store_gaddr */
-
   static fd_store_t mock_store;
   memset( &mock_store, 0, sizeof(mock_store) );
-  mock_store.store_gaddr   = (ulong)&mock_store;
-  mock_store_fec.data_gaddr = (ulong)mock_store_data;
-  ctx->store = &mock_store;
+  mock_store.store_gaddr = (ulong)&mock_store;
+  ctx->store             = &mock_store;
+  ctx->store_disk_fd     = -1;
 
   /* Real banks — initialize root bank. */
 
@@ -437,16 +459,17 @@ init_root_fec( fd_replay_tile_t * ctx,
 }
 
 static fd_reasm_fec_t *
-ingest_fec_complete_with_metrics( fd_replay_tile_t *               ctx,
-                                  fd_hash_t const *                merkle_root,
-                                  fd_hash_t const *                chained_merkle_root,
-                                  ulong                            slot,
-                                  uint                             fec_set_idx,
-                                  ushort                           parent_off,
-                                  ushort                           data_cnt,
-                                  int                              data_complete,
-                                  int                              slot_complete,
-                                  fd_fec_complete_metrics_t const * metrics ) {
+ingest_fec_complete_with_signal( fd_replay_tile_t *               ctx,
+                                 ulong                            sig,
+                                 fd_hash_t const *                merkle_root,
+                                 fd_hash_t const *                chained_merkle_root,
+                                 ulong                            slot,
+                                 uint                             fec_set_idx,
+                                 ushort                           parent_off,
+                                 ushort                           data_cnt,
+                                 int                              data_complete,
+                                 int                              slot_complete,
+                                 fd_fec_complete_metrics_t const * metrics ) {
   ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
   fd_repair_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
   memset( complete_msg, 0, sizeof(fd_repair_fec_complete_t) );
@@ -462,13 +485,29 @@ ingest_fec_complete_with_metrics( fd_replay_tile_t *               ctx,
              fd_uchar_if( slot_complete, FD_SHRED_DATA_FLAG_SLOT_COMPLETE, 0U ) );
   if( metrics ) complete_msg->metrics = *metrics;
 
-  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, REPAIR_SIG_FEC, chunk,
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, sig, chunk,
                              sizeof(fd_repair_fec_complete_t), 0UL, 0UL,
                              fd_frag_meta_ts_comp( fd_tickcount() ), test_stem ) );
 
   fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, merkle_root );
   FD_TEST( fec );
   return fec;
+}
+
+static fd_reasm_fec_t *
+ingest_fec_complete_with_metrics( fd_replay_tile_t *               ctx,
+                                  fd_hash_t const *                merkle_root,
+                                  fd_hash_t const *                chained_merkle_root,
+                                  ulong                            slot,
+                                  uint                             fec_set_idx,
+                                  ushort                           parent_off,
+                                  ushort                           data_cnt,
+                                  int                              data_complete,
+                                  int                              slot_complete,
+                                  fd_fec_complete_metrics_t const * metrics ) {
+  return ingest_fec_complete_with_signal( ctx, REPAIR_SIG_FEC, merkle_root, chained_merkle_root,
+                                          slot, fec_set_idx, parent_off, data_cnt,
+                                          data_complete, slot_complete, metrics );
 }
 
 static fd_reasm_fec_t *
@@ -787,6 +826,31 @@ drive_become_leader( fd_replay_tile_t * ctx,
 }
 
 static void
+test_leader_fec_payload_retained( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root   = { .ul = { 100UL } };
+  fd_hash_t mr_leader = { .ul = { 200UL } };
+  init_root_fec( ctx, &mr_root );
+  drive_become_leader( ctx, &mr_root, 1UL );
+
+  fd_reasm_fec_t * leader_fec = ingest_fec_complete_with_signal(
+      ctx, REPAIR_SIG_FEC_LEADER, &mr_leader, &mr_root, 1UL, 0U, 1U, 32U, 1, 1, NULL );
+  FD_TEST( leader_fec );
+
+  ulong sched_cnt = mock_sched_fec_ingest_cnt;
+  drive_one_fec( ctx, 1UL, 0U );
+  FD_TEST( mock_store_view_call_cnt==0UL );
+  FD_TEST( mock_sched_fec_ingest_cnt==sched_cnt );
+
+  fd_reasm_fec_t stale_fec = { .key = { .ul = { 300UL } }, .slot = 2UL, .is_leader = 1U };
+  FD_TEST( !insert_fec_set( ctx, test_stem, &stale_fec ) );
+
+  FD_LOG_NOTICE(( "pass: test_leader_fec_payload_retained" ));
+}
+
+static void
 test_snapshot_intervals_use_block_height( void ) {
   static fd_replay_tile_t ctx[ 1 ];
   fd_memset( ctx, 0, sizeof(fd_replay_tile_t) );
@@ -891,6 +955,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   FD_TEST( map_mem );
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
   FD_TEST( ctx->block_id_map );
+  ctx->block_id_len   = bank_cnt;
   ctx->max_live_slots = bank_cnt;
 
   void * reasm_mem = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( 2UL ), 1UL );
@@ -898,12 +963,12 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 2UL, 0UL ) );
   FD_TEST( ctx->reasm );
 
-  /* Use FD_STORE_ALIGN (not fd_store_align()) so the base address
-     satisfies the internal 128-byte alignment of fd_store_fec_t. */
-  void * store_mem = fd_wksp_alloc_laddr( wksp, FD_STORE_ALIGN, fd_store_footprint( 2UL, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 1UL, 2UL, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, "/tmp/test_replay_tile_fec_payload.db", 0UL ) );
   FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
+  ctx->store_disk_fd = -1;
 
   static fd_runtime_stack_t runtime_stack[ 1 ];
   fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
@@ -1237,7 +1302,7 @@ test_stale_redeliver( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * leaf = fd_reasm_query( reasm, &mr1_64 );
   FD_TEST( leaf );
-  fd_reasm_fec_t * evicted_head = fd_reasm_remove( reasm, leaf, NULL );
+  fd_reasm_fec_t * evicted_head = fd_reasm_remove( reasm, leaf, NULL, NULL );
   FD_TEST( evicted_head );
 
   /* Walk the evicted chain and release each element back to the pool.
@@ -1353,7 +1418,7 @@ test_eqvoc_mid_slot_evicted( fd_wksp_t * wksp ) {
      32, and 64 are all evicted.  Walk the evicted chain (linked via
      child pointers) and release each element back to the pool. */
 
-  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_64, NULL );
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_64, NULL, NULL );
   FD_TEST( evicted );
   while( evicted ) {
     fd_reasm_fec_t * next = fd_reasm_child( reasm, evicted );
@@ -1620,7 +1685,7 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
      The walk hits FEC 32 (bank_idx=1) while tail (FEC 96) has
      bank_idx=UINT_MAX. */
 
-  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_96, NULL );
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_96, NULL, NULL );
   FD_TEST( evicted );
 
   /* Release evicted chain back to pool. */
@@ -2416,6 +2481,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
+  test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );
@@ -2434,6 +2500,8 @@ main( int     argc,
   test_drain_rotor_fecs( wksp );                    fd_wksp_reset( wksp, 42U );
   test_drain_rotor_fecs_skip_wait_reentry( wksp );  fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_skip_replayed( wksp );
+
+  FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
   fd_halt();
   return 0;

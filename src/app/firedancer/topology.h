@@ -31,8 +31,11 @@ fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
-                  uint         part_cnt,
-                  ulong        fec_data_max );
+                  ulong        fec_data_max,
+                  ulong        shred_storage_gib,
+                  ulong        shred_cache_mib,
+                  ulong        fec_set_cnt,
+                  char const * db_path );
 
 fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t *  topo,

@@ -496,6 +496,7 @@ struct fd_config {
       char   additional_shred_destinations_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
       ulong  additional_shred_destinations_leader_cnt;
       char   additional_shred_destinations_leader[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65536") ];
+      ulong  shred_cache_size_mib;
     } shred;
 
     struct {

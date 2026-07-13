@@ -1669,6 +1669,10 @@ telemetry = true
         additional_shred_destinations_retransmit = []
         additional_shred_destinations_leader = []
 
+        # Sets the fixed size of the in-memory shred cache.
+        # This cache helps reduce disk I/O against the shred database file.
+        shred_cache_size_mib = 2048
+
     # The repair tile watches incoming shreds and sends repair requests
     # to other validators when it notices we are missing data needed to
     # replay the chain.
@@ -1705,17 +1709,12 @@ telemetry = true
         # The port the repair server listens for repair requests.
         repair_serve_listen_port = 8702
 
-        # The maximum size of the shred storage on disk.  Determines the
-        # amount of history that the validator will be able to serve to
-        # peers making repair requests.  Roughly, for mainnet, 1 GiB of
-        # storage corresponds to ~1000 slots, and the default is set to
-        # match Agave's ability to serve around six hours of shreds.
-        #
-        # This is an upper bound on the disk space used, but when first
-        # booted the validator will start with just ~40MiB, and
-        # incrementally grow the storage file on disk up to the limit as
-        # needed.  Once the storage is filled, the oldest shreds will be
-        # evicted as new shreds are added.
+        # Sets maximum size of the shreds partion in the shred database
+        # file, [paths].shred_db, which stores block data.
+        # A larger file limit makes the validator retain more old blocks,
+        # which are served to other nodes that are behind if rserve is
+        # enabled. The shred database file starts out small and grows up to
+        # this limit as shreds are added and removed.
         shred_storage_limit_gib = 50
 
     # The txsend tile is responsible for sending transactions out to
