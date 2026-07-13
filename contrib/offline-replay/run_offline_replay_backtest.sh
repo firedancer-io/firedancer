@@ -218,12 +218,16 @@ while true; do
 
             $OBJDIR/bin/firedancer-dev configure init all --config $LEDGER_DIR/offline_replay.toml &> /dev/null
 
+            $OBJDIR/bin/firedancer-dev configure fini cpuset --config $LEDGER_DIR/offline_replay.toml &> /dev/null
+
             rm -rf $TEMP_LOG && touch $TEMP_LOG && chmod 777 $TEMP_LOG
 
             chmod -R 0700 $LEDGER_DIR
 
             set -x
                 $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &> /dev/null
+
+            rm -rf $LEDGER_DIR/accounts.db
 
             if grep -q "Backtest playback done." $TEMP_LOG && ! grep -q "Bank hash mismatch!" $TEMP_LOG;
             then

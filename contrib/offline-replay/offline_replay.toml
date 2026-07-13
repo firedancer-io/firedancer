@@ -18,7 +18,7 @@
     no_clone = true
     fixed_fec_sets = true
 [log]
-    level_stderr = "INFO"
+    level_stderr = "DEBUG"
     path = "{log}"
 [paths]
     snapshots = "{ledger}"
