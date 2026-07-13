@@ -103,29 +103,38 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   /* firedancer only */
 
   if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
-      FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
-      fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
-      ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS;
-      fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
-      return;
-    }
-    for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
-      if( FD_UNLIKELY( !memcmp( ctx->authorized_voter_pubkeys[ i ], ctx->av_keyswitch->bytes+32UL, 32UL ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
-        FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
+    ulong param = fd_keyswitch_param_query( ctx->av_keyswitch );
+    if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
+      if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
+        FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
-        ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER;
+        ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS;
         fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
         return;
       }
-    }
+      for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+        if( FD_UNLIKELY( !memcmp( ctx->authorized_voter_pubkeys[ i ], ctx->av_keyswitch->bytes+32UL, 32UL ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
+          FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
+          fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+          ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER;
+          fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
+          return;
+        }
+      }
 
-    memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
-    fd_memzero_explicit( ctx->av_keyswitch->bytes, 32UL );
-    FD_COMPILER_MFENCE();
-    memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
-    ctx->authorized_voters_cnt++;
+      memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
+      fd_memzero_explicit( ctx->av_keyswitch->bytes, 32UL );
+      FD_COMPILER_MFENCE();
+      memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
+      ctx->authorized_voters_cnt++;
+    } else if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_CLEAR ) ) {
+      fd_memzero_explicit( ctx->authorized_voter_private_keys, sizeof( ctx->authorized_voter_private_keys ) );
+      fd_memzero_explicit( ctx->authorized_voter_pubkeys,      sizeof( ctx->authorized_voter_pubkeys      ) );
+      ctx->authorized_voters_cnt = 0UL;
+    } else {
+      FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
+    }
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
