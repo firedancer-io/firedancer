@@ -102,6 +102,15 @@ during_housekeeping( fd_txsend_tile_t * ctx ) {
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
+
+  if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ulong seq_must_complete = fd_keyswitch_param_query( ctx->av_keyswitch );
+    if( FD_UNLIKELY( fd_seq_lt( ctx->tower_in_expect_seq, seq_must_complete ) ) ) {
+      FD_LOG_WARNING(( "Flushing in-flight votes from tower, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->tower_in_expect_seq ));
+      return;
+    }
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 }
 
 static void
@@ -815,6 +824,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+
+  ctx->av_keyswitch = NULL;
+  if( FD_UNLIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+    FD_TEST( ctx->av_keyswitch );
+  }
 
   ctx->tower_in_expect_seq = 0UL;
   ctx->halt_net_frags = 0;

@@ -1668,17 +1668,29 @@ init_choreo( void                 * scratch,
 static void
 during_housekeeping( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    if( fd_keyswitch_param_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_PARAM_AV_CLEAR ) ctx->halt_signing = 0;
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->auth_vtr_keyswitch->bytes );
-    if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
-    if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
+    ulong param = fd_keyswitch_param_query( ctx->auth_vtr_keyswitch );
+    if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
+      fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->auth_vtr_keyswitch->bytes );
+      if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
+      if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
 
-    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, pubkey );
-    auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;
-    ctx->auth_vtr_path_cnt++;
+      auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, pubkey );
+      auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;
+      ctx->auth_vtr_path_cnt++;
+    } else if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_CLEAR ) ) {
+      ctx->halt_signing = 1;
+      auth_vtr_clear( ctx->auth_vtr );
+      ctx->auth_vtr_path_cnt = 0UL;
+      if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+      ctx->auth_vtr_keyswitch->result = ctx->out_seq;
+    } else {
+      FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
+    }
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -1708,8 +1720,8 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->halt_signing = 1;
-    ctx->identity_keyswitch->result  = ctx->out_seq;
+    ctx->halt_signing               = 1;
+    ctx->identity_keyswitch->result = ctx->out_seq;
   }
 }
 

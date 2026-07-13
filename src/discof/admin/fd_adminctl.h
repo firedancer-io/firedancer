@@ -31,10 +31,11 @@
    All input into fd_adminctl_t must be trusted.  If the adminctl memory
    layout changes, adminctl magic must be updated. */
 
-#define FD_ADMINCTL_CMD_IDLE           (0UL)
-#define FD_ADMINCTL_CMD_ADD_AUTH_VOTER (1UL)
-#define FD_ADMINCTL_CMD_SET_IDENTITY   (2UL)
-#define FD_ADMINCTL_CMD_GET_IDENTITY   (3UL)
+#define FD_ADMINCTL_CMD_IDLE                   (0UL)
+#define FD_ADMINCTL_CMD_ADD_AUTH_VOTER         (1UL)
+#define FD_ADMINCTL_CMD_SET_IDENTITY           (2UL)
+#define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
+#define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -88,6 +89,16 @@ typedef struct fd_adminctl_get_identity_resp_v1 fd_adminctl_get_identity_resp_t;
 #define FD_GET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL           (2UL)
 #define FD_GET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
 #define FD_GET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
+
+struct fd_adminctl_remove_all_auth_voters_v1 {
+  ulong version; /* ==FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION */
+};
+typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
+#define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
+
+#define FD_REMOVE_ALL_AUTH_VOTERS_RESULT_PAYLOAD_TOO_SMALL           (2UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 

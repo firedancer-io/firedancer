@@ -209,6 +209,7 @@ extern action_t fd_action_gossip_dump;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
+extern action_t fd_action_remove_all_authorized_voters;
 #if FD_HAS_ROCKSDB
 extern action_t fd_action_forktest;
 #endif
@@ -253,6 +254,7 @@ action_t * ACTIONS[] = {
   &fd_action_monitor_gossip,
   &fd_action_watch,
   &fd_action_add_authorized_voter,
+  &fd_action_remove_all_authorized_voters,
 #if FD_HAS_ROCKSDB
   &fd_action_forktest,
 #endif
