@@ -957,8 +957,7 @@ EXAMPLES
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction" />
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit" />
     <int value="39" name="CommitCancelled" label="The process for committing the transaction was cancelled internally" />
-    <int value="40" name="InstructionsSysvarOverflow" label="The instructions sysvar could not be serialized because the transaction's instruction data exceeds the maximum size" />
-    <int value="41" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed" />
+    <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed" />
 </enum>
 
 <!-- Firedancer transaction result -->
