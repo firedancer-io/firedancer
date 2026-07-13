@@ -22,6 +22,7 @@ struct fd_snapzp {
   visited_set_t *   visited_set;
 
   ZSTD_CCtx *    zst;
+  ulong          zst_in_rec; /* ZSTD_CStreamInSize() */
   uchar *        raw;
   ZSTD_inBuffer  raw_buf;
   ZSTD_outBuffer comp_buf;
@@ -160,6 +161,11 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableOutBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_srcSizeHint, (int)RAW_BUF_SZ );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_srcSizeHint) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+  ctx->zst_in_rec = ZSTD_CStreamInSize();
   ctx->raw = raw_buf;
   ctx->raw_buf  = (ZSTD_inBuffer){ .src = raw_buf,  .size = 0UL };
   ctx->comp_buf = (ZSTD_outBuffer){ .dst = comp_buf+COMP_HEAD, .size = COMP_BUF_SZ-COMP_HEAD };
@@ -234,6 +240,18 @@ before_credit( fd_snapzp_t *       ctx,
   if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL ) ) {
     fd_log_sleep( (long)1e6 );
   }
+}
+
+static void
+compress_pending( fd_snapzp_t * ctx ) {
+  if( FD_LIKELY( ctx->raw_buf.size - ctx->raw_buf.pos < ctx->zst_in_rec ) ) return;
+  long t0 = fd_tickcount();
+  ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_continue );
+  if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
+    FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_continue) failed: %s", ZSTD_getErrorName( ret ) ));
+  }
+  long t1 = fd_tickcount();
+  ctx->metrics.compress_ticks += (ulong)( t1 - t0 );
 }
 
 static void
@@ -645,13 +663,16 @@ returnable_frag( fd_snapzp_t *       ctx,
     }
     fd_backup_cache_msg_t const * frag = fd_chunk_to_laddr_const( ctx->snapmk_zp_mem, chunk );
     process_accounts_cached( ctx, frag );
+    compress_pending( ctx );
     break;
   }
   case FD_BACKUP_ORIG_ACC_DISK:
     process_account_disk( ctx, seq, sig, chunk, sz, ctl, tsorig, tspub );
+    compress_pending( ctx );
     break;
   case FD_BACKUP_ORIG_ACC_DISK_BATCH:
     process_disk_batch( ctx, sig, chunk, sz );
+    compress_pending( ctx );
     break;
   case FD_BACKUP_ORIG_FLUSH:
     flush( ctx );
