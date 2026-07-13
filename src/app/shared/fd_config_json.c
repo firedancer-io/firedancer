@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22964136UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22964144UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -615,6 +615,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool ( &w, "enabled",                   config->tiles.rserve.enabled );
       jw_ulong( &w, "repair_serve_listen_port",  config->tiles.rserve.repair_serve_listen_port );
       jw_ulong( &w, "shred_storage_limit_gib",   config->tiles.rserve.shred_storage_limit_gib );
+      jw_ulong( &w, "shred_cache_size_gib",      config->tiles.rserve.shred_cache_size_gib );
     jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );

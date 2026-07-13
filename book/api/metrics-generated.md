@@ -695,6 +695,7 @@
 | <span class="metrics-name">shred_&#8203;microblock_&#8203;per_&#8203;batch</span> | histogram | Microblocks in each microblock batch that is shredded |
 | <span class="metrics-name">shred_&#8203;shredding_&#8203;duration_&#8203;seconds</span> | histogram | Duration of producing one FEC set from the shredder |
 | <span class="metrics-name">shred_&#8203;add_&#8203;shred_&#8203;duration_&#8203;seconds</span> | histogram | Duration of verifying and processing one shred received from the network |
+| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;seconds</span> | histogram | Duration of persisting one accepted data shred |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">bad_&#8203;slot</span>"} | counter | Result of processing a shred from the network (Shred was for a slot for which we don't know the leader) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">parse_&#8203;failed</span>"} | counter | Result of processing a shred from the network (Shred parsing failed) |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;processed</span><br/>{shred_&#8203;processing_&#8203;result="<span class="metrics-enum">equivocated</span>"} | counter | Result of processing a shred from the network (Shred was equivocated with another shred) |
@@ -712,6 +713,10 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
+| <span class="metrics-name">shred_&#8203;disk_&#8203;shred_&#8203;inserted</span> | counter | Unique data shreds persisted to the repair store |
+| <span class="metrics-name">shred_&#8203;disk_&#8203;shred_&#8203;duplicate</span> | counter | Data shreds already present in the repair store |
+| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |
+| <span class="metrics-name">shred_&#8203;disk_&#8203;write_&#8203;bytes</span> | counter | Bytes written to the repair store |
 
 </div>
 
@@ -998,6 +1003,10 @@
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;outdated</span> | counter | How many requests we've received that had outdated timestamps |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;invalid_&#8203;shred_&#8203;index</span> | counter | How many requests we've received that had invalid shred indices |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;ping_&#8203;cache_&#8203;lookup</span> | counter | Requests from nodes not in the ping cache, which triggered a ping-back instead of a response |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;busy</span> | counter | Repair reads dropped because a store writer was pending or active |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;miss</span> | counter | Repair reads not found in the store |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;success</span> | counter | Repair reads served from the store |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;bytes</span> | counter | Shred bytes read from the store for repair responses |
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;current</span> | gauge | The number of shreds currently in the shreds database |
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;max</span> | gauge | Total capacity of shreds that can be stored in the shreds database |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | The number of bytes currently used on disk by the database |
@@ -1017,12 +1026,17 @@
 | <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Our vote account epoch credits at the optimistically confirmed slot |
-| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquired</span> | counter | Store slock acquires for query |
-| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;released</span> | counter | Store slock releases for query |
-| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;wait_&#8203;seconds</span> | histogram | Time spent waiting to acquire the slock for query |
-| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;work_&#8203;seconds</span> | histogram | Time spent working before releasing the slock for query |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;work_&#8203;seconds</span> | histogram | Time spent ingesting a queried FEC into the scheduler |
 | <span class="metrics-name">replay_&#8203;store_&#8203;queried</span> | counter | Queries |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing</span> | counter | Queries where merkle root was missing |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spilled</span> | counter | FEC payloads spilled from the store RAM cache to disk |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;bytes</span> | counter | FEC payload bytes spilled from RAM to disk |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;reads</span> | counter | Spilled FEC payloads read from disk |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;read_&#8203;bytes</span> | counter | Spilled FEC payload bytes read from disk |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spill_&#8203;read_&#8203;failed</span> | counter | Failed spilled FEC payload reads |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;used</span> | gauge | FEC payload slots currently occupied in the store RAM cache |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;max</span> | gauge | Total FEC payload slot capacity of the store RAM cache |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;pinned</span> | gauge | Active FEC payload views protected from eviction |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;merkle_&#8203;root_&#8203;sample</span> | gauge | First 8 bytes of most recently queried merkle root |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing_&#8203;merkle_&#8203;root_&#8203;sample</span> | gauge | First 8 bytes of most recently queried missing merkle root |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | Slot at which our node has most recently rooted |

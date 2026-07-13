@@ -119,7 +119,6 @@ forktest_topo( config_t * config ) {
   fd_topob_wksp( topo, "tower_out"     );
 
   fd_topob_wksp( topo, "progcache"     );
-  fd_topob_wksp( topo, "fec_sets"      );
   fd_topob_wksp( topo, "txncache"      );
   fd_topob_wksp( topo, "banks"         );
   fd_topob_wksp( topo, "store"         )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
@@ -397,17 +396,11 @@ forktest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
 
   ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
-  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t); /* mirrors # of dcache entries in frankendancer */
-  fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
-  for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
-    fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
-    fd_topob_tile_uses( topo, shred_tile, fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  }
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
+  ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
   ulong store_fec_max = config->firedancer.runtime.max_live_slots * FD_FEC_BLK_MAX + (shred_depth * shred_tile_cnt) + 1;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt, store_fec_data_max );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.rserve.shred_cache_size_gib, store_fec_set_cnt, config->paths.shredb );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );

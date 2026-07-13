@@ -1702,6 +1702,11 @@ telemetry = true
         # evicted as new shreds are added.
         shred_storage_limit_gib = 50
 
+        # Sets the FEC payload RAM cache size.  When full, the oldest
+        # unpinned payloads spill to the shred database and are loaded back
+        # on demand. Zero disables the limit.
+        shred_cache_size_gib = 2
+
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
     # used to send votes that our validator produces.

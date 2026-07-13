@@ -320,6 +320,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
                           rec->slot_complete,
                           0,
                           NULL,
+                          NULL,
                           &evicted ) ) {
       release_evicted_chain( reasm, evicted );
       effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
@@ -399,7 +400,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       popped->bank_idx = bank_idx;
 
       fd_store_fec_t store_fec[1] = {0};
-      store_fec->key.merkle_root = popped_rec->mr;
+      store_fec->key = popped_rec->mr;
       store_fec->data_sz         = popped_rec->payload_sz;
       memcpy( store_fec->shred_offs, popped_rec->shred_offs, sizeof(store_fec->shred_offs) );
 

@@ -43,6 +43,7 @@ SYSCALL_ARGS = {
     "copy_file_range": (  "int", "long",   "int", "long", "long",   "int"  ),
     "exit_group":      (  "int",   None,    None,   None,   None,    None  ),
     "exit":            (  "int",   None,    None,   None,   None,    None  ),
+    "fadvise64":       (  "int", "long",  "long",   "int",  None,    None  ),
     "fallocate":       (  "int",  "int",  "long", "long",   None,    None  ),
     "fcntl":           (  "int",  "int",  "long",   None,   None,    None  ),
     "fstat":           (  "int", "long",    None,   None,   None,    None  ),

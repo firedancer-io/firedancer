@@ -361,6 +361,7 @@ fuzz_insert( fuzz_cursor_t * cur,
                                                !!desc->slot_complete,
                                                !!desc->is_leader,
                                                NULL,
+                                               NULL,
                                                &evicted );
 
   if( FD_UNLIKELY( evicted ) ) {
@@ -429,7 +430,7 @@ fuzz_remove( fuzz_cursor_t * cur,
   fd_reasm_fec_t * head = fuzz_pick_removable( cur, model, reasm );
   if( FD_UNLIKELY( !head ) ) return;
 
-  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, head, NULL );
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, head, NULL, NULL );
   FD_TEST( evicted );
   model->remove_cnt++;
   fuzz_release_chain( reasm, evicted );
@@ -446,7 +447,7 @@ fuzz_publish( fuzz_cursor_t * cur,
   if( FD_UNLIKELY( !fec->popped ) ) return;
 
   fd_hash_t key = fec->key;
-  fd_reasm_fec_t * root = fd_reasm_publish( reasm, &key, NULL );
+  fd_reasm_fec_t * root = fd_reasm_publish( reasm, &key, NULL, NULL );
   FD_TEST( root );
   FD_TEST( fd_hash_eq( &root->key, &key ) );
 }

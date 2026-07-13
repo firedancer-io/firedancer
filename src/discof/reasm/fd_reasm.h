@@ -350,6 +350,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               leader,
                  fd_store_t      * opt_store,
+                 fd_store_map_t  * opt_map_join,
                  fd_reasm_fec_t ** evicted );
 
 /* fd_reasm_remove removes a leaf node or a chain of nodes that
@@ -380,7 +381,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 fd_reasm_fec_t *
 fd_reasm_remove( fd_reasm_t     * reasm,
                  fd_reasm_fec_t * head,
-                 fd_store_t     * opt_store );
+                 fd_store_t     * opt_store,
+                 fd_store_map_t * opt_map_join );
 
 /* fd_reasm_pool_release releases a reasm_fec element back to the pool.
    Assumes ele is a valid pointer to a pool element inside reasm.  This
@@ -429,7 +431,8 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root,
-                  fd_store_t      * opt_store );
+                  fd_store_t      * opt_store,
+                  fd_store_map_t  * opt_map_join );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

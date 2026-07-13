@@ -134,7 +134,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_fec_sets = {
 static ulong
 store_footprint( fd_topo_t const * topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_store_footprint( VAL("fec_max"), VAL("fec_data_max") );
+  return fd_store_footprint( VAL("fec_max"), VAL("fec_data_max"), VAL("shred_storage_gib"), VAL("shred_cache_bytes"), VAL("fec_set_cnt") );
 }
 
 static ulong
@@ -146,7 +146,13 @@ store_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 store_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ), VAL("part_cnt"), VAL("fec_max"), VAL("fec_data_max") ) );
+  char const * db_path   = fd_pod_queryf_cstr( topo->props, NULL, "obj.%lu.disk_path", obj->id );
+  ulong        disk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed",      obj->id );
+  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ),
+                         VAL("fec_max"), VAL("fec_data_max"),
+                         VAL("shred_storage_gib"), VAL("shred_cache_bytes"),
+                         VAL("fec_set_cnt"),
+                         db_path, disk_seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_store = {

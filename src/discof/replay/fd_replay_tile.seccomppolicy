@@ -5,7 +5,7 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd
+uint logfile_fd, uint accounts_fd, uint store_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -50,3 +50,6 @@ fallocate: (and (eq (arg 0) accounts_fd)
 # it back up to start producing a snapshot.
 futex: (and (eq (arg 1) FUTEX_WAKE)
             (eq (arg 2) 1))
+
+# store disk layer: rare reads of spilled FEC payloads
+pread64: (eq (arg 0) store_fd)
