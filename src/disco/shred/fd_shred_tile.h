@@ -4,6 +4,9 @@
 #include "../tiles.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "fd_fec_resolver.h"
+#include "fd_shred_batch.h"
+
+#define FD_SHRED_STEM_BURST ( FD_SHRED_BATCH_FEC_SETS_MAX*(FD_FEC_SHRED_CNT+1UL) )
 
 /* Forward declarations */
 typedef struct fd_fec_resolver fd_fec_resolver_t;

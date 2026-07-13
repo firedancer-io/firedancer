@@ -11,6 +11,8 @@
 #include "../../util/pod/fd_pod.h"
 
 #include <stdlib.h> /* exit(2) */
+#include <errno.h>
+#include <fcntl.h>  /* open(2) */
 
 #define SHRED_BUFFER_LEN     (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
@@ -82,7 +84,9 @@ struct fd_backt_tile {
   long  publish_time;
   ulong slot_cnt;
 
-  fd_store_t * store;
+  fd_store_t    * store;
+  fd_store_map_t  map_join[1];
+  int             store_disk_fd;
 
   int in_kind[ 16UL ];
   fd_backt_in_t in[ 16UL ];
@@ -194,6 +198,10 @@ after_credit( fd_backt_tile_t *   ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
+  if( FD_LIKELY( ctx->store && ctx->store_disk_fd>=0 &&
+                 fd_store_disk_maintain( ctx->store, ctx->store_disk_fd ) ) )
+    *charge_busy = 1;
+
   int process = ctx->shreds_cnt>=2UL || (ctx->source_exhausted && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
   if( FD_UNLIKELY( !ctx->reasm_ready ) ) return;
@@ -219,19 +227,22 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
   if( FD_UNLIKELY( begins_fec_set ) ) {
-    fd_store_slock_acquire ( ctx->store );
-    fd_store_insert( ctx->store, 0, &mr );
-    fd_store_slock_release ( ctx->store );
+    fd_store_fec_t * new_fec;
+    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, &new_fec ) && new_fec );
+    FD_TEST( fd_store_fec_data_acquire( ctx->store, ctx->store_disk_fd, new_fec ) );
   }
 
-  fd_store_slock_acquire( ctx->store );
-  fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
+  fd_store_fec_t * fec = fd_store_query( ctx->map_join, &mr );
   if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_offs, 0, sizeof(fec->shred_offs) );
-  fd_memcpy( fd_store_fec_data( ctx->store, fec )+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
+  if( FD_UNLIKELY( fec->data_sz+fd_shred_payload_sz( shred )>ctx->store->fec_data_max ) ) {
+    FD_LOG_ERR(( "backtest FEC payload exceeds store maximum (%lu>%lu)",
+                 fec->data_sz+fd_shred_payload_sz( shred ), ctx->store->fec_data_max ));
+  }
+  fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
   ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
   if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (uint)fec->data_sz;
-  fd_store_slock_release( ctx->store ); /* drop(fec) */
+  if( FD_UNLIKELY( completes_fec_set ) ) fd_store_fec_data_publish( ctx->store, fec );
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
   ctx->shreds_cnt--;
@@ -526,14 +537,37 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
+
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  FD_TEST( store_obj_id!=ULONG_MAX );
+  fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+  FD_TEST( store );
+
+  if( FD_UNLIKELY( fd_store_file_init( store ) ) ) {
+    FD_LOG_ERR(( "failed to initialize store file %s (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
+  }
+  ctx->store_disk_fd = fd_store_file_open( store, O_RDWR );
+  if( FD_UNLIKELY( ctx->store_disk_fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s) failed (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
+  }
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t)                        );
+  int store_disk_fd = ctx->store_disk_fd;
   void * _rooted_slots  = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),     rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
   memset( ctx, 0, sizeof(fd_backt_tile_t) );
+  ctx->store_disk_fd = store_disk_fd;
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
@@ -596,6 +630,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( uint i=0UL; i<tile->in_cnt; i++ ) {
@@ -624,6 +659,23 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  ulong out_cnt = 0UL;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
+  out_fds[ out_cnt++ ] = ctx->store_disk_fd;
+  return out_cnt;
+}
+
 #define STEM_BURST                  (2UL) /* 1 after_credit + 1 returnable_frag */
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_backt_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_backt_tile_t)
@@ -636,8 +688,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_backtest = {
   .name                     = "backt",
+  .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

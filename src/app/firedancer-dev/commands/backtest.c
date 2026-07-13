@@ -375,8 +375,12 @@ backtest_topo( config_t * config ) {
   }
 
   fd_topob_wksp( topo, "store" );
+  fd_topo_link_t const * repair_out_link = &topo->links[ fd_topo_find_link( topo, "repair_out", 0UL ) ];
+  ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
+                                         FD_FEC_BLK_MAX, FD_SHRED_BLK_MAX );
+  ulong store_fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot + repair_out_link->depth + 1UL;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX, 1, store_fec_data_max );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, 0UL, config->paths.shredb );
   fd_topob_tile_uses( topo, backt_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
@@ -417,6 +421,7 @@ backtest_topo( config_t * config ) {
     }
 
     if( !strcmp( tile->name, "replay" ) ) {
+      tile->replay.fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
         fd_cstr_ncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );

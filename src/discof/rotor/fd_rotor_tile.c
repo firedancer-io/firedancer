@@ -178,6 +178,7 @@ struct ctx {
 
   fd_chainer_t   * chainer; /* alpenglow chainer */
   fd_store_t     * store;   /* rotor publishes/removes FEC sets to/from the store */
+  fd_store_map_t   store_map[1];
   fd_policy_t    * policy;
   fd_reqlim_t    * dedup;
   fd_inflights_t * inflights;
@@ -822,16 +823,16 @@ static inline void
 after_alpen_fec( ctx_t      * ctx,
                  ulong        sig,
                  fd_shred_t * shred,
-                 fd_hash_t  * mr ) {
+  fd_hash_t  * mr ) {
   if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) {
-    fd_store_remove( ctx->store, mr );
+    fd_store_remove( ctx->store, ctx->store_map, mr );
     return;
   }
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
   if( fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, mr ) ) {
-    fd_store_remove( ctx->store, mr );
+    fd_store_remove( ctx->store, ctx->store_map, mr );
   };
 }
 
@@ -1736,6 +1737,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->store_map ) );
 
   ctx->halt_signing = 0;
 

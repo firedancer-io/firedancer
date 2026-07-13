@@ -1,6 +1,9 @@
 /* fd_rserve_tile serves incoming repair requests from other nodes */
 
 #define _GNU_SOURCE
+#include <errno.h>
+#include <fcntl.h>
+
 #include "fd_rserve.h"
 #include "fd_repair.h"
 #include "../../disco/fd_disco_base.h"
@@ -10,17 +13,16 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
-#include "../../disco/shred/fd_shred_tile.h"
-#include "../../disco/store/fd_shredb.h"
+#include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/net/fd_net_headers.h"
 
 #include "generated/fd_rserve_tile_seccomp.h"
 
 #define IN_KIND_NET    (0)
-#define IN_KIND_SHRED  (1)
-#define IN_KIND_SIGN   (2)
+#define IN_KIND_SIGN   (1)
 
 #define MAX_IN_LINKS 32
 
@@ -74,7 +76,8 @@ typedef struct ctx {
   ulong         seed;
   uchar         rserve_secret[ 32 ];
   fd_rserve_t * rserve;
-  fd_shredb_t * shredb;
+  fd_store_t  * store;
+  int           disk_fd;
 
   /* Used for verifying incoming requests, and signing outgoing responses. */
   fd_sha512_t sha512[1];
@@ -103,8 +106,13 @@ typedef struct ctx {
     ulong fail_outdated;
     ulong fail_invalid_shred_idx;
     ulong fail_ping_cache_lookup;
-
+    ulong disk_read_busy;
+    ulong disk_read_miss;
+    ulong disk_read_scan_limit;
+    ulong disk_read_success;
+    ulong disk_read_bytes;
     ulong shreds_current;
+    ulong disk_current_bytes;
     ulong disk_allocated_bytes;
 
     ulong ping_cache_entries;
@@ -121,7 +129,6 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),    sizeof(ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_shredb_align(), fd_shredb_footprint( tile->rserve.shred_storage_limit_gib ) );
   l = FD_LAYOUT_APPEND( l, fd_rserve_align(), fd_rserve_footprint( tile->rserve.ping_cache_entries) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -325,22 +332,31 @@ handle_net_request( ctx_t             * ctx,
         ulong slot = msg->slot;
         ulong shred_idx = msg->shred_idx;
 
-        if( FD_UNLIKELY( (shred_idx & fd_ulong_mask( 15, 64 ))!=0 ) ) {
+        if( FD_UNLIKELY( shred_idx>=FD_SHRED_BLK_MAX ) ) {
           ctx->metrics->fail_invalid_shred_idx++;
           return;
         }
 
         uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
         int len;
-        if( tag==FD_REPAIR_KIND_SHRED ) {
-          len = fd_shredb_query( ctx->shredb, slot, (uint)shred_idx, payload );
-        } else {
-          len = fd_shredb_query_highest( ctx->shredb, slot, (uint)shred_idx, payload );
+        for( ulong retry=0UL;; retry++ ) {
+          if( tag==FD_REPAIR_KIND_SHRED ) {
+            len = fd_store_disk_query( ctx->store, ctx->disk_fd, slot, (uint)shred_idx, payload );
+          } else {
+            len = fd_store_disk_query_highest( ctx->store, ctx->disk_fd, slot, (uint)shred_idx, payload );
+          }
+          if( FD_LIKELY( len!=FD_STORE_DISK_QUERY_BUSY || retry==7UL ) ) break;
+          for( ulong pause=0UL; pause<(1UL<<retry); pause++ ) FD_SPIN_PAUSE();
         }
         if( FD_UNLIKELY( len<0 ) ) {
+          if(      len==FD_STORE_DISK_QUERY_BUSY      ) ctx->metrics->disk_read_busy++;
+          else if( len==FD_STORE_DISK_QUERY_SCAN_LIMIT) ctx->metrics->disk_read_scan_limit++;
+          else                                          ctx->metrics->disk_read_miss++;
           ctx->metrics->missed_pkt_types[ response_metric_index[tag] ]++;
           return;
         }
+        ctx->metrics->disk_read_success++;
+        ctx->metrics->disk_read_bytes += (ulong)len;
 
         fd_memcpy( payload+len, &header->nonce, sizeof(uint) );
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -359,11 +375,21 @@ handle_net_request( ctx_t             * ctx,
         ulong current = msg->slot;
         for( uint i=0; i<FD_RSERVE_MAX_ORPHAN_SLOTS; i++ ) {
           uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
-          int len = fd_shredb_query_highest( ctx->shredb, current, 0, payload );
+          int len;
+          for( ulong retry=0UL;; retry++ ) {
+            len = fd_store_disk_query_highest( ctx->store, ctx->disk_fd, current, 0, payload );
+            if( FD_LIKELY( len!=FD_STORE_DISK_QUERY_BUSY || retry==7UL ) ) break;
+            for( ulong pause=0UL; pause<(1UL<<retry); pause++ ) FD_SPIN_PAUSE();
+          }
           if( FD_UNLIKELY( len<0 ) ) {
+            if(      len==FD_STORE_DISK_QUERY_BUSY      ) ctx->metrics->disk_read_busy++;
+            else if( len==FD_STORE_DISK_QUERY_SCAN_LIMIT) ctx->metrics->disk_read_scan_limit++;
+            else                                          ctx->metrics->disk_read_miss++;
             ctx->metrics->missed_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_ORPHAN_IDX ]++;
             return;
           }
+          ctx->metrics->disk_read_success++;
+          ctx->metrics->disk_read_bytes += (ulong)len;
           fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( payload );
           memcpy( payload+len, &header->nonce, sizeof(uint) );
           send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -401,22 +427,6 @@ handle_net_request( ctx_t             * ctx,
   }
 }
 
-static inline void
-handle_shred( ctx_t             * ctx,
-              uchar const       * payload,
-              ulong               sig ) {
-  uint src = fd_shred_sig_src( sig );
-
-  if( FD_UNLIKELY( src>=SHRED_SIG_FEC_EVICTED ) ) return;
-
-  fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( payload );
-  fd_shred_t const * shred = &msg->shred;
-
-  if( FD_UNLIKELY( !(fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA) ) ) return;
-
-  fd_shredb_insert( ctx->shredb, shred );
-  ctx->metrics->shreds_current = ctx->shredb->cnt;
-}
 
 static inline int
 returnable_frag( ctx_t             * ctx,
@@ -446,15 +456,6 @@ returnable_frag( ctx_t             * ctx,
       return 0;
     }
     handle_net_request( ctx, stem, payload, payload_sz, udp, ip4 );
-    return 0;
-  }
-  case IN_KIND_SHRED: {
-    if( FD_UNLIKELY( sz==0UL ) ) return 0;
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) )
-      FD_LOG_ERR(( "chunk %lu %lu from in %u corrupt, not in range [%lu,%lu]", chunk, sz, in_kind, in_ctx->chunk0, in_ctx->wmark ));
-
-    uchar const * buffer = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    handle_shred( ctx, buffer, sig );
     return 0;
   }
   case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
@@ -494,6 +495,15 @@ during_housekeeping( ctx_t * ctx ) {
 
 static inline void
 metrics_write( ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->store ) ) {
+    fd_store_disk_stats_t stats[1];
+    if( FD_LIKELY( !fd_store_disk_stats_query( ctx->store, stats ) ) ) {
+      ctx->metrics->shreds_current           = stats->shred_cnt;
+      ctx->metrics->disk_current_bytes       = stats->current_bytes;
+      ctx->metrics->disk_allocated_bytes     = stats->allocated_bytes;
+    }
+  }
+
   FD_MCNT_ENUM_COPY( RSERVE, RECEIVED_REQUEST_COUNT,      ctx->metrics->received_request_count );
   FD_MCNT_SET( RSERVE, RECEIVED_REQUEST_BYTES,             ctx->metrics->received_request_bytes );
   FD_MCNT_ENUM_COPY( RSERVE, RECEIVED_MALFORMED_COUNT,     ctx->metrics->received_malformed_count );
@@ -510,10 +520,14 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( RSERVE, FAILED_OUTDATED,                    ctx->metrics->fail_outdated );
   FD_MCNT_SET( RSERVE, FAILED_INVALID_SHRED_INDEX,         ctx->metrics->fail_invalid_shred_idx );
   FD_MCNT_SET( RSERVE, FAILED_PING_CACHE_LOOKUP,           ctx->metrics->fail_ping_cache_lookup );
-
+  FD_MCNT_SET( RSERVE, DISK_READ_BUSY,                     ctx->metrics->disk_read_busy );
+  FD_MCNT_SET( RSERVE, DISK_READ_MISS,                     ctx->metrics->disk_read_miss );
+  FD_MCNT_SET( RSERVE, DISK_READ_SCAN_LIMIT,               ctx->metrics->disk_read_scan_limit );
+  FD_MCNT_SET( RSERVE, DISK_READ_SUCCESS,                  ctx->metrics->disk_read_success );
+  FD_MCNT_SET( RSERVE, DISK_READ_BYTES,                    ctx->metrics->disk_read_bytes );
   FD_MGAUGE_SET( RSERVE, SHREDS_CURRENT,                   ctx->metrics->shreds_current );
-  FD_MGAUGE_SET( RSERVE, DISK_CURRENT_BYTES,               ctx->metrics->shreds_current*sizeof(fd_shredb_entry_t) );
-  FD_MGAUGE_SET( RSERVE, DISK_ALLOCATED_BYTES,             ctx->shredb->file_shreds*sizeof(fd_shredb_entry_t) );
+  FD_MGAUGE_SET( RSERVE, DISK_CURRENT_BYTES,               ctx->metrics->disk_current_bytes );
+  FD_MGAUGE_SET( RSERVE, DISK_ALLOCATED_BYTES,             ctx->metrics->disk_allocated_bytes );
 
   FD_MCNT_SET( RSERVE, PING_CACHE_ENTRIES,                 ctx->metrics->ping_cache_entries );
   FD_MCNT_SET( RSERVE, PING_CACHE_EVICTIONS,               ctx->metrics->ping_cache_evictions );
@@ -524,17 +538,21 @@ privileged_init( fd_topo_t      const * topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  ulong size_limit = tile->rserve.shred_storage_limit_gib;
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),    sizeof(ctx_t)                     );
-  ctx->shredb = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_align(), fd_shredb_footprint( size_limit ) );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
   FD_TEST( fd_rng_secure( ctx->rserve_secret, sizeof(ctx->rserve_secret) ) );
 
-  FD_LOG_INFO(( "creating shredb (size_limit=%luGiB)", size_limit ));
-  ctx->shredb = fd_shredb_join( fd_shredb_new( ctx->shredb, size_limit, tile->rserve.shredb_path, ctx->seed ) );
-  if( FD_UNLIKELY( !ctx->shredb ) ) FD_LOG_ERR(( "failed to initialize shredb" ));
+  ctx->disk_fd = -1;
+  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
+  if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
+    fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+    FD_TEST( store );
+    ctx->disk_fd = fd_store_file_open( store, O_RDONLY );
+    if( FD_UNLIKELY( ctx->disk_fd<0 ) )
+      FD_LOG_ERR(( "open(%s) failed (%i-%s)", store->db_path, errno, fd_io_strerror( errno ) ));
+  }
 
   uchar const * identity_public_key = fd_keyload_load( tile->rserve.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_public_key, sizeof(fd_pubkey_t) );
@@ -548,18 +566,29 @@ unprivileged_init( fd_topo_t      const * topo,
   ulong ping_cache_entries = tile->rserve.ping_cache_entries;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),    sizeof(ctx_t) );
-                FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_align(), fd_shredb_footprint( tile->rserve.shred_storage_limit_gib ) );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
   ctx->rserve = FD_SCRATCH_ALLOC_APPEND( l, fd_rserve_align(), fd_rserve_footprint( ping_cache_entries ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
 
-  (void)ctx->shredb; /* Initialized in privileged_init */
+  ctx->store = NULL;
+  ulong store_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "store" );
+  if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
+    ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+    FD_TEST( ctx->store );
+  }
+  if( FD_UNLIKELY( !ctx->store || !fd_store_has_disk( ctx->store ) ) ) {
+    FD_LOG_ERR(( "rserve requires an enabled store disk layer" ));
+  }
+  if( FD_UNLIKELY( ctx->disk_fd<0 ) ) {
+    FD_LOG_ERR(( "rserve could not open the store disk file" ));
+  }
+
   ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed, ctx->rserve_secret ) );
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
   fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
-  FD_MGAUGE_SET( RSERVE, SHREDS_MAX, ctx->shredb->max_shreds );
+  FD_MGAUGE_SET( RSERVE, SHREDS_MAX, ctx->store ? ctx->store->disk_max_shreds : 0UL );
 
   ctx->halt_signing = 0;
   ctx->net_id = (ushort)0;
@@ -589,7 +618,6 @@ unprivileged_init( fd_topo_t      const * topo,
       fd_net_rx_bounds_init( &ctx->in_links[ in_idx ].net_rx, link->dcache );
       continue;
     }
-    else if( 0==strcmp( link->name, "shred_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "sign_rserve" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "rserve tile has unexpected input link: %s", link->name ));
 
@@ -624,7 +652,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  populate_sock_filter_policy_fd_rserve_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->shredb->fd );
+  populate_sock_filter_policy_fd_rserve_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->disk_fd );
   return sock_filter_policy_fd_rserve_tile_instr_cnt;
 }
 
@@ -643,7 +671,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->shredb->fd;
+  if( FD_LIKELY( ctx->disk_fd>=0 ) )
+    out_fds[ out_cnt++ ] = ctx->disk_fd;
   return out_cnt;
 }
 

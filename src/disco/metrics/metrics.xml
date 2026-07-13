@@ -1147,6 +1147,9 @@ EXAMPLES
     <histogram name="AddShredDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
         <summary>Duration of verifying and processing one shred received from the network</summary>
     </histogram>
+    <histogram name="DiskWriteSeconds" min="0.0000001" max="0.1" converter="seconds">
+        <summary>Duration of persisting one accepted data shred</summary>
+    </histogram>
     <counter name="ShredProcessed" enum="ShredProcessingResult" summary="Result of processing a shred from the network" />
     <counter name="FecSpilled" summary="FEC sets spilled because they didn't complete in time and we needed space" />
     <counter name="ShredInitialRejected" summary="Shreds rejected before any resources were allocated for the FEC set" />
@@ -1157,6 +1160,9 @@ EXAMPLES
     <counter name="ShredRepairRxBytes" summary="Bytes received from network packets with repair shreds, including network headers" />
     <counter name="ShredTurbineRx" summary="Turbine shreds received" />
     <counter name="ShredTurbineRxBytes" summary="Bytes received from network packets with turbine shreds, including network headers" />
+    <counter name="DiskShredInserted" summary="Data shreds persisted to the repair store" />
+    <counter name="DiskWriteFailed" summary="Data shreds rejected by the repair store API" />
+    <counter name="DiskWriteBytes" summary="Bytes written by data shreds successfully indexed in the repair store" />
 </tile>
 
 <tile name="store" telemetry="false">
@@ -1236,16 +1242,18 @@ EXAMPLES
     <gauge name="EpochCredits" summary="Our vote account epoch credits at the optimistically confirmed slot" />
     <gauge name="VoteSlotLastRewarded" summary="Latest slot for which this validator's vote appears in a reward certificate. ULONG_MAX if no participation has been observed, and always ULONG_MAX under Tower" />
 
-    <counter name="StoreQueryAcquired" summary="Store slock acquires for query" />
-    <counter name="StoreQueryReleased" summary="Store slock releases for query" />
-    <histogram name="StoreQueryWaitSeconds" min="0.00000001" max="0.001" converter="seconds">
-      <summary>Time spent waiting to acquire the slock for query</summary>
-    </histogram>
     <histogram name="StoreQueryWorkSeconds" min="0.00000001" max="0.001" converter="seconds">
-      <summary>Time spent working before releasing the slock for query</summary>
+      <summary>Time spent ingesting a queried FEC into the scheduler</summary>
     </histogram>
     <counter name="StoreQueried" summary="Queries" />
     <counter name="StoreQueryMissing" summary="Queries where merkle root was missing" />
+    <counter name="StoreFecSpilled" summary="FEC payloads spilled from the store RAM cache to disk" />
+    <counter name="StoreFecSpillBytes" summary="FEC payload bytes spilled from RAM to disk" />
+    <counter name="StoreFecSpillReads" summary="Spilled FEC payloads read from disk" />
+    <counter name="StoreFecSpillReadBytes" summary="Spilled FEC payload bytes read from disk" />
+    <gauge name="StoreFecCacheUsed" summary="FEC payload slots currently occupied in the store RAM cache" />
+    <gauge name="StoreFecCacheMax" summary="Total FEC payload slot capacity of the store RAM cache" />
+    <gauge name="StoreFecCachePinned" summary="Active FEC payload views protected from eviction" />
     <gauge name="StoreQueryMerkleRootSample" summary="First 8 bytes of most recently queried merkle root" />
     <gauge name="StoreQueryMissingMerkleRootSample" summary="First 8 bytes of most recently queried missing merkle root" />
 
@@ -1460,11 +1468,16 @@ EXAMPLES
     <counter name="FailedOutdated" summary="How many requests we've received that had outdated timestamps" />
     <counter name="FailedInvalidShredIndex" summary="How many requests we've received that had invalid shred indices" />
     <counter name="FailedPingCacheLookup" summary="Requests from nodes not in the ping cache, which triggered a ping-back instead of a response" />
+    <counter name="DiskReadBusy" summary="Repair reads dropped because the requested index binding or ring cell changed" />
+    <counter name="DiskReadMiss" summary="Repair reads not found in the store" />
+    <counter name="DiskReadScanLimit" summary="Highest-shred repair reads dropped because the cached upper bound was no longer readable" />
+    <counter name="DiskReadSuccess" summary="Repair reads served from the store" />
+    <counter name="DiskReadBytes" summary="Shred bytes read from the store for repair responses" />
 
     <gauge   name="ShredsCurrent" summary="The number of shreds currently in the shreds database" />
     <gauge   name="ShredsMax" summary="Total capacity of shreds that can be stored in the shreds database" />
-    <gauge   name="DiskCurrentBytes" summary="The number of bytes currently used on disk by the database" />
-    <gauge   name="DiskAllocatedBytes" summary="The current size of the database file on disk" />
+    <gauge   name="DiskCurrentBytes" summary="Logical bytes occupied by live wire shreds and spilled FEC payloads" />
+    <gauge   name="DiskAllocatedBytes" summary="Physical bytes reserved for the wire ring and allocated spill pages" />
 
     <counter name="PingCacheEntries" summary="How many active entries do we have in the ping cache" />
     <counter name="PingCacheEvictions" summary="How many entries we've evicted from the ping cache" />

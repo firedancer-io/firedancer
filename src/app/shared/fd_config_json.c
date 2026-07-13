@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==22964144UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==22964152UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -580,6 +580,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "shred_listen_port",      config->tiles.shred.shred_listen_port );
       jw_path_arr( &w, "additional_shred_destinations_retransmit", config->tiles.shred.additional_shred_destinations_retransmit_cnt );
       jw_path_arr( &w, "additional_shred_destinations_leader",     config->tiles.shred.additional_shred_destinations_leader_cnt );
+      jw_ulong( &w, "shred_cache_size_mib",   config->tiles.shred.shred_cache_size_mib );
     jw_obj_close( &w );
     jw_obj_open( &w, "metric" );
       jw_path ( &w, "prometheus_listen_address", config->tiles.metric.prometheus_listen_address );

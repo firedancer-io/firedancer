@@ -151,6 +151,8 @@ struct fd_replay_tile {
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;
   fd_store_t *    store;
+  fd_store_map_t  map_join[1];
+  int             store_disk_fd;
   fd_banks_t *    banks;
 
   /* This flag is 1 If we have seen a vote signature that our node has
@@ -523,9 +525,6 @@ struct fd_replay_tile {
   } snapmk;
 
   struct {
-    ulong      store_query_acquire;
-    ulong      store_query_release;
-    fd_histf_t store_query_wait[1];
     fd_histf_t store_query_work[1];
     ulong      store_query_cnt;
     ulong      store_query_missing_cnt;
