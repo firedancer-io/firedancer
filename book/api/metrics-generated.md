@@ -1017,6 +1017,9 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;work_&#8203;seconds</span> | histogram | Time spent working before releasing the slock for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;queried</span> | counter | Queries |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing</span> | counter | Queries where merkle root was missing |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;spilled</span> | counter | FEC payloads spilled from the store RAM cache to disk |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;used</span> | gauge | FEC payload slots currently occupied in the store RAM cache |
+| <span class="metrics-name">replay_&#8203;store_&#8203;fec_&#8203;cache_&#8203;max</span> | gauge | Total FEC payload slot capacity of the store RAM cache |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;merkle_&#8203;root_&#8203;sample</span> | gauge | First 8 bytes of most recently queried merkle root |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing_&#8203;merkle_&#8203;root_&#8203;sample</span> | gauge | First 8 bytes of most recently queried missing merkle root |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | Slot at which our node has most recently rooted |

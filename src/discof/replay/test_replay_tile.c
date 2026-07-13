@@ -3,16 +3,9 @@
 
    Follows the pattern of test_repair_tile.c and test_tower_tile.c:
    mock heavy dependencies via #define before including the tile .c. */
-/* ---- Mock store lock macros ----
-   Include fd_store.h first to get the type definitions, then override
-   the lock macros to no-ops. */
-
 #define _GNU_SOURCE
 #include "../../disco/store/fd_store.h"
-#undef  FD_STORE_SLOCK_BEGIN
-#undef  FD_STORE_SLOCK_END
-#define FD_STORE_SLOCK_BEGIN(store) { (void)(store);
-#define FD_STORE_SLOCK_END }
+#include <fcntl.h>
 
 /* ---- Pull in type definitions we need for mock function signatures.
    These headers are guarded, so the re-include from fd_replay_tile.c
@@ -39,12 +32,35 @@ static fd_store_fec_t mock_store_fec;
 static uchar          mock_store_data[ 4096 ];
 
 fd_store_fec_t *
-mock_store_query_fn( fd_store_t *      store FD_PARAM_UNUSED,
+mock_store_query_fn( fd_store_map_t *  map FD_PARAM_UNUSED,
                      fd_hash_t const * merkle_root FD_PARAM_UNUSED ) {
   return &mock_store_fec;
 }
 
+int
+mock_store_fec_data_view_fn( fd_store_t *               store FD_PARAM_UNUSED,
+                             int                        disk_fd FD_PARAM_UNUSED,
+                             fd_store_fec_t *           fec FD_PARAM_UNUSED,
+                             uchar                      scratch[ static FD_STORE_FEC_DATA_SCRATCH_SZ ],
+                             fd_store_fec_data_view_t * view ) {
+  (void)scratch;
+  view->data = mock_store_data;
+  view->ram_lock_held = 0;
+  return 0;
+}
+
+void
+mock_store_fec_data_view_release_fn( fd_store_t *                     store FD_PARAM_UNUSED,
+                                     fd_store_fec_data_view_t const * view FD_PARAM_UNUSED ) {}
+
+void
+mock_store_fec_data_consumed_fn( fd_store_t *     store FD_PARAM_UNUSED,
+                                 fd_store_fec_t * fec FD_PARAM_UNUSED ) {}
+
 #define fd_store_query mock_store_query_fn
+#define fd_store_fec_data_view mock_store_fec_data_view_fn
+#define fd_store_fec_data_view_release mock_store_fec_data_view_release_fn
+#define fd_store_fec_data_consumed mock_store_fec_data_consumed_fn
 
 /* ---- Mock sched ---- */
 
@@ -296,13 +312,11 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( bid_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
 
-  /* Mock store — fd_store_fec_data needs store_gaddr */
-
   static fd_store_t mock_store;
   memset( &mock_store, 0, sizeof(mock_store) );
-  mock_store.store_gaddr   = (ulong)&mock_store;
-  mock_store_fec.data_gaddr = (ulong)mock_store_data;
-  ctx->store = &mock_store;
+  mock_store.store_gaddr = (ulong)&mock_store;
+  ctx->store             = &mock_store;
+  ctx->store_disk_fd     = -1;
 
   /* Real banks — initialize root bank. */
 
@@ -536,12 +550,12 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 2UL, 0UL ) );
   FD_TEST( ctx->reasm );
 
-  /* Use FD_STORE_ALIGN (not fd_store_align()) so the base address
-     satisfies the internal 128-byte alignment of fd_store_fec_t. */
-  void * store_mem = fd_wksp_alloc_laddr( wksp, FD_STORE_ALIGN, fd_store_footprint( 2UL, 1UL ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 1UL, 2UL, 1UL ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, "/tmp/test_replay_tile_fec_payload.db", 0UL ) );
   FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
+  ctx->store_disk_fd = -1;
 
   static fd_runtime_stack_t runtime_stack[ 1 ];
   fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
@@ -875,7 +889,7 @@ test_stale_redeliver( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * leaf = fd_reasm_query( reasm, &mr1_64 );
   FD_TEST( leaf );
-  fd_reasm_fec_t * evicted_head = fd_reasm_remove( reasm, leaf, NULL );
+  fd_reasm_fec_t * evicted_head = fd_reasm_remove( reasm, leaf, NULL, NULL );
   FD_TEST( evicted_head );
 
   /* Walk the evicted chain and release each element back to the pool.
@@ -991,7 +1005,7 @@ test_eqvoc_mid_slot_evicted( fd_wksp_t * wksp ) {
      32, and 64 are all evicted.  Walk the evicted chain (linked via
      child pointers) and release each element back to the pool. */
 
-  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_64, NULL );
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_64, NULL, NULL );
   FD_TEST( evicted );
   while( evicted ) {
     fd_reasm_fec_t * next = fd_reasm_child( reasm, evicted );
@@ -1258,7 +1272,7 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
      The walk hits FEC 32 (bank_idx=1) while tail (FEC 96) has
      bank_idx=ULONG_MAX. */
 
-  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_96, NULL );
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_96, NULL, NULL );
   FD_TEST( evicted );
 
   /* Release evicted chain back to pool. */

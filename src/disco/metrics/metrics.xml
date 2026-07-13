@@ -1221,6 +1221,9 @@ EXAMPLES
     </histogram>
     <counter name="StoreQueried" summary="Queries" />
     <counter name="StoreQueryMissing" summary="Queries where merkle root was missing" />
+    <counter name="StoreFecSpilled" summary="FEC payloads spilled from the store RAM cache to disk" />
+    <gauge name="StoreFecCacheUsed" summary="FEC payload slots currently occupied in the store RAM cache" />
+    <gauge name="StoreFecCacheMax" summary="Total FEC payload slot capacity of the store RAM cache" />
     <gauge name="StoreQueryMerkleRootSample" summary="First 8 bytes of most recently queried merkle root" />
     <gauge name="StoreQueryMissingMerkleRootSample" summary="First 8 bytes of most recently queried missing merkle root" />
 

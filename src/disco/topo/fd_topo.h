@@ -358,6 +358,7 @@ struct fd_topo_tile {
       ulong             depth;
       ulong             fec_resolver_depth;
       char              identity_key_path[ PATH_MAX ];
+      char              disk_shred_path[ PATH_MAX ];
       ushort            shred_listen_port;
       int               larger_shred_limits_per_block;
       ushort            expected_shred_version;
@@ -539,7 +540,6 @@ struct fd_topo_tile {
       ushort repair_serve_listen_port;
       char   identity_key_path[ PATH_MAX ];
       char   shredb_path[ PATH_MAX ];
-      ulong  shred_storage_limit_gib;
       ulong  ping_cache_entries;
     } rserve;
 

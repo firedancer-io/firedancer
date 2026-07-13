@@ -10,6 +10,7 @@
 #include "../../util/pod/fd_pod.h"
 
 #include <stdlib.h> /* exit(2) */
+#include <fcntl.h>  /* open(2) */
 
 #define SHRED_BUFFER_LEN     (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
@@ -80,7 +81,9 @@ struct fd_backt_tile {
   long  publish_time;
   ulong slot_cnt;
 
-  fd_store_t * store;
+  fd_store_t    * store;
+  fd_store_map_t  map_join[1];
+  int             store_disk_fd;
 
   int in_kind[ 16UL ];
   fd_backt_in_t in[ 16UL ];
@@ -216,19 +219,21 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
   if( FD_UNLIKELY( begins_fec_set ) ) {
-    fd_store_slock_acquire ( ctx->store );
-    fd_store_insert( ctx->store, 0, &mr );
-    fd_store_slock_release ( ctx->store );
+    fd_store_fec_t * new_fec = fd_store_fec_acquire( ctx->store );
+    FD_TEST( new_fec );
+    new_fec->key     = mr;
+    new_fec->data_sz = 0UL;
+    FD_TEST( !fd_store_insert( ctx->map_join, new_fec ) );
+    FD_TEST( fd_store_fec_data_acquire( ctx->store, ctx->store_disk_fd, new_fec ) );
   }
 
-  fd_store_slock_acquire( ctx->store );
-  fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
+  fd_store_fec_t * fec = fd_store_query( ctx->map_join, &mr );
   if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_offs, 0, sizeof(fec->shred_offs) );
-  fd_memcpy( fd_store_fec_data( ctx->store, fec )+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
+  fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
   ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
   if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (uint)fec->data_sz;
-  fd_store_slock_release( ctx->store ); /* drop(fec) */
+  if( FD_UNLIKELY( completes_fec_set ) ) fd_store_fec_data_publish( ctx->store, fec );
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
   ctx->shreds_cnt--;
@@ -497,6 +502,12 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  (void)topo; (void)tile;
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -566,6 +577,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
+
+  ctx->store_disk_fd = open( ctx->store->db_path, O_RDWR, (mode_t)0600 );
+  FD_TEST( ctx->store_disk_fd>=0 );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( uint i=0UL; i<tile->in_cnt; i++ ) {
@@ -607,6 +622,7 @@ fd_topo_run_tile_t fd_tile_backtest = {
   .name                     = "backt",
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

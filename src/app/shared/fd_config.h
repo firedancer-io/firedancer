@@ -527,6 +527,7 @@ struct fd_config {
       int    enabled;
       ushort repair_serve_listen_port;
       ulong  shred_storage_limit_gib;
+      ulong  shred_cache_size_gib;
     } rserve;
 
     struct {

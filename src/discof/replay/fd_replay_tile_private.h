@@ -106,6 +106,9 @@ struct fd_replay_tile {
   fd_accdb_t *    accdb;
   fd_txncache_t * txncache;
   fd_store_t *    store;
+  fd_store_map_t  map_join[1];
+  int             store_disk_fd;
+  uchar           store_spill_scratch[ FD_STORE_FEC_DATA_SCRATCH_SZ ];
   fd_banks_t *    banks;
 
   /* This flag is 1 If we have seen a vote signature that our node has

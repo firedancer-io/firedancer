@@ -292,6 +292,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.rserve.enabled                             );
   CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
+  CFG_POP      ( ulong,  tiles.rserve.shred_cache_size_gib                );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );

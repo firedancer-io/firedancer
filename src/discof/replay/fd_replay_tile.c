@@ -10,6 +10,8 @@
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "../admin/fd_adminctl.h"
+#include <errno.h>
+#include <fcntl.h>
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
@@ -145,12 +147,26 @@ static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
   fd_accdb_flush_metrics( ctx->accdb );
 
+  ulong store_fec_spilled    = 0UL;
+  ulong store_fec_cache_used = 0UL;
+  ulong store_fec_cache_max  = 0UL;
+  if( FD_LIKELY( ctx->store ) ) {
+    store_fec_spilled = FD_VOLATILE_CONST( ctx->store->fec_spill_cnt );
+
+    store_fec_cache_max = FD_VOLATILE_CONST( ctx->store->cache_slot_cnt );
+    ulong store_fec_cache_free = fd_ulong_min( FD_VOLATILE_CONST( ctx->store->cache_free_cnt ), store_fec_cache_max );
+    store_fec_cache_used = store_fec_cache_max - store_fec_cache_free;
+  }
+
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_ACQUIRED,      ctx->metrics.store_query_acquire      );
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_RELEASED,      ctx->metrics.store_query_release      );
   FD_MHIST_COPY( REPLAY, STORE_QUERY_WAIT_SECONDS, ctx->metrics.store_query_wait         );
   FD_MHIST_COPY( REPLAY, STORE_QUERY_WORK_SECONDS, ctx->metrics.store_query_work         );
   FD_MCNT_SET  ( REPLAY, STORE_QUERIED,              ctx->metrics.store_query_cnt          );
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING,      ctx->metrics.store_query_missing_cnt  );
+  FD_MCNT_SET  ( REPLAY, STORE_FEC_SPILLED,        store_fec_spilled                      );
+  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_USED,     store_fec_cache_used                   );
+  FD_MGAUGE_SET( REPLAY, STORE_FEC_CACHE_MAX,      store_fec_cache_max                    );
   FD_MGAUGE_SET( REPLAY, STORE_QUERY_MERKLE_ROOT_SAMPLE,         ctx->metrics.store_query_mr           );
   FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MERKLE_ROOT_SAMPLE, ctx->metrics.store_query_missing_mr   );
 
@@ -1124,23 +1140,14 @@ publish_reset( fd_replay_tile_t *  ctx,
 }
 
 static void
-store_xinsert( fd_store_t      * store,
+store_xinsert( fd_store_t     * store,
+               fd_store_map_t * map_join,
                fd_hash_t const * merkle_root ) {
-  fd_store_pool_t pool = {
-      .pool    = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
-      .ele     = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
-      .ele_max = store->fec_max
-  };
-  fd_store_fec_t * fec = fd_store_pool_acquire( &pool );
-  if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "fd_store_pool_acquire failed" ));
-  fec->key.merkle_root = *merkle_root;
-  fec->key.part_idx    = 0;
-  fec->next            = fd_store_pool_idx_null();
-  fec->data_sz         = 0UL;
-
-  FD_STORE_XLOCK_BEGIN( store ) {
-    fd_store_map_ele_insert( fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr ), fec, pool.ele );
-  } FD_STORE_XLOCK_END;
+  fd_store_fec_t * fec = fd_store_fec_acquire( store );
+  if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "fd_store_fec_acquire failed" ));
+  fec->key     = *merkle_root;
+  fec->data_sz = 0UL;
+  FD_TEST( !fd_store_insert( map_join, fec ) );
 }
 
 static void
@@ -1217,7 +1224,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
   fec->bank_idx              = bank->idx;
   fec->bank_seq              = bank->bank_seq;
-  store_xinsert( ctx->store, &initial_block_id );
+  store_xinsert( ctx->store, ctx->map_join, &initial_block_id );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   block_id_ele->latest_mr = initial_block_id;
@@ -1366,7 +1373,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
     fec->bank_idx        = bank->idx;
     fec->bank_seq        = bank->bank_seq;
-    store_xinsert( ctx->store, &manifest_block_id );
+    store_xinsert( ctx->store, ctx->map_join, &manifest_block_id );
 
     return;
   }
@@ -1659,14 +1666,9 @@ insert_fec_set( fd_replay_tile_t *  ctx,
      This means we shouldn't have a bank for the corresponding block so
      we should just ignore and discard the FEC set. */
 
-  ulong wait = (ulong)fd_log_wallclock();
-  ulong work = wait;
-  FD_STORE_SLOCK_BEGIN( ctx->store ) {
-  ctx->metrics.store_query_acquire++;
-  work = (ulong)fd_log_wallclock();
-  fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
+  ulong work = (ulong)fd_log_wallclock();
 
-  fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
+  fd_store_fec_t * store_fec = fd_store_query( ctx->map_join, &reasm_fec->key );
   ctx->metrics.store_query_cnt++;
   if( FD_UNLIKELY( !store_fec && !reasm_fec->is_leader ) ) {
     /* The only case in which a FEC is not found in the store is either
@@ -1759,8 +1761,17 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->slot              = reasm_fec->slot;
   sched_fec->parent_slot       = reasm_fec->slot - reasm_fec->parent_off;
   sched_fec->is_first_in_block = reasm_fec->fec_set_idx==0U;
+  fd_store_fec_data_view_t data_view[ 1 ];
+  if( FD_UNLIKELY( fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, ctx->store_spill_scratch, data_view ) ) ) {
+    ctx->metrics.store_query_missing_cnt++;
+    ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
+    FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+    FD_LOG_WARNING(( "store fec payload for slot: %lu is unavailable. abandoning slice. merkle: %s", reasm_fec->slot, key_b58 ));
+    return 1;
+  }
+
   sched_fec->fec               = store_fec;
-  sched_fec->data              = fd_store_fec_data( ctx->store, store_fec );
+  sched_fec->data              = data_view->data;
   sched_fec->completed_ns = (long)reasm_fec->metrics.fec_completed_ts_nanos;
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
@@ -1772,14 +1783,14 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
   }
 
-  if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
+  int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
+  fd_store_fec_data_view_release( ctx->store, data_view );
+
+  if( FD_UNLIKELY( !ingested ) ) {
     mark_bank_dead( ctx, stem, sched_fec->bank_idx );
     return 1;
   }
 
-  } FD_STORE_SLOCK_END;
-
-  ctx->metrics.store_query_release++;
   fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_log_wallclock() - work );
   return 0;
 }
@@ -1994,7 +2005,7 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
-  fd_reasm_publish( ctx->reasm, &advanceable_root_ele->latest_mr, ctx->store );
+  fd_reasm_publish( ctx->reasm, &advanceable_root_ele->latest_mr, ctx->store, ctx->map_join );
 
   for( ulong b=0UL; b<ctx->block_id_len; b++ ) {
     if( FD_UNLIKELY( ctx->timing_slot_of_bank[ b ]!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) && !fd_banks_bank_query( ctx->banks, b ) ) ) timing_slot_release( ctx, b );
@@ -2449,7 +2460,8 @@ process_fec_complete( fd_replay_tile_t *         ctx,
        reasm, we can directly remove from store.  If the FEC set is in
        reasm, then we let reasm_publish handle it. */
     if( FD_LIKELY( !fd_reasm_query( ctx->reasm, merkle_root ) ) ) {
-      fd_store_remove( ctx->store, merkle_root );
+      fd_store_fec_t * sfec = fd_store_remove( ctx->map_join, merkle_root );
+      if( FD_LIKELY( sfec ) ) fd_store_fec_release( ctx->store, sfec );
     }
     return;
   }
@@ -2466,7 +2478,7 @@ process_fec_complete( fd_replay_tile_t *         ctx,
   }
 
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
-  fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &ctx->reasm_evicted );
+  fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, ctx->map_join, &ctx->reasm_evicted );
 
   if( FD_UNLIKELY( !fec ) ) {
     /* reasm failed to insert.  We don't want to just put this back on
@@ -2476,7 +2488,8 @@ process_fec_complete( fd_replay_tile_t *         ctx,
        was rejected or reasm_insert populates its last pool element with
        the data of the failed insert, so we make sure to publish the
        failed insert data to repair in after_credit. */
-    fd_store_remove( ctx->store, merkle_root );
+    fd_store_fec_t * sfec = fd_store_remove( ctx->map_join, merkle_root );
+    if( FD_LIKELY( sfec ) ) fd_store_fec_release( ctx->store, sfec );
     return;
   }
 }
@@ -3021,6 +3034,19 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,  sizeof(ulong) )         );
   FD_TEST( fd_rng_secure( &ctx->initial_block_id,   sizeof(fd_hash_t) )     );
   FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) )         );
+
+  ctx->store_disk_fd = -1;
+  ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
+  if( FD_LIKELY( store_obj_id!=ULONG_MAX ) ) {
+    fd_store_t * store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
+    FD_TEST( store && store->magic==FD_STORE_MAGIC );
+    ctx->store_disk_fd = open( store->db_path, O_RDONLY );
+    if( FD_UNLIKELY( ctx->store_disk_fd<0 ) ) {
+      FD_LOG_WARNING(( "open(%s) failed (%i-%s); spilled FEC reads disabled", store->db_path, errno, fd_io_strerror( errno ) ));
+      ctx->store_disk_fd = -1;
+    }
+  }
+
 }
 
 static void
@@ -3058,6 +3084,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -3317,28 +3344,34 @@ unprivileged_init( fd_topo_t const *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo FD_FN_UNUSED,
-                          fd_topo_tile_t const * tile FD_FN_UNUSED,
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW );
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
-                      fd_topo_tile_t const * tile FD_FN_UNUSED,
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+  if( FD_LIKELY( ctx->store_disk_fd>=0 ) )
+    out_fds[ out_cnt++ ] = ctx->store_disk_fd;
 
   return out_cnt;
 }

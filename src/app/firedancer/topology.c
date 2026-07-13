@@ -157,12 +157,25 @@ fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
-                  uint         part_cnt,
-                  ulong        fec_data_max ) {
+                  ulong        fec_data_max,
+                  ulong        shred_storage_gib,
+                  ulong        shred_cache_gib,
+                  ulong        fec_set_cnt,
+                  char const * db_path ) {
+  ulong seed;
+  FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
+
   fd_topo_obj_t * obj = fd_topob_obj( topo, "store", wksp_name );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,      "obj.%lu.fec_max",      obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, part_cnt,     "obj.%lu.part_cnt",     obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max, "obj.%lu.fec_data_max", obj->id ) );
+  ulong shred_cache_bytes = shred_cache_gib * 1024UL * 1024UL * 1024UL;
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,           "obj.%lu.fec_max",           obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max,      "obj.%lu.fec_data_max",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_storage_gib, "obj.%lu.shred_storage_gib", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, shred_cache_bytes, "obj.%lu.shred_cache_bytes", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_set_cnt,       "obj.%lu.fec_set_cnt",       obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,              "obj.%lu.seed",              obj->id ) );
+  if( db_path ) {
+    FD_TEST( fd_pod_insertf_cstr( topo->props, db_path,          "obj.%lu.disk_path",         obj->id ) );
+  }
   return obj;
 }
 
@@ -341,7 +354,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "adminctl"      )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
 
   fd_topob_wksp( topo, "progcache"     );
-  fd_topob_wksp( topo, "fec_sets"      );
   fd_topob_wksp( topo, "txncache"      );
   fd_topob_wksp( topo, "accdb_data"    )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
   fd_topob_wksp( topo, "banks"         );
@@ -680,9 +692,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_out",    0                                                  );
 
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "repair_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  if( rserve_enabled ) {
-    FOR(shred_tile_cnt)fd_topob_tile_in(    topo, "rserve",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  }
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
@@ -1081,14 +1090,7 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
   ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
-  ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t); /* mirrors # of dcache entries in frankendancer */
-  fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
-  for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
-    fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
-    fd_topob_tile_uses( topo, shred_tile, fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  }
-  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ], fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
+  ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
    /* store_fec_max is the maximum number of FEC sets Store retains.
 
@@ -1126,7 +1128,11 @@ fd_topo_initialize( config_t * config ) {
      67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */
 
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt, store_fec_data_max );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max,
+                                                config->tiles.rserve.shred_storage_limit_gib,
+                                                config->tiles.rserve.shred_cache_size_gib,
+                                                store_fec_set_cnt,
+                                                config->paths.shredb );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( rserve_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1452,7 +1458,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rserve" ) ) ) {
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
-    tile->rserve.shred_storage_limit_gib = config->tiles.rserve.shred_storage_limit_gib;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
     fd_cstr_ncpy( tile->rserve.identity_key_path, config->paths.identity_key, sizeof(tile->rserve.identity_key_path) );
     fd_cstr_ncpy( tile->rserve.shredb_path,   config->paths.shredb,   sizeof(tile->rserve.shredb_path)   );
@@ -1461,7 +1466,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Please maintain same field order as fd_topo.h */
 
-    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * 1024UL; /* FIXME temporary hack to run on 512 gb boxes */
+    tile->replay.fec_max      = config->firedancer.runtime.max_live_slots * 1024UL; /* FIXME temporary hack to run on 512 gb boxes */
     tile->replay.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
     tile->replay.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
@@ -1652,6 +1657,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
 
     fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
+    fd_cstr_ncpy( tile->shred.disk_shred_path, config->paths.shredb,       sizeof(tile->shred.disk_shred_path)  );
 
     tile->shred.depth                         = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
