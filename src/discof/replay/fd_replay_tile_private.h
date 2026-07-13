@@ -326,6 +326,14 @@ struct fd_replay_tile {
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
+
+  /* Caught up to the cluster: replay has completed a slot within a few
+     slots of the highest FEC set slot seen from repair (which tracks
+     the turbine tip). */
+  int         caught_up;
+  ulong       catch_up_max_fec_slot;
+  ulong       catch_up_tip_advance_cnt;
+  long        boot_timestamp_nanos;
   fd_bank_t * reset_bank;
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;

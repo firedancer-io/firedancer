@@ -92,12 +92,12 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
     ech.combined_count = num;
     ech.rx_count       = 0;
     ech.tx_count       = 0;
-    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", ioc->ifr.ifr_name, num ));
+    FD_LOG_NOTICE(( "%sRUN: `ethtool --set-channels %s combined %u`%s", fd_log_style_dim(), ioc->ifr.ifr_name, num , fd_log_style_normal() ));
   } else {
     ech.combined_count = 0;
     ech.rx_count       = num;
     ech.tx_count       = num;
-    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", ioc->ifr.ifr_name, num, num ));
+    FD_LOG_NOTICE(( "%sRUN: `ethtool --set-channels %s rx %u tx %u`%s", fd_log_style_dim(), ioc->ifr.ifr_name, num, num , fd_log_style_normal() ));
   }
   TRY_RUN_IOCTL( ioc, "ETHTOOL_SCHANNELS", &ech );
   return 0;
@@ -139,7 +139,7 @@ fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
 
 int
 fd_ethtool_ioctl_rxfh_set_default( fd_ethtool_ioctl_t * ioc ) {
-  FD_LOG_NOTICE(( "RUN: `ethtool --set-rxfh-indir %s default`", ioc->ifr.ifr_name ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --set-rxfh-indir %s default`%s", fd_log_style_dim(), ioc->ifr.ifr_name , fd_log_style_normal() ));
   struct ethtool_rxfh_indir rxfh = {
     .cmd = ETHTOOL_SRXFHINDIR,
     .size = 0, /* default indirection table */
@@ -183,8 +183,8 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
     return EINVAL;
 
   /* Set table to round robin over all channels from [start_idx, queue_cnt) */
-  FD_LOG_NOTICE(( "RUN: `ethtool --set-rxfh-indir %s start %u equal %u`",
-                  ioc->ifr.ifr_name, start_idx, queue_cnt - start_idx ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --set-rxfh-indir %s start %u equal %u`%s", fd_log_style_dim(),
+                  ioc->ifr.ifr_name, start_idx, queue_cnt - start_idx , fd_log_style_normal() ));
   rxfh.m.cmd = ETHTOOL_SRXFHINDIR;
   rxfh.m.size = table_ele_cnt;
   for( uint j=0u, q=start_idx; j<table_ele_cnt; j++ ) {
@@ -313,8 +313,8 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   if( enabled == !!(egf.m.features[ feature_block ].active & fd_uint_mask_bit( (int)feature_offset )) )
     return 0;
 
-  FD_LOG_NOTICE(( "RUN: `ethtool --features %s %s %s`",
-                  ioc->ifr.ifr_name, name, enabled ? "on" : "off" ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --features %s %s %s`%s", fd_log_style_dim(),
+                  ioc->ifr.ifr_name, name, enabled ? "on" : "off" , fd_log_style_normal() ));
   union {
     struct ethtool_sfeatures m;
     uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_sfeatures, struct ethtool_set_features_block, MAX_FEATURES / 32U ) ];
@@ -381,8 +381,8 @@ fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
 int
 fd_ethtool_ioctl_feature_gro_set( fd_ethtool_ioctl_t * ioc,
                                   int                  enabled ) {
-  FD_LOG_NOTICE(( "RUN: `ethtool --offload %s generic-receive-offload %s`",
-                  ioc->ifr.ifr_name, enabled ? "on" : "off" ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --offload %s generic-receive-offload %s`%s", fd_log_style_dim(),
+                  ioc->ifr.ifr_name, enabled ? "on" : "off" , fd_log_style_normal() ));
   struct ethtool_value gro = {
     .cmd = ETHTOOL_SGRO,
     .data = !!enabled
@@ -436,7 +436,7 @@ fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc ) {
 
   /* Delete all rules */
   for( uint i=0u; i<rule_cnt; i++) {
-    FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s delete %u`", ioc->ifr.ifr_name, efc.m.rule_locs[ i ] ));
+    FD_LOG_NOTICE(( "%sRUN: `ethtool --config-ntuple %s delete %u`%s", fd_log_style_dim(), ioc->ifr.ifr_name, efc.m.rule_locs[ i ] , fd_log_style_normal() ));
     struct ethtool_rxnfc del = {
       .cmd = ETHTOOL_SRXCLSRLDEL,
       .fs = { .location = efc.m.rule_locs[ i ] }
@@ -464,10 +464,10 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
   FD_TEST( rule_group_idx<rule_group_cnt && fd_uint_is_pow2( rule_group_cnt ) && rule_group_cnt>0U );
   uint const src_addr      = fd_uint_bswap( rule_group_idx );
   uint const src_addr_mask = fd_uint_bswap( rule_group_cnt-1U );
-  FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type udp4 dst-port %hu src-ip "
-                  FD_IP4_ADDR_FMT " m " FD_IP4_ADDR_FMT " queue %u`",
-                  ioc->ifr.ifr_name, dport, FD_IP4_ADDR_FMT_ARGS( src_addr ),
-                  FD_IP4_ADDR_FMT_ARGS( ~src_addr_mask ), queue_idx ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --config-ntuple %s flow-type udp4 dst-port %hu src-ip "
+                  FD_IP4_ADDR_FMT " m " FD_IP4_ADDR_FMT " queue %u`%s",
+                  fd_log_style_dim(), ioc->ifr.ifr_name, dport, FD_IP4_ADDR_FMT_ARGS( src_addr ),
+                  FD_IP4_ADDR_FMT_ARGS( ~src_addr_mask ), queue_idx, fd_log_style_normal() ));
   struct ethtool_rxnfc efc = {
     .cmd = ETHTOOL_SRXCLSRLINS,
     .fs = {
@@ -495,8 +495,8 @@ fd_ethtool_ioctl_ntuple_set_gre( fd_ethtool_ioctl_t * ioc,
   TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLCNT", &get );
   int const any_location = !!(get.data & RX_CLS_LOC_SPECIAL);
 
-  FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type ip4 l4proto 47 queue %u`",
-                  ioc->ifr.ifr_name, queue_idx ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --config-ntuple %s flow-type ip4 l4proto 47 queue %u`%s", fd_log_style_dim(),
+                  ioc->ifr.ifr_name, queue_idx , fd_log_style_normal() ));
   struct ethtool_rxnfc efc = {
     .cmd = ETHTOOL_SRXCLSRLINS,
     .fs = {
@@ -624,7 +624,7 @@ fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
 
 int
 fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( fd_ethtool_ioctl_t * ioc ) {
-  FD_LOG_NOTICE(( "RUN: `ethtool --config-nfc %s rx-flow-hash udp4 sdfn`", ioc->ifr.ifr_name ));
+  FD_LOG_NOTICE(( "%sRUN: `ethtool --config-nfc %s rx-flow-hash udp4 sdfn`%s", fd_log_style_dim(), ioc->ifr.ifr_name , fd_log_style_normal() ));
   struct ethtool_rxnfc nfc = {
     .cmd       = ETHTOOL_SRXFH,
     .flow_type = UDP_V4_FLOW,

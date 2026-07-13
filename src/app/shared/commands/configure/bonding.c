@@ -41,15 +41,15 @@ init( fd_config_t const * config ) {
      from bringing down bond slaves. */
 
   fd_cstr_fini( fd_cstr_append_cstr( p, "miimon" ) );
-  FD_LOG_NOTICE(( "RUN: `echo %lu | sudo tee %s`", TARGET_DELAY_MS, path ));
+  FD_LOG_NOTICE(( "%sRUN: `echo %lu | sudo tee %s`%s", fd_log_style_dim(), TARGET_DELAY_MS, path , fd_log_style_normal() ));
   fd_file_util_write_ulong( path, TARGET_DELAY_MS );
 
   fd_cstr_fini( fd_cstr_append_cstr( p, "downdelay" ) );
-  FD_LOG_NOTICE(( "RUN: `echo %lu | sudo tee %s`", TARGET_DELAY_MS, path ));
+  FD_LOG_NOTICE(( "%sRUN: `echo %lu | sudo tee %s`%s", fd_log_style_dim(), TARGET_DELAY_MS, path , fd_log_style_normal() ));
   fd_file_util_write_ulong( path, TARGET_DELAY_MS );
 
   fd_cstr_fini( fd_cstr_append_cstr( p, "peer_notif_delay" ) );
-  FD_LOG_NOTICE(( "RUN: `echo %lu | sudo tee %s`", TARGET_DELAY_MS, path ));
+  FD_LOG_NOTICE(( "%sRUN: `echo %lu | sudo tee %s`%s", fd_log_style_dim(), TARGET_DELAY_MS, path , fd_log_style_normal() ));
   fd_file_util_write_ulong( path, TARGET_DELAY_MS );
 }
 

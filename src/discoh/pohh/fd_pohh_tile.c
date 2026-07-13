@@ -1087,6 +1087,8 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   leader->bank                    = ctx->current_leader_bank;
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
+  leader->tick_duration_ns        = ctx->tick_duration_ns;
+  leader->hashcnt_per_tick        = ctx->hashcnt_per_tick;
   leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-ctx->reset_slot);
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
@@ -1143,6 +1145,7 @@ fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot,
                          ulong        epoch,
                          ulong        hashcnt_per_tick,
+                         ulong        tick_duration_ns,
                          ulong        cus_block_limit,
                          ulong        cus_vote_cost_limit,
                          ulong        cus_account_cost_limit,
@@ -1154,6 +1157,15 @@ fd_ext_poh_begin_leader( void const * bank,
 
   if( FD_UNLIKELY( slot!=ctx->slot ) )             FD_LOG_ERR(( "Trying to begin leader slot %lu but we are now on slot %lu", slot, ctx->slot ));
   if( FD_UNLIKELY( slot!=ctx->next_leader_slot ) ) FD_LOG_ERR(( "Trying to begin leader slot %lu but next leader slot is %lu", slot, ctx->next_leader_slot ));
+
+  if( FD_UNLIKELY( ctx->tick_duration_ns!=tick_duration_ns ) ) {
+    FD_LOG_WARNING(( "tick duration changed from %lu to %lu", ctx->tick_duration_ns, tick_duration_ns ));
+
+    /* Recompute derived information about the clock. */
+    ctx->tick_duration_ns    = tick_duration_ns;
+    ctx->slot_duration_ns    = (double)ctx->ticks_per_slot*(double)tick_duration_ns;
+    ctx->hashcnt_duration_ns = (double)tick_duration_ns/(double)hashcnt_per_tick;
+  }
 
   if( FD_UNLIKELY( ctx->hashcnt_per_tick!=hashcnt_per_tick ) ) {
     FD_LOG_WARNING(( "hashes per tick changed from %lu to %lu", ctx->hashcnt_per_tick, hashcnt_per_tick ));
@@ -1344,6 +1356,7 @@ CALLED_FROM_RUST void
 fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successfully produced a block */
                   uchar const * reset_blockhash,     /* The hash of the last tick in the produced block */
                   ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
+                  ulong         tick_duration_ns,    /* The target tick duration of the bank that completed */
                   uchar const * parent_block_id,     /* The block id of the parent block */
                   ulong const * features_activation, /* The activation slot of shred-tile features */
                   ulong const * shred_slot_limits    /* The shred slot limits for the epoch */ ) {
@@ -1387,6 +1400,15 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   ctx->last_slot    = ctx->slot;
   ctx->last_hashcnt = 0UL;
   ctx->reset_slot   = ctx->slot;
+
+  if( FD_UNLIKELY( ctx->tick_duration_ns!=tick_duration_ns ) ) {
+    FD_LOG_WARNING(( "tick duration changed from %lu to %lu", ctx->tick_duration_ns, tick_duration_ns ));
+
+    /* Recompute derived information about the clock. */
+    ctx->tick_duration_ns    = tick_duration_ns;
+    ctx->slot_duration_ns    = (double)ctx->ticks_per_slot*(double)tick_duration_ns;
+    ctx->hashcnt_duration_ns = (double)tick_duration_ns/(double)hashcnt_per_tick;
+  }
 
   if( FD_UNLIKELY( ctx->hashcnt_per_tick!=hashcnt_per_tick ) ) {
     FD_LOG_WARNING(( "hashes per tick changed from %lu to %lu", ctx->hashcnt_per_tick, hashcnt_per_tick ));

@@ -10,6 +10,7 @@
 #include "generated/pidns_seccomp.h"
 #endif
 
+#include "../../fd_bootinfo.h"
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 #include "../../../platform/fd_net_util.h"
@@ -79,8 +80,8 @@ static void
 parent_signal( int sig ) {
   if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
 
-  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
-  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
+  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s\n%sLog at \"%s\"%s", fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_log_private_path, fd_log_style_normal() ));
+  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s%s%s %s(%s)%s",                fd_log_style_bold(), fd_io_strsignal_name( sig ), fd_log_style_normal(), fd_log_style_dim(), fd_io_strsignal_desc( sig ), fd_log_style_normal() ));
 
   if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
   else                           fd_sys_util_exit_group( 0          );
@@ -484,11 +485,11 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
     if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
-      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d\n", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
+      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
       fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
     }
   }
@@ -533,7 +534,7 @@ main_pid_namespace( void * _args ) {
       ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+        FD_LOG_ERR_NOEXIT(( "tile %s%s:%lu%s exited with signal %d %s(%s)%s", fd_log_style_bold(), tile_name, tile_id, fd_log_style_normal(), WTERMSIG( wstatus ), fd_log_style_dim(), fd_io_strsignal( WTERMSIG( wstatus ) ), fd_log_style_normal() ));
         fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
       } else {
         int exit_code = WEXITSTATUS( wstatus );
@@ -541,7 +542,7 @@ main_pid_namespace( void * _args ) {
           found = 1;
           FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+          FD_LOG_ERR_NOEXIT(( "tile %s%s:%lu%s exited with code %d", fd_log_style_bold(), tile_name, tile_id, fd_log_style_normal(), exit_code ));
           fd_sys_util_exit_group( exit_code ? exit_code : 1 );
         }
       }
@@ -686,7 +687,7 @@ initialize_workspaces( config_t * config ) {
     int result = stat( path, &st );
 
     int update_existing;
-    if( FD_UNLIKELY( !result && config->is_live_cluster ) ) {
+    if( FD_UNLIKELY( !result && config->is_live_cluster && !config->is_dev ) ) {
       if( FD_UNLIKELY( -1==unlink( path ) && errno!=ENOENT ) ) FD_LOG_ERR(( "unlink() failed when trying to create workspace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
       update_existing = 0;
     } else if( FD_UNLIKELY( !result ) ) {
@@ -896,6 +897,7 @@ run_firedancer_init( config_t * config,
   if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
+  fd_bootinfo_write( config );
 }
 
 void

@@ -11,6 +11,7 @@
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
+#include "../../rewards/fd_stake_rewards.h"
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 #include "../../capture/fd_solcap_writer.h"
@@ -101,6 +102,7 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   runner->bank->stake_rewards_fork_id = UCHAR_MAX;
+  fd_stake_rewards_clear( fd_bank_stake_rewards_modify( runner->bank ) );
 
   fd_progcache_reset( runner->progcache->join );
 
@@ -138,7 +140,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Attach a fork off the runner's root for context loading */
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
-  bank->accdb_fork_id = fork_id;
+  bank->accdb_fork_id        = fork_id;
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );

@@ -1,5 +1,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
 #include "fd_adminctl.h"
@@ -8,7 +9,9 @@
 struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
   fd_adminctl_t *   adminctl;
+  uchar             identity_pubkey[ 32UL ];
   fd_keyswitch_t *  tower_av_keyswitch;
+  fd_keyswitch_t *  txsend_av_keyswitch;
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
   ulong             sign_av_keyswitch_cnt;
   fd_sha512_t       sha512[ 1 ];
@@ -27,11 +30,23 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
+  fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
+
+  if( FD_UNLIKELY( !strcmp( tile->admin.identity_key_path, "" ) ) )
+    FD_LOG_ERR(( "identity_key_path not set" ));
+
+  fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
+}
+
+static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
-  fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -45,6 +60,12 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( topo->tiles[ tower_idx ].av_keyswitch_obj_id!=ULONG_MAX );
   ctx->tower_av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, topo->tiles[ tower_idx ].av_keyswitch_obj_id ) );
   FD_TEST( ctx->tower_av_keyswitch );
+
+  ulong txsend_idx = fd_topo_find_tile( topo, "txsend", 0UL );
+  FD_TEST( txsend_idx!=ULONG_MAX );
+  FD_TEST( topo->tiles[ txsend_idx ].av_keyswitch_obj_id!=ULONG_MAX );
+  ctx->txsend_av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, topo->tiles[ txsend_idx ].av_keyswitch_obj_id ) );
+  FD_TEST( ctx->txsend_av_keyswitch );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * sign_tile = &topo->tiles[ i ];
@@ -532,7 +553,46 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     if( FD_UNLIKELY( poll_set_identity( ctx, &state, &halted_seq, identity_outset, req->keypair ) ) ) break;
   }
 
+  memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
+
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+}
+
+static void
+get_identity( fd_admin_tile_ctx_t * ctx,
+              ulong                 slot_idx,
+              void *                data,
+              ulong                 data_sz ) {
+
+  fd_adminctl_t * adminctl = ctx->adminctl;
+
+  if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
+    FD_LOG_WARNING(( "adminctl get-identity payload too small: %lu", data_sz ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_PAYLOAD_TOO_SMALL );
+    return;
+  }
+
+  ulong version = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( version!=FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION ) ) {
+    FD_LOG_WARNING(( "unsupported adminctl get-identity payload version %lu", version ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_UNSUPPORTED_PAYLOAD_VERSION );
+    return;
+  }
+
+  if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_get_identity_req_t) ) ) {
+    FD_LOG_WARNING(( "unexpected adminctl get-identity payload_sz %lu", data_sz ));
+    fd_adminctl_complete( adminctl, slot_idx, FD_GET_IDENTITY_RESULT_UNEXPECTED_PAYLOAD_SIZE );
+    return;
+  }
+
+  /* Adminctl commands are serviced one at a time by this tile, which is
+     the only driver of identity switches, so the tracked identity
+     cannot be mid-switch here. */
+  fd_adminctl_get_identity_resp_t resp;
+  resp.version = FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION;
+  memcpy( resp.identity_pubkey, ctx->identity_pubkey, 32UL );
+
+  fd_adminctl_complete_response( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS, &resp, sizeof(resp) );
 }
 
 /* The process of adding an authorized voter to the validator must be
@@ -607,6 +667,7 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<ctx->sign_av_keyswitch_cnt; i++ ) {
         fd_keyswitch_t * sign = ctx->sign_av_keyswitch[ i ];
         memcpy( sign->bytes, keypair, 64UL );
+        sign->param = FD_KEYSWITCH_PARAM_AV_ADD;
         FD_COMPILER_MFENCE();
         sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
@@ -644,6 +705,7 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
     }
     case FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED: {
       memcpy( tower->bytes, keypair+32UL, 32UL );
+      tower->param = FD_KEYSWITCH_PARAM_AV_ADD;
       FD_COMPILER_MFENCE();
       tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -744,53 +806,63 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
    referencing an authorized voter index before the sign tile drops the
    corresponding key.
 
-   Vote signing is synchronous (the tower busy-waits for the sign tile
-   reply) and keyswitch processing runs during housekeeping, between
-   frags, so there are never in-flight vote signing requests outstanding
-   while keys change.  Once the tower clears its authorized voter map it
-   can no longer emit a signing request referencing a removed voter, so
-   clearing the sign tiles afterwards is safe.  All transitions are
-   linear and in forward order.
+   Clearing the tower map prevents new vote transactions from referencing
+   a removed voter, but transactions already published to TxSend may still
+   do so.  The tower therefore reports its final output sequence after
+   draining its local publish queue.  TxSend processes every tower message
+   through that sequence and synchronously waits for each signing response
+   before acknowledging the drain.  Only then is it safe to clear the sign
+   tiles.  All transitions are linear and in forward order.
 
    Unlike add-authorized-voter, removal cannot fail on the tile side: it
    is unconditional and idempotent (clearing an empty set succeeds). */
 
 /* State 0: UNLOCKED
    The validator is not currently in the process of switching keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED             (0UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED               (0UL)
 
 /* State 1: LOCKED
    Some client to the validator has requested to remove all authorized
    voters.  To do so, it acquired an exclusive lock on the validator to
    prevent the removal potentially being interleaved with another
    client. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED               (1UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED                 (1UL)
 
 /* State 2: TOWER_TILE_REQUESTED
    The tower tile has been notified to clear its authorized voter set.
    It is cleared first so it stops preparing vote transactions with any
    authorized voter before the sign tiles drop the keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED (2UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED   (2UL)
 
 /* State 3: TOWER_TILE_CLEARED
    The tower tile confirmed it cleared its authorized voter map.  At
    this point the validator will only prepare vote transactions signed
    by the identity key. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED   (3UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED     (3UL)
 
-/* State 4: SIGN_TILE_REQUESTED
+/* State 4: TXSEND_FLUSH_REQUESTED
+   TxSend has been notified to process every tower message through the
+   sequence at which the tower stopped producing votes. */
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED (4UL)
+
+/* State 5: TXSEND_FLUSHED
+   TxSend confirmed that all vote transactions which could reference an
+   authorized voter have finished signing. */
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED         (5UL)
+
+/* State 6: SIGN_TILE_REQUESTED
    All sign tiles have been notified to clear their authorized voter
    keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED  (4UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED    (6UL)
 
-/* State 5: SIGN_TILE_CLEARED
+/* State 7: SIGN_TILE_CLEARED
    All sign tiles confirmed they cleared (and securely zeroed) their
    authorized voter keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED    (5UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED      (7UL)
 
-/* State 6: UNLOCK_REQUESTED
+/* State 8: UNLOCK_REQUESTED
    The client requests that the tower tile release the lock. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED     (6UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED       (8UL)
 
 static void
 poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
@@ -811,8 +883,9 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED: {
+      tower->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
       FD_COMPILER_MFENCE();
-      tower->state = FD_KEYSWITCH_STATE_CLEAR_PENDING;
+      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
       *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED;
       FD_LOG_INFO(( "Requesting tower tile to clear authorized voter key set..." ));
@@ -828,10 +901,31 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED: {
+      fd_keyswitch_t * txsend = ctx->txsend_av_keyswitch;
+      FD_COMPILER_MFENCE();
+      txsend->param = tower->result;
+      FD_COMPILER_MFENCE();
+      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      FD_COMPILER_MFENCE();
+      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED;
+      FD_LOG_INFO(( "Requesting TxSend drain in-flight authorized voter signing requests..." ));
+      break;
+    }
+    case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED: {
+      if( FD_LIKELY( ctx->txsend_av_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED;
+        FD_LOG_INFO(( "TxSend authorized voter signing requests drained..." ));
+      } else {
+        FD_SPIN_PAUSE();
+      }
+      break;
+    }
+    case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED: {
       for( ulong i=0UL; i<ctx->sign_av_keyswitch_cnt; i++ ) {
         fd_keyswitch_t * sign = ctx->sign_av_keyswitch[ i ];
+        sign->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
         FD_COMPILER_MFENCE();
-        sign->state = FD_KEYSWITCH_STATE_CLEAR_PENDING;
+        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
       }
       *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED;
@@ -936,6 +1030,10 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       remove_all_authorized_voters( ctx, slot_idx, payload, payload_sz );
       *charge_busy = 1;
       break;
+    case FD_ADMINCTL_CMD_GET_IDENTITY:
+      get_identity( ctx, slot_idx, payload, payload_sz );
+      *charge_busy = 1;
+      break;
     default:
       FD_LOG_WARNING(( "unexpected adminctl cmd %lu", cmd_id ));
       fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
@@ -983,6 +1081,7 @@ fd_topo_run_tile_t fd_tile_admin = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

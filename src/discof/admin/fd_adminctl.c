@@ -279,9 +279,13 @@ fd_adminctl_poll( fd_adminctl_t * adminctl,
 }
 
 void
-fd_adminctl_complete( fd_adminctl_t * adminctl,
-                      ulong           slot_id,
-                      ulong           result ) {
+fd_adminctl_complete_response( fd_adminctl_t * adminctl,
+                               ulong           slot_id,
+                               ulong           result,
+                               void const *    resp,
+                               ulong           resp_sz ) {
+
+  if( FD_UNLIKELY( resp_sz>FD_ADMINCTL_PAYLOAD_MAX ) ) FD_LOG_CRIT(( "bad resp_sz %lu", resp_sz ));
 
   fd_adminctl_slot_t * slot          = fd_adminctl_slot_laddr( adminctl, slot_id );
   ulong                state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
@@ -289,16 +293,28 @@ fd_adminctl_complete( fd_adminctl_t * adminctl,
   if( FD_UNLIKELY( fd_adminctl_state( state_pid_seq )!=FD_ADMINCTL_STATE_PROCESSING ) ) FD_LOG_ERR(( "adminctl complete without processing command" ));
 
   fd_memzero_explicit( slot->payload, slot->payload_sz );
-  slot->result = result;
+  if( FD_UNLIKELY( resp_sz ) ) memcpy( slot->payload, resp, resp_sz );
+  slot->payload_sz = resp_sz;
+  slot->result     = result;
   if( FD_UNLIKELY( FD_ATOMIC_CAS( &slot->state_pid_seq,
                                   state_pid_seq,
                                   fd_adminctl_state_update( state_pid_seq, FD_ADMINCTL_STATE_DONE ) )!=state_pid_seq ) )
     FD_LOG_ERR(( "invariant violation: adminctl_complete state update failed" ));
 }
 
+void
+fd_adminctl_complete( fd_adminctl_t * adminctl,
+                      ulong           slot_id,
+                      ulong           result ) {
+  fd_adminctl_complete_response( adminctl, slot_id, result, NULL, 0UL );
+}
+
 ulong
-fd_adminctl_wait( fd_adminctl_t * adminctl,
-                  ulong           slot_id ) {
+fd_adminctl_wait_response( fd_adminctl_t * adminctl,
+                           ulong           slot_id,
+                           void *          resp,
+                           ulong           resp_max,
+                           ulong *         resp_sz_out ) {
 
   fd_adminctl_slot_t * slot = fd_adminctl_slot_laddr( adminctl, slot_id );
 
@@ -319,7 +335,11 @@ fd_adminctl_wait( fd_adminctl_t * adminctl,
     }
 
     if( FD_LIKELY( state==FD_ADMINCTL_STATE_DONE ) ) {
-      ulong result = slot->result;
+      ulong result  = slot->result;
+      ulong resp_sz = fd_ulong_min( slot->payload_sz, FD_ADMINCTL_PAYLOAD_MAX );
+      if( FD_UNLIKELY( resp ) ) memcpy( resp, slot->payload, fd_ulong_min( resp_sz, resp_max ) );
+      if( FD_UNLIKELY( resp_sz_out ) ) *resp_sz_out = resp_sz;
+      fd_memzero_explicit( slot->payload, resp_sz );
       if( FD_LIKELY( FD_ATOMIC_CAS( &slot->state_pid_seq,
                                     state_pid_seq,
                                     fd_adminctl_state_update( state_pid_seq, FD_ADMINCTL_STATE_FREE ) )==state_pid_seq ) ) {
@@ -328,4 +348,10 @@ fd_adminctl_wait( fd_adminctl_t * adminctl,
     }
     FD_SPIN_PAUSE();
   }
+}
+
+ulong
+fd_adminctl_wait( fd_adminctl_t * adminctl,
+                  ulong           slot_id ) {
+  return fd_adminctl_wait_response( adminctl, slot_id, NULL, 0UL, NULL );
 }

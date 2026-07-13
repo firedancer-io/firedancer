@@ -2349,7 +2349,7 @@ privileged_init( fd_topo_t const *      topo,
   };
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
   fd_http_server_listen( ctx->http, tile->rpc.listen_addr, tile->rpc.listen_port );
-  FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port ));
+  FD_LOG_NOTICE(( "rpc server listening at %shttp://" FD_IP4_ADDR_FMT ":%u%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port, fd_log_style_normal() ));
 }
 
 static inline fd_rpc_out_t

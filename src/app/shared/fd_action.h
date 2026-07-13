@@ -32,6 +32,7 @@ union fdctl_args {
 
   struct {
     int drain_output_fd;
+    int full;
   } watch;
 
   struct {
@@ -44,15 +45,26 @@ union fdctl_args {
     int     require_vote_history;
     int     force;
     uchar const * keypair;
+    char    name[ 64UL ];
   } set_identity;
 
   struct {
     uchar const * keypair;
+    char    name[ 64UL ];
   } add_authorized_voter;
+
+  struct {
+    char name[ 64UL ];
+  } get_identity;
+
+  struct {
+    int clean;
+  } ps;
 
   struct {
     int  parent_pipefd;
     int  no_watch;
+    int  full_watch;
     int  no_configure;
     int  no_init_workspaces;
     int  no_agave;
@@ -91,6 +103,7 @@ union fdctl_args {
 
   struct {
     char name[ 13UL ];
+    uint freq;
   } flame;
 
   struct {

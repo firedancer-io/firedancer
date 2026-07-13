@@ -54,7 +54,7 @@ write_wq_cpumask( fd_cpuset_t const * cpuset ) {
   fd_cpu_isolation_format_mask( mask, sizeof(mask), cpuset );
   ulong mask_len = strlen( mask );
 
-  FD_LOG_NOTICE(( "RUN: `echo \"%s\" > " WQ_CPUMASK_PATH "`", mask ));
+  FD_LOG_NOTICE(( "%sRUN: `echo \"%s\" > " WQ_CPUMASK_PATH "`%s", fd_log_style_dim(), mask, fd_log_style_normal() ));
 
   int fd = open( WQ_CPUMASK_PATH, O_WRONLY );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(" WQ_CPUMASK_PATH ") failed (%i-%s)", errno, fd_io_strerror( errno ) ));

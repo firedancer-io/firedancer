@@ -137,7 +137,9 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
 
 fd_acc_t *
 fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
-                                   fd_pubkey_t const * pubkey );
+                                   fd_pubkey_t const * pubkey,
+                                   int *               from_parent_copy,
+                                   int *               pd_write_this_slot );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
 

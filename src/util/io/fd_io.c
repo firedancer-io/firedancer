@@ -700,6 +700,108 @@ fd_io_strsignal( int sig ) {
   return "unknown";
 }
 
+char const *
+fd_io_strsignal_name( int sig ) {
+  switch( sig ) {
+  case 0              : return "success";
+  case SIGHUP         : return "SIGHUP";
+  case SIGINT         : return "SIGINT";
+  case SIGQUIT        : return "SIGQUIT";
+  case SIGILL         : return "SIGILL";
+  case SIGTRAP        : return "SIGTRAP";
+  case SIGABRT        : return "SIGABRT";
+  case SIGBUS         : return "SIGBUS";
+  case SIGFPE         : return "SIGFPE";
+  case SIGKILL        : return "SIGKILL";
+  case SIGUSR1        : return "SIGUSR1";
+  case SIGSEGV        : return "SIGSEGV";
+  case SIGUSR2        : return "SIGUSR2";
+  case SIGPIPE        : return "SIGPIPE";
+  case SIGALRM        : return "SIGALRM";
+  case SIGTERM        : return "SIGTERM";
+#if defined(SIGSTKFLT)
+  case SIGSTKFLT      : return "SIGSTKFLT";
+#elif defined(SIGEMT)
+  case SIGEMT         : return "SIGEMT";
+#endif
+  case SIGCHLD        : return "SIGCHLD";
+  case SIGCONT        : return "SIGCONT";
+  case SIGSTOP        : return "SIGSTOP";
+  case SIGTSTP        : return "SIGTSTP";
+  case SIGTTIN        : return "SIGTTIN";
+  case SIGTTOU        : return "SIGTTOU";
+  case SIGURG         : return "SIGURG";
+  case SIGXCPU        : return "SIGXCPU";
+  case SIGXFSZ        : return "SIGXFSZ";
+  case SIGVTALRM      : return "SIGVTALRM";
+  case SIGPROF        : return "SIGPROF";
+#if defined(SIGWINCH)
+  case SIGWINCH       : return "SIGWINCH";
+#endif
+#if defined(SIGPOLL)
+  case SIGPOLL        : return "SIGPOLL";
+#endif
+#if defined(SIGPWR)
+  case SIGPWR         : return "SIGPWR";
+#endif
+  case SIGSYS         : return "SIGSYS";
+  default: break;
+  }
+
+  return "unknown";
+}
+
+char const *
+fd_io_strsignal_desc( int sig ) {
+  switch( sig ) {
+  case 0              : return "success";
+  case SIGHUP         : return "Hangup";
+  case SIGINT         : return "Interrupt";
+  case SIGQUIT        : return "Quit";
+  case SIGILL         : return "Illegal instruction";
+  case SIGTRAP        : return "Trace/breakpoint trap";
+  case SIGABRT        : return "Aborted";
+  case SIGBUS         : return "Bus error";
+  case SIGFPE         : return "Arithmetic exception";
+  case SIGKILL        : return "Killed";
+  case SIGUSR1        : return "User defined signal 1";
+  case SIGSEGV        : return "Segmentation fault";
+  case SIGUSR2        : return "User defined signal 2";
+  case SIGPIPE        : return "Broken pipe";
+  case SIGALRM        : return "Alarm clock";
+  case SIGTERM        : return "Terminated";
+#if defined(SIGSTKFLT)
+  case SIGSTKFLT      : return "Stack fault";
+#elif defined(SIGEMT)
+  case SIGEMT         : return "Emulator trap";
+#endif
+  case SIGCHLD        : return "Child process status";
+  case SIGCONT        : return "Continued";
+  case SIGSTOP        : return "Stopped (signal)";
+  case SIGTSTP        : return "Stopped";
+  case SIGTTIN        : return "Stopped (tty input)";
+  case SIGTTOU        : return "Stopped (tty output)";
+  case SIGURG         : return "Urgent I/O condition";
+  case SIGXCPU        : return "CPU time limit exceeded";
+  case SIGXFSZ        : return "File size limit exceeded";
+  case SIGVTALRM      : return "Virtual timer expired";
+  case SIGPROF        : return "Profiling timer expired";
+#if defined(SIGWINCH)
+  case SIGWINCH       : return "Window changed";
+#endif
+#if defined(SIGPOLL)
+  case SIGPOLL        : return "I/O possible";
+#endif
+#if defined(SIGPWR)
+  case SIGPWR         : return "Power failure";
+#endif
+  case SIGSYS         : return "Bad system call";
+  default: break;
+  }
+
+  return "unknown";
+}
+
 #elif FD_LOG_STYLE==1 /* generic embedded target */
 
 FD_FN_UNUSED static inline void _unused( void ) {} /* required due to -Wpedantic */

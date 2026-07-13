@@ -39,6 +39,7 @@ ifdef FD_HAS_THREADS
 # fdctl commands
 $(call add-objs,commands/run_agave,fd_fdctl)
 $(call add-objs,commands/set_identityh,fd_fdctl)
+$(call add-objs,commands/get_identityh,fd_fdctl)
 
 $(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco fd_choreo agave_validator fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version,-lstdc++)
 

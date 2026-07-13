@@ -115,7 +115,7 @@ init_param_list( sysctl_param_t const * list ) {
     switch( p->mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<(p->value) ) ) {
-          FD_LOG_NOTICE(( "RUN: `echo \"%lu\" > %s`", p->value, p->path ) );
+          FD_LOG_NOTICE(( "%sRUN: `echo \"%lu\" > %s`%s", fd_log_style_dim(), p->value, p->path, fd_log_style_normal() ));
           if( FD_UNLIKELY( -1==fd_file_util_write_ulong( p->path, p->value ) ) )
             FD_LOG_ERR(( "could not set kernel parameter `%s` to %lu (%i-%s)", p->path, p->value, errno, fd_io_strerror( errno ) ));
         }

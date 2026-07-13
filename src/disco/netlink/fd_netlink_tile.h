@@ -27,6 +27,8 @@ struct fd_netlink_neigh4_solicit_link {
 
 typedef struct fd_netlink_neigh4_solicit_link fd_netlink_neigh4_solicit_link_t;
 
+#define FD_NETLINK_ROUTE4_SYNC_SIG (1UL<<63)
+
 struct fdctl_config;
 
 FD_PROTOTYPES_BEGIN
@@ -56,6 +58,16 @@ fd_netlink_neigh4_solicit( fd_netlink_neigh4_solicit_link_t * link,
   ulong seq = link->seq;
   ulong sig = (ulong)ip4_addr | ( (ulong)if_idx<<32 );
   fd_mcache_publish( link->mcache, link->depth, seq, sig, 0UL, 0UL, 0UL, 0UL, tspub_comp );
+  link->seq = fd_seq_inc( seq, 1UL );
+}
+
+/* fd_netlink_route4_sync requests a full route table sync. */
+
+static inline void
+fd_netlink_route4_sync( fd_netlink_neigh4_solicit_link_t * link,
+                        ulong                              tspub_comp ) {
+  ulong seq = link->seq;
+  fd_mcache_publish( link->mcache, link->depth, seq, FD_NETLINK_ROUTE4_SYNC_SIG, 0UL, 0UL, 0UL, 0UL, tspub_comp );
   link->seq = fd_seq_inc( seq, 1UL );
 }
 

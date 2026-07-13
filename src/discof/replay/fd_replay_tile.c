@@ -258,9 +258,10 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
-  bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
-  bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
-  bank->accdb_fork_id     = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
+  bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   ulong new_epoch  = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, slot, NULL );
   ulong root_epoch = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, ctx->published_root_slot, NULL );
@@ -334,6 +335,19 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   ctx->metrics.slots_total++;
   ctx->metrics.transactions_total = bank->f.parent_txn_count + bank->f.txn_count;
+
+  /* Caught up once replay completes a slot within a few slots of the
+     cluster tip.  Require the tip to have advanced a few times first so
+     a brief view of the tip right after boot does not count. */
+  if( FD_UNLIKELY( !ctx->caught_up && !is_initial &&
+                   ctx->catch_up_tip_advance_cnt>=12UL &&
+                   ctx->catch_up_max_fec_slot<slot+3UL ) ) {
+    ctx->caught_up = 1;
+    double boot_secs = (double)(fd_log_wallclock()-ctx->boot_timestamp_nanos)/1e9;
+    FD_LOG_NOTICE(( "caught up to cluster at slot %s%lu%s %s(%.1f seconds since boot)%s",
+                    fd_log_style_bold(), slot, fd_log_style_normal(),
+                    fd_log_style_dim(), boot_secs, fd_log_style_normal() ));
+  }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
@@ -550,9 +564,10 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
 
   ctx->leader_bank->f.slot = slot;
 
-  ctx->leader_bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
-  ctx->leader_bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
-  ctx->leader_bank->accdb_fork_id     = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
+  ctx->leader_bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
+  ctx->leader_bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -1050,6 +1065,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
 
@@ -1160,6 +1176,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
     bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+    bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
     ulong snapshot_slot = bank->f.slot;
 
@@ -2203,6 +2220,13 @@ process_fec_complete( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* Track the cluster tip: the highest slot seen in FEC sets from the
+     network (leader FECs are our own blocks, not evidence of the tip). */
+  if( FD_LIKELY( !is_leader_fec && ( ctx->catch_up_max_fec_slot==ULONG_MAX || shred->slot>ctx->catch_up_max_fec_slot ) ) ) {
+    ctx->catch_up_max_fec_slot = shred->slot;
+    ctx->catch_up_tip_advance_cnt++;
+  }
+
   if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
@@ -2750,6 +2774,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+
+  ctx->caught_up                = 0;
+  ctx->catch_up_max_fec_slot    = ULONG_MAX;
+  ctx->catch_up_tip_advance_cnt = 0UL;
+  ctx->boot_timestamp_nanos     = tile->replay.boot_timestamp_nanos;
   ctx->leader_bank = NULL;
 
   ctx->block_id_len = tile->replay.max_live_slots;

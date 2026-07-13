@@ -9,6 +9,7 @@
 
 import cpp
 import fd_topo_run_tile
+import filter
 
 predicate usesSeccompPolicy(FdTopoRunTileVariable tileVar) {
   exists(Function populateAllowedSeccompPolicyFunction |
@@ -44,6 +45,7 @@ predicate isRelevantTile(FdTopoRunTileVariable tileVar) {
 
 from FdTopoRunTileVariable tileVar
 where
+  included(tileVar.getLocation()) and
   not usesSeccompPolicy(tileVar) and
   isRelevantTile(tileVar)
 select tileVar,

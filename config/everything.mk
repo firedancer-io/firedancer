@@ -15,6 +15,18 @@ LOCAL_MKS?=$(shell $(FIND) -L src -type f -name Local.mk)
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
+# x86 Linux shadow stack (see with-security.mk).  Evaluated here
+# because everything.mk parses after all machine/extra fragments, so
+# FD_HAS_X86/FD_HAS_LINUX are finally known.
+ifdef FD_HAS_SECURITY
+ifdef FD_HAS_X86
+ifdef FD_HAS_LINUX
+CPPFLAGS+=-fcf-protection=return
+LDFLAGS_EXE+=-Wl,-z,shstk
+endif
+endif
+endif
+
 # Auxiliary rules that should not set up dependencies
 AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend env
 
