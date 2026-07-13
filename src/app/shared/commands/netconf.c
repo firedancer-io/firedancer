@@ -3,6 +3,7 @@
 #include "../fd_bootinfo.h"
 
 #include "../../../waltz/ip/fd_fib4.h"
+#include "../../../disco/net/fd_net_tile.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../util/pod/fd_pod_format.h"
@@ -22,15 +23,22 @@ netconf_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "netbase workspace not found" ));
   }
   fd_topo_wksp_t * netbase = &topo->workspaces[ wksp_id ];
+  ulong net_wksp_id = fd_topo_find_wksp( topo, "net" );
+  if( FD_UNLIKELY( net_wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "net workspace not found" ));
+  fd_topo_wksp_t * net_wksp = &topo->workspaces[ net_wksp_id ];
 
   ulong tile_id = fd_topo_find_tile( topo, "netlnk", 0UL );
   if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
     FD_LOG_ERR(( "netlnk tile not found" ));
   }
   fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
+  ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
+  if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+  fd_topo_tile_t * net_tile = &topo->tiles[ net_tile_id ];
 
   fd_bootinfo_check_layout( config );
-  fd_topo_join_workspace( topo, netbase, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  fd_topo_join_workspace( topo, netbase,  FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  fd_topo_join_workspace( topo, net_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   puts( "\nINTERFACES\n" );
   fd_netdev_tbl_join_t netdev[1];
@@ -40,13 +48,13 @@ netconf_cmd_fn( args_t *   args,
 
   puts( "\nIPv4 ROUTES (main)\n" );
   fd_fib4_t fib4_main[1];
-  FD_TEST( fd_fib4_join( fib4_main, fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id ) ) );
+  FD_TEST( fd_net_tile_fib4_join( fib4_main, topo, net_tile, 1 ) );
   fd_fib4_fprintf( fib4_main, stdout );
   fd_fib4_leave( fib4_main );
 
   puts( "\nIPv4 ROUTES (local)\n" );
   fd_fib4_t fib4_local[1];
-  FD_TEST( fd_fib4_join( fib4_local, fd_topo_obj_laddr( topo, tile->netlink.fib4_local_obj_id ) ) );
+  FD_TEST( fd_net_tile_fib4_join( fib4_local, topo, net_tile, 0 ) );
   fd_fib4_fprintf( fib4_local, stdout );
   fd_fib4_leave( fib4_local );
 

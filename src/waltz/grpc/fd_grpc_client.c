@@ -893,14 +893,16 @@ fd_grpc_h2_rst_stream( fd_h2_conn_t *   conn,
                        fd_h2_stream_t * h2_stream,
                        uint             error_code,
                        int              closed_by ) {
+  fd_grpc_client_t * client = conn->ctx;
   if( closed_by==1 ) {
-    FD_LOG_WARNING(( "Server terminated request stream_id=%u (%u-%s)",
-                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+    FD_LOG_WARNING(( "server %s%.*s%s terminated request %s(%u-%s)%s",
+                     fd_log_style_bold(), (int)client->host_len, client->host, fd_log_style_normal(),
+                     fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   } else {
-    FD_LOG_WARNING(( "Stream failed stream_id=%u (%u-%s)",
-                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+    FD_LOG_WARNING(( "request to server %s%.*s%s failed %s(%u-%s)%s",
+                     fd_log_style_bold(), (int)client->host_len, client->host, fd_log_style_normal(),
+                     fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   }
-  fd_grpc_client_t *    client = conn->ctx;
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
   fd_grpc_client_stream_release( client, stream );

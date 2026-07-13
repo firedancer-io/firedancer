@@ -7,7 +7,6 @@
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
-#include "../../waltz/ip/fd_fib4.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
 
@@ -177,31 +176,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap = {
   .footprint = neigh4_hmap_footprint,
   .align     = neigh4_hmap_align,
   .new       = neigh4_hmap_new,
-};
-
-static ulong
-fib4_footprint( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  return fd_fib4_footprint( VAL("route_max"), VAL("route_peer_max") );
-}
-
-static ulong
-fib4_align( fd_topo_t const *     topo FD_FN_UNUSED,
-            fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_fib4_align();
-}
-
-static void
-fib4_new( fd_topo_t const *     topo,
-           fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_fib4_new( fd_topo_obj_laddr( topo, obj->id ), VAL("route_max"), VAL("route_peer_max"), VAL("route_peer_seed") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_fib4 = {
-  .name      = "fib4",
-  .footprint = fib4_footprint,
-  .align     = fib4_align,
-  .new       = fib4_new,
 };
 
 static ulong

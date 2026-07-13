@@ -8,6 +8,7 @@
 #include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../ballet/hex/fd_hex.h"
+#include "../../tango/tempo/fd_tempo.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
@@ -38,6 +39,8 @@
 #define FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH  (2UL)
 #define FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS (3UL)
 
+#define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
+
 #define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
 struct fd_event_client {
@@ -66,6 +69,9 @@ struct fd_event_client {
 
   int defer_disconnect;
   ulong consecutive_failure_count;
+
+  long last_stream_send_ticks;
+  long heartbeat_ticks;
 
   int auth_send_pending;
 
@@ -212,6 +218,8 @@ fd_event_client_new( void *                 shmem,
 
   client->defer_disconnect = INT_MAX;
   client->consecutive_failure_count = 7UL; /* Start high, so if server is down we don't keep retrying on boot */
+  client->last_stream_send_ticks = 0L;
+  client->heartbeat_ticks = (long)(fd_tempo_tick_per_ns( NULL )*(double)FD_EVENT_CLIENT_HEARTBEAT_NANOS);
 
   client->circq = circq;
   client->rng = rng;
@@ -686,7 +694,7 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   fd_event_client_t * client = app_ctx;
 
   if( FD_UNLIKELY( resp->h2_status!=200 ) ) {
-    FD_LOG_WARNING(( "Event gRPC request failed (HTTP status %u)", resp->h2_status ));
+    FD_LOG_WARNING(( "telemetry server request failed %s(HTTP status %u)%s", fd_log_style_dim(), resp->h2_status, fd_log_style_normal() ));
     client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
     return;
   }
@@ -700,28 +708,28 @@ fd_event_client_grpc_rx_end( void *                app_ctx,
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
     switch( request_ctx ) {
     case FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE:
-      FD_LOG_WARNING(( "Event authentication failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server authentication failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
       return;
     case FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS:
-      FD_LOG_WARNING(( "Event stream failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server event stream failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
       return;
     default:
-      FD_LOG_WARNING(( "Event gRPC request failed (gRPC status %u-%s): %.*s",
-                       resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
-                       (int)resp->grpc_msg_len, resp->grpc_msg ));
+      FD_LOG_WARNING(( "telemetry server request failed: %.*s %s(%u-%s)%s",
+                       (int)resp->grpc_msg_len, resp->grpc_msg,
+                       fd_log_style_dim(), resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ), fd_log_style_normal() ));
       client->defer_disconnect = DISCONNECT_REASON_TRANSPORT_FAILED;
       return;
     }
   }
 
   if( request_ctx==FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS ) {
-    FD_LOG_INFO(( "Event gRPC stream ended gracefully" ));
+    FD_LOG_INFO(( "telemetry server event stream ended gracefully" ));
     client->defer_disconnect = DISCONNECT_REASON_PEER_CLOSED;
   }
 }
@@ -760,18 +768,32 @@ tx( fd_event_client_t * client,
         1 /* streaming */ );
     if( FD_UNLIKELY( !client->event_stream ) ) return; /* transient; retry next poll */
     fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
+    client->last_stream_send_ticks = fd_tickcount();
     *charge_busy = 1;
     return;
   }
 
   ulong msg_sz;
   uchar const * msg = fd_circq_cursor_advance( client->circq, &msg_sz );
-  if( FD_LIKELY( !msg ) ) return;
+  if( FD_LIKELY( !msg ) ) {
+    /* Nothing to send.  If the stream has been quiet long enough that an
+       intermediary proxy might kill it, send a zero-length
+       StreamEventsRequest to heartbeat. */
+    long now_ticks = fd_tickcount();
+    if( FD_UNLIKELY( now_ticks-client->last_stream_send_ticks>client->heartbeat_ticks ) ) {
+      if( FD_LIKELY( fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, (uchar const *)"", 0UL ) ) ) {
+        client->last_stream_send_ticks = now_ticks;
+        *charge_busy = 1;
+      }
+    }
+    return;
+  }
 
   int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
   if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
 
   client->metrics.events_sent++;
+  client->last_stream_send_ticks = fd_tickcount();
   *charge_busy = 1;
 }
 

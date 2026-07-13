@@ -103,6 +103,7 @@ union fdctl_args {
 
   struct {
     char name[ 13UL ];
+    uint freq;
   } flame;
 
   struct {

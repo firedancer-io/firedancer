@@ -7,9 +7,11 @@
 #include "../fd_disco_base.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../waltz/xdp/fd_xdp1.h"
+#include "../../waltz/ip/fd_fib4.h"
 
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
+struct fd_topo_tile;
 
 /* Helpers for consumers of net tile RX packets */
 
@@ -113,6 +115,15 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
 void
 fd_topos_net_tile_finish( fd_topo_t * topo,
                           ulong       net_kind_id );
+
+/* fd_net_tile_fib4_join returns a pointer to the fib4 object a remote
+   net tile's address space.  Intended for diagnostics only. */
+
+fd_fib4_t *
+fd_net_tile_fib4_join( fd_fib4_t *                 out,
+                       fd_topo_t const *           topo,
+                       struct fd_topo_tile const * net_tile,
+                       int                         main_table );
 
 #if defined(__linux__)
 

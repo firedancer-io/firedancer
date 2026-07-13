@@ -310,7 +310,8 @@ fd_config_fill( fd_config_t * config,
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
   config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
-  config->log.level_flush1   = parse_log_level( config->log.level_flush );
+  if( FD_UNLIKELY( !strcmp( config->log.level_flush, "NONE" ) ) ) config->log.level_flush1 = 8;
+  else                                                            config->log.level_flush1 = parse_log_level( config->log.level_flush );
   if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
   if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
   if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));

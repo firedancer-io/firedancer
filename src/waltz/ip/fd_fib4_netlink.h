@@ -6,6 +6,7 @@
 #if defined(__linux__)
 
 #include "fd_fib4.h"
+#include "fd_iproute.h"
 #include "fd_netlink1.h"
 
 /* FD_FIB_NETLINK_* gives error codes for netlink import operations. */
@@ -17,6 +18,26 @@
 #define FD_FIB_NETLINK_ERR_SPACE (4) /* fib is too small */
 
 FD_PROTOTYPES_BEGIN
+
+/* Translates one RTM_{NEW,DEL}ROUTE message to an fd_iproute_msg_t.
+   Returns 1 if the netlink msg was translated, and 0 otherwise (the
+   message did not match table_id and was ignored). */
+
+int
+fd_fib4_netlink_translate( struct nlmsghdr const * msg_hdr,
+                           uint                    table_id,
+                           fd_iproute_msg_t *      route );
+
+typedef int (*fd_fib4_netlink_route_fn_t)( void * arg, fd_iproute_msg_t const * route );
+
+/* fd_fib4_netlink_dump_table dumps a table and invokes fn once per
+   accepted route. */
+
+int
+fd_fib4_netlink_dump_table( fd_netlink_t *             netlink,
+                            uint                       table_id,
+                            fd_fib4_netlink_route_fn_t fn,
+                            void *                     arg );
 
 /* fd_fib4_netlink_load_table mirrors a route table from netlink to fib.
    The route table is requested via RTM_GETROUTE,NLM_F_REQUEST|NLM_F_DUMP.

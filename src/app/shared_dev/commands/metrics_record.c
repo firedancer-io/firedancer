@@ -98,6 +98,7 @@ metrics_record_cmd_fn( args_t *      args,
   if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) ) FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT,  &sa, NULL ) ) ) FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  fd_bootinfo_adopt( config );
   reconstruct_topo( config, args->metrics_record.topo );
 
   fd_bootinfo_check_layout( config );
