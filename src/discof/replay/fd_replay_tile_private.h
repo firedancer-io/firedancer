@@ -97,7 +97,6 @@ struct fd_replay_tile {
 
   fd_hash_t expected_bank_hash;
 
-  ulong            blockhash_seed;
   ulong            reasm_seed;
   fd_reasm_t     * reasm;
   fd_reasm_fec_t * reasm_evicted; /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */

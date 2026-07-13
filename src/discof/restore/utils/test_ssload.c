@@ -338,189 +338,124 @@ test_vote_accounts( fd_snapshot_manifest_t * manifest ) {
   manifest->vote_accounts_len = FD_VOTE_ACCOUNTS_MAX + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* vote_accounts epoch_credits_history_len exceeds max. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = FD_EPOCH_CREDITS_MAX + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
   /* vote_accounts_len exceeds runtime max. */
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
   manifest->vote_accounts_len = FD_RUNTIME_MAX_VOTE_ACCOUNTS + 1UL;
   FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
-  /* epoch_stakes vote_stakes_len exceeds runtime max. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = FD_RUNTIME_MAX_VOTE_ACCOUNTS + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
-  /* epoch_stakes vote_stakes_len exceeds max. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = FD_EPOCH_VOTE_STAKES_MAX + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
-  /* epoch_stakes epoch_credits_history_len exceeds max. */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = FD_EPOCH_CREDITS_MAX + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
-
   FD_LOG_NOTICE(( "... pass" ));
 }
 
 static void
-test_epoch_credits_downcasting( fd_snapshot_manifest_t * manifest ) {
+test_epoch_credits_downcasting( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "testing epoch credits downcasting" ));
 
-  /* Valid epoch credits (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 2UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = 100UL;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->vote_accounts[0].epoch_credits[1].epoch        = 2UL;
-  manifest->vote_accounts[0].epoch_credits[1].credits      = 200UL;
-  manifest->vote_accounts[0].epoch_credits[1].prev_credits = 100UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  /* The epoch_credits downcast bounds are now enforced by
+     fd_ssload_apply_vote_stakes (not VALIDATE_MANIFEST, since the
+     manifest no longer carries epoch_credits arrays).  Set up a tiny
+     banks+bank and drive the T-1 epoch_credits path directly with local
+     vote-stakes records carrying the same numeric cases. */
 
-  /* Epoch at USHORT_MAX boundary (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = 100UL;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  ulong max_banks = 16UL;
+  ulong max_forks =  4UL;
+  ulong max_stake = 64UL;
+  ulong max_vote  = 64UL;
+  ulong seed      = 42UL;
 
-  /* Credits delta at UINT_MAX boundary (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = (ulong)UINT_MAX;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
+                                              max_stake, max_vote );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
+                                          banks_footprint, 2UL );
+  FD_TEST( banks_mem );
 
-  /* Epoch exceeds USHORT_MAX (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX + 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = 100UL;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
+                                                    max_stake, max_vote,
+                                                    0 /* larger_max_cost_per_block */, seed ) );
+  FD_TEST( banks );
 
-  /* Credits delta exceeds UINT_MAX (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  fd_bank_t * bank = fd_banks_init_bank( banks );
+  FD_TEST( bank );
 
-  /* Prev credits delta exceeds UINT_MAX (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 2UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = 100UL;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->vote_accounts[0].epoch_credits[1].epoch        = 2UL;
-  manifest->vote_accounts[0].epoch_credits[1].credits      = 200UL;
-  manifest->vote_accounts[0].epoch_credits[1].prev_credits = (ulong)UINT_MAX + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  /* Drive a single T-1 vote-stakes record through the epoch_credits
+     downcast path.  epoch_idx=t_1_idx=1 exercises the T-1 branch. */
+# define APPLY_VS(rec) ( fd_ssload_records_reset( banks, bank ),                  \
+                         fd_ssload_apply_vote_stakes( bank, 0UL /* epoch */,      \
+                                                      1UL /* epoch_idx */,        \
+                                                      1UL /* t_1_idx */,          \
+                                                      0UL /* t_2_idx */,          \
+                                                      0   /* has_t_2 */, &(rec) ) )
 
-  /* Credits below base (vote_accounts path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->vote_accounts_len = 1UL;
-  manifest->vote_accounts[0].epoch_credits_history_len = 2UL;
-  manifest->vote_accounts[0].epoch_credits[0].epoch        = 1UL;
-  manifest->vote_accounts[0].epoch_credits[0].credits      = 600UL;
-  manifest->vote_accounts[0].epoch_credits[0].prev_credits = 500UL;
-  manifest->vote_accounts[0].epoch_credits[1].epoch        = 2UL;
-  manifest->vote_accounts[0].epoch_credits[1].credits      = 400UL;
-  manifest->vote_accounts[0].epoch_credits[1].prev_credits = 500UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  fd_snapshot_manifest_vote_stakes_t rec;
 
-  /* Valid epoch credits (epoch_stakes path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = 100UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  /* Valid epoch credits. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 2UL;
+  rec.epoch_credits[0].epoch        = 1UL;
+  rec.epoch_credits[0].credits      = 100UL;
+  rec.epoch_credits[0].prev_credits = 0UL;
+  rec.epoch_credits[1].epoch        = 2UL;
+  rec.epoch_credits[1].credits      = 200UL;
+  rec.epoch_credits[1].prev_credits = 100UL;
+  FD_TEST( APPLY_VS( rec )==0 );
 
-  /* Epoch at USHORT_MAX boundary (epoch_stakes path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  /* Epoch at USHORT_MAX boundary. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 1UL;
+  rec.epoch_credits[0].epoch        = (ulong)USHORT_MAX;
+  rec.epoch_credits[0].credits      = 100UL;
+  rec.epoch_credits[0].prev_credits = 0UL;
+  FD_TEST( APPLY_VS( rec )==0 );
 
-  /* Credits delta at UINT_MAX boundary (epoch_stakes path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+  /* Credits delta at UINT_MAX boundary. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 1UL;
+  rec.epoch_credits[0].epoch        = 1UL;
+  rec.epoch_credits[0].credits      = (ulong)UINT_MAX;
+  rec.epoch_credits[0].prev_credits = 0UL;
+  FD_TEST( APPLY_VS( rec )==0 );
 
-  /* Epoch exceeds USHORT_MAX (epoch_stakes path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = (ulong)USHORT_MAX + 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  /* Epoch exceeds USHORT_MAX. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 1UL;
+  rec.epoch_credits[0].epoch        = (ulong)USHORT_MAX + 1UL;
+  rec.epoch_credits[0].credits      = 100UL;
+  rec.epoch_credits[0].prev_credits = 0UL;
+  FD_TEST( APPLY_VS( rec )==-1 );
 
-  /* Credits delta exceeds UINT_MAX (epoch_stakes path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  /* Credits delta exceeds UINT_MAX. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 1UL;
+  rec.epoch_credits[0].epoch        = 1UL;
+  rec.epoch_credits[0].credits      = (ulong)UINT_MAX + 1UL;
+  rec.epoch_credits[0].prev_credits = 0UL;
+  FD_TEST( APPLY_VS( rec )==-1 );
 
-  /* Prev credits delta exceeds UINT_MAX (epoch_stakes path). */
-  fd_memset( manifest, 0, sizeof(*manifest) );
-  setup_valid_manifest_base( manifest );
-  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits_history_len = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].epoch        = 1UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].credits      = 100UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[0].prev_credits = 0UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].epoch        = 2UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].credits      = 200UL;
-  manifest->epoch_stakes[0].vote_stakes[0].epoch_credits[1].prev_credits = (ulong)UINT_MAX + 1UL;
-  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+  /* Prev credits delta exceeds UINT_MAX. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 2UL;
+  rec.epoch_credits[0].epoch        = 1UL;
+  rec.epoch_credits[0].credits      = 100UL;
+  rec.epoch_credits[0].prev_credits = 0UL;
+  rec.epoch_credits[1].epoch        = 2UL;
+  rec.epoch_credits[1].credits      = 200UL;
+  rec.epoch_credits[1].prev_credits = (ulong)UINT_MAX + 1UL;
+  FD_TEST( APPLY_VS( rec )==-1 );
+
+  /* Credits below base. */
+  fd_memset( &rec, 0, sizeof(rec) );
+  rec.epoch_credits_history_len = 2UL;
+  rec.epoch_credits[0].epoch        = 1UL;
+  rec.epoch_credits[0].credits      = 600UL;
+  rec.epoch_credits[0].prev_credits = 500UL;
+  rec.epoch_credits[1].epoch        = 2UL;
+  rec.epoch_credits[1].credits      = 400UL;
+  rec.epoch_credits[1].prev_credits = 500UL;
+  FD_TEST( APPLY_VS( rec )==-1 );
+
+# undef APPLY_VS
+
+  fd_wksp_free_laddr( banks_mem );
 
   FD_LOG_NOTICE(( "... pass" ));
 }
@@ -563,31 +498,44 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   uchar pubkey_a[32]; fd_memset( pubkey_a, 0xAA, 32 );
   uchar vote_a[32];   fd_memset( vote_a,   0xA1, 32 );
-  manifest->stake_delegations_len = 1UL;
-  fd_memcpy( manifest->stake_delegations[0].stake_pubkey, pubkey_a, 32 );
-  fd_memcpy( manifest->stake_delegations[0].vote_pubkey,  vote_a,   32 );
-  manifest->stake_delegations[0].stake_delegation   = 1000UL;
-  manifest->stake_delegations[0].activation_epoch   = 0UL;
-  manifest->stake_delegations[0].deactivation_epoch = ULONG_MAX;
+  manifest->stake_delegations_len       = 1UL;
+  manifest->epoch_stakes[1].total_stake = 5000UL;
+  manifest->vote_accounts_len           = 1UL;
+
+  fd_snapshot_manifest_stake_delegation_t deleg_a;
+  fd_memset( &deleg_a, 0, sizeof(deleg_a) );
+  fd_memcpy( deleg_a.stake_pubkey, pubkey_a, 32 );
+  fd_memcpy( deleg_a.vote_pubkey,  vote_a,   32 );
+  deleg_a.stake_delegation   = 1000UL;
+  deleg_a.activation_epoch   = 0UL;
+  deleg_a.deactivation_epoch = ULONG_MAX;
 
   uchar pubkey_x[32]; fd_memset( pubkey_x, 0xBB, 32 );
   uchar ident_x[32];  fd_memset( ident_x,  0xB1, 32 );
-  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,     pubkey_x, 32 );
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity, ident_x,  32 );
-  manifest->epoch_stakes[1].vote_stakes[0].stake      = 5000UL;
-  manifest->epoch_stakes[1].vote_stakes[0].commission = 10;
-  manifest->epoch_stakes[1].total_stake               = 5000UL;
+  fd_snapshot_manifest_vote_stakes_t vs_x;
+  fd_memset( &vs_x, 0, sizeof(vs_x) );
+  fd_memcpy( vs_x.vote,     pubkey_x, 32 );
+  fd_memcpy( vs_x.identity, ident_x,  32 );
+  vs_x.stake      = 5000UL;
+  vs_x.commission = 10;
 
   /* Also add a new_votes entry (vote account with stake==0). */
   uchar nv_pubkey_a[32]; fd_memset( nv_pubkey_a, 0xE1, 32 );
-  manifest->vote_accounts_len = 1UL;
-  fd_memcpy( manifest->vote_accounts[0].vote_account_pubkey, nv_pubkey_a, 32 );
-  manifest->vote_accounts[0].stake = 0UL;
+  fd_snapshot_manifest_vote_account_full_t va_a;
+  fd_memset( &va_a, 0, sizeof(va_a) );
+  fd_memcpy( va_a.vote_account_pubkey, nv_pubkey_a, 32 );
+  va_a.stake = 0UL;
 
-  /* First apply: simulate initial full snapshot load. */
+  /* First apply: simulate initial full snapshot load.  Apply scalars,
+     reset records, then drive each record through the apply helpers. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  fd_ssload_records_reset( banks, bank );
+  fd_ssload_apply_delegation( banks, &deleg_a );
+  fd_ssload_apply_vote_account( bank, &va_a );
+  FD_TEST( fd_ssload_apply_vote_stakes( bank, 0UL /* epoch */, 1UL /* epoch_idx */,
+                                        1UL /* t_1_idx */, 0UL /* t_2_idx */,
+                                        0 /* has_t_2 */, &vs_x )==0 );
 
   /* Verify entries from first apply are present. */
   fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
@@ -609,31 +557,44 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   uchar pubkey_b[32]; fd_memset( pubkey_b, 0xCC, 32 );
   uchar vote_b[32];   fd_memset( vote_b,   0xC1, 32 );
-  manifest->stake_delegations_len = 1UL;
-  fd_memcpy( manifest->stake_delegations[0].stake_pubkey, pubkey_b, 32 );
-  fd_memcpy( manifest->stake_delegations[0].vote_pubkey,  vote_b,   32 );
-  manifest->stake_delegations[0].stake_delegation   = 2000UL;
-  manifest->stake_delegations[0].activation_epoch   = 0UL;
-  manifest->stake_delegations[0].deactivation_epoch = ULONG_MAX;
+  manifest->stake_delegations_len       = 1UL;
+  manifest->epoch_stakes[1].total_stake = 7000UL;
+  manifest->vote_accounts_len           = 1UL;
+
+  fd_snapshot_manifest_stake_delegation_t deleg_b;
+  fd_memset( &deleg_b, 0, sizeof(deleg_b) );
+  fd_memcpy( deleg_b.stake_pubkey, pubkey_b, 32 );
+  fd_memcpy( deleg_b.vote_pubkey,  vote_b,   32 );
+  deleg_b.stake_delegation   = 2000UL;
+  deleg_b.activation_epoch   = 0UL;
+  deleg_b.deactivation_epoch = ULONG_MAX;
 
   uchar pubkey_y[32]; fd_memset( pubkey_y, 0xDD, 32 );
   uchar ident_y[32];  fd_memset( ident_y,  0xD1, 32 );
-  manifest->epoch_stakes[1].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,     pubkey_y, 32 );
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity, ident_y,  32 );
-  manifest->epoch_stakes[1].vote_stakes[0].stake      = 7000UL;
-  manifest->epoch_stakes[1].vote_stakes[0].commission = 5;
-  manifest->epoch_stakes[1].total_stake               = 7000UL;
+  fd_snapshot_manifest_vote_stakes_t vs_y;
+  fd_memset( &vs_y, 0, sizeof(vs_y) );
+  fd_memcpy( vs_y.vote,     pubkey_y, 32 );
+  fd_memcpy( vs_y.identity, ident_y,  32 );
+  vs_y.stake      = 7000UL;
+  vs_y.commission = 5;
 
   uchar nv_pubkey_b[32]; fd_memset( nv_pubkey_b, 0xE2, 32 );
-  manifest->vote_accounts_len = 1UL;
-  fd_memcpy( manifest->vote_accounts[0].vote_account_pubkey, nv_pubkey_b, 32 );
-  manifest->vote_accounts[0].stake = 0UL;
+  fd_snapshot_manifest_vote_account_full_t va_b;
+  fd_memset( &va_b, 0, sizeof(va_b) );
+  fd_memcpy( va_b.vote_account_pubkey, nv_pubkey_b, 32 );
+  va_b.stake = 0UL;
 
   /* Second apply: simulate back-to-back retry after a failed first
-     attempt.  Stale entries must be cleared. */
+     attempt.  records_reset must clear Manifest A's stale entries so
+     only Manifest B's remain. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  fd_ssload_records_reset( banks, bank );
+  fd_ssload_apply_delegation( banks, &deleg_b );
+  fd_ssload_apply_vote_account( bank, &va_b );
+  FD_TEST( fd_ssload_apply_vote_stakes( bank, 0UL /* epoch */, 1UL /* epoch_idx */,
+                                        1UL /* t_1_idx */, 0UL /* t_2_idx */,
+                                        0 /* has_t_2 */, &vs_y )==0 );
 
   /* Stake delegations: pubkey_A must have been removed, pubkey_B must
      be present, exactly 1 entry (not 2). */
@@ -701,7 +662,7 @@ main( int     argc,
   test_hard_forks( manifest );
   test_stake_delegations( manifest );
   test_vote_accounts( manifest );
-  test_epoch_credits_downcasting( manifest );
+  test_epoch_credits_downcasting( wksp );
   test_recover_back_to_back_reset( wksp, manifest );
 
   fd_wksp_free_laddr( manifest );
