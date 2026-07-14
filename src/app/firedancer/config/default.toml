@@ -966,7 +966,7 @@ telemetry = true
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage.
-    gigantic_page_threshold_mib = 128
+    gigantic_page_threshold_mib = 512
 
 # The network stack is provided by net tiles, which are responsible for
 # sending and receiving packets on the network.
