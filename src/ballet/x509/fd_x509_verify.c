@@ -1,0 +1,174 @@
+#include "fd_x509_verify.h"
+#include "../ed25519/fd_ed25519.h"
+#include "../secp256r1/fd_secp256r1.h"
+#include <string.h>
+
+/* fd_x509_verify_sig verifies a certificate's signature given the
+   issuer's public key.  Returns 0 on success, non-zero on failure. */
+
+static int
+fd_x509_verify_sig( fd_x509_cert_info_t const * cert,
+                    uchar const *               issuer_pubkey,
+                    ulong                       issuer_pubkey_len,
+                    uchar                       issuer_key_type ) {
+
+  switch( cert->sig_alg ) {
+
+  case FD_X509_SIG_ED25519: {
+    if( FD_UNLIKELY( issuer_key_type != FD_X509_KEY_ED25519 ) ) return -1;
+    if( FD_UNLIKELY( issuer_pubkey_len != 32 ) ) return -1;
+    if( FD_UNLIKELY( cert->sig_len != 64 ) ) return -1;
+
+    fd_sha512_t sha512[1];
+    int err = fd_ed25519_verify( cert->tbs, cert->tbs_len, cert->sig, issuer_pubkey, sha512 );
+    return ( err == FD_ED25519_SUCCESS ) ? 0 : -1;
+  }
+
+  case FD_X509_SIG_ECDSA_SHA256: {
+    if( FD_UNLIKELY( issuer_key_type != FD_X509_KEY_ECDSA_P256 ) ) return -1;
+    if( FD_UNLIKELY( issuer_pubkey_len != 65 ) ) return -1;
+
+    uchar raw_sig[64];
+    if( FD_UNLIKELY( fd_x509_decode_ecdsa_sig( cert->sig, cert->sig_len, raw_sig, 32 ) ) )
+      return -1;
+
+    uchar compressed_pk[33];
+    if( FD_UNLIKELY( fd_x509_ec_point_compress( issuer_pubkey, 32, compressed_pk ) ) )
+      return -1;
+
+    fd_sha256_t sha256[1];
+    int err = fd_secp256r1_verify_no_low_s( cert->tbs, cert->tbs_len, raw_sig, compressed_pk, sha256 );
+    return ( err == FD_SECP256R1_SUCCESS ) ? 0 : -1;
+  }
+
+  default:
+    return 1;  /* unsupported sig algorithm */
+  }
+}
+
+/* Implemented as specified by RFC 5280 Section 6.1.3. */
+int
+fd_x509_verify_chain( uchar const * const *        chain_der,
+                      ulong const *                chain_der_sz,
+                      ulong                        chain_cnt,
+                      fd_x509_ca_store_t const *   ca_store,
+                      char const *                 hostname,
+                      ulong                        hostname_len ) {
+
+  if( FD_UNLIKELY( chain_cnt == 0 ) ) return FD_X509_VERIFY_ERR_CHAIN_BREAK;
+  if( FD_UNLIKELY( chain_cnt > FD_X509_CHAIN_MAX ) ) return FD_X509_VERIFY_ERR_CHAIN_TOO_LONG;
+
+  /* Parse all certificates in the chain */
+  fd_x509_cert_info_t certs[ FD_X509_CHAIN_MAX ] = {0};
+
+  for( ulong i = 0; i < chain_cnt; i++ ) {
+    if( FD_UNLIKELY( fd_x509_cert_parse( chain_der[i], chain_der_sz[i], &certs[i] ) ) )
+      return FD_X509_VERIFY_ERR_PARSE;
+  }
+
+  /* Verify hostname against the leaf certificate's SAN */
+  if( hostname && hostname_len ) {
+    if( FD_UNLIKELY( !fd_x509_san_matches( &certs[0], hostname, hostname_len ) ) )
+      return FD_X509_VERIFY_ERR_HOSTNAME;
+  }
+
+  /* Walk the chain, verify each certificate's signature */
+  for( ulong i = 0; i < chain_cnt; i++ ) {
+
+    /* A trust anchor for this cert's issuer completes the path.  Peers
+       routinely append cross-signatures leading up to some older root,
+       so the certs beyond this point are not ours to walk: they chain to
+       an anchor we do not need and may not even hold. */
+
+    ulong idx      = 0UL;
+    int   anchored = 0;
+    for( fd_x509_ca_entry_t const * ca;
+         !!( ca = fd_x509_ca_store_find_next( ca_store, certs[i].issuer, certs[i].issuer_len, &idx ) ); ) {
+      anchored = 1;
+
+      /* A name match is not a key match, so keep trying the remaining
+         anchors sharing this subject.  An unsupported algorithm, on the
+         other hand, is a property of the cert and not of the anchor. */
+
+      int sig_rc = fd_x509_verify_sig( &certs[i], ca->pubkey, ca->pubkey_len, ca->key_type );
+      if( FD_UNLIKELY( sig_rc > 0 ) ) return FD_X509_VERIFY_ERR_UNSUPPORTED;
+      if( !sig_rc )                   return FD_X509_VERIFY_OK;
+    }
+
+    /* Not anchored here, so the next cert in the chain must be the
+       issuer. */
+
+    if( FD_UNLIKELY( i + 1 >= chain_cnt ) )
+      return anchored ? FD_X509_VERIFY_ERR_SIG : FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;
+
+    if( FD_UNLIKELY( certs[i].issuer_len != certs[i+1].subject_len ||
+                     0 != memcmp( certs[i].issuer, certs[i+1].subject, certs[i].issuer_len ) ) )
+      return FD_X509_VERIFY_ERR_CHAIN_BREAK;
+
+    if( FD_UNLIKELY( !certs[i+1].is_ca ) )
+      return FD_X509_VERIFY_ERR_CA_FLAG;
+
+    int sig_rc = fd_x509_verify_sig( &certs[i], certs[i+1].pubkey, certs[i+1].pubkey_len, certs[i+1].key_type );
+    if( sig_rc < 0 )
+      return FD_X509_VERIFY_ERR_SIG;
+    if( sig_rc > 0 )
+      return FD_X509_VERIFY_ERR_UNSUPPORTED;
+  }
+
+  return FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR;  /* not reached */
+}
+
+int
+fd_x509_verify_tls_cert_msg( uchar const *              cert_msg,
+                             ulong                      cert_msg_sz,
+                             fd_x509_ca_store_t const * ca_store,
+                             char const *               hostname,
+                             ulong                      hostname_len ) {
+
+  uchar const * p   = cert_msg;
+  uchar const * end = cert_msg + cert_msg_sz;
+
+  /* certificate_request_context<0..2^8-1> */
+  if( FD_UNLIKELY( p+1 > end ) ) return FD_X509_VERIFY_ERR_PARSE;
+  ulong ctx_len = *p++;
+  if( FD_UNLIKELY( p+ctx_len > end ) ) return FD_X509_VERIFY_ERR_PARSE;
+  p += ctx_len;
+
+  /* certificate_list<0..2^24-1> */
+  if( FD_UNLIKELY( p+3 > end ) ) return FD_X509_VERIFY_ERR_PARSE;
+  ulong list_len = ( (ulong)p[0]<<16 ) | ( (ulong)p[1]<<8 ) | (ulong)p[2];
+  p += 3;
+  if( FD_UNLIKELY( p+list_len > end ) ) return FD_X509_VERIFY_ERR_PARSE;
+  uchar const * list_end = p + list_len;
+
+  uchar const * chain_der   [ FD_X509_CHAIN_MAX ];
+  ulong         chain_der_sz[ FD_X509_CHAIN_MAX ];
+  ulong         chain_cnt = 0UL;
+
+  while( p < list_end ) {
+    if( FD_UNLIKELY( chain_cnt >= FD_X509_CHAIN_MAX ) ) return FD_X509_VERIFY_ERR_CHAIN_TOO_LONG;
+
+    /* cert_data<1..2^24-1> */
+    if( FD_UNLIKELY( p+3 > list_end ) ) return FD_X509_VERIFY_ERR_PARSE;
+    ulong cert_len = ( (ulong)p[0]<<16 ) | ( (ulong)p[1]<<8 ) | (ulong)p[2];
+    p += 3;
+    if( FD_UNLIKELY( !cert_len || p+cert_len > list_end ) ) return FD_X509_VERIFY_ERR_PARSE;
+
+    chain_der   [ chain_cnt ] = p;
+    chain_der_sz[ chain_cnt ] = cert_len;
+    chain_cnt++;
+    p += cert_len;
+
+    /* extensions<0..2^16-1> */
+    if( FD_UNLIKELY( p+2 > list_end ) ) return FD_X509_VERIFY_ERR_PARSE;
+    ulong ext_len = ( (ulong)p[0]<<8 ) | (ulong)p[1];
+    p += 2;
+    if( FD_UNLIKELY( p+ext_len > list_end ) ) return FD_X509_VERIFY_ERR_PARSE;
+    p += ext_len;
+  }
+
+  if( FD_UNLIKELY( !chain_cnt ) ) return FD_X509_VERIFY_ERR_PARSE;
+
+  return fd_x509_verify_chain( chain_der, chain_der_sz, chain_cnt,
+                              ca_store, hostname, hostname_len );
+}
