@@ -1113,12 +1113,16 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
     txn_out->err.txn_err        = fd_cost_tracker_err_to_runtime_err( res );
   }
 
-  if( FD_LIKELY( runtime->status_cache && txn_out->accounts.nonce_idx_in_txn==ULONG_MAX ) ) {
+  if( FD_LIKELY( runtime->status_cache && txn_out->accounts.nonce_idx_in_txn==ULONG_MAX && txn_out->err.is_committable ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
        cache the same as any others, but this is only to serve RPC
        requests, they do not need to be in there for correctness as the
        nonce mechanism itself prevents double spend.  We skip this logic
-       entirely to simplify and improve performance of the txn cache. */
+       entirely to simplify and improve performance of the txn cache.
+
+       Cost tracker rejected transactions are also skipped: the block
+       is already dead, and skipping keeps the per slot insert count
+       bounded by the cost model, which sizes the txn cache. */
     fd_txncache_insert( runtime->status_cache, bank->txncache_fork_id, txn_out->details.blockhash.uc, txn_out->details.blake_txn_msg_hash.uc );
   }
 

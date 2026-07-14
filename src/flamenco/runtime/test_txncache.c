@@ -19,7 +19,7 @@ test0( uchar * scratch0,
        uchar * scratch1 ) {
   FD_LOG_NOTICE(( "TEST 0" ));
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0, 0UL ) );
   FD_TEST( shtc );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
@@ -46,18 +46,18 @@ void
 test_new_join( uchar * scratch0 ) {
   FD_LOG_NOTICE(( "TEST NEW" ));
 
-  FD_TEST( fd_txncache_shmem_new( NULL, 1UL, 1UL, 0UL )==NULL );          /* null shmem         */
-  FD_TEST( fd_txncache_shmem_new( (void *)0x1UL, 1UL, 1UL, 0UL )==NULL ); /* misaligned shmem   */
-  FD_TEST( fd_txncache_shmem_new( scratch0, 0UL, 1UL, 0UL )==NULL );  /* 0 max_live_slots */
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 0UL, 0UL )==NULL );  /* 0 max_txn_per_slot */
+  FD_TEST( fd_txncache_shmem_new( NULL, 1UL, 1UL, 0, 0UL )==NULL );          /* null shmem         */
+  FD_TEST( fd_txncache_shmem_new( (void *)0x1UL, 1UL, 1UL, 0, 0UL )==NULL ); /* misaligned shmem   */
+  FD_TEST( fd_txncache_shmem_new( scratch0, 0UL, 1UL, 0, 0UL )==NULL );  /* 0 max_live_slots */
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 0UL, 0, 0UL )==NULL );  /* 0 max_txn_per_slot */
 
-  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL, 0UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL, 0, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ), 0, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL, 0, 0UL ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL, 0, 0UL ) );
 
   FD_LOG_NOTICE(( "TEST JOIN" ));
 
@@ -71,7 +71,7 @@ test_advance_root( uchar * scratch0,
                    uchar * scratch1 ) {
   FD_LOG_NOTICE(( "TEST ADVANCE ROOT" ));
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0, 0UL ) );
   FD_TEST( shtc );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
@@ -109,7 +109,7 @@ test_purge_stale( uchar * scratch0,
      This gives:
        max_active_slots           = 155
        max_txnpages_per_blockhash = 1
-       max_txnpages               = 309
+       max_txnpages               = 155
        FD_TXNCACHE_TXNS_PER_PAGE  = 16384
 
      Create competing forks that insert transactions referencing an
@@ -117,7 +117,7 @@ test_purge_stale( uchar * scratch0,
      winner, pruning the loser.  After enough stale txns accumulate to
      fill the page, the next insert triggers purge_stale. */
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 4UL, 0, 0UL ) );
   FD_TEST( shtc );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
@@ -214,7 +214,7 @@ test_purge_stale_frees_pages( uchar * scratch0,
      with mostly stale txns, and then trigger purge.  The valid txns
      should compact into 1 page, freeing up 2 pages. */
 
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 256UL, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( scratch0, 4UL, 256UL, 0, 0UL ) );
   FD_TEST( shtc );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( scratch1, shtc ) );
   FD_TEST( tc );
@@ -291,7 +291,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT );
+  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT, 0 );
   ulong max_footprint_local = fd_txncache_footprint( FD_MAX_TXN_PER_SLOT );
 
   ulong max_footprint = fd_ulong_align_up( max_footprint_shmem, 4096UL ) + max_footprint_local;

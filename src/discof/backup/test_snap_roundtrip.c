@@ -16,10 +16,10 @@
 
 static fd_txncache_t *
 create_txncache( void ) {
-  ulong shmem_fp = fd_txncache_shmem_footprint( MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT );
+  ulong shmem_fp = fd_txncache_shmem_footprint( MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, 0 );
   void * shmem_raw = aligned_alloc( fd_txncache_shmem_align(), shmem_fp );
   FD_TEST( shmem_raw );
-  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, 1UL ) );
+  fd_txncache_shmem_t * shmem = fd_txncache_shmem_join( fd_txncache_shmem_new( shmem_raw, MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, 0, 1UL ) );
   FD_TEST( shmem );
 
   ulong ljoin_fp = fd_txncache_footprint( MAX_LIVE_SLOTS );
