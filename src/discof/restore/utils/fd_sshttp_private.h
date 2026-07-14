@@ -3,9 +3,10 @@
 
 #include "fd_sshttp.h"
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../waltz/tlsrec/fd_tlsrec_sock.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
+#include "../../../ballet/x509/fd_x509_verify.h"
 
 #define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
 
@@ -47,10 +48,14 @@ struct fd_sshttp_private {
   ulong resolved_slot;       /* effective slot from redirect filename */
   uchar resolved_hash[ 32 ]; /* binary hash from redirect filename */
 
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL *     ssl;
-#endif
+  fd_tls_t          tls;
+  fd_chacha_rng_t   rng[1];
+  fd_tlsrec_conn_t  tls_conn;
+
+  fd_x509_ca_store_t ca_store;
+  int                ca_store_loaded;
+
+  fd_tlsrec_sock_t  tls_sock[1];
 
   ulong content_len;
   ulong content_read;
