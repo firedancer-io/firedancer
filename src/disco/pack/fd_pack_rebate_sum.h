@@ -50,14 +50,19 @@ struct fd_pack_rebate {
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
 
-  fd_pack_rebate_entry_t writer_rebates[ 1UL ]; /* Actually writer_cnt, up to 1637 */
+  fd_pack_rebate_entry_t writer_rebates[ 1UL ]; /* Actually writer_cnt, up to FD_PACK_REBATE_MAX_ENTRIES */
 };
 typedef struct fd_pack_rebate fd_pack_rebate_t;
 
-#define FD_PACK_REBATE_MIN_SZ (sizeof(fd_pack_rebate_t)       -sizeof(fd_pack_rebate_entry_t))
-#define FD_PACK_REBATE_MAX_SZ (sizeof(fd_pack_rebate_t)+1636UL*sizeof(fd_pack_rebate_entry_t))
+/* Entries per report capped so a max-size report is exactly 65408
+   bytes (64 KiB - 128, one dcache slot), which keeps a deep
+   execle_pack link under a gigantic page boundary. */
+#define FD_PACK_REBATE_MAX_ENTRIES (1634UL)
 
-FD_STATIC_ASSERT( sizeof(fd_pack_rebate_t)+1636UL*sizeof(fd_pack_rebate_entry_t)<USHORT_MAX, rebate_depth );
+#define FD_PACK_REBATE_MIN_SZ (sizeof(fd_pack_rebate_t)-sizeof(fd_pack_rebate_entry_t))
+#define FD_PACK_REBATE_MAX_SZ (sizeof(fd_pack_rebate_t)+(FD_PACK_REBATE_MAX_ENTRIES-1UL)*sizeof(fd_pack_rebate_entry_t))
+
+FD_STATIC_ASSERT( sizeof(fd_pack_rebate_t)+(FD_PACK_REBATE_MAX_ENTRIES-1UL)*sizeof(fd_pack_rebate_entry_t)==65408UL, rebate_depth );
 
 
 FD_FN_PURE static inline ulong fd_pack_rebate_sum_align    ( void ) { return alignof(fd_pack_rebate_sum_t); }
@@ -100,10 +105,11 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
 
 /* fd_pack_rebate_sum_report generates a rebate report from the state of
    the current rebate information.  s must point to a valid local join.
-   out must point to a region of memory with at least USHORT_MAX bytes
-   of capacity.  Returns the number of bytes that were written, which
-   will be in [0, USHORT_MAX].  Updates the state of s so that
-   subsequent calls to this function will write new information. */
+   out must point to a region of memory with at least
+   FD_PACK_REBATE_MAX_SZ bytes of capacity.  Returns the number of bytes
+   that were written, which will be in [0, FD_PACK_REBATE_MAX_SZ].
+   Updates the state of s so that subsequent calls to this function will
+   write new information. */
 ulong
 fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
                            fd_pack_rebate_t     * out );
