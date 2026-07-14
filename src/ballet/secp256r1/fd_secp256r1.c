@@ -1,27 +1,15 @@
 #include "fd_secp256r1_private.h"
 
-int
-fd_secp256r1_verify( uchar const   msg[], /* msg_sz */
-                     ulong         msg_sz,
-                     uchar const   sig[ 64 ],
-                     uchar const   public_key[ 33 ],
-                     fd_sha256_t * sha ) {
-  fd_secp256r1_scalar_t r[1], s[1], u1[1], u2[1];
+static int
+fd_secp256k1_verify_inner( uchar const msg[], /* msg_sz */
+                           ulong       msg_sz,
+                           uchar const public_key[ 33 ],
+                           fd_secp256r1_scalar_t const * r,
+                           fd_secp256r1_scalar_t       * s,
+                           fd_sha256_t * sha ) {
+  fd_secp256r1_scalar_t u1[1], u2[1];
   fd_secp256r1_point_t pub[1], Rcmp[1];
-
-  /* Deserialize signature.
-     Note: we enforce 0 < r < n, 0 < s <= (n-1)/2.
-     The condition on s is required to avoid signature malleability. */
-  if( FD_UNLIKELY( !fd_secp256r1_scalar_frombytes( r, sig ) ) ) {
-    return FD_SECP256R1_FAILURE;
-  }
-  if( FD_UNLIKELY( !fd_secp256r1_scalar_frombytes_positive( s, sig+32 ) ) ) {
-    return FD_SECP256R1_FAILURE;
-  }
-  if( FD_UNLIKELY( fd_secp256r1_scalar_is_zero( r ) || fd_secp256r1_scalar_is_zero( s ) ) ) {
-    return FD_SECP256R1_FAILURE;
-  }
-
+  
   /* Deserialize public key. */
   if( FD_UNLIKELY( !fd_secp256r1_point_frombytes( pub, public_key ) ) ) {
     return FD_SECP256R1_FAILURE;
@@ -42,4 +30,49 @@ fd_secp256r1_verify( uchar const   msg[], /* msg_sz */
   }
 
   return FD_SECP256R1_FAILURE;
+}
+
+int
+fd_secp256r1_verify( uchar const   msg[], /* msg_sz */
+                     ulong         msg_sz,
+                     uchar const   sig[ 64 ],
+                     uchar const   public_key[ 33 ],
+                     fd_sha256_t * sha ) {
+  fd_secp256r1_scalar_t r[1], s[1];
+
+  /* Deserialize signature.
+     Note: we enforce 0 < r < n, 0 < s <= (n-1)/2.
+     The condition on s is required to avoid signature malleability. */
+  if( FD_UNLIKELY( !fd_secp256r1_scalar_frombytes( r, sig ) ) ) {
+    return FD_SECP256R1_FAILURE;
+  }
+  if( FD_UNLIKELY( !fd_secp256r1_scalar_frombytes_positive( s, sig+32 ) ) ) {
+    return FD_SECP256R1_FAILURE;
+  }
+  if( FD_UNLIKELY( fd_secp256r1_scalar_is_zero( r ) || fd_secp256r1_scalar_is_zero( s ) ) ) {
+    return FD_SECP256R1_FAILURE;
+  }
+
+  return fd_secp256k1_verify_inner( msg, msg_sz, public_key, r, s, sha );
+}
+
+int
+fd_secp256r1_verify_no_low_s( uchar const   msg[], /* msg_sz */
+                              ulong         msg_sz,
+                              uchar const   sig[ 64 ],
+                              uchar const   public_key[ 33 ],
+                              fd_sha256_t * sha ) {
+  fd_secp256r1_scalar_t r[1], s[1];
+
+  if( FD_UNLIKELY( !fd_secp256r1_scalar_frombytes( r, sig ) ) ) {
+    return FD_SECP256R1_FAILURE;
+  }
+  if( FD_UNLIKELY( !fd_secp256r1_scalar_frombytes( s, sig+32 ) ) ) {
+    return FD_SECP256R1_FAILURE;
+  }
+  if( FD_UNLIKELY( fd_secp256r1_scalar_is_zero( r ) || fd_secp256r1_scalar_is_zero( s ) ) ) {
+    return FD_SECP256R1_FAILURE;
+  }
+
+  return fd_secp256k1_verify_inner( msg, msg_sz, public_key, r, s, sha );
 }
