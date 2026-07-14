@@ -117,21 +117,27 @@ struct done_ele {
   uint            heap_right;
   uint            map_next;
   uint            map_prev;
-  /* In order to save space in the done_map and make this struct 32
-     bytes, we store a 32 bit validator-specific hash of the shred
-     signature.  If a malicious leader equivocates and produces two FEC
-     sets which have the same hash for us, a task which takes a decent
-     but doable amount of effort, the only impact is that we would
-     reject the shreds with SHRED_IGNORED instead of SHRED_EQUIVOC,
-     which is not a big deal.  It's documented that SHRED_EQUIVOC
-     detection is on a best-effort basis.  If we detect an equivocation
-     for this (slot, FEC set idx), sig_hash gets set to
-     SIG_HASH_EQUIVOC, and we start returning SHRED_IGNORED for any
-     non-repair shred for that (slot, FEC set idx). */
+  /* We store a 32 bit validator-specific hash of the shred signature.
+     If a malicious leader equivocates and produces two FEC sets which
+     have the same hash for us, a task which takes a decent but doable
+     amount of effort, the only impact is that we would reject the
+     shreds with SHRED_IGNORED instead of SHRED_EQUIVOC, which is not a
+     big deal.  It's documented that SHRED_EQUIVOC detection is on a
+     best-effort basis.  If we detect an equivocation for this (slot,
+     FEC set idx), sig_hash gets set to SIG_HASH_EQUIVOC, and we start
+     returning SHRED_IGNORED for any non-repair shred for that
+     (slot, FEC set idx). */
   uint           sig_hash;
+  /* Merkle root of the completed FEC set.  Used to distinguish a
+     signature-only mismatch (BP627: two valid signatures over the same
+     merkle root -- not equivocation, matches Agave semantics) from a
+     genuine equivocation (different merkle roots for the same
+     (slot, fec_set_idx)).  Populated on FEC set completion and on the
+     equivoc-detection path. */
+  uchar          merkle_root[32];
 };
 typedef struct done_ele done_ele_t;
-FD_STATIC_ASSERT( sizeof(done_ele_t)==32UL, done_ele_t );
+FD_STATIC_ASSERT( sizeof(done_ele_t)==64UL, done_ele_t );
 #define SIG_HASH_EQUIVOC UINT_MAX
 
 #define MAP_NAME              done_map
@@ -701,15 +707,47 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, _root, sizeof(fd_bmtree_node_t) );
 
     if( FD_UNLIKELY( equivoc_or_invalid ) ) {
-      /* It wasn't invalid, so it must be equivoc */
+      /* Signature-keyed ctx_map missed but (slot, fec_set_idx) was
+         already known.  Sigverify succeeded on the second signature, so
+         the shred is not invalid; it is either a genuine equivocation
+         (different merkle roots) or the BP627 case of two valid
+         signatures over the same merkle root.
+
+         Agave's check_merkle_root_consistency
+         (agave/ledger/src/blockstore.rs:3010) treats the same-merkle-
+         root case as "no conflict" and ingests both shreds.  We match
+         that semantics: if the reconstructed merkle root equals the
+         root recorded for the existing (slot, fec_set_idx), return
+         SHRED_IGNORED and do not stamp SIG_HASH_EQUIVOC.  Otherwise the
+         merkle roots genuinely differ and this is a real equivocation.
+
+         Look up the existing root: in-progress sets live in ctx_treap;
+         completed sets live in done_map. */
       ctx_list_ele_push_head( free_list, ctx, ctx_pool );
       resolver->free_list_cnt++;
-      /* We want to record that we've sigverified the shred somewhere so
-         that if an attacker sends it to us again, we don't have to
-         verify it again.  We do that by inserting it into the done_map
-         with SIG_HASH_EQUIVOC. */
+
       slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+
+      uchar const * existing_root = NULL;
+      set_ctx_t const * existing_ctx = ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool );
       done_ele_t * done = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
+      if( FD_LIKELY( existing_ctx ) )      existing_root = existing_ctx->root.hash;
+      else if( FD_LIKELY( done ) )         existing_root = done->merkle_root;
+
+      if( FD_LIKELY( existing_root && 0==memcmp( existing_root, _root->hash, 32UL ) ) ) {
+        /* Same merkle root under (slot, fec_set_idx) -- not
+           equivocation.  This is BP627's signer-side non-determinism
+           case; Agave ingests both.  Do not stamp SIG_HASH_EQUIVOC. */
+        return FD_FEC_RESOLVER_SHRED_IGNORED;
+      }
+
+      /* Genuine equivocation: merkle roots differ (or existing root not
+         available, e.g. because the completed done_ele was evicted from
+         done_map -- in which case we conservatively keep the existing
+         behavior). Record that we've sigverified the shred so that if
+         an attacker sends it again, we don't have to verify it again.
+         We do that by inserting it into the done_map with
+         SIG_HASH_EQUIVOC. */
       if( FD_LIKELY( done ) ) done->sig_hash = SIG_HASH_EQUIVOC;
       else {
         ensure_done_pool_free( done_pool, done_heap, done_map );
@@ -719,6 +757,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         done->key.slot    = shred->slot;
         done->key.fec_idx = shred->fec_set_idx;
         done->sig_hash    = SIG_HASH_EQUIVOC;
+        memcpy( done->merkle_root, _root->hash, 32UL );
 
         done_heap_ele_insert( done_heap, done, done_pool );
         done_map_ele_insert ( done_map,  done, done_pool );
@@ -822,6 +861,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     done->key.slot    = ctx->slot;
     done->key.fec_idx = ctx->fec_set_idx;
     done->sig_hash    = (uint)fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
+    memcpy( done->merkle_root, ctx->root.hash, 32UL );
 
     done_heap_ele_insert( done_heap, done, done_pool );
     done_map_ele_insert ( done_map,  done, done_pool );
