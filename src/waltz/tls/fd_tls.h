@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_tls_fd_tls_h
 
 #include "fd_tls_estate.h"
+#include "../../ballet/hmac/fd_hmac.h"
 
 /* fd_tls implements a subset of the TLS v1.3 (RFC 8446) handshake
    protocol.
@@ -161,16 +162,21 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 
    ctx is an arbitrary pointer that is provided as a callback argument.
    sig points to a 64 byte buffer where the implementor should store the
-   ed25519 signature of the payload.  Payload will point to a 130 byte
-   buffer containing the TLS 1.3 CertificateVerify payload.
+   ed25519 signature of the payload.  payload_sz is 98+Hash.length
+   bytes (130 for SHA-256, 146 for SHA-384).
 
    This function must not fail.  Lifetime of the payload buffer ends at
-   return. */
+   return.
+
+   May be NULL for clients that never present a client certificate.  In
+   that case, fd_tls rejects a server's CertificateRequest instead of
+   requesting a signature.  Servers must always install a signer. */
 
 typedef void
 (* fd_tls_sign_fn_t)( void *        ctx,
                       uchar         sig[ static 64 ],
-                      uchar const   payload[ static 130 ] );
+                      uchar const * payload,
+                      ulong         payload_sz );
 
 struct fd_tls_sign_vt {
   void *           ctx;
@@ -182,11 +188,30 @@ typedef struct fd_tls_sign_vt fd_tls_sign_t;
 static inline void
 fd_tls_sign( fd_tls_sign_t const * sign,
              uchar                 sig[ static 64 ],
-             uchar const           payload[ static 130 ] ) {
-  sign->sign_fn( sign->ctx, sig, payload );
+             uchar const *         payload,
+             ulong                 payload_sz ) {
+  sign->sign_fn( sign->ctx, sig, payload, payload_sz );
 }
 
 extern char const fd_tls13_cli_sign_prefix[ 98 ];
+
+/* fd_tls_cert_verify_fn_t is an optional callback invoked when a
+   server certificate chain is received during a client TLS handshake.
+   Allows the caller to validate the certificate chain (e.g. check
+   CA signatures, hostname matching).
+
+   cert_chain points to the raw TLS Certificate message payload
+   (after the certificate_request_context field).  cert_chain_sz
+   is the total size.  handshake is the estate pointer.
+
+   Returns 0 on success (chain is trusted).
+   Returns non-zero on failure (connection should be aborted). */
+
+typedef int
+(* fd_tls_cert_verify_fn_t)( void *        ctx,
+                             uchar const * cert_chain,
+                             ulong         cert_chain_sz,
+                             void const *  handshake );
 
 /* Public API *********************************************************/
 
@@ -196,11 +221,15 @@ extern char const fd_tls13_cli_sign_prefix[ 98 ];
 #define FD_TLS_HS_CONNECTED     ( 1) /* client, server */
 #define FD_TLS_HS_START         ( 2) /* client, server */
 #define FD_TLS_HS_WAIT_CERT     ( 3) /* client, server */
-#define FD_TLS_HS_WAIT_CV       ( 4) /* client, server */
-#define FD_TLS_HS_WAIT_FINISHED ( 5) /* client, server */
-#define FD_TLS_HS_WAIT_SH       ( 6) /* client */
-#define FD_TLS_HS_WAIT_EE       ( 7) /* client */
-#define FD_TLS_HS_WAIT_CERT_CR  ( 8) /* client */
+#define FD_TLS_HS_WAIT_CERT_VERIFY ( 4) /* client, server */
+#define FD_TLS_HS_WAIT_FINISHED    ( 5) /* client, server */
+#define FD_TLS_HS_WAIT_SH         ( 6) /* client */
+#define FD_TLS_HS_WAIT_ENC_EXT    ( 7) /* client */
+#define FD_TLS_HS_WAIT_CERT_CR    ( 8) /* client */
+
+/* Backwards compatibility */
+#define FD_TLS_HS_WAIT_CV FD_TLS_HS_WAIT_CERT_VERIFY
+#define FD_TLS_HS_WAIT_EE FD_TLS_HS_WAIT_ENC_EXT
 
 /* TLS encryption levels */
 
@@ -237,17 +266,24 @@ struct fd_tls {
   fd_tls_quic_tp_self_fn_t quic_tp_self_fn;
   fd_tls_quic_tp_peer_fn_t quic_tp_peer_fn;
 
-  /* key_{private,public}_key is an X25519 key pair.  During the TLS
+  /* Optional certificate verification callback (TCP client mode).
+     If non-NULL, called when the server's certificate chain is received
+     during the TLS handshake.  If the callback returns non-zero,
+     the handshake is aborted.  If NULL, no chain validation is done. */
+  fd_tls_cert_verify_fn_t cert_verify_fn;
+  void *                  cert_verify_ctx;
+
+  /* key_share_{private,public} is an X25519 key pair.  During the TLS
      handshake, it is used to establish symmetric encryption keys.
-     kex_private_key is an arbitrary 32 byte vector.  It is recommended
+     key_share_private is an arbitrary 32 byte vector.  It is recommended
      to generate a new X25519 key on startup from cryptographically
-     secure randomness. kex_public_key is the corresponding public key
+     secure randomness. key_share_public is the corresponding public key
      curve point derived via fd_x25519_public.
 
      Security notes:
      - May not be changed while conns are active. */
-  uchar kex_private_key[ 32 ];
-  uchar kex_public_key [ 32 ];
+  uchar key_share_private[ 32 ];
+  uchar key_share_public [ 32 ];
 
    /* Signing function holding the Ed25519 key pair that identifies the
       server.  During TLS handshakes, used to sign a transcript of the
@@ -276,6 +312,12 @@ struct fd_tls {
   uchar alpn[ 32 ];
   ulong alpn_sz;
 
+  /* Server Name Indication (SNI) for client mode (RFC 6066).
+     Set before starting a TLS client handshake.  Omitted when
+     server_name_len==0 (e.g. QUIC mode).  NUL terminated. */
+  char   server_name[ 254 ];
+  ushort server_name_len;
+
   /* Flags */
   ulong quic            :  1;
   ulong _flags_reserved : 63;
@@ -300,6 +342,8 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */
 #define FD_TLS_REASON_WRONG_PUBKEY    (11)  /* peer cert has different pubkey than expected */
 #define FD_TLS_REASON_ED25519_FAIL    (12)  /* Ed25519 signature validation failed */
+#define FD_TLS_REASON_NO_SIGNER       (13)  /* client auth requested, but no signer installed */
+#define FD_TLS_REASON_SECP256R1_FAIL  (14)  /* ECDSA P-256 signature validation failed */
 
 #define FD_TLS_REASON_CH_EXPECTED    (101)  /* wanted ClientHello, got another msg type */
 #define FD_TLS_REASON_CH_PARSE       (103)  /* failed to parse ClientHello */
@@ -322,13 +366,14 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_QUIC_TP_OVERSZ (306)  /* Buffer overflow in QUIC transport params callback */
 
 #define FD_TLS_REASON_CV_EXPECTED    (401)  /* wanted CertificateVerify, got another msg type */
-#define FD_TLS_REASON_CV_SIGALG      (402)  /* CertificateVerify sig is not Ed25519 */
+#define FD_TLS_REASON_CV_SIGALG      (402)  /* CertificateVerify sig alg doesn't match cert key type */
 #define FD_TLS_REASON_CV_PARSE       (404)  /* failed to parse CertificateVerify */
 #define FD_TLS_REASON_CV_ENCODE      (405)  /* failed to encode CertificateVerify */
 
 #define FD_TLS_REASON_CERT_CR_EXPECTED (501)  /* wanted Certificate or CertificateRequest, got another msg type */
 #define FD_TLS_REASON_CERT_CR_PARSE    (503)  /* failed to parse Certificate or CertificateRequest */
 
+#define FD_TLS_REASON_CERT_KEY_TYPE  (601)  /* unsupported certificate key type */
 #define FD_TLS_REASON_CERT_EXPECTED  (602)  /* wanted Certificate, got another msg type */
 #define FD_TLS_REASON_CERT_PARSE     (604)  /* failed to parse Certificate */
 #define FD_TLS_REASON_X509_PARSE     (605)  /* X.509 DER parse failed */
@@ -337,9 +382,14 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_CERT_CHAIN_EMPTY    (701)  /* cert chain contains no certs */
 #define FD_TLS_REASON_CERT_CHAIN_PARSE    (702)  /* failed to parse cert chain */
 
-#define FD_TLS_REASON_FINI_PARSE     (901)  /* invalid Finished message */
-#define FD_TLS_REASON_FINI_EXPECTED  (902)  /* wanted Finished, got another msg type */
-#define FD_TLS_REASON_FINI_FAIL      (904)  /* Finished data mismatch */
+#define FD_TLS_REASON_FINISHED_PARSE     (901)  /* invalid Finished message */
+#define FD_TLS_REASON_FINISHED_EXPECTED  (902)  /* wanted Finished, got another msg type */
+#define FD_TLS_REASON_FINISHED_FAIL      (904)  /* Finished data mismatch */
+
+/* Backwards compatibility */
+#define FD_TLS_REASON_FINI_PARSE    FD_TLS_REASON_FINISHED_PARSE
+#define FD_TLS_REASON_FINI_EXPECTED FD_TLS_REASON_FINISHED_EXPECTED
+#define FD_TLS_REASON_FINI_FAIL     FD_TLS_REASON_FINISHED_FAIL
 
 #define FD_TLS_REASON_ALPN_PARSE     (1001)  /* failed to parse ALPN */
 #define FD_TLS_REASON_ALPN_NEG       (1002)  /* ALPN negotiation failed */
@@ -408,32 +458,6 @@ fd_tls_handshake( fd_tls_t const *  tls,
   else
     return fd_tls_client_handshake( tls, &handshake->cli, record, record_sz, encryption_level );
 }
-
-/* fd_tls_hkdf_expand_label implements the TLS 1.3 HKDF-Expand function
-   with SHA-256.  Writes the resulting hash to out.  secret is a 32 byte
-   secret value.  label points to the label string.  label_sz is the
-   number of chars in label (not including terminating NUL).  context
-   points to the context byte array.  context_sz is the number of bytes
-   in context.
-
-   Constraints:
-
-     out   !=NULL
-     secret!=NULL
-     label_sz  ==0 || label  !=NULL
-     context_sz==0 || context!=NULL
-     1<=out_sz    <=32
-     0<=label_sz  <=64
-     0<=context_sz<=64 */
-
-void *
-fd_tls_hkdf_expand_label( uchar *       out,
-                          ulong         out_sz,
-                          uchar const   secret[ static 32 ],
-                          char const *  label,
-                          ulong         label_sz,
-                          uchar const * context,
-                          ulong         context_sz );
 
 FD_PROTOTYPES_END
 

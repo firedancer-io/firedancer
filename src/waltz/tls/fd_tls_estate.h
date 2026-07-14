@@ -3,6 +3,11 @@
 
 #include "../fd_waltz_base.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/sha512/fd_sha512.h"
+#include "fd_tls_cs.h"
+
+#define FD_TLS_KEY_ED25519    ((uchar)0)
+#define FD_TLS_KEY_ECDSA_P256 ((uchar)1)
 
 /* Base ***************************************************************/
 
@@ -20,7 +25,8 @@ struct fd_tls_estate_base {
 
 typedef struct fd_tls_estate_base fd_tls_estate_base_t;
 
-/* The transcript is a running hash over all handshake messages.  The
+/* Transcript-Hash (RFC 8446 Section 4.4.1)
+   The transcript is a running hash over all handshake messages.  The
    hash state depends on the current handshake progression.  The hash
    order is as follows:
 
@@ -84,9 +90,10 @@ FD_PROTOTYPES_END
    is in the order of ~3 seconds (conn timeout).  This requires some
    care to avoid memory exhaustion attacks.
 
-   For example, a default OpenSSL app uses a handshake state size of
-   about 10 KB (via multiple allocations on global heap).  Assuming 3
-   second conn timeout, and flood rate of 1 million ClientHello msg/s,
+   For example, an off-the-shelf TLS implementation uses a handshake
+   state size of about 10 KB (via multiple allocations on global heap).
+   Assuming 3 second conn timeout, and flood rate of 1 million
+   ClientHello msg/s,
    an attacker could indefinitely occupy ~30 GB of raw heap allocations!
    More concerning -- Global heap pressure will cause latent allocation
    failures in unrelated code, which might escalate to OOM kills.
@@ -135,7 +142,7 @@ struct fd_tls_estate_srv {
   uchar hello_retry : 1;
 
   fd_tls_transcript_t transcript;
-  uchar               client_hs_secret[32];
+  uchar               client_hs_traffic_secret[32];
   uchar               client_pubkey[32];
 };
 
@@ -190,15 +197,33 @@ struct fd_tls_estate_cli {
    Type of handshake object depends on is_server. */
   fd_tls_estate_base_t base;
 
-  uchar server_pubkey   [ 32 ];
-  uchar server_hs_secret[ 32 ];
-  uchar client_hs_secret[ 32 ];
-  uchar master_secret   [ 32 ];
+  uchar server_pubkey   [ 65 ];  /* {32,65} for {Ed25519,P256} uncompressed */
+  ulong server_pubkey_len;
+  uchar server_key_type;         /* FD_TLS_KEY_{...} */
+  ushort cipher_suite;           /* negotiated cipher suite */
+  uchar server_hs_traffic_secret[ 48 ]; /* {32,48} for SHA-{256,384} */
+  uchar client_hs_traffic_secret[ 48 ];
+  uchar master_secret   [ 48 ];
 
   uchar client_cert       : 1;  /* 0=anon  1=client auth */
   uchar server_pubkey_pin : 1;  /* if 1, require cert to match server_pubkey */
 
-  fd_sha256_t transcript;
+  /* TCP middlebox compat (RFC 8446 Section 4.1.2) */
+  uchar session_id[ 32 ];
+  uchar session_id_sz;
+
+  struct fd_tls_cs const * cs;
+
+  /* The transcript will accumulate as we perform the handshake, but we
+     don't yet know which cipher suite is going to be selected and which
+     hash it'll be using. So we maintain both a SHA-256 state (stored as the
+     active tag of the transcript union), and a pending SHA-384 state that
+     we can swap to if we end up deciding on SHA-384. */
+  union {
+    fd_sha256_t sha256;
+    fd_sha512_t sha384;
+  } transcript;
+  fd_sha512_t transcript_sha384_pending;
 };
 
 typedef struct fd_tls_estate_cli fd_tls_estate_cli_t;

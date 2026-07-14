@@ -82,8 +82,8 @@ LLVMFuzzerInitialize( int  *   argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1000U, 0UL ) );
 
-  for( ulong b=0; b<32UL; b++ ) tls_tmpl->kex_private_key[b] = fd_rng_uchar( rng );
-  fd_x25519_public( tls_tmpl->kex_public_key, tls_tmpl->kex_private_key );
+  for( ulong b=0; b<32UL; b++ ) tls_tmpl->key_share_private[b] = fd_rng_uchar( rng );
+  fd_x25519_public( tls_tmpl->key_share_public, tls_tmpl->key_share_private );
 
   static fd_tls_test_sign_ctx_t sign_ctx[1];
   fd_tls_test_sign_ctx( sign_ctx, rng );
@@ -104,8 +104,8 @@ _tls_valid_srv_hs_state[ 16 ] = {
   [FD_TLS_HS_CONNECTED    ] = 1,
   [FD_TLS_HS_START        ] = 1,
   [FD_TLS_HS_WAIT_CERT    ] = 1,
-  [FD_TLS_HS_WAIT_CV      ] = 1,
-  [FD_TLS_HS_WAIT_FINISHED] = 1
+  [FD_TLS_HS_WAIT_CERT_VERIFY] = 1,
+  [FD_TLS_HS_WAIT_FINISHED  ] = 1
 };
 
 static uchar
@@ -114,10 +114,10 @@ _tls_valid_cli_hs_state[ 16 ] = {
   [FD_TLS_HS_CONNECTED    ] = 1,
   [FD_TLS_HS_START        ] = 1,
   [FD_TLS_HS_WAIT_SH      ] = 1,
-  [FD_TLS_HS_WAIT_EE      ] = 1,
+  [FD_TLS_HS_WAIT_ENC_EXT ] = 1,
   [FD_TLS_HS_WAIT_CERT_CR ] = 1,
   [FD_TLS_HS_WAIT_CERT    ] = 1,
-  [FD_TLS_HS_WAIT_CV      ] = 1,
+  [FD_TLS_HS_WAIT_CERT_VERIFY] = 1,
   [FD_TLS_HS_WAIT_FINISHED] = 1
 };
 

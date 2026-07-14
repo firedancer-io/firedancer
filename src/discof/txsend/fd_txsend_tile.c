@@ -161,10 +161,11 @@ metrics_write( fd_txsend_tile_t * ctx ) {
 static void
 quic_tls_cv_sign( void *      signer_ctx,
                   uchar       signature[ static 64 ],
-                  uchar const payload[ static 130 ] ) {
+                  uchar const * payload,
+                  ulong         payload_sz ) {
   fd_txsend_tile_t * ctx = signer_ctx;
 
-  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void

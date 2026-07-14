@@ -498,10 +498,11 @@ privileged_init( fd_topo_t const *      topo,
 static void
 quic_tls_cv_sign( void *      signer_ctx,
                   uchar       signature[ static 64 ],
-                  uchar const payload[ static 130 ] ) {
+                  uchar const * payload,
+                  ulong         payload_sz ) {
   fd_quic_ctx_t * ctx = signer_ctx;
   fd_sha512_t * sha512 = fd_sha512_join( ctx->sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
+  fd_ed25519_sign( signature, payload, payload_sz, ctx->tls_pub_key, ctx->tls_priv_key, sha512 );
   fd_sha512_leave( sha512 );
 }
 

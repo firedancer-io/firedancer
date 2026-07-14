@@ -44,9 +44,10 @@ typedef struct fd_tls_test_sign_ctx fd_tls_test_sign_ctx_t;
 static void
 fd_tls_test_sign_sign( void *        _ctx,
                        uchar *       signature,
-                       uchar const * payload ) {
+                       uchar const * payload,
+                       ulong         payload_sz ) {
   fd_tls_test_sign_ctx_t * ctx = (fd_tls_test_sign_ctx_t *)_ctx;
-  fd_ed25519_sign( signature, payload, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+  fd_ed25519_sign( signature, payload, payload_sz, ctx->public_key, ctx->private_key, ctx->sha512 );
 }
 
 static FD_FN_UNUSED void
@@ -125,14 +126,14 @@ test_record_log( uchar const * record,
 
   char const * type = NULL;
   switch( *(uchar const *)record ) {
-  case FD_TLS_MSG_CLIENT_HELLO:       type = "ClientHello";         break;
-  case FD_TLS_MSG_SERVER_HELLO:       type = "ServerHello";         break;
-  case FD_TLS_MSG_ENCRYPTED_EXT:      type = "EncryptedExtensions"; break;
-  case FD_TLS_MSG_CERT:               type = "Certificate";         break;
-  case FD_TLS_MSG_CERT_VERIFY:        type = "CertificateVerify";   break;
-  case FD_TLS_MSG_CERT_REQ:           type = "CertificateRequest";  break;
-  case FD_TLS_MSG_FINISHED:           type = "Finished";            break;
-  case FD_TLS_MSG_NEW_SESSION_TICKET: type = "NewSessionTicket";    break;
+  case FD_TLS_MSG_CLIENT_HELLO:         type = "ClientHello";         break;
+  case FD_TLS_MSG_SERVER_HELLO:         type = "ServerHello";         break;
+  case FD_TLS_MSG_ENCRYPTED_EXTENSIONS: type = "EncryptedExtensions"; break;
+  case FD_TLS_MSG_CERTIFICATE:          type = "Certificate";         break;
+  case FD_TLS_MSG_CERTIFICATE_VERIFY:   type = "CertificateVerify";   break;
+  case FD_TLS_MSG_CERTIFICATE_REQUEST:  type = "CertificateRequest";  break;
+  case FD_TLS_MSG_FINISHED:             type = "Finished";            break;
+  case FD_TLS_MSG_NEW_SESSION_TICKET:   type = "NewSessionTicket";    break;
   default:
     FD_LOG_ERR(( "unknown TLS message type %u", *(uchar const *)record ));
   }

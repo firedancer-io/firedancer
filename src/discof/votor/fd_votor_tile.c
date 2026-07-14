@@ -313,11 +313,12 @@ quic_aio_tx( void *                    _ctx,
 static void
 quic_sign( void *      signer_ctx,
            uchar       signature[ static 64 ],
-           uchar const payload[ static 130 ] ) {
+           uchar const * payload,
+           ulong         payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
 
   fd_sha512_t * sha = fd_sha512_join( ctx->sha512 );
-  fd_ed25519_sign( signature, payload, 130UL, ctx->identity_keypair+32UL, ctx->identity_keypair, sha ); /* TODO keyguard */
+  fd_ed25519_sign( signature, payload, payload_sz, ctx->identity_keypair+32UL, ctx->identity_keypair, sha ); /* TODO keyguard */
   fd_sha512_leave( sha );
 }
 
