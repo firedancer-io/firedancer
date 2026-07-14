@@ -199,14 +199,14 @@ test_sysvar_stake_history_update_replaces_existing_epoch( fd_wksp_t * wksp ) {
   fd_memset( data, 0, sizeof(data) );
   FD_STORE( ulong, data, 3UL );
   fd_stake_history_entry_t * entries = fd_type_pun( data+8UL );
-  entries[0] = test_stake_history_entry( 9UL );
-  entries[1] = test_stake_history_entry( 5UL );
+  entries[0] = test_stake_history_entry( 3UL );
+  entries[1] = test_stake_history_entry( 2UL );
   entries[2] = test_stake_history_entry( 1UL );
   write_stake_history_account( env, data, sizeof(data),
                                fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
 
   fd_stake_history_entry_t replacement = {
-    .epoch        = 5UL,
+    .epoch        = 2UL,
     .effective    = 0x5555UL,
     .activating   = 0xaaaaUL,
     .deactivating = 0xffffUL
@@ -218,10 +218,10 @@ test_sysvar_stake_history_update_replaces_existing_epoch( fd_wksp_t * wksp ) {
   read_stake_history_view( env, acc, view );
 
   FD_TEST( view->len==3UL );
-  FD_TEST( view->entries[0].epoch==9UL );
-  FD_TEST( view->entries[1].epoch==5UL );
+  FD_TEST( view->entries[0].epoch==3UL );
+  FD_TEST( view->entries[1].epoch==2UL );
   FD_TEST( view->entries[2].epoch==1UL );
-  fd_stake_history_entry_t const * e = fd_sysvar_stake_history_query( view, 5UL );
+  fd_stake_history_entry_t const * e = fd_sysvar_stake_history_query( view, 2UL );
   FD_TEST( e );
   FD_TEST( e->effective==0x5555UL );
   FD_TEST( e->activating==0xaaaaUL );
@@ -239,11 +239,11 @@ test_sysvar_stake_history_update_inserts_descending( fd_wksp_t * wksp ) {
   fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
 
   fd_stake_history_entry_t entry;
-  entry = test_stake_history_entry( 10UL );
+  entry = test_stake_history_entry( 1UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
-  entry = test_stake_history_entry( 30UL );
+  entry = test_stake_history_entry( 3UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
-  entry = test_stake_history_entry( 20UL );
+  entry = test_stake_history_entry( 2UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
 
   fd_acc_t acc[1];
@@ -251,12 +251,12 @@ test_sysvar_stake_history_update_inserts_descending( fd_wksp_t * wksp ) {
   read_stake_history_view( env, acc, view );
 
   FD_TEST( view->len==3UL );
-  FD_TEST( view->entries[0].epoch==30UL );
-  FD_TEST( view->entries[1].epoch==20UL );
-  FD_TEST( view->entries[2].epoch==10UL );
-  FD_TEST( fd_sysvar_stake_history_query( view, 30UL ) );
-  FD_TEST( fd_sysvar_stake_history_query( view, 20UL ) );
-  FD_TEST( fd_sysvar_stake_history_query( view, 10UL ) );
+  FD_TEST( view->entries[0].epoch==3UL );
+  FD_TEST( view->entries[1].epoch==2UL );
+  FD_TEST( view->entries[2].epoch==1UL );
+  FD_TEST( fd_sysvar_stake_history_query( view, 3UL ) );
+  FD_TEST( fd_sysvar_stake_history_query( view, 2UL ) );
+  FD_TEST( fd_sysvar_stake_history_query( view, 1UL ) );
 
   fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );

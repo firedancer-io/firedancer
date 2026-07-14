@@ -128,26 +128,8 @@ fd_sysvar_stake_history_view( fd_stake_history_t * view,
 fd_stake_history_entry_t const *
 fd_sysvar_stake_history_query( fd_stake_history_t const * view,
                                ulong                      epoch ) {
-  if( FD_UNLIKELY( !view || !view->len ) ) return NULL;
-  if( epoch > view->entries[0].epoch ) return NULL;
-
-  ulong off = view->entries[0].epoch - epoch;
-  if( off < view->len && view->entries[off].epoch == epoch ) {
-    return &view->entries[off];
-  }
-
-  ulong lo = 0UL;
-  ulong hi = view->len - 1UL;
-  while( lo <= hi ) {
-    ulong mid = lo + ( hi - lo ) / 2UL;
-    if( view->entries[mid].epoch == epoch ) {
-      return &view->entries[mid];
-    } else if( view->entries[mid].epoch > epoch ) {
-      lo = mid + 1UL;
-    } else {
-      if( mid == 0UL ) return NULL;
-      hi = mid - 1UL;
-    }
-  }
-  return NULL;
+  if( FD_UNLIKELY( !view || !view->len || epoch>view->entries[0].epoch ) ) return NULL;
+  ulong index = view->entries[0].epoch - epoch;
+  if( FD_UNLIKELY( index>=view->len ) ) return NULL;
+  return &view->entries[index];
 }
