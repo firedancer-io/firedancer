@@ -375,6 +375,8 @@ patch_stake_activation_epoch( fd_svm_mini_t *     mini,
       new_activation_epoch,
       ss_new.stake.stake.delegation.deactivation_epoch,
       ss_new.stake.stake.credits_observed,
+      new_acc.lamports,
+      (uint)new_acc.data_len,
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
@@ -649,6 +651,8 @@ test_credit_rewind_force_update( fd_svm_mini_t * mini ) {
         ss_new.stake.stake.delegation.activation_epoch,
         ss_new.stake.stake.delegation.deactivation_epoch,
         10UL,
+        new_acc.lamports,
+        (uint)new_acc.data_len,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
 

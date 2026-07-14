@@ -181,7 +181,7 @@ forktest_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
 
-  /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  128UL,                                    FD_EPOCH_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
+  /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  16UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (14); ideally 2, needs per-link burst */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
                        fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
 
@@ -411,7 +411,7 @@ forktest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT, config->development.bench.larger_max_cost_per_block );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

@@ -149,6 +149,18 @@ fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
   stake_rewards->epoch = ULONG_MAX;
 }
 
+void
+fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
+                        uchar                fork_idx ) {
+  fork_pool_idx_release( get_fork_pool( stake_rewards ), (ulong)fork_idx );
+  stake_rewards->fork_info[fork_idx].partition_cnt         = 0U;
+  stake_rewards->fork_info[fork_idx].starting_block_height = 0UL;
+  stake_rewards->fork_info[fork_idx].ele_cnt               = 0UL;
+  stake_rewards->fork_info[fork_idx].total_stake_rewards   = 0UL;
+  memset( stake_rewards->fork_info[fork_idx].partition_idxs_head, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_head) );
+  memset( stake_rewards->fork_info[fork_idx].partition_idxs_tail, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_tail) );
+}
+
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        ulong                epoch,

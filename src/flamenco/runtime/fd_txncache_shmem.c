@@ -29,39 +29,63 @@
 #include "../../util/tmpl/fd_slist.c"
 
 FD_FN_CONST ushort
-fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
-                                        ulong max_txn_per_slot ) {
-  /* The maximum number of transaction pages we might need to store all
-     the transactions that could be seen in a blockhash.
+fd_txncache_max_txnpages( ulong max_active_slots,
+                          ulong max_txn_per_slot,
+                          int   larger_max_cost_per_block ) {
+  /* The pool must hold the worst case set of simultaneously live
+     transactions.  Entries stay live until their inserting fork's
+     blockcache is removed, and rooted forks are retained for
+     FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE further root advances, so up to
+     max_active_slots forks' insertions are live at once.  The worst
+     case is the boot transient: the snapshot root (holding the full
+     staged snapshot load) plus every other pool fork full of live
+     inserts.
 
-     In the worst case, every transaction in every live bank refers to
-     the same blockhash. */
+     The snapshot transient is at most 300 slot deltas at
+     max_txn_per_slot entries each.  max_txn_per_slot is 2x the actual
+     per slot transaction limit, because Agave snapshots contain each
+     transaction twice (once keyed by signature, once by message hash,
+     indistinguishably; see FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT).  Live
+     inserts are 1x, so each non-snapshot fork holds at most
+     max_txn_per_slot/2 entries.
 
-  ulong result = 1UL+(max_txn_per_slot*max_active_slots)/FD_TXNCACHE_TXNS_PER_PAGE;
+     We count pages, not transactions, so pages might be wasted.  The
+     maximum page wastage occurs when every blockcache has a partially
+     full tail page, adding max_active_slots-1 pages beyond the global
+     transaction count bound (one blockcache's tail is already counted
+     by the ceiling division). */
+
+  ulong result;
+  if( FD_UNLIKELY( larger_max_cost_per_block ) ) {
+    /* Raised block cost limits invalidate the 1x live bound.  Fall
+       back to every active slot simultaneously full. */
+    result = max_active_slots-1UL+max_active_slots*(1UL+(max_txn_per_slot-1UL)/FD_TXNCACHE_TXNS_PER_PAGE);
+  } else {
+    ulong snapshot_budget = FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX*max_txn_per_slot;
+    ulong live_budget     = (max_active_slots-1UL)*((max_txn_per_slot+1UL)/2UL);
+    result = max_active_slots-1UL
+           + 1UL+(snapshot_budget+live_budget-1UL)/FD_TXNCACHE_TXNS_PER_PAGE;
+  }
   if( FD_UNLIKELY( result>USHORT_MAX-2UL ) ) return 0; /* MAX is the invalid flag, MAX-1 is the xbusy flag. */
   return (ushort)result;
 }
 
 FD_FN_CONST ushort
-fd_txncache_max_txnpages( ulong max_active_slots,
-                          ulong max_txn_per_slot ) {
-  /* We need to be able to store potentially every slot that is live
-     being completely full of transactions.  This would be
+fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
+                                        ulong max_txn_per_slot,
+                                        int   larger_max_cost_per_block ) {
+  /* The maximum number of transaction pages we might need to store all
+     the transactions that could be seen in a blockhash.
 
-       max_active_slots*max_txn_per_slot
+     In the worst case, every transaction in every live bank refers to
+     the same blockhash, but a blockhash can never hold more pages than
+     exist in the pool. */
 
-     transactions, except that we are counting pages here, not
-     transactions.  It's not enough to divide by the page size, because
-     pages might be wasted.  The maximum page wastage occurs when all
-     the blockhashes except one have one transaction in them, and the
-     remaining blockhash has all other transactions.  In that case, the
-     full blockhash needs
+  ulong max_txnpages = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
+  if( FD_UNLIKELY( !max_txnpages ) ) return 0;
 
-       (max_active_slots*max_txn_per_slot)/FD_TXNCACHE_TXNS_PER_PAGE
-
-     pages, and the other blockhashes need 1 page each. */
-
-  ulong result = max_active_slots-1UL+max_active_slots*(1UL+(max_txn_per_slot-1UL)/FD_TXNCACHE_TXNS_PER_PAGE);
+  ulong result = 1UL+(max_txn_per_slot*max_active_slots)/FD_TXNCACHE_TXNS_PER_PAGE;
+  result = fd_ulong_min( result, max_txnpages );
   if( FD_UNLIKELY( result>USHORT_MAX-2UL ) ) return 0; /* MAX is the invalid flag, MAX-1 is the xbusy flag. */
   return (ushort)result;
 }
@@ -73,19 +97,21 @@ fd_txncache_shmem_align( void ) {
 
 FD_FN_CONST ulong
 fd_txncache_shmem_footprint( ulong max_live_slots,
-                             ulong max_txn_per_slot ) {
+                             ulong max_txn_per_slot,
+                             int   larger_max_cost_per_block ) {
   if( FD_UNLIKELY( max_live_slots<1UL ) ) return 0UL;
   if( FD_UNLIKELY( max_txn_per_slot<1UL ) ) return 0UL;
 
   ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
+  ulong bucket_cnt = fd_txncache_bucket_cnt( max_txn_per_slot );
 
   /* To save memory, txnpages are referenced as ushort which is enough
      to support mainnet parameters without overflow. */
-  ushort _max_txnpages = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot );
+  ushort _max_txnpages = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
   if( FD_UNLIKELY( !_max_txnpages ) ) return 0UL;
 
-  ulong _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot );
+  ulong _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
   if( FD_UNLIKELY( !_max_txnpages_per_blockhash ) ) return 0UL;
 
   ulong _descends_footprint = descends_set_footprint( max_active_slots );
@@ -97,12 +123,12 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
   l = FD_LAYOUT_APPEND( l, blockhash_map_align(),          blockhash_map_footprint( blockhash_map_chains )             );
   l = FD_LAYOUT_APPEND( l, blockcache_pool_align(),        blockcache_pool_footprint( max_active_slots )               );
   l = FD_LAYOUT_APPEND( l, alignof(ushort),                max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) ); /* blockcache->pages */
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*max_txn_per_slot*sizeof(uint)              ); /* blockcache->heads */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*bucket_cnt*sizeof(uint)                    ); /* blockcache->heads */
   l = FD_LAYOUT_APPEND( l, descends_set_align(),           max_active_slots*_descends_footprint                        ); /* blockcache->descends */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages*sizeof(ushort)                                ); /* txnpages_free */
   l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _max_txnpages*sizeof(fd_txncache_txnpage_t)                 ); /* txnpages */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages_per_blockhash*sizeof(ushort)                  ); /* scratchpad txnpage pointer array for purge stale */
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_txn_per_slot*sizeof(uint)                               ); /* scratchpad heads for purge stale */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                  bucket_cnt*sizeof(uint)                                     ); /* scratchpad heads for purge stale */
   l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)                               ); /* scratchpad txnpage for purge stale */
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_SHMEM_ALIGN );
 }
@@ -111,6 +137,7 @@ void *
 fd_txncache_shmem_new( void * shmem,
                        ulong  max_live_slots,
                        ulong  max_txn_per_slot,
+                       int    larger_max_cost_per_block,
                        ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -127,9 +154,10 @@ fd_txncache_shmem_new( void * shmem,
 
   ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
+  ulong bucket_cnt = fd_txncache_bucket_cnt( max_txn_per_slot );
 
-  ushort _max_txnpages               = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot );
-  ushort _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot );
+  ushort _max_txnpages               = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
+  ushort _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot, larger_max_cost_per_block );
 
   if( FD_UNLIKELY( !_max_txnpages ) ) return NULL;
   if( FD_UNLIKELY( !_max_txnpages_per_blockhash ) ) return NULL;
@@ -142,12 +170,12 @@ fd_txncache_shmem_new( void * shmem,
   void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),           blockhash_map_footprint( blockhash_map_chains )             );
   void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),         blockcache_pool_footprint( max_active_slots )               );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*max_txn_per_slot*sizeof(uint)              );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*bucket_cnt*sizeof(uint)                    );
   void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                        );
   void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                                );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                 );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages_per_blockhash*sizeof(ushort)                  );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_txn_per_slot*sizeof(uint)                               );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   bucket_cnt*sizeof(uint)                                     );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  sizeof(fd_txncache_txnpage_t)                               );
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
@@ -169,6 +197,7 @@ fd_txncache_shmem_new( void * shmem,
 
   tc->txn_per_slot_max           = max_txn_per_slot;
   tc->active_slots_max           = max_active_slots;
+  tc->bucket_cnt                 = bucket_cnt;
   tc->txnpages_per_blockhash_max = _max_txnpages_per_blockhash;
   tc->max_txnpages               = _max_txnpages;
 

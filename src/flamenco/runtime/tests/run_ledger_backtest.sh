@@ -233,6 +233,7 @@ cat <<EOF > ${CONFIG_FILE}
 [paths]
     snapshots = "$DUMP/$LEDGER"
     accounts = "/$DUMP/accounts.db"
+    genesis = "$DUMP/$LEDGER/genesis.bin"
 [development]
     fixed_fec_sets = false
     [development.ledger_input]
@@ -254,9 +255,6 @@ EOF
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
     entrypoints = [ \"0.0.0.0:1\" ]" >> $DUMP_DIR/${LEDGER}_backtest.toml
-else
-  echo "[paths]
-    genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
 fi
 
 echo_notice "Running backtest for $LEDGER"

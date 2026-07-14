@@ -56,9 +56,11 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
-   root slots Agave could possibly serve in a snapshot. */
-#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+/* The most root slots Agave could possibly serve in a snapshot.  The
+   txnpage pool sizing assumes staged entries never exceed this. */
+#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+
+FD_STATIC_ASSERT( FD_SLOT_DELTA_MAX_ENTRIES==FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX, slot_delta_max );
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];

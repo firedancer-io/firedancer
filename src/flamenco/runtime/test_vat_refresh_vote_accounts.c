@@ -244,6 +244,8 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                     env->bank->stake_delegations_fork_id,
                                     stake_account, vote_account,
                                     stake, 0UL, ULONG_MAX, 0UL,
+                                    stake + VOTE_ACCOUNT_LAMPORTS,
+                                    (uint)FD_STAKE_STATE_SZ,
                                     FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 

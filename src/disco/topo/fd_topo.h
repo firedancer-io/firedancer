@@ -303,9 +303,11 @@ struct fd_topo_tile {
     } bundle;
 
     struct {
-      char  url[ 256 ];
-      char  identity_key_path[ PATH_MAX ];
-      char  action[ 16 ];
+      char   url[ 256 ];
+      char   identity_key_path[ PATH_MAX ];
+      char   action[ 16 ];
+      uchar  genesis_hash[ 32 ];
+      ushort shred_version;
     } event;
 
     struct {

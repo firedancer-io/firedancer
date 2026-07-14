@@ -108,6 +108,45 @@ than 16).
 
 <<< @/snippets/commands/add-authorized-voter.ansi
 
+## `remove-all-authorized-voters`
+Removes all authorized voters from the running validator, including any
+seeded from `[paths.authorized_voter_paths]` at startup as well as any
+added at runtime with `add-authorized-voter`. After removal the validator
+can only sign votes for vote accounts whose authorized voter is the
+identity key.
+
+::: warning WARNING
+
+Unlike Agave, this command will still leave the validator in a possibly
+voting state and will continue producing signed vote transactions with
+the identity of the running validator.
+
+:::
+
+::: warning WARNING
+
+`remove-all-authorized-voters` is only supported with `firedancer` and
+not `fdctl`. In other words, the command is only supported while running
+the full client validator and not Frankendancer.
+
+:::
+
+The command is idempotent: removing when there are no authorized voters
+also succeeds. It exits successfully (with an exit code of 0) and prints
+`All authorized voters removed`.
+
+The change is live only: it is not written back to the configuration
+file, so any voters listed in `[paths.authorized_voter_paths]` return on
+the validator's next restart. To drop them across restarts, also remove
+them from the configuration file.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+
+<<< @/snippets/commands/remove-all-authorized-voters.ansi
+
 ## `ps`
 Lists validator instances on this host. Each row shows the instance
 name, the process ID of the validator supervisor, whether the validator

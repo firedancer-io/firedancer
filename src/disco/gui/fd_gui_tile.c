@@ -181,6 +181,7 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
+    fd_gui_peers_handle_identity_change( ctx->peers );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }

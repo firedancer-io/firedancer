@@ -17,6 +17,13 @@
 #define FD_GOSSIP_EPOCH_SLOTS_IDX_MAX (255U)
 #define FD_GOSSIP_DUPLICATE_SHRED_IDX_MAX (512U)
 
+/* Agave computes this threshold as:
+ *   mask_bits( MIN_NUM_BLOOM_ITEMS, max_items( PACKET_DATA_SIZE*8, FALSE_RATE, KEYS ) )
+ * where mask_bits(n, m) = ceil(log2(n/m)). The derivation uses all protocol
+ * constants so the result (6) is a protocol constant too.
+ * https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/gossip/src/crds_gossip_pull.rs#L71-L79 */
+#define FD_GOSSIP_MIN_PULL_REQUEST_MASK_BITS (6U)
+
 #define CHECK( cond ) do {               \
   if( FD_UNLIKELY( !(cond) ) ) return 0; \
 } while( 0 )
@@ -555,6 +562,9 @@ deser_pull_request( fd_gossip_message_t * message,
   READ_U64( message->pull_request->crds_filter->filter->num_bits_set, payload, payload_sz );
   READ_U64( message->pull_request->crds_filter->mask, payload, payload_sz );
   READ_U32( message->pull_request->crds_filter->mask_bits, payload, payload_sz );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/gossip/src/crds_gossip_pull.rs#L101 */
+  CHECK( message->pull_request->crds_filter->mask_bits>=FD_GOSSIP_MIN_PULL_REQUEST_MASK_BITS );
 
   message->pull_request->contact_info->offset = original_sz-*payload_sz;
   CHECK( deser_value( message->pull_request->contact_info, payload, payload_sz ) );

@@ -55,6 +55,10 @@ union fdctl_args {
 
   struct {
     char name[ 64UL ];
+  } remove_all_authorized_voters;
+
+  struct {
+    char name[ 64UL ];
   } get_identity;
 
   struct {

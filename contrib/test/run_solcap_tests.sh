@@ -119,10 +119,10 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
 [log]
     level_stderr = "NOTICE"
     path = "/tmp/ledger_log_solcap"
-
 [paths]
     snapshots = "${ledger_dir}"
     accounts = "${ledger_dir}/accounts.db"
+    genesis = "${ledger_dir}/genesis.bin"
 [capture]
     solcap_capture = "${dump_dir}/mainnet-424669000.solcap"
 [gossip]

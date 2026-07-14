@@ -219,9 +219,11 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
    not have any lifetime interest in the hashes memory provided once
    this call returns.
 
-   Insertion cannot fail, as it is assume the caller is respecting the
+   Insertion cannot fail, as it is assumed the caller is respecting the
    invariants of the structure.  If there is no space internally to
-   insert another transaction, the program is aborted with an error.
+   insert another transaction, stale entries from removed forks are
+   purged and the insert retries, spinning forever if the caller has
+   exceeded the sizing bounds and no stale entries exist.
 
    This is a cheap, high performance, concurrent operation and can occur
    at the same time as queries and arbitrary other insertions. */

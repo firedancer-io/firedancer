@@ -2508,6 +2508,8 @@ test_stray_pin_vs_release_cleanup( void ) {
 
   free( accdb_r );
   test_teardown( accdb, fd );
+}
+
 /* test_probe_vs_pd_commit the pd_write probe walk raced
    against a same-fork overwrite commit that sets pd_write=1.  The probe
    is designed to be called concurrently with writers on its fork; it

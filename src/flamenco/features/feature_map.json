@@ -213,7 +213,7 @@
   {"name":"migrate_config_program_to_core_bpf","pubkey":"2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"migrate_address_lookup_table_program_to_core_bpf","pubkey":"C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"migrate_stake_program_to_core_bpf","pubkey":"6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"enable_get_epoch_stake_syscall","pubkey":"FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z","old":"7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np"},
+  {"name":"enable_get_epoch_stake_syscall","pubkey":"FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z","hardcode_for_fuzzing":1},
   {"name":"disable_account_loader_special_case","pubkey":"EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"remove_accounts_executable_flag_checks","pubkey":"FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM","old":"FfgtauHUWKeXTzjXkua9Px4tNGBFHKZ9WaigM5VbbzFx","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"fix_alt_bn128_multiplication_input_length","pubkey":"bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN","cleaned_up":1,"hardcode_for_fuzzing":1},
@@ -279,5 +279,13 @@
   {"name":"reduce_slot_time_to_350ms","pubkey":"iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ"},
   {"name":"reduce_slot_time_to_300ms","pubkey":"iBRLL3k18HST852F1Mf3Lv83waTNQmmqvKDxvYGwQFL"},
   {"name":"reduce_slot_time_to_250ms","pubkey":"iBRLMc81UjRa8fn8A6eE8bJTnRbgQoPTynM51akENCV"},
-  {"name":"reduce_slot_time_to_200ms","pubkey":"iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW"}
+  {"name":"reduce_slot_time_to_200ms","pubkey":"iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW"},
+  {"name":"set_lamports_per_byte_to_6333","pubkey":"4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC"},
+  {"name":"set_lamports_per_byte_to_5080","pubkey":"61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81"},
+  {"name":"set_lamports_per_byte_to_2575","pubkey":"Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz"},
+  {"name":"set_lamports_per_byte_to_1322","pubkey":"GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM"},
+  {"name":"set_lamports_per_byte_to_696","pubkey":"mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY"},
+  {"name":"set_lamports_per_byte_to_6960","pubkey":"5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni"},
+  {"name":"relax_post_exec_min_balance_check","pubkey":"DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg"},
+  {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"}
 ]

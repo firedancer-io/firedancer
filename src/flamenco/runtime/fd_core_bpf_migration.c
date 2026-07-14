@@ -678,6 +678,20 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
     return;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
+  if( target->has_upgrade_authority_address ) {
+    fd_bpf_state_t buffer_state[1];
+    if( FD_UNLIKELY( fd_bpf_state_decode( buffer_state, source->data, BUFFER_METADATA_SIZE ) ||
+                     buffer_state->discriminant!=FD_BPF_STATE_BUFFER ||
+                     !buffer_state->inner.buffer.has_authority_address ||
+                     !fd_pubkey_eq( &target->upgrade_authority_address, &buffer_state->inner.buffer.authority_address ) ) ) {
+      /* CoreBpfMigrationError::UpgradeAuthorityMismatch */
+      FD_LOG_WARNING(( "core-BPF program upgrade aborted at slot %lu: source buffer authority does not match the target program's upgrade authority",
+                       bank->f.slot ));
+      return;
+    }
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L331-L332  */
   fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration.new_target_program_data;
   fd_pubkey_t program_data_address = get_program_data_address( builtin_program_id );

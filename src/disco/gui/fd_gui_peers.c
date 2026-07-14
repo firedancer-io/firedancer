@@ -921,6 +921,13 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 }
 
 void
+fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers ) {
+  peers->slot_voted = ULONG_MAX;
+  fd_gui_peers_printf_vote_slot( peers );
+  fd_http_server_ws_broadcast( peers->http );
+}
+
+void
 fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
                           fd_pubkey_t const *  vote_account,
                           ulong                vote_slot,

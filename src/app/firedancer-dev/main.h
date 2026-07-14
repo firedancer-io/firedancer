@@ -219,6 +219,7 @@ extern action_t fd_action_gossip_dump;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
+extern action_t fd_action_remove_all_authorized_voters;
 extern action_t fd_action_forktest;
 extern action_t fd_action_snapshot_create;
 
@@ -262,6 +263,7 @@ action_t * ACTIONS[] = {
   &fd_action_monitor_gossip,
   &fd_action_watch,
   &fd_action_add_authorized_voter,
+  &fd_action_remove_all_authorized_voters,
   &fd_action_forktest,
   &fd_action_snapshot_create,
   NULL,

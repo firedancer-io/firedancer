@@ -17,6 +17,7 @@ fd_event_register( fd_topo_t const *      topo,
   r->mcache = link->mcache;
   r->depth  = fd_mcache_depth( link->mcache );
   r->seq    = 0UL;
+  r->seq_store = fd_mcache_seq_laddr( link->mcache );
   r->mem    = fd_wksp_containing( link->dcache );
   FD_TEST( r->mem );
   r->chunk0 = fd_dcache_compact_chunk0( r->mem, link->dcache );
