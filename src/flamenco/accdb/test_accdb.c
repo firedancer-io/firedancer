@@ -235,8 +235,7 @@ test_pd_write_bit_and_probe( void ) {
 
   /* Closed-this-slot: a lamports==0 current-generation tombstone with
      pd_write=1 must still report pd==1 (the exists()-clone lamports
-     trap; Close is the fails-open case).  Tombstone metadata is
-     canonicalized to zero data length. */
+     trap; Close is the fails-open case). */
   uchar pk2[32]; memset( pk2, 0x33, 32UL );
   fd_accdb_fork_id_t f2 = fd_accdb_attach_child( accdb, root );
   accdb_write_pd( accdb, f2, pk2, 999UL, data, 64UL, owner, 0 ); /* fund it first */
@@ -244,7 +243,7 @@ test_pd_write_bit_and_probe( void ) {
   pd = 0; len = ULONG_MAX;
   FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len )==1 );
   FD_TEST( pd==1 );      /* bit reported despite lamports==0 */
-  FD_TEST( len==0UL );   /* canonical tombstone len */
+  FD_TEST( len==4UL );   /* post-close committed len */
 
   /* Not-found -> returns 0, pd=0, out_data_len untouched. */
   uchar pk3[32]; memset( pk3, 0x44, 32UL );
@@ -1243,7 +1242,7 @@ test_revert_whead( void ) {
     fd_memset( snap_pks[ i ], 0, 32UL );
     snap_pks[ i ][ 0 ] = (uchar)( 0xF0+i );
     fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pks[ i ],
-                                 10UL, (i+1UL)*100UL, 4UL<<20UL, 0, &replaced );
+                                 10UL, (i+1UL)*100UL, 4UL<<20UL, 0, owner2, &replaced );
   }
   fd_accdb_snapshot_load_end( accdb );
 
@@ -1267,7 +1266,7 @@ test_revert_whead( void ) {
     fd_memset( incr_pks[ i ], 0, 32UL );
     incr_pks[ i ][ 0 ] = (uchar)( 0xE0+i );
     fd_accdb_snapshot_write_one( accdb, incr_fork, incr_pks[ i ],
-                                 20UL, (i+1UL)*1000UL, 4UL<<20UL, 0, &replaced );
+                                 20UL, (i+1UL)*1000UL, 4UL<<20UL, 0, owner2, &replaced );
   }
   fd_accdb_snapshot_load_end( accdb );
 
@@ -1324,9 +1323,9 @@ test_incremental_cross_fork_override( void ) {
   /* Full-snapshot load: write 3 accounts with 1 KiB data each. */
   fd_accdb_snapshot_load_begin( accdb );
   ulong replaced = 0UL;
-  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk0, 10UL, 100UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk1, 10UL, 200UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk2, 10UL, 300UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk0, 10UL, 100UL, 1024UL, 0, owner2, &replaced );
+  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk1, 10UL, 200UL, 1024UL, 0, owner2, &replaced );
+  fd_accdb_snapshot_write_one( accdb, SENTINEL, pk2, 10UL, 300UL, 1024UL, 0, owner2, &replaced );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Save whead. */
@@ -1338,8 +1337,8 @@ test_incremental_cross_fork_override( void ) {
 
   /* Incremental snapshot load: override pk0 and pk1 with new lamports. */
   fd_accdb_snapshot_load_begin( accdb );
-  fd_accdb_snapshot_write_one( accdb, incr_fork, pk0, 20UL, 111UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_write_one( accdb, incr_fork, pk1, 20UL, 222UL, 1024UL, 0, &replaced );
+  fd_accdb_snapshot_write_one( accdb, incr_fork, pk0, 20UL, 111UL, 1024UL, 0, owner2, &replaced );
+  fd_accdb_snapshot_write_one( accdb, incr_fork, pk1, 20UL, 222UL, 1024UL, 0, owner2, &replaced );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Verify accounts_total reflects the cross-fork overrides: 3 original
@@ -1440,7 +1439,7 @@ test_sentinel_index_wrap( void ) {
 }
 
 static void
-test_tombstone_index_storage( void ) {
+test_simple_index_storage( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
   fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
@@ -1452,17 +1451,17 @@ test_tombstone_index_storage( void ) {
   ulong max [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong reserved[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* A positive-lamport, empty System account is ordinary and therefore
-     retains a cache line. */
+  /* A positive-lamport, empty System account is represented entirely by
+     accmeta after commit: the temporary writable staging lines have all
+     returned to their free lists and no disk bytes are live. */
   accdb_write( accdb, root, pk, 1234UL, NULL, 0UL, system_owner );
   fd_accdb_cache_class_occupancy( accdb, used, max, reserved );
-  FD_TEST( used[ 0 ]==1UL );
-  for( ulong c=1UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==0UL );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==0UL );
   FD_TEST( shmetrics->disk_used_bytes==0UL );
 
-  fd_acc_t ordinary = fd_accdb_read_one( accdb, root, pk );
-  FD_TEST( ordinary.lamports==1234UL && ordinary.data_len==0UL && ordinary.data!=NULL );
-  fd_accdb_unread_one( accdb, &ordinary );
+  fd_acc_t simple = fd_accdb_read_one( accdb, root, pk );
+  FD_TEST( simple.lamports==1234UL && simple.data_len==0UL && simple.data==NULL );
+  fd_accdb_unread_one( accdb, &simple );
 
   ulong lamports = 0UL;
   ulong data_len = ULONG_MAX;
@@ -1470,71 +1469,63 @@ test_tombstone_index_storage( void ) {
   FD_TEST( accdb_read( accdb, root, pk, &lamports, NULL, &data_len, owner ) );
   FD_TEST( lamports==1234UL && data_len==0UL );
   FD_TEST( !memcmp( owner, system_owner, sizeof(owner) ) );
-
-  /* Only a zero-lamport account becomes an index-only tombstone.  Input
-     owner, executable, and data are discarded and the old cache line is
-     released. */
-  uchar ignored_data[ 4UL ] = { 1, 2, 3, 4 };
-  uchar const * pks[ 1 ] = { pk };
-  int writable[ 1 ] = { 1 };
-  fd_acc_t acc[ 1 ];
-  fd_accdb_acquire( accdb, root, 1UL, pks, writable, acc );
-  acc[ 0 ].lamports   = 0UL;
-  acc[ 0 ].data_len   = sizeof(ignored_data);
-  acc[ 0 ].executable = 1;
-  memcpy( acc[ 0 ].owner, owner2, 32UL );
-  memcpy( acc[ 0 ].data, ignored_data, sizeof(ignored_data) );
-  acc[ 0 ].commit = 1;
-  fd_accdb_release( accdb, 1UL, acc );
-
   fd_accdb_cache_class_occupancy( accdb, used, max, reserved );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==0UL );
-  FD_TEST( shmetrics->disk_used_bytes==0UL );
-  FD_TEST( !accdb_read( accdb, root, pk, &lamports, NULL, &data_len, owner ) );
 
   int executable = -1;
-  lamports = ULONG_MAX;
+  lamports = 0UL;
   data_len = ULONG_MAX;
   memset( owner, 0xFF, sizeof(owner) );
   fd_accdb_read_one_nocache( accdb, root, pk, &lamports, &executable, owner, NULL, &data_len );
-  FD_TEST( lamports==0UL && executable==0 && data_len==0UL );
+  FD_TEST( lamports==1234UL && executable==0 && data_len==0UL );
   FD_TEST( !memcmp( owner, system_owner, sizeof(owner) ) );
 
-  /* A later non-zero commit returns to ordinary cache-backed storage. */
-  accdb_write( accdb, root, pk, 3333UL, NULL, 0UL, system_owner );
+  /* Transition out of and back into the compact representation on the
+     same fork.  The ordinary zero-data account occupies class 0; the
+     subsequent System-owner commit releases it without writing it back. */
+  accdb_write( accdb, root, pk, 2222UL, NULL, 0UL, owner2 );
   fd_accdb_cache_class_occupancy( accdb, used, max, reserved );
   FD_TEST( used[ 0 ]==1UL );
   FD_TEST( shmetrics->disk_used_bytes==0UL );
 
-  /* Snapshot ingestion likewise stores only zero-lamport accounts as
-     tombstones, even if the incoming record advertises data. */
+  accdb_write( accdb, root, pk, 3333UL, NULL, 0UL, system_owner );
+  fd_accdb_cache_class_occupancy( accdb, used, max, reserved );
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( used[ c ]==0UL );
+  FD_TEST( shmetrics->disk_used_bytes==0UL );
+
+  /* Snapshot ingestion uses the same index-only form and can replace a
+     conventional live disk record without allocating a new one. */
   uchar snap_pk[ 32UL ] = { 0xA6 };
   ulong replaced = 0UL;
   fd_accdb_snapshot_load_begin( accdb );
   FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pk, 10UL, 4444UL,
-                                        0UL, 0, &replaced )==1 );
+                                        0UL, 0, owner2, &replaced )==1 );
   FD_TEST( shmetrics->disk_used_bytes==sizeof(fd_accdb_disk_meta_t) );
-  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pk, 11UL, 0UL,
-                                        123UL, 1, &replaced )==2 );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pk, 11UL, 5555UL,
+                                        0UL, 0, system_owner, &replaced )==2 );
   FD_TEST( replaced==4444UL );
   FD_TEST( shmetrics->disk_used_bytes==0UL );
 
   uchar batch_pk[ 32UL ] = { 0xA7 };
   uchar const * batch_pks[ 1 ] = { batch_pk };
+  uchar const * batch_owners[ 1 ] = { system_owner };
   ulong batch_slots[ 1 ] = { 12UL };
-  ulong batch_lamports[ 1 ] = { 0UL };
-  ulong batch_lens[ 1 ] = { 456UL };
-  int batch_exec[ 1 ] = { 1 };
+  ulong batch_lamports[ 1 ] = { 6666UL };
+  ulong batch_lens[ 1 ] = { 0UL };
+  int batch_exec[ 1 ] = { 0 };
   ulong ignored, replaced_cnt, loaded, replaced_sum, ignored_sum;
   FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 1UL, batch_pks, batch_slots,
-                                           batch_lamports, batch_lens, batch_exec,
+                                           batch_lamports, batch_lens, batch_exec, batch_owners,
                                            &ignored, &replaced_cnt, &loaded, &replaced_sum, &ignored_sum ) );
   FD_TEST( ignored==0UL && replaced_cnt==0UL && loaded==1UL );
   FD_TEST( shmetrics->disk_used_bytes==0UL );
   fd_accdb_snapshot_load_end( accdb );
 
-  FD_TEST( !accdb_read( accdb, root, snap_pk, &lamports, NULL, &data_len, owner ) );
-  FD_TEST( !accdb_read( accdb, root, batch_pk, &lamports, NULL, &data_len, owner ) );
+  FD_TEST( accdb_read( accdb, root, snap_pk, &lamports, NULL, &data_len, owner ) );
+  FD_TEST( lamports==5555UL && data_len==0UL );
+  FD_TEST( !memcmp( owner, system_owner, sizeof(owner) ) );
+  FD_TEST( accdb_read( accdb, root, batch_pk, &lamports, NULL, &data_len, owner ) );
+  FD_TEST( lamports==6666UL && data_len==0UL );
 
   test_teardown( accdb, fd );
 }
@@ -1616,8 +1607,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
 
-  FD_LOG_NOTICE(( "test_tombstone_index_storage ..." ));
-  test_tombstone_index_storage();
+  FD_LOG_NOTICE(( "test_simple_index_storage ..." ));
+  test_simple_index_storage();
 
   FD_LOG_NOTICE(( "success" ));
 
