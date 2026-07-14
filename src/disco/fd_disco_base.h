@@ -42,7 +42,7 @@
 /* FD_SHRED_STORE_MTU is the size of an fd_fec_set (statically
    asserted in fd_shred_tile.c). */
 
-#define FD_SHRED_STORE_MTU (78656UL)
+#define FD_SHRED_STORE_MTU (77888UL)
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ (42UL) /* The default header size, which means no vlan tags and no IP options. */
 

@@ -22,7 +22,7 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_fec_set {
 
   union {
     fd_shred_t s[ 1 ];
-    uchar      b[ FD_SHRED_MAX_SZ ]; /* could be min_sz */
+    uchar      b[ FD_SHRED_MIN_SZ ]; /* data shreds never exceed min_sz */
   } data_shreds[ FD_FEC_SHRED_CNT ];
   union {
     fd_shred_t s[ 1 ];

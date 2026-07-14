@@ -370,9 +370,6 @@ test_chained_merkle_shreds( void ) {
       for( ulong j=0; j<FD_FEC_SHRED_CNT; j++ ) {
         fd_shred_t const * shred;
 
-        /* Simple test that we didn't overflow */
-        FD_TEST( *(set->data_shreds[ j ].b+FD_SHRED_MIN_SZ) == canary );
-
         /* Test that data indexes are correct */
         shred = set->data_shreds[ j ].s;
         FD_TEST( shred->idx==setid*32 + j );
