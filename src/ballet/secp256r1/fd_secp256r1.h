@@ -11,13 +11,24 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_secp256r1_verify verifies a SECP256r1 signature. */
+/* fd_secp256r1_verify verifies a SECP256r1 signature.
+   Enforces low-S malleability check (s <= (n-1)/2). */
 int
 fd_secp256r1_verify( uchar const   msg[], /* msg_sz */
                      ulong         msg_sz,
                      uchar const   sig[ 64 ],
                      uchar const   public_key[ 33 ],
                      fd_sha256_t * sha );
+
+/* fd_secp256r1_verify_no_low_s verifies a SECP256r1 signature the
+   same way as fd_secp256r1_verify() but without the low-S malleability
+   check, thus accepting any s in (0, n). */
+int
+fd_secp256r1_verify_no_low_s( uchar const   msg[], /* msg_sz */
+                              ulong         msg_sz,
+                              uchar const   sig[ 64 ],
+                              uchar const   public_key[ 33 ],
+                              fd_sha256_t * sha );
 
 FD_PROTOTYPES_END
 
