@@ -1684,6 +1684,9 @@ EXAMPLES
     <int value="12" name="getSlot" label="getSlot" />
     <int value="13" name="getTransactionCount" label="getTransactionCount" />
     <int value="14" name="getVersion" label="getVersion" />
+    <int value="15" name="getSlotLeader" label="getSlotLeader" />
+    <int value="16" name="getSlotLeaders" label="getSlotLeaders" />
+    <int value="17" name="getLeaderSchedule" label="getLeaderSchedule" />
 </enum>
 
 <enum name="RpcEventType">

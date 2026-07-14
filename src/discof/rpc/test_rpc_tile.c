@@ -251,6 +251,8 @@ main( int     argc,
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
+  ulong const epoch_msg_mtu = FD_EPOCH_INFO_MSG_HEADER_SZ + 8UL*sizeof(fd_vote_stake_weight_t);
+  fd_topo_link_t * link_replay_epoch = create_link( topo, wksp, "replay_epoch", 4UL, epoch_msg_mtu, 1UL );
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
@@ -265,6 +267,7 @@ main( int     argc,
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_epoch", 0UL, 0, 1 );
 
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   fd_http_server_params_t http_params = derive_http_params( tile );
@@ -535,6 +538,183 @@ main( int     argc,
 
     expect_rpc_response( ctx, req_buf,
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
+  }
+
+  /* -- getSlotLeader / getSlotLeaders -- */
+
+  /* Param validation errors, no leader schedule required. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should have at least 2 argument(s)\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,0,0]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: Expected from 2 to 2 parameters.\",\"data\":\"\\\"Got: 3\\\"\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,\"10\"]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"10\\\", expected u64.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,-1]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: integer `-1`, expected u64.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,1.5]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.5`, expected u64.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,5001]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid limit; max 5000\"},\"id\":1}" );
+
+  /* Zero limit short-circuits before any slot validation. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[18446744073709551615,0]}",
+      "{\"jsonrpc\":\"2.0\",\"result\":[],\"id\":1}" );
+
+  /* No epoch message received yet. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeader\"}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: leader schedule uninitialized\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[42,1]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: leader schedule uninitialized\"},\"id\":1}" );
+
+  /* Feed leader schedules for epochs 1 (slots 32-63) and 2 (slots
+     64-95), each with a single staked leader owning all stake. */
+  fd_pubkey_t leader_1; memset( leader_1.uc, 0x33, 32 );
+  fd_pubkey_t leader_2; memset( leader_2.uc, 0x44, 32 );
+  {
+    fd_epoch_schedule_t schedule = {
+      .slots_per_epoch             = 32UL,
+      .leader_schedule_slot_offset = 32UL,
+      .warmup                      = 0,
+      .first_normal_epoch          = 0UL,
+      .first_normal_slot           = 0UL,
+    };
+
+    for( ulong epoch=1UL; epoch<=2UL; epoch++ ) {
+      fd_epoch_info_msg_t * epoch_msg = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_replay_epoch->dcache ) );
+      memset( epoch_msg, 0, epoch_msg_mtu );
+      epoch_msg->epoch           = epoch;
+      epoch_msg->staked_vote_cnt = 1UL;
+      epoch_msg->staked_id_cnt   = 0UL;
+      epoch_msg->start_slot      = epoch*32UL;
+      epoch_msg->slot_cnt        = 32UL;
+      epoch_msg->epoch_schedule  = schedule;
+
+      fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( epoch_msg );
+      memset( weights[ 0 ].vote_key.uc, 0x55, 32 );
+      weights[ 0 ].id_key = epoch==1UL ? leader_1 : leader_2;
+      weights[ 0 ].stake  = 1000000000UL;
+      if( epoch==2UL ) {
+        /* Second vote account with the same identity: getLeaderSchedule
+           must merge both into one key. */
+        epoch_msg->staked_vote_cnt = 2UL;
+        memset( weights[ 1 ].vote_key.uc, 0x66, 32 );
+        weights[ 1 ].id_key = leader_2;
+        weights[ 1 ].stake  = 500000000UL;
+      }
+
+      FD_TEST( !returnable_frag( ctx, 1UL, 0UL, 4UL, fd_laddr_to_chunk( wksp, epoch_msg ), epoch_msg_mtu, 0UL, 0UL, 0UL, NULL ) );
+    }
+  }
+
+  FD_BASE58_ENCODE_32_BYTES( leader_1.uc, leader_1_b58 );
+  FD_BASE58_ENCODE_32_BYTES( leader_2.uc, leader_2_b58 );
+
+  /* Bank slot is 42, in epoch 1. */
+  {
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":1}", leader_1_b58 ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeader\"}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeader\",\"params\":[{\"commitment\":\"processed\"}]}", res_buf );
+  }
+
+  /* minContextSlot not reached. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeader\",\"params\":[{\"minContextSlot\":100}]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32016,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":42}},\"id\":1}" );
+
+  /* Leaders across the epoch 1 -> 2 boundary. */
+  {
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":[\"%s\",\"%s\",\"%s\",\"%s\"],\"id\":1}",
+        leader_1_b58, leader_1_b58, leader_2_b58, leader_2_b58 ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[62,4]}", res_buf );
+  }
+
+  /* Untracked epochs fail with the epoch number in the message, even
+     when some leaders were already collected. */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,10]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid slot range: leader schedule for epoch 0 is unavailable\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[94,4]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid slot range: leader schedule for epoch 3 is unavailable\"},\"id\":1}" );
+
+  /* Limit satisfied exactly at the tracked boundary does not probe the
+     next epoch. */
+  {
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":[\"%s\",\"%s\"],\"id\":1}",
+        leader_2_b58, leader_2_b58 ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[94,2]}", res_buf );
+  }
+
+  /* -- getLeaderSchedule -- */
+
+  {
+    /* Full schedule of epoch 1: single leader for all 32 slots. */
+    char idx_list[ 512 ]; char * p = fd_cstr_init( idx_list );
+    for( ulong i=0UL; i<32UL; i++ ) p = fd_cstr_append_printf( p, "%s%lu", i ? "," : "", i );
+    fd_cstr_fini( p );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"%s\":[%s]},\"id\":1}", leader_1_b58, idx_list ) );
+
+    /* Default slot: bank slot 42, in epoch 1. */
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\"}", res_buf );
+    /* Explicit slot in epoch 1. */
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[40]}", res_buf );
+    /* null slot + identity config as param 1. */
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[null,{\"identity\":\"%s\"}]}", leader_1_b58 ) );
+    expect_rpc_response( ctx, req_buf, res_buf );
+    /* identity config as param 0 (wrapper map form). */
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[{\"identity\":\"%s\"}]}", leader_1_b58 ) );
+    expect_rpc_response( ctx, req_buf, res_buf );
+
+    /* Identity with no leader slots: empty map. */
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[{\"identity\":\"%s\"}]}", leader_2_b58 ) );
+    expect_rpc_response( ctx, req_buf, "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}" );
+
+    /* Epoch 2 (slot 64): duplicate identities merged into one key. */
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"%s\":[%s]},\"id\":1}", leader_2_b58, idx_list ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[64]}", res_buf );
+
+    /* Untracked epoch: null result, not an error. */
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[424242424242]}",
+        "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":1}" );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0]}",
+        "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":1}" );
+
+    /* Wrapper type errors. */
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[\"42\"]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[true]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+
+    /* Invalid identity fails before slot resolution. */
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[{\"identity\":\"invalid!!\"}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
+
+    /* Param-0 map shadows param-1 config entirely. */
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[{\"identity\":\"%s\"},{\"identity\":\"invalid!!\"}]}", leader_2_b58 ) );
+    expect_rpc_response( ctx, req_buf, "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}" );
+
+    /* Too many params. */
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0,{},{}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: Expected from 0 to 2 parameters.\",\"data\":\"\\\"Got: 3\\\"\"},\"id\":1}" );
   }
 
   /* Don't bother with cleanup since all resources are reclaimed by the

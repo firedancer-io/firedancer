@@ -692,6 +692,107 @@ GET_SLOT = [
     },
 ]
 
+GET_SLOT_LEADER = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeader",
+        },
+        "description": f"getSlotLeader success",
+        "exclude_paths": [
+            "root['msg']['result']",
+        ],  # due to race
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeader",
+            "params": [{"commitment": "processed"}],
+        },
+        "description": f"getSlotLeader processed",
+        "exclude_paths": [
+            "root['msg']['result']",
+        ],  # due to race
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeader",
+            "params": [{"minContextSlot": 18446744073709551615}],
+        },
+        "description": f"getSlotLeader minContextSlot unreached",
+        "exclude_paths": [
+            "root['msg']['error']['data']['contextSlot']",
+        ],  # due to race
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeader",
+            "params": [{}, {}],
+        },
+        "description": f"getSlotLeader too many params",
+    },
+]
+
+GET_LEADER_SCHEDULE = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getLeaderSchedule",
+            "params": e,
+        },
+        "description": f"getLeaderSchedule params={json.dumps(e)}",
+        "exclude_paths": [
+            "root['msg']['result']",
+        ],  # schedules can differ if nodes root different epochs mid-test
+    }
+    for e in [
+        None,
+        [],
+        [None],
+        [0],  # old epoch: Agave may still have it cached, we return null
+        [18446744073709551615],  # far-future epoch: null
+        ["42"],  # untagged enum error
+        [1.5],  # untagged enum error
+        [True],  # untagged enum error
+        [{"identity": "invalid!!"}],  # Invalid param: Invalid
+        [None, {"identity": "invalid!!"}],  # Invalid param: Invalid
+        [0, {}, {}],  # Expected from 0 to 2 parameters.
+    ]
+]
+
+GET_SLOT_LEADERS = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlotLeaders",
+            "params": e,
+        },
+        "description": f"getSlotLeaders params={json.dumps(e)}",
+    }
+    for e in [
+        [],  # `params` should have at least 2 argument(s)
+        [0],  # `params` should have at least 2 argument(s)
+        [0, 0, 0],  # Expected from 2 to 2 parameters.
+        [0, 5001],  # Invalid limit; max 5000
+        [18446744073709551615, 0],  # limit 0 short-circuits, returns []
+        [0, 10],  # leader schedule for epoch 0 is unavailable (rooted past it)
+        [18446744073709551615, 10],  # unavailable epoch
+        [0, "10"],  # invalid type: string
+        [0, -1],  # invalid value: integer `-1`
+        [0, 1.5],  # invalid type: floating point
+        [0, True],  # invalid type: boolean
+        [None, 10],  # invalid type: null
+    ]
+]
+
 GET_TRANSACTION_COUNT = [
     {
         "payload": {
@@ -874,6 +975,9 @@ if __name__ == "__main__":
         *GET_LATEST_BLOCKHASH,
         *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
         *GET_SLOT,
+        *GET_SLOT_LEADER,
+        *GET_SLOT_LEADERS,
+        *GET_LEADER_SCHEDULE,
         *GET_TRANSACTION_COUNT,
         *GET_CLUSTER_NODES,
         *GET_EPOCH_INFO,

@@ -11,7 +11,9 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -44,6 +46,7 @@
 #define IN_KIND_REPLAY      (0)
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
+#define IN_KIND_EPOCH       (3)
 
 /* From bzip2 docs:
       To guarantee that the compressed data will fit in its buffer,
@@ -54,6 +57,14 @@
 #define FD_RPC_TAR_BZ_SZ (FD_RPC_TAR_SZ + ((FD_RPC_TAR_SZ + 100UL - 1UL) / 100UL) + 600UL)
 
 #define FD_RPC_BASE58_ENCODED_128_LEN (175UL) /* ceil(128*log58(256)) */
+
+#define FD_RPC_MAX_GET_SLOT_LEADERS (5000UL) /* Agave MAX_GET_SLOT_LEADERS */
+
+/* Open-addressed table for merging duplicate identity pubkeys when
+   building a getLeaderSchedule response.  Power of two, sized for a
+   load factor under 1/2 at MAX_COMPRESSED_STAKE_WEIGHTS entries. */
+#define FD_RPC_LSCHED_TBL_SZ (1UL<<19UL)
+FD_STATIC_ASSERT( FD_RPC_LSCHED_TBL_SZ>2UL*MAX_COMPRESSED_STAKE_WEIGHTS, lsched_tbl_sz );
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -255,6 +266,24 @@ struct fd_rpc_tile {
   ulong processed_idx;
   ulong confirmed_idx;
   ulong finalized_idx;
+
+  /* Leader schedules for the rooted epoch and the next epoch, fed by
+     replay_epoch.  Matches Agave availability: epoch E+1's schedule is
+     published once a slot of epoch E is rooted. */
+  fd_multi_epoch_leaders_t * mleaders;
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
+
+  /* getLeaderSchedule scratch: dedup of identity pubkeys (one identity
+     may own several vote accounts) and slot indices grouped by leader.
+     +1 sizes cover the indeterminate-leader entry at pub[pub_cnt]. */
+  uint lsched_tbl  [ FD_RPC_LSCHED_TBL_SZ ];               /* pub idx+1, 0=empty */
+  uint lsched_canon[ MAX_COMPRESSED_STAKE_WEIGHTS+1UL ];   /* first pub idx with same identity */
+  uint lsched_cnt  [ MAX_COMPRESSED_STAKE_WEIGHTS+1UL ];   /* slots per canonical identity */
+  uint lsched_off  [ MAX_COMPRESSED_STAKE_WEIGHTS+1UL ];   /* cursor into lsched_slots */
+  uint lsched_slots[ MAX_SLOTS_PER_EPOCH ];                /* epoch-relative slot indices */
+
+  int has_epoch_schedule;
+  fd_epoch_schedule_t epoch_schedule[ 1 ];
 
   int has_genesis_hash;
   fd_hash_t genesis_hash[ 1 ];
@@ -760,6 +789,13 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       }
       default: break;
     }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) {
+    fd_epoch_info_msg_t const * epoch_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    FD_TEST( epoch_msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_msg );
+    fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+    *ctx->epoch_schedule = epoch_msg->epoch_schedule;
+    ctx->has_epoch_schedule = 1;
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -1197,6 +1233,40 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
   }
 
+  return 1;
+}
+
+/* fd_rpc_validate_u64 validates a required u64 positional param,
+   replicating serde_json's error messages for a u64 field. */
+static int
+fd_rpc_validate_u64( fd_rpc_tile_t *             ctx,
+                     cJSON const *               id,
+                     cJSON const *               val,
+                     ulong *                     out,
+                     fd_http_server_response_t * res ) {
+  FD_TEST( val );
+  if( FD_UNLIKELY( cJSON_IsBool( val ) || (cJSON_IsNumber( val ) && !fd_rpc_cjson_is_integer( val )) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON( val, val_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( val ), val_cstr, id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( cJSON_IsNumber( val ) && val->valueint<0 ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON( val, val_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( val ), val_cstr, id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( cJSON_IsString( val ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( val, val_esc );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( val ), val_esc, id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( !fd_rpc_cjson_is_integer( val ) ) ) {
+    CSTR_JSON( id, id_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( val ), id_cstr );
+    return 0;
+  }
+
+  *out = val->valueulong;
   return 1;
 }
 
@@ -1752,7 +1822,129 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL, id_cstr );
 }
 
-UNIMPLEMENTED(getLeaderSchedule) // TODO: Used by solana-exporter
+static fd_http_server_response_t
+getLeaderSchedule( fd_rpc_tile_t * ctx,
+                   cJSON const *   id,
+                   cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_LEADER_SCHEDULE, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 2, &response ) ) ) return response;
+
+  /* Param 0 is Agave's RpcLeaderScheduleConfigWrapper, an untagged
+     union of an optional slot number and a config map.  When it is a
+     map, param 1 is ignored entirely. */
+  cJSON const * param0 = cJSON_GetArrayItem( params, 0 );
+  cJSON const * config = NULL;
+  int has_slot = 0;
+  ulong slot = 0UL;
+  if( FD_LIKELY( !param0 || cJSON_IsNull( param0 ) ) ) {
+    config = cJSON_GetArrayItem( params, 1 );
+  } else if( FD_LIKELY( cJSON_IsObject( param0 ) ) ) {
+    config = param0;
+  } else if( FD_LIKELY( fd_rpc_cjson_is_integer( param0 ) && param0->valueint>=0 ) ) {
+    has_slot = 1;
+    slot = param0->valueulong;
+    config = cJSON_GetArrayItem( params, 1 );
+  } else {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":%s}\n", id_cstr );
+  }
+
+  ulong bank_idx = ULONG_MAX;
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcLeaderScheduleConfig",
+                                             1, /* has_commitment */
+                                             0, /* has_encoding */
+                                             0, /* has_data_slice */
+                                             0, /* has_min_context_slot */
+                                             &bank_idx,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  int has_identity = 0;
+  fd_pubkey_t identity;
+  cJSON const * _identity = config ? cJSON_GetObjectItemCaseSensitive( config, "identity" ) : NULL;
+  if( FD_UNLIKELY( _identity && !cJSON_IsNull( _identity ) ) ) {
+    if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id, _identity, &identity, &response ) ) ) return response;
+    has_identity = 1;
+  }
+
+  if( FD_UNLIKELY( !has_slot ) ) slot = ctx->banks[ bank_idx ].slot;
+
+  CSTR_JSON( id, id_cstr );
+
+  /* Untracked epoch is not an error, unlike getSlotLeaders. */
+  fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot );
+  if( FD_UNLIKELY( !lsched ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}\n", id_cstr );
+  }
+
+  if( FD_UNLIKELY( has_identity ) ) {
+    /* Single identity: one pass over the schedule, no grouping. */
+    FD_BASE58_ENCODE_32_BYTES( identity.uc, identity_b58 );
+    fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{" );
+    ulong found = 0UL;
+    for( ulong i=0UL; i<lsched->slot_cnt; i++ ) {
+      fd_pubkey_t const * leader = &lsched->pub[ lsched->sched[ i/FD_EPOCH_SLOTS_PER_ROTATION ] ];
+      if( FD_LIKELY( 0!=memcmp( leader->uc, identity.uc, 32UL ) ) ) continue;
+      if( FD_UNLIKELY( !found ) ) fd_http_server_printf( ctx->http, "\"%s\":[%lu", identity_b58, i );
+      else                        fd_http_server_printf( ctx->http, ",%lu", i );
+      found++;
+    }
+    if( FD_LIKELY( found ) ) fd_http_server_printf( ctx->http, "]" );
+    fd_http_server_printf( ctx->http, "},\"id\":%s}\n", id_cstr );
+    return STAGE_JSON( ctx );
+  }
+
+  /* Full schedule: group epoch-relative slot indices by identity.  One
+     identity may own several vote accounts (and thus several pub[]
+     entries), so canonicalize via an open-addressed table first. */
+  FD_TEST( lsched->pub_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+  FD_TEST( lsched->slot_cnt<=MAX_SLOTS_PER_EPOCH );
+
+  memset( ctx->lsched_tbl, 0, FD_RPC_LSCHED_TBL_SZ*sizeof(uint) );
+  for( ulong p=0UL; p<lsched->pub_cnt; p++ ) {
+    ulong h = fd_ulong_load_8( lsched->pub[ p ].uc ) & (FD_RPC_LSCHED_TBL_SZ-1UL);
+    for(;;) {
+      uint e = ctx->lsched_tbl[ h ];
+      if( FD_LIKELY( !e ) ) { ctx->lsched_tbl[ h ] = (uint)p+1U; ctx->lsched_canon[ p ] = (uint)p; break; }
+      if( FD_LIKELY( 0==memcmp( lsched->pub[ e-1U ].uc, lsched->pub[ p ].uc, 32UL ) ) ) { ctx->lsched_canon[ p ] = e-1U; break; }
+      h = (h+1UL) & (FD_RPC_LSCHED_TBL_SZ-1UL);
+    }
+    ctx->lsched_cnt[ p ] = 0U;
+  }
+  /* Indeterminate-leader entry; unreachable with excluded_stake==0 but
+     keep the index in-bounds regardless. */
+  ctx->lsched_canon[ lsched->pub_cnt ] = (uint)lsched->pub_cnt;
+  ctx->lsched_cnt  [ lsched->pub_cnt ] = 0U;
+
+  for( ulong i=0UL; i<lsched->slot_cnt; i++ ) ctx->lsched_cnt[ ctx->lsched_canon[ lsched->sched[ i/FD_EPOCH_SLOTS_PER_ROTATION ] ] ]++;
+
+  ulong off = 0UL;
+  for( ulong p=0UL; p<=lsched->pub_cnt; p++ ) { ctx->lsched_off[ p ] = (uint)off; off += ctx->lsched_cnt[ p ]; }
+
+  for( ulong i=0UL; i<lsched->slot_cnt; i++ ) ctx->lsched_slots[ ctx->lsched_off[ ctx->lsched_canon[ lsched->sched[ i/FD_EPOCH_SLOTS_PER_ROTATION ] ] ]++ ] = (uint)i;
+
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{" );
+  ulong emitted = 0UL;
+  for( ulong p=0UL; p<lsched->pub_cnt; p++ ) {
+    ulong cnt = ctx->lsched_cnt[ p ];
+    if( FD_LIKELY( ctx->lsched_canon[ p ]!=p || !cnt ) ) continue; /* duplicate identity or never leader (incl. compression dummies) */
+
+    FD_BASE58_ENCODE_32_BYTES( lsched->pub[ p ].uc, leader_b58 );
+    fd_http_server_printf( ctx->http, "%s\"%s\":[", emitted ? "," : "", leader_b58 );
+    ulong start = (ulong)ctx->lsched_off[ p ]-cnt; /* off was advanced past the group by the fill pass */
+    for( ulong j=0UL; j<cnt; j++ ) fd_http_server_printf( ctx->http, "%s%u", j ? "," : "", ctx->lsched_slots[ start+j ] );
+    fd_http_server_printf( ctx->http, "]" );
+    emitted++;
+  }
+  fd_http_server_printf( ctx->http, "},\"id\":%s}\n", id_cstr );
+  return STAGE_JSON( ctx );
+}
+
 UNIMPLEMENTED(getMaxRetransmitSlot)
 UNIMPLEMENTED(getMaxShredInsertSlot)
 
@@ -1925,8 +2117,86 @@ getSlot( fd_rpc_tile_t * ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->slot, id_cstr );
 }
 
-UNIMPLEMENTED(getSlotLeader)
-UNIMPLEMENTED(getSlotLeaders)
+static fd_http_server_response_t
+getSlotLeader( fd_rpc_tile_t * ctx,
+               cJSON const *   id,
+               cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT_LEADER, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
+
+  ulong bank_idx = ULONG_MAX;
+  cJSON const * config = cJSON_GetArrayItem( params, 0 );
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcContextConfig",
+                                             1, /* has_commitment */
+                                             0, /* has_encoding */
+                                             0, /* has_data_slice */
+                                             1, /* has_min_context_slot */
+                                             &bank_idx,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->banks[ bank_idx ].slot );
+  if( FD_UNLIKELY( !leader ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: leader schedule uninitialized\"},\"id\":%s}\n", id_cstr );
+  }
+
+  FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
+  CSTR_JSON( id, id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}\n", leader_b58, id_cstr );
+}
+
+static fd_http_server_response_t
+getSlotLeaders( fd_rpc_tile_t * ctx,
+                cJSON const *   id,
+                cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_SLOT_LEADERS, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 2, 2, &response ) ) ) return response;
+
+  ulong start_slot;
+  if( FD_UNLIKELY( !fd_rpc_validate_u64( ctx, id, cJSON_GetArrayItem( params, 0 ), &start_slot, &response ) ) ) return response;
+  ulong limit;
+  if( FD_UNLIKELY( !fd_rpc_validate_u64( ctx, id, cJSON_GetArrayItem( params, 1 ), &limit, &response ) ) ) return response;
+
+  if( FD_UNLIKELY( limit>FD_RPC_MAX_GET_SLOT_LEADERS ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid limit; max %lu\"},\"id\":%s}\n", FD_RPC_MAX_GET_SLOT_LEADERS, id_cstr );
+  }
+
+  /* Like Agave, a zero limit succeeds without validating start_slot. */
+
+  CSTR_JSON( id, id_cstr );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":[" );
+
+  for( ulong i=0UL; i<limit; i++ ) {
+    ulong slot = start_slot+i;
+    fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot );
+    if( FD_UNLIKELY( !leader ) ) {
+      /* Slot is in an epoch whose leader schedule is not (yet) known.
+         Agave fails the whole request, even if some leaders were
+         already collected. */
+      fd_http_server_unstage( ctx->http );
+      if( FD_UNLIKELY( !ctx->has_epoch_schedule ) ) {
+        return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: leader schedule uninitialized\"},\"id\":%s}\n", id_cstr );
+      }
+      ulong epoch = fd_slot_to_epoch( ctx->epoch_schedule, slot, NULL );
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid slot range: leader schedule for epoch %lu is unavailable\"},\"id\":%s}\n", epoch, id_cstr );
+    }
+
+    FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
+    fd_http_server_printf( ctx->http, "%s\"%s\"", i ? "," : "", leader_b58 );
+  }
+
+  fd_http_server_printf( ctx->http, "],\"id\":%s}\n", id_cstr );
+  return STAGE_JSON( ctx );
+}
 UNIMPLEMENTED(getStakeMinimumDelegation)
 UNIMPLEMENTED(getSupply)
 UNIMPLEMENTED(getTokenAccountBalance)
@@ -2444,6 +2714,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->confirmed_idx = ULONG_MAX;
   ctx->finalized_idx = ULONG_MAX;
 
+  ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
+  FD_TEST( ctx->mleaders );
+  ctx->has_epoch_schedule = 0;
+
   ctx->cluster_nodes_dlist = fd_rpc_cluster_node_dlist_join( fd_rpc_cluster_node_dlist_new( _nodes_dlist ) );
   ctx->banks = _banks;
   ctx->max_live_slots = tile->rpc.max_live_slots;
@@ -2459,9 +2733,10 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
