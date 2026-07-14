@@ -152,6 +152,18 @@ buffer_skip( fd_snapwr_tile_t * ctx,
 static void
 process_account_header( fd_snapwr_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
+  uchar const * owner = result->account_header.owner;
+  int owner_nonzero = 0;
+  for( ulong i=0UL; i<32UL; i++ ) owner_nonzero |= owner[ i ];
+  int simple = !!result->account_header.lamports &
+               !result->account_header.data_len &
+               !result->account_header.executable &
+               !owner_nonzero;
+  if( FD_UNLIKELY( simple ) ) {
+    ctx->metrics.accounts_written++;
+    return;
+  }
+
   /* Ensure header+data does not cross a partition boundary.  If it
      would, pad with zeros so the account starts at the next one. */
   ulong account_sz    = 68UL + (ulong)result->account_header.data_len;
