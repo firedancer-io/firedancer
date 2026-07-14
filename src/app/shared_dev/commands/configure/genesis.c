@@ -285,7 +285,20 @@ fini( config_t const * config,
 static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) CONFIGURE_OK();
+  if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) {
+    if( FD_UNLIKELY( config->is_firedancer && strcmp( config->consensus.expected_genesis_hash, "" ) ) ) {
+      uchar expected_genesis_hash[ 32 ];
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->consensus.expected_genesis_hash, expected_genesis_hash ) ) )
+        FD_LOG_ERR(( "failed to decode [consensus.expected_genesis_hash] \"%s\" as base58", config->consensus.expected_genesis_hash ));
+      uchar genesis_hash[ 32 ];
+      int result = read_genesis_bin( config->paths.genesis, NULL, genesis_hash );
+      if( FD_UNLIKELY( -1==result && errno!=ENOENT ) )
+        FD_LOG_ERR(( "could not read genesis file at `%s` (%i-%s)", config->paths.genesis, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( !result && memcmp( genesis_hash, expected_genesis_hash, 32UL ) ) )
+        PARTIALLY_CONFIGURED( "genesis file at `%s` does not match [consensus.expected_genesis_hash]", config->paths.genesis );
+    }
+    CONFIGURE_OK();
+  }
 
   char _genesis_path[ PATH_MAX ];
   char const * genesis_path;
