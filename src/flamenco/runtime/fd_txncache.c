@@ -67,9 +67,13 @@ fd_txncache_new( void *                ljoin,
 
   ulong max_active_slots = shmem->active_slots_max;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*shmem->active_slots_max );
+  ulong bucket_cnt = shmem->bucket_cnt;
 
-  ushort _max_txnpages               = fd_txncache_max_txnpages( max_active_slots, shmem->txn_per_slot_max );
-  ushort _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, shmem->txn_per_slot_max );
+  /* Page counts come from the shmem header rather than being
+     re-derived, so the layout walk below cannot desync from the one in
+     fd_txncache_shmem_new. */
+  ushort _max_txnpages               = shmem->max_txnpages;
+  ushort _max_txnpages_per_blockhash = shmem->txnpages_per_blockhash_max;
 
   ulong _descends_footprint = descends_set_footprint( max_active_slots );
   if( FD_UNLIKELY( !_descends_footprint ) ) {
@@ -82,12 +86,12 @@ fd_txncache_new( void *                ljoin,
   void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),           blockhash_map_footprint( blockhash_map_chains )             );
   void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),         blockcache_pool_footprint( max_active_slots )               );
   void * _blockcache_pages    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) );
-  void * _blockcache_heads    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*shmem->txn_per_slot_max*sizeof(uint)       );
+  void * _blockcache_heads    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*bucket_cnt*sizeof(uint)                    );
   void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                        );
   void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                                );
   void * _txnpages            = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                 );
   void * _scratch_pages       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages_per_blockhash*sizeof(ushort)                  );
-  void * _scratch_heads       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   shmem->txn_per_slot_max*sizeof(uint)                        );
+  void * _scratch_heads       = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   bucket_cnt*sizeof(uint)                                     );
   void * _scratch_txnpage     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  sizeof(fd_txncache_txnpage_t)                               );
 
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
@@ -101,7 +105,7 @@ fd_txncache_new( void *                ljoin,
 
   for( ulong i=0UL; i<shmem->active_slots_max; i++ ) {
     ltc->blockcache_pool[ i ].pages    = (ushort *)_blockcache_pages + i*_max_txnpages_per_blockhash;
-    ltc->blockcache_pool[ i ].heads    = (uint *)_blockcache_heads + i*shmem->txn_per_slot_max;
+    ltc->blockcache_pool[ i ].heads    = (uint *)_blockcache_heads + i*bucket_cnt;
     ltc->blockcache_pool[ i ].descends = descends_set_join( (uchar *)_blockcache_descends + i*_descends_footprint );
     ltc->blockcache_pool[ i ].shmem    = ltc->blockcache_shmem_pool + i;
     FD_TEST( ltc->blockcache_pool[ i ].shmem );
@@ -158,7 +162,7 @@ fd_txncache_reset( fd_txncache_t * tc ) {
 FD_FN_PURE static inline ulong
 fd_txncache_bucket( fd_txncache_t const * tc,
                     uchar const *         txnhash ) {
-  return fd_ulong_hash( FD_LOAD( ulong, txnhash )^tc->shmem->seed )%tc->shmem->txn_per_slot_max;
+  return fd_ulong_hash( FD_LOAD( ulong, txnhash )^tc->shmem->seed )%tc->shmem->bucket_cnt;
 }
 
 static fd_txncache_txnpage_t *
@@ -275,7 +279,7 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
 
   fork->shmem->txnhash_offset = 0UL;
   fork->shmem->frozen = 0;
-  memset( fork->heads, 0xFF, tc->shmem->txn_per_slot_max*sizeof(uint) );
+  memset( fork->heads, 0xFF, tc->shmem->bucket_cnt*sizeof(uint) );
   fork->shmem->pages_cnt = 0;
   memset( fork->pages, 0xFF, tc->shmem->txnpages_per_blockhash_max*sizeof(fork->pages[ 0 ]) );
 
@@ -441,7 +445,7 @@ static void
 purge_stale_on_blockcache( fd_txncache_t * tc,
                            blockcache_t *  blockcache ) {
   FD_TEST( blockcache->shmem->frozen>=0 );
-  memset( tc->scratch_heads, 0xFF, tc->shmem->txn_per_slot_max*sizeof(tc->scratch_heads[ 0 ]) );
+  memset( tc->scratch_heads, 0xFF, tc->shmem->bucket_cnt*sizeof(tc->scratch_heads[ 0 ]) );
   memset( tc->scratch_pages, 0xFF, tc->shmem->txnpages_per_blockhash_max*sizeof(tc->scratch_pages[ 0 ]) );
   ushort scratch_pages_cnt = 0;
   ushort scratch_txnpage_idx = USHORT_MAX;
@@ -491,7 +495,7 @@ purge_stale_on_blockcache( fd_txncache_t * tc,
   }
   blockcache->shmem->pages_cnt = scratch_pages_cnt;
   memcpy( blockcache->pages, tc->scratch_pages, tc->shmem->txnpages_per_blockhash_max*sizeof(blockcache->pages[0]) );
-  memcpy( blockcache->heads, tc->scratch_heads, tc->shmem->txn_per_slot_max*sizeof(blockcache->heads[0]) );
+  memcpy( blockcache->heads, tc->scratch_heads, tc->shmem->bucket_cnt*sizeof(blockcache->heads[0]) );
 }
 
 static void
