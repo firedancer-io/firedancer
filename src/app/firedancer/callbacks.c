@@ -7,6 +7,7 @@
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../discof/backup/fd_backup_visited.h"
+#include "../../flamenco/accdb/fd_accdb_delta.h"
 
 #include "../../discof/admin/fd_adminctl.h"
 
@@ -179,6 +180,33 @@ fd_topo_obj_callbacks_t fd_obj_cb_accdb = {
   .footprint = accdb_footprint,
   .align     = accdb_align,
   .new       = accdb_new,
+};
+
+static ulong
+accdb_delta_footprint( fd_topo_t const *     topo,
+                       fd_topo_obj_t const * obj ) {
+  return fd_accdb_delta_footprint( VAL("max") );
+}
+
+static ulong
+accdb_delta_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                   fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_accdb_delta_align();
+}
+
+static void
+accdb_delta_new( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  ulong seed = 0UL;
+  FD_TEST( fd_rng_secure( &seed, sizeof(seed) ) );
+  FD_TEST( fd_accdb_delta_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max"), seed ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_accdb_delta = {
+  .name      = "accdb_delta",
+  .footprint = accdb_delta_footprint,
+  .align     = accdb_delta_align,
+  .new       = accdb_delta_new,
 };
 
 static ulong

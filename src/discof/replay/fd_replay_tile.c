@@ -1784,7 +1784,14 @@ snapshot_target_slot( fd_replay_tile_t * ctx,
      so the schedule stays idle until one is available. */
   ulong incr_interval = ctx->incremental_snapshot_interval_slots;
   ulong incr_target   = ULONG_MAX;
-  if( FD_UNLIKELY( incr_interval && ctx->last_full_snapshot_slot!=ULONG_MAX ) ) {
+  int delta_ok = !ctx->accdb_delta || !fd_accdb_delta_overflowed( ctx->accdb_delta );
+  if( FD_UNLIKELY( !delta_ok && !ctx->accdb_delta_overflow_warned ) ) {
+    FD_LOG_WARNING(( "incremental snapshot account capacity exceeded; incremental production is disabled until the next full snapshot" ));
+    ctx->accdb_delta_overflow_warned = 1;
+  } else if( FD_LIKELY( delta_ok ) ) {
+    ctx->accdb_delta_overflow_warned = 0;
+  }
+  if( FD_UNLIKELY( incr_interval && delta_ok && ctx->last_full_snapshot_slot!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ctx->next_incremental_snapshot_slot==ULONG_MAX ) ) {
       ctx->next_incremental_snapshot_slot = ((ctx->last_full_snapshot_slot/incr_interval)+1UL)*incr_interval;
     }
@@ -2916,6 +2923,12 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem );
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
+  ctx->accdb_delta = NULL;
+  ctx->accdb_delta_overflow_warned = 0;
+  if( FD_UNLIKELY( tile->replay.accdb_delta_obj_id!=ULONG_MAX ) ) {
+    ctx->accdb_delta = fd_accdb_delta_join( fd_topo_obj_laddr( topo, tile->replay.accdb_delta_obj_id ) );
+    FD_TEST( ctx->accdb_delta );
+  }
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {

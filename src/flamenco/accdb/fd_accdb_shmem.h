@@ -33,6 +33,8 @@ enum {
   FD_ACCDB_SNAPSHOT_SYNC_FINISHING = 3UL
 };
 
+#define FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA (4UL)
+
 static inline ulong
 fd_accdb_snapshot_sync_state( ulong const * sync ) {
   return __atomic_load_n( sync, __ATOMIC_ACQUIRE ) & 3UL;
@@ -41,6 +43,13 @@ fd_accdb_snapshot_sync_state( ulong const * sync ) {
 static inline void
 fd_accdb_snapshot_sync_advance( ulong * sync ) {
   __atomic_fetch_add( sync, 1UL, __ATOMIC_RELEASE );
+}
+
+static inline void
+fd_accdb_snapshot_sync_start( ulong * sync,
+                              int     reset_delta ) {
+  if( FD_UNLIKELY( reset_delta ) ) __atomic_fetch_or( sync, FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA, __ATOMIC_RELEASE );
+  fd_accdb_snapshot_sync_advance( sync );
 }
 
 struct fd_accdb_metrics {

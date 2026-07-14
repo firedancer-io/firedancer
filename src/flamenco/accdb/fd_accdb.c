@@ -48,6 +48,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   int acquire_state;
 
+  fd_accdb_delta_t * delta;
+
   fd_accdb_shmem_t * shmem;
 
   fd_accdb_fork_t * fork_pool;
@@ -246,6 +248,7 @@ fd_accdb_new( void *              ljoin,
 
   accdb->fd = fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->delta = NULL;
   accdb->snapshot_loading = 0;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
@@ -289,6 +292,13 @@ fd_accdb_new( void *              ljoin,
   memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
 
   return accdb;
+}
+
+void
+fd_accdb_set_delta( fd_accdb_t *       accdb,
+                    fd_accdb_delta_t * delta ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  accdb->delta = delta;
 }
 
 static inline void wait_cmd( fd_accdb_t * accdb );
@@ -1289,7 +1299,9 @@ background_advance_root( fd_accdb_t *       accdb,
 
       fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
 
-      uint prev = UINT_MAX;
+      uint prev         = UINT_MAX;
+      uint new_acc_prev = UINT_MAX;
+      int  new_acc_seen = 0;
       uint acc = FD_VOLATILE_CONST( accdb->acc_map[ txne->acc_map_idx ] );
       FD_TEST( acc!=UINT_MAX );
       while( acc!=UINT_MAX ) {
@@ -1297,6 +1309,8 @@ background_advance_root( fd_accdb_t *       accdb,
         uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
 
         if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
+          new_acc_prev = prev;
+          new_acc_seen = 1;
           prev = acc;
           acc = cur_next;
           continue;
@@ -1314,12 +1328,16 @@ background_advance_root( fd_accdb_t *       accdb,
         }
       }
 
-      /* Rooted tombstones (lamports==0, e.g. account was closed) are
-         deliberately NOT dropped from the index here.  Incremental
-         snapshot production needs them: a deletion after the base
-         snapshot must appear in the incremental as a zero-lamport
-         record that overrides the base copy on load.  They accumulate
-         until a future tombstone collection pass reclaims them. */
+      /* The delta retains the pubkey independently, so once a
+         zero-lamport version is rooted no live fork needs the accdb
+         tombstone itself.  A later txn for this pubkey may already have
+         removed this version while processing the same fork. */
+      if( FD_UNLIKELY( new_acc_seen && !new_acc->lamports ) ) {
+        uint new_acc_idx = txne->acc_pool_idx;
+        fd_racesan_hook( "accdb_advance:pre_tombstone_unlink" );
+        acc_unlink( accdb, txne->acc_map_idx, new_acc_prev, new_acc_idx );
+        deferred_acc_append( accdb, new_acc_idx );
+      }
 
       txn_tail = txne;
       txn = txne->fork.next;
@@ -2804,6 +2822,7 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   int *                 writable,
                   fd_acc_t *            out_accs ) {
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  if( FD_UNLIKELY( accdb->delta ) ) fd_accdb_delta_writer_enter( accdb->delta );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
   fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
@@ -2816,6 +2835,7 @@ fd_accdb_acquire_a( fd_accdb_t *             accdb,
                        int *                 writable,
                        fd_acc_t *            out_accs ) {
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  if( FD_UNLIKELY( accdb->delta ) ) fd_accdb_delta_writer_enter( accdb->delta );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_PHASE_A;
   fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
@@ -3275,6 +3295,13 @@ release_inner( fd_accdb_t * accdb,
     if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
   }
 
+  if( FD_UNLIKELY( accdb->delta ) ) {
+    for( ulong i=0UL; i<accs_cnt; i++ ) {
+      if( FD_LIKELY( accs[ i ]._writable && accs[ i ].commit ) )
+        (void)fd_accdb_delta_insert( accdb->delta, accs[ i ].pubkey );
+    }
+  }
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
@@ -3286,6 +3313,7 @@ fd_accdb_release( fd_accdb_t * accdb,
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_OPEN );
   release_inner( accdb, accs_cnt, accs );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  if( FD_UNLIKELY( accdb->delta ) ) fd_accdb_delta_writer_leave( accdb->delta );
 }
 
 void
@@ -3298,6 +3326,7 @@ fd_accdb_release_ab( fd_accdb_t * accdb,
   release_inner( accdb, accs_cnt, accs );
   if( FD_LIKELY( execs_cnt ) ) release_inner( accdb, execs_cnt, execs );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  if( FD_UNLIKELY( accdb->delta ) ) fd_accdb_delta_writer_leave( accdb->delta );
 }
 
 fd_acc_t
@@ -4082,6 +4111,21 @@ fd_accdb_background( fd_accdb_t * accdb,
          purge, and compaction) */
       background_preevict( accdb, charge_busy, 0 );
       return;
+    }
+
+    /* A full snapshot boundary is owned by the accdb tile.  Gate new
+       delta writers, drain existing acquire/release brackets, and clear
+       the delta before acknowledging START. */
+    if( FD_UNLIKELY( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_START &&
+                     (FD_VOLATILE_CONST( *snap_sync_p ) & FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA) ) ) {
+      if( FD_LIKELY( accdb->delta ) ) {
+        fd_accdb_delta_reset_begin( accdb->delta );
+        if( FD_UNLIKELY( !fd_accdb_delta_reset_try( accdb->delta ) ) ) {
+          *charge_busy = 1;
+          return;
+        }
+      }
+      __atomic_fetch_and( snap_sync_p, ~FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA, __ATOMIC_RELEASE );
     }
 
     /* acknowledge the client's snapshot start/stop request */

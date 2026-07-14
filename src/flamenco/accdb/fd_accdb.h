@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_h
 
 #include "fd_accdb_shmem.h"
+#include "fd_accdb_delta.h"
 #include "../../util/bits/fd_bits.h"
 
 /* The accdb is a fork aware database that can be queried to get the
@@ -144,6 +145,12 @@ fd_accdb_new( void *              ljoin,
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );
+
+/* fd_accdb_set_delta attaches the optional changed-pubkey index used by
+   execution joiners.  Call once immediately after join. */
+void
+fd_accdb_set_delta( fd_accdb_t *       accdb,
+                    fd_accdb_delta_t * delta );
 
 /* fd_accdb_join_readonly is the read-only counterpart of fd_accdb_new +
    fd_accdb_join.  shmem_ro may point into a read-only mapping of the

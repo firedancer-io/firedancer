@@ -18,6 +18,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../tango/fseq/fd_fseq.h"
+#include "../../flamenco/accdb/fd_accdb_delta.h"
 
 #include "generated/fd_snapmk_tile_seccomp.h"
 
@@ -168,6 +169,10 @@ struct fd_snapmk {
   ulong base_slot;
   ulong base_generation;
   ulong cur_root_generation; /* root generation of the in-progress job */
+
+  fd_accdb_delta_t * delta;
+  ulong              delta_chain_idx;
+  uint               delta_ele_idx;
 
   /* IPC */
   struct {
@@ -773,6 +778,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->incremental     = 0;
   ctx->base_slot       = ULONG_MAX;
   ctx->base_generation = 0UL;
+  ctx->delta = NULL;
+  if( FD_UNLIKELY( tile->snapmk.accdb_delta_obj_id!=ULONG_MAX ) ) {
+    ctx->delta = fd_accdb_delta_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_delta_obj_id ) );
+    FD_TEST( ctx->delta );
+  }
   ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id ) );
   FD_TEST( ctx->visited_set );
 
@@ -1174,6 +1184,8 @@ after_credit( fd_snapmk_t *       ctx,
       fd_backup_start_msg_t * frag = alloc_zp_payload( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
       frag->slot_idx = ctx->cur_slot_idx;
+      frag->fork_id = ctx->bank->accdb_fork_id.val;
+      frag->incremental = (ushort)ctx->incremental;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
       fd_stem_publish( stem, i, 0UL, chunk, sizeof(fd_backup_start_msg_t), ctl, 0UL, 0UL );
       ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
@@ -1257,6 +1269,37 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCOUNTS_CACHE: {
     ulong out_idx = pick_out_rr( ctx );
+    if( FD_UNLIKELY( ctx->incremental ) ) {
+      fd_backup_delta_msg_t batch = {0};
+      fd_accdb_delta_ele_t * ele = fd_accdb_delta_ele( ctx->delta );
+      uint * chain = fd_accdb_delta_chain( ctx->delta );
+      while( batch.cnt<FD_BACKUP_CACHE_PARA ) {
+        if( FD_UNLIKELY( ctx->delta_ele_idx==UINT_MAX ) ) {
+          if( FD_UNLIKELY( ctx->delta_chain_idx>=ctx->delta->chain_cnt ) ) break;
+          ctx->delta_ele_idx = __atomic_load_n( &chain[ ctx->delta_chain_idx++ ], __ATOMIC_ACQUIRE );
+          continue;
+        }
+        fd_accdb_delta_ele_t const * cur = &ele[ ctx->delta_ele_idx ];
+        ctx->delta_ele_idx = __atomic_load_n( &cur->next, __ATOMIC_RELAXED );
+        fd_memcpy( &batch.pubkey[ batch.cnt ], cur->pubkey, sizeof(fd_pubkey_t) );
+        batch.cnt++;
+      }
+      if( FD_UNLIKELY( !batch.cnt ) ) {
+        set_zp_catchup_seq( ctx, stem );
+        ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH1;
+        ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
+        break;
+      }
+      ulong chunk;
+      void * payload = alloc_zp_payload( ctx, out_idx, sizeof(batch), &chunk );
+      fd_memcpy( payload, &batch, sizeof(batch) );
+      ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DELTA, 0, 0, 0 );
+      fd_stem_publish( stem, out_idx, 0UL, chunk, sizeof(batch), ctl, 0UL, 0UL );
+      _Bool blocked = !stem->cr_avail[ out_idx ];
+      ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( (int)out_idx ) : ULONG_MAX;
+      *charge_busy = 1;
+      break;
+    }
     fd_backup_cache_msg_t * frag = ctx->scan_batch;
     frag = fd_backup_cache_scan( ctx->acc_cache, frag );
     if( FD_UNLIKELY( !frag ) ) {
@@ -1323,7 +1366,7 @@ after_credit( fd_snapmk_t *       ctx,
       break;
     }
     if( !ctx->out_flush_pending ) {
-      ctx->drain_next_state = flush_state==SNAPMK_STATE_ACCOUNTS_FLUSH1 ? SNAPMK_STATE_ACCOUNTS_DISK : SNAPMK_STATE_STATUS_CACHE;
+      ctx->drain_next_state = flush_state==SNAPMK_STATE_ACCOUNTS_FLUSH1 && !ctx->incremental ? SNAPMK_STATE_ACCOUNTS_DISK : SNAPMK_STATE_STATUS_CACHE;
       ctx->state = SNAPMK_STATE_ACCOUNTS_DRAIN;
       FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
     }
@@ -1547,6 +1590,14 @@ snap_begin( fd_snapmk_t * ctx,
     ctx->base_generation = base_generation;
   }
 
+  /* Establish the full-snapshot delta boundary before doing any snapshot
+     setup.  For a full snapshot, the accdb tile gates new writers,
+     drains acquire/release brackets, clears accdb_delta, and only then
+     acknowledges START.  It also pauses accdb compaction until DONE. */
+  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
+  fd_accdb_snapshot_sync_start( ctx->accdb_snapshot_sync, !incremental );
+  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
+
   uchar snap_hash[32];
   fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, snap_hash );
   char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -1571,11 +1622,6 @@ snap_begin( fd_snapmk_t * ctx,
   if( FD_UNLIKELY( lseek( ctx->out_fd, 0L, SEEK_SET )<0L ) ) {
     FD_LOG_ERR(( "lseek(%s) failed: %s", ctx->pool[ ctx->cur_slot_idx ].name, fd_io_strerror( errno ) ));
   }
-
-  /* pause accdb compaction */
-  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
-  fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
-  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
 
   __atomic_store_n( ctx->zp_file_off, 0UL, __ATOMIC_RELAXED );
   ctx->raw_buf.size  = 0UL;
@@ -1603,6 +1649,12 @@ snap_begin( fd_snapmk_t * ctx,
   ulong min_generation     = incremental ? ctx->base_generation+1UL : 0UL;
   int   include_tombstones = incremental;
   ctx->cur_root_generation = root_generation;
+
+  if( FD_UNLIKELY( incremental ) ) {
+    FD_TEST( ctx->delta );
+    ctx->delta_chain_idx = 0UL;
+    ctx->delta_ele_idx   = UINT_MAX;
+  }
 
   fd_backup_cache_reset( ctx->acc_cache, root_generation, min_generation, include_tombstones );
   fd_snapmk_accparse_reset( ctx->accparse,

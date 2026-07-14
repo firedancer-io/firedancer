@@ -158,6 +158,7 @@ struct fd_configf {
     ulong wait_for_peers_timeout_seconds;
     ulong full_snapshot_interval_slots;
     ulong incremental_snapshot_interval_slots;
+    ulong max_incremental_snapshot_accounts;
   } snapshots;
 
   struct {

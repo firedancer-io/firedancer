@@ -7,7 +7,7 @@
 #         well known FD_BACKUP_POOL_DIO_FD numbers before the tile is
 #         spawned; the tile pwrites compressed account data through
 #         these and never opens files itself.
-uint logfile_fd, uint pool_min_fd, uint pool_max_fd
+uint logfile_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -30,6 +30,9 @@ fsync: (eq (arg 0) logfile_fd)
 # arg 0 is the file descriptor to write to.
 pwrite64: (and (>= (arg 0) pool_min_fd)
                (<= (arg 0) pool_max_fd))
+
+# incremental snapshot account reads on cache miss
+preadv2: (eq (arg 0) accdb_ro_fd)
 
 # power saving: sleep briefly after the tile has been idle
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)

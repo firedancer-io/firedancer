@@ -73,6 +73,8 @@ struct fd_replay_tile {
   fd_wksp_mon_t       progcache_wksp_mon[1];
 
   fd_accdb_t *    accdb;
+  fd_accdb_delta_t * accdb_delta;
+  int               accdb_delta_overflow_warned;
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;

@@ -1438,6 +1438,64 @@ test_sentinel_index_wrap( void ) {
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
 }
 
+static void
+test_delta_commit_and_full_snapshot_reset( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  ulong delta_fp = fd_accdb_delta_footprint( 8UL );
+  void * delta_mem = aligned_alloc( fd_accdb_delta_align(), delta_fp );
+  FD_TEST( delta_mem );
+  fd_accdb_delta_t * delta = fd_accdb_delta_join( fd_accdb_delta_new( delta_mem, 8UL, 99UL ) );
+  FD_TEST( delta );
+  fd_accdb_set_delta( accdb, delta );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  uchar owner[ 32 ] = { 7 };
+  uchar data [ 4  ] = { 1, 2, 3, 4 };
+
+  accdb_write( accdb, root, pubkey0, 10UL, data, sizeof(data), owner );
+  FD_TEST( fd_accdb_delta_head( delta )==1UL );
+
+  /* A second committed write of the same key is already present. */
+  accdb_write( accdb, root, pubkey0, 11UL, data, sizeof(data), owner );
+  FD_TEST( fd_accdb_delta_head( delta )==1UL );
+
+  /* Writable acquisitions that roll back do not enter the delta. */
+  uchar const * pubkeys[ 1 ] = { pubkey1 };
+  int writable[ 1 ] = { 1 };
+  fd_acc_t acc[ 1 ];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, root, 1UL, pubkeys, writable, acc );
+  fd_accdb_release( accdb, 1UL, acc );
+  FD_TEST( fd_accdb_delta_head( delta )==1UL );
+
+  /* A committed zero-lamport write is retained so the incremental
+     snapshot path can resolve it as a tombstone. */
+  accdb_write( accdb, root, pubkey1, 0UL, NULL, 0UL, owner );
+  FD_TEST( fd_accdb_delta_head( delta )==2UL );
+
+  /* Full snapshot START is not acknowledged until the accdb tile owns
+     and completes the reset. */
+  fd_accdb_snapshot_sync_start( &test_shmem_mem->snapshot_sync, 1 );
+  FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_START );
+  int charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+  FD_TEST( charge_busy );
+  FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+  FD_TEST( fd_accdb_delta_head( delta )==0UL );
+
+  /* Finish the simulated snapshot handshake. */
+  fd_accdb_snapshot_sync_advance( &test_shmem_mem->snapshot_sync );
+  charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+  FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+
+  fd_accdb_set_delta( accdb, NULL );
+  free( delta_mem );
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1514,6 +1572,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_delta_commit_and_full_snapshot_reset ..." ));
+  test_delta_commit_and_full_snapshot_reset();
 
   FD_LOG_NOTICE(( "success" ));
 

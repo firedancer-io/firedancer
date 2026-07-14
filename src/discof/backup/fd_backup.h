@@ -3,8 +3,9 @@
 
 /* fd_backup.h produces Solana snapshots from Firedancer state.
 
-   fd_backup_cache snapshots accounts from in-memory cache.
-   fd_backup_accdb snapshots accounts from disk. */
+   Full snapshots stream accounts from the in-memory cache and disk.
+   Incremental snapshots stream changed pubkeys from accdb_delta and
+   resolve each account through accdb. */
 
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/archive/fd_tar.h"
@@ -16,6 +17,7 @@
 #define FD_BACKUP_ORIG_FLUSH        4  /* mk->zp: flush compress buffer */
 #define FD_BACKUP_ORIG_DONE         5  /* mk->zp: stop compressing; mk->replay: free bank_idx */
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6 /* mk->zp: batch of cold accounts within one rd frag */
+#define FD_BACKUP_ORIG_ACC_DELTA      7 /* mk->zp: changed pubkeys for accdb reads */
 #define FD_BACKUP_ORIG_DISK_START  16  /* mk->rd: start reading from disk */
 #define FD_BACKUP_ORIG_DISK_FRAG   17  /* rd->mk: accdb file frag */
 
@@ -58,6 +60,8 @@
 
 struct fd_backup_start_msg {
   uint slot_idx;
+  ushort fork_id;
+  ushort incremental;
 };
 typedef struct fd_backup_start_msg fd_backup_start_msg_t;
 
@@ -66,6 +70,12 @@ struct fd_backup_cache_msg {
   fd_pubkey_t pubkey [ FD_BACKUP_CACHE_PARA ];
 };
 typedef struct fd_backup_cache_msg fd_backup_cache_msg_t;
+
+struct fd_backup_delta_msg {
+  fd_pubkey_t pubkey[ FD_BACKUP_CACHE_PARA ];
+  uint        cnt;
+};
+typedef struct fd_backup_delta_msg fd_backup_delta_msg_t;
 
 struct fd_backup_disk_msg {
   fd_pubkey_t pubkey;
@@ -104,6 +114,7 @@ union fd_backup_frag {
   fd_backup_cache_msg_t      cache;
   fd_backup_disk_msg_t       disk;
   fd_backup_disk_batch_msg_t disk_batch;
+  fd_backup_delta_msg_t      delta;
 };
 typedef union fd_backup_frag fd_backup_frag_t;
 

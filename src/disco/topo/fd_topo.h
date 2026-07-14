@@ -426,6 +426,7 @@ struct fd_topo_tile {
       ulong fec_max;
 
       ulong accdb_obj_id;
+      ulong accdb_delta_obj_id;
       ulong txncache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
@@ -474,6 +475,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      ulong accdb_delta_obj_id;
 
       ulong max_live_slots;
 
@@ -579,11 +581,14 @@ struct fd_topo_tile {
 
     struct {
       ulong accdb_obj_id;
+      ulong accdb_delta_obj_id;
       ulong max_live_slots;
 
       ulong rpc_epoch_obj_id;
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
+      ulong snapzp_epoch_obj_ids[ 64 ];
+      ulong snapzp_epoch_obj_cnt;
     } accdb;
 
     struct {
@@ -666,6 +671,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong accdb_obj_id;
+      ulong accdb_delta_obj_id;
       int   report_transaction_diffs;
     } execle;
 
@@ -698,6 +704,7 @@ struct fd_topo_tile {
 
     struct {
       ulong accdb_obj_id;
+      ulong accdb_delta_obj_id;
       ulong visited_set_obj_id;
       ulong banks_obj_id;
       ulong zp_fseq_id;
@@ -711,8 +718,10 @@ struct fd_topo_tile {
 
     struct {
       ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
       ulong visited_set_obj_id;
       ulong zp_fseq_id;
+      ulong max_live_slots;
       uint  pool_cnt; /* snapshot pool slot count */
     } snapzp;
 

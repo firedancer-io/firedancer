@@ -13,10 +13,11 @@
 /* Maximum number of read-only accdb consumer fseqs the accdb tile can
    bind external_epoch_slots[] to.  Bumped as new RO consumers are
    added.  Today: rpc tile (optional). */
-#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (8UL)
+#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (96UL)
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
+  fd_accdb_delta_t * delta;
 
   ulong seed;
 };
@@ -122,9 +123,21 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
+  for( ulong i=0UL; i<tile->accdb.snapzp_epoch_obj_cnt; i++ ) {
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapzp_epoch_obj_ids[ i ] ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
+  ctx->delta = NULL;
+  if( FD_UNLIKELY( tile->accdb.accdb_delta_obj_id!=ULONG_MAX ) ) {
+    ctx->delta = fd_accdb_delta_join( fd_topo_obj_laddr( topo, tile->accdb.accdb_delta_obj_id ) );
+    FD_TEST( ctx->delta );
+    fd_accdb_set_delta( ctx->accdb, ctx->delta );
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

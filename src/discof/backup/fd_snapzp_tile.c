@@ -20,6 +20,8 @@
 struct fd_snapzp {
   fd_backup_cache_t acc_cache[1];
   visited_set_t *   visited_set;
+  fd_accdb_t *      accdb;
+  fd_accdb_fork_id_t fork_id;
 
   ZSTD_CCtx *    zst;
   ulong          zst_in_rec; /* ZSTD_CStreamInSize() */
@@ -113,6 +115,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t),  sizeof(fd_snapzp_t) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),      fd_accdb_footprint( tile->snapzp.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, 4096UL,                RAW_BUF_SZ          );
   l = FD_LAYOUT_APPEND( l, 4096UL,                COMP_BUF_SZ         );
   l = FD_LAYOUT_APPEND( l, 32UL,                  ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
@@ -141,6 +144,7 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
+  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
   uchar *       raw_buf  = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               RAW_BUF_SZ          );
   uchar *       comp_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               COMP_BUF_SZ         );
   void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
@@ -192,6 +196,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapzp.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem_ro );
+  ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.accdb_epoch_obj_id ) );
+  FD_TEST( epoch_fseq );
+  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+  FD_TEST( ctx->accdb );
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro ) );
   ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   FD_TEST( ctx->visited_set );
@@ -206,12 +214,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapzp_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<2UL+(ulong)ctx->pool_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL+(ulong)ctx->pool_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   for( uint i=0U; i<ctx->pool_cnt; i++ ) out_fds[ out_cnt++ ] = FD_BACKUP_POOL_DIO_FD( i ); /* snapshot pool */
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   return out_cnt;
 }
 
@@ -224,7 +233,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   populate_sock_filter_policy_fd_snapzp_tile( out_cnt, out,
                                               (uint)fd_log_private_logfile_fd(),
                                               (uint)FD_BACKUP_POOL_DIO_FD( 0 ),
-                                              (uint)FD_BACKUP_POOL_DIO_FD( ctx->pool_cnt-1U ) );
+                                              (uint)FD_BACKUP_POOL_DIO_FD( ctx->pool_cnt-1U ),
+                                              (uint)FD_ACCDB_FD_RO );
   return sock_filter_policy_fd_snapzp_tile_instr_cnt;
 }
 
@@ -331,6 +341,7 @@ process_start( fd_snapzp_t * ctx,
     FD_LOG_ERR(( "invalid snapshot pool slot %u", frag->slot_idx ));
   }
   ctx->fd = FD_BACKUP_POOL_DIO_FD( frag->slot_idx );
+  ctx->fork_id = (fd_accdb_fork_id_t){ .val = frag->fork_id };
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
@@ -396,6 +407,39 @@ process_accounts_cached( fd_snapzp_t * ctx,
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
     metrics_account_packed_add( ctx, buf->size - raw_buf_start );
+  }
+}
+
+static void
+process_accounts_delta( fd_snapzp_t *              ctx,
+                        fd_backup_delta_msg_t const * batch ) {
+  if( FD_UNLIKELY( ctx->fd<0 || batch->cnt>FD_BACKUP_CACHE_PARA ) )
+    FD_LOG_ERR(( "invalid delta account batch" ));
+
+  for( ulong i=0UL; i<(ulong)batch->cnt; i++ ) {
+    ulong max_rec = sizeof(snap_acc_hdr_t) + (10UL<<20);
+    if( FD_UNLIKELY( ctx->raw_buf.size + max_rec > RAW_BUF_SZ ) ) flush( ctx );
+
+    ulong start = ctx->raw_buf.size;
+    snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + start );
+    fd_memset( hdr, 0, sizeof(*hdr) );
+    hdr->pubkey = batch->pubkey[ i ];
+
+    ulong data_len = 0UL;
+    ulong lamports = 0UL;
+    int executable = 0;
+    fd_accdb_read_one_nocache( ctx->accdb, ctx->fork_id, batch->pubkey[ i ].uc,
+                               &lamports, &executable, hdr->owner.uc,
+                               ctx->raw + start + sizeof(*hdr), &data_len );
+    hdr->lamports   = lamports;
+    hdr->executable = (uchar)executable;
+    hdr->data_len   = data_len;
+    if( FD_UNLIKELY( data_len>(10UL<<20) ) ) FD_LOG_ERR(( "accdb returned oversized account (%lu)", data_len ));
+
+    ulong rec_sz = sizeof(*hdr) + fd_ulong_align_up( data_len, 8UL );
+    fd_memset( ctx->raw + start + sizeof(*hdr) + data_len, 0, rec_sz-sizeof(*hdr)-data_len );
+    ctx->raw_buf.size = start + rec_sz;
+    metrics_account_packed_add( ctx, rec_sz );
   }
 }
 
@@ -663,6 +707,14 @@ returnable_frag( fd_snapzp_t *       ctx,
     }
     fd_backup_cache_msg_t const * frag = fd_chunk_to_laddr_const( ctx->snapmk_zp_mem, chunk );
     process_accounts_cached( ctx, frag );
+    compress_pending( ctx );
+    break;
+  }
+  case FD_BACKUP_ORIG_ACC_DELTA: {
+    if( FD_UNLIKELY( sz!=sizeof(fd_backup_delta_msg_t) || chunk<ctx->snapmk_zp_chunk0 || chunk>ctx->snapmk_zp_wmark ) )
+      FD_LOG_ERR(( "invalid ACC_DELTA payload chunk=%lu sz=%lu", chunk, sz ));
+    fd_backup_delta_msg_t const * frag = fd_chunk_to_laddr_const( ctx->snapmk_zp_mem, chunk );
+    process_accounts_delta( ctx, frag );
     compress_pending( ctx );
     break;
   }

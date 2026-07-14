@@ -484,6 +484,9 @@ fd_config_validatef( fd_configf_t const * config ) {
     if( FD_UNLIKELY( !config->snapshots.max_incremental_snapshots_to_keep ) ) {
       FD_LOG_ERR(( "[snapshots.incremental_snapshot_interval_slots] is set but [snapshots.max_incremental_snapshots_to_keep] is zero" ));
     }
+    if( FD_UNLIKELY( !config->snapshots.max_incremental_snapshot_accounts || config->snapshots.max_incremental_snapshot_accounts>(ulong)UINT_MAX ) ) {
+      FD_LOG_ERR(( "[snapshots.max_incremental_snapshot_accounts] must be in [1, %u]", UINT_MAX ));
+    }
   }
 
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
