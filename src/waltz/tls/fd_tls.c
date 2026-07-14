@@ -9,6 +9,14 @@
 
 /* Pre-generated keys */
 
+/* RFC 8446 Section 4.4.3: The digital signature is computed over the
+   concatenation of:
+   -  A string that consists of octet 32 (0x20) repeated 64 times
+   -  The context string ("TLS 1.3, server CertificateVerify" or
+      "TLS 1.3, client CertificateVerify")
+   -  A single 0 byte which serves as the separator
+   -  The content to be signed (Transcript-Hash) */
+
 char const fd_tls13_cli_sign_prefix[ 98 ] =
   "                                "  /* 32 spaces */
   "                                "  /* 32 spaces */
@@ -19,6 +27,7 @@ static char const fd_tls13_srv_sign_prefix[ 98 ] =
   "                                "  /* 32 spaces */
   "TLS 1.3, server CertificateVerify";
 
+/* Transcript-Hash("") -- RFC 8446 Section 7.1 */
 //uchar empty_hash[ 32 ];
 //fd_sha256_hash( empty_hash, NULL, 0UL );
 static uchar const empty_hash[ 32 ] =
@@ -38,6 +47,9 @@ static uchar const empty_hash[ 32 ] =
 //    0x10, 0xad, 0xf3, 0x00, 0xaa, 0x1f, 0x26, 0x60,
 //    0xe1, 0xb2, 0x2e, 0x10, 0xf1, 0x70, 0xf9, 0x2a };
 
+/* Derive-Secret(Early Secret, "derived", "")
+   Precomputed: HKDF-Expand-Label(HKDF-Extract(0,0), "derived", Hash(""), Hash.length)
+   RFC 8446 Section 7.1 -- used as salt for HKDF-Extract to derive Handshake Secret */
 //uchar handshake_derived[ 32 ];
 //fd_hkdf_expand_label_sha256( handshake_derived,
 //                          early_secret,
