@@ -23,7 +23,7 @@ fd_gui_align( void ) {
 
 ulong
 fd_gui_footprint( ulong tile_cnt ) {
-  FD_TEST( tile_cnt && tile_cnt <=FD_TOPO_MAX_TILES );
+  FD_TEST( tile_cnt && tile_cnt <=FD_DIAG_SYSTEM_TILE_MAX );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),            sizeof(fd_gui_t) );
@@ -55,7 +55,7 @@ static inline void
 fd_gui_build_tile_order( fd_gui_t * gui ) {
   ulong tile_cnt   = gui->topo->tile_cnt;
   ulong order_cnt  = 0UL;
-  uchar placed[ FD_TOPO_MAX_TILES ] = {0};
+  uchar placed[ FD_DIAG_SYSTEM_TILE_MAX ] = {0};
 
   char const * const tile_display_order[] = {
     "gossvf", "gossip", "snapct", "snapld", "snapdc", "snapin", "snapwr",
@@ -111,7 +111,7 @@ fd_gui_new( void *                   shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( topo->tile_cnt>FD_TOPO_MAX_TILES ) ) {
+  if( FD_UNLIKELY( topo->tile_cnt>FD_DIAG_SYSTEM_TILE_MAX ) ) {
     FD_LOG_WARNING(( "too many tiles" ));
     return NULL;
   }
@@ -150,6 +150,8 @@ fd_gui_new( void *                   shmem,
   gui->leader_active = 0;
   gui->leader_slot_pending     = ULONG_MAX;
   gui->leader_bank_seq_pending = ULONG_MAX;
+
+  gui->system.valid  = 0;
 
   gui->summary.slot_tower  = ULONG_MAX;
   gui->summary.slot_tower_bank_seq = ULONG_MAX;
@@ -428,6 +430,45 @@ fd_gui_set_identity( fd_gui_t *    gui,
 }
 
 void
+fd_gui_handle_diag_snapshot( fd_gui_t *   gui,
+                             void const * data,
+                             ulong        data_sz ) {
+  if( FD_UNLIKELY( !gui->summary.is_full_client || !data ) ) return;
+
+  if( FD_UNLIKELY( data_sz!=sizeof(fd_diag_system_resources_t) ) ) return;
+
+  fd_diag_system_resources_t snapshot[ 1 ];
+  fd_memcpy( snapshot, data, sizeof(snapshot) );
+  if( FD_UNLIKELY( snapshot->cpu_cnt     >FD_DIAG_SYSTEM_CPU_MAX  ||
+                   snapshot->numa_mem_cnt>FD_DIAG_SYSTEM_NUMA_MAX ||
+                   snapshot->tile_mem_cnt>FD_DIAG_SYSTEM_TILE_MEM_MAX ||
+                   snapshot->mount_cnt   >FD_DIAG_SYSTEM_FILE_MAX ||
+                   snapshot->file_cnt    >FD_DIAG_SYSTEM_FILE_MAX ) ) return;
+  for( ulong i=0UL; i<(ulong)snapshot->cpu_cnt; i++ ) {
+    fd_diag_system_cpu_t const * cpu = &snapshot->cpu[ i ];
+    if( FD_UNLIKELY( cpu->cpu_idx>=FD_DIAG_SYSTEM_CPU_MAX ) ) return;
+  }
+  for( ulong i=0UL; i<(ulong)snapshot->tile_mem_cnt; i++ ) {
+    fd_diag_system_tile_mem_t const * tile = &snapshot->tile_mem[ i ];
+    if( FD_UNLIKELY( tile->tile_idx>=gui->topo->tile_cnt ) ) return;
+  }
+  for( ulong i=0UL; i<(ulong)snapshot->mount_cnt; i++ ) {
+    if( FD_UNLIKELY( !memchr( snapshot->mount[ i ].path, '\0', sizeof(snapshot->mount[ i ].path) ) ) ) return;
+  }
+  for( ulong i=0UL; i<(ulong)snapshot->file_cnt; i++ ) {
+    fd_diag_system_file_t const * file = &snapshot->file[ i ];
+    if( FD_UNLIKELY( file->mount_idx>=snapshot->mount_cnt ||
+                     file->path[ 0 ]!='/' ||
+                     !memchr( file->path, '\0', sizeof(file->path) ) ) ) return;
+  }
+
+  gui->system.resources = *snapshot;
+  gui->system.valid     = 1;
+  fd_gui_printf_system_resources( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id,
                 long now ) {
@@ -468,6 +509,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     printers[ i ]( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  if( FD_LIKELY( gui->system.valid ) ) {
+    fd_gui_printf_system_resources( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 

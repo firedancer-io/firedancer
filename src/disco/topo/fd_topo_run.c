@@ -10,7 +10,6 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
-#include <sys/syscall.h>
 #include <linux/futex.h>
 #include <sys/resource.h>
 #include <sys/prctl.h>

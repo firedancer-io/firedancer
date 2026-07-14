@@ -1614,6 +1614,7 @@
 | <span class="metrics-name">gui_&#8203;websocket_&#8203;frame_&#8203;rx</span> | counter | WebSocket frames received from all connections to the GUI service |
 | <span class="metrics-name">gui_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all connections to the GUI service |
 | <span class="metrics-name">gui_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all connections to the GUI service |
+| <span class="metrics-name">gui_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical bytes allocated by the GUI database backing file |
 | <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">scheduler_&#8203;counts</span>"} | gauge | Bytes occupied by records present in the store ring (scheduler_counts) |
 | <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">tile_&#8203;timers</span>"} | gauge | Bytes occupied by records present in the store ring (tile_timers) |
 | <span class="metrics-name">gui_&#8203;db_&#8203;used_&#8203;bytes</span><br/>{gui_&#8203;db="<span class="metrics-enum">shred_&#8203;events</span>"} | gauge | Bytes occupied by records present in the store ring (shred_events) |
@@ -1885,6 +1886,7 @@
 | <span class="metrics-name">snapmk_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing data |
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;count</span> | gauge | Number of accounts that changed since the last full snapshot, i.e. the number of accounts that the next incremental snapshot will contain |
 | <span class="metrics-name">snapmk_&#8203;incremental_&#8203;account_&#8203;capacity</span> | gauge | Maximum number of changed accounts that can be tracked.  Once the count reaches this limit, incremental snapshots can no longer be created until the next full snapshot |
+| <span class="metrics-name">snapmk_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical bytes allocated across managed snapshot files, including partial and retained files |
 
 </div>
 

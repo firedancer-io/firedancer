@@ -31,11 +31,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_gui_tile_instr_cnt = 84;
+static const uint sock_filter_policy_fd_gui_tile_instr_cnt = 86;
 
-static void populate_sock_filter_policy_fd_gui_tile( ulong out_cnt, struct sock_filter out[ static 84 ], uint logfile_fd, uint gui_socket_fd, uint db_fd ) {
-  FD_TEST( out_cnt >= 84 );
-  struct sock_filter filter[84] = {
+static void populate_sock_filter_policy_fd_gui_tile( ulong out_cnt, struct sock_filter out[ static 86 ], uint logfile_fd, uint gui_socket_fd, uint db_fd ) {
+  FD_TEST( out_cnt >= 86 );
+  struct sock_filter filter[86] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 10 ),
@@ -57,8 +57,8 @@ static void populate_sock_filter_policy_fd_gui_tile( ulong out_cnt, struct sock_
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* check_close */ 60, 0 ),
     /* allow ppoll */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ppoll, /* RET_ALLOW */ 2, 0 ),
-    /* check ftruncate */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ftruncate, /* check_ftruncate */ 68, 0 ),
+    /* check fallocate */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fallocate, /* check_fallocate */ 68, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -197,13 +197,17 @@ static void populate_sock_filter_policy_fd_gui_tile( ulong out_cnt, struct sock_
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  close_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
-//  check_ftruncate:
+//  check_fallocate:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(db_fd)), /* ftruncate_ALLOW */ 1, /* ftruncate_KILL */ 0 ),
-//  ftruncate_KILL:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(db_fd)), /* and_20 */ 0, /* fallocate_KILL */ 2 ),
+//  and_20:
+    /* arg 1 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* fallocate_ALLOW */ 1, /* fallocate_KILL */ 0 ),
+//  fallocate_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
-//  ftruncate_ALLOW:
+//  fallocate_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
   };
   fd_memcpy( out, filter, sizeof( filter ) );
