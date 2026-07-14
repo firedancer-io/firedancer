@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_http_resolver.h"
 #include "fd_ssresolve.h"
 
@@ -7,14 +8,20 @@
 #include <poll.h>
 #include <errno.h>
 #include <unistd.h>
+#include <string.h>
 #include <sys/socket.h>
+#include <sys/random.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#include "../../../waltz/openssl/fd_openssl_tile.h"
-#endif
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../ballet/ed25519/fd_x25519.h"
+
+static void *
+fd_http_resolver_rand_fn( void * ctx, void * buf, ulong bufsz ) {
+  (void)ctx;
+  return fd_rng_secure( buf, bufsz );
+}
 
 #define PEER_STATE_UNRESOLVED (0)
 #define PEER_STATE_REFRESHING (1)
@@ -94,9 +101,7 @@ struct fd_http_resolver_private {
   void *                           cb_arg;
   fd_http_resolver_on_resolve_fn_t on_resolve_cb;
 
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-#endif
+  fd_tls_t                         tls;
 
   ulong                            magic; /* ==FD_HTTP_RESOLVER_MAGIC */
 };
@@ -177,21 +182,22 @@ fd_http_resolver_new( void *                           shmem,
   resolver->cb_arg                     = cb_arg;
   resolver->on_resolve_cb              = on_resolve_cb;
 
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
-  if( FD_UNLIKELY( !ssl_ctx ) ) {
-    FD_LOG_ERR(( "SSL_CTX_new failed" ));
+  {
+    fd_tls_t * tls = &resolver->tls;
+    fd_memset( tls, 0, sizeof(fd_tls_t) );
+
+    tls->rand.ctx     = NULL;
+    tls->rand.rand_fn = fd_http_resolver_rand_fn;
+
+    fd_http_resolver_rand_fn( NULL, tls->key_share_private, 32UL );
+    fd_x25519_public( tls->key_share_public, tls->key_share_private );
+
+    static uchar const alpn[] = { 8, 'h', 't', 't', 'p', '/', '1', '.', '1' };
+    fd_memcpy( tls->alpn, alpn, sizeof(alpn) );
+    tls->alpn_sz = sizeof(alpn);
+
+    tls->quic = 0;
   }
-
-  if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
-  }
-
-  /* transferring ownership of ssl_ctx by assignment */
-  resolver->ssl_ctx = ssl_ctx;
-
-  fd_ossl_load_certs( resolver->ssl_ctx );
-#endif
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( resolver->magic ) = FD_HTTP_RESOLVER_MAGIC;
@@ -312,11 +318,7 @@ peer_connect( fd_http_resolver_t *  resolver,
   resolver->fds_len++;
 
   if( FD_UNLIKELY( peer->is_https ) ) {
-#if FD_HAS_OPENSSL
-    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, resolver->ssl_ctx );
-#else
-    FD_LOG_ERR(( "peer %s requires https but firedancer is built without openssl support. Please remove this peer from your validator config.", peer->key.url.hostname ));
-#endif
+    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, &resolver->tls );
   } else {
     fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname );
   }
@@ -334,11 +336,7 @@ peer_connect( fd_http_resolver_t *  resolver,
     resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
     resolver->fds_len++;
     if( FD_UNLIKELY( peer->is_https ) ) {
-#if FD_HAS_OPENSSL
-      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, resolver->ssl_ctx );
-#else
-      FD_LOG_ERR(( "peer requires https but firedancer is built without openssl support" ));
-#endif
+      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, &resolver->tls );
     } else {
       fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname );
     }
