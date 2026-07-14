@@ -1,6 +1,7 @@
 #include "fd_bundle_auth.h"
 #include "proto/auth.pb.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../third_party/nanopb/pb_decode.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
@@ -122,6 +123,19 @@ fd_bundle_auther_req_tokens( fd_bundle_auther_t *   auther,
   fd_keyguard_client_sign( keyguard, req.signed_challenge.bytes, (uchar const *)auther->challenge, 9UL, FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 );
   req.signed_challenge.size = 64UL;
 
+  fd_sha512_t sha[1];
+  int verify_res = fd_ed25519_verify( req.challenge.bytes,
+                                      req.challenge.size,
+                                      req.signed_challenge.bytes,
+                                      auther->pubkey,
+                                      sha );
+  if( FD_UNLIKELY( verify_res!=FD_ED25519_SUCCESS ) ) {
+    FD_LOG_WARNING(( "Bundle auth signature does not verify against cached identity (%s)",
+                     fd_ed25519_strerror( verify_res ) ));
+    fd_bundle_auther_reset( auther );
+    return;
+  }
+
   static char const path[] = "/auth.AuthService/GenerateAuthTokens";
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       client,
@@ -197,4 +211,7 @@ void
 fd_bundle_auther_reset( fd_bundle_auther_t * auther ) {
   auther->state      = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
   auther->needs_poll = 1;
+  fd_memzero_explicit( auther->challenge,    sizeof(auther->challenge) );
+  fd_memzero_explicit( auther->access_token, sizeof(auther->access_token) );
+  auther->access_token_sz = 0;
 }

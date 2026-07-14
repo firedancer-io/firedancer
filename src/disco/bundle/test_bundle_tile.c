@@ -383,6 +383,62 @@ test_saturating_sub( void ) {
   free( wksp );
 }
 
+static void
+test_pending_keyswitch_before_credit( void ) {
+  FD_LOG_NOTICE(( "TEST pending keyswitch before credit" ));
+
+  fd_bundle_tile_t ctx[1] = {0};
+  ctx->tcp_sock = -1;
+  FD_TEST( fd_rng_new( ctx->rng, 0U, 0UL ) );
+
+  ctx->grpc_buf_max = 16384UL;
+  ulong grpc_footprint = fd_grpc_client_footprint( ctx->grpc_buf_max );
+  ctx->grpc_client_mem = aligned_alloc( fd_grpc_client_align(), grpc_footprint );
+  FD_TEST( ctx->grpc_client_mem );
+  ctx->grpc_client = fd_grpc_client_new( ctx->grpc_client_mem,
+                                         &fd_bundle_client_grpc_callbacks,
+                                         ctx->grpc_metrics,
+                                         ctx,
+                                         ctx->grpc_buf_max,
+                                         1UL );
+  FD_TEST( ctx->grpc_client );
+
+  ulong pending_max = 1UL;
+  void * pending_mem = aligned_alloc( pending_txn_align(), pending_txn_footprint( pending_max ) );
+  FD_TEST( pending_mem );
+  ctx->pending_txns = pending_txn_join( pending_txn_new( pending_mem, pending_max ) );
+  FD_TEST( ctx->pending_txns );
+  pending_txn_push_tail( ctx->pending_txns, (fd_bundle_pending_txn_t){0} );
+
+  fd_keyswitch_t keyswitch = { .state = FD_KEYSWITCH_STATE_SWITCH_PENDING };
+  keyswitch.bytes[0] = 1U;
+  ctx->keyswitch = &keyswitch;
+  ctx->auther.state = FD_BUNDLE_AUTH_STATE_WAIT_TOKENS;
+  ctx->auther.access_token_sz = 1U;
+  ctx->auther.access_token[0] = 'x';
+  ctx->backoff_iter = 7U;
+  ctx->backoff_until = LONG_MAX;
+  ctx->backoff_reset = LONG_MAX;
+  ctx->sleep_check_ns = 123L;
+
+  int charge_busy = 0;
+  before_credit( ctx, NULL, &charge_busy );
+
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->auther.pubkey[0]==1U );
+  FD_TEST( ctx->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+  FD_TEST( ctx->auther.needs_poll && !ctx->auther.access_token_sz );
+  FD_TEST( !ctx->auther.access_token[0] );
+  FD_TEST( !ctx->defer_reset );
+  FD_TEST( !ctx->backoff_iter && !ctx->backoff_until && !ctx->backoff_reset );
+  FD_TEST( !ctx->sleep_check_ns );
+  FD_TEST( pending_txn_cnt( ctx->pending_txns )==1UL );
+  FD_TEST( !charge_busy );
+
+  free( fd_grpc_client_delete( ctx->grpc_client ) );
+  free( pending_txn_delete( pending_txn_leave( ctx->pending_txns ) ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -404,6 +460,7 @@ main( int     argc,
   test_replay_triggers_sleep_transition();
   test_boundary_thresholds();
   test_saturating_sub();
+  test_pending_keyswitch_before_credit();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

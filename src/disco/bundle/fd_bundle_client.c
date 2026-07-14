@@ -65,6 +65,16 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   fd_grpc_client_reset( ctx->grpc_client );
 }
 
+void
+fd_bundle_client_set_identity( fd_bundle_tile_t * ctx,
+                               uchar const        pubkey[ static 32 ] ) {
+  fd_bundle_client_reset( ctx );
+  ctx->backoff_iter  = 0U;
+  ctx->backoff_until = 0L;
+  ctx->backoff_reset = 0L;
+  fd_memcpy( ctx->auther.pubkey, pubkey, 32UL );
+}
+
 static int
 fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
                              uint                     ip4_addr ) {

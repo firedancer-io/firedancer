@@ -325,6 +325,14 @@ fd_bundle_request_ctx_cstr( ulong request_ctx );
 void
 fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
+/* fd_bundle_client_set_identity synchronously disconnects and clears
+   authentication state before installing a new validator identity.
+   Reconnection is allowed immediately. */
+
+void
+fd_bundle_client_set_identity( fd_bundle_tile_t * ctx,
+                               uchar const        pubkey[ static 32 ] );
+
 /* fd_bundle_client_ping_tx enqueues a PING frame for sending.  Returns
    1 on success and 0 on failure (occurs when frame_tx buf is full). */
 

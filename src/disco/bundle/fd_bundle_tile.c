@@ -135,8 +135,21 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   ctx->bundle_status_recent = (uchar)state;
 }
 
+static _Bool
+fd_bundle_tile_apply_pending_keyswitch( fd_bundle_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->keyswitch ||
+                 fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return 0;
+
+  fd_bundle_client_set_identity( ctx, ctx->keyswitch->bytes );
+  ctx->sleep_check_ns = 0;
+  fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  return 1;
+}
+
 void
 fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
+  fd_bundle_tile_apply_pending_keyswitch( ctx );
+
   long log_interval_ns = (long)30e9;
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
@@ -145,13 +158,6 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->sleep_mode && status!=FD_BUNDLE_STATE_CONNECTED && now_ns>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
     ctx->last_bundle_status_log_nanos = now_ns;
-  }
-
-  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
-    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->defer_reset = 1;
-    ctx->sleep_check_ns = 0;
   }
 
   fd_bundle_tile_maybe_sleep( ctx, now_ns );
@@ -238,6 +244,8 @@ before_credit( fd_bundle_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->stem ) ) {
     ctx->stem = stem;
   }
+
+  if( FD_UNLIKELY( fd_bundle_tile_apply_pending_keyswitch( ctx ) ) ) return;
 
   if( FD_UNLIKELY( ctx->sleep_mode ) ) {
     if( ctx->tcp_sock>=0 ) {
