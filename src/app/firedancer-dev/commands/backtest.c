@@ -208,8 +208,8 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapwr_ct" );
 
     fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
-    fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, USHORT_MAX,                     1UL );
-    fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, USHORT_MAX,                     1UL );
+    fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, FD_SNAPSHOT_DATA_MTU,           1UL );
+    fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, FD_SNAPSHOT_DATA_MTU,           1UL );
 
     fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL ); /* TODO: Should be depth 1 or 2 but replay backpressures */
     fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,   0UL,                            1UL )->permit_no_consumers = 1;
