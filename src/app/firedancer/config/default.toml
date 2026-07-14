@@ -1219,10 +1219,10 @@ telemetry = true
         # table before entries from low stake validators are evicted.
         #
         # The gossip protocol periodically expires old entries from the
-        # table, and this number should be set so that the table never
-        # gets full, and all entries expire before they would need to be
-        # evicted.
-        max_entries = 2_097_152
+        # table, and eviction of the lowest-stake entries on overflow is
+        # graceful, so this only needs to cover the live entry working
+        # set of the cluster.
+        max_entries = 65_536
 
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
