@@ -6,7 +6,6 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../waltz/openssl/fd_openssl_tile.h"
 
 #include <sys/mman.h> /* memfd_create */
 #include <errno.h>
@@ -89,12 +88,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-FD_FN_CONST static inline ulong
-loose_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  /* Leftover space for OpenSSL allocations */
-  return 1UL<<26UL; /* 64 MiB */
-}
 
 static void
 privileged_init( fd_topo_t const *      topo,
@@ -103,12 +96,6 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
   void * _sshttp         = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
-
-#if FD_HAS_OPENSSL
-  void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), tile->kind_id );
-  fd_ossl_tile_init( alloc );
-#endif
 
   ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
   FD_TEST( ctx->sshttp );
@@ -243,9 +230,6 @@ should_shutdown( fd_snapld_tile_t * ctx ) {
 
 static void
 metrics_write( fd_snapld_tile_t * ctx ) {
-#if FD_HAS_OPENSSL
-  FD_MCNT_SET(   SNAPLD, SSL_ALLOC_FAILED, fd_ossl_alloc_errors );
-#endif
   FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
 }
 
@@ -590,7 +574,6 @@ fd_topo_run_tile_t fd_tile_snapld = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

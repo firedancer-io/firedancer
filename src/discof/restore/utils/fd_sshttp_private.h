@@ -3,26 +3,29 @@
 
 #include "fd_sshttp.h"
 
-#if FD_HAS_OPENSSL
-#include <openssl/ssl.h>
-#endif
+#include "../../../waltz/tls/fd_tls.h"
+#include "../../../waltz/tlsrec/fd_tlsrec.h"
+#include "../../../ballet/x509/fd_x509_ca_store.h"
+#include "../../../ballet/x509/fd_x509_verify.h"
 
 #define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
 
 #define FD_SSHTTP_STATE_INIT          (0) /* start */
-#define FD_SSHTTP_STATE_CONNECT       (1) /* connecting ssl */
+#define FD_SSHTTP_STATE_CONNECT       (1) /* connecting TLS */
 #define FD_SSHTTP_STATE_REQ           (2) /* sending request */
 #define FD_SSHTTP_STATE_RESP          (3) /* receiving response headers */
 #define FD_SSHTTP_STATE_DL            (4) /* downloading response body */
-#define FD_SSHTTP_STATE_SHUTTING_DOWN (5) /* shutting down ssl */
-#define FD_SSHTTP_STATE_REDIRECT      (6) /* redirect after shutting down ssl */
+#define FD_SSHTTP_STATE_SHUTTING_DOWN (5) /* shutting down TLS */
+#define FD_SSHTTP_STATE_REDIRECT      (6) /* redirecting */
 #define FD_SSHTTP_STATE_DONE          (7) /* done */
 
 #define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
 
+#define FD_SSHTTP_TLS_BUF_SZ (4096UL)
+
 struct fd_sshttp_private {
   int   state;
-  int   next_state; /* used for state transitions in https connection */
+  int   next_state;
   long  deadline;
   ulong empty_recvs;
 
@@ -44,13 +47,22 @@ struct fd_sshttp_private {
   char  response[ USHORT_MAX ];
 
   char  snapshot_name[ PATH_MAX ];
-  ulong resolved_slot;       /* effective slot from redirect filename */
-  uchar resolved_hash[ 32 ]; /* binary hash from redirect filename */
+  ulong resolved_slot;
+  uchar resolved_hash[ 32 ];
 
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL *     ssl;
-#endif
+  fd_tls_t          tls;
+  fd_tlsrec_conn_t  tls_conn;
+
+  fd_x509_ca_store_t ca_store;
+  int                ca_store_loaded;
+
+  uchar tls_app_buf[ FD_SSHTTP_TLS_BUF_SZ ];
+  ulong tls_app_buf_off;
+  ulong tls_app_buf_sz;
+
+  uchar tls_tx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
+  ulong tls_tx_buf_off;
+  ulong tls_tx_buf_sz;
 
   ulong content_len;
   ulong content_read;
