@@ -497,9 +497,10 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
 
-  /* fetch identity / vote balance updates infrequently */
+  /* fetch identity balance infrequently and after set-identity. */
   slot_info->identity_balance = ULONG_MAX;
-  if( FD_UNLIKELY( bank->f.slot%4096==0UL ) ) {
+  if( FD_UNLIKELY( ctx->identity_dirty || bank->f.slot%4096UL==0UL ) ) {
+    ctx->identity_dirty = 0;
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
 
@@ -584,6 +585,7 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   FD_LOG_DEBUG(( "keyswitch: switching identity" ));
 
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+  ctx->identity_dirty = 1;
 
   fd_node_info_write_begin( ctx->node_info );
   ctx->node_info->info.identity = *ctx->identity_pubkey;
@@ -644,7 +646,8 @@ try_fini_leader( fd_replay_tile_t *  ctx,
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
   slot_info->identity_balance = ULONG_MAX;
-  if( FD_UNLIKELY( curr_slot%4096==0UL ) ) {
+  if( FD_UNLIKELY( ctx->identity_dirty || curr_slot%4096UL==0UL ) ) {
+    ctx->identity_dirty         = 0;
     slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, ctx->leader_bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
 
@@ -2638,6 +2641,7 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
+  ctx->identity_dirty       = 0;
 
   ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {

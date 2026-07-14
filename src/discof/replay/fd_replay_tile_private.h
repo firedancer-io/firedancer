@@ -341,6 +341,7 @@ struct fd_replay_tile {
 
   fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
+  int              identity_dirty;
 
   fd_node_info_box_t * node_info; /* shared */
 
