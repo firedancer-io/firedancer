@@ -683,6 +683,24 @@ verify_proof( fd_eqvoc_t *               eqvoc,
     }
   }
 
+  /* Two same-type shreds with the same index (shred->idx) but conflicting
+     merkle roots are an equivocation regardless of FEC set.  Mirrors Agave
+     check_shreds; index() is the common-header index (shred->idx), not the
+     per-FEC-set position shred->code.idx:
+       https://github.com/anza-xyz/agave/blob/v4.2/gossip/src/duplicate_shred.rs#L212-L220
+       https://github.com/anza-xyz/agave/blob/v4.2/ledger/src/shred.rs#L470-L471 */
+
+  int both_data = fd_shred_is_data( fd_shred_type( shred1->variant ) ) &&
+                  fd_shred_is_data( fd_shred_type( shred2->variant ) );
+  int both_code = fd_shred_is_code( fd_shred_type( shred1->variant ) ) &&
+                  fd_shred_is_code( fd_shred_type( shred2->variant ) );
+
+  if( FD_LIKELY( both_data || both_code ) ) {
+    if( FD_UNLIKELY( shred1->idx==shred2->idx && 0!=memcmp( mr1.hash, mr2.hash, sizeof(mr1.hash) ) ) ) {
+      return FD_EQVOC_SUCCESS;
+    }
+  }
+
   /* If both are data shreds, then check for last shred conflicts. */
 
   if( FD_LIKELY( fd_shred_is_data( fd_shred_type( shred1->variant ) ) && fd_shred_is_data( fd_shred_type( shred2->variant ) ) ) ) {
