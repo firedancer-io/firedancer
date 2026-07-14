@@ -39,6 +39,8 @@ readonly -a S2N_FILES=(
   x86/curve25519/curve25519_x25519base_alt.S
   x86/fastmul/bignum_mul_4_8.S
   x86/fastmul/bignum_mul_4_8_alt.S
+  x86/fastmul/bignum_mul_6_12.S
+  x86/fastmul/bignum_mul_6_12_alt.S
   x86/generic/bignum_demont.S
   x86/generic/bignum_modinv.S
   x86/generic/bignum_montmul.S
@@ -65,6 +67,29 @@ readonly -a S2N_FILES=(
   x86/p256/p256_montjscalarmul_alt.S
   x86/p256/p256_scalarmulbase.S
   x86/p256/p256_scalarmulbase_alt.S
+  x86/p384/bignum_add_p384.S
+  x86/p384/bignum_demont_p384.S
+  x86/p384/bignum_demont_p384_alt.S
+  x86/p384/bignum_mod_n384.S
+  x86/p384/bignum_mod_n384_6.S
+  x86/p384/bignum_mod_n384_alt.S
+  x86/p384/bignum_mod_p384_6.S
+  x86/p384/bignum_montinv_p384.S
+  x86/p384/bignum_montmul_p384.S
+  x86/p384/bignum_montmul_p384_alt.S
+  x86/p384/bignum_montsqr_p384.S
+  x86/p384/bignum_montsqr_p384_alt.S
+  x86/p384/bignum_optneg_p384.S
+  x86/p384/bignum_tomont_p384.S
+  x86/p384/bignum_tomont_p384_alt.S
+  x86/p384/p384_montjadd.S
+  x86/p384/p384_montjadd_alt.S
+  x86/p384/p384_montjdouble.S
+  x86/p384/p384_montjdouble_alt.S
+  x86/p384/p384_montjmixadd.S
+  x86/p384/p384_montjmixadd_alt.S
+  x86/p384/p384_montjscalarmul.S
+  x86/p384/p384_montjscalarmul_alt.S
   x86/secp256k1/bignum_add_p256k1.S
   x86/secp256k1/bignum_demont_p256k1.S
   x86/secp256k1/bignum_double_p256k1.S
@@ -83,6 +108,7 @@ readonly -a S2N_FILES=(
   arm/curve25519/curve25519_x25519_byte_alt.S
   arm/curve25519/curve25519_x25519base_byte_alt.S
   arm/fastmul/bignum_mul_4_8_alt.S
+  arm/fastmul/bignum_mul_6_12_alt.S
   arm/generic/bignum_demont.S
   arm/generic/bignum_modinv.S
   arm/generic/bignum_montmul.S
@@ -100,6 +126,20 @@ readonly -a S2N_FILES=(
   arm/p256/p256_montjmixadd_alt.S
   arm/p256/p256_montjscalarmul_alt.S
   arm/p256/p256_scalarmulbase_alt.S
+  arm/p384/bignum_add_p384.S
+  arm/p384/bignum_demont_p384.S
+  arm/p384/bignum_mod_n384.S
+  arm/p384/bignum_mod_n384_6.S
+  arm/p384/bignum_mod_p384_6.S
+  arm/p384/bignum_montinv_p384.S
+  arm/p384/bignum_montmul_p384_alt.S
+  arm/p384/bignum_montsqr_p384_alt.S
+  arm/p384/bignum_optneg_p384.S
+  arm/p384/bignum_tomont_p384.S
+  arm/p384/p384_montjadd_alt.S
+  arm/p384/p384_montjdouble_alt.S
+  arm/p384/p384_montjmixadd_alt.S
+  arm/p384/p384_montjscalarmul_alt.S
   arm/secp256k1/bignum_add_p256k1.S
   arm/secp256k1/bignum_demont_p256k1.S
   arm/secp256k1/bignum_double_p256k1.S
