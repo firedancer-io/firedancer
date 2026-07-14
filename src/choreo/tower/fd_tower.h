@@ -446,6 +446,7 @@ struct fd_tower_blk {
   int       leader;             /* whether this slot was our own leader slot */
   int       propagated;         /* whether this slot has been propagation confirmed (1/3 stake) */
   ulong     prev_leader_slot;   /* previous slot in which we were leader as of this slot (inclusive) */
+  ulong     lck_head;           /* head of this block's lockout interval list (lck_pool idx) */
 };
 typedef struct fd_tower_blk fd_tower_blk_t;
 
@@ -480,8 +481,7 @@ struct fd_tower {
   void *             blk_map;   /* map chain of blk_t elements (NULL if blk_max==0) */
   fd_tower_vtr_t *   vtrs;      /* deque of voter entries (NULL if vtr_max==0) */
 
-  void * lck_pool; /* lockout interval pool */
-  void * lck_map;  /* lockout interval map chain */
+  void * lck_pool; /* lockout interval pool (lists threaded off blk lck_head) */
 
   fd_tower_stakes_vtr_map_t * stk_vtr_map;
   fd_tower_stakes_vtr_t *     stk_vtr_pool;
@@ -699,8 +699,11 @@ char *
 fd_tower_to_cstr( fd_tower_t const * tower,
                   char *             cstr );
 
-/* fd_tower_lockos API.  Lockout intervals are stored inline in the
-   tower (lck_pool and lck_map). */
+/* fd_tower_lockos API.  Lockout intervals live in lck_pool as
+   singly-linked lists threaded off each tower block's lck_head.
+   insert requires the slot's tower block to exist.  remove is a no-op
+   for slots without a tower block; fd_tower_blocks_remove also
+   releases the block's intervals. */
 
 void
 fd_tower_lockos_insert( fd_tower_t *      tower,

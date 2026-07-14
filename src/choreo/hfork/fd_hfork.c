@@ -84,25 +84,27 @@ typedef struct {
 
 struct bhm {
   bhm_key_t key;  /* bhm_map key */
-  ulong     next; /* pool next */
+  uint      next; /* pool next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   ulong slot;
   ulong stake;
 };
 typedef struct bhm bhm_t;
 
-#define POOL_NAME bhm_pool
+#define POOL_NAME  bhm_pool
+#define POOL_IDX_T uint
 #define POOL_T    bhm_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           bhm_map
+#define MAP_IDX_T                          uint
 #define MAP_ELE_T                          bhm_t
 #define MAP_KEY_T                          bhm_key_t
 #define MAP_PREV                           map.prev
@@ -114,6 +116,7 @@ typedef struct bhm bhm_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME  bhm_dlist
+#define DLIST_IDX_T uint
 #define DLIST_ELE_T bhm_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
@@ -121,11 +124,11 @@ typedef struct bhm bhm_t;
 
 struct blk {
   fd_hash_t block_id;      /* blk_map key */
-  ulong     prev;          /* blk_map prev */
-  ulong     next;          /* pool next / blk_map next */
+  uint      prev;          /* blk_map prev */
+  uint      next;          /* pool next / blk_map next */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   fd_hash_t our_bank_hash; /* 0: not replayed, -1: dead, else: our bank hash */
   void *    bhm_dlist;     /* dlist of bank hash objects for this block id */
@@ -133,11 +136,13 @@ struct blk {
 };
 typedef struct blk blk_t;
 
-#define POOL_NAME blk_pool
+#define POOL_NAME  blk_pool
+#define POOL_IDX_T uint
 #define POOL_T    blk_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           blk_map
+#define MAP_IDX_T                          uint
 #define MAP_ELE_T                          blk_t
 #define MAP_KEY_T                          fd_hash_t
 #define MAP_KEY                            block_id
@@ -149,6 +154,7 @@ typedef struct blk blk_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME  blk_dlist
+#define DLIST_IDX_T uint
 #define DLIST_ELE_T blk_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
@@ -161,14 +167,14 @@ typedef struct {
 
 struct vte {
   vte_key_t key; /* vte_map key: (vote_acc, block_id) */
-  ulong     next;
+  uint      next;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } vte_map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   fd_hash_t bank_hash;
   ulong     slot;
@@ -176,11 +182,13 @@ struct vte {
 };
 typedef struct vte vte_t;
 
-#define POOL_NAME vte_pool
+#define POOL_NAME  vte_pool
+#define POOL_IDX_T uint
 #define POOL_T    vte_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vte_map
+#define MAP_IDX_T                          uint
 #define MAP_ELE_T                          vte_t
 #define MAP_KEY_T                          vte_key_t
 #define MAP_PREV                           vte_map.prev
@@ -192,6 +200,7 @@ typedef struct vte vte_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME  vte_dlist
+#define DLIST_IDX_T uint
 #define DLIST_ELE_T vte_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
@@ -199,25 +208,27 @@ typedef struct vte vte_t;
 
 struct vtr {
   fd_pubkey_t vote_acc;
-  ulong       next; /* pool next; reused as kept flag during update_voters */
+  uint        next; /* pool next; reused as kept flag during update_voters */
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } map;
   struct {
-    ulong prev;
-    ulong next;
+    uint prev;
+    uint next;
   } dlist;
   vte_dlist_t * vte_dlist;
   ulong         vte_cnt;
 };
 typedef struct vtr vtr_t;
 
-#define POOL_NAME vtr_pool
+#define POOL_NAME  vtr_pool
+#define POOL_IDX_T uint
 #define POOL_T    vtr_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME                           vtr_map
+#define MAP_IDX_T                          uint
 #define MAP_ELE_T                          vtr_t
 #define MAP_KEY_T                          fd_pubkey_t
 #define MAP_KEY                            vote_acc
@@ -229,6 +240,7 @@ typedef struct vtr vtr_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME  vtr_dlist
+#define DLIST_IDX_T uint
 #define DLIST_ELE_T vtr_t
 #define DLIST_PREV  dlist.prev
 #define DLIST_NEXT  dlist.next
@@ -296,6 +308,8 @@ fd_hfork_footprint( ulong per_vtr_max,
 
   vtr_max   = fd_ulong_pow2_up( vtr_max );
   ulong max = fd_ulong_pow2_up( per_vtr_max * vtr_max );
+
+  if( FD_UNLIKELY( max>(ulong)UINT_MAX || vtr_max>(ulong)UINT_MAX ) ) return 0UL; /* uint link indices */
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_hfork_t), sizeof(fd_hfork_t)                                       );
