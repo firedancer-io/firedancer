@@ -41,7 +41,7 @@ jobs:
     - uses: ./.github/actions/hugepages
       with:
         count_gigantic: 398
-        count_huge: 535
+        count_huge: 1024
     - uses: ./.github/actions/cpusonline
     - uses: actions/setup-node@v6
       with:
