@@ -265,6 +265,7 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_MSG_CERTIFICATE_REQUEST   ((uchar) 13)
 #define FD_TLS_MSG_CERTIFICATE_VERIFY    ((uchar) 15)
 #define FD_TLS_MSG_FINISHED              ((uchar) 20)
+#define FD_TLS_MSG_KEY_UPDATE            ((uchar) 24)
 
 /* Serialization related **********************************************/
 
