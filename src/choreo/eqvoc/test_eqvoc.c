@@ -411,11 +411,54 @@ test_update_voters( void ) {
   teardown( eqvoc );
 }
 
+/* Coding-shred equivocation: two coding shreds for one slot with the same
+   index (shred->idx=5) in different FEC sets (fec_set_idx 0 vs 100) and
+   conflicting merkle roots.  verify_proof must flag it (see its same-index
+   check).  Synthetic 32:32-block shreds (variant 0x66, proof_size 6);
+   leader_schedule=NULL skips sigverify. */
+
+static void
+setup_code_shred( uchar buf[ FD_SHRED_MAX_SZ ], uint fec_set_idx ) {
+  fd_memset( buf, 0, FD_SHRED_MAX_SZ );
+  fd_shred_t * s   = (fd_shred_t *)fd_type_pun( buf );
+  s->variant       = (uchar)0x66;  /* MERKLE_CODE_CHAINED, proof_size 6 */
+  s->slot          = 100;
+  s->version       = SHRED_VERSION;
+  s->idx           = 5;            /* common-header index */
+  s->fec_set_idx   = fec_set_idx;
+  s->code.data_cnt = 32;
+  s->code.code_cnt = 32;
+  s->code.idx      = 0;            /* per-FEC-set position (not the compared field) */
+}
+
+void
+test_same_coding_index_different_fec_sets( void ) {
+  fd_eqvoc_t * eqvoc = setup();
+
+  uchar buf1[ FD_SHRED_MAX_SZ ];
+  uchar buf2[ FD_SHRED_MAX_SZ ];
+  setup_code_shred( buf1, 0   );   /* FEC set 0                          */
+  setup_code_shred( buf2, 100 );   /* FEC set 100 -> same idx, diff root */
+
+  fd_shred_t const * s1 = fd_shred_parse( buf1, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
+  fd_shred_t const * s2 = fd_shred_parse( buf2, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX );
+  FD_TEST( s1 );
+  FD_TEST( s2 );
+  FD_TEST( s1->idx == s2->idx );                /* same common-header index */
+  FD_TEST( s1->fec_set_idx != s2->fec_set_idx );
+
+  /* Must flag equivocation; == SUCCESS since a negative ERR_ code is truthy. */
+  FD_TEST( verify_proof( eqvoc, SHRED_VERSION, NULL, s1, s2 ) == FD_EQVOC_SUCCESS );
+
+  teardown( eqvoc );
+}
+
 int
 main( void ) {
   test_shred_insert();
   test_chunk_insert();
   test_proof_verified();
   test_update_voters();
+  test_same_coding_index_different_fec_sets();
   return 0;
 }
