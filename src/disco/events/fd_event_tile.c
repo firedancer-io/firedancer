@@ -37,6 +37,10 @@
 
 #define GRPC_BUF_MAX (2048UL<<10UL) /* 2 MiB */
 
+/* Sized so the event workspace (circq + ~24 MiB client/ctx + 64 MiB
+   OpenSSL loose) fits in one gigantic page. */
+#define EVENT_CIRCQ_SZ ((1UL<<30UL)-(96UL<<20UL))
+
 #define IN_KIND_SHRED  (0)
 #define IN_KIND_DEDUP  (1)
 #define IN_KIND_SIGN   (2)
@@ -126,7 +130,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           ); /* 1GiB circq for events */
+  l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_footprint( EVENT_CIRCQ_SZ )      );
 # if FD_HAS_OPENSSL
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                     );
 # endif
@@ -363,7 +367,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t),  sizeof(fd_event_tile_t) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( EVENT_CIRCQ_SZ )      );
 # if FD_HAS_OPENSSL
   void * alloc_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   (void)alloc_mem;
@@ -461,7 +465,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   void * _event_client  = FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
-  void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           );
+  void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( EVENT_CIRCQ_SZ )      );
 # if FD_HAS_OPENSSL
   FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 # endif
@@ -485,7 +489,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
-  ctx->circq = fd_circq_join( fd_circq_new( _circq, 1UL<<30UL /* 1GiB */ ) );
+  ctx->circq = fd_circq_join( fd_circq_new( _circq, EVENT_CIRCQ_SZ ) );
   FD_TEST( ctx->circq );
 
   void * ssl_ctx_ptr = NULL;
