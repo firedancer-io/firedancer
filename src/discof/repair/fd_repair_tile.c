@@ -426,11 +426,6 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 1UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
-}
-
-FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong total_sign_depth = tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt;
   int   lg_sign_depth    = fd_ulong_find_msb( fd_ulong_pow2_up(total_sign_depth) ) + 1;
@@ -1576,7 +1571,6 @@ metrics_write( ctx_t * ctx ) {
 
 fd_topo_run_tile_t fd_tile_repair = {
   .name                     = "repair",
-  .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
