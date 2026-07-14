@@ -410,19 +410,19 @@ telemetry = true
     # incremental snapshot peers.
     wait_for_peers_timeout_seconds = 30
 
-    # Interval in slots between periodic full snapshot creations.
+    # Interval in slots between periodic full snapshot production.
+    # 0 disables full snapshot production.
     #
-    # Set to 0 to disable periodic snapshot creation.
     # When enabled, a full snapshot is created every time the rooted
     # fork crosses a multiple of this interval.  If snapshot production
     # falls too far behind, snapshots are skipped.
     #
-    # If this option is non-zero, while [layout.snapzp_tile_count] is 0,
-    # the validator will refuse to start.
-    #
-    # Snapshots can also be created on demand with the
-    # `snapshot-create` command, independent of this option.
-    full_snapshot_interval_slots = 0
+    # Requires non-zero [layout.snapzp_tile_count].
+    full_snapshot_interval_slots = 100000
+
+    # Interval in slots between periodic incremental snapshot
+    # creations.  0 disables incremental snapshot production.
+    incremental_snapshot_interval_slots = 100
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from

@@ -1284,6 +1284,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       }
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      if( FD_UNLIKELY( msg==FD_SSMSG_MANIFEST_FULL ) ) {
+        ctx->last_full_snapshot_slot        = manifest->slot;
+        ctx->last_full_snapshot_generation  = manifest->accdb_generation;
+        ctx->next_incremental_snapshot_slot = ULONG_MAX;
+      }
       /* hard_fork_cnt already validated by fd_ssload_recover. */
       ctx->hard_fork_cnt = manifest->hard_fork_cnt;
       for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
@@ -1744,16 +1749,22 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
 static void
 begin_snapshot_create( fd_replay_tile_t *  ctx,
-                       fd_stem_context_t * stem );
+                       fd_stem_context_t * stem,
+                       int                 incremental );
 
 /* snapshot_target_slot returns the slot at which root advancement has
    to stop to create a snapshot (the first rooted slot >= the target is
    snapshotted), or ULONG_MAX if no snapshot is pending.  Lazily
    initializes the periodic schedule off the boot slot on the first
-   root advancement. */
+   root advancement.  *out_incremental is set non-zero if only the
+   incremental schedule is due at the returned slot; when a full
+   (periodic or manually scheduled) snapshot is due at the same slot,
+   the full snapshot wins. */
 
 static ulong
-snapshot_target_slot( fd_replay_tile_t * ctx ) {
+snapshot_target_slot( fd_replay_tile_t * ctx,
+                      int *              out_incremental ) {
+  *out_incremental = 0;
   if( FD_LIKELY( !ctx->supports_snap_create ) ) return ULONG_MAX;
 
   ulong interval = ctx->full_snapshot_interval_slots;
@@ -1767,7 +1778,21 @@ snapshot_target_slot( fd_replay_tile_t * ctx ) {
     periodic = fd_ulong_max( ctx->next_full_snapshot_slot, (ctx->consensus_root_slot/interval)*interval );
   }
 
-  return fd_ulong_min( periodic, ctx->scheduled_snapshot_slot );
+  ulong full_target = fd_ulong_min( periodic, ctx->scheduled_snapshot_slot );
+
+  /* Incremental snapshots need a loaded or created base full snapshot,
+     so the schedule stays idle until one is available. */
+  ulong incr_interval = ctx->incremental_snapshot_interval_slots;
+  ulong incr_target   = ULONG_MAX;
+  if( FD_UNLIKELY( incr_interval && ctx->last_full_snapshot_slot!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->next_incremental_snapshot_slot==ULONG_MAX ) ) {
+      ctx->next_incremental_snapshot_slot = ((ctx->last_full_snapshot_slot/incr_interval)+1UL)*incr_interval;
+    }
+    incr_target = fd_ulong_max( ctx->next_incremental_snapshot_slot, (ctx->consensus_root_slot/incr_interval)*incr_interval );
+  }
+
+  *out_incremental = incr_target<full_target;
+  return fd_ulong_min( full_target, incr_target );
 }
 
 static int
@@ -1815,7 +1840,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   /* Compute the snapshot stop slot before advancing so the periodic
      schedule initializes off the pre-advance root (the boot slot on
      the first advancement). */
-  ulong snap_target_slot = snapshot_target_slot( ctx );
+  int   snap_incremental;
+  ulong snap_target_slot = snapshot_target_slot( ctx, &snap_incremental );
 
   /* Reasm also prunes from the store during its publish. */
 
@@ -1831,12 +1857,16 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
      periodic schedule and a one-shot scheduled request at once, and
      can cover multiple skipped interval multiples at once. */
   if( FD_UNLIKELY( advanceable_root_slot>=snap_target_slot ) ) {
-    begin_snapshot_create( ctx, stem );
-    if( FD_LIKELY( ctx->full_snapshot_interval_slots && advanceable_root_slot>=ctx->next_full_snapshot_slot ) ) {
-      ctx->next_full_snapshot_slot = ((advanceable_root_slot/ctx->full_snapshot_interval_slots)+1UL)*ctx->full_snapshot_interval_slots;
-    }
-    if( FD_UNLIKELY( advanceable_root_slot>=ctx->scheduled_snapshot_slot ) ) {
-      ctx->scheduled_snapshot_slot = ULONG_MAX;
+    begin_snapshot_create( ctx, stem, snap_incremental );
+    if( FD_LIKELY( snap_incremental ) ) {
+      ctx->next_incremental_snapshot_slot = ((advanceable_root_slot/ctx->incremental_snapshot_interval_slots)+1UL)*ctx->incremental_snapshot_interval_slots;
+    } else {
+      if( FD_LIKELY( ctx->full_snapshot_interval_slots && advanceable_root_slot>=ctx->next_full_snapshot_slot ) ) {
+        ctx->next_full_snapshot_slot = ((advanceable_root_slot/ctx->full_snapshot_interval_slots)+1UL)*ctx->full_snapshot_interval_slots;
+      }
+      if( FD_UNLIKELY( advanceable_root_slot>=ctx->scheduled_snapshot_slot ) ) {
+        ctx->scheduled_snapshot_slot = ULONG_MAX;
+      }
     }
   }
 
@@ -2488,15 +2518,25 @@ admin_respond( fd_replay_tile_t *  ctx,
 
 static void
 begin_snapshot_create( fd_replay_tile_t *  ctx,
-                       fd_stem_context_t * stem ) {
+                       fd_stem_context_t * stem,
+                       int                 incremental ) {
   FD_CHECK_CRIT( !ctx->is_creating_snap, "snapshot creation already in progress" );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   FD_CHECK_CRIT( bank, "invalid published_root_bank_idx" );
   bank->refcnt++;
 
+  if( FD_UNLIKELY( !incremental ) ) {
+    ctx->last_full_snapshot_slot        = bank->f.slot;
+    ctx->last_full_snapshot_generation  = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id );
+    ctx->next_incremental_snapshot_slot = ULONG_MAX;
+  }
+
   fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->bank_idx = ctx->published_root_bank_idx;
+  msg->bank_idx        = ctx->published_root_bank_idx;
+  msg->base_slot       = ctx->last_full_snapshot_slot;
+  msg->base_generation = ctx->last_full_snapshot_generation;
+  msg->incremental     = incremental;
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   ctx->is_creating_snap = 1;
@@ -2548,7 +2588,7 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
-  begin_snapshot_create( ctx, stem );
+  begin_snapshot_create( ctx, stem, 0 );
   admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
 }
 
@@ -2936,11 +2976,18 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->is_creating_snap      = 0;
   ctx->supports_snap_create  = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
 
-  ctx->full_snapshot_interval_slots = tile->replay.full_snapshot_interval_slots;
-  ctx->next_full_snapshot_slot      = ULONG_MAX;
-  ctx->scheduled_snapshot_slot      = ULONG_MAX;
+  ctx->full_snapshot_interval_slots        = tile->replay.full_snapshot_interval_slots;
+  ctx->next_full_snapshot_slot             = ULONG_MAX;
+  ctx->scheduled_snapshot_slot             = ULONG_MAX;
+  ctx->incremental_snapshot_interval_slots = tile->replay.incremental_snapshot_interval_slots;
+  ctx->next_incremental_snapshot_slot      = ULONG_MAX;
+  ctx->last_full_snapshot_slot             = ULONG_MAX;
+  ctx->last_full_snapshot_generation       = 0U;
   if( FD_UNLIKELY( ctx->full_snapshot_interval_slots && !ctx->supports_snap_create ) ) {
     FD_LOG_ERR(( "[snapshots.full_snapshot_interval_slots] is set but snapshot creation is disabled; set [layout.snapzp_tile_count] to a value greater than zero" ));
+  }
+  if( FD_UNLIKELY( ctx->incremental_snapshot_interval_slots && !ctx->supports_snap_create ) ) {
+    FD_LOG_ERR(( "[snapshots.incremental_snapshot_interval_slots] is set but snapshot creation is disabled; set [layout.snapzp_tile_count] to a value greater than zero" ));
   }
   ctx->reset_slot            = 0UL;
   ctx->reset_bank            = NULL;

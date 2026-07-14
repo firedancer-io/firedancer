@@ -250,6 +250,13 @@ fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id );
 
+/* Returns the generation assigned to fork_id.  fork_id must refer to a
+   live fork for the duration of this call. */
+
+uint
+fd_accdb_fork_generation( fd_accdb_t const * accdb,
+                          fd_accdb_fork_id_t fork_id );
+
 /* fd_accdb_advance_root advances the root of the accounts database to
    the given fork_id.  fork_id must be a direct child of the current
    root (i.e. fork->parent_id equals the current root_fork_id).

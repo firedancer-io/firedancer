@@ -80,6 +80,8 @@ struct fd_snapmk_accparse {
   ulong                      acc_seed;
   uint                       acc_chain_mask;
   uint                       root_generation;
+  uint                       min_generation;     /* skip accounts with generation < this */
+  uint                       include_tombstones; /* keep lamports==0 accounts */
 
   /* Prestaged disk batch (see fd_snapmk_accparse_prestage).  ps_cnt!=0
      iff a batch is buffered; always consumed before the streaming
@@ -162,6 +164,11 @@ struct fd_snapmk {
   long  start_time;
   ulong last_snapshot_create_slot;
 
+  int   incremental;
+  ulong base_slot;
+  ulong base_generation;
+  ulong cur_root_generation; /* root generation of the in-progress job */
+
   /* IPC */
   struct {
     void * mem;
@@ -230,16 +237,20 @@ fd_snapmk_accparse_reset( fd_snapmk_accparse_t *     parse,
                           ulong                      max_accounts,
                           ulong                      acc_seed,
                           uint                       acc_chain_mask,
-                          ulong                      root_generation ) {
+                          ulong                      root_generation,
+                          ulong                      min_generation,
+                          int                        include_tombstones ) {
   *parse = (fd_snapmk_accparse_t) {
-    .acc_keep        = 1U,
-    .acc_map         = acc_map,
-    .acc_pool        = acc_pool,
-    .visited_set     = visited_set,
-    .max_accounts    = max_accounts,
-    .acc_seed        = acc_seed,
-    .acc_chain_mask  = acc_chain_mask,
-    .root_generation = (uint)root_generation
+    .acc_keep           = 1U,
+    .acc_map            = acc_map,
+    .acc_pool           = acc_pool,
+    .visited_set        = visited_set,
+    .max_accounts       = max_accounts,
+    .acc_seed           = acc_seed,
+    .acc_chain_mask     = acc_chain_mask,
+    .root_generation    = (uint)root_generation,
+    .min_generation     = (uint)min_generation,
+    .include_tombstones = (uint)!!include_tombstones
   };
 }
 
@@ -305,21 +316,30 @@ fd_snapmk_accparse_keep( fd_snapmk_accparse_t * parse ) {
     uint  next_idx    = FD_VOLATILE_CONST( acc->map.next );
     uint  generation  = FD_VOLATILE_CONST( acc->key.generation );
     ulong offset_fork = FD_VOLATILE_CONST( acc->offset_fork );
+    ulong lamports    = FD_VOLATILE_CONST( acc->lamports );
 
-    if( FD_LIKELY( !memcmp( acc->key.pubkey, parse->meta.pubkey, sizeof(parse->meta.pubkey) ) ) ) {
-      if( FD_LIKELY( generation<=parse->root_generation ) ) {
-        ulong cur_off = offset_fork & FD_ACCDB_OFF_MASK;
-        if( FD_LIKELY( cur_off==parse->acc_file_off ) ) {
-          if( FD_UNLIKELY( fd_backup_visited_test( parse->visited_set, (ulong)acc_idx ) ) ) {
-            return 0;
-          }
-          fd_backup_visited_insert( parse->visited_set, (ulong)acc_idx );
-          parse->acc_idx = acc_idx;
-          return 1;
-        }
-      }
+    if( FD_UNLIKELY( memcmp( acc->key.pubkey, parse->meta.pubkey, sizeof(parse->meta.pubkey) ) ) ) {
+      goto next;
     }
+    if( FD_UNLIKELY( ( generation<parse->min_generation  ) |
+                     ( generation>parse->root_generation ) ) ) {
+      goto next;
+    }
+    if( FD_UNLIKELY( !parse->include_tombstones && !lamports ) ) {
+      goto next;
+    }
+    ulong cur_off = offset_fork & FD_ACCDB_OFF_MASK;
+    if( FD_UNLIKELY( cur_off!=parse->acc_file_off ) ) {
+      goto next;
+    }
+    if( FD_UNLIKELY( fd_backup_visited_test( parse->visited_set, (ulong)acc_idx ) ) ) {
+      return 0;
+    }
+    fd_backup_visited_insert( parse->visited_set, (ulong)acc_idx );
+    parse->acc_idx = acc_idx;
+    return 1;
 
+next:
     acc_idx = next_idx;
   }
 
@@ -497,6 +517,8 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
   fd_accdb_accmeta_t const * acc_pool     = parse->acc_pool;
   ulong                      max_accounts = parse->max_accounts;
   uint                       root_gen     = parse->root_generation;
+  uint                       min_gen      = parse->min_generation;
+  uint                       inc_tomb     = parse->include_tombstones;
 
   uint matched[ FD_BACKUP_DISK_PARA ];
   for( ulong n=0UL; n<FD_BACKUP_DISK_PARA; n++ ) matched[ n ] = UINT_MAX;
@@ -529,7 +551,10 @@ fd_snapmk_accparse_keep_batch( fd_snapmk_accparse_t * parse,
       uint  next = FD_VOLATILE_CONST( m->map.next       );
       uint  gen  = FD_VOLATILE_CONST( m->key.generation );
       ulong off  = FD_VOLATILE_CONST( m->offset_fork    );
-      uint hit  = ( gen<=root_gen )
+      ulong lam  = FD_VOLATILE_CONST( m->lamports       );
+      uint hit  = ( gen>=min_gen )
+                & ( gen<=root_gen )
+                & ( inc_tomb | ( lam!=0UL ) )
                 & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ n ] );
       uint hm   = 0U-hit;
       matched[ n ] = ( idx & hm ) | ( matched[ n ] & ~hm );
@@ -745,6 +770,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->snaprd_release_seq  = ULONG_MAX; /* force first publish */
 
   ctx->state = SNAPMK_STATE_IDLE;
+  ctx->incremental     = 0;
+  ctx->base_slot       = ULONG_MAX;
+  ctx->base_generation = 0UL;
   ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id ) );
   FD_TEST( ctx->visited_set );
 
@@ -846,25 +874,40 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->comp_buf = (ZSTD_outBuffer){ .dst = ctx->comp, .size = COMP_BUF_SZ };
 }
 
+static inline ulong
+refresh_zp_link( fd_snapmk_t *             ctx,
+                 fd_stem_context_t const * stem,
+                 ulong                     i ) {
+  ulong cons_seq  = fd_fseq_query( ctx->zp_cons_fseq[ i ] );
+  long  in_flight = fd_long_max( fd_seq_diff( stem->seqs[ i ], cons_seq ), 0L );
+  ulong cr_avail  = fd_ulong_if( in_flight>=(long)stem->depths[ i ], 0UL, stem->depths[ i ]-(ulong)in_flight );
+  stem->cr_avail[ i ] = cr_avail;
+  return cr_avail;
+}
+
 static void
 refresh_zp_flow_control( fd_snapmk_t *             ctx,
                          fd_stem_context_t const * stem ) {
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) refresh_zp_link( ctx, stem, i );
+}
+
+static inline ulong
+zp_out_ready( fd_snapmk_t const *       ctx,
+              fd_stem_context_t const * stem ) {
+  ulong out_ready = 0UL;
   for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
-    ulong cons_seq = fd_fseq_query( ctx->zp_cons_fseq[ i ] );
-    long  in_flight = fd_long_max( fd_seq_diff( stem->seqs[ i ], cons_seq ), 0L );
-    ulong cr_avail = fd_ulong_if( in_flight>=(long)stem->depths[ i ], 0UL, stem->depths[ i ]-(ulong)in_flight );
-    stem->cr_avail[ i ] = cr_avail;
+    out_ready |= fd_ulong_if( !!stem->cr_avail[ i ], 1UL<<i, 0UL );
   }
+  return out_ready;
 }
 
 static void
 update_flow_control( fd_snapmk_t *             ctx,
                      fd_stem_context_t const * stem ) {
-  refresh_zp_flow_control( ctx, stem );
-
-  ulong out_ready = 0UL;
-  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
-    out_ready |= fd_ulong_if( !!stem->cr_avail[ i ], 1UL<<i, 0UL );
+  ulong out_ready = zp_out_ready( ctx, stem );
+  if( FD_UNLIKELY( !out_ready ) ) {
+    refresh_zp_flow_control( ctx, stem );
+    out_ready = zp_out_ready( ctx, stem );
   }
   ctx->out_ready = out_ready;
 }
@@ -962,14 +1005,16 @@ check_credit( fd_snapmk_t *       ctx,
          drains -- avoids deadlocking the lifetime tracker. */
       snapmk_update_release( ctx, stem );
     }
-    /* Refresh cr_avail/out_ready every iteration: stem housekeeping can
-       drive cr_avail to 0 without clearing our cached out_ready bit,
-       and publishing to such a tile trips the BURST assertion. */
+    if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_START ) ) {
+      refresh_zp_flow_control( ctx, stem );
+    }
     update_flow_control( ctx, stem );
     if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_ACCOUNTS_DISK && ctx->disk_out_idx<ctx->zp_cnt ) ) {
       if( FD_UNLIKELY( !stem->cr_avail[ ctx->disk_out_idx ] ) ) {
-        *is_backpressured = 1;
-        return;
+        if( FD_UNLIKELY( !refresh_zp_link( ctx, stem, ctx->disk_out_idx ) ) ) {
+          *is_backpressured = 1;
+          return;
+        }
       }
       break;
     }
@@ -1354,8 +1399,16 @@ after_credit( fd_snapmk_t *       ctx,
       FD_LOG_ERR(( "renameat(%s, %s) failed: %s", pool_slot->name, ctx->final_name, fd_io_strerror( errno ) ));
     }
     fd_cstr_ncpy( pool_slot->name, ctx->final_name, sizeof(pool_slot->name) );
-    pool_slot->full_slot = ctx->bank->f.slot;
-    pool_slot->incr_slot = ULONG_MAX;
+    if( FD_UNLIKELY( ctx->incremental ) ) {
+      pool_slot->full_slot = ctx->base_slot;
+      pool_slot->incr_slot = ctx->bank->f.slot;
+    } else {
+      pool_slot->full_slot = ctx->bank->f.slot;
+      pool_slot->incr_slot = ULONG_MAX;
+      /* This full snapshot is the base for subsequent incrementals. */
+      ctx->base_slot       = ctx->bank->f.slot;
+      ctx->base_generation = ctx->cur_root_generation;
+    }
     ctx->cur_slot_idx    = UINT_MAX;
     ctx->out_fd          = -1;
 
@@ -1441,9 +1494,41 @@ snap_acquire_slot( fd_snapmk_t * ctx ) {
   return slot_idx;
 }
 
+static uint
+snap_acquire_slot_incremental( fd_snapmk_t * ctx ) {
+  uint  slot_idx = UINT_MAX;
+  ulong oldest   = ULONG_MAX;
+  for( uint i=ctx->full_slot_cnt; i<ctx->pool_cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->pool[ i ].full_slot==ULONG_MAX ) ) return i; /* free */
+    if( FD_LIKELY( ctx->pool[ i ].incr_slot<oldest ) ) {
+      oldest   = ctx->pool[ i ].incr_slot;
+      slot_idx = i;
+    }
+  }
+  FD_TEST( slot_idx!=UINT_MAX );
+
+  fd_backup_pool_slot_t * pool_slot = &ctx->pool[ slot_idx ];
+  FD_LOG_NOTICE(( "Evicting old snapshot %s", pool_slot->name ));
+  if( FD_UNLIKELY( ftruncate( FD_BACKUP_POOL_FD( slot_idx ), 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(%s) failed: %s", pool_slot->name, fd_io_strerror( errno ) ));
+  }
+  char partial_name[ FD_BACKUP_POOL_PARTIAL_NAME_MAX ];
+  fd_backup_pool_partial_name( partial_name, slot_idx );
+  if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, pool_slot->name, ctx->snap_dir_fd, partial_name ) ) ) {
+    FD_LOG_ERR(( "renameat(%s, %s) failed: %s", pool_slot->name, partial_name, fd_io_strerror( errno ) ));
+  }
+  fd_cstr_ncpy( pool_slot->name, partial_name, sizeof(pool_slot->name) );
+  pool_slot->full_slot = ULONG_MAX;
+  pool_slot->incr_slot = ULONG_MAX;
+  return slot_idx;
+}
+
 static void
 snap_begin( fd_snapmk_t * ctx,
-            ulong         bank_idx ) {
+            ulong         bank_idx,
+            int           incremental,
+            ulong         base_slot,
+            uint          base_generation ) {
   if( FD_UNLIKELY( ctx->state != SNAPMK_STATE_IDLE ) ) {
     FD_LOG_ERR(( "invariant violation: snapshot creation requested state is %u", ctx->state ));
     return;
@@ -1453,14 +1538,28 @@ snap_begin( fd_snapmk_t * ctx,
   FD_TEST( bank );
   ctx->bank = bank;
 
+  if( FD_UNLIKELY( incremental && base_slot==ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "incremental snapshot requested without a base full snapshot" ));
+  }
+  ctx->incremental = incremental;
+  if( FD_UNLIKELY( incremental ) ) {
+    ctx->base_slot       = base_slot;
+    ctx->base_generation = base_generation;
+  }
+
   uchar snap_hash[32];
   fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, snap_hash );
   char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( snap_hash, NULL, encoded_hash );
-  FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_BACKUP_NAME_MAX, NULL,
-           "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
+  if( FD_UNLIKELY( incremental ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_BACKUP_NAME_MAX, NULL,
+             "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->base_slot, ctx->bank->f.slot, encoded_hash ) );
+  } else {
+    FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_BACKUP_NAME_MAX, NULL,
+             "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
+  }
 
-  ctx->cur_slot_idx = snap_acquire_slot( ctx );
+  ctx->cur_slot_idx = incremental ? snap_acquire_slot_incremental( ctx ) : snap_acquire_slot( ctx );
   ctx->out_fd       = FD_BACKUP_POOL_FD( ctx->cur_slot_idx );
 
   /* The pool fd persists across snapshots: reset its contents and file
@@ -1500,7 +1599,12 @@ snap_begin( fd_snapmk_t * ctx,
      accdb reaches the same fork as the bank manifest we are writing. */
   while( FD_UNLIKELY( __atomic_load_n( &ctx->accdb_root_fork->val, __ATOMIC_ACQUIRE )!=root_fork_id.val ) ) FD_SPIN_PAUSE();
   ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
-  fd_backup_cache_reset( ctx->acc_cache, root_generation );
+
+  ulong min_generation     = incremental ? ctx->base_generation+1UL : 0UL;
+  int   include_tombstones = incremental;
+  ctx->cur_root_generation = root_generation;
+
+  fd_backup_cache_reset( ctx->acc_cache, root_generation, min_generation, include_tombstones );
   fd_snapmk_accparse_reset( ctx->accparse,
                             ctx->acc_cache->acc_map,
                             ctx->acc_cache->acc_pool,
@@ -1508,7 +1612,9 @@ snap_begin( fd_snapmk_t * ctx,
                             ctx->acc_cache->max_accounts,
                             ctx->acc_cache->acc_map_seed,
                             ctx->acc_cache->chain_mask,
-                            root_generation );
+                            root_generation,
+                            min_generation,
+                            include_tombstones );
   visited_set_null( ctx->visited_set );
 
   ctx->state = SNAPMK_STATE_START;
@@ -1526,7 +1632,11 @@ snap_begin( fd_snapmk_t * ctx,
   ulong snapshots_created = __atomic_load_n( &fd_metrics_tl[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ], __ATOMIC_RELAXED ) + 1UL;
   __atomic_store_n( &fd_metrics_tl[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ], snapshots_created, __ATOMIC_RELEASE );
   FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
-  FD_LOG_NOTICE(( "Snapshot creation started" ));
+  if( FD_UNLIKELY( incremental ) ) {
+    FD_LOG_NOTICE(( "incremental snapshot creation started (base slot %lu)", ctx->base_slot ));
+  } else {
+    FD_LOG_NOTICE(( "snapshot creation started" ));
+  }
 }
 
 static int
@@ -1547,7 +1657,7 @@ returnable_frag( fd_snapmk_t *       ctx,
     switch( sig ) {
     case REPLAY_SIG_SNAP_CREATE: {
       fd_replay_snap_create_t const * msg = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
-      snap_begin( ctx, msg->bank_idx );
+      snap_begin( ctx, msg->bank_idx, msg->incremental, msg->base_slot, msg->base_generation );
       break;
     }
     default:

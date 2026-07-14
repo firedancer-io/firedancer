@@ -1559,7 +1559,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.max_live_slots    = config->firedancer.runtime.max_live_slots;
 
-    tile->replay.full_snapshot_interval_slots = config->firedancer.snapshots.full_snapshot_interval_slots;
+    tile->replay.full_snapshot_interval_slots        = config->firedancer.snapshots.full_snapshot_interval_slots;
+    tile->replay.incremental_snapshot_interval_slots = config->firedancer.snapshots.incremental_snapshot_interval_slots;
 
     fd_cstr_ncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 

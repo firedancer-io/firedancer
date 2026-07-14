@@ -326,6 +326,10 @@ struct fd_replay_tile {
   ulong       full_snapshot_interval_slots; /* 0 means disabled */
   ulong       next_full_snapshot_slot; /* periodic scheduled */
   ulong       scheduled_snapshot_slot; /* manual scheduled */
+  ulong       incremental_snapshot_interval_slots; /* 0 means disabled */
+  ulong       next_incremental_snapshot_slot; /* periodic scheduled, ULONG_MAX until derived */
+  ulong       last_full_snapshot_slot; /* base for incrementals, ULONG_MAX until a full snapshot is loaded or created */
+  uint        last_full_snapshot_generation;
 
   int         recv_poh;
   ulong       next_leader_slot;

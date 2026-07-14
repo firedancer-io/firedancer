@@ -779,6 +779,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
 
   manifest->accdb_fork_id = ctx->accdb_root_fork_id.val;
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
+  manifest->accdb_generation = ctx->full ? fd_accdb_fork_generation( ctx->accdb, ctx->accdb_root_fork_id ) : UINT_MAX;
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );

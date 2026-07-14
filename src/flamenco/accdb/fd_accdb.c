@@ -731,6 +731,16 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
   return fork_id;
 }
 
+uint
+fd_accdb_fork_generation( fd_accdb_t const * accdb,
+                          fd_accdb_fork_id_t fork_id ) {
+  if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_fork_generation: invalid fork id %u (capacity %lu)",
+                  (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
+  }
+  return FD_VOLATILE_CONST( accdb->fork_pool[ fork_id.val ].shmem->generation );
+}
+
 /* evict_clear_acc_cache_ref atomically tears down acc->cache_idx and
    acc->executable_size.CACHE_VALID for an acc that is being evicted
    from cache line (size_class, line_idx).  The caller must already
@@ -1116,11 +1126,12 @@ acc_unlink( fd_accdb_t * accdb,
            persisted so the writeback gate never fires. */
         FD_VOLATILE( mine->persisted ) = 1;
 
-        /* Only the tombstone self-unlink may be pinned here old-version
-           and purge unlinks are never pinned, because a reader on a
-           live fork resolves to the newest version, not the one these
-           unlink. */
-        FD_TEST( accmeta->lamports==0UL );
+        /* Old-version and purge unlinks are never pinned, because a
+           reader on a live fork resolves to the newest version, not
+           the one these unlink.  (The tombstone self-unlink, which
+           could be pinned, no longer exists: rooted tombstones are
+           retained for incremental snapshot production.)  Kept
+           defensively. */
 
         FD_ATOMIC_FETCH_AND_SUB( &mine->refcnt, 1U );
       }
@@ -1278,9 +1289,7 @@ background_advance_root( fd_accdb_t *       accdb,
 
       fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
 
-      uint prev          = UINT_MAX;
-      uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
-      int  new_acc_seen  = 0;
+      uint prev = UINT_MAX;
       uint acc = FD_VOLATILE_CONST( accdb->acc_map[ txne->acc_map_idx ] );
       FD_TEST( acc!=UINT_MAX );
       while( acc!=UINT_MAX ) {
@@ -1288,8 +1297,6 @@ background_advance_root( fd_accdb_t *       accdb,
         uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
 
         if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
-          new_acc_prev = prev;
-          new_acc_seen = 1;
           prev = acc;
           acc = cur_next;
           continue;
@@ -1307,20 +1314,12 @@ background_advance_root( fd_accdb_t *       accdb,
         }
       }
 
-      /* If the newly rooted version is a tombstone (lamports==0, e.g.
-         account was closed), drop it from the index too: no fork can
-         reach it anymore, and keeping it around just wastes a hash
-         slot and the disk bytes it occupies.
-
-         If a later txn on this same fork wrote the same pubkey, that
-         txn's inner walk above would have already unlinked this txn's
-         new_acc as an "older version" - in that case new_acc_seen=0
-         and we skip, since the freelist cleanup is already done. */
-      if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
-        uint new_acc_idx = (uint)txne->acc_pool_idx;
-        acc_unlink( accdb, txne->acc_map_idx, new_acc_prev, new_acc_idx );
-        deferred_acc_append( accdb, new_acc_idx );
-      }
+      /* Rooted tombstones (lamports==0, e.g. account was closed) are
+         deliberately NOT dropped from the index here.  Incremental
+         snapshot production needs them: a deletion after the base
+         snapshot must appear in the incremental as a zero-lamport
+         record that overrides the base copy on load.  They accumulate
+         until a future tombstone collection pass reclaims them. */
 
       txn_tail = txne;
       txn = txne->fork.next;
@@ -2662,9 +2661,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
     accdb->metrics->accounts_not_found_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ]++;
 
-    /* Tombstones (lamports==0) have no on-disk payload to read, and
-       background_advance_root may unlink the acc and never assign it a
-       disk offset, so the offset_fork spin below would hang forever.
+    /* Tombstones (lamports==0) have no on-disk payload worth reading.
        Step 15's tombstone reset zeros the owner for these accounts. */
     if( FD_UNLIKELY( !accmetas[ i ]->lamports ) ) continue;
 

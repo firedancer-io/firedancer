@@ -161,7 +161,7 @@ FD_UNIT_TEST( split ) {
 
   fd_snapmk_accparse_t parse[1];
   visited_set_t * visited = new_visited_set( POOL_CNT );
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
 
   out_frag_t out[ MAX_OUT ];
   ulong out_cnt = 0UL;
@@ -246,7 +246,7 @@ FD_UNIT_TEST( offsets ) {
 
   fd_snapmk_accparse_t parse[1];
   visited_set_t * visited = new_visited_set( POOL_CNT );
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
 
   out_frag_t out[ MAX_OUT ];
   ulong out_cnt = 0UL;
@@ -289,14 +289,14 @@ FD_UNIT_TEST( visited ) {
   visited_set_insert( visited, 1UL );
 
   fd_snapmk_accparse_t parse[1];
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
 
   out_frag_t out[ MAX_OUT ];
   ulong out_cnt = feed_frag( parse, stream, 0UL, end, out, 0UL );
   FD_TEST( out_cnt==0UL );
 
   visited_set_null( visited );
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
 
   out_cnt = feed_frag( parse, stream, 0UL, end, out, 0UL );
   FD_TEST( out_cnt==1UL );
@@ -304,9 +304,129 @@ FD_UNIT_TEST( visited ) {
   FD_TEST( out[0].acc_idx==1U );
   FD_TEST( visited_set_test( visited, 1UL ) );
 
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
   out_cnt = feed_frag( parse, stream, 0UL, end, out, 0UL );
   FD_TEST( out_cnt==0UL );
+}
+
+/* incremental_filter checks the generation lower bound and tombstone
+   gates used for incremental snapshot production. */
+FD_UNIT_TEST( incremental_filter ) {
+  uint map[ MAP_CNT ];
+  fd_accdb_accmeta_t pool[ POOL_CNT ];
+  for( ulong i=0UL; i<MAP_CNT; i++ ) map[ i ] = UINT_MAX;
+  memset( pool, 0, sizeof(pool) );
+  for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
+
+  ulong seed = 0x1234UL;
+  uint  mask = MAP_CNT-1U;
+  uint  root_gen = 7U;
+  ulong min_gen  = 5UL;
+
+  fd_pubkey_t pk_a, pk_b, pk_c, pk_d, owner;
+  fill_key( &pk_a, 0x10 ); fill_key( &pk_b, 0x20 );
+  fill_key( &pk_c, 0x30 ); fill_key( &pk_d, 0x40 );
+  fill_key( &owner, 0x90 );
+
+  uchar stream[ 512UL ];
+  ulong off_a = 0UL;
+  ulong off_b = append_record( stream, off_a, &pk_a, &owner, FD_ACCDB_SIZE_PACK( 5U, 0 ), 0x01 );
+  ulong off_c = append_record( stream, off_b, &pk_b, &owner, FD_ACCDB_SIZE_PACK( 4U, 0 ), 0x11 );
+  ulong off_d = append_record( stream, off_c, &pk_c, &owner, FD_ACCDB_SIZE_PACK( 3U, 0 ), 0x21 );
+  ulong end   = append_record( stream, off_d, &pk_d, &owner, FD_ACCDB_SIZE_PACK( 0U, 0 ), 0x31 );
+
+  insert_acc( map, pool, seed, mask, 1U, &pk_a, 4U, off_a ); /* below min_gen: skipped */
+  insert_acc( map, pool, seed, mask, 2U, &pk_b, 5U, off_b ); /* at min_gen: kept */
+  insert_acc( map, pool, seed, mask, 3U, &pk_c, 7U, off_c ); /* at root_gen: kept */
+  insert_acc( map, pool, seed, mask, 4U, &pk_d, 6U, off_d ); /* tombstone (lamports=0) */
+  pool[ 1 ].lamports = 100UL;
+  pool[ 2 ].lamports = 100UL;
+  pool[ 3 ].lamports = 100UL;
+
+  fd_snapmk_accparse_t parse[1];
+  visited_set_t * visited = new_visited_set( POOL_CNT );
+
+  /* Incremental mode: min_gen filter active, tombstones kept. */
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, min_gen, 1 );
+  out_frag_t out[ MAX_OUT ];
+  ulong out_cnt = feed_frag( parse, stream, 0UL, end, out, 0UL );
+  FD_TEST( out_cnt==3UL );
+  FD_TEST( out[0].acc_idx==2U );
+  FD_TEST( out[1].acc_idx==3U );
+  FD_TEST( out[2].acc_idx==4U );
+
+  /* Full mode: no generation floor, tombstone skipped. */
+  visited_set_null( visited );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 0 );
+  out_cnt = feed_frag( parse, stream, 0UL, end, out, 0UL );
+  FD_TEST( out_cnt==3UL );
+  FD_TEST( out[0].acc_idx==1U );
+  FD_TEST( out[1].acc_idx==2U );
+  FD_TEST( out[2].acc_idx==3U );
+}
+
+/* incremental_filter_batch checks the same gates through the batched
+   disk-scan path (fd_snapmk_accparse_keep_batch), which is the primary
+   path in production. */
+FD_UNIT_TEST( incremental_filter_batch ) {
+  uint map[ MAP_CNT ];
+  fd_accdb_accmeta_t pool[ POOL_CNT ];
+  for( ulong i=0UL; i<MAP_CNT; i++ ) map[ i ] = UINT_MAX;
+  memset( pool, 0, sizeof(pool) );
+  for( ulong i=0UL; i<POOL_CNT; i++ ) pool[ i ].map.next = UINT_MAX;
+
+  ulong seed = 0x1234UL;
+  uint  mask = MAP_CNT-1U;
+  uint  root_gen = 7U;
+  ulong min_gen  = 5UL;
+
+  fd_pubkey_t pk_a, pk_b, pk_c, pk_d, owner;
+  fill_key( &pk_a, 0x10 ); fill_key( &pk_b, 0x20 );
+  fill_key( &pk_c, 0x30 ); fill_key( &pk_d, 0x40 );
+  fill_key( &owner, 0x90 );
+
+  uchar stream[ 512UL ];
+  ulong off_a = 0UL;
+  ulong off_b = append_record( stream, off_a, &pk_a, &owner, FD_ACCDB_SIZE_PACK( 5U, 0 ), 0x01 );
+  ulong off_c = append_record( stream, off_b, &pk_b, &owner, FD_ACCDB_SIZE_PACK( 4U, 0 ), 0x11 );
+  ulong off_d = append_record( stream, off_c, &pk_c, &owner, FD_ACCDB_SIZE_PACK( 3U, 0 ), 0x21 );
+  ulong end   = append_record( stream, off_d, &pk_d, &owner, FD_ACCDB_SIZE_PACK( 0U, 0 ), 0x31 );
+
+  insert_acc( map, pool, seed, mask, 1U, &pk_a, 4U, off_a ); /* below min_gen: skipped */
+  insert_acc( map, pool, seed, mask, 2U, &pk_b, 5U, off_b ); /* at min_gen: kept */
+  insert_acc( map, pool, seed, mask, 3U, &pk_c, 7U, off_c ); /* at root_gen: kept */
+  insert_acc( map, pool, seed, mask, 4U, &pk_d, 6U, off_d ); /* tombstone (lamports=0) */
+  pool[ 1 ].lamports = 100UL;
+  pool[ 2 ].lamports = 100UL;
+  pool[ 3 ].lamports = 100UL;
+
+  fd_snapmk_accparse_t parse[1];
+  visited_set_t * visited = new_visited_set( POOL_CNT );
+
+  /* Incremental mode: min_gen filter active, tombstones kept. */
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, min_gen, 1 );
+  fd_snapmk_accparse_insert( parse, stream, end, 0x100000UL, 0UL );
+
+  fd_backup_disk_batch_msg_t batch[1];
+  ulong base_gaddr = 0UL;
+  ulong n = fd_snapmk_accparse_publish_batch( parse, batch, &base_gaddr );
+  FD_TEST( n==4UL );
+  FD_TEST( batch->acc_idx[ 0 ]==UINT_MAX ); /* below min_gen */
+  FD_TEST( batch->acc_idx[ 1 ]==2U        );
+  FD_TEST( batch->acc_idx[ 2 ]==3U        );
+  FD_TEST( batch->acc_idx[ 3 ]==4U        ); /* tombstone kept */
+
+  /* Full mode: no generation floor, tombstone skipped. */
+  visited_set_null( visited );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 0 );
+  fd_snapmk_accparse_insert( parse, stream, end, 0x100000UL, 0UL );
+
+  n = fd_snapmk_accparse_publish_batch( parse, batch, &base_gaddr );
+  FD_TEST( n==4UL );
+  FD_TEST( batch->acc_idx[ 0 ]==1U        );
+  FD_TEST( batch->acc_idx[ 1 ]==2U        );
+  FD_TEST( batch->acc_idx[ 2 ]==3U        );
+  FD_TEST( batch->acc_idx[ 3 ]==UINT_MAX ); /* tombstone skipped */
 }
 
 /* state keeps the disk-account state alive after credit. */
@@ -431,7 +551,7 @@ FD_UNIT_TEST( batch ) {
 
   fd_snapmk_accparse_t parse[1];
   visited_set_t * visited = new_visited_set( POOL_CNT );
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
   fd_snapmk_accparse_insert( parse, stream, end, 0x100000UL, 0UL );
 
   fd_backup_disk_batch_msg_t batch[1];
@@ -485,7 +605,7 @@ FD_UNIT_TEST( batch_large_frag_offset ) {
 
   fd_snapmk_accparse_t parse[1];
   visited_set_t * visited = new_visited_set( POOL_CNT );
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
   fd_snapmk_accparse_insert( parse, stream+off_a, end-off_a, 0x100000UL+off_a, off_a );
   parse->frag_base_gaddr = 0x100000UL;
 
@@ -528,7 +648,7 @@ FD_UNIT_TEST( batch_straddle ) {
 
   fd_snapmk_accparse_t parse[1];
   visited_set_t * visited = new_visited_set( POOL_CNT );
-  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen );
+  fd_snapmk_accparse_reset( parse, map, pool, visited, POOL_CNT, seed, mask, root_gen, 0UL, 1 );
 
   /* frag only covers acc_c's meta + 40 of its 100 data bytes */
   ulong frag_sz = off_c + sizeof(fd_accdb_disk_meta_t) + 40UL;

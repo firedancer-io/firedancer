@@ -471,6 +471,21 @@ fd_config_validatef( fd_configf_t const * config ) {
 
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
 
+  if( FD_UNLIKELY( config->snapshots.incremental_snapshot_interval_slots ) ) {
+    if( FD_UNLIKELY( !config->layout.snapzp_tile_count ) ) {
+      FD_LOG_ERR(( "[snapshots.incremental_snapshot_interval_slots] is set but snapshot creation is disabled; set [layout.snapzp_tile_count] to a value greater than zero" ));
+    }
+    if( FD_UNLIKELY( !config->snapshots.full_snapshot_interval_slots ) ) {
+      FD_LOG_ERR(( "[snapshots.incremental_snapshot_interval_slots] is set but [snapshots.full_snapshot_interval_slots] is zero; incremental snapshots require periodic full snapshots" ));
+    }
+    if( FD_UNLIKELY( config->snapshots.incremental_snapshot_interval_slots>=config->snapshots.full_snapshot_interval_slots ) ) {
+      FD_LOG_ERR(( "[snapshots.incremental_snapshot_interval_slots] must be smaller than [snapshots.full_snapshot_interval_slots]" ));
+    }
+    if( FD_UNLIKELY( !config->snapshots.max_incremental_snapshots_to_keep ) ) {
+      FD_LOG_ERR(( "[snapshots.incremental_snapshot_interval_slots] is set but [snapshots.max_incremental_snapshots_to_keep] is zero" ));
+    }
+  }
+
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 

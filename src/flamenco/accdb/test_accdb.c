@@ -378,6 +378,11 @@ test_fork_basic( void ) {
   fd_accdb_fork_id_t f2 = fd_accdb_attach_child( accdb, root );
   fd_accdb_fork_id_t f3 = fd_accdb_attach_child( accdb, root );
 
+  FD_TEST( fd_accdb_fork_generation( accdb, root )==0U );
+  FD_TEST( fd_accdb_fork_generation( accdb, f1   )==1U );
+  FD_TEST( fd_accdb_fork_generation( accdb, f2   )==2U );
+  FD_TEST( fd_accdb_fork_generation( accdb, f3   )==3U );
+
   FD_TEST( !accdb_read( accdb, f1, pubkey0, NULL, NULL, NULL, owner ) );
   FD_TEST( !accdb_read( accdb, f2, pubkey0, NULL, NULL, NULL, owner ) );
   FD_TEST( !accdb_read( accdb, f3, pubkey0, NULL, NULL, NULL, owner ) );

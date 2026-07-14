@@ -11,14 +11,16 @@ fd_backup_cache_init( fd_backup_cache_t *        backup,
                       ulong                      acc_map_seed,
                       ulong                      chain_mask ) {
   *backup = (fd_backup_cache_t) {
-    .acc_map          = acc_map,
-    .acc_pool         = acc_pool,
-    .max_accounts = max_accounts,
-    .acc_map_seed     = acc_map_seed,
-    .chain_mask       = (uint)chain_mask,
-    .cache_class      = 0UL,
-    .cache_idx        = 0UL,
-    .root_generation  = 0
+    .acc_map            = acc_map,
+    .acc_pool           = acc_pool,
+    .max_accounts       = max_accounts,
+    .acc_map_seed       = acc_map_seed,
+    .chain_mask         = (uint)chain_mask,
+    .cache_class        = 0UL,
+    .cache_idx          = 0UL,
+    .root_generation    = 0,
+    .min_generation     = 0,
+    .include_tombstones = 0
   };
   for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
     backup->cache    [ i ] = cache    [ i ];
@@ -151,14 +153,19 @@ filter_batch( fd_backup_cache_t * backup,
               fd_backup_cache_msg_t * frag ) {
   fd_accdb_accmeta_t const * acc_pool = backup->acc_pool;
   uint const                 root_gen = backup->root_generation;
+  uint const                 min_gen  = backup->min_generation;
+  _Bool const                inc_tomb = !!backup->include_tombstones;
 
-  /* filter out non-rooted accounts */
-  uint const dead_gen = UINT_MAX;
+  /* filter out non-rooted accounts, accounts at or below the
+     incremental base generation, and (for full snapshots) tombstones */
+  static fd_accdb_accmeta_t const dead_meta = { .key = { .generation = UINT_MAX } };
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    uint         acc_idx = frag->acc_idx[ i ];
-    uint const * gen = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ].key.generation : &dead_gen;
-    _Bool rooted = FD_VOLATILE_CONST( *gen ) <= root_gen;
-    fd_uint_store_if( !rooted, &frag->acc_idx[ i ], UINT_MAX );
+    uint acc_idx = frag->acc_idx[ i ];
+    fd_accdb_accmeta_t const * m = acc_idx!=UINT_MAX ? &acc_pool[ acc_idx ] : &dead_meta;
+    uint  gen  = FD_VOLATILE_CONST( m->key.generation );
+    _Bool keep = ( gen>=min_gen ) & ( gen<=root_gen )
+               & ( inc_tomb | ( FD_VOLATILE_CONST( m->lamports )!=0UL ) );
+    fd_uint_store_if( !keep, &frag->acc_idx[ i ], UINT_MAX );
   }
 
   /* filter out invisible accounts */

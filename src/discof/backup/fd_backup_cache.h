@@ -48,6 +48,8 @@ struct fd_backup_cache {
   uint                       chain_mask;
 
   uint root_generation;
+  uint min_generation;     /* skip accounts with generation < this */
+  int  include_tombstones; /* yield lamports==0 accounts */
 
   ulong cache_class;
   ulong cache_idx;
@@ -105,10 +107,14 @@ fd_backup_cache_scan( fd_backup_cache_t *     backup,
 
 static inline void
 fd_backup_cache_reset( fd_backup_cache_t * backup,
-                       ulong               root_generation ) {
-  backup->root_generation = (uint)root_generation;
-  backup->cache_class     = 0;
-  backup->cache_idx       = 0;
+                       ulong               root_generation,
+                       ulong               min_generation,
+                       int                 include_tombstones ) {
+  backup->root_generation    = (uint)root_generation;
+  backup->min_generation     = (uint)min_generation;
+  backup->include_tombstones = include_tombstones;
+  backup->cache_class        = 0;
+  backup->cache_idx          = 0;
 }
 
 /* fd_backup_cache_read copy-reads a possibly cached account into out.

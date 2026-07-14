@@ -375,6 +375,7 @@ struct fd_snapshot_manifest {
 
   ushort accdb_fork_id; /* The fork_id in the account database for the root slot. */
   ushort txncache_fork_id; /* The fork_id in the status cache for the root slot. */
+  uint   accdb_generation; /* Full manifests only: generation assigned to loaded full-snapshot accounts. */
 
   /* A list of ancestor slots has been deprecated.  Agave's bank now
      creates an ancestor set with a single entry (the current slot):

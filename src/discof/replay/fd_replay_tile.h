@@ -187,6 +187,9 @@ typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
 struct fd_replay_snap_create {
   ulong bank_idx;
+  ulong base_slot;
+  uint  base_generation;
+  int   incremental;
 };
 typedef struct fd_replay_snap_create fd_replay_snap_create_t;
 
