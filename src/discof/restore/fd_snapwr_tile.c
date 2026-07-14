@@ -35,6 +35,7 @@ struct fd_snapwr_tile {
 
   ulong accounts_off;
   ulong flush_off;
+  int   skip_account_data;
 
   uchar * write_buf;
   ulong   write_buf_used;
@@ -152,14 +153,8 @@ buffer_skip( fd_snapwr_tile_t * ctx,
 static void
 process_account_header( fd_snapwr_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
-  uchar const * owner = result->account_header.owner;
-  int owner_nonzero = 0;
-  for( ulong i=0UL; i<32UL; i++ ) owner_nonzero |= owner[ i ];
-  int simple = !!result->account_header.lamports &
-               !result->account_header.data_len &
-               !result->account_header.executable &
-               !owner_nonzero;
-  if( FD_UNLIKELY( simple ) ) {
+  ctx->skip_account_data = !result->account_header.lamports;
+  if( FD_UNLIKELY( ctx->skip_account_data ) ) {
     ctx->metrics.accounts_written++;
     return;
   }
@@ -185,7 +180,9 @@ process_account_header( fd_snapwr_tile_t *            ctx,
 static void
 process_account_data( fd_snapwr_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
-  buffer_write( ctx, result->account_data.data, result->account_data.data_sz );
+  if( FD_LIKELY( !ctx->skip_account_data ) ) {
+    buffer_write( ctx, result->account_data.data, result->account_data.data_sz );
+  }
 }
 
 static int
@@ -457,6 +454,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->accounts_off          = 0UL;
   ctx->flush_off             = 0UL;
+  ctx->skip_account_data     = 0;
   ctx->recovery.accounts_off = 0UL;
   ctx->recovery.flush_off    = 0UL;
   ctx->write_buf             = _write_buf;
