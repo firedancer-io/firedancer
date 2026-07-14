@@ -836,7 +836,15 @@ check_confirmed( ctx_t           * ctx,
        early exit above. */
     FD_TEST( bad_fec_idx != UINT_MAX );
 
-    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_blk->merkle_roots[(bad_fec_idx / 32) + 1].cmr;
+    /* Compare in FEC-set-index space rather than shred-index space.
+       The shred-index guard (bad_fec_idx == complete_idx - 31) only
+       matches when the last FEC set is full; for a partial last FEC set
+       it is false and the else-branch would index merkle_roots[1024]
+       (one past the end) when the bad FEC is the last one (index 1023).
+       Selecting confirmed_bid whenever the bad FEC set is the last one
+       in the slot keeps the +1 access within bounds. */
+    uint bad_fec_set = bad_fec_idx / 32U;
+    fd_hash_t const * expected = (bad_fec_set == bad_blk->complete_idx / 32U) ? &bad_blk->confirmed_bid : &bad_blk->merkle_roots[bad_fec_set + 1].cmr;
 
     FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                             confirmed_bid_b58 );
     FD_BASE58_ENCODE_32_BYTES( expected->uc,                                  expected_mr );
