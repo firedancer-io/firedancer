@@ -51,10 +51,10 @@
    string all the intervals of the same bank together as a linkedlist. */
 
 struct lockout_interval {
-  ulong     key;   /* vote_slot (32 bits) | expiration_slot (32 bits) ie. vote_slot + (1 << confirmation count) */
-  ulong     next;  /* reserved for fd_map_chain and fd_pool */
   fd_hash_t addr;  /* vote account address */
-  ulong     start; /* For normal entries: start of interval (vote slot).
+  ulong     key;   /* vote_slot (32 bits) | expiration_slot (32 bits) ie. vote_slot + (1 << confirmation count) */
+  uint      next;  /* reserved for fd_map_chain and fd_pool */
+  uint      start; /* For normal entries: start of interval (vote slot).
                       For sentinel entries (key has expiration_slot==0):
                       the interval_end value this sentinel indexes.
                       Multiple sentinels can exist per slot (one per
@@ -68,11 +68,13 @@ typedef struct lockout_interval lockout_interval_t;
 #define MAP_MULTI   1
 #define MAP_KEY     key
 #define MAP_NEXT    next
+#define MAP_IDX_T   uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define POOL_NAME lockout_interval_pool
-#define POOL_T    lockout_interval_t
-#define POOL_NEXT next
+#define POOL_NAME  lockout_interval_pool
+#define POOL_T     lockout_interval_t
+#define POOL_NEXT  next
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 FD_FN_PURE static inline ulong
@@ -92,29 +94,30 @@ fd_tower_align( void ) {
 ulong
 fd_tower_footprint( ulong blk_max,
                     ulong vtr_max ) {
-  ulong lck_interval_max = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
-  ulong lck_pool_max     = fd_ulong_pow2_up( 2UL * lck_interval_max );
+  ulong lck_interval_max  = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
+  ulong lck_pool_max      = fd_ulong_pow2_up( 2UL * lck_interval_max );
+  ulong lck_map_chain_est = lockout_interval_map_chain_cnt_est( lck_interval_max );
 
   ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * blk_max );
   int   stk_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, 128UL,                              sizeof(fd_tower_t)                                          );
-  l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),              fd_tower_vote_footprint()                                   );
-  l = FD_LAYOUT_APPEND( l, blk_pool_align(),                   blk_pool_footprint     ( blk_max )                          );
-  l = FD_LAYOUT_APPEND( l, blk_map_align(),                    blk_map_footprint      ( blk_map_chain_cnt_est( blk_max ) ) );
-  l = FD_LAYOUT_APPEND( l, fd_tower_vtr_align(),               fd_tower_vtr_footprint ( vtr_max )                          );
+  l = FD_LAYOUT_APPEND( l, 128UL,                            sizeof(fd_tower_t)                                          );
+  l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),            fd_tower_vote_footprint()                                   );
+  l = FD_LAYOUT_APPEND( l, blk_pool_align(),                 blk_pool_footprint     ( blk_max )                          );
+  l = FD_LAYOUT_APPEND( l, blk_map_align(),                  blk_map_footprint      ( blk_map_chain_cnt_est( blk_max ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_tower_vtr_align(),             fd_tower_vtr_footprint ( vtr_max )                          );
   for( ulong i = 0; i < vtr_max; i++ ) {
-    l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),            fd_tower_vote_footprint()                                   );
+    l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),          fd_tower_vote_footprint()                                   );
   }
   /* lockos */
-  l = FD_LAYOUT_APPEND( l, lockout_interval_pool_align(),      lockout_interval_pool_footprint( lck_pool_max )              );
-  l = FD_LAYOUT_APPEND( l, lockout_interval_map_align(),       lockout_interval_map_footprint ( lck_pool_max )              );
+  l = FD_LAYOUT_APPEND( l, lockout_interval_pool_align(),    lockout_interval_pool_footprint( lck_pool_max )             );
+  l = FD_LAYOUT_APPEND( l, lockout_interval_map_align(),     lockout_interval_map_footprint ( lck_map_chain_est )        );
   /* stakes */
-  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_map_align(),   fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )      );
-  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_pool_align(),  fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )      );
-  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_slot_align(),      fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )            );
-  l = FD_LAYOUT_APPEND( l, fd_used_acc_scratch_align(),       fd_used_acc_scratch_footprint( vtr_max * blk_max )           );
+  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )     );
+  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )     );
+  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )           );
+  l = FD_LAYOUT_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * blk_max )          );
   return FD_LAYOUT_FINI( l, fd_tower_align() );
 }
 
@@ -142,8 +145,9 @@ fd_tower_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  ulong lck_interval_max = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
-  ulong lck_pool_max     = fd_ulong_pow2_up( 2UL * lck_interval_max );
+  ulong lck_interval_max  = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
+  ulong lck_pool_max      = fd_ulong_pow2_up( 2UL * lck_interval_max );
+  ulong lck_map_chain_est = lockout_interval_map_chain_cnt_est( lck_interval_max );
 
   ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * blk_max );
   int   stk_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
@@ -156,10 +160,10 @@ fd_tower_new( void * shmem,
   void *       vtrs           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vtr_align(),              fd_tower_vtr_footprint ( vtr_max )                          );
   void *       towers[ vtr_max ];
   for( ulong i = 0; i < vtr_max; i++ ) {
-    towers[i] = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),            fd_tower_vote_footprint()                                   );
+    towers[i] = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(), fd_tower_vote_footprint() );
   }
-  void *       lck_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, lockout_interval_pool_align(),     lockout_interval_pool_footprint( lck_pool_max )              );
-  void *       lck_map_mem    = FD_SCRATCH_ALLOC_APPEND( l, lockout_interval_map_align(),      lockout_interval_map_footprint ( lck_pool_max )              );
+  void *       lck_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, lockout_interval_pool_align(),    lockout_interval_pool_footprint( lck_pool_max )              );
+  void *       lck_map_mem    = FD_SCRATCH_ALLOC_APPEND( l, lockout_interval_map_align(),     lockout_interval_map_footprint ( lck_map_chain_est )         );
   void *       stk_vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )      );
   void *       stk_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )      );
   void *       stk_slot_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )            );
@@ -177,12 +181,12 @@ fd_tower_new( void * shmem,
     fd_tower_vtr_join( tower->vtrs )[i].votes = fd_tower_vote_new( towers[i] );
   }
 
-  tower->lck_pool     = lockout_interval_pool_new( lck_pool_mem, lck_pool_max       );
-  tower->lck_map      = lockout_interval_map_new ( lck_map_mem,  lck_pool_max, seed );
+  tower->lck_pool     = lockout_interval_pool_new   ( lck_pool_mem, lck_pool_max            );
+  tower->lck_map      = lockout_interval_map_new    ( lck_map_mem,  lck_map_chain_est, seed );
   tower->stk_vtr_map  = fd_tower_stakes_vtr_map_new ( stk_vtr_map,  stk_vtr_chain_cnt, seed );
   tower->stk_vtr_pool = fd_tower_stakes_vtr_pool_new( stk_vtr_pool, vtr_max * blk_max       );
-  tower->stk_slot_map = fd_tower_stakes_slot_new    ( stk_slot_map, stk_lg_slot_cnt,   seed  );
-  tower->stk_used_acc = fd_used_acc_scratch_new     ( stk_used_acc, vtr_max * blk_max        );
+  tower->stk_slot_map = fd_tower_stakes_slot_new    ( stk_slot_map, stk_lg_slot_cnt,   seed );
+  tower->stk_used_acc = fd_used_acc_scratch_new     ( stk_used_acc, vtr_max * blk_max       );
 
   return shmem;
 }
@@ -523,12 +527,12 @@ switch_check( fd_tower_t * tower,
          created at the time that we processed the bank for this
          candidate slot. */
 
-      ulong sentinel_key = lockout_interval_key( candidate_slot, 0 );
+      ulong sentinel_key = lockout_interval_key( candidate_slot, 0U );
       for( lockout_interval_t const * sentinel = lockout_interval_map_ele_query_const( lck_map, &sentinel_key, NULL, lck_pool );
                                       sentinel;
                                       sentinel = lockout_interval_map_ele_next_const( sentinel, NULL, lck_pool ) ) {
-        ulong interval_end = sentinel->start;
-        ulong key = lockout_interval_key( candidate_slot, interval_end );
+        uint  interval_end = sentinel->start;
+        ulong key          = lockout_interval_key( candidate_slot, interval_end );
 
         /* Intervals are keyed by the end of the interval. If the end of
            the interval is < the last vote slot, then these vote
@@ -1522,13 +1526,13 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
                                   !fd_tower_vote_iter_done( votes, iter );
                             iter = fd_tower_vote_iter_next( votes, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
-    ulong        interval_start = vote->slot;
-    ulong        interval_end   = vote->slot + ( 1UL << vote->conf );
-    ulong        key            = lockout_interval_key( slot, interval_end );
+    uint interval_start = (uint)vote->slot;
+    uint interval_end   = (uint)(vote->slot + (1UL << vote->conf));
+    ulong key           = lockout_interval_key( slot, interval_end );
 
     if( !lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) ) {
       /* Insert sentinel for pruning.  key = fork_slot | 0, start = interval_end. */
-      ulong sentinel_key = lockout_interval_key( slot, 0 );
+      ulong sentinel_key = lockout_interval_key( slot, 0U );
       FD_TEST( lockout_interval_pool_free( lck_pool ) );
       lockout_interval_t * sentinel = lockout_interval_pool_ele_acquire( lck_pool );
       sentinel->key   = sentinel_key;
@@ -1552,11 +1556,11 @@ fd_tower_lockos_remove( fd_tower_t * tower,
   lockout_interval_map_t * lck_map  = tower->lck_map;
   lockout_interval_t *     lck_pool = tower->lck_pool;
 
-  ulong sentinel_key = lockout_interval_key( slot, 0 );
+  ulong sentinel_key = lockout_interval_key( slot, 0U );
   for( lockout_interval_t * sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool );
                             sentinel;
                             sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool ) ) {
-    ulong interval_end = sentinel->start;
+    uint interval_end = sentinel->start;
     lockout_interval_pool_ele_release( lck_pool, sentinel );
 
     ulong key = lockout_interval_key( slot, interval_end );
