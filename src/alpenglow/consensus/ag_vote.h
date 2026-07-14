@@ -59,82 +59,100 @@ struct __attribute__((packed)) ag_vote {
 };
 typedef struct ag_vote ag_vote_t;
 
-#define AG_VOTE_PAYLOAD_MAX (44UL)
+#define AG_VOTE_PAYLOAD_MAX (43UL) /* u8 tag + slot + block_id + shred_version */
 
 #define AG_VOTE_SERIALIZED_MAX (4UL + AG_VOTE_PAYLOAD_MAX + AG_AGGSIG_SIG_SZ + 2UL)
 
 FD_PROTOTYPES_BEGIN
 
+/* ag_vote_payload_bytes_to_sign writes the signed vote payload
+   (VotePayloadToSign, agave votor-messages/src/wire.rs): u8 tag
+   (kind+1), slot u64 LE, block_id for (fallback) notar votes, u16 LE
+   shred_version.  Returns the payload size. */
+
 ulong
 ag_vote_payload_bytes_to_sign( uchar *           out,
                                uint              kind,
                                ulong             slot,
-                               fd_hash_t const * h );
+                               fd_hash_t const * h,
+                               ushort            shred_version );
 
 void
 ag_notar_vote_new( ag_notar_vote_t *      out,
                    ulong                  slot,
                    fd_hash_t const *      h,
                    ag_aggsig_sk_t const * sk,
-                   ushort                 signer );
+                   ushort                 signer,
+                   ushort                 shred_version );
 void
 ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
                             ulong                      slot,
                             fd_hash_t const *          h,
                             ag_aggsig_sk_t const *     sk,
-                            ushort                     signer );
+                            ushort                     signer,
+                            ushort                     shred_version );
 void
 ag_skip_vote_new( ag_skip_vote_t *       out,
                   ulong                  slot,
                   ag_aggsig_sk_t const * sk,
-                  ushort                 signer );
+                  ushort                 signer,
+                  ushort                 shred_version );
 void
 ag_skip_fallback_vote_new( ag_skip_fallback_vote_t * out,
                            ulong                     slot,
                            ag_aggsig_sk_t const *    sk,
-                           ushort                    signer );
+                           ushort                    signer,
+                           ushort                    shred_version );
 void
 ag_final_vote_new( ag_final_vote_t *      out,
                    ulong                  slot,
                    ag_aggsig_sk_t const * sk,
-                   ushort                 signer );
+                   ushort                 signer,
+                   ushort                 shred_version );
 
 void
 ag_vote_new_notar( ag_vote_t *            out,
                    ulong                  slot,
                    fd_hash_t const *      h,
                    ag_aggsig_sk_t const * sk,
-                   ushort                 signer );
+                   ushort                 signer,
+                   ushort                 shred_version );
 void
 ag_vote_new_notar_fallback( ag_vote_t *            out,
                             ulong                  slot,
                             fd_hash_t const *      h,
                             ag_aggsig_sk_t const * sk,
-                            ushort                 signer );
+                            ushort                 signer,
+                            ushort                 shred_version );
 void
 ag_vote_new_skip( ag_vote_t *            out,
                   ulong                  slot,
                   ag_aggsig_sk_t const * sk,
-                  ushort                 signer );
+                  ushort                 signer,
+                  ushort                 shred_version );
 void
 ag_vote_new_skip_fallback( ag_vote_t *            out,
                            ulong                  slot,
                            ag_aggsig_sk_t const * sk,
-                           ushort                 signer );
+                           ushort                 signer,
+                           ushort                 shred_version );
 void
 ag_vote_new_final( ag_vote_t *            out,
                    ulong                  slot,
                    ag_aggsig_sk_t const * sk,
-                   ushort                 signer );
+                   ushort                 signer,
+                   ushort                 shred_version );
 
 int
 ag_vote_check_sig( ag_vote_t const *      self,
-                   ag_aggsig_pk_t const * pk );
+                   ag_aggsig_pk_t const * pk,
+                   ushort                 shred_version );
 
 ulong
 ag_vote_serialize( ag_vote_t const * self,
                    uchar *           out,
-                   ulong             out_max );
+                   ulong             out_max,
+                   ushort            shred_version );
 
 /* Accessors (Vote::slot / signer / block_hash). */
 

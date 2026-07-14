@@ -558,10 +558,16 @@ verify_footer_final_cert( fd_replay_tile_t * ctx,
   fd_replay_epoch_vtrs_t const * s = &ctx->epoch_vtrs[ cert_epoch % FD_REPLAY_VTR_EPOCH_WINDOW ];
   if( FD_UNLIKELY( s->epoch!=cert_epoch ) ) FD_LOG_CRIT(( "slot %lu: no validator set for epoch %lu; cannot verify footer finalization cert for slot %lu", bank->f.slot, cert_epoch, cert_slot ));
 
+  /* Signed vote payloads bind the cluster shred version. */
+  ushort shred_version;
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
+  else                                                                      shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
+  if( FD_UNLIKELY( !shred_version ) ) FD_LOG_CRIT(( "slot %lu: shred version unknown; cannot verify footer finalization cert for slot %lu", bank->f.slot, cert_slot ));
+
   for( ulong i=0UL; i<*out_cert_cnt; i++ ) {
     ag_cert_t const * cert = &out_certs[ i ];
-    if( FD_UNLIKELY( !ag_cert_check_threshold( cert, s->info ) ) ) FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed the stake threshold. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
-    if( FD_UNLIKELY( !ag_cert_check_sig( cert, s->info ) ) )       FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed signature verification. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+    if( FD_UNLIKELY( !ag_cert_check_threshold( cert, s->info ) ) )               FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed the stake threshold. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+    if( FD_UNLIKELY( !ag_cert_check_sig( cert, shred_version, s->info ) ) )      FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed signature verification. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
   }
   FD_LOG_INFO(( "slot %lu: footer cert verified (%s finalization of slot %lu)", bank->f.slot, *out_cert_cnt==2UL ? "slow" : "fast", cert_slot ));
   return 1;

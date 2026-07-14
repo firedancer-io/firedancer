@@ -392,7 +392,7 @@ handle_votor_out( fd_votor_tile_t * ctx ) {
       if( FD_UNLIKELY( !s ) ) FD_LOG_CRIT(( "own vote for epoch %lu but no validator epoch info", epoch ));
       ag_vote_set_signer( &vote, s->own_id );
       queue_vote( ctx, &vote );
-      ag_pool_add_vote( ctx->pool, &vote ); /* count our own vote; the pool events
+      ag_pool_add_vote( ctx->pool, ctx->shred_version, &vote ); /* count our own vote; the pool events
                                                it emits are consumed by a later
                                                after_credit iteration */
     } else {
@@ -501,7 +501,7 @@ votor_set_active_epoch( fd_votor_tile_t * ctx,
   FD_TEST( ctx->pool );
 
   ctx->votor = ag_votor_join( ag_votor_new( ag_votor_leave( ctx->votor ),
-                                            ctx->slot_max, (ushort)ctx->own_id, ctx->voting_key, ctx->seed ) );
+                                            ctx->slot_max, (ushort)ctx->own_id, ctx->voting_key, ctx->shred_version, ctx->seed ) );
   FD_TEST( ctx->votor );
 
   FD_LOG_NOTICE(( "votor active epoch -> %lu (%lu validators, own_id %u, staked=%d)",
@@ -628,7 +628,7 @@ handle_replay_message( fd_votor_tile_t *   ctx,
       ulong cert_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, ag_cert_slot( cert ), NULL );
       ag_epoch_info_t const * ei = epoch_info_vtrs( ctx, cert_epoch );
       if( FD_UNLIKELY( !ei ) ) FD_LOG_CRIT(( "no validator epoch info for epoch %lu", cert_epoch ));
-      int err = ag_pool_add_cert( ctx->pool, cert, ei );
+      int err = ag_pool_add_cert( ctx->pool, ctx->shred_version, cert, ei );
       /* must succeed because this is from the replay tile */
       if( FD_UNLIKELY( err!=AG_POOL_SUCCESS && err!=AG_ADD_CERT_ERR_DUPLICATE ) ) {
         FD_LOG_CRIT(( "ag_pool_add_cert failed for cert %lu: %d. first unpruned slot: %lu, slot: %lu, finalized slot: %lu",
@@ -767,7 +767,7 @@ handle_all2all_message( fd_votor_tile_t *              ctx,
 
   switch( msg->kind ) {
   case AG_CONSENSUS_MESSAGE_VOTE: {
-    int err = ag_pool_add_vote( ctx->pool, &msg->inner.vote );
+    int err = ag_pool_add_vote( ctx->pool, ctx->shred_version, &msg->inner.vote );
     switch( err ) {
     case AG_POOL_SUCCESS:
       maybe_publish_finalized( ctx );
@@ -788,7 +788,7 @@ handle_all2all_message( fd_votor_tile_t *              ctx,
     ag_epoch_info_t const * ei = epoch_info_vtrs( ctx, cert_epoch );
     if( FD_UNLIKELY( !ei ) ) break;
 
-    int err = ag_pool_add_cert( ctx->pool, &msg->inner.cert, ei );
+    int err = ag_pool_add_cert( ctx->pool, ctx->shred_version, &msg->inner.cert, ei );
     if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
       maybe_publish_finalized( ctx );
     } /* else: ignoring invalid cert */
@@ -1024,7 +1024,7 @@ init_choreo( void                 * scratch,
                                          ctx->own_id, ctx->validators, 1UL, ctx->seed,
                                          0UL, NULL /* genesis baseline; rebuilt rooted at the snapshot on the first slot */ ) );
 
-  ctx->votor = ag_votor_join( ag_votor_new( votor, slot_max, (ushort)ctx->own_id, ctx->voting_key, ctx->seed ) );
+  ctx->votor = ag_votor_join( ag_votor_new( votor, slot_max, (ushort)ctx->own_id, ctx->voting_key, ctx->shred_version, ctx->seed ) );
 
   ctx->timeouts_heap = fd_timeout_heap_join( fd_timeout_heap_new( timeouts_heap, slot_max ) );
   ctx->timeouts_pool = fd_timeout_pool_join( fd_timeout_pool_new( timeouts_pool, slot_max ) );
@@ -1087,8 +1087,8 @@ quic_server_conn_new( fd_quic_conn_t * conn,
   fd_quic_tls_hs_t const * hs = conn->tls_hs;
   if( FD_UNLIKELY( !hs ) ) return; /* no handshake state (should not happen on conn_new) */
   FD_BASE58_ENCODE_32_BYTES( hs->hs.srv.client_pubkey, pubkey_str );
-  FD_LOG_NOTICE(( "votor accepted connection from quic client %s at " FD_IP4_ADDR_FMT ":%u",
-                  pubkey_str, FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ), (uint)conn->peer[0].udp_port ));
+  // FD_LOG_NOTICE(( "votor accepted connection from quic client %s at " FD_IP4_ADDR_FMT ":%u",
+  //                 pubkey_str, FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ), (uint)conn->peer[0].udp_port ));
 }
 
 static void
@@ -1347,7 +1347,7 @@ after_credit( fd_votor_tile_t *   ctx,
     /* TODO a2a broadcast */
     if( FD_UNLIKELY( pub->sig==FD_VOTOR_SIG_VOTE ) ) {
       uchar buf[ AG_VOTE_SERIALIZED_MAX ];
-      FD_TEST( ag_vote_serialize( &pub->msg.vote, buf, sizeof(buf) ) );
+      FD_TEST( ag_vote_serialize( &pub->msg.vote, buf, sizeof(buf), ctx->shred_version ) );
       //TODO send
     }
 
@@ -1417,6 +1417,7 @@ returnable_frag( fd_votor_tile_t *   ctx,
   case IN_KIND_IPECHO: {
     FD_TEST( sig && sig<=USHORT_MAX );
     ctx->shred_version = (ushort)sig;
+    if( FD_LIKELY( ctx->votor ) ) ag_votor_set_shred_version( ctx->votor, ctx->shred_version );
     return 0;
   }
   default: FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));

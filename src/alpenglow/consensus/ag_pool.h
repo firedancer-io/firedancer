@@ -66,11 +66,13 @@ void *      ag_pool_delete( void *            mem );
 
 int
 ag_pool_add_cert( ag_pool_t *             self,
+                  ushort                  shred_version,
                   ag_cert_t const *       cert,
                   ag_epoch_info_t const * epoch_info );
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
+                  ushort            shred_version,
                   ag_vote_t const * vote );
 
 void

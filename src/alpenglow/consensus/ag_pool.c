@@ -386,7 +386,8 @@ add_valid_cert( ag_pool_t *       self,
   }
 
   case AG_CERT_TYPE_FAST_FINAL: {
-    ag_block_id_t block_id; block_id.slot = slot; block_id.hash = *ag_cert_block_hash( cert );
+    ag_fast_final_cert_t const * ff_cert = &cert->inner.fast_final;
+    ag_block_id_t block_id; block_id.slot = slot; block_id.hash = ff_cert->block_hash;
     ag_finalization_event_t finalization_event = ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id );
     handle_finalization( self, &finalization_event );
     break;
@@ -411,6 +412,7 @@ add_valid_cert( ag_pool_t *       self,
 
 int
 ag_pool_add_cert( ag_pool_t *             self,
+                  ushort                  shred_version,
                   ag_cert_t       const * cert,
                   ag_epoch_info_t const * epoch_info ) {
   ulong slot = ag_cert_slot( cert );
@@ -420,7 +422,7 @@ ag_pool_add_cert( ag_pool_t *             self,
 
   if( FD_UNLIKELY( !ag_cert_check_threshold( cert, epoch_info ) ) ) return AG_ADD_CERT_ERR_THRESHOLD_NOT_MET;
 
-  if( FD_UNLIKELY( !ag_cert_check_sig( cert, epoch_info ) ) ) return AG_ADD_CERT_ERR_INVALID_SIGNATURE;
+  if( FD_UNLIKELY( !ag_cert_check_sig( cert, shred_version, epoch_info ) ) ) return AG_ADD_CERT_ERR_INVALID_SIGNATURE;
 
   ag_slot_state_t * ss = ag_pool_slot_state( self, slot );
   int duplicate = 0;
@@ -443,7 +445,17 @@ ag_pool_add_cert( ag_pool_t *             self,
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
+                  ushort            shred_version,
                   ag_vote_t const * vote ) {
+
+  static char const * kind_str[ 5 ] = { "Notar", "Final", "Skip", "NotarFallback", "SkipFallback" };
+  fd_hash_t const * bh = ag_vote_block_hash( vote );
+  if( bh ) {
+    FD_BASE58_ENCODE_32_BYTES( bh->uc, bh_cstr );
+    FD_LOG_NOTICE(( "vote %s slot=%lu signer=%u block_hash=%s", kind_str[ vote->kind ], ag_vote_slot( vote ), (uint)ag_vote_signer( vote ), bh_cstr ));
+  } else {
+    FD_LOG_NOTICE(( "vote %s slot=%lu signer=%u", kind_str[ vote->kind ], ag_vote_slot( vote ), (uint)ag_vote_signer( vote ) ));
+  }
 
   ulong slot = ag_vote_slot( vote );
 
@@ -458,7 +470,7 @@ ag_pool_add_vote( ag_pool_t *       self,
   }
 
   ag_aggsig_pk_t const * pk = &ag_epoch_info_validator( epoch, ag_vote_signer( vote ) )->voting_pubkey;
-  if( !ag_vote_check_sig( vote, pk ) ) {
+  if( !ag_vote_check_sig( vote, pk, shred_version ) ) {
     return AG_ADD_VOTE_ERR_INVALID_SIGNATURE;
   }
 

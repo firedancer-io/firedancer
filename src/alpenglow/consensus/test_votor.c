@@ -1,4 +1,6 @@
 #include "ag_votor.h"
+
+#define TEST_SHRED_VERSION ((ushort)514)
 #include <stdlib.h>
 
 #define SPW AG_ALPENGLOW_SLOTS_PER_WINDOW
@@ -49,7 +51,7 @@ make_votor( fd_wksp_t *      wksp,
   void * mem = fd_wksp_alloc_laddr( wksp, ag_votor_align(), ag_votor_footprint( 64UL ), 1UL );
   FD_TEST( mem );
   *out_mem = mem;
-  void * sh = ag_votor_new( mem, 64UL, validator_index, &g_sk[ validator_index ], 1234UL );
+  void * sh = ag_votor_new( mem, 64UL, validator_index, &g_sk[ validator_index ], TEST_SHRED_VERSION, 1234UL );
   FD_TEST( sh );
   ag_votor_t * v = ag_votor_join( sh );
   FD_TEST( v );
@@ -166,7 +168,7 @@ test_notar_and_final( fd_wksp_t * wksp ) {
   FD_TEST( nv && ag_vote_slot( nv )==slot );
 
   ag_cert_t cert; cert.kind = AG_CERT_TYPE_NOTAR;
-  ag_notar_vote_t one; ag_notar_vote_new( &one, slot, &hash, &g_sk[0], 0UL );
+  ag_notar_vote_t one; ag_notar_vote_new( &one, slot, &hash, &g_sk[0], 0UL , TEST_SHRED_VERSION );
   FD_TEST( ag_notar_cert_try_new( &cert.inner.notar, &one, 1UL, g_info, 2UL )==AG_CERT_SUCCESS );
 
   ag_pool_event_t cc = { .kind = AG_POOL_EVENT_CERT_CREATED };
@@ -302,7 +304,7 @@ test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
   for( ulong i=0UL; i<=highest; i++ ) FD_TEST( ag_votor_slot_state( v, i ) != NULL );
 
   ag_cert_t cert; cert.kind = AG_CERT_TYPE_FINAL;
-  ag_final_vote_t fvote; ag_final_vote_new( &fvote, finalized, &g_sk[1], 1UL );
+  ag_final_vote_t fvote; ag_final_vote_new( &fvote, finalized, &g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_final_cert_try_new( &cert.inner.final_, &fvote, 1UL, g_info, 2UL )==AG_CERT_SUCCESS );
   ag_pool_event_t cc = { .kind = AG_POOL_EVENT_CERT_CREATED };
   cc.inner.cert_created = cert;
@@ -344,7 +346,7 @@ test_slashing_invariant( fd_wksp_t * wksp ) {
     FD_TEST( ag_votor_slot_state( v, slot )->bad_window );
 
     ag_cert_t cert; cert.kind = AG_CERT_TYPE_NOTAR;
-    ag_notar_vote_t one; ag_notar_vote_new( &one, slot, &hash, &g_sk[0], 0UL );
+    ag_notar_vote_t one; ag_notar_vote_new( &one, slot, &hash, &g_sk[0], 0UL , TEST_SHRED_VERSION );
     FD_TEST( ag_notar_cert_try_new( &cert.inner.notar, &one, 1UL, g_info, 2UL )==AG_CERT_SUCCESS );
     ag_pool_event_t cc = { .kind = AG_POOL_EVENT_CERT_CREATED };
     cc.inner.cert_created = cert;
@@ -373,7 +375,7 @@ test_slashing_invariant( fd_wksp_t * wksp ) {
     FD_TEST( ag_votor_slot_state( v, slot )->voted );
 
     ag_cert_t cert; cert.kind = AG_CERT_TYPE_NOTAR;
-    ag_notar_vote_t one; ag_notar_vote_new( &one, slot, &hash, &g_sk[0], 0UL );
+    ag_notar_vote_t one; ag_notar_vote_new( &one, slot, &hash, &g_sk[0], 0UL , TEST_SHRED_VERSION );
     FD_TEST( ag_notar_cert_try_new( &cert.inner.notar, &one, 1UL, g_info, 2UL )==AG_CERT_SUCCESS );
     ag_pool_event_t cc = { .kind = AG_POOL_EVENT_CERT_CREATED };
     cc.inner.cert_created = cert;

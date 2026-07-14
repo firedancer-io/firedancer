@@ -157,7 +157,7 @@ ag_slot_state_align( void ) {
 
 ulong
 ag_slot_state_footprint( ulong validator_max ) {
-  if( FD_UNLIKELY( validator_max==0UL || validator_max>AG_ALPENGLOW_VALIDATOR_MAX ) ) return 0UL;
+  if( FD_UNLIKELY( validator_max==0UL || validator_max>fd_ulong_pow2_up( AG_ALPENGLOW_VALIDATOR_MAX ) ) ) return 0UL; /* capacity is the VAT cap pow2'd up */
 
   ulong hmax = hash_ele_max( validator_max );
 
@@ -393,6 +393,13 @@ set_remove( set_t *       set,
 static void
 out_push_cert( ag_slot_state_outputs_t * out,
                ag_cert_t const *         cert ) {
+  fd_hash_t const * hash = ag_cert_block_hash( cert );
+  if( hash ) {
+    FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_cstr );
+    FD_LOG_NOTICE(( "created %s cert slot=%lu hash=%s", ag_cert_type_to_string( cert->kind ), ag_cert_slot( cert ), hash_cstr ));
+  } else {
+    FD_LOG_NOTICE(( "created %s cert slot=%lu", ag_cert_type_to_string( cert->kind ), ag_cert_slot( cert ) ));
+  }
   FD_TEST( out->certs_cnt < AG_SLOT_STATE_OUT_CERT_MAX );
   out->certs[ out->certs_cnt++ ] = *cert;
 }
@@ -661,28 +668,38 @@ void
 ag_slot_state_add_cert( ag_slot_state_t * slot_state,
                         ag_cert_t const * cert ) {
   switch( cert->kind ) {
-  case AG_CERT_TYPE_NOTAR:
+  case AG_CERT_TYPE_NOTAR: {
+    ag_notar_cert_t const * n = &cert->inner.notar;
     slot_state->certificates.has_notar = 1;
-    slot_state->certificates.notar     = cert->inner.notar;
+    slot_state->certificates.notar     = *n;
     break;
-  case AG_CERT_TYPE_NOTAR_FALLBACK:
-    if( !ag_slot_state_is_notar_fallback( slot_state, &cert->inner.notar_fallback.block_hash ) ) {
+  }
+  case AG_CERT_TYPE_NOTAR_FALLBACK: {
+    ag_notar_fallback_cert_t const * n = &cert->inner.notar_fallback;
+    if( !ag_slot_state_is_notar_fallback( slot_state, &n->block_hash ) ) {
       FD_TEST( slot_state->certificates.nf_cnt < AG_SLOT_STATE_NF_CERT_MAX );
-      slot_state->certificates.nf[ slot_state->certificates.nf_cnt++ ] = cert->inner.notar_fallback;
+      slot_state->certificates.nf[ slot_state->certificates.nf_cnt++ ] = *n;
     }
     break;
-  case AG_CERT_TYPE_SKIP:
+  }
+  case AG_CERT_TYPE_SKIP: {
+    ag_skip_cert_t const * s = &cert->inner.skip;
     slot_state->certificates.has_skip = 1;
-    slot_state->certificates.skip     = cert->inner.skip;
+    slot_state->certificates.skip     = *s;
     break;
-  case AG_CERT_TYPE_FAST_FINAL:
+  }
+  case AG_CERT_TYPE_FAST_FINAL: {
+    ag_fast_final_cert_t const * s = &cert->inner.fast_final;
     slot_state->certificates.has_fast_finalize = 1;
-    slot_state->certificates.fast_finalize     = cert->inner.fast_final;
+    slot_state->certificates.fast_finalize     = *s;
     break;
-  case AG_CERT_TYPE_FINAL:
+  }
+  case AG_CERT_TYPE_FINAL: {
+    ag_final_cert_t const * f = &cert->inner.final_;
     slot_state->certificates.has_finalize = 1;
-    slot_state->certificates.finalize     = cert->inner.final_;
+    slot_state->certificates.finalize     = *f;
     break;
+  }
   default:
     FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
   }
@@ -694,58 +711,54 @@ ag_slot_state_outputs_t
 ag_slot_state_add_vote( ag_slot_state_t * slot_state,
                         ag_vote_t const * vote,
                         ulong             voter_stake ) {
-  ulong slot  = ag_vote_slot ( vote );
-  ulong voter = ag_vote_signer( vote );
-  FD_TEST( voter < slot_state->validator_max );
-  slot_votes_t * v = &slot_state->votes;
+  ulong          slot  = ag_vote_slot( vote );
+  ulong          voter = ag_vote_signer( vote );
+  slot_votes_t * v     = &slot_state->votes;
 
   ag_slot_state_outputs_t outputs;
-  outputs.certs_cnt = 0UL; outputs.pool_events_cnt = 0UL; outputs.block_repairs_cnt = 0UL;
-
   switch( vote->kind ) {
-
   case AG_VOTE_TYPE_NOTAR: {
-    fd_hash_t const * h = &vote->inner.notar.block_hash;
-    outputs = count_notar_stake( slot_state, slot, h, voter_stake );
-
-    ag_aggsig_t * agg = agg_map_get_or_insert( &v->notar, h, slot_state->epoch_info->validator_cnt );
-    ag_aggsig_add( agg, voter, &vote->inner.notar.sig );
-    if( voter==slot_state->own_id ) v->own.notar = vote->inner.notar;
+    ag_notar_vote_t const * notar_vote = &vote->inner.notar;
+    outputs = count_notar_stake( slot_state, slot, &notar_vote->block_hash, voter_stake );
+    ag_aggsig_t * agg = agg_map_get_or_insert( &v->notar, &notar_vote->block_hash, slot_state->epoch_info->validator_cnt );
+    ag_aggsig_add( agg, voter, &notar_vote->sig );
+    if( voter==slot_state->own_id ) v->own.notar = *notar_vote;
     break;
   }
-
   case AG_VOTE_TYPE_NOTAR_FALLBACK: {
-    fd_hash_t const * h = &vote->inner.notar_fallback.block_hash;
-    outputs = count_notar_fallback_stake( slot_state, h, voter_stake );
+    ag_notar_fallback_vote_t const * nf_vote = &vote->inner.notar_fallback;
+    outputs = count_notar_fallback_stake( slot_state, &nf_vote->block_hash, voter_stake );
 
-    ag_aggsig_t * agg = agg_map_get_or_insert( &v->notar_fallback, h, slot_state->epoch_info->validator_cnt );
-    ag_aggsig_add( agg, voter, &vote->inner.notar_fallback.sig );
+    ag_aggsig_t * agg = agg_map_get_or_insert( &v->notar_fallback, &nf_vote->block_hash, slot_state->epoch_info->validator_cnt );
+    ag_aggsig_add( agg, voter, &nf_vote->sig );
     if( voter==slot_state->own_id ) {
       FD_TEST( v->own.notar_fallback_cnt < AG_SLOT_STATE_SET_MAX );
-      v->own.notar_fallback[ v->own.notar_fallback_cnt++ ] = vote->inner.notar_fallback;
+      v->own.notar_fallback[ v->own.notar_fallback_cnt++ ] = *nf_vote;
     }
     break;
   }
-
-  case AG_VOTE_TYPE_SKIP:
-    ag_aggsig_add( &v->skip, voter, &vote->inner.skip.sig );
-    if( voter==slot_state->own_id ) v->own.skip = vote->inner.skip;
+  case AG_VOTE_TYPE_SKIP: {
+    ag_skip_vote_t const * skip_vote = &vote->inner.skip;
+    ag_aggsig_add( &v->skip, voter, &skip_vote->sig );
+    if( voter==slot_state->own_id ) v->own.skip = *skip_vote;
     slot_state->voted_stakes.notar_or_skip += voter_stake;
     outputs = count_skip_stake( slot_state, slot, voter_stake, 0 );
     break;
-
-  case AG_VOTE_TYPE_SKIP_FALLBACK:
-    ag_aggsig_add( &v->skip_fallback, voter, &vote->inner.skip_fallback.sig );
-    if( voter==slot_state->own_id ) v->own.skip_fallback = vote->inner.skip_fallback;
+  }
+  case AG_VOTE_TYPE_SKIP_FALLBACK: {
+    ag_skip_fallback_vote_t const * sf_vote = &vote->inner.skip_fallback;
+    ag_aggsig_add( &v->skip_fallback, voter, &sf_vote->sig );
+    if( voter==slot_state->own_id ) v->own.skip_fallback = *sf_vote;
     outputs = count_skip_stake( slot_state, slot, voter_stake, 1 );
     break;
-
-  case AG_VOTE_TYPE_FINAL:
-    ag_aggsig_add( &v->finalize, voter, &vote->inner.final_.sig );
-    if( voter==slot_state->own_id ) v->own.finalize = vote->inner.final_;
+  }
+  case AG_VOTE_TYPE_FINAL: {
+    ag_final_vote_t const * final_vote = &vote->inner.final_;
+    ag_aggsig_add( &v->finalize, voter, &final_vote->sig );
+    if( voter==slot_state->own_id ) v->own.finalize = *final_vote;
     outputs = count_finalize_stake( slot_state, voter_stake );
     break;
-
+  }
   default:
     FD_LOG_ERR(( "invalid vote kind %u", vote->kind ));
   }

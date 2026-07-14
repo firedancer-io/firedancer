@@ -1,4 +1,6 @@
 #include "ag_cert.h"
+
+#define TEST_SHRED_VERSION ((ushort)514)
 #include <stdlib.h>
 
 #define MAXV 128UL
@@ -35,7 +37,7 @@ mk_notar( ag_notar_vote_t * o,
           fd_hash_t const * h,
           ulong             lo,
           ulong             n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) );
+  for( ulong i=0UL; i<n; i++ ) ag_notar_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_nf( ag_notar_fallback_vote_t * o,
@@ -43,28 +45,28 @@ mk_nf( ag_notar_fallback_vote_t * o,
        fd_hash_t const *          h,
        ulong                      lo,
        ulong                      n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_notar_fallback_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) );
+  for( ulong i=0UL; i<n; i++ ) ag_notar_fallback_vote_new( &o[i], slot, h, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_skip( ag_skip_vote_t * o,
          ulong            slot,
          ulong            lo,
          ulong            n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_skip_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) );
+  for( ulong i=0UL; i<n; i++ ) ag_skip_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_sf( ag_skip_fallback_vote_t * o,
        ulong                     slot,
        ulong                     lo,
        ulong                     n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_skip_fallback_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) );
+  for( ulong i=0UL; i<n; i++ ) ag_skip_fallback_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 static void
 mk_final( ag_final_vote_t * o,
           ulong             slot,
           ulong             lo,
           ulong             n ) {
-  for( ulong i=0UL; i<n; i++ ) ag_final_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) );
+  for( ulong i=0UL; i<n; i++ ) ag_final_vote_new( &o[i], slot, &g_sk[lo+i], (ushort)(lo+i) , TEST_SHRED_VERSION );
 }
 
 static void
@@ -72,7 +74,7 @@ check_full_cert( ag_cert_t const * c,
                  ulong             n ) {
   void *            mem = NULL;
   ag_epoch_info_t * ei  = make_epoch( n, &mem );
-  FD_TEST( ag_cert_check_sig( c, ei ) );
+  FD_TEST( ag_cert_check_sig( c, TEST_SHRED_VERSION, ei ) );
   free( mem );
   FD_TEST( ag_cert_stake( c )==n );
   for( ulong i=0UL; i<n; i++ ) FD_TEST( ag_cert_is_signer( c, g_info[i].id ) );
@@ -144,29 +146,29 @@ test_failures( void ) {
   fd_hash_t h2; memset( h2.uc, 0x22, sizeof(fd_hash_t) );
 
   ag_notar_vote_t nv[2];
-  ag_notar_vote_new( &nv[0], 1UL, &h1, &g_sk[0], 0UL );
-  ag_notar_vote_new( &nv[1], 2UL, &h1, &g_sk[1], 1UL );
+  ag_notar_vote_new( &nv[0], 1UL, &h1, &g_sk[0], 0UL , TEST_SHRED_VERSION );
+  ag_notar_vote_new( &nv[1], 2UL, &h1, &g_sk[1], 1UL , TEST_SHRED_VERSION );
   ag_notar_cert_t nc;
   FD_TEST( ag_notar_cert_try_new( &nc, nv, 2UL, g_info, 2UL )==AG_CERT_ERR_SLOT_MISMATCH );
 
-  ag_notar_vote_new( &nv[0], 1UL, &h1, &g_sk[0], 0UL );
-  ag_notar_vote_new( &nv[1], 1UL, &h2, &g_sk[1], 1UL );
+  ag_notar_vote_new( &nv[0], 1UL, &h1, &g_sk[0], 0UL , TEST_SHRED_VERSION );
+  ag_notar_vote_new( &nv[1], 1UL, &h2, &g_sk[1], 1UL , TEST_SHRED_VERSION );
   FD_TEST( ag_notar_cert_try_new( &nc, nv, 2UL, g_info, 2UL )==AG_CERT_ERR_BLOCK_HASH_MISMATCH );
 
-  ag_notar_vote_t          nv1[1]; ag_notar_vote_new( &nv1[0], 2UL, &h1, &g_sk[0], 0UL );
-  ag_notar_fallback_vote_t fv1[1]; ag_notar_fallback_vote_new( &fv1[0], 1UL, &h1, &g_sk[1], 1UL );
+  ag_notar_vote_t          nv1[1]; ag_notar_vote_new( &nv1[0], 2UL, &h1, &g_sk[0], 0UL , TEST_SHRED_VERSION );
+  ag_notar_fallback_vote_t fv1[1]; ag_notar_fallback_vote_new( &fv1[0], 1UL, &h1, &g_sk[1], 1UL , TEST_SHRED_VERSION );
   ag_notar_fallback_cert_t nfc;
   FD_TEST( ag_notar_fallback_cert_try_new( &nfc, nv1, 1UL, fv1, 1UL, g_info, 2UL )==AG_CERT_ERR_SLOT_MISMATCH );
 
   ag_skip_vote_t sv[2];
-  ag_skip_vote_new( &sv[0], 1UL, &g_sk[0], 0UL );
-  ag_skip_vote_new( &sv[1], 2UL, &g_sk[1], 1UL );
+  ag_skip_vote_new( &sv[0], 1UL, &g_sk[0], 0UL , TEST_SHRED_VERSION );
+  ag_skip_vote_new( &sv[1], 2UL, &g_sk[1], 1UL , TEST_SHRED_VERSION );
   ag_skip_cert_t sc;
   FD_TEST( ag_skip_cert_try_new( &sc, sv, 2UL, NULL, 0UL, g_info, 2UL )==AG_CERT_ERR_SLOT_MISMATCH );
 
   ag_final_vote_t ev[2];
-  ag_final_vote_new( &ev[0], 1UL, &g_sk[0], 0UL );
-  ag_final_vote_new( &ev[1], 2UL, &g_sk[1], 1UL );
+  ag_final_vote_new( &ev[0], 1UL, &g_sk[0], 0UL , TEST_SHRED_VERSION );
+  ag_final_vote_new( &ev[1], 2UL, &g_sk[1], 1UL , TEST_SHRED_VERSION );
   ag_final_cert_t fc;
   FD_TEST( ag_final_cert_try_new( &fc, ev, 2UL, g_info, 2UL )==AG_CERT_ERR_SLOT_MISMATCH );
 }

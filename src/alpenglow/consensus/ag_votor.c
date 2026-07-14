@@ -54,6 +54,7 @@ struct __attribute__((aligned(128UL))) ag_votor {
   parent_ready_map_t *      parent_ready_map;
 
   ushort         validator_index;
+  ushort         shred_version;
   ag_aggsig_sk_t voting_key;
   ulong          highest_final_cert_slot;
 
@@ -221,7 +222,7 @@ try_final( ag_votor_t *      self,
   int not_bad     = !( s && s->bad_window );
   if( notarized && voted_notar && not_bad ) {
     ag_vote_t vote;
-    ag_vote_new_final( &vote, slot, &self->voting_key, self->validator_index );
+    ag_vote_new_final( &vote, slot, &self->voting_key, self->validator_index, self->shred_version );
     out_push_vote( self, &vote );
     slot_state_mut( self, slot )->retired = 1;
   }
@@ -247,7 +248,7 @@ try_notar( ag_votor_t *            self,
   }
 
   ag_vote_t vote;
-  ag_vote_new_notar( &vote, slot, hash, &self->voting_key, self->validator_index );
+  ag_vote_new_notar( &vote, slot, hash, &self->voting_key, self->validator_index, self->shred_version );
   FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_cstr );
   FD_LOG_NOTICE(( "try_notar slot=%lu hash=%s", slot, hash_cstr ));
   out_push_vote( self, &vote );
@@ -273,7 +274,7 @@ try_skip_window( ag_votor_t * self,
     state->voted      = 1;
     state->bad_window = 1;
     ag_vote_t vote;
-    ag_vote_new_skip( &vote, s, &self->voting_key, self->validator_index );
+    ag_vote_new_skip( &vote, s, &self->voting_key, self->validator_index, self->shred_version );
 
     out_push_vote( self, &vote );
   }
@@ -411,7 +412,7 @@ ag_votor_handle_pool_event( ag_votor_t *            votor,
   case AG_POOL_EVENT_SAFE_TO_NOTAR: {
     ag_block_id_t const blk = event->inner.safe_to_notar;
     ag_vote_t vote;
-    ag_vote_new_notar_fallback( &vote, blk.slot, &blk.hash, &votor->voting_key, votor->validator_index );
+    ag_vote_new_notar_fallback( &vote, blk.slot, &blk.hash, &votor->voting_key, votor->validator_index, votor->shred_version );
     out_push_vote( votor, &vote );
     try_skip_window( votor, blk.slot );
     slot_state_mut( votor, blk.slot )->bad_window = 1;
@@ -421,7 +422,7 @@ ag_votor_handle_pool_event( ag_votor_t *            votor,
   case AG_POOL_EVENT_SAFE_TO_SKIP: {
     ulong slot = event->inner.safe_to_skip;
     ag_vote_t vote;
-    ag_vote_new_skip_fallback( &vote, slot, &votor->voting_key, votor->validator_index );
+    ag_vote_new_skip_fallback( &vote, slot, &votor->voting_key, votor->validator_index, votor->shred_version );
     out_push_vote( votor, &vote );
     try_skip_window( votor, slot );
     slot_state_mut( votor, slot )->bad_window = 1;
@@ -512,6 +513,7 @@ ag_votor_new( void *                 shmem,
               ulong                  slot_max,
               ushort                 validator_index,
               ag_aggsig_sk_t const * voting_key,
+              ushort                 shred_version,
               ulong                  seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -550,6 +552,7 @@ ag_votor_new( void *                 shmem,
   votor->parent_ready_pool       = parent_ready_pool_join( parent_ready_pool_new( pr_pool, pr_max             ) );
   votor->parent_ready_map        = parent_ready_map_join ( parent_ready_map_new ( pr_map,  pr_chain_cnt, seed ) );
   votor->validator_index         = validator_index;
+  votor->shred_version           = shred_version;
   votor->voting_key              = *voting_key;
   votor->highest_final_cert_slot = 0UL;
 
@@ -612,6 +615,12 @@ ag_votor_delete( void * shvotor ) {
 ag_votor_out_t const *
 ag_votor_out( ag_votor_t const * votor ) {
   return &votor->out;
+}
+
+void
+ag_votor_set_shred_version( ag_votor_t * self,
+                            ushort       shred_version ) {
+  self->shred_version = shred_version;
 }
 
 ulong

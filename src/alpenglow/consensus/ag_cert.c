@@ -317,6 +317,7 @@ ag_cert_check_threshold( ag_cert_t const *       self,
 
 int
 ag_cert_check_sig( ag_cert_t const *       self,
+                   ushort                  shred_version,
                    ag_epoch_info_t const * epoch_info ) {
   ag_aggsig_pk_t const * pks           = ag_epoch_info_voting_pubkeys( epoch_info );
   ulong                  validator_cnt = epoch_info->validator_cnt;
@@ -324,20 +325,20 @@ ag_cert_check_sig( ag_cert_t const *       self,
   ulong sz;
   switch( self->kind ) {
   case AG_CERT_TYPE_NOTAR:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, &self->inner.notar.block_hash );
+    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, &self->inner.notar.block_hash, shred_version );
     return ag_aggsig_verify_bytes( &self->inner.notar.agg_sig, buf, sz, pks, validator_cnt );
   case AG_CERT_TYPE_FAST_FINAL:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.fast_final.slot, &self->inner.fast_final.block_hash );
+    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.fast_final.slot, &self->inner.fast_final.block_hash, shred_version );
     return ag_aggsig_verify_bytes( &self->inner.fast_final.agg_sig, buf, sz, pks, validator_cnt );
   case AG_CERT_TYPE_FINAL:
-    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_FINAL, self->inner.final_.slot, NULL );
+    sz = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_FINAL, self->inner.final_.slot, NULL, shred_version );
     return ag_aggsig_verify_bytes( &self->inner.final_.agg_sig, buf, sz, pks, validator_cnt );
   case AG_CERT_TYPE_NOTAR_FALLBACK: {
 
     ag_notar_fallback_cert_t const * n = &self->inner.notar_fallback;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
-    sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_NOTAR,          n->slot, &n->block_hash );
-    sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash );
+    sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_NOTAR,          n->slot, &n->block_hash, shred_version );
+    sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_NOTAR_FALLBACK, n->slot, &n->block_hash, shred_version );
     return ag_aggsig_verify_mixed_bytes( &n->agg_sig_notar,          buf,    sz,
                                          &n->agg_sig_notar_fallback, buf_fb, sz_fb,
                                          pks, validator_cnt );
@@ -345,8 +346,8 @@ ag_cert_check_sig( ag_cert_t const *       self,
   default: {
     ag_skip_cert_t const * s = &self->inner.skip;
     uchar buf_fb[ AG_VOTE_PAYLOAD_MAX ]; ulong sz_fb;
-    sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_SKIP,          s->slot, NULL );
-    sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL );
+    sz    = ag_vote_payload_bytes_to_sign( buf,    AG_VOTE_TYPE_SKIP,          s->slot, NULL, shred_version );
+    sz_fb = ag_vote_payload_bytes_to_sign( buf_fb, AG_VOTE_TYPE_SKIP_FALLBACK, s->slot, NULL, shred_version );
     return ag_aggsig_verify_mixed_bytes( &s->agg_sig_skip,          buf,    sz,
                                          &s->agg_sig_skip_fallback, buf_fb, sz_fb,
                                          pks, validator_cnt );

@@ -306,7 +306,9 @@ fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key ) {
   if( FD_UNLIKELY( memcmp( key->key, null_pubkey.key, 32UL ) == 0 ) ) {
-    FD_LOG_WARNING(( "Repair policy peer with null pubkey." ));
+    fd_policy_peer_t * null_peer = fd_policy_peer_map_ele_query( policy->peers.map, key, NULL, policy->peers.pool );
+    if( FD_LIKELY( null_peer ) ) FD_LOG_WARNING(( "Repair policy peer with null pubkey. addr: " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( null_peer->ip4 ), fd_ushort_bswap( null_peer->port ) ));
+    else                         FD_LOG_WARNING(( "Repair policy peer with null pubkey (no peer entry)." ));
     return NULL;
   };
   fd_policy_peer_t * pool = policy->peers.pool;

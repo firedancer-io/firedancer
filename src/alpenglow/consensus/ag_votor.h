@@ -108,7 +108,15 @@ ag_votor_new( void *                 shmem,
               ulong                  slot_max,
               ushort                 validator_index,
               ag_aggsig_sk_t const * voting_key,
+              ushort                 shred_version,
               ulong                  seed );
+
+/* votes are signed over VotePayloadToSign which binds shred_version;
+   set when ipecho / gossip resolves it. */
+
+void
+ag_votor_set_shred_version( ag_votor_t * self,
+                            ushort       shred_version );
 
 ag_votor_t *
 ag_votor_join( void * shvotor );

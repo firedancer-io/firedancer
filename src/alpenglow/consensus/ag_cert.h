@@ -172,6 +172,7 @@ ag_cert_check_threshold( ag_cert_t const *       self,
 
 int
 ag_cert_check_sig( ag_cert_t const *       self,
+                   ushort                  shred_version,
                    ag_epoch_info_t const * epoch_info );
 
 int
