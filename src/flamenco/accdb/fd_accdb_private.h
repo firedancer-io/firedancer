@@ -224,30 +224,23 @@ typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
 FD_STATIC_ASSERT( alignof(fd_accdb_accmeta_t)==64, layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 
-#define FD_ACCDB_OFF_BITS   48UL
-#define FD_ACCDB_OFF_MASK   ((1UL<<FD_ACCDB_OFF_BITS)-1UL) /* 0x0000_FFFF_FFFF_FFFF */
-#define FD_ACCDB_OFF_INVAL  FD_ACCDB_OFF_MASK              /* dirty/pending-write sentinel */
-#define FD_ACCDB_OFF_SIMPLE (FD_ACCDB_OFF_MASK-1UL)        /* system program, no-exec, no data */
-
-static inline int
-fd_accdb_offset_is_disk( ulong offset ) {
-  return offset<FD_ACCDB_OFF_SIMPLE;
-}
+#define FD_ACCDB_OFF_BITS  48UL
+#define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
+#define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
 
 /* The `size` field in fd_accdb_disk_meta_t (named executable_size in
-   fd_accdb_accmeta_t) packs six things into 32 bits:
+   fd_accdb_accmeta_t) packs five things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
-     bit  27     simple-account flag, in-memory only   (FD_ACCDB_SIZE_SIMPLE_BIT)
-     bits 26..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
+     bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
-   The data length is therefore 27 bits, max 128 MiB, still well above
+   The data length is therefore 28 bits, max 256 MiB, still well above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The four in-memory-only flag bits exist only in the index, never on
+   The three upper flag bits exist only in the in-memory index, never on
    disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
@@ -263,12 +256,6 @@ fd_accdb_offset_is_disk( ulong offset ) {
        dead by construction because the generation no longer matches any
        live fork.  Carried explicitly by the two commit sites in
        fd_accdb_release and nowhere else.
-     - simple-account (bit 27): the account is System-owned, non-executable,
-       has zero data, and has positive lamports.  Such accounts need no
-       cache or disk record: owner and data are synthesized from this flag,
-       while pubkey and lamports remain in fd_accdb_accmeta_t.  The offset
-       is FD_ACCDB_OFF_SIMPLE and CACHE_VALID is always clear.  Tombstones
-       for deleted accounts use this type.
 
    The on-disk representation (written via SIZE_PACK / SIZE_DATA) carries
    no in-memory flag: persisted bytes are unchanged, and compaction's
@@ -279,27 +266,15 @@ fd_accdb_offset_is_disk( ulong offset ) {
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
-#define FD_ACCDB_SIZE_SIMPLE_BIT      (1U<<27)
-#define FD_ACCDB_SIZE_MASK            ((1U<<27)-1U)
+#define FD_ACCDB_SIZE_MASK            ((1U<<28)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
 #define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
-#define FD_ACCDB_SIZE_SIMPLE(p)       (!!((p) & FD_ACCDB_SIZE_SIMPLE_BIT))
 
-FD_STATIC_ASSERT( (10UL<<20) < (1UL<<27), simple_bit_collides_with_len );
-
-static inline int
-fd_accdb_is_simple( ulong       lamports,
-                    ulong       data_len,
-                    int         executable,
-                    uchar const owner[ 32UL ] ) {
-  int owner_nonzero = 0;
-  for( ulong i=0UL; i<32UL; i++ ) owner_nonzero |= owner[ i ];
-  return !!lamports & !data_len & !executable & !!owner_nonzero;
-}
+FD_STATIC_ASSERT( (10UL<<20) < (1UL<<28), pd_write_bit_collides_with_len );
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {

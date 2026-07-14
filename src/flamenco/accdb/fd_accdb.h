@@ -50,7 +50,6 @@ struct fd_accdb_entry {
 
   ulong   _original_size_class;
   ulong   _original_cache_idx;
-  uint    _original_acc_idx;
 
   struct {
     ulong destination_cache_idx[ 8UL ];
@@ -578,7 +577,6 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
                              ulong              lamports,
                              ulong              data_len,
                              int                executable,
-                             uchar const *      owner,
                              ulong *            out_replaced_lamports );
 
 /* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
@@ -610,7 +608,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong  const        lamports[],
                                ulong  const        data_lens[],
                                int    const        executables[],
-                               uchar const * const owners[],
                                ulong *             accounts_ignored,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,

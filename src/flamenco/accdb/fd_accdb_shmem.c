@@ -200,12 +200,12 @@ fd_accdb_shmem_new( void * shmem,
 
   /* The total addressable file space (partition_cnt * partition_sz)
      must not exceed 2^FD_ACCDB_OFF_BITS.  File offsets are stored in
-     the 48-bit offset portion of acc->offset_fork.  The top two values
-     are reserved for FD_ACCDB_OFF_INVAL and FD_ACCDB_OFF_SIMPLE.
-     The allocator guarantees record start offsets are always at least
+     the 48-bit offset portion of acc->offset_fork, and the all-ones
+     value FD_ACCDB_OFF_INVAL is reserved as a dirty sentinel.  The
+     allocator guarantees record start offsets are always at least
      sizeof(fd_accdb_disk_meta_t) below a partition boundary, so a
      total of exactly 2^48 is safe (no valid offset reaches the
-     sentinels), but exceeding it is not. */
+     sentinel), but exceeding it is not. */
   if( FD_UNLIKELY( partition_cnt>((1UL<<FD_ACCDB_OFF_BITS)/partition_sz) ) ) {
     FD_LOG_WARNING(( "partition_cnt*partition_sz must be at most %lu", 1UL<<FD_ACCDB_OFF_BITS ));
     return NULL;

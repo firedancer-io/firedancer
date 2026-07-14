@@ -799,7 +799,6 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   ulong         lamports   [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   ulong         data_lens  [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   int           executables[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
-  uchar const * owners     [ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
 
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const * e = entries[ i ];
@@ -808,7 +807,6 @@ process_account_batch( fd_snapin_tile_t *            ctx,
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];
-    owners[ i ]      = e+64UL;
 
     /* Snoop SlotHistory sysvar.  Account body in the batch path is
        contiguous starting at e+136. */
@@ -830,7 +828,7 @@ process_account_batch( fd_snapin_tile_t *            ctx,
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
   fd_accdb_fork_id_t fork_id = ctx->full ? (fd_accdb_fork_id_t){ .val = USHORT_MAX } : ctx->accdb_incr_fork_id;
   if( FD_UNLIKELY( 0!=fd_accdb_snapshot_write_batch( ctx->accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
-                                                     executables, owners, &accounts_ignored, &accounts_replaced, &accounts_loaded,
+                                                     executables, &accounts_ignored, &accounts_replaced, &accounts_loaded,
                                                      &replaced_lamports, &ignored_lamports ) ) ) {
     return -1;
   }
@@ -866,7 +864,6 @@ process_account_header( fd_snapin_tile_t * ctx,
                                              result->account_header.lamports,
                                              result->account_header.data_len,
                                              result->account_header.executable,
-                                             result->account_header.owner,
                                              &replaced_lamports );
   if( FD_UNLIKELY( -1==account ) ) {
     ctx->metrics.accounts_ignored++;
