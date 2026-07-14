@@ -204,6 +204,7 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 
 /* TLS Alert Protocol */
 
+#define FD_TLS_ALERT_CLOSE_NOTIFY                    ((uchar)  0)
 #define FD_TLS_ALERT_UNEXPECTED_MESSAGE              ((uchar) 10)
 #define FD_TLS_ALERT_BAD_RECORD_MAC                  ((uchar) 20)
 #define FD_TLS_ALERT_RECORD_OVERFLOW                 ((uchar) 22)
@@ -263,6 +264,7 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_MSG_CERT_REQ           ((uchar) 13)
 #define FD_TLS_MSG_CERT_VERIFY        ((uchar) 15)
 #define FD_TLS_MSG_FINISHED           ((uchar) 20)
+#define FD_TLS_MSG_KEY_UPDATE            ((uchar) 24)
 
 /* Serialization related **********************************************/
 

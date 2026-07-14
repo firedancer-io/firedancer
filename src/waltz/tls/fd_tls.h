@@ -357,6 +357,7 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_CCS              (1103)  /* unexpected ChangeCipherSpec record */
 #define FD_TLS_REASON_ALERT_PARSE      (1104)  /* malformed alert record */
 #define FD_TLS_REASON_PEER_ALERT       (1105)  /* peer sent a fatal alert */
+#define FD_TLS_REASON_HS_INTERLEAVED   (1106)  /* record interleaved with a fragmented handshake message */
 
 FD_PROTOTYPES_BEGIN
 

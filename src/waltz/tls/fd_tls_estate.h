@@ -14,7 +14,8 @@
 
 struct fd_tls_estate_base {
   uchar  state;
-  uchar  server : 1;  /* 1 if server, 0 if client */
+  uchar  server   : 1;  /* 1 if server, 0 if client */
+  uchar  ccs_seen : 1;  /* 1 if peer sent its one permitted ChangeCipherSpec (RFC 8446 D.4) */
   ushort reason;      /* FD_TLS_REASON_{...} */
 
   /* Sadly required for SSLKEYLOGFILE */

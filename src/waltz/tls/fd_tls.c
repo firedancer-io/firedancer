@@ -2122,6 +2122,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "malformed alert record";
   case FD_TLS_REASON_PEER_ALERT:
     return "peer sent a fatal alert";
+  case FD_TLS_REASON_HS_INTERLEAVED:
+    return "record interleaved with a fragmented handshake message";
   default:
     FD_LOG_WARNING(( "Missing fd_tls_reason_cstr code for %u (memory corruption?)", reason ));
     __attribute__((fallthrough));
