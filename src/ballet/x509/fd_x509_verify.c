@@ -1,10 +1,12 @@
 #include "fd_x509_verify.h"
 #include "../ed25519/fd_ed25519.h"
 #include "../secp256r1/fd_secp256r1.h"
+#include "../secp384r1/fd_secp384r1.h"
 #include <string.h>
 
 /* fd_x509_verify_sig verifies a certificate's signature given the
-   issuer's public key.  Returns 0 on success, non-zero on failure. */
+   issuer's public key.  Returns 0 on success, -1 on failure,
+   or 1 if the signature algorithm is unsupported. */
 
 static int
 fd_x509_verify_sig( fd_x509_cert_info_t const * cert,
@@ -41,6 +43,23 @@ fd_x509_verify_sig( fd_x509_cert_info_t const * cert,
     return ( err == FD_SECP256R1_SUCCESS ) ? 0 : -1;
   }
 
+  case FD_X509_SIG_ECDSA_SHA384: {
+    if( FD_UNLIKELY( issuer_key_type != FD_X509_KEY_ECDSA_P384 ) ) return -1;
+    if( FD_UNLIKELY( issuer_pubkey_len != 97 ) ) return -1;
+
+    uchar raw_sig[96];
+    if( FD_UNLIKELY( fd_x509_decode_ecdsa_sig( cert->sig, cert->sig_len, raw_sig, 48 ) ) )
+      return -1;
+
+    uchar compressed_pk[49];
+    if( FD_UNLIKELY( fd_x509_ec_point_compress( issuer_pubkey, 48, compressed_pk ) ) )
+      return -1;
+
+    fd_sha512_t sha512[1];
+    int err = fd_secp384r1_verify_no_low_s( cert->tbs, cert->tbs_len, raw_sig, compressed_pk, sha512 );
+    return ( err == FD_SECP384R1_SUCCESS ) ? 0 : -1;
+  }
+
   default:
     return 1;  /* unsupported sig algorithm */
   }
@@ -58,7 +77,6 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
   if( FD_UNLIKELY( chain_cnt == 0 ) ) return FD_X509_VERIFY_ERR_CHAIN_BREAK;
   if( FD_UNLIKELY( chain_cnt > FD_X509_CHAIN_MAX ) ) return FD_X509_VERIFY_ERR_CHAIN_TOO_LONG;
 
-  /* Parse all certificates in the chain */
   fd_x509_cert_info_t certs[ FD_X509_CHAIN_MAX ];
 
   for( ulong i = 0; i < chain_cnt; i++ ) {
@@ -66,13 +84,11 @@ fd_x509_verify_chain( uchar const * const *        chain_der,
       return FD_X509_VERIFY_ERR_PARSE;
   }
 
-  /* Verify hostname against the leaf certificate's SAN */
   if( hostname && hostname_len ) {
     if( FD_UNLIKELY( !fd_x509_san_matches( &certs[0], hostname, hostname_len ) ) )
       return FD_X509_VERIFY_ERR_HOSTNAME;
   }
 
-  /* Walk the chain, verify each certificate's signature */
   for( ulong i = 0; i < chain_cnt; i++ ) {
     uchar const * issuer_pubkey;
     ulong         issuer_pubkey_len;
