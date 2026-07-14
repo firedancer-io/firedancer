@@ -1,4 +1,6 @@
 #include "fd_x509_mock.h"
+#include "fd_x509.h"
+#include "../hex/fd_hex.h"
 #include "../../util/fd_util.h"
 
 int
@@ -7,6 +9,34 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  /* Reject an uncompressed point whose y coordinate has been altered while
+     retaining the same parity bit. */
+  {
+    uchar uncompressed[ 65 ];
+    uchar compressed  [ 33 ];
+    fd_hex_decode( uncompressed,
+                   "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
+                   "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+                   65UL );
+    FD_TEST( !fd_x509_ec_point_compress( uncompressed, 32UL, compressed ) );
+    uncompressed[ 33 ] ^= 1U;
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 32UL, compressed )==-1 );
+  }
+
+  {
+    uchar uncompressed[ 97 ];
+    uchar compressed  [ 49 ];
+    fd_hex_decode( uncompressed,
+                   "04aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385"
+                   "502f25dbf55296c3a545e3872760ab7"
+                   "3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c0"
+                   "0a60b1ce1d7e819d7a431d7c90ea0e5f",
+                   97UL );
+    FD_TEST( !fd_x509_ec_point_compress( uncompressed, 48UL, compressed ) );
+    uncompressed[ 49 ] ^= 1U;
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 48UL, compressed )==-1 );
+  }
 
   /* Test v1 */
 
@@ -90,6 +120,21 @@ main( int     argc,
 
     }
 
+  }
+
+  /* fd_x509_ec_point_compress */
+  {
+    uchar uncompressed[ 97 ] = { 0x04 };
+    uchar compressed  [ 49 ];
+
+    FD_TEST( fd_x509_ec_point_compress( NULL,         32UL, compressed )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 32UL, NULL       )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed,  0UL, compressed )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 31UL, compressed )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 49UL, compressed )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, ULONG_MAX, compressed )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 32UL, compressed )==-1 );
+    FD_TEST( fd_x509_ec_point_compress( uncompressed, 48UL, compressed )==-1 );
   }
 
   fd_rng_delete( fd_rng_leave( rng ) );

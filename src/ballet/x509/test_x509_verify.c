@@ -1,0 +1,826 @@
+#include "fd_x509.h"
+#include "fd_der.h"
+#include "fd_x509_verify.h"
+#include "fd_x509_ca_store.h"
+#include "../ed25519/fd_ed25519.h"
+#include "../../util/fd_util.h"
+
+#include <string.h>
+
+/* Minimal DER writer, just enough to build test certificates.  Nested
+   lengths are computed rather than hand-counted. */
+
+static ulong
+der_tlv( uchar *       out,
+         uchar         tag,
+         uchar const * content,
+         ulong         content_len ) {
+  ulong n = 0UL;
+  out[ n++ ] = tag;
+  if( content_len < 128UL ) {
+    out[ n++ ] = (uchar)content_len;
+  } else if( content_len < 256UL ) {
+    out[ n++ ] = 0x81;
+    out[ n++ ] = (uchar)content_len;
+  } else {
+    out[ n++ ] = 0x82;
+    out[ n++ ] = (uchar)( content_len >> 8 );
+    out[ n++ ] = (uchar)( content_len      );
+  }
+  if( content_len ) memcpy( out+n, content, content_len );
+  return n + content_len;
+}
+
+static ulong
+der_hdr_sz( uchar const * tlv ) {
+  return (tlv[1] & 0x80U) ? 2UL+(ulong)(tlv[1] & 0x7fU) : 2UL;
+}
+
+/* set_san_info builds the GeneralNames content retained by cert_info. */
+
+static void
+set_san_info( fd_x509_cert_info_t * info,
+              uchar *               general_names,
+              char const *          name,
+              ulong                 name_len ) {
+  memset( info, 0, sizeof(fd_x509_cert_info_t) );
+  info->san_general_names     = general_names;
+  info->san_general_names_len = der_tlv( general_names, FD_DER_TAG_CONTEXT_PRIM(2),
+                                         (uchar const *)name, name_len );
+  info->has_subject_alt_name  = 1;
+}
+
+/* mk_cert builds a minimal Ed25519 certificate wrapping the caller
+   supplied extensions blob (a concatenation of Extension TLVs).
+   Returns the certificate length. */
+
+static uchar const oid_ed25519_alg[] = { 0x06, 0x03, 0x2b, 0x65, 0x70 };
+
+/* mk_tbs builds a TBSCertificate.  issuer and subject are encoded Name
+   TLVs, empty RDNSequences when NULL -- the same encoding the CA store
+   keys on.  pubkey is the 32 byte Ed25519 subjectPublicKey.  Returns the
+   length of the encoded TBSCertificate, which is what gets signed. */
+
+static ulong
+mk_tbs( uchar *       out,
+        uchar const * issuer,
+        ulong         issuer_len,
+        uchar const * subject,
+        ulong         subject_len,
+        uchar const * pubkey,
+        uchar const * exts,
+        ulong         exts_len ) {
+
+  uchar buf[ 1024 ]; ulong n;
+
+  uchar tbs[ 1024 ]; ulong t = 0UL;
+
+  /* version [0] EXPLICIT INTEGER 2 */
+  uchar const ver_int[] = { 0x02, 0x01, 0x02 };
+  t += der_tlv( tbs+t, FD_DER_TAG_CONTEXT(0), ver_int, sizeof(ver_int) );
+
+  /* serialNumber INTEGER 1 */
+  uchar const serial[] = { 0x01 };
+  t += der_tlv( tbs+t, FD_DER_TAG_INTEGER, serial, sizeof(serial) );
+
+  /* signature AlgorithmIdentifier */
+  t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, oid_ed25519_alg, sizeof(oid_ed25519_alg) );
+
+  /* issuer Name */
+  if( issuer_len ) { memcpy( tbs+t, issuer, issuer_len ); t += issuer_len; }
+  else             { t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, NULL, 0UL ); }
+
+  /* validity SEQUENCE { UTCTime, GeneralizedTime } */
+  n  = der_tlv( buf,   FD_DER_TAG_UTC_TIME,         (uchar const *)"750101000000Z",   13UL );
+  n += der_tlv( buf+n, FD_DER_TAG_GENERALIZED_TIME, (uchar const *)"40960101000000Z", 15UL );
+  t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, buf, n );
+
+  /* subject Name */
+  if( subject_len ) { memcpy( tbs+t, subject, subject_len ); t += subject_len; }
+  else              { t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, NULL, 0UL ); }
+
+  /* subjectPublicKeyInfo SEQUENCE { AlgorithmIdentifier, BIT STRING } */
+  uchar pk[ 33 ]; pk[0] = 0;  /* unused bits || 32 byte key */
+  memcpy( pk+1, pubkey, 32UL );
+  n  = der_tlv( buf,   FD_DER_TAG_SEQUENCE,   oid_ed25519_alg, sizeof(oid_ed25519_alg) );
+  n += der_tlv( buf+n, FD_DER_TAG_BIT_STRING, pk, sizeof(pk) );
+  t += der_tlv( tbs+t, FD_DER_TAG_SEQUENCE, buf, n );
+
+  /* extensions [3] EXPLICIT SEQUENCE OF Extension */
+  if( exts_len ) {
+    n  = der_tlv( buf, FD_DER_TAG_SEQUENCE, exts, exts_len );
+    t += der_tlv( tbs+t, FD_DER_TAG_CONTEXT(3), buf, n );
+  }
+
+  return der_tlv( out, FD_DER_TAG_SEQUENCE, tbs, t );
+}
+
+/* wrap_cert wraps an encoded TBSCertificate and its 64 byte signature
+   into a Certificate SEQUENCE.  The signature is over the TBSCertificate
+   TLV as passed, header included. */
+
+static ulong
+wrap_cert( uchar *       out,
+           uchar const * tbs,
+           ulong         tbs_len,
+           uchar const * sig ) {
+  uchar sig_bits[ 65 ]; sig_bits[0] = 0;  /* unused bits || 64 byte sig */
+  memcpy( sig_bits+1, sig, 64UL );
+
+  uchar buf[ 1024 ];
+  memcpy( buf, tbs, tbs_len );
+  ulong n = tbs_len;
+  n += der_tlv( buf+n, FD_DER_TAG_SEQUENCE,   oid_ed25519_alg, sizeof(oid_ed25519_alg) );
+  n += der_tlv( buf+n, FD_DER_TAG_BIT_STRING, sig_bits, sizeof(sig_bits) );
+  return der_tlv( out, FD_DER_TAG_SEQUENCE, buf, n );
+}
+
+/* mk_cert builds a certificate with empty issuer and subject names, an
+   all zero key and an all zero signature.  Good enough for every check
+   that runs ahead of signature verification. */
+
+static ulong
+mk_cert( uchar *       out,
+         uchar const * exts,
+         ulong         exts_len ) {
+  uchar zero[ 64 ]; memset( zero, 0, sizeof(zero) );
+  uchar tbs[ 1024 ];
+  ulong tbs_len = mk_tbs( tbs, NULL, 0UL, NULL, 0UL, zero, exts, exts_len );
+  return wrap_cert( out, tbs, tbs_len, zero );
+}
+
+/* mk_cert_signed builds a certificate carrying the given issuer and
+   subject names and public key, with a real Ed25519 signature over the
+   TBSCertificate by issuer_prvkey. */
+
+static ulong
+mk_cert_signed( uchar *       out,
+                uchar const * issuer,
+                ulong         issuer_len,
+                uchar const * subject,
+                ulong         subject_len,
+                uchar const * pubkey,
+                uchar const * issuer_prvkey,
+                uchar const * exts,
+                ulong         exts_len ) {
+  uchar tbs[ 1024 ];
+  ulong tbs_len = mk_tbs( tbs, issuer, issuer_len, subject, subject_len, pubkey,
+                          exts, exts_len );
+
+  fd_sha512_t sha[1];
+  uchar issuer_pubkey[ 32 ];
+  fd_ed25519_public_from_private( issuer_pubkey, issuer_prvkey, sha );
+
+  uchar sig[ 64 ];
+  fd_ed25519_sign( sig, tbs, tbs_len, issuer_pubkey, issuer_prvkey, sha );
+
+  return wrap_cert( out, tbs, tbs_len, sig );
+}
+
+/* mk_ext builds an Extension SEQUENCE { OID, OCTET STRING value }.
+   oid is the full OID TLV. */
+
+static ulong
+mk_ext( uchar *       out,
+        uchar const * oid,
+        ulong         oid_len,
+        uchar const * val,
+        ulong         val_len ) {
+  uchar buf[ 512 ];
+  ulong n = 0UL;
+  memcpy( buf, oid, oid_len ); n += oid_len;
+  n += der_tlv( buf+n, FD_DER_TAG_OCTET_STRING, val, val_len );
+  return der_tlv( out, FD_DER_TAG_SEQUENCE, buf, n );
+}
+
+/* mk_name builds a Name holding a single commonName RDN, and returns the
+   length of the encoded Name.  That encoding is what both the chain and
+   the CA store match on, byte for byte. */
+
+static uchar const oid_cn_tlv[] = { 0x06, 0x03, 0x55, 0x04, 0x03 };
+
+static ulong
+mk_name( uchar *      out,
+         char const * cn ) {
+  ulong cn_len = strlen( cn );
+  FD_TEST( cn_len<=64UL );
+
+  uchar atv[ 128 ];
+  memcpy( atv, oid_cn_tlv, sizeof(oid_cn_tlv) );
+  ulong a = sizeof(oid_cn_tlv);
+  a += der_tlv( atv+a, FD_DER_TAG_UTF8_STRING, (uchar const *)cn, cn_len );
+
+  uchar rdn[ 160 ]; ulong r = der_tlv( rdn, FD_DER_TAG_SEQUENCE, atv, a );
+  uchar set[ 192 ]; ulong n = der_tlv( set, FD_DER_TAG_SET,      rdn, r );
+  return der_tlv( out, FD_DER_TAG_SEQUENCE, set, n );
+}
+
+/* mk_san builds a subjectAltName extension from a raw GeneralName blob. */
+
+static uchar const oid_san_tlv[] = { 0x06, 0x03, 0x55, 0x1d, 0x11 };
+static uchar const oid_bc_tlv [] = { 0x06, 0x03, 0x55, 0x1d, 0x13 };
+
+static ulong
+mk_san( uchar *       out,
+        uchar const * gn,
+        ulong         gn_len ) {
+  uchar buf[ 512 ];
+  ulong n = der_tlv( buf, FD_DER_TAG_SEQUENCE, gn, gn_len );
+  return mk_ext( out, oid_san_tlv, sizeof(oid_san_tlv), buf, n );
+}
+
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  /* Test 1: Parse zero-length input */
+  {
+    uchar buf[ 1 ];
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( buf, 0UL, &info )!=0 );
+    FD_TEST( fd_x509_cert_parse( NULL, 0UL, &info )!=0 );
+    FD_TEST( fd_x509_cert_parse( buf, sizeof(buf), NULL )!=0 );
+    FD_LOG_INFO(( "OK: parse zero-length returns non-zero" ));
+  }
+
+  /* Test 2: Parse 64 bytes of garbage (0xFF) */
+  {
+    uchar garbage[ 64 ];
+    memset( garbage, 0xFF, 64 );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( garbage, 64UL, &info )!=0 );
+    FD_LOG_INFO(( "OK: parse garbage returns non-zero" ));
+  }
+
+  /* Test 3: Parse too-short valid-looking DER */
+  {
+    uchar short_der[ 5 ] = { 0x30, 0x03, 0x02, 0x01, 0x00 };
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( short_der, 5UL, &info )!=0 );
+    FD_LOG_INFO(( "OK: parse too-short DER returns non-zero" ));
+  }
+
+  /* Test 4: Exact match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+    FD_LOG_INFO(( "OK: exact SAN match" ));
+  }
+
+  /* Test 5: No match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "other.com", 9UL )==0 );
+    FD_LOG_INFO(( "OK: SAN no match" ));
+  }
+
+  /* Test 6: Wildcard match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "*.example.com", 13UL );
+    FD_TEST( fd_x509_san_matches( &info, "foo.example.com", 15UL )==1 );
+    FD_LOG_INFO(( "OK: wildcard SAN match" ));
+  }
+
+  /* Test 7: Wildcard no deep match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "*.example.com", 13UL );
+    FD_TEST( fd_x509_san_matches( &info, "a.b.example.com", 15UL )==0 );
+    FD_LOG_INFO(( "OK: wildcard no deep match" ));
+  }
+
+  /* Test 8: Wildcard no bare match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "*.example.com", 13UL );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==0 );
+    FD_LOG_INFO(( "OK: wildcard no bare match" ));
+  }
+
+  /* Test 9: Multiple SANs, second matches */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "other.com", 9UL );
+    info.san_general_names_len += der_tlv( gn+info.san_general_names_len,
+                                           FD_DER_TAG_CONTEXT_PRIM(2),
+                                           (uchar const *)"example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+    FD_LOG_INFO(( "OK: multiple SANs, second matches" ));
+  }
+
+  /* Test 10: Empty hostname */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "", 0UL )==0 );
+    FD_TEST( fd_x509_san_matches( NULL,  "example.com", 11UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, NULL,          0UL  )==0 );
+    FD_LOG_INFO(( "OK: empty hostname returns 0" ));
+  }
+
+  /* Version and serial number must follow the TBSCertificate schema. */
+  {
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, NULL, 0UL );
+    uchar * tbs = cert + der_hdr_sz( cert );
+    uchar * version = tbs + der_hdr_sz( tbs );
+    uchar * serial = version + der_hdr_sz( version ) + (ulong)version[1];
+    fd_x509_cert_info_t info;
+
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( info.version==2U );
+
+    version[2] = FD_DER_TAG_NULL;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    version[2] = FD_DER_TAG_INTEGER;
+    version[4] = 3U;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    version[4] = 1U;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( info.version==1U );
+
+    serial[0] = FD_DER_TAG_OCTET_STRING;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    serial[0] = FD_DER_TAG_INTEGER;
+    serial[2] = 0U;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+
+    FD_LOG_INFO(( "OK: TBSCertificate version and serial schema" ));
+  }
+
+  /* IPv4 reference identities require iPAddress SANs, not dNSName SANs. */
+  {
+    uchar general_names[ 64 ]; fd_x509_cert_info_t info;
+    set_san_info( &info, general_names, "192.0.2.1", 9UL );
+    FD_TEST( fd_x509_san_matches( &info, "192.0.2.1", 9UL )==0 );
+    set_san_info( &info, general_names, "123.example", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "123.example", 11UL )==1 );
+    FD_LOG_INFO(( "OK: IPv4 literal rejected as dNSName" ));
+  }
+
+  /* Test 11: Empty store find returns NULL */
+  {
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    uchar query[ 4 ] = { 0x30, 0x02, 0x01, 0x00 };
+    ulong idx = 0UL;
+    FD_TEST( fd_x509_ca_store_find_next( &store, query, 4UL, &idx )==NULL );
+    FD_LOG_INFO(( "OK: empty store find returns NULL" ));
+  }
+
+  /* Test 12: Store with one entry, match */
+  {
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    uchar subject_bytes[ 8 ] = { 0x30, 0x06, 0x31, 0x04, 0x0C, 0x02, 0x43, 0x41 };
+    ulong subject_len = 8;
+    store.cnt = 1;
+    memcpy( store.entries[0].subject, subject_bytes, subject_len );
+    store.entries[0].subject_len = subject_len;
+    ulong idx = 0UL;
+    FD_TEST( fd_x509_ca_store_find_next( &store, subject_bytes, subject_len, &idx )!=NULL );
+    FD_LOG_INFO(( "OK: store find with matching subject" ));
+  }
+
+  /* Test 13: Store with one entry, no match */
+  {
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    uchar subject_bytes[ 8 ] = { 0x30, 0x06, 0x31, 0x04, 0x0C, 0x02, 0x43, 0x41 };
+    ulong subject_len = 8;
+    store.cnt = 1;
+    memcpy( store.entries[0].subject, subject_bytes, subject_len );
+    store.entries[0].subject_len = subject_len;
+    uchar other[ 4 ] = { 0x30, 0x02, 0x01, 0xFF };
+    ulong idx = 0UL;
+    FD_TEST( fd_x509_ca_store_find_next( &store, other, 4UL, &idx )==NULL );
+    FD_LOG_INFO(( "OK: store find with non-matching subject returns NULL" ));
+  }
+
+  /* basicConstraints cA=TRUE, for CA certs built below */
+  static uchar const bc_ca_true_val[] = { 0x30, 0x03, 0x01, 0x01, 0xFF };
+
+  /* Test 13b: find_next walks every entry sharing a subject */
+  {
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+
+    uchar dup  [ 64 ]; ulong dup_len   = mk_name( dup,   "Dup Root" );
+    uchar other[ 64 ]; ulong other_len = mk_name( other, "Other Root" );
+
+    store.cnt = 3;
+    memcpy( store.entries[0].subject, dup,   dup_len   ); store.entries[0].subject_len = dup_len;
+    memcpy( store.entries[1].subject, other, other_len ); store.entries[1].subject_len = other_len;
+    memcpy( store.entries[2].subject, dup,   dup_len   ); store.entries[2].subject_len = dup_len;
+
+    ulong idx = 0UL;
+    FD_TEST( fd_x509_ca_store_find_next( &store, dup, dup_len, &idx )==&store.entries[0] );
+    FD_TEST( fd_x509_ca_store_find_next( &store, dup, dup_len, &idx )==&store.entries[2] );
+    FD_TEST( fd_x509_ca_store_find_next( &store, dup, dup_len, &idx )==NULL );
+
+    FD_LOG_INFO(( "OK: find_next walks duplicate subjects" ));
+  }
+
+  /* Test 13c: a cert signed by the second of two anchors sharing a subject
+     must verify.  Subjects repeat in real bundles after a key rollover, so
+     stopping at the first match rejects a perfectly good chain. */
+  {
+    uchar root_name[ 64 ]; ulong root_name_len = mk_name( root_name, "Rollover Root" );
+    uchar leaf_name[ 64 ]; ulong leaf_name_len = mk_name( leaf_name, "Leaf" );
+
+    uchar prv_old[ 32 ]; memset( prv_old, 0xA1, sizeof(prv_old) );
+    uchar prv_new[ 32 ]; memset( prv_new, 0xB2, sizeof(prv_new) );
+    uchar leaf_pub[ 32 ]; memset( leaf_pub, 0x33, sizeof(leaf_pub) );
+
+    fd_sha512_t sha[1];
+    uchar pub_old[ 32 ]; fd_ed25519_public_from_private( pub_old, prv_old, sha );
+    uchar pub_new[ 32 ]; fd_ed25519_public_from_private( pub_new, prv_new, sha );
+
+    /* Leaf is signed by the new key, which is the second store entry. */
+    uchar leaf[ 1024 ];
+    ulong leaf_len = mk_cert_signed( leaf, root_name, root_name_len,
+                                     leaf_name, leaf_name_len,
+                                     leaf_pub, prv_new, NULL, 0UL );
+
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    store.cnt = 2;
+    for( ulong k=0UL; k<2UL; k++ ) {
+      memcpy( store.entries[k].subject, root_name, root_name_len );
+      store.entries[k].subject_len = root_name_len;
+      store.entries[k].pubkey_len  = 32UL;
+      store.entries[k].key_type    = FD_X509_KEY_ED25519;
+    }
+    memcpy( store.entries[0].pubkey, pub_old, 32UL );
+    memcpy( store.entries[1].pubkey, pub_new, 32UL );
+
+    uchar const * chain_der   [ 1 ] = { leaf };
+    ulong         chain_der_sz[ 1 ] = { leaf_len };
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL )
+             ==FD_X509_VERIFY_OK );
+
+    /* Drop the matching anchor and the same chain must fail. */
+    store.cnt = 1;
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, NULL, 0UL )
+             ==FD_X509_VERIFY_ERR_SIG );
+
+    FD_LOG_INFO(( "OK: anchor sharing a subject with an earlier entry is tried" ));
+  }
+
+  /* Test 13d: the path ends at the first anchor that verifies, so a
+     trailing cross-signature is ignored.  This is the shape real servers
+     send: an intermediate we trust directly, followed by its cross-sign up
+     to an older root we do not hold. */
+  {
+    uchar root_name [ 64 ]; ulong root_name_len  = mk_name( root_name,  "Trusted Root"  );
+    uchar leaf_name [ 64 ]; ulong leaf_name_len  = mk_name( leaf_name,  "Leaf"          );
+    uchar older_name[ 64 ]; ulong older_name_len = mk_name( older_name, "Untrusted Old Root" );
+
+    uchar prv_root[ 32 ]; memset( prv_root, 0xC3, sizeof(prv_root) );
+    uchar prv_old [ 32 ]; memset( prv_old,  0xD4, sizeof(prv_old)  );
+    uchar leaf_pub[ 32 ]; memset( leaf_pub, 0x55, sizeof(leaf_pub) );
+
+    fd_sha512_t sha[1];
+    uchar pub_root[ 32 ]; fd_ed25519_public_from_private( pub_root, prv_root, sha );
+
+    uchar exts[ 256 ];
+    ulong exts_len = mk_ext( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                             bc_ca_true_val, sizeof(bc_ca_true_val) );
+
+    uchar leaf[ 1024 ];
+    ulong leaf_len = mk_cert_signed( leaf, root_name, root_name_len,
+                                     leaf_name, leaf_name_len,
+                                     leaf_pub, prv_root, NULL, 0UL );
+
+    /* The cross-sign: subject is the root we trust, issuer is one we do
+       not have.  Its own signature is by that unknown root. */
+    uchar cross[ 1024 ];
+    ulong cross_len = mk_cert_signed( cross, older_name, older_name_len,
+                                      root_name, root_name_len,
+                                      pub_root, prv_old, exts, exts_len );
+
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    store.cnt = 1;
+    memcpy( store.entries[0].subject, root_name, root_name_len );
+    store.entries[0].subject_len = root_name_len;
+    memcpy( store.entries[0].pubkey, pub_root, 32UL );
+    store.entries[0].pubkey_len = 32UL;
+    store.entries[0].key_type   = FD_X509_KEY_ED25519;
+
+    uchar const * chain_der   [ 2 ] = { leaf, cross };
+    ulong         chain_der_sz[ 2 ] = { leaf_len, cross_len };
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL )
+             ==FD_X509_VERIFY_OK );
+
+    /* Without the anchor there is nothing to stop at, and the chain ends
+       on an issuer we do not trust. */
+    store.cnt = 0;
+    FD_TEST( fd_x509_verify_chain( chain_der, chain_der_sz, 2UL, &store, NULL, 0UL )
+             ==FD_X509_VERIFY_ERR_NO_TRUST_ANCHOR );
+
+    FD_LOG_INFO(( "OK: trailing cross-signature is ignored" ));
+  }
+
+  /* Test 14: Empty chain returns non-zero error */
+  {
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    int err = fd_x509_verify_chain( NULL, NULL, 0UL, &store, "example.com", 11UL );
+    FD_TEST( err!=FD_X509_VERIFY_OK );
+    FD_LOG_INFO(( "OK: empty chain returns error" ));
+  }
+
+  /* Test 15: Chain with garbage cert returns FD_X509_VERIFY_ERR_PARSE */
+  {
+    uchar garbage[ 64 ];
+    memset( garbage, 0xFF, 64 );
+    uchar const * chain_der[ 1 ]    = { garbage };
+    ulong         chain_der_sz[ 1 ] = { 64UL };
+    fd_x509_ca_store_t store;
+    memset( &store, 0, sizeof(store) );
+    int err = fd_x509_verify_chain( chain_der, chain_der_sz, 1UL, &store, "example.com", 11UL );
+    FD_TEST( err==FD_X509_VERIFY_ERR_PARSE );
+    FD_LOG_INFO(( "OK: garbage cert returns ERR_PARSE" ));
+  }
+
+  /* dNSName "example.com" GeneralName */
+  static uchar const gn_example[] = {
+    0x82, 0x0b, 'e','x','a','m','p','l','e','.','c','o','m'
+  };
+
+  /* Extension SEQUENCE holding only an OID -- no OCTET STRING value */
+  static uchar const ext_truncated[] = {
+    0x30, 0x05, 0x06, 0x03, 0x55, 0x1d, 0x0f
+  };
+
+  /* Test 16: SAN dNSName parsed out of a real DER certificate */
+  {
+    uchar exts[ 256 ]; ulong exts_len = mk_san( exts, gn_example, sizeof(gn_example) );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+    FD_LOG_INFO(( "OK: SAN dNSName parsed from DER" ));
+  }
+
+  /* Every entry must be a valid GeneralName, even after a matching dNSName. */
+  {
+    static struct {
+      uchar value[ 4 ];
+      ulong value_len;
+    } const bad[] = {
+      { { FD_DER_TAG_NULL,            0x00 },       2UL },
+      { { FD_DER_TAG_CONTEXT(2),      0x00 },       2UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(7), 0x01, 0x7f }, 3UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(8), 0x01, 0x80 }, 3UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(2), 0x01, 0x80 }, 3UL },
+      { { FD_DER_TAG_CONTEXT_PRIM(9), 0x00 },       2UL },
+    };
+
+    for( ulong i=0UL; i<sizeof(bad)/sizeof(bad[0]); i++ ) {
+      uchar gn[ 64 ];
+      memcpy( gn, gn_example, sizeof(gn_example) );
+      memcpy( gn+sizeof(gn_example), bad[i].value, bad[i].value_len );
+      ulong gn_len = sizeof(gn_example) + bad[i].value_len;
+      uchar exts[ 256 ]; ulong exts_len = mk_san( exts, gn, gn_len );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+
+      set_san_info( &info, gn, "example.com", 11UL );
+      memcpy( gn+info.san_general_names_len, bad[i].value, bad[i].value_len );
+      info.san_general_names_len += bad[i].value_len;
+      FD_TEST( !fd_x509_san_matches( &info, "example.com", 11UL ) );
+    }
+    FD_LOG_INFO(( "OK: malformed GeneralNames rejected" ));
+  }
+
+  /* Matching walks all GeneralNames, including dNSNames beyond the
+     four-entry inspection cache. */
+  {
+    static char const * const names[] = {
+      "one.example", "two.example", "three.example",
+      "four.example", "five.example", "target.example"
+    };
+    uchar gn[ 256 ]; ulong gn_len = 0UL;
+    for( ulong i=0UL; i<sizeof(names)/sizeof(names[0]); i++ )
+      gn_len += der_tlv( gn+gn_len, FD_DER_TAG_CONTEXT_PRIM(2),
+                         (uchar const *)names[i], strlen( names[i] ) );
+
+    uchar exts[ 512 ]; ulong exts_len = mk_san( exts, gn, gn_len );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "target.example", 14UL )==1 );
+    FD_LOG_INFO(( "OK: SAN matching is not limited by cache size" ));
+  }
+
+  /* Distinguished names reject invalid inputs before comparing bytes. */
+  {
+    uchar empty_name[]      = { FD_DER_TAG_SEQUENCE, 0x00 };
+    uchar truncated_name[]  = { FD_DER_TAG_SEQUENCE };
+    uchar nonminimal_name[] = { FD_DER_TAG_SEQUENCE, 0x81, 0x00 };
+
+    FD_TEST( !fd_x509_name_equal( NULL, 0UL, NULL, 0UL ) );
+    FD_TEST( !fd_x509_name_equal( NULL, 0UL, empty_name, sizeof(empty_name) ) );
+    FD_TEST( !fd_x509_name_equal( empty_name, sizeof(empty_name), NULL, 0UL ) );
+    FD_TEST( !fd_x509_name_equal( NULL, 1UL, empty_name, sizeof(empty_name) ) );
+    FD_TEST( !fd_x509_name_equal( empty_name, sizeof(empty_name), NULL, 1UL ) );
+    FD_TEST( !fd_x509_name_equal( empty_name, 0UL, empty_name, 0UL ) );
+    FD_TEST( !fd_x509_name_equal( truncated_name, sizeof(truncated_name),
+                                  truncated_name, sizeof(truncated_name) ) );
+    FD_TEST( !fd_x509_name_equal( nonminimal_name, sizeof(nonminimal_name),
+                                  nonminimal_name, sizeof(nonminimal_name) ) );
+    FD_TEST( fd_x509_name_equal( empty_name, sizeof(empty_name),
+                                 empty_name, sizeof(empty_name) ) );
+
+    FD_LOG_INFO(( "OK: distinguished-name input validation" ));
+  }
+
+  /* Test 17: Malformed extension AFTER the SAN must fail the whole parse
+     (the recorded name must not survive a partial extension walk) */
+  {
+    uchar exts[ 256 ]; ulong exts_len = mk_san( exts, gn_example, sizeof(gn_example) );
+    memcpy( exts+exts_len, ext_truncated, sizeof(ext_truncated) );
+    exts_len += sizeof(ext_truncated);
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    FD_LOG_INFO(( "OK: malformed extension after SAN fails parse" ));
+  }
+
+  /* Test 18: Malformed extension BEFORE the SAN fails the same way */
+  {
+    uchar exts[ 256 ]; ulong exts_len = 0UL;
+    memcpy( exts, ext_truncated, sizeof(ext_truncated) ); exts_len += sizeof(ext_truncated);
+    exts_len += mk_san( exts+exts_len, gn_example, sizeof(gn_example) );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    FD_LOG_INFO(( "OK: malformed extension before SAN fails parse" ));
+  }
+
+  /* Test 19: Truncated GeneralName after a good one must fail the parse */
+  {
+    uchar gn[ 64 ]; ulong gn_len = 0UL;
+    memcpy( gn, gn_example, sizeof(gn_example) ); gn_len += sizeof(gn_example);
+    gn[ gn_len++ ] = 0x82;  /* tag with no length byte */
+    uchar exts[ 256 ]; ulong exts_len = mk_san( exts, gn, gn_len );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    FD_LOG_INFO(( "OK: truncated GeneralName fails parse" ));
+  }
+
+  /* Test 20: Well-formed unknown extension after the SAN still parses */
+  {
+    uchar exts[ 256 ]; ulong exts_len = mk_san( exts, gn_example, sizeof(gn_example) );
+    static uchar const oid_key_usage[] = { 0x06, 0x03, 0x55, 0x1d, 0x0f };
+    static uchar const ku_val[] = { 0x03, 0x02, 0x05, 0xa0 };
+    exts_len += mk_ext( exts+exts_len, oid_key_usage, sizeof(oid_key_usage),
+                        ku_val, sizeof(ku_val) );
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+    FD_LOG_INFO(( "OK: unknown extension after SAN still parses" ));
+  }
+
+  /* Test 21: cA=TRUE followed by a malformed extension must not be
+     smuggled through (fd_x509_ca_store_load gates on is_ca) */
+  {
+    static uchar const bc_ca_true[] = { 0x30, 0x03, 0x01, 0x01, 0xFF };
+    uchar exts[ 256 ];
+    ulong exts_len = mk_ext( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                             bc_ca_true, sizeof(bc_ca_true) );
+    memcpy( exts+exts_len, ext_truncated, sizeof(ext_truncated) );
+    exts_len += sizeof(ext_truncated);
+    uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+    fd_x509_cert_info_t info;
+    FD_TEST( fd_x509_cert_parse( cert, cert_len, &info )!=0 );
+    FD_LOG_INFO(( "OK: cA=TRUE with malformed extension tail fails parse" ));
+  }
+
+  /* Test 21b: basicConstraints value must be a well-formed BasicConstraints */
+  {
+    /* Each case is the raw extnValue (a BasicConstraints SEQUENCE, possibly
+       with trailing bytes inside the OCTET STRING). */
+    static struct { uchar val[ 8 ]; ulong val_len; int ok; int is_ca; } const cases[] = {
+      /* cA=TRUE followed by a truncated INTEGER tag */
+      { { 0x30, 0x05, 0x01, 0x01, 0xFF, 0x02 },             6UL, 0, 0 },
+      /* cA=TRUE with a trailing byte after the SEQUENCE */
+      { { 0x30, 0x03, 0x01, 0x01, 0xFF, 0x00 },             6UL, 0, 0 },
+      /* cA=TRUE, pathLenConstraint=0 */
+      { { 0x30, 0x06, 0x01, 0x01, 0xFF, 0x02, 0x01, 0x00 }, 8UL, 1, 1 },
+      /* cA=TRUE */
+      { { 0x30, 0x03, 0x01, 0x01, 0xFF },                   5UL, 1, 1 },
+      /* cA=FALSE */
+      { { 0x30, 0x03, 0x01, 0x01, 0x00 },                   5UL, 0, 0 },
+      /* cA absent (DEFAULT FALSE) */
+      { { 0x30, 0x00 },                                     2UL, 1, 0 },
+      /* two byte BOOLEAN */
+      { { 0x30, 0x04, 0x01, 0x02, 0xFF, 0xFF },             6UL, 0, 0 },
+      /* non-DER BOOLEAN TRUE */
+      { { 0x30, 0x03, 0x01, 0x01, 0x01 },                   5UL, 0, 0 },
+    };
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      uchar exts[ 256 ];
+      ulong exts_len = mk_ext( exts, oid_bc_tlv, sizeof(oid_bc_tlv),
+                               cases[i].val, cases[i].val_len );
+      exts_len += mk_san( exts+exts_len, gn_example, sizeof(gn_example) );
+      uchar cert[ 1024 ]; ulong cert_len = mk_cert( cert, exts, exts_len );
+      fd_x509_cert_info_t info;
+      int err = fd_x509_cert_parse( cert, cert_len, &info );
+      if( cases[i].ok ) {
+        FD_TEST( err==0 );
+        FD_TEST( info.is_ca==cases[i].is_ca );
+        FD_TEST( fd_x509_san_matches( &info, "example.com", 11UL )==1 );
+      } else {
+        FD_TEST( err!=0 );
+      }
+    }
+    FD_LOG_INFO(( "OK: basicConstraints parsed strictly" ));
+  }
+
+  /* Test 22: Wildcard must consume a non-empty label */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "*.example.com", 13UL );
+    FD_TEST( fd_x509_san_matches( &info, ".example.com", 12UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "x.example.com", 13UL )==1 );
+    FD_LOG_INFO(( "OK: wildcard rejects empty leftmost label" ));
+  }
+
+  /* Test 23: Wildcard tail must span at least two labels */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "*.com", 5UL );
+    FD_TEST( fd_x509_san_matches( &info, "foo.com", 7UL )==0 );
+    set_san_info( &info, gn, "*.", 2UL );
+    FD_TEST( fd_x509_san_matches( &info, "a.", 2UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "a", 1UL )==0 );
+    FD_LOG_INFO(( "OK: wildcard requires a two-label tail" ));
+  }
+
+  /* Test 24: Malformed SAN patterns never match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, ".example.com", 12UL );
+    FD_TEST( fd_x509_san_matches( &info, ".example.com", 12UL )==0 );
+    FD_LOG_INFO(( "OK: SAN pattern with empty leading label never matches" ));
+  }
+
+  /* Test 25: A terminal root dot is ignored on reference names */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "example.com.", 12UL )==1 );
+    set_san_info( &info, gn, "*.example.com", 13UL );
+    FD_TEST( fd_x509_san_matches( &info, "www.example.com.", 16UL )==1 );
+    FD_LOG_INFO(( "OK: terminal root dot normalized" ));
+  }
+
+  /* Test 26: Malformed hostnames never match */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, ".", 1UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example.com..", 13UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example..com", 12UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example.com\0", 12UL )==0 );
+    FD_TEST( fd_x509_san_matches( &info, "example.co\xffm", 12UL )==0 );
+    FD_LOG_INFO(( "OK: malformed hostnames rejected" ));
+  }
+
+  /* Test 27: Exact match folds ASCII case */
+  {
+    fd_x509_cert_info_t info; uchar gn[ 32 ];
+    set_san_info( &info, gn, "example.com", 11UL );
+    FD_TEST( fd_x509_san_matches( &info, "EXAMPLE.COM", 11UL )==1 );
+    FD_LOG_INFO(( "OK: exact match is case-insensitive" ));
+  }
+
+  /* Test 28: Oversized labels and names are rejected */
+  {
+    char host[ 320 ];
+    memset( host, 'a', sizeof(host) );
+    fd_x509_cert_info_t info; uchar gn[ 320 ];
+
+    set_san_info( &info, gn, host, 64UL );
+    FD_TEST( fd_x509_san_matches( &info, host, 64UL )==0 );  /* 64-char label */
+
+    set_san_info( &info, gn, host, 254UL );
+    FD_TEST( fd_x509_san_matches( &info, host, 254UL )==0 ); /* >253-byte name */
+
+    FD_LOG_INFO(( "OK: oversized labels and names rejected" ));
+  }
+
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
+}
