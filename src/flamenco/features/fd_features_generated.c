@@ -1490,7 +1490,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd4\xca\x06\xb3\x6d\xa7\x8e\xef\xd9\x92\x66\x67\x6d\xe3\x92\xab\x4e\x56\x31\x5b\xd3\x9e\x97\x15\xd2\xf6\x0d\x3d\x02\x29\xf8\x10"},
                                  /* FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z */
     .name                      = "enable_get_epoch_stake_syscall",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_account_loader_special_case)>>3,
     .id                        = {"\xc7\x2b\x39\x35\x25\x63\x29\x7f\x69\x4f\x2d\x7f\x8c\x2c\xbb\x62\x13\x3e\x4d\xf8\xc9\xc0\x2d\x75\xed\xed\x28\x6a\x6f\x44\xe6\x8f"},
