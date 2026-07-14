@@ -119,9 +119,9 @@ fd_quic_tls_init( fd_tls_t *    tls,
   };
 
   /* Generate X25519 key */
-  if( FD_UNLIKELY( !fd_rng_secure( tls->kex_private_key, 32UL ) ) )
+  if( FD_UNLIKELY( !fd_rng_secure( tls->key_share_private, 32UL ) ) )
     FD_LOG_ERR(( "fd_rng_secure failed: %s", fd_io_strerror( errno ) ));
-  fd_x25519_public( tls->kex_public_key, tls->kex_private_key );
+  fd_x25519_public( tls->key_share_public, tls->key_share_private );
 
   /* Set up Ed25519 key */
   fd_memcpy( tls->cert_public_key, cert_public_key, 32UL );
