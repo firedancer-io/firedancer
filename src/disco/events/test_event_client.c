@@ -1,4 +1,7 @@
 #include "fd_event_client.c"
+#include "../../waltz/tls/test_tls_helper.h"
+#include "../../ballet/ed25519/fd_x25519.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <fcntl.h>
 
@@ -6,125 +9,72 @@
 
 static int g_epoll_fd;
 
-#if FD_HAS_OPENSSL
-#include <openssl/evp.h>
-#include <openssl/rsa.h>
-#include <openssl/x509.h>
-
-typedef struct {
-  SSL_CTX * client_ctx;
-  SSL_CTX * server_ctx;
-  SSL *     client_ssl;
-  SSL *     server_ssl;
-} test_tls_pair_t;
+/* test_tls_pair_handshake drives a TLS 1.3 handshake between two
+   fd_tlsrec conns in memory, using throwaway Ed25519 identities and
+   mock X.509 certs.  On return both conns are ready for app data. */
 
 static void
-test_tls_pair_fini( test_tls_pair_t * pair ) {
-  if( pair->client_ssl ) SSL_free( pair->client_ssl );
-  if( pair->server_ssl ) SSL_free( pair->server_ssl );
-  if( pair->client_ctx  ) SSL_CTX_free( pair->client_ctx  );
-  if( pair->server_ctx  ) SSL_CTX_free( pair->server_ctx  );
-}
+test_tls_pair_handshake( fd_tlsrec_conn_t * client_conn,
+                         fd_tlsrec_conn_t * server_conn,
+                         fd_rng_t *         rng ) {
+  static fd_tls_test_sign_ctx_t client_sign_ctx[1];
+  static fd_tls_test_sign_ctx_t server_sign_ctx[1];
+  fd_tls_test_sign_ctx( client_sign_ctx, rng );
+  fd_tls_test_sign_ctx( server_sign_ctx, rng );
+  static fd_chacha_rng_t client_chacha[1], server_chacha[1];
 
-static void
-test_tls_server_ctx_set_cert( SSL_CTX * server_ctx ) {
-  EVP_PKEY_CTX * pkey_ctx = EVP_PKEY_CTX_new_id( EVP_PKEY_RSA, NULL );
-  FD_TEST( pkey_ctx );
-  FD_TEST( EVP_PKEY_keygen_init( pkey_ctx )==1 );
-  FD_TEST( EVP_PKEY_CTX_set_rsa_keygen_bits( pkey_ctx, 2048 )==1 );
-
-  EVP_PKEY * pkey = NULL;
-  FD_TEST( EVP_PKEY_keygen( pkey_ctx, &pkey )==1 );
-  EVP_PKEY_CTX_free( pkey_ctx );
-
-  X509 * cert = X509_new();
-  FD_TEST( cert );
-  FD_TEST( X509_set_version( cert, 2L )==1 );
-  FD_TEST( ASN1_INTEGER_set( X509_get_serialNumber( cert ), 1L )==1 );
-  FD_TEST( X509_gmtime_adj( X509_getm_notBefore( cert ), 0L ) );
-  FD_TEST( X509_gmtime_adj( X509_getm_notAfter ( cert ), 3600L ) );
-  FD_TEST( X509_set_pubkey( cert, pkey )==1 );
-
-  X509_NAME * name = X509_get_subject_name( cert );
-  FD_TEST( X509_NAME_add_entry_by_txt( name, "CN", MBSTRING_ASC, (uchar const *)"localhost", -1, -1, 0 )==1 );
-  FD_TEST( X509_set_issuer_name( cert, name )==1 );
-  FD_TEST( X509_sign( cert, pkey, EVP_sha256() ) );
-
-  FD_TEST( SSL_CTX_use_certificate( server_ctx, cert )==1 );
-  FD_TEST( SSL_CTX_use_PrivateKey ( server_ctx, pkey )==1 );
-  FD_TEST( SSL_CTX_check_private_key( server_ctx )==1 );
-
-  X509_free( cert );
-  EVP_PKEY_free( pkey );
-}
-
-static void
-test_tls_pair_init( test_tls_pair_t * pair ) {
-  *pair = (test_tls_pair_t){0};
-
-  pair->client_ctx = SSL_CTX_new( TLS_client_method() );
-  pair->server_ctx = SSL_CTX_new( TLS_server_method() );
-  FD_TEST( pair->client_ctx );
-  FD_TEST( pair->server_ctx );
-
-  SSL_CTX_set_verify( pair->client_ctx, SSL_VERIFY_NONE, NULL );
-  test_tls_server_ctx_set_cert( pair->server_ctx );
-
-  pair->client_ssl = SSL_new( pair->client_ctx );
-  pair->server_ssl = SSL_new( pair->server_ctx );
-  FD_TEST( pair->client_ssl );
-  FD_TEST( pair->server_ssl );
-
-  BIO * client_bio = NULL;
-  BIO * server_bio = NULL;
-  FD_TEST( BIO_new_bio_pair( &client_bio, 0UL, &server_bio, 0UL )==1 );
-
-  SSL_set_bio( pair->client_ssl, client_bio, client_bio );
-  SSL_set_bio( pair->server_ssl, server_bio, server_bio );
-  SSL_set_connect_state( pair->client_ssl );
-  SSL_set_accept_state ( pair->server_ssl );
-
-  for( ulong i=0UL; i<1000UL; i++ ) {
-    int client_done = SSL_is_init_finished( pair->client_ssl );
-    int server_done = SSL_is_init_finished( pair->server_ssl );
-    if( client_done && server_done ) return;
-
-    int cr = SSL_do_handshake( pair->client_ssl );
-    if( cr!=1 ) {
-      int err = SSL_get_error( pair->client_ssl, cr );
-      FD_TEST( err==SSL_ERROR_WANT_READ || err==SSL_ERROR_WANT_WRITE );
-    }
-
-    int sr = SSL_do_handshake( pair->server_ssl );
-    if( sr!=1 ) {
-      int err = SSL_get_error( pair->server_ssl, sr );
-      FD_TEST( err==SSL_ERROR_WANT_READ || err==SSL_ERROR_WANT_WRITE );
-    }
+  fd_tls_t client_tls = {
+    .rng     = fd_tls_test_rand( client_chacha, rng ),
+    .sign    = fd_tls_test_sign( client_sign_ctx ),
+    .alpn    = { 2, 'h', '2' },
+    .alpn_sz = 3UL,
+  };
+  fd_tls_t server_tls = {
+    .rng     = fd_tls_test_rand( server_chacha, rng ),
+    .sign    = fd_tls_test_sign( server_sign_ctx ),
+    .alpn    = { 2, 'h', '2' },
+    .alpn_sz = 3UL,
+  };
+  for( ulong j=0UL; j<32UL; j++ ) {
+    client_tls.key_share_private[j] = fd_rng_uchar( rng );
+    server_tls.key_share_private[j] = fd_rng_uchar( rng );
   }
+  fd_x25519_public( client_tls.key_share_public, client_tls.key_share_private );
+  fd_x25519_public( server_tls.key_share_public, server_tls.key_share_private );
+  fd_memcpy( client_tls.cert_public_key, client_sign_ctx->public_key, 32UL );
+  fd_memcpy( server_tls.cert_public_key, server_sign_ctx->public_key, 32UL );
+  fd_x509_mock_cert( client_tls.cert_x509, client_tls.cert_public_key );
+  fd_x509_mock_cert( server_tls.cert_x509, server_tls.cert_public_key );
+  client_tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+  server_tls.cert_x509_sz = FD_X509_MOCK_CERT_SZ;
 
-  FD_TEST( SSL_is_init_finished( pair->client_ssl ) );
-  FD_TEST( SSL_is_init_finished( pair->server_ssl ) );
-}
+  FD_TEST( fd_tlsrec_conn_init( client_conn, &client_tls, 0 )==client_conn );
+  FD_TEST( fd_tlsrec_conn_init( server_conn, &server_tls, 1 )==server_conn );
+  fd_memcpy( client_conn->hs.cli.server_pubkey, server_tls.cert_public_key, 32UL );
 
-static void
-test_tls_server_write( SSL *       ssl,
-                       void const *data,
-                       ulong       data_sz ) {
-  uchar const * cur = data;
-  while( data_sz ) {
-    size_t write_sz = 0UL;
-    int ok = SSL_write_ex( ssl, cur, data_sz, &write_sz );
-    FD_TEST( ok==1 );
-    FD_TEST( write_sz>0UL );
-    cur     += write_sz;
-    data_sz -= (ulong)write_sz;
+  static uchar c2s[ FD_TLSREC_CAP ], s2c[ FD_TLSREC_CAP ], app[ FD_TLSREC_CAP ];
+  ulong c2s_sz = sizeof(c2s), app_sz = sizeof(app);
+  FD_TEST( fd_tlsrec_conn_rx( client_conn, NULL, c2s, &c2s_sz, app, &app_sz )==FD_TLSREC_SUCCESS );
+  for( ulong iter=0UL; iter<8UL; iter++ ) {
+    fd_tlsrec_slice_t rx[1];
+    fd_tlsrec_slice_init( rx, c2s, c2s_sz );
+    ulong s2c_sz = sizeof(s2c); app_sz = sizeof(app);
+    FD_TEST( fd_tlsrec_conn_rx( server_conn, rx, s2c, &s2c_sz, app, &app_sz )==FD_TLSREC_SUCCESS );
+    fd_tlsrec_slice_init( rx, s2c, s2c_sz );
+    c2s_sz = sizeof(c2s); app_sz = sizeof(app);
+    FD_TEST( fd_tlsrec_conn_rx( client_conn, rx, c2s, &c2s_sz, app, &app_sz )==FD_TLSREC_SUCCESS );
+    if( fd_tlsrec_conn_is_ready( client_conn ) && fd_tlsrec_conn_is_ready( server_conn ) && !c2s_sz ) break;
   }
+  FD_TEST( fd_tlsrec_conn_is_ready( client_conn ) );
+  FD_TEST( fd_tlsrec_conn_is_ready( server_conn ) );
+  FD_TEST( client_conn->hs.cli.alpn_negotiated );
 }
 
-#endif /* FD_HAS_OPENSSL */
+/* A GOAWAY that fires conn_dead synchronously during rx must not stop
+   the pending PING ACK from being flushed through the still-live TLS
+   conn, and the disconnect must be deferred to the poll loop. */
 
-#if FD_HAS_OPENSSL
-FD_UNIT_TEST( conn_ssl_lifecycle ) {
+FD_UNIT_TEST( conn_tls_lifecycle ) {
   static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
   fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 512UL ) );
   FD_TEST( circq );
@@ -133,55 +83,37 @@ FD_UNIT_TEST( conn_ssl_lifecycle ) {
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
   FD_TEST( rng );
 
-  static uchar client_mem[ 131072UL ] __attribute__((aligned(128)));
+  uchar * client_mem = aligned_alloc( fd_event_client_align(), fd_event_client_footprint( 4096UL ) );
+  FD_TEST( client_mem );
   uchar identity_pubkey[32] = {0};
+  static fd_x509_ca_store_t ca_store[1]; /* empty: the pinned mock cert bypasses chain verification */
   fd_event_client_t * client = fd_event_client_join( fd_event_client_new(
-      client_mem,
-      NULL,
-      rng,
-      circq,
-      g_epoll_fd,
-      1<<20,
-      "https://localhost:1",
-      identity_pubkey,
-      "0.0.0",
-      "0000000000000000000000000000000000000000",
-      "test",
-      1UL,
-      2UL,
-      3UL,
-      4096UL,
-      1,
-      NULL ) );
+      client_mem, NULL, rng, circq, g_epoll_fd, 1<<20, "https://localhost:1", identity_pubkey, "0.0.0",
+      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, 4096UL, 1, ca_store ) );
   FD_TEST( client );
 
-  test_tls_pair_t tls[1];
-  test_tls_pair_init( tls );
+  static fd_tlsrec_conn_t server_conn[1];
+  test_tls_pair_handshake( client->tls_conn, server_conn, rng );
 
-  /* Attach an already-handshaked in-memory TLS connection to the event client. */
+  int sv[2];
+  FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK, 0, sv ) );
+
+  /* Attach the handshaked TLS conn to a connected event client. */
   fd_grpc_client_t * grpc = client->grpc_client;
-  client->state            = FD_EVENT_CLIENT_STATE_CONNECTED;
-  client->sockfd           = -1;
-  client->ssl              = tls->client_ssl;
-  client->defer_disconnect = INT_MAX;
-  grpc->ssl_hs_done        = 1;
-  grpc->h2_hs_done         = 1;
-  grpc->conn->flags        = 0;
+  client->state             = FD_EVENT_CLIENT_STATE_CONNECTED;
+  client->sockfd            = sv[0]; /* disconnect() closes it */
+  client->defer_disconnect  = INT_MAX;
+  client->has_genesis_hash  = 1;
+  client->has_shred_version = 1;
+  grpc->h2_hs_done          = 1;
+  grpc->conn->flags         = 0;
 
   fd_h2_ping_t ping = {
-    .hdr = {
-      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ),
-      .flags       = 0U,
-      .r_stream_id = 0U
-    },
+    .hdr = { .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING, 8UL ), .flags = 0U, .r_stream_id = 0U },
     .payload = 0x0102030405060708UL
   };
   fd_h2_goaway_t goaway = {
-    .hdr = {
-      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL ),
-      .flags       = 0U,
-      .r_stream_id = 0U
-    },
+    .hdr = { .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL ), .flags = 0U, .r_stream_id = 0U },
     .last_stream_id = 0U,
     .error_code     = fd_uint_bswap( FD_H2_SUCCESS )
   };
@@ -190,24 +122,50 @@ FD_UNIT_TEST( conn_ssl_lifecycle ) {
   uchar h2[ sizeof(ping)+sizeof(goaway) ];
   fd_memcpy( h2,              &ping,   sizeof(ping)   );
   fd_memcpy( h2+sizeof(ping), &goaway, sizeof(goaway) );
-  test_tls_server_write( tls->server_ssl, h2, sizeof(h2) );
+  fd_tlsrec_slice_t app_tx[1];
+  fd_tlsrec_slice_init( app_tx, h2, sizeof(h2) );
+  static uchar wire[ FD_TLSREC_CAP ];
+  ulong wire_sz = sizeof(wire);
+  FD_TEST( fd_tlsrec_conn_tx( server_conn, wire, &wire_sz, app_tx )==FD_TLSREC_SUCCESS );
+  FD_TEST( fd_tlsrec_slice_is_empty( app_tx ) );
+  FD_TEST( (long)wire_sz==send( sv[1], wire, wire_sz, 0 ) );
 
-  /* rxtx must flush the ACK without conn_dead freeing the active SSL object. */
   int charge_busy = 0;
-  int rc = fd_grpc_client_rxtx_ossl( grpc, tls->client_ssl, fd_log_wallclock(), &charge_busy );
-
+  int rc = fd_grpc_client_rxtx_tls( grpc, client->tls_conn, sv[0], fd_log_wallclock(), &charge_busy );
   FD_TEST( rc==0 );
-  FD_TEST( client->ssl==tls->client_ssl );
+  FD_TEST( charge_busy );
   FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTED );
   FD_TEST( client->defer_disconnect==DISCONNECT_REASON_PEER_CLOSED );
+  FD_TEST( grpc->conn->flags & FD_H2_CONN_FLAGS_DEAD );
   FD_TEST( fd_h2_rbuf_used_sz( grpc->frame_tx )==0UL );
+  FD_TEST( !fd_grpc_client_tls_tx_pending( grpc ) );
+  FD_TEST( fd_tlsrec_conn_is_ready( client->tls_conn ) );
 
-  tls->client_ssl = client->ssl;
-  client->ssl = NULL;
-  test_tls_pair_fini( tls );
+  /* The ACK made it onto the wire, encrypted under the live conn. */
+  long ack_wire_sz = recv( sv[1], wire, sizeof(wire), 0 );
+  FD_TEST( ack_wire_sz>0L );
+  fd_tlsrec_slice_t ack_rx[1];
+  fd_tlsrec_slice_init( ack_rx, wire, (ulong)ack_wire_sz );
+  static uchar ack[ 64 ];
+  ulong ack_sz = sizeof(ack);
+  FD_TEST( fd_tlsrec_conn_rx( server_conn, ack_rx, NULL, NULL, ack, &ack_sz )==FD_TLSREC_SUCCESS );
+  FD_TEST( ack_sz==sizeof(fd_h2_ping_t) );
+  fd_h2_ping_t ack_ping; fd_memcpy( &ack_ping, ack, sizeof(ack_ping) );
+  FD_TEST( fd_h2_frame_type( ack_ping.hdr.typlen )==FD_H2_FRAME_TYPE_PING );
+  FD_TEST( ack_ping.hdr.flags & FD_H2_FLAG_ACK );
+  FD_TEST( ack_ping.payload==ping.payload );
+
+  /* The poll loop then performs the deferred disconnect. */
+  int poll_busy = 0;
+  fd_event_client_poll( client, fd_log_wallclock(), &poll_busy );
+  FD_TEST( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED );
+  FD_TEST( client->defer_disconnect==INT_MAX );
+  FD_TEST( client->sockfd==-1 );
+
+  close( sv[1] );
+  free( client_mem );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
-#endif
 
 FD_UNIT_TEST( stream_heartbeat ) {
   static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
@@ -218,7 +176,8 @@ FD_UNIT_TEST( stream_heartbeat ) {
   fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
   FD_TEST( rng );
 
-  static uchar client_mem[ 131072UL ] __attribute__((aligned(128)));
+  uchar * client_mem = aligned_alloc( fd_event_client_align(), fd_event_client_footprint( 1UL<<20 ) );
+  FD_TEST( client_mem );
   uchar identity_pubkey[32] = {0};
   fd_event_client_t * client = fd_event_client_join( fd_event_client_new(
       client_mem,
@@ -242,7 +201,6 @@ FD_UNIT_TEST( stream_heartbeat ) {
 
   fd_grpc_client_t * grpc = client->grpc_client;
   client->state     = FD_EVENT_CLIENT_STATE_CONNECTED;
-  grpc->ssl_hs_done = 1;
   grpc->h2_hs_done  = 1;
   grpc->conn->flags = 0;
   client->event_stream = fd_grpc_client_stream_acquire( grpc, FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS );
@@ -282,6 +240,7 @@ FD_UNIT_TEST( stream_heartbeat ) {
   FD_TEST( client->defer_disconnect==INT_MAX );
   FD_TEST( client->metrics.last_acked_id==0UL );
 
+  free( client_mem );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
@@ -301,7 +260,6 @@ test_connected_client( fd_circq_t * circq,
   client->has_genesis_hash  = 1;
   client->has_shred_version = 1;
   client->consecutive_failure_count = 0UL;
-  grpc->ssl_hs_done   = 1;
   grpc->h2_hs_done    = 1;
   grpc->conn->flags   = 0;
   grpc->conn->tx_wnd  = UINT_MAX>>1;

@@ -384,6 +384,55 @@ test_saturating_sub( void ) {
   free( wksp );
 }
 
+static void
+test_tls_keylog( void ) {
+  fd_bundle_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_bundle_tile_t) );
+
+  int pipefd[2];
+  FD_TEST( !pipe( pipefd ) );
+  ctx->keylog_fd = pipefd[1];
+  ctx->tls_conn->hs.cli.cs = &fd_tls_cs_table[ FD_TLS_CS_IDX_AES_128_GCM_SHA256 ];
+
+  uchar client_random[32]; fd_memset( client_random, 0x11, sizeof(client_random) );
+  uchar client_secret[32]; fd_memset( client_secret, 0x22, sizeof(client_secret) );
+  uchar server_secret[32]; fd_memset( server_secret, 0x33, sizeof(server_secret) );
+  fd_memcpy( ctx->tls_conn->hs.base.client_random, client_random, sizeof(client_random) );
+
+  fd_bundle_tls_keylog( &ctx->tls_conn->hs, server_secret, client_secret, FD_TLS_LEVEL_HANDSHAKE );
+  fd_bundle_tls_keylog( &ctx->tls_conn->hs, server_secret, client_secret, FD_TLS_LEVEL_APPLICATION );
+  FD_TEST( !close( pipefd[1] ) );
+
+  char random_hex[65];
+  char client_hex[65];
+  char server_hex[65];
+  fd_cstr_fini( fd_hex_encode( fd_cstr_init( random_hex ), client_random, sizeof(client_random) ) );
+  fd_cstr_fini( fd_hex_encode( fd_cstr_init( client_hex ), client_secret, sizeof(client_secret) ) );
+  fd_cstr_fini( fd_hex_encode( fd_cstr_init( server_hex ), server_secret, sizeof(server_secret) ) );
+
+  char expected[768];
+  int expected_sz = snprintf( expected, sizeof(expected),
+                              "CLIENT_HANDSHAKE_TRAFFIC_SECRET %s %s\n"
+                              "SERVER_HANDSHAKE_TRAFFIC_SECRET %s %s\n"
+                              "CLIENT_TRAFFIC_SECRET_0 %s %s\n"
+                              "SERVER_TRAFFIC_SECRET_0 %s %s\n",
+                              random_hex, client_hex, random_hex, server_hex,
+                              random_hex, client_hex, random_hex, server_hex );
+  FD_TEST( expected_sz>0 && (ulong)expected_sz<sizeof(expected) );
+
+  char actual[768];
+  ulong actual_sz = 0UL;
+  for(;;) {
+    long read_sz = read( pipefd[0], actual+actual_sz, sizeof(actual)-actual_sz );
+    FD_TEST( read_sz>=0L );
+    if( !read_sz ) break;
+    actual_sz += (ulong)read_sz;
+  }
+  FD_TEST( !close( pipefd[0] ) );
+  FD_TEST( actual_sz==(ulong)expected_sz );
+  FD_TEST( !memcmp( actual, expected, actual_sz ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -405,6 +454,7 @@ main( int     argc,
   test_replay_triggers_sleep_transition();
   test_boundary_thresholds();
   test_saturating_sub();
+  test_tls_keylog();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

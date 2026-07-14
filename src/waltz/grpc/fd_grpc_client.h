@@ -7,9 +7,7 @@
 #include "fd_grpc_codec.h"
 #include "../fd_fqdn.h"
 #include "../../third_party/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
-#if FD_HAS_OPENSSL
-#include <openssl/types.h> /* SSL */
-#endif
+#include "../tlsrec/fd_tlsrec.h"
 
 struct fd_grpc_client_private;
 typedef struct fd_grpc_client_private fd_grpc_client_t;
@@ -190,6 +188,19 @@ fd_grpc_client_next_deadline( fd_grpc_client_t const * client );
 FD_FN_PURE int
 fd_grpc_client_tx_pending( fd_grpc_client_t const * client );
 
+/* fd_grpc_client_tls_rx_pending returns 1 if the client holds decrypted
+   TLS plaintext not yet pushed into the HTTP/2 layer.  Such bytes do
+   not make the socket readable, so the caller must step the client
+   without waiting for an fd event.  fd_grpc_client_tls_tx_pending
+   returns 1 if encrypted TLS bytes are waiting to be written to the
+   socket (e.g. a handshake flight blocked on EAGAIN). */
+
+FD_FN_PURE int
+fd_grpc_client_tls_rx_pending( fd_grpc_client_t const * client );
+
+FD_FN_PURE int
+fd_grpc_client_tls_tx_pending( fd_grpc_client_t const * client );
+
 /* fd_grpc_client_tx_starved returns the number of request bytes parked
    mid-send because the peer's HTTP/2 flow-control window (stream or
    connection) is exhausted, or 0 if not starved.  Only a WINDOW_UPDATE
@@ -229,34 +240,6 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
                               ulong              host_len,
                               ushort             port );
 
-#if FD_HAS_OPENSSL
-
-/* fd_grpc_client_rxtx_ossl drives I/O against the SSL object
-   (SSL_read_ex and SSL_write_ex).
-
-   This function currently copies back-and-forth between SSL and
-   fd_h2 rbuf.  This could be improved by adding an interface to allow
-   OpenSSL->h2 or h2->OpenSSL writes to directly place data into the
-   target buffer.
-
-   Returns 0 on success and -1 if there is an unrecoverable SSL
-   error. */
-
-int
-fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
-                          SSL *              ssl,
-                          long               now,
-                          int *              charge_busy );
-
-/* fd_grpc_client_tx_flush_ossl writes pending frame bytes to the SSL
-   object (no-op before the TLS handshake completes). */
-
-void
-fd_grpc_client_tx_flush_ossl( fd_grpc_client_t * client,
-                              SSL *              ssl );
-
-#endif /* FD_HAS_OPENSSL */
-
 /* fd_grpc_client_rxtx_socket drives I/O against a TCP socket.
    (recvmsg(2) and sendmsg(2)).  Uses MSG_NOSIGNAL|MSG_DONTWAIT flags.
 
@@ -269,12 +252,37 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
                             long               now,
                             int *              charge_busy );
 
-/* fd_grpc_client_tx_flush_socket writes pending frame bytes to the
-   socket.  Returns -1 (errno set) on a hard send error, else 0. */
+/* fd_grpc_client_tx_flush_socket attempts one sendmsg(2) of pending
+   HTTP/2 frame bytes to the socket.  Returns -1 (errno set) on a hard
+   send error, 1 if send would block with EAGAIN, and 0 otherwise (a
+   short write may leave bytes pending; check fd_grpc_client_tx_pending). */
 
 int
 fd_grpc_client_tx_flush_socket( fd_grpc_client_t * client,
                                 int                sock_fd );
+
+/* fd_grpc_client_tls_flush writes pending encrypted TLS bytes to the
+   socket, looping until the TLS TX buffer is empty or send blocks.
+   Returns -1 (errno set) on a hard send error, 1 if send would block
+   with EAGAIN (bytes remain, see fd_grpc_client_tls_tx_pending), and 0
+   if the buffer is now empty. */
+
+int
+fd_grpc_client_tls_flush( fd_grpc_client_t * client,
+                          int                sock_fd );
+
+/* fd_grpc_client_rxtx_tls drives I/O against a TCP socket with
+   fd_tlsrec encryption.  Handles TLS handshake, encrypts outgoing
+   frames, and decrypts incoming data.
+
+   Returns 0 on success and -1 if there is an unrecoverable error. */
+
+int
+fd_grpc_client_rxtx_tls( fd_grpc_client_t * client,
+                         fd_tlsrec_conn_t * tls_conn,
+                         int                sock_fd,
+                         long               now,
+                         int *              charge_busy );
 
 /* fd_grpc_client_request_start queues a gRPC request for send.  The
    request includes one Protobuf message (unary request).  The client

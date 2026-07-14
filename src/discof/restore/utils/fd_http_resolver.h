@@ -33,6 +33,7 @@ void *
 fd_http_resolver_new( void *                           shmem,
                       ulong                            peers_cnt,
                       int                              incremental_snapshot_fetch,
+                      int                              load_ca_store,
                       fd_http_resolver_on_resolve_fn_t on_resolve_cb,
                       void *                           cb_arg );
 
