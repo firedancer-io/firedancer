@@ -904,11 +904,13 @@ void
 initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer ) ) return;
 
-  /* TODO: O_TRUNC is a lot slower here, because it means we have to
-     write out extents for the whole file instead of just marking them
-     as free.  Figure out performance implications of this and maybe
-     resolve. */
-  int accounts_fd = open( config->paths.accounts, O_RDWR|O_CREAT|O_NOATIME|O_TRUNC, S_IRUSR|S_IWUSR );
+  /* O_TRUNC of a previous run's accounts.db frees all its extents
+     synchronously.  In development skip the truncate to keep reboots
+     fast. */
+  int oflags = O_RDWR|O_CREAT|O_NOATIME;
+  if( FD_LIKELY( !config->is_dev ) ) oflags |= O_TRUNC;
+
+  int accounts_fd = open( config->paths.accounts, oflags, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==accounts_fd ) ) FD_LOG_ERR(( "failed to open accounts.db (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_fd, FD_ACCDB_FD_RW ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
