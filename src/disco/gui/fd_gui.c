@@ -386,7 +386,14 @@ fd_gui_set_identity( fd_gui_t *    gui,
   fd_base58_encode_32( identity_pubkey, NULL, gui->summary.identity_key_base58 );
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
+  gui->summary.vote_distance = 0UL;
+  if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
+
   fd_gui_printf_identity_key( gui );
+  fd_http_server_ws_broadcast( gui->http );
+  fd_gui_printf_vote_distance( gui );
+  fd_http_server_ws_broadcast( gui->http );
+  fd_gui_printf_vote_state( gui );
   fd_http_server_ws_broadcast( gui->http );
 }
 

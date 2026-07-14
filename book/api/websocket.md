@@ -236,9 +236,9 @@ were published with. The `mine` field of blocks similarly indicates if
 this validator published the block, not whether it had the same identity
 key as the validator has now.
 
-Because of this, when changing identity key, no other information will
-be republished. It will simply continue counting for blocks published
-with the new key.
+When changing identity key, current vote information is reset and
+republished for the new identity. Other summary information continues
+counting for blocks published by this validator instance.
 
 #### `summary.vote_state`
 | frequency       | type     | example  |
@@ -301,7 +301,8 @@ sporadically become unboundedly large) and provides the same guarantees.
 | *Once* + *Live* | `number\|null` | `100`   |
 
 The most recent slot this node has landed a vote for. Will typically be
-one slot behind the current slot on the leader schedule.
+one slot behind the current slot on the leader schedule. This is reset
+to `null` when the validator identity changes.
 
 #### `summary.caught_up_slot`
 | frequency       | type           | example |
