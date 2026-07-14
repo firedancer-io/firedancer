@@ -46,6 +46,7 @@ SYSCALL_ARGS = {
     "fallocate":       (  "int",  "int",  "long", "long",   None,    None  ),
     "fcntl":           (  "int",  "int",  "long",   None,   None,    None  ),
     "fstat":           (  "int", "long",    None,   None,   None,    None  ),
+    "fstatfs":         (  "int", "long",    None,   None,   None,    None  ),
     "fsync":           (  "int",   None,    None,   None,   None,    None  ),
     "ftruncate":       (  "int", "long",    None,   None,   None,    None  ),
     "futex":           ( "long",  "int",   "int", "long", "long",   "int"  ),

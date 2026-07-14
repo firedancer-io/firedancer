@@ -52,6 +52,7 @@
 #define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
 #define IN_KIND_BUNDLE        (17UL)
 #define IN_KIND_SNAPIN_MANIF  (18UL) /* firedancer only */
+#define IN_KIND_DIAG          (19UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -201,6 +202,8 @@ metrics_write( fd_gui_ctx_t * ctx ) {
   FD_MCNT_SET( GUI, BYTES_WRITTEN, ctx->gui_server->metrics.bytes_written );
   FD_MCNT_SET( GUI, BYTES_READ,    ctx->gui_server->metrics.bytes_read );
 
+  FD_MGAUGE_SET( GUI, DISK_ALLOCATED_BYTES, fd_gui_store_file_sz( ctx->db ) );
+
   ulong db_cnt = fd_gui_store_cnt( ctx->db );
 
   ulong used_bytes  [ FD_GUI_HIST_CNT ];
@@ -302,6 +305,10 @@ during_frag( fd_gui_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
+    sz = sig;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_DIAG ) ) {
     sz = sig;
   }
 
@@ -546,6 +553,10 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_BUNDLE: {
       fd_gui_handle_block_engine_update( ctx->gui, (fd_bundle_block_engine_update_t *)src );
+      break;
+    }
+    case IN_KIND_DIAG: {
+      fd_gui_handle_diag_snapshot( ctx->gui, src, sig );
       break;
     }
     default: FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
@@ -838,6 +849,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN_MANIF;
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "execle_poh" ) ) ) {

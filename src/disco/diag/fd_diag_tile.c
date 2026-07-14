@@ -1,15 +1,21 @@
+#define _GNU_SOURCE
+
 #include "fd_diag_tile.h"
 
 #include "../bundle/fd_bundle_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
+#include "../topo/fd_cpu_topo.h"
 #include "../../util/tile/fd_tile_private.h"
+#include "../../util/io/fd_io.h"
 
 #include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/types.h> /* SEEK_SET */
+#include <sys/stat.h>
+#include <sys/vfs.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -17,6 +23,10 @@
 #include "generated/fd_diag_tile_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
+#define SYSTEM_REPORT_INTERVAL_NANOS (30000000000L)
+
+#define DIAG_WKSP_TILE_IDX_SHARED (ULONG_MAX)
+
 
 struct fd_diag_tile {
   long next_report_nanos;
@@ -44,6 +54,7 @@ struct fd_diag_tile {
   int         proc_interrupts_fd;
   int         proc_softirqs_fd;
   int         proc_stat_fd;
+  int         proc_meminfo_fd;
   ulong       device_irq_baseline[ FD_TILE_MAX ];
   ulong       tlb_baseline[ FD_TILE_MAX ];
   ulong       loc_baseline[ FD_TILE_MAX ];
@@ -52,6 +63,53 @@ struct fd_diag_tile {
 
   ulong volatile * metrics    [ FD_TILE_MAX ];
   ushort           cpu_to_tile[ FD_TILE_MAX ];
+
+  int    gui_enabled;
+  long   next_system_report_nanos;
+  ushort numa_entry_idx[ FD_DIAG_SYSTEM_TILE_MAX ][ FD_DIAG_SYSTEM_NUMA_MAX ];
+  struct {
+    ulong cnt;
+    struct {
+      char  name[ FD_SHMEM_NAME_MAX ];
+      ulong tile_idx;
+      ulong numa_idx;
+      ulong bytes;
+      ushort numa_slot;
+    } wksp[ FD_TOPO_MAX_WKSPS ];
+    ushort stack_numa_slot[ FD_DIAG_SYSTEM_TILE_MAX ];
+  } memory;
+  struct {
+    ulong cnt;
+    struct {
+      ushort idx;
+      int    meminfo_fd;
+    } node[ FD_DIAG_SYSTEM_NUMA_MAX ];
+  } numa;
+
+  struct {
+    void * mem;
+    ulong  idx;
+    ulong  chunk0;
+    ulong  wmark;
+    ulong  chunk;
+  } system_out;
+  fd_diag_system_resources_t system_resources;
+
+  struct {
+    int   fd;     /* O_PATH reference to an anonymous regular file */
+    ulong mnt_id; /* mount ID from /proc/self/fdinfo */
+    char  path[ PATH_MAX ];
+  } mounts[ FD_DIAG_SYSTEM_FILE_MAX ];
+  ulong mount_cnt;
+
+  struct {
+    char  path[ PATH_MAX ];
+    uint  category;
+    uint  mount_idx;
+    int   data_fd;
+    ulong volatile * metric;
+  } files[ FD_DIAG_SYSTEM_FILE_MAX ];
+  ulong file_cnt;
 
   struct {
     ulong prev_vote_slot;
@@ -448,6 +506,151 @@ interrupt_metrics( fd_diag_tile_t * ctx ) {
   }
 }
 
+static ulong
+read_text( int    fd,
+           char * buf,
+           ulong  buf_sz ) {
+  if( FD_UNLIKELY( -1==lseek( fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong len;
+  int err = fd_io_read( fd, buf, buf_sz-1UL, buf_sz-1UL, &len );
+  if( FD_UNLIKELY( err>0 ) ) FD_LOG_ERR(( "fd_io_read failed (%i-%s)", err, fd_io_strerror( err ) ));
+  buf[ len ] = '\0';
+  return len;
+}
+
+static void
+add_numa_bytes( fd_diag_tile_t * ctx,
+                ulong            tile_idx,
+                ulong            numa_slot,
+                ulong            bytes ) {
+  if( FD_UNLIKELY( tile_idx==DIAG_WKSP_TILE_IDX_SHARED ) ) {
+    ctx->system_resources.numa_mem[ numa_slot ].shared_bytes += bytes;
+    return;
+  }
+
+  ushort * entry_idx = &ctx->numa_entry_idx[ tile_idx ][ numa_slot ];
+  if( FD_UNLIKELY( *entry_idx==USHORT_MAX ) ) {
+    FD_TEST( ctx->system_resources.tile_mem_cnt<FD_DIAG_SYSTEM_TILE_MEM_MAX );
+    *entry_idx = (ushort)ctx->system_resources.tile_mem_cnt++;
+    fd_diag_system_tile_mem_t * entry = &ctx->system_resources.tile_mem[ *entry_idx ];
+    entry->tile_idx = (ushort)tile_idx;
+    entry->numa_idx = ctx->numa.node[ numa_slot ].idx;
+  }
+  ctx->system_resources.tile_mem[ *entry_idx ].allocated_bytes += bytes;
+}
+
+static void
+add_configured_memory_bytes( fd_diag_tile_t * ctx ) {
+  /* Workspaces and tile stacks are hugetlbfs-backed, so their configured
+     sizes are also their resident physical-memory footprint. */
+  for( ulong i=0UL; i<ctx->memory.cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->memory.wksp[ i ].numa_slot==USHORT_MAX ) ) continue;
+    add_numa_bytes( ctx,
+                    ctx->memory.wksp[ i ].tile_idx,
+                    ctx->memory.wksp[ i ].numa_slot,
+                    ctx->memory.wksp[ i ].bytes );
+  }
+  for( ulong tile_idx=0UL; tile_idx<ctx->tile_cnt; tile_idx++ ) {
+    ushort numa_slot = ctx->memory.stack_numa_slot[ tile_idx ];
+    if( FD_UNLIKELY( numa_slot==USHORT_MAX ) ) continue;
+    add_numa_bytes( ctx, tile_idx, numa_slot, FD_TILE_PRIVATE_STACK_SZ );
+  }
+}
+
+static void
+sample_disk( fd_diag_tile_t * ctx ) {
+  ctx->system_resources.mount_cnt = (uint)ctx->mount_cnt;
+  ctx->system_resources.file_cnt  = (uint)ctx->file_cnt;
+
+  for( ulong i=0UL; i<ctx->mount_cnt; i++ ) {
+    struct statfs st;
+    if( FD_UNLIKELY( fstatfs( ctx->mounts[ i ].fd, &st ) ) ) FD_LOG_ERR(( "fstatfs failed (%i-%s)", errno, strerror( errno ) ));
+    ulong block_sz = (ulong)( st.f_frsize ? st.f_frsize : st.f_bsize );
+    fd_diag_system_mount_t * mount = &ctx->system_resources.mount[ i ];
+    fd_cstr_ncpy( mount->path, ctx->mounts[ i ].path, sizeof(mount->path) );
+    mount->total_bytes     = (ulong)st.f_blocks*block_sz;
+    mount->free_bytes      = (ulong)st.f_bfree *block_sz;
+    mount->available_bytes = (ulong)st.f_bavail*block_sz;
+  }
+
+  for( ulong i=0UL; i<ctx->file_cnt; i++ ) {
+    fd_diag_system_file_t * file = &ctx->system_resources.file[ i ];
+    fd_cstr_ncpy( file->path, ctx->files[ i ].path, sizeof(file->path) );
+    file->category  = ctx->files[ i ].category;
+    file->mount_idx = ctx->files[ i ].mount_idx;
+    if( ctx->files[ i ].metric ) file->bytes = *ctx->files[ i ].metric;
+    else if( ctx->files[ i ].data_fd>=0 ) {
+      struct stat st;
+      if( FD_UNLIKELY( fstat( ctx->files[ i ].data_fd, &st ) ) ) FD_LOG_ERR(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
+      file->bytes = (ulong)st.st_size;
+    }
+  }
+}
+
+static ulong
+read_meminfo_kib( char const * buf,
+                  char const * key ) {
+  char const * p = strstr( buf, key );
+  if( FD_UNLIKELY( !p ) ) return 0UL;
+  p += strlen( key );
+  while( *p==' ' || *p=='\t' || *p==':' ) p++;
+  return strtoul( p, NULL, 10 );
+}
+
+static void
+sample_system( fd_diag_tile_t * ctx,
+               long             now ) {
+  ctx->next_system_report_nanos = now + SYSTEM_REPORT_INTERVAL_NANOS;
+
+  ctx->system_resources.mem_available_bytes = 0UL;
+  ctx->system_resources.mem_free_bytes      = 0UL;
+  ctx->system_resources.numa_mem_cnt         = (uint)ctx->numa.cnt;
+  ctx->system_resources.tile_mem_cnt         = 0U;
+  ctx->system_resources.mount_cnt            = 0U;
+  ctx->system_resources.file_cnt             = 0U;
+  fd_memset( ctx->system_resources.numa_mem, 0, sizeof(ctx->system_resources.numa_mem) );
+  fd_memset( ctx->system_resources.tile_mem, 0, sizeof(ctx->system_resources.tile_mem) );
+  fd_memset( ctx->system_resources.mount,    0, sizeof(ctx->system_resources.mount)    );
+  fd_memset( ctx->system_resources.file,     0, sizeof(ctx->system_resources.file)     );
+  fd_memset( ctx->numa_entry_idx, 0xFF, sizeof(ctx->numa_entry_idx) );
+  char meminfo[ 4096 ];
+  if( FD_LIKELY( read_text( ctx->proc_meminfo_fd, meminfo, sizeof(meminfo) ) ) ) {
+    ctx->system_resources.mem_available_bytes = read_meminfo_kib( meminfo, "MemAvailable" )<<10;
+    ctx->system_resources.mem_free_bytes      = read_meminfo_kib( meminfo, "MemFree"      )<<10;
+  }
+  for( ulong i=0UL; i<ctx->numa.cnt; i++ ) {
+    ulong numa_idx = ctx->numa.node[ i ].idx;
+    fd_diag_system_numa_mem_t * numa = &ctx->system_resources.numa_mem[ i ];
+    numa->numa_idx = (ushort)numa_idx;
+
+    if( FD_UNLIKELY( !read_text( ctx->numa.node[ i ].meminfo_fd, meminfo, sizeof(meminfo) ) ) ) continue;
+    char key[ 64 ];
+    FD_TEST( fd_cstr_printf_check( key, sizeof(key), NULL, "Node %lu MemTotal", numa_idx ) );
+    numa->total_bytes = read_meminfo_kib( meminfo, key )<<10;
+    FD_TEST( fd_cstr_printf_check( key, sizeof(key), NULL, "Node %lu MemFree", numa_idx ) );
+    numa->free_bytes = read_meminfo_kib( meminfo, key )<<10;
+  }
+  add_configured_memory_bytes( ctx );
+  sample_disk( ctx );
+  ctx->system_resources.sample_time_nanos = (ulong)now;
+}
+
+static void
+publish_system( fd_diag_tile_t *    ctx,
+                fd_stem_context_t * stem,
+                long                now ) {
+  if( FD_LIKELY( now<ctx->next_system_report_nanos ) ) return;
+  sample_system( ctx, now );
+
+  fd_memcpy( fd_chunk_to_laddr( ctx->system_out.mem, ctx->system_out.chunk ),
+             &ctx->system_resources, sizeof(fd_diag_system_resources_t) );
+  fd_stem_publish( stem, ctx->system_out.idx, sizeof(fd_diag_system_resources_t),
+                   ctx->system_out.chunk, sizeof(fd_diag_system_resources_t), 0UL, 0UL,
+                   (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->system_out.chunk = fd_dcache_compact_next( ctx->system_out.chunk,
+    sizeof(fd_diag_system_resources_t), ctx->system_out.chunk0, ctx->system_out.wmark );
+}
+
 static void
 before_credit( fd_diag_tile_t *    ctx,
                fd_stem_context_t * stem,
@@ -468,6 +671,7 @@ before_credit( fd_diag_tile_t *    ctx,
   ctx->next_report_nanos += REPORT_INTERVAL_MILLIS*1000L*1000L;
 
   *charge_busy = 1;
+  if( FD_UNLIKELY( ctx->gui_enabled ) ) publish_system( ctx, stem, now );
 
   struct timespec boottime;
   if( FD_UNLIKELY( -1==clock_gettime( CLOCK_BOOTTIME, &boottime ) ) ) FD_LOG_ERR(( "clock_gettime(CLOCK_BOOTTIME) failed (%i-%s)", errno, strerror( errno ) ));
@@ -525,6 +729,290 @@ before_credit( fd_diag_tile_t *    ctx,
   irq_metrics( ctx );
 }
 
+/* Disk mount discovery ************************************************/
+
+static int
+fd_mount_id( int     fd,
+             ulong * mnt_id ) {
+  char fdinfo_path[ 64 ];
+  if( FD_UNLIKELY( !fd_cstr_printf_check( fdinfo_path, sizeof(fdinfo_path), NULL, "/proc/self/fdinfo/%d", fd ) ) ) return EINVAL;
+
+  int fdinfo_fd = open( fdinfo_path, O_RDONLY|O_CLOEXEC );
+  if( FD_UNLIKELY( fdinfo_fd<0 ) ) return errno;
+
+  char  buf[ 256 ];
+  ulong buf_sz = 0UL;
+  int err = fd_io_read( fdinfo_fd, buf, sizeof(buf)-1UL, sizeof(buf)-1UL, &buf_sz );
+  if( FD_UNLIKELY( err<0 ) ) err = 0; /* EOF before the buffer filled */
+  if( FD_UNLIKELY( close( fdinfo_fd ) && !err ) ) err = errno;
+  if( FD_UNLIKELY( err ) ) return err;
+  buf[ buf_sz ] = '\0';
+
+  char const * line = buf;
+  while( line ) {
+    if( FD_UNLIKELY( !strncmp( line, "mnt_id:", 7UL ) ) ) {
+      char * end;
+      ulong id = strtoul( line+7UL, &end, 10 );
+      if( FD_UNLIKELY( end==line+7UL || (*end!='\n' && *end!='\0') || id==ULONG_MAX ) ) return EINVAL;
+      *mnt_id = id;
+      return 0;
+    }
+    line = strchr( line, '\n' );
+    if( line ) line++;
+  }
+  return ENOENT;
+}
+
+static int
+resolve_path_prefix( char const * path,
+                     char         resolved[ static PATH_MAX ] ) {
+  char candidate[ PATH_MAX ];
+  fd_cstr_ncpy( candidate, path, sizeof(candidate) );
+  while( !realpath( candidate, resolved ) ) {
+    char * slash = strrchr( candidate, '/' );
+    if( FD_UNLIKELY( !slash ) ) return 0;
+    if( slash==candidate ) slash[ 1 ] = '\0';
+    else                  *slash = '\0';
+  }
+  return 1;
+}
+
+static int
+open_disk_probe_dir( char const * resolved,
+                     char         probe_dir[ static PATH_MAX ],
+                     ulong *      mnt_id ) {
+  /* `probe_dir` is on the target mount used only to create the probe
+     file; the descriptor for `probe_dir` is not retained. */
+  int path_fd = open( resolved, O_PATH|O_CLOEXEC );
+  if( FD_UNLIKELY( path_fd<0 ) ) return -1;
+
+  struct stat path_st;
+  if( FD_UNLIKELY( fstat( path_fd, &path_st ) ) ) {
+    close( path_fd );
+    return -1;
+  }
+
+  ulong path_mnt_id;
+  int err = fd_mount_id( path_fd, &path_mnt_id );
+  if( FD_UNLIKELY( err ) ) {
+    close( path_fd );
+    FD_LOG_WARNING(( "reading mount ID for `%s` failed (%i-%s); omitting filesystem from system resource reporting",
+                     resolved, err, strerror( err ) ));
+    return -1;
+  }
+
+  fd_cstr_ncpy( probe_dir, resolved, PATH_MAX );
+  if( FD_UNLIKELY( !S_ISDIR( path_st.st_mode ) ) ) {
+    char * slash = strrchr( probe_dir, '/' );
+    if( FD_UNLIKELY( !slash ) ) {
+      close( path_fd );
+      return -1;
+    }
+    if( slash==probe_dir ) slash[ 1 ] = '\0';
+    else                  *slash = '\0';
+  }
+
+  int dir_fd = open( probe_dir, O_PATH|O_DIRECTORY|O_CLOEXEC );
+  if( FD_UNLIKELY( dir_fd<0 ) ) {
+    int open_err = errno;
+    close( path_fd );
+    FD_LOG_WARNING(( "open `%s` for disk-capacity probe failed (%i-%s); omitting filesystem from system resource reporting",
+                     probe_dir, open_err, strerror( open_err ) ));
+    return -1;
+  }
+
+  ulong dir_mnt_id;
+  err = fd_mount_id( dir_fd, &dir_mnt_id );
+  if( FD_UNLIKELY( err ) ) {
+    close( path_fd );
+    close( dir_fd );
+    FD_LOG_WARNING(( "reading mount ID for `%s` failed (%i-%s); omitting filesystem from system resource reporting",
+                     probe_dir, err, strerror( err ) ));
+    return -1;
+  }
+  close( path_fd );
+
+  /* A regular file can itself be a bind mount.  In that case its
+     containing directory is not on the mount we need to sample,
+     and there is nowhere on that mount to create an anonymous file. */
+  if( FD_UNLIKELY( path_mnt_id!=dir_mnt_id ) ) {
+    close( dir_fd );
+    FD_LOG_WARNING(( "cannot create anonymous disk-capacity probe for non-directory mount `%s`; omitting filesystem from system resource reporting",
+                     resolved ));
+    return -1;
+  }
+
+  *mnt_id = dir_mnt_id;
+  return dir_fd;
+}
+
+static int
+resolve_mount_path( char const * probe_dir,
+                    ulong        mnt_id,
+                    char          mount_path[ static PATH_MAX ] ) {
+  fd_cstr_ncpy( mount_path, probe_dir, PATH_MAX );
+  while( strcmp( mount_path, "/" ) ) {
+    char parent[ PATH_MAX ];
+    fd_cstr_ncpy( parent, mount_path, sizeof(parent) );
+    char * slash = strrchr( parent, '/' );
+    if( slash==parent ) slash[ 1 ] = '\0';
+    else               *slash = '\0';
+
+    int parent_fd = open( parent, O_PATH|O_DIRECTORY|O_CLOEXEC );
+    if( FD_UNLIKELY( parent_fd<0 ) ) {
+      int open_err = errno;
+      FD_LOG_WARNING(( "open `%s` while resolving mount point failed (%i-%s); omitting filesystem from system resource reporting",
+                       parent, open_err, strerror( open_err ) ));
+      return 0;
+    }
+    ulong parent_mnt_id;
+    int err = fd_mount_id( parent_fd, &parent_mnt_id );
+    close( parent_fd );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "reading mount ID for `%s` failed (%i-%s); omitting filesystem from system resource reporting",
+                       parent, err, strerror( err ) ));
+      return 0;
+    }
+    if( parent_mnt_id!=mnt_id ) break;
+    fd_cstr_ncpy( mount_path, parent, PATH_MAX );
+  }
+  return 1;
+}
+
+static int
+create_disk_probe( int          dir_fd,
+                   char const * probe_dir,
+                   ulong        mnt_id ) {
+  /* Retain no directory fds after sandboxing.  O_EXCL ensures
+     that the anonymous inode cannot later be linked into the filesystem;
+     reopening it O_PATH also removes the temporary read/write authority. */
+  int tmp_fd = openat( dir_fd, ".", O_TMPFILE|O_EXCL|O_RDWR|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( tmp_fd<0 ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "anonymous disk-capacity probe in `%s` failed (%i-%s); omitting filesystem from system resource reporting",
+                     probe_dir, err, strerror( err ) ));
+    return -1;
+  }
+
+  char tmp_path[ 64 ];
+  FD_TEST( fd_cstr_printf_check( tmp_path, sizeof(tmp_path), NULL, "/proc/self/fd/%d", tmp_fd ) );
+  int mount_fd = open( tmp_path, O_PATH|O_CLOEXEC );
+  if( FD_UNLIKELY( mount_fd<0 ) ) {
+    int err = errno;
+    close( tmp_fd );
+    FD_LOG_WARNING(( "reopening anonymous disk-capacity probe in `%s` as O_PATH failed (%i-%s); omitting filesystem from system resource reporting",
+                     probe_dir, err, strerror( err ) ));
+    return -1;
+  }
+
+  struct stat probe_st;
+  ulong probe_mnt_id;
+  int probe_err = 0;
+  if( FD_UNLIKELY( fstat( mount_fd, &probe_st ) ) ) probe_err = errno;
+  else if( FD_UNLIKELY( !S_ISREG( probe_st.st_mode ) || probe_st.st_nlink ) ) probe_err = EINVAL;
+  else probe_err = fd_mount_id( mount_fd, &probe_mnt_id );
+  if( FD_UNLIKELY( !probe_err && probe_mnt_id!=mnt_id ) ) probe_err = EXDEV;
+  if( FD_UNLIKELY( probe_err ) ) {
+    close( mount_fd );
+    close( tmp_fd );
+    FD_LOG_WARNING(( "anonymous disk-capacity probe in `%s` failed validation (%i-%s); omitting filesystem from system resource reporting",
+                     probe_dir, probe_err, strerror( probe_err ) ));
+    return -1;
+  }
+  close( tmp_fd );
+  return mount_fd;
+}
+
+static uint
+add_disk_mount( fd_diag_tile_t * ctx,
+                char const *     path ) {
+  if( FD_UNLIKELY( !path[ 0 ] ) ) return UINT_MAX;
+
+  /* Find longest prefix of `path` that is a real path. */
+  char resolved[ PATH_MAX ];
+  if( FD_UNLIKELY( !resolve_path_prefix( path, resolved ) ) ) return UINT_MAX;
+
+  /* Find candidate dir at or above `resolved` where O_TMPFILE can create a probe file. */
+  char  probe_dir[ PATH_MAX ];
+  ulong mnt_id;
+  int dir_fd = open_disk_probe_dir( resolved, probe_dir, &mnt_id );
+  if( FD_UNLIKELY( dir_fd<0 ) ) return UINT_MAX;
+
+  /* Share one probe file among all reported paths on the same mount. */
+  for( ulong i=0UL; i<ctx->mount_cnt; i++ ) {
+    if( ctx->mounts[ i ].mnt_id==mnt_id ) {
+      close( dir_fd );
+      return (uint)i;
+    }
+  }
+  if( FD_UNLIKELY( ctx->mount_cnt>=FD_DIAG_SYSTEM_FILE_MAX ) ) {
+    close( dir_fd );
+    return UINT_MAX;
+  }
+
+  /* Get the path of the mount `path` is on. */
+  char mount_path[ PATH_MAX ];
+  if( FD_UNLIKELY( !resolve_mount_path( probe_dir, mnt_id, mount_path ) ) ) {
+    close( dir_fd );
+    return UINT_MAX;
+  }
+
+  /* Create the probe O_PATH descriptor kept after sandboxing. */
+  int mount_fd = create_disk_probe( dir_fd, probe_dir, mnt_id );
+  close( dir_fd );
+  if( FD_UNLIKELY( mount_fd<0 ) ) return UINT_MAX;
+
+  ulong idx = ctx->mount_cnt++;
+  ctx->mounts[ idx ].fd     = mount_fd;
+  ctx->mounts[ idx ].mnt_id = mnt_id;
+  fd_cstr_ncpy( ctx->mounts[ idx ].path, mount_path, sizeof(ctx->mounts[ idx ].path) );
+  return (uint)idx;
+}
+
+static int
+resolve_file_path( char const * path,
+                   int          data_fd,
+                   char         resolved[ static PATH_MAX ] ) {
+  char fd_path[ 64 ];
+  if( FD_LIKELY( data_fd>=0 ) ) {
+    struct stat st;
+    if( FD_UNLIKELY( fstat( data_fd, &st ) || !S_ISREG( st.st_mode ) ) ) return 0;
+    FD_TEST( fd_cstr_printf_check( fd_path, sizeof(fd_path), NULL, "/proc/self/fd/%d", data_fd ) );
+    path = fd_path;
+  }
+  if( FD_UNLIKELY( !path || !path[ 0 ] ) ) return 0;
+
+  if( FD_LIKELY( realpath( path, resolved ) ) ) return 1;
+  if( FD_LIKELY( path[ 0 ]=='/' ) ) {
+    if( FD_UNLIKELY( strlen( path )>=PATH_MAX ) ) return 0;
+    fd_cstr_ncpy( resolved, path, PATH_MAX );
+    return 1;
+  }
+
+  char cwd[ PATH_MAX ];
+  if( FD_UNLIKELY( !getcwd( cwd, sizeof(cwd) ) ) ) return 0;
+  return fd_cstr_printf_check( resolved, PATH_MAX, NULL, "%s/%s", cwd, path );
+}
+
+static void
+add_file( fd_diag_tile_t * ctx,
+          uint             category,
+          char const *     path,
+          int              data_fd,
+          ulong volatile * metric ) {
+  char resolved[ PATH_MAX ];
+  if( FD_UNLIKELY( !resolve_file_path( path, data_fd, resolved ) ) ) return;
+
+  uint mount_idx = add_disk_mount( ctx, resolved );
+  if( FD_UNLIKELY( mount_idx==UINT_MAX || ctx->file_cnt>=FD_DIAG_SYSTEM_FILE_MAX ) ) return;
+  ulong idx = ctx->file_cnt++;
+  fd_cstr_ncpy( ctx->files[ idx ].path, resolved, sizeof(ctx->files[ idx ].path) );
+  ctx->files[ idx ].category              = category;
+  ctx->files[ idx ].mount_idx             = mount_idx;
+  ctx->files[ idx ].data_fd               = data_fd;
+  ctx->files[ idx ].metric                = metric;
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -533,15 +1021,81 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_diag_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_diag_tile_t), sizeof(fd_diag_tile_t) );
 
-  FD_TEST( topo->tile_cnt<FD_TILE_MAX );
+  FD_TEST( topo->tile_cnt<=FD_DIAG_SYSTEM_TILE_MAX );
 
   FD_TEST( 100L == sysconf( _SC_CLK_TCK ) );
 
-  ctx->tile_cnt = topo->tile_cnt;
+  ctx->tile_cnt    = topo->tile_cnt;
+  ctx->gui_enabled = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL )!=ULONG_MAX;
+  ctx->memory.cnt  = topo->wksp_cnt;
+  FD_TEST( ctx->memory.cnt<=FD_TOPO_MAX_WKSPS );
+  for( ulong wksp_idx=0UL; wksp_idx<ctx->memory.cnt; wksp_idx++ ) {
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ wksp_idx ];
+    FD_TEST( fd_cstr_printf_check( ctx->memory.wksp[ wksp_idx ].name,
+                                  sizeof(ctx->memory.wksp[ wksp_idx ].name), NULL,
+                                  "%s_%s.wksp", topo->app_name, wksp->name ) );
+    ctx->memory.wksp[ wksp_idx ].numa_idx  = wksp->numa_idx;
+    ctx->memory.wksp[ wksp_idx ].bytes     = wksp->page_cnt*wksp->page_sz;
+    ctx->memory.wksp[ wksp_idx ].numa_slot = USHORT_MAX;
+
+    ushort owners[ FD_DIAG_SYSTEM_TILE_MAX ];
+    ulong  owner_cnt = 0UL;
+    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+      fd_topo_tile_t const * owner = &topo->tiles[ tile_idx ];
+      if( topo->objs[ owner->tile_obj_id ].wksp_id!=wksp_idx ) continue;
+      owners[ owner_cnt++ ] = (ushort)tile_idx;
+    }
+    if( FD_LIKELY( owner_cnt==1UL ) ) {
+      ctx->memory.wksp[ wksp_idx ].tile_idx = owners[ 0 ];
+      continue;
+    }
+    if( FD_UNLIKELY( owner_cnt>1UL ) ) {
+      ctx->memory.wksp[ wksp_idx ].tile_idx = DIAG_WKSP_TILE_IDX_SHARED;
+      continue;
+    }
+
+    owner_cnt = 0UL;
+    for( ulong link_idx=0UL; link_idx<topo->link_cnt; link_idx++ ) {
+      fd_topo_link_t const * link = &topo->links[ link_idx ];
+      if( topo->objs[ link->mcache_obj_id ].wksp_id!=wksp_idx &&
+          ( !link->mtu || topo->objs[ link->dcache_obj_id ].wksp_id!=wksp_idx ) ) continue;
+      ulong producer_idx = fd_topo_find_link_producer( topo, link );
+      if( producer_idx==ULONG_MAX ) continue;
+      int found = 0;
+      for( ulong owner_idx=0UL; owner_idx<owner_cnt; owner_idx++ )
+        found |= owners[ owner_idx ]==(ushort)producer_idx;
+      if( !found ) owners[ owner_cnt++ ] = (ushort)producer_idx;
+    }
+    if( FD_LIKELY( owner_cnt==1UL ) ) {
+      ctx->memory.wksp[ wksp_idx ].tile_idx = owners[ 0 ];
+      continue;
+    }
+    if( FD_UNLIKELY( owner_cnt>1UL ) ) {
+      ctx->memory.wksp[ wksp_idx ].tile_idx = DIAG_WKSP_TILE_IDX_SHARED;
+      continue;
+    }
+
+    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+      fd_topo_tile_t const * owner = &topo->tiles[ tile_idx ];
+      int uses_writable = 0;
+      for( ulong obj_idx=0UL; obj_idx<owner->uses_obj_cnt; obj_idx++ ) {
+        ulong obj_id = owner->uses_obj_id[ obj_idx ];
+        uses_writable |= topo->objs[ obj_id ].wksp_id==wksp_idx &&
+                         owner->uses_obj_mode[ obj_idx ]==FD_SHMEM_JOIN_MODE_READ_WRITE;
+      }
+      if( uses_writable ) owners[ owner_cnt++ ] = (ushort)tile_idx;
+    }
+    ctx->memory.wksp[ wksp_idx ].tile_idx = owner_cnt==1UL ? owners[ 0 ] : DIAG_WKSP_TILE_IDX_SHARED;
+  }
+  for( ulong tile_idx=0UL; tile_idx<FD_DIAG_SYSTEM_TILE_MAX; tile_idx++ )
+    ctx->memory.stack_numa_slot[ tile_idx ] = USHORT_MAX;
+  ctx->mount_cnt = 0UL;
+  ctx->file_cnt = 0UL;
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) {
     ctx->stat_fds[ i ]  = -1;
     ctx->sched_fds[ i ] = -1;
   }
+  for( ulong i=0UL; i<FD_DIAG_SYSTEM_NUMA_MAX; i++ ) ctx->numa.node[ i ].meminfo_fd = -1;
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     ulong * metrics = fd_metrics_join( fd_topo_obj_laddr( topo, topo->tiles[ i ].metrics_obj_id ) );
@@ -591,7 +1145,78 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( -1==ctx->proc_softirqs_fd   ) ) FD_LOG_ERR(( "open(/proc/softirqs) failed (%i-%s)",   errno, fd_io_strerror( errno ) ));
 
   ctx->proc_stat_fd = open( "/proc/stat", O_RDONLY );
-  if( FD_UNLIKELY( -1==ctx->proc_stat_fd       ) ) FD_LOG_ERR(( "open(/proc/stat) failed (%i-%s)",       errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ctx->proc_stat_fd       ) ) FD_LOG_ERR(( "open(/proc/stat) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ctx->proc_meminfo_fd = open( "/proc/meminfo", O_RDONLY );
+  if( FD_UNLIKELY( -1==ctx->proc_meminfo_fd    ) ) FD_LOG_ERR(( "open(/proc/meminfo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ctx->numa.cnt = 0UL;
+  if( FD_UNLIKELY( !ctx->gui_enabled ) ) return;
+
+  fd_topo_cpus_t cpus[ 1 ];
+  fd_topo_cpus_init( cpus );
+  ctx->system_resources.cpu_cnt = (uint)fd_ulong_min( cpus->cpu_cnt, FD_DIAG_SYSTEM_CPU_MAX );
+  for( ulong i=0UL; i<ctx->system_resources.cpu_cnt; i++ ) {
+    fd_diag_system_cpu_t * cpu = &ctx->system_resources.cpu[ i ];
+    cpu->cpu_idx     = (ushort)i;
+    cpu->numa_idx    = (ushort)cpus->cpu[ i ].numa_node;
+    cpu->sibling_idx = cpus->cpu[ i ].sibling==ULONG_MAX ? USHORT_MAX : (ushort)cpus->cpu[ i ].sibling;
+    cpu->online      = (uchar)cpus->cpu[ i ].online;
+  }
+
+  for( ulong numa_idx=0UL; numa_idx<cpus->numa_node_cnt && ctx->numa.cnt<FD_DIAG_SYSTEM_NUMA_MAX; numa_idx++ ) {
+    char path[ 128 ];
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/node/node%lu/meminfo", numa_idx ) );
+    int fd = open( path, O_RDONLY );
+    if( FD_UNLIKELY( fd<0 ) ) {
+      if( FD_UNLIKELY( errno!=ENOENT ) ) FD_LOG_WARNING(( "open `%s` failed (%i-%s)", path, errno, strerror( errno ) ));
+      continue;
+    }
+    ctx->numa.node[ ctx->numa.cnt ].idx        = (ushort)numa_idx;
+    ctx->numa.node[ ctx->numa.cnt ].meminfo_fd = fd;
+    ctx->numa.cnt++;
+  }
+
+  for( ulong wksp_idx=0UL; wksp_idx<ctx->memory.cnt; wksp_idx++ ) {
+    ulong numa_slot = 0UL;
+    while( numa_slot<ctx->numa.cnt && ctx->numa.node[ numa_slot ].idx!=ctx->memory.wksp[ wksp_idx ].numa_idx ) numa_slot++;
+    if( FD_UNLIKELY( numa_slot==ctx->numa.cnt ) ) {
+      FD_LOG_WARNING(( "workspace `%s` is assigned to unavailable NUMA node %lu; omitting it from system memory reporting",
+                       ctx->memory.wksp[ wksp_idx ].name, ctx->memory.wksp[ wksp_idx ].numa_idx ));
+      continue;
+    }
+    ctx->memory.wksp[ wksp_idx ].numa_slot = (ushort)numa_slot;
+  }
+
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    /* Keep this placement rule in sync with initialize_stacks(). */
+    ulong stack_cpu_idx = topo->tiles[ tile_idx ].cpu_idx<65535UL ? topo->tiles[ tile_idx ].cpu_idx : 0UL;
+    FD_TEST( stack_cpu_idx<cpus->cpu_cnt );
+    ulong stack_numa_idx = cpus->cpu[ stack_cpu_idx ].numa_node;
+    ulong numa_slot = 0UL;
+    while( numa_slot<ctx->numa.cnt && ctx->numa.node[ numa_slot ].idx!=stack_numa_idx ) numa_slot++;
+    if( FD_UNLIKELY( numa_slot==ctx->numa.cnt ) ) {
+      FD_LOG_WARNING(( "stack for tile %s:%lu is assigned to unavailable NUMA node %lu; omitting it from system memory reporting",
+                       topo->tiles[ tile_idx ].name, topo->tiles[ tile_idx ].kind_id, stack_numa_idx ));
+      continue;
+    }
+    ctx->memory.stack_numa_slot[ tile_idx ] = (ushort)numa_slot;
+  }
+
+  ulong accdb_idx = fd_topo_find_tile( topo, "accdb", 0UL );
+  if( tile->diag.accounts_path[ 0 ] && accdb_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_ACCOUNTS, tile->diag.accounts_path, -1, ctx->metrics[ accdb_idx ] + FD_METRICS_GAUGE_ACCDB_DISK_ALLOCATED_BYTES_OFF );
+  ulong rserve_idx = fd_topo_find_tile( topo, "rserve", 0UL );
+  if( tile->diag.shreds_path[ 0 ] && rserve_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_SHREDS, tile->diag.shreds_path, -1, ctx->metrics[ rserve_idx ] + FD_METRICS_GAUGE_RSERVE_DISK_ALLOCATED_BYTES_OFF );
+  ulong snapmk_idx = fd_topo_find_tile( topo, "snapmk", 0UL );
+  if( tile->diag.snapshots_path[ 0 ] && snapmk_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_SNAPSHOTS, tile->diag.snapshots_path, -1, ctx->metrics[ snapmk_idx ] + FD_METRICS_GAUGE_SNAPMK_DISK_ALLOCATED_BYTES_OFF );
+  ulong gui_idx = fd_topo_find_tile( topo, "gui", 0UL );
+  if( gui_idx!=ULONG_MAX )
+    add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_GUI, tile->diag.gui_path, -1, ctx->metrics[ gui_idx ] + FD_METRICS_GAUGE_GUI_DISK_ALLOCATED_BYTES_OFF );
+  int logfile_fd = fd_log_private_logfile_fd();
+  if( logfile_fd>=0 ) add_file( ctx, FD_DIAG_SYSTEM_FILE_CATEGORY_LOGS, tile->diag.log_path, logfile_fd, NULL );
 }
 
 /* Read starttime (field 22) from stat file. Returns 0 on success, 1 if
@@ -643,6 +1268,17 @@ unprivileged_init( fd_topo_t const *      topo,
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   ctx->next_report_nanos = fd_log_wallclock();
+  ctx->next_system_report_nanos = ctx->next_report_nanos;
+  if( FD_UNLIKELY( ctx->gui_enabled ) ) {
+    ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL );
+    FD_TEST( out_idx!=ULONG_MAX );
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ out_idx ] ];
+    ctx->system_out.idx    = out_idx;
+    ctx->system_out.mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->system_out.chunk0 = fd_dcache_compact_chunk0( ctx->system_out.mem, link->dcache );
+    ctx->system_out.wmark  = fd_dcache_compact_wmark ( ctx->system_out.mem, link->dcache, link->mtu );
+    ctx->system_out.chunk  = ctx->system_out.chunk0;
+  }
 
   /* Snapshot the cumulative-since-boot /proc interrupt/softirq counters
      so the metrics we report are counted since process startup. */
@@ -725,19 +1361,30 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       int *                  out_fds ) {
   fd_diag_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL+2UL*ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  int logfile_fd = fd_log_private_logfile_fd();
+  ulong required_fds = 5UL+2UL*ctx->tile_cnt+ctx->numa.cnt+ctx->mount_cnt+(ulong)(-1!=logfile_fd);
+  for( ulong i=0UL; i<ctx->file_cnt; i++ )
+    required_fds += (ulong)( ctx->files[ i ].data_fd>=0 && ctx->files[ i ].data_fd!=logfile_fd );
+  if( FD_UNLIKELY( out_fds_cnt<required_fds ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
-  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
-    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( -1!=logfile_fd ) )
+    out_fds[ out_cnt++ ] = logfile_fd; /* logfile */
   out_fds[ out_cnt++ ] = ctx->proc_interrupts_fd; /* /proc/interrupts */
   out_fds[ out_cnt++ ] = ctx->proc_softirqs_fd;   /* /proc/softirqs */
   out_fds[ out_cnt++ ] = ctx->proc_stat_fd;       /* /proc/stat */
+  out_fds[ out_cnt++ ] = ctx->proc_meminfo_fd;    /* /proc/meminfo */
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( -1!=ctx->stat_fds[ i ] )  out_fds[ out_cnt++ ] = ctx->stat_fds[ i ];  /* /proc/<pid>/task/<tid>/stat */
     if( -1!=ctx->sched_fds[ i ] ) out_fds[ out_cnt++ ] = ctx->sched_fds[ i ]; /* /proc/<pid>/task/<tid>/sched */
   }
+  for( ulong i=0UL; i<ctx->numa.cnt; i++ )
+    if( ctx->numa.node[ i ].meminfo_fd>=0 ) out_fds[ out_cnt++ ] = ctx->numa.node[ i ].meminfo_fd;
+  for( ulong i=0UL; i<ctx->mount_cnt; i++ ) out_fds[ out_cnt++ ] = ctx->mounts[ i ].fd;
+  for( ulong i=0UL; i<ctx->file_cnt; i++ )
+    if( ctx->files[ i ].data_fd>=0 && ctx->files[ i ].data_fd!=logfile_fd )
+      out_fds[ out_cnt++ ] = ctx->files[ i ].data_fd;
   return out_cnt;
 }
 

@@ -1,7 +1,8 @@
+#define _GNU_SOURCE
 #include "fd_gui_store.h"
 
 #include <errno.h>      /* errno                        */
-#include <unistd.h>     /* close, ftruncate             */
+#include <unistd.h>     /* close, fallocate            */
 #include <fcntl.h>      /* open, O_RDWR/O_CREAT/O_TRUNC */
 #include <sys/mman.h>   /* mmap, munmap, PROT_*, MAP_*  */
 
@@ -88,7 +89,7 @@ struct fd_gui_store_private {
   int                          fd;           /* backing-file fd, or -1 */
   void *                       mapped;       /* mmap base (the file) */
   ulong                        mapped_sz;    /* size of `mapped` in bytes */
-  ulong                        file_sz;      /* current ftruncate'd file length */
+  ulong                        file_sz;      /* current allocated file length */
   fd_gui_store_super_t *       super;        /* == mapped (page 0) */
   fd_gui_store_kv_idx_t *      kv_idx[ FD_GUI_STORE_MAX_RINGS ]; /* per-KV-ring index (RAM); NULL for TS rings */
   fd_gui_store_kv_idx_node_t * kv_pool;      /* shared KV index node pool (RAM) */
@@ -292,8 +293,8 @@ fd_gui_store_new( void *                      mem,
   ulong map_sz = data_off + region_cnt*region_sz;
   int fd = open( path, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600 );
   if( FD_UNLIKELY( fd<0 ) ) { FD_LOG_WARNING(( "fd_gui_store_new: open(%s) failed (%d-%s)", path, errno, fd_io_strerror( errno ) )); return NULL; }
-  if( FD_UNLIKELY( ftruncate( fd, (off_t)data_off ) ) ) {
-    FD_LOG_WARNING(( "fd_gui_store_new: ftruncate(%s, %lu) failed (%d-%s)", path, data_off, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fallocate( fd, 0, 0, (off_t)data_off ) ) ) {
+    FD_LOG_WARNING(( "fd_gui_store_new: fallocate(%s, %lu) failed (%d-%s)", path, data_off, errno, fd_io_strerror( errno ) ));
     close( fd ); return NULL;
   }
   void * mapped = mmap( NULL, map_sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
@@ -434,6 +435,12 @@ fd_gui_store_size( fd_gui_store_t const * db ) {
 }
 
 ulong
+fd_gui_store_file_sz( fd_gui_store_t const * db ) {
+  if( FD_UNLIKELY( !db ) ) return 0UL;
+  return db->file_sz;
+}
+
+ulong
 fd_gui_store_free_region_cnt( fd_gui_store_t const * db ) {
   if( FD_UNLIKELY( !db->super ) ) return 0UL;
   return fd_gui_store_freelist_cnt( db->freelist );
@@ -466,11 +473,12 @@ fd_gui_store_region_grow( fd_gui_store_t * db, ulong ring_idx ) {
 
   ulong region_end = db->super->data_off + ( region_id + 1UL )*db->super->region_sz;
   if( region_end>db->file_sz ) {
-    if( FD_UNLIKELY( ftruncate( db->fd, (off_t)region_end ) ) ) {
+    ulong grow_sz = region_end - db->file_sz;
+    if( FD_UNLIKELY( fallocate( db->fd, 0, (off_t)db->file_sz, (off_t)grow_sz ) ) ) {
       /* roll back the claim */
       rt->reg_cnt--;
       fd_gui_store_freelist_push( db->freelist, region_id );
-      FD_LOG_WARNING(( "fd_gui_store: ftruncate grow to %lu failed (%d-%s)", region_end, errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "fd_gui_store: fallocate grow to %lu failed (%d-%s)", region_end, errno, fd_io_strerror( errno ) ));
       return 0;
     }
     db->file_sz = region_end;

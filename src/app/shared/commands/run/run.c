@@ -408,15 +408,15 @@ main_pid_namespace( void * _args ) {
         }
 
         /* The gui joins the accdb shmem read-only (for partition stats)
-          but never reads account data from the on-disk file, so it does
-          not need the accounts.db fd.  Withhold it to keep the gui at
-          least privilege. */
+           but never reads account data from the on-disk file, so it does
+           not need the accounts.db fd.  Withhold it to keep the gui at
+           least privilege. */
         if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
         if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb = tile_uses_accdb_ro = 0;
 
         /* snapwr writes accdb pwrite()s without joining accdb shmem, so
-          it needs the RW fd despite not appearing as an accdb obj user
-          in the topology. */
+           it needs the RW fd despite not appearing as an accdb obj user
+           in the topology. */
         if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         } else {

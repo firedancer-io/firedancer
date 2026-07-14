@@ -552,6 +552,17 @@ fd_gui_printf_block_engine( fd_gui_t * gui ) {
   jsonp_close_envelope( gui->http );
 }
 
+static char const *
+fd_gui_tile_priority_cstr( char const * tile_name ) {
+  switch( fd_topob_tile_priority_type( tile_name ) ) {
+    case FD_TOPOB_PRIORITY_FLOATING: return "floating";
+    case FD_TOPOB_PRIORITY_STARTUP:  return "startup";
+    case FD_TOPOB_PRIORITY_NORMAL:   return "normal";
+    case FD_TOPOB_PRIORITY_CRITICAL: return "critical";
+    default:                         return "unknown";
+  }
+}
+
 void
 fd_gui_printf_tiles( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "tiles" );
@@ -565,9 +576,10 @@ fd_gui_printf_tiles( fd_gui_t * gui ) {
         }
 
         jsonp_open_object( gui->http, NULL );
-          jsonp_string( gui->http, "kind", tile->name );
-          jsonp_ulong( gui->http, "kind_id", tile->kind_id );
-          jsonp_ulong( gui->http, "pid", fd_metrics_tile( tile->metrics )[ MIDX( GAUGE, TILE, PID ) ] );
+          jsonp_string( gui->http, "kind",     tile->name );
+          jsonp_ulong(  gui->http, "kind_id",  tile->kind_id );
+          jsonp_ulong(  gui->http, "pid",      fd_metrics_tile( tile->metrics )[ MIDX( GAUGE, TILE, PID ) ] );
+          jsonp_string( gui->http, "priority", fd_gui_tile_priority_cstr( tile->name ) );
         jsonp_close_object( gui->http );
       }
     jsonp_close_array( gui->http );
@@ -974,17 +986,8 @@ fd_gui_printf_tile_metrics( fd_gui_t *                        gui,
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "priority" );
     for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
-      int priority = fd_topob_tile_priority_type( gui->topo->tiles[ gui->summary.tile[ i ] ].name );
-
-      char const * priority_type_str = "unknown";
-      switch( priority ) {
-        case FD_TOPOB_PRIORITY_FLOATING: priority_type_str = "floating"; break;
-        case FD_TOPOB_PRIORITY_STARTUP:  priority_type_str = "startup";  break;
-        case FD_TOPOB_PRIORITY_NORMAL:   priority_type_str = "normal";   break;
-        case FD_TOPOB_PRIORITY_CRITICAL: priority_type_str = "critical"; break;
-      }
-
-      jsonp_string( gui->http, NULL, priority_type_str );
+      fd_topo_tile_t const * tile = &gui->topo->tiles[ gui->summary.tile[ i ] ];
+      jsonp_string( gui->http, NULL, fd_gui_tile_priority_cstr( tile->name ) );
     }
   jsonp_close_array( gui->http );
 }
@@ -1070,6 +1073,107 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
       jsonp_ulong( gui->http, "spill_bytes",     spill_bytes     );
       jsonp_ulong( gui->http, "free_bytes",      free_bytes      );
       jsonp_ulong( gui->http, "size_bytes",      size_bytes      );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+static ulong
+fd_gui_tile_ordinal( fd_gui_t * gui,
+                     ulong      topo_tile_idx ) {
+  ulong ordinal = 0UL;
+  for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+    ulong idx = gui->summary.tile[ i ];
+    if( FD_UNLIKELY( !strncmp( gui->topo->tiles[ idx ].name, "bench", 5UL ) ) ) continue;
+    if( FD_LIKELY( idx==topo_tile_idx ) ) return ordinal;
+    ordinal++;
+  }
+  return ULONG_MAX;
+}
+
+static char const *
+fd_gui_system_file_category_cstr( uint category ) {
+  switch( category ) {
+    case FD_DIAG_SYSTEM_FILE_CATEGORY_ACCOUNTS:  return "accounts";
+    case FD_DIAG_SYSTEM_FILE_CATEGORY_SHREDS:    return "shreds";
+    case FD_DIAG_SYSTEM_FILE_CATEGORY_SNAPSHOTS: return "snapshots";
+    case FD_DIAG_SYSTEM_FILE_CATEGORY_GUI:       return "gui";
+    case FD_DIAG_SYSTEM_FILE_CATEGORY_LOGS:      return "logs";
+    default:                                     return "unknown";
+  }
+}
+
+void
+fd_gui_printf_system_resources( fd_gui_t * gui ) {
+  fd_diag_system_resources_t const * system = &gui->system.resources;
+  jsonp_open_envelope( gui->http, "summary", "live_system_resources" );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_open_array( gui->http, "cpus" );
+        for( ulong i=0UL; i<(ulong)system->cpu_cnt; i++ ) {
+          fd_diag_system_cpu_t const * cpu = &system->cpu[ i ];
+          jsonp_open_object( gui->http, NULL );
+            jsonp_bool(  gui->http, "online",    cpu->online   );
+            jsonp_ulong( gui->http, "numa_node", cpu->numa_idx );
+            if( FD_LIKELY( cpu->sibling_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, "sibling_cpu", cpu->sibling_idx );
+            else                                            jsonp_null ( gui->http, "sibling_cpu"                  );
+            jsonp_open_array( gui->http, "tile_idxs" );
+              for( ulong j=0UL; j<gui->summary.tile_cnt; j++ ) {
+                ulong topo_tile_idx = gui->summary.tile[ j ];
+                fd_topo_tile_t const * tile = &gui->topo->tiles[ topo_tile_idx ];
+                if( FD_LIKELY( tile->cpu_idx!=i ) ) continue;
+                ulong ordinal = fd_gui_tile_ordinal( gui, topo_tile_idx );
+                if( ordinal!=ULONG_MAX ) jsonp_ulong( gui->http, NULL, ordinal );
+              }
+            jsonp_close_array( gui->http );
+          jsonp_close_object( gui->http );
+        }
+      jsonp_close_array( gui->http );
+      jsonp_open_object( gui->http, "memory" );
+        jsonp_ulong( gui->http, "available_bytes", system->mem_available_bytes );
+        jsonp_ulong( gui->http, "free_bytes",      system->mem_free_bytes      );
+        jsonp_open_array( gui->http, "nodes" );
+          for( ulong i=0UL; i<(ulong)system->numa_mem_cnt; i++ ) {
+            fd_diag_system_numa_mem_t const * numa = &system->numa_mem[ i ];
+            jsonp_open_object( gui->http, NULL );
+              jsonp_ulong( gui->http, "node",         numa->numa_idx     );
+              jsonp_ulong( gui->http, "total_bytes",  numa->total_bytes  );
+              jsonp_ulong( gui->http, "free_bytes",   numa->free_bytes   );
+              jsonp_ulong( gui->http, "shared_bytes", numa->shared_bytes );
+              jsonp_open_array( gui->http, "tiles" );
+                for( ulong j=0UL; j<(ulong)system->tile_mem_cnt; j++ ) {
+                  fd_diag_system_tile_mem_t const * tile = &system->tile_mem[ j ];
+                  ulong ordinal = fd_gui_tile_ordinal( gui, tile->tile_idx );
+                  if( tile->numa_idx!=numa->numa_idx || ordinal==ULONG_MAX ) continue;
+                  jsonp_open_object( gui->http, NULL );
+                    jsonp_ulong( gui->http, "tile_idx", ordinal               );
+                    jsonp_ulong( gui->http, "bytes",    tile->allocated_bytes );
+                  jsonp_close_object( gui->http );
+                }
+              jsonp_close_array( gui->http );
+            jsonp_close_object( gui->http );
+          }
+        jsonp_close_array( gui->http );
+      jsonp_close_object( gui->http );
+      jsonp_open_array( gui->http, "disk" );
+        for( ulong i=0UL; i<(ulong)system->mount_cnt; i++ ) {
+          fd_diag_system_mount_t const * mount = &system->mount[ i ];
+          jsonp_open_object( gui->http, NULL );
+            jsonp_string( gui->http, "name",        mount->path );
+            jsonp_ulong(  gui->http, "total_bytes", mount->total_bytes );
+            jsonp_ulong(  gui->http, "used_bytes",  fd_ulong_sat_sub( mount->total_bytes, mount->free_bytes ) );
+            jsonp_open_array( gui->http, "files" );
+              for( ulong j=0UL; j<(ulong)system->file_cnt; j++ ) {
+                fd_diag_system_file_t const * file = &system->file[ j ];
+                if( file->mount_idx!=i ) continue;
+                jsonp_open_object( gui->http, NULL );
+                  jsonp_string( gui->http, "path",     file->path );
+                  jsonp_string( gui->http, "category", fd_gui_system_file_category_cstr( file->category ) );
+                  jsonp_ulong(  gui->http, "bytes",    file->bytes );
+                jsonp_close_object( gui->http );
+              }
+            jsonp_close_array( gui->http );
+          jsonp_close_object( gui->http );
+        }
+      jsonp_close_array( gui->http );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }

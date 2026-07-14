@@ -1946,6 +1946,8 @@ EXAMPLES
     <counter name="BytesWritten" summary="Bytes written to all connections to the GUI service" />
     <counter name="BytesRead" summary="Bytes read from all connections to the GUI service" />
 
+    <gauge name="DiskAllocatedBytes" summary="Logical bytes allocated by the GUI database backing file" />
+
     <gauge name="DbUsedBytes"      enum="GuiDb" summary="Bytes occupied by records present in the store ring" />
     <gauge name="DbCapacityBytes"  enum="GuiDb" summary="Total bytes of the non-free regions the store ring currently owns" />
     <gauge name="DbFreeBytes"      enum="GuiDb" summary="Total bytes of the free regions the store ring currently doesn't own (same for every database)" />
@@ -2033,6 +2035,7 @@ EXAMPLES
     <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing data" />
     <gauge name="IncrementalAccountCount" summary="Number of accounts that changed since the last full snapshot, i.e. the number of accounts that the next incremental snapshot will contain" />
     <gauge name="IncrementalAccountCapacity" summary="Maximum number of changed accounts that can be tracked.  Once the count reaches this limit, incremental snapshots can no longer be created until the next full snapshot" />
+    <gauge name="DiskAllocatedBytes" summary="Logical bytes allocated across managed snapshot files, including partial and retained files" />
 </tile>
 
 <tile name="snapzp">
