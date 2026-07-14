@@ -18,7 +18,7 @@
    [149, 300). */
 #define FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE (151UL)
 
-struct fd_txncache_single_txn {
+struct __attribute__((packed)) fd_txncache_single_txn {
   uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
   uint  generation;      /* The generation of the fork when this transaction was inserted.  Used to
                             determine if the transaction is still valid for a fork that might have
@@ -32,6 +32,8 @@ struct fd_txncache_single_txn {
 };
 
 typedef struct fd_txncache_single_txn fd_txncache_single_txn_t;
+
+FD_STATIC_ASSERT( sizeof(fd_txncache_single_txn_t)==30UL, fd_txncache_single_txn );
 
 struct fd_txncache_txnpage {
   ushort                   free; /* The number of free txn entries in this page. */
@@ -125,6 +127,8 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
 
   ulong  txn_per_slot_max;
   ulong  active_slots_max;
+  ulong  bucket_cnt;      /* Hash buckets per blockcache.  Decoupled from txn_per_slot_max (load
+                             factor 2) to halve the heads arrays, which are ~10% of the footprint. */
   ushort txnpages_per_blockhash_max;
   ushort max_txnpages;
 
@@ -144,11 +148,18 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ushort
 fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
-                                        ulong max_txn_per_slot );
+                                        ulong max_txn_per_slot,
+                                        int   larger_max_cost_per_block );
 
 FD_FN_CONST ushort
 fd_txncache_max_txnpages( ulong max_active_slots,
-                          ulong max_txn_per_slot );
+                          ulong max_txn_per_slot,
+                          int   larger_max_cost_per_block );
+
+FD_FN_CONST static inline ulong
+fd_txncache_bucket_cnt( ulong max_txn_per_slot ) {
+  return fd_ulong_max( 1UL, (max_txn_per_slot+1UL)/2UL );
+}
 
 FD_PROTOTYPES_END
 

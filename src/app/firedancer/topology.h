@@ -55,7 +55,8 @@ fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot );
+                     ulong        max_txn_per_slot,
+                     int          larger_max_cost_per_block );
 
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,

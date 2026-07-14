@@ -159,13 +159,15 @@ fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
-                     ulong        max_txn_per_slot ) {
+                     ulong        max_txn_per_slot,
+                     int          larger_max_cost_per_block ) {
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
   fd_topo_obj_t * obj = fd_topob_obj( topo, "txncache", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,   "obj.%lu.max_live_slots",   obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
+  FD_TEST( fd_pod_insertf_int(   topo->props, larger_max_cost_per_block, "obj.%lu.larger_max_cost_per_block", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,             "obj.%lu.seed",             obj->id ) );
 
   return obj;
@@ -1184,7 +1186,7 @@ fd_topo_initialize( config_t * config ) {
   if( rserve_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT, config->development.bench.larger_max_cost_per_block );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
