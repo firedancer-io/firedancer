@@ -33,6 +33,31 @@ S2N_BIGNUM_ASMS:=\
   x86/p256/p256_montjscalarmul_alt \
   x86/p256/p256_scalarmulbase \
   x86/p256/p256_scalarmulbase_alt \
+  x86/fastmul/bignum_mul_6_12 \
+  x86/fastmul/bignum_mul_6_12_alt \
+  x86/p384/bignum_add_p384 \
+  x86/p384/bignum_demont_p384 \
+  x86/p384/bignum_demont_p384_alt \
+  x86/p384/bignum_mod_n384 \
+  x86/p384/bignum_mod_n384_6 \
+  x86/p384/bignum_mod_n384_alt \
+  x86/p384/bignum_mod_p384_6 \
+  x86/p384/bignum_montinv_p384 \
+  x86/p384/bignum_montmul_p384 \
+  x86/p384/bignum_montmul_p384_alt \
+  x86/p384/bignum_montsqr_p384 \
+  x86/p384/bignum_montsqr_p384_alt \
+  x86/p384/bignum_optneg_p384 \
+  x86/p384/bignum_tomont_p384 \
+  x86/p384/bignum_tomont_p384_alt \
+  x86/p384/p384_montjadd \
+  x86/p384/p384_montjadd_alt \
+  x86/p384/p384_montjdouble \
+  x86/p384/p384_montjdouble_alt \
+  x86/p384/p384_montjmixadd \
+  x86/p384/p384_montjmixadd_alt \
+  x86/p384/p384_montjscalarmul \
+  x86/p384/p384_montjscalarmul_alt \
   x86/secp256k1/bignum_add_p256k1 \
   x86/secp256k1/bignum_demont_p256k1 \
   x86/secp256k1/bignum_double_p256k1 \
@@ -74,6 +99,21 @@ S2N_BIGNUM_ASMS:=\
   arm/p256/p256_montjmixadd_alt \
   arm/p256/p256_montjscalarmul_alt \
   arm/p256/p256_scalarmulbase_alt \
+  arm/fastmul/bignum_mul_6_12_alt \
+  arm/p384/bignum_add_p384 \
+  arm/p384/bignum_demont_p384 \
+  arm/p384/bignum_mod_n384 \
+  arm/p384/bignum_mod_n384_6 \
+  arm/p384/bignum_mod_p384_6 \
+  arm/p384/bignum_montinv_p384 \
+  arm/p384/bignum_montmul_p384_alt \
+  arm/p384/bignum_montsqr_p384_alt \
+  arm/p384/bignum_optneg_p384 \
+  arm/p384/bignum_tomont_p384 \
+  arm/p384/p384_montjadd_alt \
+  arm/p384/p384_montjdouble_alt \
+  arm/p384/p384_montjmixadd_alt \
+  arm/p384/p384_montjscalarmul_alt \
   arm/secp256k1/bignum_add_p256k1 \
   arm/secp256k1/bignum_demont_p256k1 \
   arm/secp256k1/bignum_double_p256k1 \
