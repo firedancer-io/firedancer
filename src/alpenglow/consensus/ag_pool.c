@@ -765,6 +765,25 @@ ag_pool_get_notarized_block( ag_pool_t const * self,
   return 1;
 }
 
+int
+ag_pool_get_finalized_block( ag_pool_t const * self,
+                             ulong             slot,
+                             fd_hash_t *       out_hash ) {
+  slotent_t const * e = slotent_query_const( self, slot );
+  if( !e ) return 0;
+  ag_notar_cert_t const * nc = ag_slot_state_notar_cert( e->ss );
+  if( nc ) {
+    if( out_hash ) *out_hash = nc->block_hash;
+    return 1;
+  }
+  ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( e->ss );
+  if( ffc ) {
+    if( out_hash ) *out_hash = ffc->block_hash;
+    return 1;
+  }
+  return 0;
+}
+
 FD_FN_PURE int
 ag_pool_has_final_cert( ag_pool_t const * self,
                         ulong             slot ) {

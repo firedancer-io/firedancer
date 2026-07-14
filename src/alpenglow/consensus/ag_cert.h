@@ -175,10 +175,23 @@ ag_cert_check_sig( ag_cert_t const *       self,
                    ushort                  shred_version,
                    ag_epoch_info_t const * epoch_info );
 
+/* ag_cert_de deserializes a network cert body as carried in a
+   WireConsensusMessageV1 (agave votor-messages/src/wire.rs, kind tags
+   7-12 mapped to AG_CERT_TYPE_* by the caller):
+
+     slot (8) [| block_id (32)] | sig (192) | bitmap len (u64 LE) | bitmap
+
+   kind selects the payload shape (Slot vs Block) per WireSlotCertMessage
+   / WireBlockCertMessage.  Trailing bytes after the bitmap (the V1
+   shred_version) are ignored; on success *opt_consumed (if non-NULL) is
+   set to the number of bytes read so the caller can locate them. */
+
 int
 ag_cert_de( ag_cert_t *   out,
+            uint          kind,
             uchar const * in,
-            ulong         in_sz );
+            ulong         in_sz,
+            ulong *       opt_consumed );
 
 /* ag_block_final_cert_de deserializes a finalization cert as carried in
    a block footer (agave entry/src/block_component.rs):

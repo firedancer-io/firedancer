@@ -61,7 +61,9 @@ typedef struct ag_vote ag_vote_t;
 
 #define AG_VOTE_PAYLOAD_MAX (43UL) /* u8 tag + slot + block_id + shred_version */
 
-#define AG_VOTE_SERIALIZED_MAX (4UL + AG_VOTE_PAYLOAD_MAX + AG_AGGSIG_SIG_SZ + 2UL)
+/* VersionedWireConsensusMessage::V1 vote: u8 version + u8 kind tag +
+   body (slot [+ block_id] + sig + u16 rank) + u16 shred_version */
+#define AG_VOTE_SERIALIZED_MAX (2UL + sizeof(ag_notar_vote_t) + 2UL)
 
 FD_PROTOTYPES_BEGIN
 

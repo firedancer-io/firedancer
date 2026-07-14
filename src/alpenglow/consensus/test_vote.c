@@ -1,4 +1,5 @@
 #include "ag_vote.h"
+#include "ag_votor.h"
 
 #define TEST_SHRED_VERSION ((ushort)514)
 
@@ -65,10 +66,10 @@ test_payload_distinct( void ) {
   FD_TEST( memcmp( a, b, s0 )!=0 );
 }
 
-/* check_wire serializes v, parses the ConsensusMessage::Vote wire layout field
-   by field (there is no deserializer yet), and verifies the embedded signature
-   validates against pk over the signed payload -- i.e. the vote was signed
-   correctly and the signature survives serialization intact. */
+/* check_wire serializes v, parses the VersionedWireConsensusMessage::V1
+   vote layout field by field, verifies the wire signature validates
+   against pk over the (rebuilt) signed payload, and round-trips the
+   bytes through ag_consensus_message_de. */
 
 static void
 check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
@@ -77,34 +78,49 @@ check_wire( ag_vote_t const * v, ag_aggsig_pk_t const * pk ) {
   FD_TEST( n>0UL );
 
   fd_hash_t const * h       = ag_vote_block_hash( v );
-  ulong             vote_sz = 1UL + 8UL + ( h ? 32UL : 0UL ) + 2UL; /* VotePayloadToSign */
-  FD_TEST( n == 4UL + vote_sz + AG_AGGSIG_SIG_SZ + 2UL );
+  ulong             body_sz = 8UL + ( h ? 32UL : 0UL ) + AG_AGGSIG_SIG_SZ + 2UL;
+  FD_TEST( n == 2UL + body_sz + 2UL );
 
   ulong off = 0UL;
-  FD_TEST( FD_LOAD( uint,  out+off )==0U              ); off += 4UL; /* ConsensusMessage::Vote */
-  FD_TEST( out[off]==(uchar)(v->kind+1U)              ); off += 1UL; /* VotePayloadToSign tag  */
-  FD_TEST( FD_LOAD( ulong, out+off )==ag_vote_slot( v )); off += 8UL; /* slot                   */
-  if( h ) { FD_TEST( !memcmp( out+off, h->uc, 32UL ) ); off += 32UL; } /* block_id (Block kinds) */
-  FD_TEST( FD_LOAD( ushort, out+off )==TEST_SHRED_VERSION ); off += 2UL; /* shred_version      */
-  FD_TEST( off==4UL+vote_sz );
-
-  uchar const * wire_sig = out+off; off += AG_AGGSIG_SIG_SZ;        /* 192B BLSSignature       */
-  FD_TEST( FD_LOAD( ushort, out+off )==ag_vote_signer( v ) ); off += 2UL; /* u16 rank          */
+  FD_TEST( out[off]==(uchar)1                          ); off += 1UL; /* VersionedWireConsensusMessage::V1 */
+  FD_TEST( out[off]==(uchar)(v->kind+1U)               ); off += 1UL; /* WireConsensusMessageKind tag      */
+  FD_TEST( FD_LOAD( ulong, out+off )==ag_vote_slot( v )); off += 8UL; /* slot                              */
+  if( h ) { FD_TEST( !memcmp( out+off, h->uc, 32UL ) ); off += 32UL; } /* block_id (Block kinds)           */
+  uchar const * wire_sig = out+off; off += AG_AGGSIG_SIG_SZ;           /* 192B BLSSignature                 */
+  FD_TEST( FD_LOAD( ushort, out+off )==ag_vote_signer( v ) ); off += 2UL; /* u16 rank                       */
+  FD_TEST( FD_LOAD( ushort, out+off )==TEST_SHRED_VERSION  ); off += 2UL; /* u16 shred_version              */
   FD_TEST( off==n );
 
   /* the in-struct vote is signed correctly ... */
   FD_TEST( ag_vote_check_sig( v, pk, TEST_SHRED_VERSION ) );
-  /* ... and the signature carried on the wire verifies over the serialized
-     payload (out[4, 4+vote_sz) == the bytes that were signed). */
+  /* ... and the wire signature verifies over VotePayloadToSign (the
+     signed payload is rebuilt from the vote, not the wire bytes). */
+  uchar payload[ AG_VOTE_PAYLOAD_MAX ];
+  ulong payload_sz = ag_vote_payload_bytes_to_sign( payload, v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION );
   ag_aggsig_sig_t sig; fd_memcpy( sig.v, wire_sig, AG_AGGSIG_SIG_SZ );
-  FD_TEST( ag_aggsig_individual_verify_bytes( &sig, pk, out+4UL, vote_sz ) );
+  FD_TEST( ag_aggsig_individual_verify_bytes( &sig, pk, payload, payload_sz ) );
 
 #if FD_HAS_BLST
-  /* negative: tamper the slot in the payload -> the signature must reject. */
-  uchar bad[ AG_VOTE_SERIALIZED_MAX ]; fd_memcpy( bad, out, n );
-  bad[ 5 ] ^= 0xFFu;
-  FD_TEST( !ag_aggsig_individual_verify_bytes( &sig, pk, bad+4UL, vote_sz ) );
+  /* negative: tamper the payload slot -> the signature must reject. */
+  payload[ 1 ] ^= 0xFFu;
+  FD_TEST( !ag_aggsig_individual_verify_bytes( &sig, pk, payload, payload_sz ) );
 #endif
+
+  /* round trip through the consensus-message deserializer */
+  ag_consensus_message_t msg[1];
+  FD_TEST( ag_consensus_message_de( msg, out, n, TEST_SHRED_VERSION )==AG_CONSENSUS_MESSAGE_DE_SUCCESS );
+  FD_TEST( msg->kind==AG_CONSENSUS_MESSAGE_VOTE );
+  FD_TEST( msg->inner.vote.kind==v->kind );
+  FD_TEST( ag_vote_slot  ( &msg->inner.vote )==ag_vote_slot  ( v ) );
+  FD_TEST( ag_vote_signer( &msg->inner.vote )==ag_vote_signer( v ) );
+  if( h ) FD_TEST( !memcmp( ag_vote_block_hash( &msg->inner.vote )->uc, h->uc, 32UL ) );
+  FD_TEST( ag_vote_check_sig( &msg->inner.vote, pk, TEST_SHRED_VERSION ) );
+
+  /* shred_version mismatch / malformed envelope are rejected */
+  FD_TEST( ag_consensus_message_de( msg, out, n, (ushort)(TEST_SHRED_VERSION+1) )==AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION );
+  FD_TEST( ag_consensus_message_de( msg, out, n-1UL, TEST_SHRED_VERSION )==AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED );
+  uchar bad_version[ AG_VOTE_SERIALIZED_MAX ]; fd_memcpy( bad_version, out, n ); bad_version[0] = 2;
+  FD_TEST( ag_consensus_message_de( msg, bad_version, n, TEST_SHRED_VERSION )==AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED );
 }
 
 static void

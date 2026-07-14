@@ -642,35 +642,45 @@ ag_votor_slot_state( ag_votor_t const * votor,
 int
 ag_consensus_message_de( ag_consensus_message_t * out,
                          uchar const *            payload,
-                         ulong                    sz ) {
-  if( FD_UNLIKELY( sz<sizeof(uint) ) ) return -1;
-  uint kind = FD_LOAD( uint, payload );
-  payload += sizeof(uint); sz -= sizeof(uint);
+                         ulong                    sz,
+                         ushort                   shred_version ) {
+  /* VersionedWireConsensusMessage (wire.rs): u8 version, u8 kind, body,
+     u16 LE shred_version. */
+  if( FD_UNLIKELY( sz<2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
+  uchar version = payload[0];
+  uchar kind    = payload[1];
+  if( FD_UNLIKELY( version!=1 ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED;
+  payload += 2UL; sz -= 2UL;
 
-  switch( kind ) {
-  case AG_CONSENSUS_MESSAGE_VOTE: {
-    if( FD_UNLIKELY( sz<sizeof(uint) ) ) return -1;
-    ag_vote_t const * vote = (ag_vote_t const *)fd_type_pun_const( payload );
-    ulong need;
-    switch( vote->kind ) {
-    case AG_VOTE_TYPE_NOTAR:
-    case AG_VOTE_TYPE_NOTAR_FALLBACK: need = sizeof(uint)+sizeof(ag_notar_vote_t); break;
-    case AG_VOTE_TYPE_SKIP:
-    case AG_VOTE_TYPE_SKIP_FALLBACK:
-    case AG_VOTE_TYPE_FINAL:          need = sizeof(uint)+sizeof(ag_final_vote_t); break;
-    default: return -1;
-    }
-    if( FD_UNLIKELY( sz<need ) ) return -1;
-    out->kind = AG_CONSENSUS_MESSAGE_VOTE;
-    fd_memcpy( &out->inner.vote, payload, need );
-    return 0;
+  if( kind>=1 && kind<=5 ) {
+    /* WireBlockVoteMessage / WireSlotVoteMessage: slot [+ block_id],
+       192B sig, u16 rank -- the packed ag_*_vote_t layout.  Vote kind
+       tags start at 1 in AG_VOTE_TYPE order. */
+    uint  vkind   = (uint)kind-1U;
+    ulong body_sz = ( vkind==AG_VOTE_TYPE_NOTAR || vkind==AG_VOTE_TYPE_NOTAR_FALLBACK )
+                    ? sizeof(ag_notar_vote_t) : sizeof(ag_final_vote_t);
+    if( FD_UNLIKELY( sz!=body_sz+2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED; /* deserialize_exact: no trailing bytes */
+    if( FD_UNLIKELY( FD_LOAD( ushort, payload+body_sz )!=shred_version ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION;
+    out->kind            = AG_CONSENSUS_MESSAGE_VOTE;
+    out->inner.vote.kind = vkind;
+    fd_memcpy( &out->inner.vote.inner, payload, body_sz );
+    return AG_CONSENSUS_MESSAGE_DE_SUCCESS;
   }
-  case AG_CONSENSUS_MESSAGE_CERT: {
-    int err = ag_cert_de( &out->inner.cert, payload, sz );
-    if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) return -1;
+
+  if( kind>=7 && kind<=12 ) {
+    /* WireSlotCertMessage / WireBlockCertMessage: cert kind tags start
+       at 7 in AG_CERT_TYPE order (12 = Genesis, rejected by ag_cert_de). */
+    ulong consumed;
+    int err = ag_cert_de( &out->inner.cert, (uint)kind-7U, payload, sz, &consumed );
+    if( FD_UNLIKELY( err==AG_CERT_DE_ERR_UNSUPPORTED ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED;
+    if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS         ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
+    if( FD_UNLIKELY( sz!=consumed+2UL ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED; /* deserialize_exact: no trailing bytes */
+    if( FD_UNLIKELY( FD_LOAD( ushort, payload+consumed )!=shred_version ) ) return AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION;
     out->kind = AG_CONSENSUS_MESSAGE_CERT;
-    return 0;
+    return AG_CONSENSUS_MESSAGE_DE_SUCCESS;
   }
-  default: return -1;
-  }
+
+  /* kind 6 = GenesisVote (no C counterpart), 0 / >12 = unknown */
+  if( kind==6 ) return AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED;
+  return AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED;
 }

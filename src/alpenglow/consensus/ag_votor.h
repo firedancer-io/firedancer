@@ -9,6 +9,11 @@
 #define AG_CONSENSUS_MESSAGE_VOTE (0U)
 #define AG_CONSENSUS_MESSAGE_CERT (1U)
 
+#define AG_CONSENSUS_MESSAGE_DE_SUCCESS           ( 0)
+#define AG_CONSENSUS_MESSAGE_DE_ERR_MALFORMED     (-1)
+#define AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED   (-2) /* unknown version / Genesis kinds */
+#define AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION (-3)
+
 struct ag_consensus_message {
   uint kind;
   union {
@@ -92,10 +97,26 @@ typedef struct ag_votor ag_votor_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* ag_consensus_message_de deserializes a VersionedWireConsensusMessage
+   (agave votor-messages/src/wire.rs):
+
+     u8 version tag (1=V1) | u8 WireConsensusMessageKind tag | body |
+     u16 LE shred_version
+
+   Vote kind tags 1-5 map to AG_VOTE_TYPE_* as tag-1, cert kind tags
+   7-12 map to AG_CERT_TYPE_* as tag-7; Genesis kinds (6, 12) are
+   rejected AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED.  A message whose
+   trailing shred_version differs from shred_version is dropped with
+   AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION (mismatches are dropped,
+   not banned, per wire.rs).  Returns AG_CONSENSUS_MESSAGE_DE_SUCCESS
+   or a negative AG_CONSENSUS_MESSAGE_DE_ERR_*; out is valid only on
+   success. */
+
 int
 ag_consensus_message_de( ag_consensus_message_t * out,
                          uchar const *            payload,
-                         ulong                    sz );
+                         ulong                    sz,
+                         ushort                   shred_version );
 
 FD_FN_CONST ulong
 ag_votor_align( void );

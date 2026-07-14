@@ -129,6 +129,15 @@ ag_pool_get_notarized_block( ag_pool_t const * self,
                              ulong             slot,
                              fd_hash_t *       out_hash );
 
+/* ag_pool_get_finalized_block returns the certified block hash of slot
+   from its notar or fast-final cert (a slow Final cert carries no hash).
+   Returns 0 if neither cert is in the pool. */
+
+int
+ag_pool_get_finalized_block( ag_pool_t const * self,
+                             ulong             slot,
+                             fd_hash_t *       out_hash );
+
 FD_FN_PURE int
 ag_pool_has_final_cert( ag_pool_t const * self,
                         ulong             slot );

@@ -167,26 +167,18 @@ ag_vote_serialize( ag_vote_t const * self,
                    uchar *           out,
                    ulong             out_max,
                    ushort            shred_version ) {
-  ulong                   slot = ag_vote_slot( self );
-  fd_hash_t const *       hash = ag_vote_block_hash( self );
-  ag_aggsig_sig_t const * sig;
-  switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:          sig = &self->inner.notar.sig;          break;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK: sig = &self->inner.notar_fallback.sig; break;
-  case AG_VOTE_TYPE_SKIP:           sig = &self->inner.skip.sig;           break;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:  sig = &self->inner.skip_fallback.sig;  break;
-  default:                          sig = &self->inner.final_.sig;         break;
-  }
-
-  ulong vote_sz = 1UL + 8UL + ( hash ? sizeof(fd_hash_t) : 0UL ) + 2UL;
-  ulong sz      = 4UL + vote_sz + AG_AGGSIG_SIG_SZ + 2UL;
+  /* VersionedWireConsensusMessage::V1 (wire.rs): u8 version (1), u8
+     WireConsensusMessageKind tag (kind+1), body (slot [+ block_id],
+     192B sig, u16 rank -- the packed ag_*_vote_t layout), u16 LE
+     shred_version. */
+  ulong body_sz = ( self->kind==AG_VOTE_TYPE_NOTAR || self->kind==AG_VOTE_TYPE_NOTAR_FALLBACK )
+                  ? sizeof(ag_notar_vote_t) : sizeof(ag_final_vote_t);
+  ulong sz      = 2UL + body_sz + 2UL;
   if( FD_UNLIKELY( out_max<sz ) ) return 0UL;
 
-  ulong off = 0UL;
-  FD_STORE( uint, out+off, 0U  ); off += 4UL;
-  off += ag_vote_payload_bytes_to_sign( out+off, self->kind, slot, hash, shred_version );
-  fd_memcpy( out+off, sig->v, AG_AGGSIG_SIG_SZ ); off += AG_AGGSIG_SIG_SZ;
-  FD_STORE( ushort, out+off, ag_vote_signer( self ) ); off += 2UL;
-  FD_TEST( off==sz );
-  return off;
+  out[0] = (uchar)1;
+  out[1] = (uchar)( self->kind+1U );
+  fd_memcpy( out+2UL, &self->inner, body_sz );
+  FD_STORE( ushort, out+2UL+body_sz, shred_version );
+  return sz;
 }

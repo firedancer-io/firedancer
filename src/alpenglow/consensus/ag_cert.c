@@ -457,13 +457,14 @@ de_base3_bitmap( ag_aggsig_t * base,
 
 int
 ag_cert_de( ag_cert_t *   out,
+            uint          tag,
             uchar const * in,
-            ulong         in_sz ) {
+            ulong         in_sz,
+            ulong *       opt_consumed ) {
   ulong remaining = in_sz;
 
-  /* cert_type: u32 LE tag + payload (Slot or Block). */
-  uint tag;
-  READ_U32( tag, &in, &remaining );
+  /* genesis is not yet supported. */
+  if( tag==AG_CERT_TYPE_GENESIS ) return AG_CERT_DE_ERR_UNSUPPORTED;
 
   ulong     slot = 0UL;
   fd_hash_t block_hash;
@@ -471,22 +472,18 @@ ag_cert_de( ag_cert_t *   out,
 
   switch( tag ) {
   case AG_CERT_TYPE_FINAL:
-  case AG_CERT_TYPE_SKIP:               /* Slot payload */
+  case AG_CERT_TYPE_SKIP:               /* WireSlotCertMessage: Slot payload */
     READ_U64( slot, &in, &remaining );
     break;
   case AG_CERT_TYPE_FAST_FINAL:
   case AG_CERT_TYPE_NOTAR:
-  case AG_CERT_TYPE_NOTAR_FALLBACK:
-  case AG_CERT_TYPE_GENESIS:            /* Block { slot, block_id } payload */
+  case AG_CERT_TYPE_NOTAR_FALLBACK:     /* WireBlockCertMessage: Block { slot, block_id } payload */
     READ_U64( slot, &in, &remaining );
     READ_HASH( block_hash, &in, &remaining );
     break;
   default:
     return AG_CERT_DE_ERR_MALFORMED;
   }
-
-  /* genesis is not yet supported. */
-  if( tag==AG_CERT_TYPE_GENESIS ) return AG_CERT_DE_ERR_UNSUPPORTED;
 
   uchar const * sig = in;
   SKIP_BYTES( AG_AGGSIG_SIG_SZ, &in, &remaining );
@@ -550,7 +547,7 @@ ag_cert_de( ag_cert_t *   out,
     return AG_CERT_DE_ERR_MALFORMED;
   }
 
-  //if( FD_UNLIKELY( remaining!=0UL ) ) return AG_CERT_DE_ERR_MALFORMED;
+  if( opt_consumed ) *opt_consumed = in_sz - remaining;
 
   return AG_CERT_DE_SUCCESS;
 }

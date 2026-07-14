@@ -256,6 +256,15 @@ struct fd_votor_tile {
   ushort shred_version;
   int    init; /* 1 after the first slot completion / votor_new */
 
+  /* consensus-message ingress drop counters (logged on powers of two) */
+
+  ulong rx_drop_frag;          /* stream frame not (offset==0 && fin)   */
+  ulong rx_drop_malformed;     /* ag_consensus_message_de malformed     */
+  ulong rx_drop_unsupported;   /* unknown wire version / Genesis kinds  */
+  ulong rx_drop_shred_version; /* trailing shred_version mismatch       */
+  ulong rx_drop_vote;          /* ag_pool_add_vote rejected             */
+  ulong rx_drop_cert;          /* ag_pool_add_cert rejected             */
+
   /* in/out link setup */
 
   int      in_kind[ 64UL ];
@@ -446,7 +455,7 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fin>ctx->finalized_slot ) ) {
     fd_hash_t block_id[1];
     memset( block_id, 0, sizeof(fd_hash_t) );
-    ag_pool_get_notarized_block( ctx->pool, fin, block_id );
+    ag_pool_get_finalized_block( ctx->pool, fin, block_id );
     publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
     pub->sig                    = FD_VOTOR_SIG_FINALIZED;
     pub->msg.finalized.slot     = fin;
@@ -457,23 +466,27 @@ maybe_publish_finalized( fd_votor_tile_t * ctx ) {
   /* ROOTED: the bank root can advance to the highest finalized+replayed slot. */
   ulong rootable = fd_ulong_min( fin, ctx->highest_replayed_slot );
   if( FD_UNLIKELY( rootable>ctx->root_slot ) ) {
-    /* block id of the rootable slot: at the replay frontier (catchup) use the
-       block we just replayed there; otherwise (finalized trails replay) the
-       finalized slot has a notar cert -> read it from the pool. */
+    /* block id of the rootable slot: prefer the certified hash (notar or
+       fast-final cert; a slow Final cert carries no hash); at the replay
+       frontier fall back to the block we just replayed there.  If neither
+       is known (cert lost, e.g. dropped fragmented stream) hold the root
+       and retry on the next advance -- never publish a zero block id
+       (replay FD_TESTs the block id lookup). */
     fd_hash_t block_id[1];
-    if( rootable==ctx->highest_replayed_slot ) {
+    int have_id = ag_pool_get_finalized_block( ctx->pool, rootable, block_id );
+    if( FD_UNLIKELY( !have_id && rootable==ctx->highest_replayed_slot ) ) {
       *block_id = ctx->highest_replayed_block_id;
-    } else {
-      memset( block_id, 0, sizeof(fd_hash_t) );
-      ag_pool_get_notarized_block( ctx->pool, rootable, block_id );
+      have_id   = 1;
     }
-    publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-    pub->sig                 = FD_VOTOR_SIG_ROOTED;
-    pub->msg.rooted.slot     = rootable;
-    pub->msg.rooted.block_id = *block_id;
-    ctx->root_slot           = rootable;
-    ctx->root_block_id       = *block_id; /* keep the root block id for the next pool rebuild */
-    FD_LOG_INFO(( "votor rooted slot %lu", rootable ));
+    if( FD_LIKELY( have_id ) ) {
+      publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
+      pub->sig                 = FD_VOTOR_SIG_ROOTED;
+      pub->msg.rooted.slot     = rootable;
+      pub->msg.rooted.block_id = *block_id;
+      ctx->root_slot           = rootable;
+      ctx->root_block_id       = *block_id; /* keep the root block id for the next pool rebuild */
+      FD_LOG_INFO(( "votor rooted slot %lu", rootable ));
+    }
   }
 }
 
@@ -758,6 +771,15 @@ handle_contact_info_update( fd_votor_tile_t *                  ctx,
 
 
 
+/* count_drop bumps an ingress drop counter and logs on powers of two. */
+
+static inline void
+count_drop( ulong *      cnt,
+            char const * what ) {
+  (*cnt)++;
+  if( FD_UNLIKELY( fd_ulong_is_pow2( *cnt ) ) ) FD_LOG_WARNING(( "votor rx drop: %s (cnt %lu)", what, *cnt ));
+}
+
 /* Alpenglow::handle_all2all_message
    https://github.com/qkniep/alpenglow/blob/c415a42/src/consensus.rs#L330 */
 
@@ -776,7 +798,10 @@ handle_all2all_message( fd_votor_tile_t *              ctx,
       FD_LOG_WARNING(( "slashable offence detected: validator %u slot %lu", ag_vote_signer( &msg->inner.vote ), ag_vote_slot( &msg->inner.vote ) ));
       break;
     default:
-      FD_LOG_ERR(( "unhandled err %d", err ));
+      /* invalid votes are ignored (consensus.rs:338); duplicates and
+         out-of-bounds slots are routine from network peers */
+      count_drop( &ctx->rx_drop_vote, ag_pool_strerror( err ) );
+      break;
     }
     break;
   }
@@ -791,7 +816,9 @@ handle_all2all_message( fd_votor_tile_t *              ctx,
     int err = ag_pool_add_cert( ctx->pool, ctx->shred_version, &msg->inner.cert, ei );
     if( FD_LIKELY( err==AG_POOL_SUCCESS ) ) {
       maybe_publish_finalized( ctx );
-    } /* else: ignoring invalid cert */
+    } else {
+      count_drop( &ctx->rx_drop_cert, ag_pool_strerror( err ) );
+    }
     break;
   }
   default: break;
@@ -1087,8 +1114,8 @@ quic_server_conn_new( fd_quic_conn_t * conn,
   fd_quic_tls_hs_t const * hs = conn->tls_hs;
   if( FD_UNLIKELY( !hs ) ) return; /* no handshake state (should not happen on conn_new) */
   FD_BASE58_ENCODE_32_BYTES( hs->hs.srv.client_pubkey, pubkey_str );
-  // FD_LOG_NOTICE(( "votor accepted connection from quic client %s at " FD_IP4_ADDR_FMT ":%u",
-  //                 pubkey_str, FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ), (uint)conn->peer[0].udp_port ));
+  FD_LOG_NOTICE(( "votor accepted connection from quic client %s at " FD_IP4_ADDR_FMT ":%u",
+                  pubkey_str, FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ), (uint)conn->peer[0].udp_port ));
 }
 
 static void
@@ -1136,10 +1163,16 @@ quic_server_stream_rx( fd_quic_conn_t * conn,
                        int              fin ) {
   (void)stream_id;
   fd_votor_tile_t * ctx = conn->quic->cb.quic_ctx;
-  if( FD_UNLIKELY( !(offset==0UL && fin) ) ) return FD_QUIC_SUCCESS; /* fragmented: drop (TODO reassemble) */
+  if( FD_UNLIKELY( !(offset==0UL && fin) ) ) { count_drop( &ctx->rx_drop_frag, "fragmented stream (TODO reassemble)" ); return FD_QUIC_SUCCESS; }
   if( FD_UNLIKELY( !ctx->init || !ctx->have_schedule ) ) return FD_QUIC_SUCCESS; /* consensus not ready (pre first slot completion / epoch set) */
   ag_consensus_message_t msg[1];
-  if( FD_LIKELY( !ag_consensus_message_de( msg, data, data_sz ) ) ) handle_all2all_message( ctx, msg );
+  int err = ag_consensus_message_de( msg, data, data_sz, ctx->shred_version );
+  switch( err ) {
+  case AG_CONSENSUS_MESSAGE_DE_SUCCESS:           handle_all2all_message( ctx, msg );                                     break;
+  case AG_CONSENSUS_MESSAGE_DE_ERR_SHRED_VERSION: count_drop( &ctx->rx_drop_shred_version, "shred_version mismatch"    ); break;
+  case AG_CONSENSUS_MESSAGE_DE_ERR_UNSUPPORTED:   count_drop( &ctx->rx_drop_unsupported,   "unsupported version/kind"  ); break;
+  default:                                        count_drop( &ctx->rx_drop_malformed,     "malformed consensus message" ); break;
+  }
   return FD_QUIC_SUCCESS;
 }
 
@@ -1341,7 +1374,9 @@ after_credit( fd_votor_tile_t *   ctx,
   }
 
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
-    publish_t * pub = publishes_pop_head_nocopy( ctx->publishes );
+    /* pop_tail: everything pushes at the head, so tail-pop keeps FIFO
+       order (replay relies on ROOTED slots arriving monotonically). */
+    publish_t * pub = publishes_pop_tail_nocopy( ctx->publishes );
     ulong ts = fd_frag_meta_ts_comp( fd_tickcount() );
 
     /* TODO a2a broadcast */
