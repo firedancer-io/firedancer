@@ -636,6 +636,96 @@ test_after_tower_confirmed_eviction( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_after_tower_confirmed_eviction" ));
 }
 
+/* test_check_confirmed_partial_last_fec_oob
+
+   Reproduces the out-of-bounds read in check_confirmed
+   (fd_repair_tile.c) when the last FEC set of a slot is *partial* i.e.
+   complete_idx is not of the form N*32-1.
+
+   A leader may set FD_SHRED_DATA_FLAG_SLOT_COMPLETE on any
+   shred index; nothing forces the last shred to be the last member of
+   its FEC set.  When complete_idx lands in [32736, 32766] (the highest
+   possible FEC set, index 1023, but not the aligned 32767), the guard
+   in check_confirmed
+
+     (bad_fec_idx == complete_idx - (FD_FEC_SHRED_CNT - 1))
+
+   compares shred indices and is FALSE, so the else-branch reads
+
+     merkle_roots[(bad_fec_idx / 32) + 1].cmr = merkle_roots[1024].cmr
+
+   one element past the end of the 1024-element merkle_roots array.
+
+   Trigger, driven end-to-end through after_tower -> check_confirmed:
+     1. Slot 2's last (partial) FEC set arrives with slot_complete at
+        shred idx 32766, fec_set_idx 32736 (FEC index 1023), carrying a
+        merkle root that will NOT match the confirmed block_id.
+     2. Tower duplicate-confirms slot 2 with a different block_id.
+     3. check_confirmed -> fd_forest_fec_chain_verify detects the last
+        FEC as incorrect and returns the block; the guard is false and
+        the code indexes merkle_roots[1024].
+
+   Under EXTRAS=ubsan (-fsanitize=bounds) this aborts with an
+   out-of-bounds diagnostic before the fix, and runs cleanly after the
+   guard is changed to compare FEC-set indices. */
+
+static void
+test_check_confirmed_partial_last_fec_oob( fd_wksp_t * wksp ) {
+
+  static ctx_t ctx[1];
+  /* Only a couple of blocks are needed; keep the forest small so the
+     large per-block merkle_roots array (~72 KiB each) fits under a
+     modest mlock limit. */
+  setup_ctx( ctx, wksp, 8 );
+
+  fd_forest_init( ctx->forest, 0 );
+
+  /* complete_idx in the last FEC set (index 1023) but not aligned to
+     32*1024-1 == 32767, so the last FEC set is partial. */
+  uint const last_fec_set_idx = (FD_FEC_BLK_MAX - 1U) * FD_FEC_SHRED_CNT; /* 32736, FEC index 1023 */
+  uint const complete_idx     = last_fec_set_idx + (FD_FEC_SHRED_CNT - 2U); /* 32766, %32 == 30 */
+  FD_TEST( complete_idx % FD_FEC_SHRED_CNT != FD_FEC_SHRED_CNT - 1U ); /* partial last FEC */
+
+  fd_hash_t mr_bad       = (fd_hash_t){ .ul = { 999 } }; /* recorded last-FEC merkle root */
+  fd_hash_t cmr_bad      = (fd_hash_t){ .ul = { 998 } };
+  fd_hash_t mr_confirmed = (fd_hash_t){ .ul = { 555 } }; /* tower-confirmed block_id (mismatch) */
+
+  /* Insert slot 2 and its partial last FEC set with slot_complete.  The
+     intervening shreds never arrive, so buffered_idx stays behind, but
+     check_confirmed only requires complete_idx != UINT_MAX. */
+  fd_forest_blk_insert( ctx->forest, 2, 0, NULL );
+  fd_forest_fec_insert( ctx->forest, 2, 0, complete_idx, last_fec_set_idx, 1, 0, &mr_bad, &cmr_bad );
+
+  fd_forest_blk_t * blk2 = fd_forest_query( ctx->forest, 2 );
+  FD_TEST( blk2 );
+  FD_TEST( blk2->complete_idx == complete_idx );
+  FD_TEST( blk2->lowest_verified_fec == UINT_MAX );
+  FD_TEST( blk2->chain_confirmed == 0 );
+
+  /* Tower duplicate-confirms slot 2 with a block_id that does not match
+     the recorded last-FEC merkle root, so chain verify fails on the
+     last (partial) FEC and check_confirmed computes the expected root
+     via the buggy merkle_roots[(bad_fec_idx/32)+1] index. */
+  fd_tower_slot_confirmed_t confirmed_msg[1];
+  memset( confirmed_msg, 0, sizeof(*confirmed_msg) );
+  confirmed_msg->level    = FD_TOWER_SLOT_CONFIRMED_DUPLICATE;
+  confirmed_msg->fwd      = 0;
+  confirmed_msg->slot     = 2;
+  confirmed_msg->block_id = mr_confirmed;
+
+  after_tower( ctx, FD_TOWER_SIG_SLOT_CONFIRMED, (uchar *)confirmed_msg );
+
+  /* Post-conditions after the fix: the last (partial) FEC was detected
+     incorrect and cleared, so complete_idx is reset and the slot is not
+     chain_confirmed.  (Before the fix, execution never reaches here
+     under UBSan — it aborts on the OOB read.) */
+  blk2 = fd_forest_query( ctx->forest, 2 );
+  FD_TEST( blk2 );
+  FD_TEST( blk2->chain_confirmed == 0 );
+
+  FD_LOG_NOTICE(( "pass: test_check_confirmed_partial_last_fec_oob" ));
+}
+
 
 /* test_after_fec_dup_confirm_larger_slot
 
@@ -987,6 +1077,9 @@ int main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1UL );
   test_after_tower_confirmed_eviction( wksp );
+
+  fd_wksp_reset( wksp, 1UL );
+  test_check_confirmed_partial_last_fec_oob( wksp );
 
   fd_wksp_reset( wksp, 1UL );
   test_after_fec_dup_confirm_larger_slot( wksp );
