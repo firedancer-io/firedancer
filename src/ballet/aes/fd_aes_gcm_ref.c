@@ -34,16 +34,14 @@ fd_aes_gcm_setiv( fd_aes_gcm_ref_t * gcm,
 }
 
 void
-fd_aes_128_gcm_init_ref( fd_aes_gcm_ref_t * gcm,
-                         uchar const        key[ 16 ],
-                         uchar const        iv[ 12 ] ) {
-
-  /* TODO: Check key size */
-
-  memset( gcm, 0, sizeof(fd_aes_gcm_t) );
+fd_aes_gcm_init_ref( fd_aes_gcm_ref_t * gcm,
+                     uchar const *      key,
+                     ulong              key_sz,
+                     uchar const        iv[ 12 ] ) {
+  memset( gcm, 0, sizeof(fd_aes_gcm_ref_t) );
 
   fd_aes_key_ref_t * ks = &gcm->key;
-  fd_aes_set_encrypt_key( key, 128, ks );
+  fd_aes_set_encrypt_key( key, key_sz<<3UL, ks );
 
   fd_aes_encrypt( gcm->H.c, gcm->H.c, ks );
   gcm->H.u[ 0 ] = fd_ulong_bswap( gcm->H.u[ 0 ] );

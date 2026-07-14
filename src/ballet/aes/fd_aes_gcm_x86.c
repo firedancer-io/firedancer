@@ -2,6 +2,7 @@
    fd_aes_gcm_{aesni,avx10}.S */
 
 #include "fd_aes_gcm.h"
+#include "fd_aes_base.h"
 
 #if FD_HAS_AESNI
 
@@ -112,10 +113,31 @@ aes_gcm_dec_final_aesni( fd_aes_gcm_aesni_t const * key,
                          int                        taglen );
 
 void
-fd_aes_128_gcm_init_aesni( fd_aes_gcm_aesni_t * aes_gcm,
-                           uchar const          key[ 16 ],
-                           uchar const          iv [ 12 ] ) {
-  expand_aes_key( &aes_gcm->key, key );
+fd_aes_gcm_init_aesni( fd_aes_gcm_aesni_t * aes_gcm,
+                       uchar const *        key,
+                       ulong                key_sz,
+                       uchar const          iv[ 12 ] ) {
+  if( FD_LIKELY( key_sz == 16UL ) ) {
+    expand_aes_key( &aes_gcm->key, key );
+  } else {
+    /* For AES-{192,256}, we use the generic key expansion from 
+       fd_aes_base. */
+    fd_aes_key_ref_t ref_key;
+    fd_aes_set_encrypt_key( key, key_sz<<3UL, &ref_key );
+    /* Copy expanded round keys into the AESNI layout. */
+    ulong nr = ( key_sz >> 2 ) + 6UL;
+    for( ulong i = 0; i <= nr; i++ ) {
+      memcpy( aes_gcm->key.key_enc + i*16, ref_key.rd_key + i*4, 16 );
+    }
+    /* Derive decryption keys. */
+    memcpy( aes_gcm->key.key_dec, aes_gcm->key.key_enc + nr*16, 16 );
+    for( ulong i = 1; i < nr; i++ ) {
+      vb_t enc_key = vb_ld( aes_gcm->key.key_enc + i*16 );
+      vb_st( aes_gcm->key.key_dec + (nr-i)*16, _mm_aesimc_si128( enc_key ) );
+    }
+    memcpy( aes_gcm->key.key_dec + nr*16, aes_gcm->key.key_enc, 16 );
+    aes_gcm->key.key_sz = (uint)key_sz;
+  }
   aes_gcm_precompute_aesni( aes_gcm );
   memcpy( aes_gcm->iv, iv, 12 );
 }
@@ -206,10 +228,11 @@ aes_gcm_dec_final_aesni_avx( fd_aes_gcm_aesni_t const * key,
                              int                        taglen );
 
 void
-fd_aes_128_gcm_init_avx2( fd_aes_gcm_aesni_t * aes_gcm,
-                          uchar const          key[ 16 ],
-                          uchar const          iv [ 12 ] ) {
-  expand_aes_key( fd_type_pun( &aes_gcm->key ), key );
+fd_aes_gcm_init_avx2( fd_aes_gcm_aesni_t * aes_gcm,
+                      uchar const *        key,
+                      ulong                key_sz,
+                      uchar const          iv[ 12 ] ) {
+  fd_aes_gcm_init_aesni( aes_gcm, key, key_sz, iv );
   aes_gcm_precompute_aesni_avx( aes_gcm );
   memcpy( aes_gcm->iv, iv, 12 );
 }
@@ -291,19 +314,11 @@ aes_gcm_dec_final_vaes_avx10( fd_aes_gcm_avx10_t const * key,
                               int                        taglen );
 
 void
-fd_aes_128_gcm_init_avx10( fd_aes_gcm_avx10_t * aes_gcm,
-                           uchar const          key[ 16 ],
-                           uchar const          iv [ 12 ] ) {
-  expand_aes_key( &aes_gcm->key, key );
-  aes_gcm_precompute_vaes_avx10_512( aes_gcm );
-  memcpy( aes_gcm->iv, iv, 12 );
-}
-
-void
-fd_aes_128_gcm_init_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
-                               uchar const          key[ 16 ],
-                               uchar const          iv [ 12 ] ) {
-  expand_aes_key( &aes_gcm->key, key );
+fd_aes_gcm_init_avx10( fd_aes_gcm_avx10_t * aes_gcm,
+                       uchar const *        key,
+                       ulong                key_sz,
+                       uchar const          iv[ 12 ] ) {
+  fd_aes_gcm_init_aesni( (fd_aes_gcm_aesni_t *)aes_gcm, key, key_sz, iv );
   aes_gcm_precompute_vaes_avx10_512( aes_gcm );
   memcpy( aes_gcm->iv, iv, 12 );
 }
