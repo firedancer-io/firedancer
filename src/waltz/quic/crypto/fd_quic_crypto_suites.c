@@ -27,7 +27,7 @@ fd_quic_hkdf_expand_label( uchar *       out,
                            uchar const   secret[ 32 ],
                            char const *  label,
                            ulong         label_sz ) {
-  fd_tls_hkdf_expand_label( out, out_sz, secret, label, label_sz, NULL, 0UL );
+  fd_hkdf_expand_label_sha256( out, out_sz, secret, label, label_sz, NULL, 0UL );
 }
 
 void

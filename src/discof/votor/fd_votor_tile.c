@@ -334,11 +334,12 @@ ban_bad_ranks( fd_votor_tile_t *    ctx,
 }
 
 static void
-sign_ed25519( void *      signer_ctx,
-              uchar       sig[ static FD_ED25519_SIG_SZ ],
-              uchar const msg[ static 130 ] ) {
+sign_ed25519( void *        signer_ctx,
+              uchar         sig[ static FD_ED25519_SIG_SZ ],
+              uchar const * payload,
+              ulong         payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
-  fd_keyguard_client_sign( ctx->keyguard_client, sig, msg, 130UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+  fd_keyguard_client_sign( ctx->keyguard_client, sig, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
