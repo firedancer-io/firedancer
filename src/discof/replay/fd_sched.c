@@ -3,7 +3,6 @@
 
 #include "fd_sched.h"
 #include "fd_execrp.h" /* for poh hash value */
-#include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
@@ -21,6 +20,13 @@
 
 #define FD_SCHED_MAX_MBLK_PER_SLOT             (MAX_SKIPPED_TICKS)
 #define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
+
+/* Per-block sliding window over cumulative shred byte offsets.  Only
+   the parse frontier is ever searched, which lies within the residual
+   (<FD_TXN_MTU) plus one FEC set (<=67 shreds), so a small window
+   suffices.  Entries that fall out of the window degrade GUI-only
+   shred attribution for oversized (legacy/adversarial) FEC sets. */
+#define FD_SCHED_SHRED_WINDOW              (512UL)
 
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
@@ -108,7 +114,6 @@ struct fd_sched_block {
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
-  ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
 
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
@@ -166,7 +171,8 @@ struct fd_sched_block {
                                                              stageable unstaged descendants are counted. */
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
-  uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
+  uint                shred_blk_offs[ FD_SCHED_SHRED_WINDOW ]; /* Ring of the byte offsets into block data of the most recently
+                                                                  ingested shreds; entry for shred i lives at i%window. */
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -249,6 +255,8 @@ struct fd_sched {
                                                                                not set in the bitset. */
   ulong                 staged_popcnt_wmk;
   ulong                 txn_pool_free_cnt;
+  uint *                txn_ring;        /* Per-block rings of txn pool indices in parse order, block_cnt_max*txn_ring_stride entries. */
+  ulong                 txn_ring_stride; /* pow2 >= depth: the live parse window per block is < depth entries. */
   fd_txn_p_t *          txn_pool;      /* Just a flat array. */
   fd_sched_txn_info_t * txn_info_pool; /* Just a flat array. */
   fd_sched_mblk_t *     mblk_pool;     /* Just a flat array. */
@@ -447,6 +455,34 @@ block_is_prunable( fd_sched_block_t * block ) {
 static inline ulong
 block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
 
+/* block_txn_ring_at returns a pointer to the ring slot holding the txn
+   pool index for the parse_idx-th parsed transaction of block.  Valid
+   only while the transaction is in flight: at most depth-1
+   transactions hold pool slots, and every unconsumed entry holds one,
+   so the live window is < txn_ring_stride and older slots are dead. */
+static inline uint *
+block_txn_ring_at( fd_sched_t * sched, fd_sched_block_t * block, ulong parse_idx ) {
+  return sched->txn_ring + block_to_idx( sched, block )*sched->txn_ring_stride + (parse_idx & (sched->txn_ring_stride-1UL));
+}
+
+/* shred_offs_split returns the global index of the first shred whose
+   cumulative byte offset is >= query, searching the in-window suffix
+   of the shred_blk_offs ring (entries are monotone in append order).
+   Evicted entries are treated as < query, clamping the result into the
+   window: only affects GUI shred attribution of FEC sets larger than
+   the window. */
+static inline ulong
+shred_offs_split( fd_sched_block_t const * block, uint query ) {
+  ulong lo = fd_ulong_sat_sub( block->shred_cnt, FD_SCHED_SHRED_WINDOW );
+  ulong hi = block->shred_cnt;
+  while( lo<hi ) {
+    ulong mid = (lo+hi)>>1;
+    if( block->shred_blk_offs[ mid&(FD_SCHED_SHRED_WINDOW-1UL) ]<query ) lo = mid+1UL;
+    else                                                                 hi = mid;
+  }
+  return lo;
+}
+
 __attribute__((format(printf,2,3)))
 static void
 fd_sched_printf( fd_sched_t * sched,
@@ -590,6 +626,7 @@ fd_sched_footprint( ulong depth,
   l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   ); /* txn_pool */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          ); /* txn_info_pool */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              ); /* mblk_pool */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                block_cnt_max*fd_ulong_pow2_up( depth )*sizeof(uint) ); /* txn_ring */
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
 
@@ -643,11 +680,14 @@ fd_sched_new( void *     mem,
   fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   );
   fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          );
   fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              );
+  uint *                _txn_ring      = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                block_cnt_max*fd_ulong_pow2_up( depth )*sizeof(uint) );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
-  sched->txn_pool      = _txn_pool;
-  sched->txn_info_pool = _txn_info_pool;
-  sched->mblk_pool     = _mblk_pool;
+  sched->txn_pool        = _txn_pool;
+  sched->txn_info_pool   = _txn_info_pool;
+  sched->mblk_pool       = _mblk_pool;
+  sched->txn_ring        = _txn_ring;
+  sched->txn_ring_stride = fd_ulong_pow2_up( depth );
 
   fd_rdisp_new( _rdisp, depth, block_cnt_max, fd_rng_ulong( rng ) );
 
@@ -995,19 +1035,19 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
-  ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ block->shred_cnt-1 ] : 0UL;
+  ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ (block->shred_cnt-1U)&(FD_SCHED_SHRED_WINDOW-1UL) ] : 0UL;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
     if( FD_LIKELY( i<32UL ) ) {
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ i ];
+      block->shred_blk_offs[ (block->shred_cnt++)&(FD_SCHED_SHRED_WINDOW-1UL) ] = (uint)block_sz + fec->fec->shred_offs[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
       ulong num_overflow_shreds = fec->shred_cnt-32UL;
       ulong overflow_idx        = i-32UL;
       ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->shred_offs[ 31 ];
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+      block->shred_blk_offs[ (block->shred_cnt++)&(FD_SCHED_SHRED_WINDOW-1UL) ] = (uint)block_sz + fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
+      block->shred_blk_offs[ (block->shred_cnt++)&(FD_SCHED_SHRED_WINDOW-1UL) ] = (uint)block_sz + (uint)fec->fec->data_sz;
     }
   }
 
@@ -2292,9 +2332,9 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = pay_sz;
 
-  txn_p->start_shred_idx = (ushort)fd_sort_up_uint_split( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff );
+  txn_p->start_shred_idx = (ushort)shred_offs_split( block, block->fec_buf_boff+block->fec_buf_soff );
   txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
-  txn_p->end_shred_idx = (ushort)fd_sort_up_uint_split( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
+  txn_p->end_shred_idx = (ushort)shred_offs_split( block, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
 
   fd_memcpy( txn_p->payload, payload, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,     txn_sz );
@@ -2309,7 +2349,11 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_info_pool[ txn_idx ].tick_exec_disp = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].tick_exec_done = LONG_MAX;
   sched->txn_info_pool[ txn_idx ].index_in_slot  = block->txn_parsed_cnt;
-  block->txn_idx[ block->txn_parsed_cnt ] = txn_idx;
+  /* Ring overwrite is safe: the entry being clobbered is depth-1 or
+     more parses behind and every unconsumed entry pins a distinct txn
+     pool slot, of which there are only depth-1. */
+  FD_TEST( block->txn_parsed_cnt-(block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt)<sched->txn_ring_stride );
+  *block_txn_ring_at( sched, block, block->txn_parsed_cnt ) = (uint)txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
 #if FD_SCHED_SKIP_SIGVERIFY
@@ -2331,7 +2375,7 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
   /* Dispatch transactions for sigverify in parse order. */
   out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
   out->txn_sigverify->bank_idx = bank_idx;
-  out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
+  out->txn_sigverify->txn_idx  = (ulong)*block_txn_ring_at( sched, block, block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt );
   out->txn_sigverify->exec_idx = (ulong)exec_tile_idx;
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
@@ -2456,7 +2500,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   /* Now mixin. */
   if( FD_LIKELY( mblk->curr_txn_idx==mblk->start_txn_idx ) ) block->bmtree = fd_bmtree_commit_init( block->bmtree_mem, 32UL, 1UL, 0UL ); /* Optimize for single-transaction microblocks, which are the majority. */
 
-  ulong txn_gidx = block->txn_idx[ mblk->curr_txn_idx ];
+  ulong txn_gidx = (ulong)*block_txn_ring_at( sched, block, mblk->curr_txn_idx );
   fd_txn_p_t * _txn = sched->txn_pool+txn_gidx;
   fd_txn_t * txn = TXN(_txn);
   for( ulong j=0; j<txn->signature_cnt; j++ ) {

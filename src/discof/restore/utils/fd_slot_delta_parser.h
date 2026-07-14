@@ -123,6 +123,7 @@ struct fd_slot_delta_parser_advance_result {
 
     struct {
       uchar const * blockhash;
+      ulong         slot;
       ulong         txnhash_offset;
     } group;
   };

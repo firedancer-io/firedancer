@@ -1265,6 +1265,10 @@ void
 fd_topo_print_log( int         stdout,
                    fd_topo_t * topo );
 
+/* Prints the same topology description to stdout as a JSON document */
+void
+fd_topo_print_json( fd_topo_t * topo );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_topo_fd_topo_h */

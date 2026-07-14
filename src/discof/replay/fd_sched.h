@@ -192,7 +192,7 @@ FD_PROTOTYPES_BEGIN
    footprint silently returns 0 if params are invalid (thus convenient
    to validate params).
 
-   depth controls the reorder buffer transaction count (~1 million
+   depth controls the reorder buffer transaction count (~32k
    recommended for live replay, ~10k recommended for async replay).
    block_cnt_max is the maximum number of blocks that will be tracked by
    the scheduler. */

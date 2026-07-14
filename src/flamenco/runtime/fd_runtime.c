@@ -63,7 +63,7 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
 
   fd_top_votes_t const *   top_votes_t_1    = fd_bank_top_votes_t_1_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, runtime_stack->max_staked_vote_accounts, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
@@ -138,7 +138,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, vat_in_prev );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, runtime_stack->max_staked_vote_accounts, vat_in_prev );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */

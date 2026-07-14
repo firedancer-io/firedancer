@@ -158,6 +158,7 @@ union fdctl_args {
   struct {
     char topo[ 64 ];
     int  sort;
+    int  json;
   } mem;
 
   struct {

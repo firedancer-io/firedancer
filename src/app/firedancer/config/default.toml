@@ -1478,7 +1478,7 @@ telemetry = true
         # larger than the following offers no measurable performance
         # advantage.  For development and benchmarking, it can be useful
         # to increase this number further.
-        max_transaction_lookahead_buffer_size = 65536
+        max_transaction_lookahead_buffer_size = 32768
 
     # The execle tile is what executes transactions when we are leader
     # and updates the accounting state as a result of any operations

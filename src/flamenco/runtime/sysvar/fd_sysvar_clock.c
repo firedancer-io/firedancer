@@ -182,6 +182,7 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
         for the timestamp doesn't exist yet, insert it.  Otherwise,
         update the existing acc.
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
+    if( FD_UNLIKELY( ts_ele_cnt>=runtime_stack->max_staked_vote_accounts ) ) FD_LOG_ERR(( "too many staked vote accounts (%lu)", ts_ele_cnt ));
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
       .stake     = { .ud=stake_t_2 },
@@ -252,6 +253,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
         for the timestamp doesn't exist yet, insert it.  Otherwise,
         update the existing entry.
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
+    if( FD_UNLIKELY( ts_ele_cnt>=runtime_stack->max_staked_vote_accounts ) ) FD_LOG_ERR(( "too many staked vote accounts (%lu)", ts_ele_cnt ));
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
       .stake     = { .ud=stake_t_2 },

@@ -1477,7 +1477,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Please maintain same field order as fd_topo.h */
 
-    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * 1024UL; /* FIXME temporary hack to run on 512 gb boxes */
+    /* Half of worst-case (max_live_slots*FD_FEC_BLK_MAX): the connected
+       unrooted chain is unevictable, so this bounds the non-rooting
+       runway at 1024 max-size slots before reasm stalls. */
+    tile->replay.fec_max = config->firedancer.runtime.max_live_slots * 512UL;
     tile->replay.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
     tile->replay.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );

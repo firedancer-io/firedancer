@@ -224,6 +224,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
                           fd_vote_stakes_t *       vote_stakes,
                           ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights,
+                          ulong                    weights_max,
                           int                      vat_enabled ) {
 
   /* We don't care if an account is invalid, we just want to get the
@@ -240,6 +241,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
       fd_pubkey_t node_account_t_2;
       fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node_account_t_2, &stake_t_2, NULL, NULL, NULL, NULL );
 
+      if( FD_UNLIKELY( weights_cnt>=weights_max ) ) FD_LOG_ERR(( "too many staked vote accounts (%lu)", weights_cnt ));
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
       weights[ weights_cnt ].stake = stake_t_2;
@@ -256,6 +258,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
       fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2, NULL, NULL );
       if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
+      if( FD_UNLIKELY( weights_cnt>=weights_max ) ) FD_LOG_ERR(( "too many staked vote accounts (%lu)", weights_cnt ));
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
       weights[ weights_cnt ].stake = stake_t_2;
@@ -279,6 +282,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
                                fd_vote_stakes_t *       vote_stakes,
                                ushort                   fork_idx,
                                fd_vote_stake_weight_t * weights,
+                               ulong                    weights_max,
                                int                      vat_enabled ) {
 
   ulong weights_cnt = 0;
@@ -292,6 +296,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
       fd_pubkey_t node_account_t_1;
       fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node_account_t_1, &stake_t_1, NULL, NULL, NULL, NULL );
 
+      if( FD_UNLIKELY( weights_cnt>=weights_max ) ) FD_LOG_ERR(( "too many staked vote accounts (%lu)", weights_cnt ));
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
       weights[ weights_cnt ].stake = stake_t_1;
@@ -309,6 +314,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
       fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL, NULL, NULL );
       if( FD_UNLIKELY( !stake_t_1 ) ) continue;
 
+      if( FD_UNLIKELY( weights_cnt>=weights_max ) ) FD_LOG_ERR(( "too many staked vote accounts (%lu)", weights_cnt ));
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
       weights[ weights_cnt ].stake = stake_t_1;

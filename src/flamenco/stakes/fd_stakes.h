@@ -40,6 +40,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
                           fd_vote_stakes_t *       vote_stakes,
                           ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights,
+                          ulong                    weights_max,
                           int                      vat_enabled );
 
 
@@ -48,6 +49,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
                                fd_vote_stakes_t *       vote_stakes,
                                ushort                   fork_idx,
                                fd_vote_stake_weight_t * weights,
+                               ulong                    weights_max,
                                int                      vat_enabled );
 
 void

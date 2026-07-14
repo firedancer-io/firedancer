@@ -62,12 +62,23 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 
 FD_STATIC_ASSERT( FD_SLOT_DELTA_MAX_ENTRIES==FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX, slot_delta_max );
 
+/* Staged slot-delta entries arrive strictly grouped by (slot,
+   blockhash), so per-entry slot/blockhash/result are redundant: only
+   the 20 byte txnhash is staged, packed, and each group records its
+   slot and the start index of its entries (entry count = next group's
+   start, or txnhash_len for the last group).  Zero-entry groups are
+   valid: consecutive groups may share a start index. */
+
 struct blockhash_group {
   uchar blockhash[ 32UL ];
-  ulong txnhash_offset;
+  ulong slot;
+  uint  txnhash_offset; /* Agave key-slice sampling offset, in [0,11] */
+  uint  txnhash_start;  /* first index in txnhashes for this group */
 };
 
 typedef struct blockhash_group blockhash_group_t;
+
+FD_STATIC_ASSERT( FD_SNAPIN_TXNCACHE_MAX_ENTRIES<=UINT_MAX, txnhash_start_width );
 
 struct fd_snapin_out_link {
   ulong       idx;
@@ -135,8 +146,8 @@ struct fd_snapin_tile {
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
-  ulong txncache_entries_len;
-  fd_sstxncache_entry_t * txncache_entries;
+  ulong   txnhashes_len;
+  uchar * txnhashes; /* packed 20 byte txnhashes, grouped by blockhash_offsets */
 
   fd_accdb_fork_id_t accdb_root_fork_id;
   fd_accdb_fork_id_t accdb_incr_fork_id; /* child fork for incremental writes (purge on failure) */
@@ -237,7 +248,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                             );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                             );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),                 20UL*FD_SNAPIN_TXNCACHE_MAX_ENTRIES                          );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -302,21 +313,25 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
-  /* All slots in the txncache should be present in the slot history */
-  for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
-    fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( view, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+  /* All slots in the slot deltas should be present in the slot
+     history.  Iterating the parser slot set (not staged entries)
+     matches Agave, which iterates slot deltas: a slot delta with zero
+     entries is still checked. */
+  fd_slot_delta_slot_set_t slots = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+  for( ulong i=0UL; i<slots.ele_cnt; i++ ) {
+    ulong slot = slots.pool[ i ].slot;
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( view, slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       /* VerifySlotDeltasError::SlotNotFoundInHistory
          https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L144
          https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L593 */
-      FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", entry->slot ));
+      FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", slot ));
       return -1;
     }
   }
 
   /* The most recent slots (up to the number of slots in the txncache)
      in the SlotHistory should be present in the txncache. */
-  fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+  fd_slot_delta_slot_set_t slot_set = slots;
   if( FD_LIKELY( slot_set.ele_cnt ) ) {
     ulong oldest = newest_slot - slot_set.ele_cnt;
     for( ulong i=newest_slot; i>oldest; i-- ) {
@@ -374,13 +389,14 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
 static int
 verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
                                    ulong              bank_slot ) {
-  for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
-    fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
+  fd_slot_delta_slot_set_t slots = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+  for( ulong i=0UL; i<slots.ele_cnt; i++ ) {
+    ulong slot = slots.pool[ i ].slot;
     /* VerifySlotDeltasError::SlotGreaterThanMaxRoot
        https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L138
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L550 */
-    if( FD_UNLIKELY( entry->slot>bank_slot ) ) {
-      FD_LOG_WARNING(( "entry slot %lu is greater than bank slot %lu", entry->slot, bank_slot ));
+    if( FD_UNLIKELY( slot>bank_slot ) ) {
+      FD_LOG_WARNING(( "slot delta slot %lu is greater than bank slot %lu", slot, bank_slot ));
       return -1;
     }
   }
@@ -636,20 +652,26 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   for( ulong i=0UL; i<chain_len; i++ ) fd_txncache_attach_blockhash( ctx->txncache, banks[ i ].fork_id, banks[ i ].blockhash );
 
   /* Now insert all transactions as if they executed at the current
-     root, per above. */
+     root, per above.  One blockhash lookup per group; a group's
+     entries are [txnhash_start, next group's txnhash_start). */
 
   ulong insert_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
-    fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[ i ];
+  for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
+    blockhash_group_t const * group = &ctx->blockhash_offsets[ i ];
+    ulong start = group->txnhash_start;
+    ulong end   = i+1UL<ctx->blockhash_offsets_len ? ctx->blockhash_offsets[ i+1UL ].txnhash_start : ctx->txnhashes_len;
+
     fd_hash_t key;
-    fd_memcpy( key.uc, entry->blockhash, 32UL );
+    fd_memcpy( key.uc, group->blockhash, 32UL );
     if( FD_UNLIKELY( !blockhash_map_ele_query_const( blockhash_map, &key, NULL, blockhash_pool ) ) ) continue;
 
-    insert_cnt++;
-    fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, entry->blockhash, entry->txnhash );
+    for( ulong j=start; j<end; j++ ) {
+      insert_cnt++;
+      fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, group->blockhash, ctx->txnhashes+20UL*j );
+    }
   }
 
-  FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
+  FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txnhashes_len ));
 
   /* Then finalize all the banks (freezing them) and setting the txnhash
      offset so future queries use the correct offset.  If the offset is
@@ -1016,15 +1038,18 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             }
 
             memcpy( ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].blockhash, sd_result->group.blockhash, 32UL );
-            ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_offset = sd_result->group.txnhash_offset;
+            ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].slot           = sd_result->group.slot;
+            ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_offset = (uint)sd_result->group.txnhash_offset;
+            ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_start  = (uint)ctx->txnhashes_len;
             ctx->blockhash_offsets_len++;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
-            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) {
+            if( FD_UNLIKELY( ctx->txnhashes_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) {
               FD_LOG_WARNING(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
               transition_malformed( ctx, stem );
               return 0;
             }
-            ctx->txncache_entries[ ctx->txncache_entries_len++ ] = *sd_result->entry;
+            memcpy( ctx->txnhashes+20UL*ctx->txnhashes_len, sd_result->entry->txnhash, 20UL );
+            ctx->txnhashes_len++;
           }
 
           bytes_remaining           -= sd_result->bytes_consumed;
@@ -1158,7 +1183,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->in.pos                  = 0UL;
-      ctx->txncache_entries_len    = 0UL;
+      ctx->txnhashes_len           = 0UL;
       ctx->blockhash_offsets_len   = 0UL;
       ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
@@ -1440,7 +1465,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                             );
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                             );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+  ctx->txnhashes          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                 20UL*FD_SNAPIN_TXNCACHE_MAX_ENTRIES                          );
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
@@ -1463,7 +1488,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->bank );
   FD_TEST( ctx->bank->idx==0UL );
 
-  ctx->txncache_entries_len = 0UL;
+  ctx->txnhashes_len = 0UL;
   ctx->blockhash_offsets_len = 0UL;
 
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );

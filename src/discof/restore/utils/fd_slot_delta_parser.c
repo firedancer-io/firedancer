@@ -404,6 +404,7 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
         parser->group_avail          = 0;
         result->entry                = NULL;
         result->group.blockhash      = parser->entry->blockhash;
+        result->group.slot           = parser->entry->slot;
         result->group.txnhash_offset = parser->txnhash_offset;
         result->bytes_consumed       = (ulong)(data - buf);
         return FD_SLOT_DELTA_PARSER_ADVANCE_GROUP;

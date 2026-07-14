@@ -69,6 +69,7 @@ typedef struct fd_stake_accum fd_stake_accum_t;
 struct fd_runtime_stack {
 
   ulong max_vote_accounts;
+  ulong max_staked_vote_accounts; /* min( max_vote_accounts, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS ) */
   ulong expected_vote_accounts;
   ulong expected_stake_accounts;
 
@@ -155,11 +156,14 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
                             ulong expected_vote_accounts,
                             ulong expected_stake_accounts ) {
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( expected_vote_accounts );
+  /* staked_ts/stake_weights/id_weights only ever hold staked vote
+     accounts, bounded by the delegation cap. */
+  ulong max_staked = fd_ulong_min( max_vote_accounts, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_runtime_stack_t),           sizeof(fd_runtime_stack_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(ts_est_ele_t),                 sizeof(ts_est_ele_t) * max_vote_accounts );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),       sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),            sizeof(fd_stake_weight_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, alignof(ts_est_ele_t),                 sizeof(ts_est_ele_t) * max_staked );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),       sizeof(fd_vote_stake_weight_t) * max_staked );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),            sizeof(fd_stake_weight_t) * max_staked );
   l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_vote_rewards_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, fd_vote_rewards_map_align(),           fd_vote_rewards_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_stake_accum_t) * max_vote_accounts );
@@ -177,11 +181,12 @@ fd_runtime_stack_new( void * shmem,
                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) return NULL;
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( expected_vote_accounts );
+  ulong max_staked = fd_ulong_min( max_vote_accounts, FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_runtime_stack_t *            runtime_stack        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_runtime_stack_t),            sizeof(fd_runtime_stack_t) );
-  ts_est_ele_t *                  staked_ts            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ts_est_ele_t),                  sizeof(ts_est_ele_t) * max_vote_accounts );
-  fd_vote_stake_weight_t *        stake_weights        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),        sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
-  fd_stake_weight_t *             id_weights           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),             sizeof(fd_stake_weight_t) * max_vote_accounts );
+  ts_est_ele_t *                  staked_ts            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ts_est_ele_t),                  sizeof(ts_est_ele_t) * max_staked );
+  fd_vote_stake_weight_t *        stake_weights        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),        sizeof(fd_vote_stake_weight_t) * max_staked );
+  fd_stake_weight_t *             id_weights           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),             sizeof(fd_stake_weight_t) * max_staked );
   fd_vote_rewards_t *             vote_ele             = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_vote_rewards_t) * max_vote_accounts );
   void *                          vote_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_rewards_map_align(),            fd_vote_rewards_map_footprint( chain_cnt ) );
   fd_stake_accum_t *              stake_accum          = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_stake_accum_t) * max_vote_accounts );
@@ -194,6 +199,7 @@ fd_runtime_stack_new( void * shmem,
   }
 
   runtime_stack->max_vote_accounts           = max_vote_accounts;
+  runtime_stack->max_staked_vote_accounts    = max_staked;
   runtime_stack->expected_vote_accounts      = expected_vote_accounts;
   runtime_stack->expected_stake_accounts     = expected_stake_accounts;
   runtime_stack->clock_ts.staked_ts          = staked_ts;

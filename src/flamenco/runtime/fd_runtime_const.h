@@ -47,6 +47,13 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2150000UL)
 #define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
 
+/* Vote accounts with nonzero stake require at least one delegation, so
+   they are bounded by the stake account cap rather than the vote
+   account cap.  Used to size staging arrays that only ever hold staked
+   vote accounts. */
+
+#define FD_RUNTIME_MAX_STAKED_VOTE_ACCOUNTS FD_RUNTIME_MAX_STAKE_ACCOUNTS
+
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
 
 #define FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000UL)
