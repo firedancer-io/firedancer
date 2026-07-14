@@ -364,7 +364,12 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
   fd_sbpf_elf_info_t elf_info[1];
   if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, elf, elf_sz, &loader_config )!=FD_SBPF_ELF_SUCCESS ) ) return 1;
 
-  /* Setup program (includes calldests) */
+  /* The loader assembles strict (v3+) and lenient fast-path programs directly
+     into the rodata buffer.  Migration targets are v3; reject a legacy-lenient
+     program rather than mis-load it without a scratch assembly buffer. */
+  if( FD_UNLIKELY( fd_sbpf_loader_is_legacy_lenient( elf_info ) ) ) return 1;
+
+  /* Setup program */
   fd_sbpf_program_t * prog = fd_sbpf_program_new(
     runtime_stack->bpf_migration.progcache_validate.sbpf_footprint,
     elf_info,
@@ -376,15 +381,15 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
   if( FD_UNLIKELY( !syscalls ) ) return 1;
   if( FD_UNLIKELY( fd_vm_syscall_register_slot( syscalls, slot, features, /* is_deploy */ 1 )!=FD_VM_SUCCESS ) ) return 1;
 
-  /* fd_sbpf_program_load checks */
+  /* fd_sbpf_program_load checks (strict/fast assemble directly into rodata, no scratch) */
   if( FD_UNLIKELY( fd_sbpf_program_load(
     prog,
     elf,
     elf_sz,
     syscalls,
     &loader_config,
-    runtime_stack->bpf_migration.progcache_validate.programdata,
-    sizeof(runtime_stack->bpf_migration.progcache_validate.programdata) ) ) ) return 1;
+    NULL,
+    0UL ) ) ) return 1;
 
   /* fd_vm_validate checks */
   fd_vm_t _vm[1];
@@ -401,7 +406,6 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
                    prog->info.text_off,
                    prog->info.text_sz,
                    prog->entry_pc,
-                   prog->calldests,
                    elf_info->sbpf_version,
                    syscalls,
                    NULL,

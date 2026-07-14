@@ -119,14 +119,14 @@ deploy_env_init( deploy_env_t * env,
   env->ctx->bank    = env->bank;
   env->ctx->runtime = env->runtime;
 
-  /* Enable all features so syscall registration is permissive, then
-     disable the version-related features the deploy gate cares about
-     so the version envelope is fully under test control. */
+  /* Enable all features so syscall registration is permissive, then keep
+     v0 execution enabled so fd_prog_versions yields a [V0, V3] deploy
+     envelope.  The v3 deploy gate is exercised directly via the
+     fd_deploy_program argument below. */
   fd_features_t * f = &env->bank->f.features;
   fd_features_enable_all( f );
   FD_FEATURE_SET_ACTIVE( f, disable_sbpf_v0_execution,        FD_FEATURE_DISABLED );
   FD_FEATURE_SET_ACTIVE( f, reenable_sbpf_v0_execution,       FD_FEATURE_DISABLED );
-  FD_FEATURE_SET_ACTIVE( f, disable_sbpf_v0_v1_v2_deployment, FD_FEATURE_DISABLED );
 }
 
 static void

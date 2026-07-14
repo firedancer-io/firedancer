@@ -102,14 +102,12 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   void *                accdb_shmem  = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(),       accdb_shmem_sz,                                              wksp_tag );
   void *                accdb_join   = fd_wksp_alloc_laddr( wksp, fd_accdb_align(),             accdb_join_sz,                                               wksp_tag );
   void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, rec_max ),            wksp_tag );
-  uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
   void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
   void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL ),    wksp_tag );
   if( FD_UNLIKELY( !runner       ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed"                                            )); goto bail1; }
   if( FD_UNLIKELY( !accdb_shmem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_shmem) failed"                                               )); goto bail1; }
   if( FD_UNLIKELY( !accdb_join   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_join) failed"                                                )); goto bail1; }
   if( FD_UNLIKELY( !pcache_mem   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(pcache) failed"                                                    )); goto bail1; }
-  if( FD_UNLIKELY( !scratch      ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(scratch) failed"                                                   )); goto bail1; }
   if( FD_UNLIKELY( !spad_mem     ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(spad) failed (spad_max=%g)", (double)spad_max                      )); goto bail1; }
   if( FD_UNLIKELY( !banks_mem    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(banks) failed (bank_max=%lu fork_max=%lu)", bank_max, fork_max     )); goto bail1; }
 
@@ -136,7 +134,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, rec_max );
   if( FD_UNLIKELY( !shpcache ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem ) ) ) goto bail2;
 
   runner->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime ) ) goto bail2;
@@ -169,7 +167,6 @@ bail2:
   if( runner->spad ) fd_spad_delete( fd_spad_leave( runner->spad ) );
   if( shpcache     ) fd_progcache_shmem_delete( shpcache );
 bail1:
-  fd_wksp_free_laddr( scratch      );
   fd_wksp_free_laddr( pcache_mem   );
   fd_wksp_free_laddr( accdb_join   );
   fd_wksp_free_laddr( accdb_shmem  );

@@ -197,7 +197,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               0, // TODO
               0, // TODO, text_sz
               0, // TODO
-              NULL, // TODO
               TEST_VM_DEFAULT_SBPF_VERSION,
               syscalls,
               NULL, // TODO

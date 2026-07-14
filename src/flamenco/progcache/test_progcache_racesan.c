@@ -30,7 +30,6 @@ struct fiber {
 
   fd_progcache_t cache[1];
 
-  uchar scratch[ FD_PROGCACHE_SCRATCH_FOOTPRINT ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
 
   uchar stack[ FIBER_STACK_MAX ] __attribute__((aligned(64)));
 
@@ -102,7 +101,7 @@ fiber_pull( fiber_t *                  fiber,
             void const *               prog_addr,
             fd_prog_load_env_t const * load_env,
             fd_acc_t const *            prog_ro ) {
-  FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
+  FD_TEST( fd_progcache_join( fiber->cache, shmem ) );
   fiber->pull.cache     = fiber->cache;
   fiber->pull.fork_id   = fork_id;
   fiber->pull.prog_addr = FD_LOAD( fd_pubkey_t, prog_addr );
@@ -126,7 +125,7 @@ fiber_peek( fiber_t *              fiber,
             void *                 shmem,
             fd_progcache_fork_id_t fork_id,
             void const *           prog_addr ) {
-  FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
+  FD_TEST( fd_progcache_join( fiber->cache, shmem ) );
   fiber->peek.cache        = fiber->cache;
   fiber->peek.fork_id      = fork_id;
   fiber->peek.prog_addr    = FD_LOAD( fd_pubkey_t, prog_addr );
@@ -147,7 +146,7 @@ fiber_evict( fiber_t * fiber,
              void *    shmem,
              ulong     rec_min,
              ulong     heap_min ) {
-  FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
+  FD_TEST( fd_progcache_join( fiber->cache, shmem ) );
   fiber->evict.cache    = fiber->cache;
   fiber->evict.rec_min  = rec_min;
   fiber->evict.heap_min = heap_min;
@@ -165,7 +164,7 @@ static fd_racesan_async_t *
 fiber_advance_root( fiber_t *              fiber,
                     void *                 shmem,
                     fd_progcache_fork_id_t fork_id ) {
-  FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
+  FD_TEST( fd_progcache_join( fiber->cache, shmem ) );
   fiber->advance_root.cache   = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->advance_root.fork_id = fork_id;
   fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_advance_root_exec, fiber );
@@ -182,7 +181,7 @@ static fd_racesan_async_t *
 fiber_cancel( fiber_t *              fiber,
               void *                 shmem,
               fd_progcache_fork_id_t fork_id ) {
-  FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
+  FD_TEST( fd_progcache_join( fiber->cache, shmem ) );
   fiber->cancel.cache   = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->cancel.fork_id = fork_id;
   fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_cancel_exec, fiber );
@@ -359,7 +358,7 @@ FD_UNIT_TEST( cancel_peek ) {
     {
       xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -409,7 +408,7 @@ FD_UNIT_TEST( publish_evict ) {
     /* Pre-populate the cache */
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -455,7 +454,7 @@ FD_UNIT_TEST( peek_root ) {
     /* Pre-populate the cache */
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -502,7 +501,7 @@ FD_UNIT_TEST( peek_cancel ) {
     /* Pre-populate the cache */
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -549,7 +548,7 @@ FD_UNIT_TEST( peek_peek ) {
     {
       xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -598,7 +597,7 @@ FD_UNIT_TEST( peek_root_sibling ) {
 
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec;
       rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
@@ -647,7 +646,7 @@ FD_UNIT_TEST( peek_peek_root ) {
 
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec;
       rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
@@ -697,7 +696,7 @@ FD_UNIT_TEST( inject_at_hook ) {
 
   {
     fd_progcache_t tmp[1];
-    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    FD_TEST( fd_progcache_join( tmp, shmem ) );
     fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
     FD_TEST( rec );
     fd_progcache_rec_close( tmp, rec );
@@ -736,7 +735,7 @@ FD_UNIT_TEST( publish_reclaim_evicted ) {
 
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -786,7 +785,7 @@ FD_UNIT_TEST( root_evict_two ) {
 
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec;
       rec = fd_progcache_pull( tmp, xid1, &ka, &load_env, acc_a.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
@@ -840,7 +839,7 @@ FD_UNIT_TEST( publish_evict_stale ) {
     {
       xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env_root, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
@@ -853,7 +852,7 @@ FD_UNIT_TEST( publish_evict_stale ) {
     fd_progcache_fork_id_t xid1 = fd_progcache_attach_child( admin, xid_pre );
     {
       fd_progcache_t tmp[1];
-      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      FD_TEST( fd_progcache_join( tmp, shmem ) );
       fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env_child, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );

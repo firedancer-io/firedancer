@@ -8,29 +8,15 @@ FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t *       cache,
-                   fd_progcache_shmem_t * shmem,
-                   uchar *                scratch,
-                   ulong                  scratch_sz ) {
+                   fd_progcache_shmem_t * shmem ) {
   if( FD_UNLIKELY( !cache ) ) {
     FD_LOG_WARNING(( "NULL cache" ));
     return NULL;
   }
-  if( FD_LIKELY( scratch_sz ) ) {
-    if( FD_UNLIKELY( !scratch ) ) {
-      FD_LOG_WARNING(( "NULL scratch" ));
-      return NULL;
-    }
-    if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, FD_PROGCACHE_SCRATCH_ALIGN ) ) ) {
-      FD_LOG_WARNING(( "misaligned scratch" ));
-      return NULL;
-    }
-  }
   memset( cache, 0, sizeof(fd_progcache_t) );
   if( FD_UNLIKELY( !fd_progcache_shmem_join( cache->join, shmem ) ) ) return NULL;
 
-  cache->metrics    = &fd_progcache_metrics_default;
-  cache->scratch    = scratch;
-  cache->scratch_sz = scratch_sz;
+  cache->metrics = &fd_progcache_metrics_default;
 
   return cache;
 }
@@ -49,8 +35,6 @@ fd_progcache_leave( fd_progcache_t *        cache,
   }
 
   if( FD_UNLIKELY( !fd_progcache_shmem_leave( cache->join, opt_shmem ) ) ) return NULL;
-  cache->scratch    = NULL;
-  cache->scratch_sz = 0UL;
   return cache;
 }
 
@@ -413,7 +397,7 @@ fd_progcache_spill_open( fd_progcache_t *        cache,
     rec->data_max   = (uint)( off1 - off0 );
 
     long dt = -fd_tickcount();
-    if( FD_LIKELY( fd_progcache_rec_load( rec, join->data_base, &params->elf_info, &params->config, params->feature_slot, params->features, params->bin, params->bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
+    if( FD_LIKELY( fd_progcache_rec_load( rec, join->data_base, &params->elf_info, &params->config, params->feature_slot, params->features, params->bin, params->bin_sz ) ) ) {
       /* Valid program, allocate data */
       shmem->spill.spad_used = (uint)off1;
     } else {
@@ -521,7 +505,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
   if( FD_LIKELY( peek_err==FD_SBPF_ELF_SUCCESS ) ) {
     long dt = -fd_tickcount();
-    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, ljoin->data_base, elf_info, config, feature_slot, features, bin, bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
+    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, ljoin->data_base, elf_info, config, feature_slot, features, bin, bin_sz ) ) ) {
       /* Not a valid program (mark cache entry as non-executable) */
       fd_progcache_val_free( rec, ljoin );
       fd_progcache_rec_nx( rec );
