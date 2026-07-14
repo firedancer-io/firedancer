@@ -475,6 +475,31 @@ test_aes_128_gcm( void ) {
   FD_LOG_INFO(( "OK: AES-128-GCM auth (AES-NI)" ));
 }
 
+static void
+test_aes_256_gcm( void ) {
+  uchar const key       [ 32 ] = { 0xd2,0x76,0xd9,0xd3,0xd9,0x72,0xc0,0x90,0xc4,0xbf,0x12,0x17,0x71,0x53,0x54,0x38,
+                                   0x1b,0xee,0x5b,0xbe,0x52,0xb3,0x06,0xa3,0xfb,0xe8,0x8d,0xff,0x29,0x98,0xcf,0x68 };
+  uchar const iv        [ 12 ] = { 0x3e,0xd3,0xd2,0x77,0xa0,0x38,0x8d,0xf0,0x2f,0x8b,0xa5,0x5c };
+  uchar const aad       [  5 ] = { 0x17,0x03,0x03,0x00,0x17 };
+  uchar const plaintext [  7 ] = { 0x08,0x00,0x00,0x02,0x00,0x00,0x16 };
+  uchar const ciphertext[  7 ] = { 0xd4,0x55,0xc2,0x2c,0x08,0x61,0x77 };
+  uchar const tag       [ 16 ] = { 0x4b,0x20,0xb9,0x2d,0xac,0x79,0x84,0x1b,0x5e,0x7c,0xbb,0xb0,0xa8,0xd9,0x72,0x9c };
+
+  uchar ct[ 7 ], t[ 16 ], pt[ 7 ];
+  fd_aes_gcm_t gcm[1];
+
+  fd_aes_256_gcm_init( gcm, key, iv );
+  fd_aes_gcm_encrypt( gcm, ct, plaintext, sizeof(plaintext), aad, sizeof(aad), t );
+  FD_TEST( 0==memcmp( ct, ciphertext, sizeof(ciphertext) ) );
+  FD_TEST( 0==memcmp( t,  tag,        sizeof(tag)        ) );
+
+  fd_aes_256_gcm_init( gcm, key, iv );
+  FD_TEST( fd_aes_gcm_decrypt( gcm, ciphertext, pt, sizeof(ciphertext), aad, sizeof(aad), tag ) );
+  FD_TEST( 0==memcmp( pt, plaintext, sizeof(plaintext) ) );
+
+  FD_LOG_INFO(( "OK: AES-256-GCM encrypt/decrypt" ));
+}
+
 /* AES-GCM unroll tests ***********************************************/
 
 FD_IMPORT_BINARY( fixture_aes_128_gcm_unroll, "src/ballet/aes/fixtures/gcm-ciphertext.bin" );
@@ -557,6 +582,7 @@ main( int     argc,
   test_aes_128_ecb();
   test_aes_128_gcm_bounds( rng );
   test_aes_128_gcm();
+  test_aes_256_gcm();
   test_aes_128_gcm_unroll();
 
   fd_rng_delete( fd_rng_leave( rng ) );
