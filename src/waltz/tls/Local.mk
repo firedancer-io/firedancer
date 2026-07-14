@@ -1,6 +1,6 @@
 $(call make-lib,fd_tls)
-$(call add-hdrs,fd_tls.h fd_tls_proto.h fd_tls_asn1.h fd_tls_estate.h)
-$(call add-objs,fd_tls fd_tls_proto fd_tls_asn1,fd_tls)
+$(call add-hdrs,fd_tls.h fd_tls_proto.h fd_tls_asn1.h fd_tls_estate.h fd_tls_cs.h)
+$(call add-objs,fd_tls fd_tls_proto fd_tls_asn1 fd_tls_cs,fd_tls)
 
 $(call add-hdrs,test_tls_helper.h)
 $(call make-unit-test,test_tls,test_tls,fd_tls fd_ballet fd_util)

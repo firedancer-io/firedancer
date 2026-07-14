@@ -2,11 +2,14 @@
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
 #include "fd_tls_asn1.h"
+#include "fd_tls_cs.h"
 #include "../../ballet/x509/fd_x509_mock.h"
+#include "../../ballet/x509/fd_x509.h"
 
 typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
-/* hello_retry_magic is the RFC 8446 hardcoded value of the 'random' field of a RetryHelloRequest */
+/* RFC 8446 Section 4.1.3: "the server's value [random] will be set to the
+   SHA-256 hash of 'HelloRetryRequest'" */
 static uchar const hello_retry_magic[ 32 ] =
   { 0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
     0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
@@ -31,6 +34,7 @@ static uchar const hello_retry_magic[ 32 ] =
     *ext_sz_ptr = fd_ushort_bswap( ext_sz );     \
   } while(0)
 
+/* Decode ClientHello (RFC 8446 Section 4.1.2) */
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
                             uchar const * const     wire,
@@ -69,6 +73,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     switch( cipher_suite ) {
     case FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256:
       out->cipher_suites.aes_128_gcm_sha256 = 1;
+      break;
+    case FD_TLS_CIPHER_SUITE_AES_256_GCM_SHA384:
+      out->cipher_suites.aes_256_gcm_sha384 = 1;
       break;
     default:
       /* Ignore unsupported cipher suites ... */
@@ -167,20 +174,38 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
   /* Encode static sized part of client hello */
 
   ushort legacy_version        = FD_TLS_VERSION_TLS12;
-  uchar  legacy_session_id_sz  = 0;
-  ushort cipher_suite_sz       = 1*sizeof(ushort);
-  ushort cipher_suites[1]      = { FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 };
+  uchar  legacy_session_id_sz  = (uchar)in->session_id.bufsz;
+  ushort cipher_suite_sz       = FD_TLS_CS_CNT*sizeof(ushort);
+  ushort cipher_suites[ FD_TLS_CS_CNT ];
+  for( uint i=0; i<FD_TLS_CS_CNT; i++ )
+    cipher_suites[i] = fd_tls_cs_table[i].suite_id;
   uchar  legacy_comp_method_sz = 1;
   uchar  legacy_comp_method[1] = {0};
 
 # define FIELDS( FIELD )                                 \
     FIELD( 0, &legacy_version,            ushort, 1    ) \
     FIELD( 1,  in->random,                uchar,  32UL ) \
-    FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
-    FIELD( 3, &cipher_suite_sz,           ushort, 1    ) \
-    FIELD( 4,  cipher_suites,             ushort, 1    ) \
-    FIELD( 5, &legacy_comp_method_sz,     uchar,  1    ) \
-    FIELD( 6,  legacy_comp_method,        uchar,  1    )
+    FIELD( 2, &legacy_session_id_sz,      uchar,  1    )
+    FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  /* Encode session_id (0 for QUIC, 32 random bytes for TCP middlebox compat) */
+
+  if( legacy_session_id_sz ) {
+    if( FD_UNLIKELY( legacy_session_id_sz > 32 ) )
+      return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+    if( FD_UNLIKELY( (ulong)legacy_session_id_sz > wire_sz ) )
+      return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+    fd_memcpy( (void *)wire_laddr, in->session_id.buf, legacy_session_id_sz );
+    wire_laddr += legacy_session_id_sz;
+    wire_sz    -= legacy_session_id_sz;
+  }
+
+# define FIELDS( FIELD )                                 \
+    FIELD( 0, &cipher_suite_sz,           ushort, 1    ) \
+    FIELD( 1,  cipher_suites,             ushort, FD_TLS_CS_CNT ) \
+    FIELD( 2, &legacy_comp_method_sz,     uchar,  1    ) \
+    FIELD( 3,  legacy_comp_method,        uchar,  1    )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
@@ -206,9 +231,10 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
   ushort ext_supported_groups[1]       = { FD_TLS_GROUP_X25519 };
 
   ushort ext_sigalg_ext_type = FD_TLS_EXT_SIGNATURE_ALGORITHMS;
-  ushort ext_sigalg_ext_sz   = 4;
-  ushort ext_sigalg_sz       = 2;
-  ushort ext_sigalg[1]       = { FD_TLS_SIGNATURE_ED25519 };
+  ushort ext_sigalg_ext_sz   = 6;
+  ushort ext_sigalg_sz       = 4;
+  ushort ext_sigalg[2]       = { FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256,
+                                 FD_TLS_SIGNATURE_ED25519 };
 
 # define FIELDS( FIELD ) \
     FIELD( 0, &ext_supported_versions_ext_type,   ushort, 1    ) \
@@ -228,9 +254,28 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
     FIELD(14, &ext_sigalg_ext_type,               ushort, 1    ) \
     FIELD(15, &ext_sigalg_ext_sz,                 ushort, 1    ) \
     FIELD(16, &ext_sigalg_sz,                     ushort, 1    ) \
-    FIELD(17,  ext_sigalg,                        ushort, 1    )
+    FIELD(17,  ext_sigalg,                        ushort, 2    )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
+
+  /* Add Server Name Indication (SNI) */
+
+  if( in->server_name.host_name_len ) {
+    ushort sni_name_len = in->server_name.host_name_len;
+    ushort sni_list_len = (ushort)( 1 + 2 + sni_name_len );  /* name_type(1) + name_len(2) + name */
+    ushort sni_ext_type = FD_TLS_EXT_SERVER_NAME;
+    ushort sni_ext_sz   = (ushort)( 2 + sni_list_len );      /* list_len(2) + list */
+    uchar  sni_name_type = FD_TLS_SERVER_NAME_TYPE_DNS;
+#   define FIELDS( FIELD )                                    \
+      FIELD( 0, &sni_ext_type,  ushort, 1 )                  \
+      FIELD( 1, &sni_ext_sz,    ushort, 1 )                  \
+      FIELD( 2, &sni_list_len,  ushort, 1 )                  \
+      FIELD( 3, &sni_name_type, uchar,  1 )                  \
+      FIELD( 4, &sni_name_len,  ushort, 1 )                  \
+      FIELD( 5, in->server_name.host_name, uchar, sni_name_len )
+      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+#   undef FIELDS
+  }
 
   /* Add ALPN */
 
@@ -258,6 +303,7 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode ServerHello (RFC 8446 Section 4.1.3) */
 long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
                             uchar const *           wire,
@@ -268,26 +314,41 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
   /* Decode static sized part of server hello */
 
   ushort legacy_version;            /* ==FD_TLS_VERSION_TLS12 */
-  uchar  legacy_session_id_sz;      /* ==0 */
+  uchar  legacy_session_id_sz;      /* 0 for QUIC, 0-32 for TCP */
   ushort cipher_suite;              /* ==FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 */
   uchar  legacy_compression_method; /* ==0 */
 
 # define FIELDS( FIELD )                                 \
     FIELD( 0, &legacy_version,            ushort, 1    ) \
     FIELD( 1, &out->random[0],            uchar,  32UL ) \
-    FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
-    FIELD( 3, &cipher_suite,              ushort, 1    ) \
-    FIELD( 4, &legacy_compression_method, uchar,  1    )
+    FIELD( 2, &legacy_session_id_sz,      uchar,  1    )
+    FD_TLS_DECODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  /* Skip legacy_session_id (echoed back for TCP middlebox compat) */
+
+  if( FD_UNLIKELY( legacy_session_id_sz > 32 ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  if( FD_UNLIKELY( (ulong)legacy_session_id_sz > wire_sz ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  out->session_id.buf   = (uchar const *)wire_laddr;
+  out->session_id.bufsz = legacy_session_id_sz;
+  wire_laddr += legacy_session_id_sz;
+  wire_sz    -= legacy_session_id_sz;
+
+# define FIELDS( FIELD )                                 \
+    FIELD( 0, &cipher_suite,              ushort, 1    ) \
+    FIELD( 1, &legacy_compression_method, uchar,  1    )
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
   if( FD_UNLIKELY( ( legacy_version != FD_TLS_VERSION_TLS12 )
-                 | ( legacy_session_id_sz      != 0         )
                  | ( legacy_compression_method != 0         ) ) )
     return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
 
-  if( FD_UNLIKELY( cipher_suite != FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256 ) )
+  if( FD_UNLIKELY( !fd_tls_cs_lookup( cipher_suite ) ) )
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+  out->cipher_suite = cipher_suite;
 
   /* Reject HelloRetryRequest (we only support X25519) */
 
@@ -333,8 +394,9 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
       ext_parse_res = (long)ext_sz;
       break;
     default:
-      /* Reject unsolicited extensions */
-      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+      /* Skip unknown extensions for forward compatibility */
+      ext_parse_res = (long)ext_sz;
+      break;
     }
 
     if( FD_UNLIKELY( ext_parse_res<0L ) )
@@ -459,8 +521,9 @@ fd_tls_encode_hello_retry_request( fd_tls_server_hello_t const * in,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode EncryptedExtensions (RFC 8446 Section 4.3.1) */
 long
-fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
+fd_tls_decode_enc_ext( fd_tls_encrypted_ext_t * const out,
                        uchar const *      const wire,
                        ulong                    wire_sz ) {
 
@@ -528,7 +591,7 @@ fd_tls_encode_cert_x509( uchar const * x509,
   ulong wire_laddr = (ulong)wire;
 
   /* TLS Record Header */
-  uchar msg_type = (uchar)FD_TLS_MSG_CERT;
+  uchar msg_type = (uchar)FD_TLS_MSG_CERTIFICATE;
 
   /* TLS Certificate Message header preceding X.509 data */
 
@@ -559,7 +622,7 @@ fd_tls_encode_cert_x509( uchar const * x509,
 }
 
 long
-fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
+fd_tls_encode_enc_ext( fd_tls_encrypted_ext_t const * in,
                        uchar *                  wire,
                        ulong                    wire_sz ) {
 
@@ -626,7 +689,7 @@ fd_tls_encode_raw_public_key( uchar const * key,
   ulong wire_laddr = (ulong)wire;
 
   /* TLS Record Header */
-  uchar msg_type = (uchar)FD_TLS_MSG_CERT;
+  uchar msg_type = (uchar)FD_TLS_MSG_CERTIFICATE;
 
   /* TLS Certificate Message header preceding X.509 data */
 
@@ -658,6 +721,7 @@ fd_tls_encode_raw_public_key( uchar const * key,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode CertificateVerify (RFC 8446 Section 4.4.3) */
 long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
                            uchar const *          wire,
@@ -667,15 +731,35 @@ fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
 
   ushort sig_sz;
 # define FIELDS( FIELD ) \
-    FIELD( 0, &out->sig_alg, ushort,  1 ) \
-    FIELD( 1, &sig_sz,       ushort,  1 ) \
-    FIELD( 2,  out->sig,     uchar,  64 )
+    FIELD( 0, &out->algorithm, ushort, 1 ) \
+    FIELD( 1, &sig_sz,       ushort, 1 )
   FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  if( FD_UNLIKELY( ( out->sig_alg != FD_TLS_SIGNATURE_ED25519 )
-                 | (      sig_sz  != 0x40UL                   ) ) )
+  /* Validate signature algorithm and length */
+
+  switch( out->algorithm ) {
+  case FD_TLS_SIGNATURE_ED25519:
+    if( FD_UNLIKELY( sig_sz != 64U ) )
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+    break;
+  case FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256:
+    /* ECDSA DER-encoded signatures are variable length, max 73 */
+    if( FD_UNLIKELY( sig_sz > 73U || sig_sz < 8U ) )
+      return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+    break;
+  default:
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
+  }
+
+  /* Read signature bytes */
+
+  if( FD_UNLIKELY( sig_sz > wire_sz ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+  fd_memcpy( out->signature, (void const *)wire_laddr, sig_sz );
+  out->signature_len = sig_sz;
+  wire_laddr += sig_sz;
+  wire_sz    -= sig_sz;
 
   return (long)( wire_laddr - (ulong)wire );
 }
@@ -687,17 +771,23 @@ fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
 
   ulong wire_laddr = (ulong)wire;
 
-  ushort sig_sz = 0x40;
+  ushort sig_sz = in->signature_len;
 # define FIELDS( FIELD ) \
-    FIELD( 0, &in->sig_alg, ushort,  1 ) \
-    FIELD( 1, &sig_sz,      ushort,  1 ) \
-    FIELD( 2,  in->sig,     uchar,  64 )
+    FIELD( 0, &in->algorithm, ushort, 1 ) \
+    FIELD( 1, &sig_sz,      ushort, 1 )
   FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
+
+  if( FD_UNLIKELY( sig_sz > wire_sz ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+  fd_memcpy( (void *)wire_laddr, in->signature, sig_sz );
+  wire_laddr += sig_sz;
+  wire_sz    -= sig_sz;
 
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode server_name extension (RFC 6066 Section 3) */
 long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
                                uchar const *              wire,
@@ -739,6 +829,7 @@ fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode supported_groups extension (RFC 8446 Section 4.2.7) */
 long
 fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
                                     uchar const *                   wire,
@@ -763,6 +854,7 @@ fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode supported_versions extension (RFC 8446 Section 4.2.1) */
 long
 fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
                                       uchar const *                     wire,
@@ -787,6 +879,7 @@ fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
   return (long)( wire_laddr - (ulong)wire );
 }
 
+/* Decode signature_algorithms extension (RFC 8446 Section 4.2.3) */
 long
 fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
                                         uchar const *                       wire,
@@ -800,6 +893,9 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
     switch( group ) {
     case FD_TLS_SIGNATURE_ED25519:
       out->ed25519 = 1;
+      break;
+    case FD_TLS_SIGNATURE_ECDSA_SECP256R1_SHA256:
+      out->ecdsa_secp256r1_sha256 = 1;
       break;
     default:
       /* Ignore unsupported signature algorithms ... */
@@ -960,22 +1056,33 @@ fd_tls_encode_ext_alpn( fd_tls_ext_alpn_t const * in,
   return (long)sz;
 }
 
-/* fd_tls_client_handle_x509 extracts the Ed25519 subject public key
-   from the certificate.  Does not validate the signature found on the
-   certificate (might be self-signed).  [cert,cert+cert_sz) points to
-   an ASN.1 DER serialization of the certificate.  On success, copies
-   public key bits to out_pubkey and returns 0U.  On failure, returns
-   positive TLS alert error code. */
+/* fd_tls_client_handle_x509 extracts the subject public key from a
+   DER-encoded X.509 certificate.  Supports Ed25519 and ECDSA P-256
+   key types.  Does not validate the certificate signature (might be
+   self-signed or invalid).  On success, sets out_pubkey, out_pubkey_len,
+   out_key_type and returns 0U.  On failure, returns a TLS alert code. */
 
 static uint
 fd_tls_client_handle_x509( uchar const *  const cert,
                            ulong          const cert_sz,
-                           uchar const ** const out_pubkey ) {
+                           uchar const ** const out_pubkey,
+                           ulong *        const out_pubkey_len,
+                           uchar *        const out_key_type ) {
+
+  /* Try the general DER parser first (handles Ed25519 + ECDSA P-256) */
+  int err = fd_x509_extract_pubkey( cert, cert_sz, out_pubkey, out_pubkey_len, out_key_type );
+  if( FD_LIKELY( err==0 ) ) return 0U;
+
+  /* Fall back to mock pubkey extraction for older Solana-specific certs */
   uchar const * pubkey = fd_x509_mock_pubkey( cert, cert_sz );
-  if( FD_UNLIKELY( !pubkey ) )
-    return FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
-  *out_pubkey = pubkey;
-  return 0U;
+  if( FD_LIKELY( pubkey ) ) {
+    *out_pubkey     = pubkey;
+    *out_pubkey_len = 32UL;
+    *out_key_type   = FD_X509_KEY_ED25519;
+    return 0U;
+  }
+
+  return FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
 }
 
 static long
@@ -1023,7 +1130,8 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
 
     /* DER-encoded X.509 certificate */
 
-    uint x509_alert = fd_tls_client_handle_x509( cert, cert_sz, &res->pubkey );
+    uint x509_alert = fd_tls_client_handle_x509( cert, cert_sz,
+                                                 &res->pubkey, &res->pubkey_len, &res->key_type );
     if( FD_UNLIKELY( x509_alert!=0U ) ) {
       res->pubkey = NULL;
       res->alert  = x509_alert;
@@ -1046,6 +1154,8 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
       return -1L;
     }
 
+    res->pubkey_len = 32UL;
+    res->key_type   = FD_TLS_KEY_ED25519;
     return 0L;
   }
 

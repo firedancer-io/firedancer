@@ -361,8 +361,8 @@ test_server( SSL_CTX * ctx ) {
 
   /* Set up ECDH key */
 
-  for( ulong b=0; b<32UL; b++ ) server->kex_private_key[b] = fd_rng_uchar( rng );
-  fd_x25519_public( server->kex_public_key, server->kex_private_key );
+  for( ulong b=0; b<32UL; b++ ) server->key_share_private[b] = fd_rng_uchar( rng );
+  fd_x25519_public( server->key_share_public, server->key_share_private );
 
   /* Set up Ed25519 key */
 
@@ -449,8 +449,8 @@ test_client( SSL_CTX * ctx ) {
 
   /* Set up ECDH key */
 
-  for( ulong b=0; b<32UL; b++ ) client->kex_private_key[b] = fd_rng_uchar( rng );
-  fd_x25519_public( client->kex_public_key, client->kex_private_key );
+  for( ulong b=0; b<32UL; b++ ) client->key_share_private[b] = fd_rng_uchar( rng );
+  fd_x25519_public( client->key_share_public, client->key_share_private );
 
   /* Set up Ed25519 key */
 
