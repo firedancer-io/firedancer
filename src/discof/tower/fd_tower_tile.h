@@ -46,8 +46,7 @@
      This threshold is important for end-users, who rely on the
      "confirmed" commitment status of blocks (queryable via RPC) to
      determine that their transaction has landed on a block that will
-     not rollback. This is unimplemented in Firedancer and only relevant
-     for RPC. (TODO verify this?)
+     not rollback.
 
    - super confirmed: same as optimistic, but the stake threshold is 4/5
      of stake.  This is used during boot for `--wait-for-supermajority`.

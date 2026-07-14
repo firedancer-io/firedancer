@@ -41,44 +41,26 @@
 
    Agave tracks a similar structure.
 
-   key: for an interval [vote, vote+lockout] for validator A,
-   it is stored like:
-   vote+lockout -> (vote, validator A) -> (2, validator B) -> (any other vote, any other validator)
-
-   Since a validator can have up to 31 entries in the tower, and we have
-   a max_vote_accounts, we can pool the interval objects to be
-   31*max_vote_accounts entries PER bank / executed slot. We can also
-   string all the intervals of the same bank together as a linkedlist. */
+   Intervals are stored as singly-linked lists threaded off each
+   fd_tower_blk_t (lck_head), so the pool is sized exactly
+   FD_TOWER_LOCKOS_MAX*blk_max*vtr_max: up to 31 tower entries per
+   voter per bank / executed slot.  The only consumer (switch_check)
+   iterates all intervals of one fork slot, filtering by end. */
 
 struct lockout_interval {
-  ulong     key;   /* vote_slot (32 bits) | expiration_slot (32 bits) ie. vote_slot + (1 << confirmation count) */
-  ulong     next;  /* reserved for fd_map_chain and fd_pool */
+  ulong     next;  /* pool freelist / per-blk list link */
+  uint      start; /* interval start ie. vote slot */
+  uint      end;   /* interval end ie. vote_slot + (1 << conf), inclusive.
+                      32 bits per the prior map-key packing; overflows
+                      for vote slots >= 2^32 - 2^31. */
   fd_hash_t addr;  /* vote account address */
-  ulong     start; /* For normal entries: start of interval (vote slot).
-                      For sentinel entries (key has expiration_slot==0):
-                      the interval_end value this sentinel indexes.
-                      Multiple sentinels can exist per slot (one per
-                      unique interval_end), all sharing key (slot, 0)
-                      via MAP_MULTI. */
 };
 typedef struct lockout_interval lockout_interval_t;
-
-#define MAP_NAME    lockout_interval_map
-#define MAP_ELE_T   lockout_interval_t
-#define MAP_MULTI   1
-#define MAP_KEY     key
-#define MAP_NEXT    next
-#include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME lockout_interval_pool
 #define POOL_T    lockout_interval_t
 #define POOL_NEXT next
 #include "../../util/tmpl/fd_pool.c"
-
-FD_FN_PURE static inline ulong
-lockout_interval_key( ulong fork_slot, ulong end_interval ) {
-  return (fork_slot << 32) | end_interval;
-}
 
 #define THRESHOLD_DEPTH (8)
 #define THRESHOLD_RATIO (2.0 / 3.0)
@@ -92,8 +74,7 @@ fd_tower_align( void ) {
 ulong
 fd_tower_footprint( ulong blk_max,
                     ulong vtr_max ) {
-  ulong lck_interval_max = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
-  ulong lck_pool_max     = fd_ulong_pow2_up( 2UL * lck_interval_max );
+  ulong lck_pool_max = FD_TOWER_LOCKOS_MAX*blk_max*vtr_max;
 
   ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * blk_max );
   int   stk_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
@@ -109,7 +90,6 @@ fd_tower_footprint( ulong blk_max,
   }
   /* lockos */
   l = FD_LAYOUT_APPEND( l, lockout_interval_pool_align(),      lockout_interval_pool_footprint( lck_pool_max )              );
-  l = FD_LAYOUT_APPEND( l, lockout_interval_map_align(),       lockout_interval_map_footprint ( lck_pool_max )              );
   /* stakes */
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_map_align(),   fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )      );
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_vtr_pool_align(),  fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )      );
@@ -142,8 +122,7 @@ fd_tower_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  ulong lck_interval_max = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
-  ulong lck_pool_max     = fd_ulong_pow2_up( 2UL * lck_interval_max );
+  ulong lck_pool_max = FD_TOWER_LOCKOS_MAX*blk_max*vtr_max;
 
   ulong stk_vtr_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * blk_max );
   int   stk_lg_slot_cnt   = fd_ulong_find_msb( fd_ulong_pow2_up( blk_max ) ) + 1;
@@ -159,7 +138,6 @@ fd_tower_new( void * shmem,
     towers[i] = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),            fd_tower_vote_footprint()                                   );
   }
   void *       lck_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, lockout_interval_pool_align(),     lockout_interval_pool_footprint( lck_pool_max )              );
-  void *       lck_map_mem    = FD_SCRATCH_ALLOC_APPEND( l, lockout_interval_map_align(),      lockout_interval_map_footprint ( lck_pool_max )              );
   void *       stk_vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( stk_vtr_chain_cnt )      );
   void *       stk_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * blk_max )      );
   void *       stk_slot_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( stk_lg_slot_cnt )            );
@@ -177,8 +155,7 @@ fd_tower_new( void * shmem,
     fd_tower_vtr_join( tower->vtrs )[i].votes = fd_tower_vote_new( towers[i] );
   }
 
-  tower->lck_pool     = lockout_interval_pool_new( lck_pool_mem, lck_pool_max       );
-  tower->lck_map      = lockout_interval_map_new ( lck_map_mem,  lck_pool_max, seed );
+  tower->lck_pool     = lockout_interval_pool_new( lck_pool_mem, lck_pool_max );
   tower->stk_vtr_map  = fd_tower_stakes_vtr_map_new ( stk_vtr_map,  stk_vtr_chain_cnt, seed );
   tower->stk_vtr_pool = fd_tower_stakes_vtr_pool_new( stk_vtr_pool, vtr_max * blk_max       );
   tower->stk_slot_map = fd_tower_stakes_slot_new    ( stk_slot_map, stk_lg_slot_cnt,   seed  );
@@ -209,7 +186,6 @@ fd_tower_join( void * shtower ) {
     tower->vtrs[i].votes = fd_tower_vote_join( tower->vtrs[i].votes );
   }
   tower->lck_pool     = lockout_interval_pool_join( tower->lck_pool );
-  tower->lck_map      = lockout_interval_map_join ( tower->lck_map  );
   tower->stk_vtr_map  = fd_tower_stakes_vtr_map_join ( tower->stk_vtr_map  );
   tower->stk_vtr_pool = fd_tower_stakes_vtr_pool_join( tower->stk_vtr_pool );
   tower->stk_slot_map = fd_tower_stakes_slot_join    ( tower->stk_slot_map );
@@ -465,8 +441,7 @@ switch_check( fd_tower_t * tower,
               ulong        total_stake,
               ulong        switch_slot ) {
 
-  lockout_interval_map_t * lck_map  = tower->lck_map;
-  lockout_interval_t *     lck_pool = tower->lck_pool;
+  lockout_interval_t * lck_pool = tower->lck_pool;
 
   ulong switch_stake = 0;
   ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
@@ -523,28 +498,21 @@ switch_check( fd_tower_t * tower,
          created at the time that we processed the bank for this
          candidate slot. */
 
-      ulong sentinel_key = lockout_interval_key( candidate_slot, 0 );
-      for( lockout_interval_t const * sentinel = lockout_interval_map_ele_query_const( lck_map, &sentinel_key, NULL, lck_pool );
-                                      sentinel;
-                                      sentinel = lockout_interval_map_ele_next_const( sentinel, NULL, lck_pool ) ) {
-        ulong interval_end = sentinel->start;
-        ulong key = lockout_interval_key( candidate_slot, interval_end );
+      fd_tower_blk_t const * cand_blk = fd_tower_blocks_query( tower, candidate_slot );
+      if( FD_UNLIKELY( !cand_blk ) ) continue;
+      for( ulong lck_idx = cand_blk->lck_head;
+           lck_idx!=lockout_interval_pool_idx_null( lck_pool );
+           lck_idx = lck_pool[ lck_idx ].next ) {
+        lockout_interval_t const * interval = &lck_pool[ lck_idx ];
 
-        /* Intervals are keyed by the end of the interval. If the end of
-           the interval is < the last vote slot, then these vote
-           accounts with this particular lockout are NOT locked out from
-           voting for the last vote slot, which means we can skip this
-           set of intervals. */
+        /* If the end of the interval is < the last vote slot, then this
+           vote account with this particular lockout is NOT locked out
+           from voting for the last vote slot, so skip it. */
 
-        if( FD_LIKELY( interval_end < vote_slot ) ) continue;
+        if( FD_LIKELY( (ulong)interval->end < vote_slot ) ) continue;
 
-        /* At this point we can actually query for the intervals by
-           end interval to get the vote accounts. */
-
-        for( lockout_interval_t const * interval = lockout_interval_map_ele_query_const( lck_map, &key, NULL, lck_pool );
-                                        interval;
-                                        interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
-          ulong interval_slot        =  interval->start;
+        {
+          ulong interval_slot        =  (ulong)interval->start;
           fd_hash_t const * vote_acc = &interval->addr;
 
           if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval_slot, vote_slot ) && interval_slot > root_slot ) ) {
@@ -1493,6 +1461,7 @@ fd_tower_blocks_insert( fd_tower_t * tower,
   blk->parent_slot      = parent_slot;
   blk->slot             = slot;
   blk->prev_leader_slot = ULONG_MAX;
+  blk->lck_head         = lockout_interval_pool_idx_null( (lockout_interval_t *)tower->lck_pool ); /* 0 is a valid pool idx */
   blk_map_ele_insert( tower->blk_map, blk, tower->blk_pool );
   return blk;
 }
@@ -1502,6 +1471,7 @@ fd_tower_blocks_remove( fd_tower_t * tower,
                         ulong        slot ) {
   fd_tower_blk_t * blk = blk_map_ele_query( tower->blk_map, &slot, NULL, tower->blk_pool );
   if( FD_LIKELY( blk ) ) {
+    fd_tower_lockos_remove( tower, slot ); /* release intervals before the blk holding lck_head */
     blk_map_ele_remove_fast( tower->blk_map, blk, tower->blk_pool );
     blk_pool_ele_release( tower->blk_pool, blk );
   }
@@ -1515,33 +1485,23 @@ fd_tower_lockos_insert( fd_tower_t *      tower,
                         fd_hash_t const * addr,
                         fd_tower_vote_t * votes ) {
 
-  lockout_interval_map_t * lck_map  = tower->lck_map;
-  lockout_interval_t *     lck_pool = tower->lck_pool;
+  lockout_interval_t * lck_pool = tower->lck_pool;
+
+  fd_tower_blk_t * blk = fd_tower_blocks_query( tower, slot );
+  FD_TEST( blk );
 
   for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( votes );
                                   !fd_tower_vote_iter_done( votes, iter );
                             iter = fd_tower_vote_iter_next( votes, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( votes, iter );
-    ulong        interval_start = vote->slot;
-    ulong        interval_end   = vote->slot + ( 1UL << vote->conf );
-    ulong        key            = lockout_interval_key( slot, interval_end );
-
-    if( !lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) ) {
-      /* Insert sentinel for pruning.  key = fork_slot | 0, start = interval_end. */
-      ulong sentinel_key = lockout_interval_key( slot, 0 );
-      FD_TEST( lockout_interval_pool_free( lck_pool ) );
-      lockout_interval_t * sentinel = lockout_interval_pool_ele_acquire( lck_pool );
-      sentinel->key   = sentinel_key;
-      sentinel->start = interval_end;
-      lockout_interval_map_ele_insert( lck_map, sentinel, lck_pool );
-    }
 
     FD_TEST( lockout_interval_pool_free( lck_pool ) );
     lockout_interval_t * interval = lockout_interval_pool_ele_acquire( lck_pool );
-    interval->key                         = key;
-    interval->addr                        = *addr;
-    interval->start                       = interval_start;
-    FD_TEST( lockout_interval_map_ele_insert( lck_map, interval, lck_pool ) );
+    interval->addr  = *addr;
+    interval->start = (uint)vote->slot;
+    interval->end   = (uint)( vote->slot + ( 1UL << vote->conf ) );
+    interval->next  = blk->lck_head;
+    blk->lck_head   = lockout_interval_pool_idx( lck_pool, interval );
   }
 }
 
@@ -1549,21 +1509,16 @@ void
 fd_tower_lockos_remove( fd_tower_t * tower,
                         ulong        slot ) {
 
-  lockout_interval_map_t * lck_map  = tower->lck_map;
-  lockout_interval_t *     lck_pool = tower->lck_pool;
+  lockout_interval_t * lck_pool = tower->lck_pool;
 
-  ulong sentinel_key = lockout_interval_key( slot, 0 );
-  for( lockout_interval_t * sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool );
-                            sentinel;
-                            sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool ) ) {
-    ulong interval_end = sentinel->start;
-    lockout_interval_pool_ele_release( lck_pool, sentinel );
+  fd_tower_blk_t * blk = fd_tower_blocks_query( tower, slot );
+  if( FD_UNLIKELY( !blk ) ) return; /* skipped slot or already pruned */
 
-    ulong key = lockout_interval_key( slot, interval_end );
-    for( lockout_interval_t * itrvl = lockout_interval_map_ele_remove( lck_map, &key, NULL, lck_pool );
-                                      itrvl;
-                                      itrvl = lockout_interval_map_ele_remove( lck_map, &key, NULL, lck_pool ) ) {
-      lockout_interval_pool_ele_release( lck_pool, itrvl );
-    }
+  ulong null = lockout_interval_pool_idx_null( lck_pool );
+  for( ulong lck_idx = blk->lck_head; lck_idx!=null; ) {
+    ulong next = lck_pool[ lck_idx ].next;
+    lockout_interval_pool_idx_release( lck_pool, lck_idx );
+    lck_idx = next;
   }
+  blk->lck_head = null;
 }

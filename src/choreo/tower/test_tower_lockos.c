@@ -20,6 +20,28 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
   out->vote_acc = *pubkey;
 }
 
+/* count_intervals walks fork_slot's per-blk list, returning the number
+   of intervals and checking each against addr / expected ends. */
+
+static ulong
+count_intervals( fd_tower_t * tower, ulong fork_slot, fd_hash_t const * addr, ulong const * ends, ulong end_cnt ) {
+  lockout_interval_t * lck_pool = tower->lck_pool;
+  fd_tower_blk_t * blk = fd_tower_blocks_query( tower, fork_slot );
+  FD_TEST( blk );
+  ulong cnt  = 0;
+  ulong null = lockout_interval_pool_idx_null( lck_pool );
+  for( ulong idx = blk->lck_head; idx!=null; idx = lck_pool[ idx ].next ) {
+    lockout_interval_t const * interval = &lck_pool[ idx ];
+    FD_TEST( 0==memcmp( &interval->addr, addr, sizeof(fd_hash_t) ) );
+    int found = 0;
+    for( ulong i=0; i<end_cnt; i++ ) found |= ( ends[i]==(ulong)interval->end );
+    FD_TEST( found );
+    FD_TEST( (ulong)interval->start + ( (ulong)interval->end - (ulong)interval->start )==(ulong)interval->end ); /* sanity */
+    cnt++;
+  }
+  return cnt;
+}
+
 void
 test_lockos( fd_wksp_t * wksp ) {
   ulong slot_max    = 64;
@@ -28,14 +50,17 @@ test_lockos( fd_wksp_t * wksp ) {
   void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( slot_max, voter_max ), 1UL );
   fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, slot_max, voter_max, 0UL ) );
 
-  lockout_interval_map_t * lck_map  = tower->lck_map;
-  lockout_interval_t *     lck_pool = tower->lck_pool;
+  lockout_interval_t * lck_pool = tower->lck_pool;
 
   uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) mock_votes_mem[ FD_TOWER_VOTE_FOOTPRINT ];
   fd_tower_vote_t * mock_votes = fd_tower_vote_join( fd_tower_vote_new( mock_votes_mem ) );
 
+  ulong free_at_start = lockout_interval_pool_free( lck_pool );
+
   fd_tower_vtr_t acct;
   ulong fork_slot = 1;
+  fd_tower_blocks_insert( tower, fork_slot, ULONG_MAX );
+
   ulong end_intervals[31];
   for( ulong i = 1; i < 32; i++ ) {
     ulong vote_slot = 50 - (i - 1);
@@ -44,44 +69,31 @@ test_lockos( fd_wksp_t * wksp ) {
     end_intervals[i - 1] = vote_slot + (1UL << (uint)i);
   }
 
-  for( ulong i = 0; i < 31; i++ ) {
-    ulong key = lockout_interval_key( fork_slot, end_intervals[i] );
-    FD_TEST( lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) );
-  }
+  FD_TEST( 31UL==count_intervals( tower, fork_slot, &acct.vote_acc, end_intervals, 31UL ) );
+  FD_TEST( lockout_interval_pool_free( lck_pool )==free_at_start-31UL );
 
-  /* Verify sentinels exist for fork_slot. */
-
-  ulong sentinel_key = lockout_interval_key( fork_slot, 0 );
-  FD_TEST( lockout_interval_map_ele_query( lck_map, &sentinel_key, NULL, lck_pool ) );
-
-  ulong num_keys = 0;
-  for( lockout_interval_t const * sentinel = lockout_interval_map_ele_query_const( lck_map, &sentinel_key, NULL, lck_pool );
-                                              sentinel;
-                                              sentinel = lockout_interval_map_ele_next_const( sentinel, NULL, lck_pool ) ) {
-    ulong interval_end = sentinel->start;
-    ulong key          = lockout_interval_key( fork_slot, interval_end );
-    num_keys++;
-
-    /* Intervals are keyed by the end of the interval. */
-
-    ulong num_pubkeys = 0;
-    for( lockout_interval_t const * interval = lockout_interval_map_ele_query_const( lck_map, &key, NULL, lck_pool );
-                                                interval;
-                                                interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
-      FD_TEST( memcmp( &interval->addr, &acct.vote_acc, sizeof(fd_hash_t) ) == 0 );
-      num_pubkeys++;
-    }
-    FD_TEST( num_pubkeys == 1 );
-  }
-  FD_TEST( num_keys == 31 );
-
+  /* Remove releases every interval back to the pool and empties the
+     blk list. */
 
   fd_tower_lockos_remove( tower, fork_slot );
-  for( ulong i = 0; i < 31; i++ ) {
-    ulong key = lockout_interval_key( fork_slot, end_intervals[i] );
-    FD_TEST( !lockout_interval_map_ele_query( lck_map, &key, NULL, lck_pool ) );
-  }
-  FD_TEST( !lockout_interval_map_ele_query( lck_map, &sentinel_key, NULL, lck_pool ) );
+  fd_tower_blk_t * blk = fd_tower_blocks_query( tower, fork_slot );
+  FD_TEST( blk->lck_head==lockout_interval_pool_idx_null( lck_pool ) );
+  FD_TEST( lockout_interval_pool_free( lck_pool )==free_at_start );
+
+  /* Remove is idempotent and tolerates slots with no tower blk
+     (skipped slots in the prune loops). */
+
+  fd_tower_lockos_remove( tower, fork_slot );
+  fd_tower_lockos_remove( tower, 999 );
+  FD_TEST( lockout_interval_pool_free( lck_pool )==free_at_start );
+
+  /* blocks_remove releases any remaining intervals with the blk. */
+
+  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 100, 40, 3, &acct, mock_votes );
+  fd_tower_lockos_insert( tower, fork_slot, &acct.vote_acc, acct.votes );
+  FD_TEST( lockout_interval_pool_free( lck_pool )==free_at_start-1UL );
+  fd_tower_blocks_remove( tower, fork_slot );
+  FD_TEST( lockout_interval_pool_free( lck_pool )==free_at_start );
 }
 
 int
