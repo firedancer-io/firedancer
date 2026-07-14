@@ -206,6 +206,7 @@ struct fd_tls_estate_cli {
 
   uchar client_cert       : 1;  /* 0=anon  1=client auth */
   uchar server_pubkey_pin : 1;  /* if 1, require cert to match server_pubkey */
+  uchar alpn_negotiated   : 1;  /* if 1, server selected the offered ALPN */
 
   /* TCP middlebox compat (RFC 8446 Section 4.1.2) */
   uchar session_id[ 32 ];

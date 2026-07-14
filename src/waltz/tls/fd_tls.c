@@ -1572,6 +1572,7 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
     if( FD_UNLIKELY( ee->alpn.bufsz != client->alpn_sz ||
                      0!=memcmp( ee->alpn.buf, client->alpn, client->alpn_sz ) ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_ALPN_NEG );
+    handshake->alpn_negotiated = 1;
   }
   if( client->quic && client->alpn_sz && !ee->alpn.bufsz )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_NO_ALPN );
