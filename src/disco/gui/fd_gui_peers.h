@@ -512,6 +512,11 @@ fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
                           ulong                vote_slot,
                           int                  is_us );
 
+/* fd_gui_peers_handle_identity_change invalidates/resets state from the
+   previous identity.  Namely, it resets the vote slot. */
+void
+fd_gui_peers_handle_identity_change( fd_gui_peers_ctx_t * peers );
+
 /* fd_gui_peers_update_delinquency is called infrequently (currently,
    once per slot) and scans the cluster for any nodes that are
    delinquent, publishing delinquency updates to the frontend. */
