@@ -6,6 +6,7 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../fd_executor.h"
+#include "../sysvar/fd_sysvar_instructions.h"
 #include "../program/fd_compute_budget_program.h"
 #include "../program/fd_system_program.h"
 #include "../../features/fd_features.h"
@@ -341,6 +342,31 @@ test_v1_feature_gate( void ) {
   FD_LOG_NOTICE(( "test_v1_feature_gate: PASSED" ));
 }
 
+static void
+test_sysvar_instructions_overflow( void ) {
+  static fd_txn_p_t txnp;
+  fd_memset( &txnp, 0, sizeof(txnp) );
+  fd_txn_t * txn = TXN( &txnp );
+  txn->transaction_version = FD_TXN_V1;
+  txn->instr_cnt           = 2;
+
+  txn->instr[0].acct_cnt = 1984; txn->instr[0].data_sz = 21;
+  txn->instr[1].acct_cnt = 0;    txn->instr[1].data_sz = 0;
+  FD_TEST( fd_sysvar_instructions_offsets_overflow( txn )==0 );   /* start[1]==65535 -> accepted */
+
+  txn->instr[0].data_sz = 22;
+  FD_TEST( fd_sysvar_instructions_offsets_overflow( txn )==1 );   /* start[1]==65536 -> rejected */
+
+  fd_txn_in_t txn_in = {0};
+  txn_in.txn = &txnp;
+  static fd_txn_out_t txn_out;
+  fd_memset( &txn_out, 0, sizeof(txn_out) );
+  FD_TEST( fd_sysvar_instructions_serialize_account( &txn_in, &txn_out, 0UL )
+           ==FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED );
+
+  FD_LOG_NOTICE(( "test_sysvar_instructions_overflow: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -359,6 +385,7 @@ main( int     argc,
   test_sanitize_compute_unit_limits_heap_size();
   test_sanitize_txn_v1_config_heap_size( &bank );
   test_v1_feature_gate();
+  test_sysvar_instructions_overflow();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

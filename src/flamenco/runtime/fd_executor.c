@@ -559,14 +559,15 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
    total loaded account size.
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
-static ulong
+static int
 load_transaction_account( fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out,
                           fd_pubkey_t const * pubkey,
                           fd_acc_t *          acc,
                           uchar               unknown_acc,
-                          ulong               txn_idx ) {
+                          ulong               txn_idx,
+                          ulong *             out_loaded_sz ) {
 
   /* Handling the sysvar instructions account explictly.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L817-L824 */
@@ -575,8 +576,10 @@ load_transaction_account( fd_bank_t *         bank,
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( txn_in, txn_out, txn_idx );
-    return 0UL;
+    int err = fd_sysvar_instructions_serialize_account( txn_in, txn_out, txn_idx );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    *out_loaded_sz = 0UL;
+    return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* This next block calls `account_loader::load_transaction_account()`
@@ -593,7 +596,8 @@ load_transaction_account( fd_bank_t *         bank,
     ulong base_account_size = FD_FEATURE_ACTIVE_BANK( bank, formalize_loaded_transaction_data_size ) ? FD_TRANSACTION_ACCOUNT_BASE_SIZE : 0UL;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
-    return fd_ulong_sat_add( base_account_size, acc->data_len );
+    *out_loaded_sz = fd_ulong_sat_add( base_account_size, acc->data_len );
+    return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* The rest of this function is a no-op for us since we already set up
@@ -603,7 +607,8 @@ load_transaction_account( fd_bank_t *         bank,
      states that accounts that do not exist prior to the transaction's
      execution should not incur a loaded size cost.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L566-L577 */
-  return 0UL;
+  *out_loaded_sz = 0UL;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L494-L515 */
@@ -791,8 +796,12 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( bank, txn_in, txn_out, &txn_out->accounts.keys[i], acc, unknown_acc, i );
-    int err = fd_collect_loaded_account(
+    ulong loaded_acc_size = 0UL;
+    int err = load_transaction_account( bank, txn_in, txn_out, &txn_out->accounts.keys[i], acc, unknown_acc, i, &loaded_acc_size );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      return err;
+    }
+    err = fd_collect_loaded_account(
       txn_out,
       acc,
       loaded_acc_size,
