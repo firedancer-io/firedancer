@@ -349,14 +349,25 @@ fd_topo_mlock( fd_topo_t const * topo ) {
 static void
 fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
   if( FD_LIKELY( sz >= FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
-    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu GiB", sz / (1 << 30) ) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%.1f GiB", (double)sz / (double)(1UL << 30) ) );
   } else if( FD_LIKELY( sz >= 1048576 ) ) {
-    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu MiB", sz / (1 << 20) ) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%.1f MiB", (double)sz / (double)(1UL << 20) ) );
   } else if( FD_LIKELY( sz >= 1024 ) ) {
-    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu KiB", sz / (1 << 10) ) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%.1f KiB", (double)sz / (double)(1UL << 10) ) );
   } else {
     FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu B", sz ) );
   }
+}
+
+/* Style sizes by magnitude so the big numbers pop */
+
+static char const *
+fd_topo_mem_sz_style( ulong        sz,
+                      char const * bold,
+                      char const * dim ) {
+  if( sz>=(1UL<<30) ) return bold;
+  if( sz< (1UL<<20) ) return dim;
+  return "";
 }
 
 void
@@ -367,34 +378,58 @@ fd_topo_print_log( int         stdout,
   char * cur = message;
   ulong remaining = sizeof(message) - 1; /* Leave one character at the end to ensure NUL terminated */
 
-#define PRINT( ... ) do {                                                           \
-    int n = snprintf( cur, remaining, __VA_ARGS__ );                                \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                   \
-    if( FD_UNLIKELY( (ulong)n >= remaining ) ) FD_LOG_ERR(( "snprintf overflow" )); \
-    remaining -= (ulong)n;                                                          \
-    cur += n;                                                                       \
+#define PRINT( ... ) do {                                                             \
+    int n = snprintf( cur, remaining, __VA_ARGS__ );                                  \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                     \
+    if( FD_UNLIKELY( (ulong)n >= remaining ) ) {                                      \
+      /* stdout mode flushes and retries, log mode keeps one message */               \
+      if( FD_UNLIKELY( !stdout ) ) FD_LOG_ERR(( "snprintf overflow" ));               \
+      *cur = '\0';                                                                    \
+      FD_LOG_STDOUT(( "%s", message ));                                               \
+      cur = message; remaining = sizeof(message) - 1;                                 \
+      n = snprintf( cur, remaining, __VA_ARGS__ );                                    \
+      if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                   \
+      if( FD_UNLIKELY( (ulong)n >= remaining ) ) FD_LOG_ERR(( "snprintf overflow" )); \
+    }                                                                                 \
+    remaining -= (ulong)n;                                                            \
+    cur += n;                                                                         \
   } while( 0 )
 
-  PRINT( "\nSUMMARY\n" );
+  int color = stdout && fd_log_colorize() && isatty( STDOUT_FILENO );
+  char const * c_bold   = color ? "\033[1m" : "";
+  char const * c_dim    = color ? "\033[2m" : "";
+  char const * c_normal = color ? "\033[0m" : "";
+
+  char const * sep = "";
+
+#define SECTION( ... ) do {                                                            \
+    char _title[ 64 ];                                                                \
+    FD_TEST( fd_cstr_printf_check( _title, sizeof(_title), NULL, __VA_ARGS__ ) );     \
+    PRINT( "%s%s──%s %s%s%s %s", sep, c_dim, c_normal, c_bold, _title, c_normal, c_dim ); \
+    for( ulong _i=strlen( _title ); _i<76UL; _i++ ) PRINT( "─" );                     \
+    PRINT( "%s\n", c_normal );                                                        \
+    sep = "\n";                                                                       \
+  } while( 0 )
+
+  SECTION( "Summary" );
 
   /* The logic to compute number of stack pages is taken from
      fd_tile_thread.cxx, in function fd_topo_tile_stack_join, and this
      should match that. */
   ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
 
-  /* The logic to map these private pages into memory is in utility.c,
-     under fd_keyload_load, and the amount of pages should be kept in
-     sync. */
-  ulong private_key_pages = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
-  ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + private_key_pages;
+  ulong normal_page_bytes = fd_topo_normal_page_cnt( topo ) * FD_SHMEM_NORMAL_PAGE_SZ;
+  ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + normal_page_bytes;
 
-  PRINT("  %23s: %lu\n", "Total Tiles", topo->tile_cnt );
-  PRINT("  %23s: %lu bytes (%lu GiB + %lu MiB + %lu KiB)\n",
-    "Total Memory Locked",
-    total_bytes,
+  PRINT("  %s%-23s%s  %lu\n", c_dim, "Total Tiles", c_normal, topo->tile_cnt );
+  PRINT("  %s%-23s%s  %s%lu GiB + %lu MiB + %lu KiB%s  %s(%lu bytes)%s\n",
+    c_dim, "Total Memory Locked", c_normal,
+    c_bold,
     total_bytes / (1 << 30),
     (total_bytes % (1 << 30)) / (1 << 20),
-    (total_bytes % (1 << 20)) / (1 << 10) );
+    (total_bytes % (1 << 20)) / (1 << 10),
+    c_normal,
+    c_dim, total_bytes, c_normal );
 
   ulong required_gigantic_pages = 0UL;
   ulong required_huge_pages = 0UL;
@@ -404,12 +439,15 @@ fd_topo_print_log( int         stdout,
     required_gigantic_pages += fd_topo_gigantic_page_cnt( topo, i );
     required_huge_pages += fd_topo_huge_page_cnt( topo, i, 0 );
   }
-  PRINT("  %23s: %lu\n", "Required Gigantic Pages", required_gigantic_pages );
-  PRINT("  %23s: %lu\n", "Required Huge Pages", required_huge_pages );
-  PRINT("  %23s: %lu\n", "Required Normal Pages", fd_topo_normal_page_cnt( topo ) );
-  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Gigantic Pages", i, fd_topo_gigantic_page_cnt( topo, i ) );
-    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
+  PRINT("  %s%-23s%s  %lu\n", c_dim, "Required Gigantic Pages", c_normal, required_gigantic_pages );
+  PRINT("  %s%-23s%s  %lu\n", c_dim, "Required Huge Pages", c_normal, required_huge_pages );
+  PRINT("  %s%-23s%s  %lu\n", c_dim, "Required Normal Pages", c_normal, fd_topo_normal_page_cnt( topo ) );
+  if( FD_UNLIKELY( numa_node_cnt>1UL ) ) {
+    for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+      char label[ 40 ];
+      FD_TEST( fd_cstr_printf_check( label, sizeof(label), NULL, "NUMA node %lu", i ) );
+      PRINT("  %s%-23s%s  %lu gigantic, %lu huge\n", c_dim, label, c_normal, fd_topo_gigantic_page_cnt( topo, i ), fd_topo_huge_page_cnt( topo, i, 0 ) );
+    }
   }
 
   if( FD_UNLIKELY( topo->agave_affinity_cnt>0UL ) ) {
@@ -421,40 +459,52 @@ fd_topo_print_log( int         stdout,
       else                       FD_TEST( fd_cstr_printf_check( agave_affinity+offset, 4096-offset, &sz, "%lu", topo->agave_affinity_cpu_idx[ i ] ) );
       offset += sz;
     }
-    PRINT( "  %23s: %s\n", "Agave Affinity", agave_affinity );
+    PRINT( "  %s%-23s%s  %s\n", c_dim, "Agave Affinity", c_normal, agave_affinity );
   }
 
-  PRINT( "\nWORKSPACES\n");
+  SECTION( "Workspaces (%lu)", topo->wksp_cnt );
+  PRINT( "  %s%3s  %10s  %-13s  %5s  %-8s  %4s  %12s  %12s%s\n", c_dim, "ID", "SIZE", "NAME", "PAGES", "PAGE SZ", "NUMA", "FOOTPRINT", "LOOSE", c_normal );
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
+    ulong sz = wksp->page_sz * wksp->page_cnt;
     char size[ 24 ];
-    fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%7s): %12s  page_cnt=%3lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%10lu  loose=%10lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    fd_topo_mem_sz_string( sz, size );
+    PRINT( "  %3lu  %s%10s%s  %-13s  %5lu  %-8s  %4lu  %12lu  %s%12lu%s\n",
+           i, fd_topo_mem_sz_style( sz, c_bold, c_dim ), size, c_normal,
+           wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx,
+           wksp->known_footprint, c_dim, wksp->total_footprint - wksp->known_footprint, c_normal );
   }
 
-  PRINT( "\nOBJECTS\n" );
+  SECTION( "Objects (%lu)", topo->obj_cnt );
+  PRINT( "  %s%4s  %10s  %-13s  %-13s  %4s  %12s  %s%s\n", c_dim, "ID", "SIZE", "WORKSPACE", "OBJECT", "WKSP", "OFFSET", "PROPERTIES", c_normal );
   for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
     fd_topo_obj_t * obj = &topo->objs[ i ];
 
     char size[ 24 ];
     fd_topo_mem_sz_string( obj->footprint, size );
-    PRINT( "  %3lu: %12s %12s  wksp_id=%-2lu  footprint=%7s  offset=%lu",
-           i, topo->workspaces[ obj->wksp_id ].name, obj->name,
-           obj->wksp_id, size, obj->offset );
+    PRINT( "  %4lu  %s%10s%s  %-13s  %-13s  %4lu  %12lu ",
+           i, fd_topo_mem_sz_style( obj->footprint, c_bold, c_dim ), size, c_normal,
+           topo->workspaces[ obj->wksp_id ].name, obj->name,
+           obj->wksp_id, obj->offset );
     for( fd_pod_iter_t iter=fd_pod_iter_init( fd_pod_queryf_subpod( topo->props, "obj.%lu", obj->id ) );
          !fd_pod_iter_done( iter );
          iter=fd_pod_iter_next( iter ) ) {
       fd_pod_info_t info = fd_pod_iter_info( iter );
-      if( !strncmp( info.key, "seed", info.key_sz ) ) continue;
-      PRINT( "  %.*s", (int)info.key_sz, info.key );
+      if( !strcmp( info.key, "seed" ) ) continue; /* key is a cstr (key_sz includes NUL) */
+      PRINT( " %s%.*s=%s", c_dim, (int)info.key_sz, info.key, c_normal );
       switch( info.val_type ) {
       case FD_POD_VAL_TYPE_CSTR:
-        PRINT( "=%.*s", (int)info.val_sz, (char const *)info.val );
+        PRINT( "%.*s", (int)info.val_sz, (char const *)info.val );
         break;
       case FD_POD_VAL_TYPE_ULONG: {
         ulong val; fd_ulong_svw_dec( info.val, &val );
-        PRINT( "=%lu", val );
+        PRINT( "%lu", val );
+        break;
+      }
+      case FD_POD_VAL_TYPE_INT: {
+        ulong u; fd_ulong_svw_dec( info.val, &u );
+        PRINT( "%i", (int)fd_long_zz_dec( u ) );
         break;
       }
       }
@@ -462,13 +512,17 @@ fd_topo_print_log( int         stdout,
     PRINT( "\n" );
   }
 
-  PRINT( "\nLINKS\n" );
+  SECTION( "Links (%lu)", topo->link_cnt );
+  PRINT( "  %s%3s  %10s  %-13s  %4s  %4s  %8s  %9s  %5s%s\n", c_dim, "ID", "SIZE", "NAME", "KIND", "WKSP", "DEPTH", "MTU", "BURST", c_normal );
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ i ];
 
+    ulong sz = fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 );
     char size[ 24 ];
-    fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, link->name, link->kind_id, topo->objs[ link->dcache_obj_id ].wksp_id, link->depth, link->mtu, link->burst );
+    fd_topo_mem_sz_string( sz, size );
+    PRINT( "  %3lu  %s%10s%s  %-13s  %4lu  %4lu  %8lu  %9lu  %5lu\n",
+           i, fd_topo_mem_sz_style( sz, c_bold, c_dim ), size, c_normal,
+           link->name, link->kind_id, topo->objs[ link->mcache_obj_id ].wksp_id, link->depth, link->mtu, link->burst );
   }
 
 #define PRINTIN( ... ) do {                                                            \
@@ -487,7 +541,8 @@ fd_topo_print_log( int         stdout,
     cur_out += n;                                                                       \
   } while( 0 )
 
-  PRINT( "\nTILES\n" );
+  SECTION( "Tiles (%lu)", topo->tile_cnt );
+  PRINT( "  %s%3s  %10s  %-13s  %4s  %4s  %4s  %4s  %s%s\n", c_dim, "ID", "MLOCK", "NAME", "KIND", "WKSP", "CPU", "NUMA", "LINKS / OBJECTS", c_normal );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
@@ -518,22 +573,25 @@ fd_topo_print_log( int         stdout,
       tile_numa = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].numa_idx;
     }
 
+    ulong mlock = fd_topo_mlock_max_tile1( topo, tile );
     char size[ 24 ];
-    fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
+    fd_topo_mem_sz_string( mlock, size );
+    PRINT( "  %3lu  %s%10s%s  %-13s  %4lu  %4lu  ",
+           i, fd_topo_mem_sz_style( mlock, c_bold, c_dim ), size, c_normal,
+           tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
     if( tile->cpu_idx!=ULONG_MAX ) {
-      PRINT( "%3lu", tile->cpu_idx );
+      PRINT( "%4lu", tile->cpu_idx );
     } else {
-      PRINT( "any" );
+      PRINT( "%s%4s%s", c_dim, "any", c_normal );
     }
 
-    PRINT( "  numa_idx=%lu  in=[%s]  out=[%s]  objs=[", tile_numa, in, out );
+    PRINT( "  %4lu  %sin=%s[%s]  %sout=%s[%s]  %sobjs=[", tile_numa, c_dim, c_normal, in, c_dim, c_normal, out, c_dim );
     for( ulong j=0UL; j<tile->uses_obj_cnt; j++ ) {
       if( FD_LIKELY( j!=0 ) ) PRINT( " " );
       int is_rw = tile->uses_obj_mode[ j ] == FD_SHMEM_JOIN_MODE_READ_WRITE;
       PRINT( "%lu:%s", tile->uses_obj_id[ j ], is_rw?"rw":"ro" );
     }
-    PRINT( "]" );
+    PRINT( "]%s", c_normal );
 
 #if 0
     PRINT( "  wksps=[" );
@@ -552,4 +610,180 @@ fd_topo_print_log( int         stdout,
 
   if( FD_UNLIKELY( stdout ) ) FD_LOG_STDOUT(( "%s\n", message ));
   else                        FD_LOG_INFO(( "%s", message ));
+
+#undef PRINT
+#undef PRINTIN
+#undef PRINTOUT
+#undef SECTION
+}
+
+/* PRINT_JSON_CSTR streams src (sz bytes, embedded NULs stop early)
+   as a JSON string literal, escaping quotes, backslashes and control
+   characters.  No fixed intermediate buffer: expansion cannot
+   truncate regardless of src length or content. */
+
+#define PRINT_JSON_CSTR( src, sz ) do {                                               \
+    char const * _s  = (src);                                                         \
+    ulong        _sz = (sz);                                                          \
+    PRINT( "\"" );                                                                    \
+    for( ulong _i=0UL; _i<_sz && _s[ _i ]; _i++ ) {                                   \
+      uchar _c = (uchar)_s[ _i ];                                                     \
+      if(      FD_UNLIKELY( _c=='"' || _c=='\\' ) ) PRINT( "\\%c", (char)_c );        \
+      else if( FD_UNLIKELY( _c<0x20 ) )             PRINT( "\\u%04x", (uint)_c );     \
+      else                                          PRINT( "%c", (char)_c );          \
+    }                                                                                 \
+    PRINT( "\"" );                                                                    \
+  } while( 0 )
+
+void
+fd_topo_print_json( fd_topo_t * topo ) {
+  char message[ 32UL*4096UL ] = {0};
+
+  char * cur = message;
+  ulong remaining = sizeof(message) - 1;
+
+#define PRINT( ... ) do {                                                             \
+    int n = snprintf( cur, remaining, __VA_ARGS__ );                                  \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                     \
+    if( FD_UNLIKELY( (ulong)n >= remaining ) ) {                                      \
+      *cur = '\0';                                                                    \
+      FD_LOG_STDOUT(( "%s", message ));                                               \
+      cur = message; remaining = sizeof(message) - 1;                                 \
+      n = snprintf( cur, remaining, __VA_ARGS__ );                                    \
+      if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                   \
+      if( FD_UNLIKELY( (ulong)n >= remaining ) ) FD_LOG_ERR(( "snprintf overflow" )); \
+    }                                                                                 \
+    remaining -= (ulong)n;                                                            \
+    cur += n;                                                                         \
+  } while( 0 )
+
+  ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
+  ulong normal_page_bytes = fd_topo_normal_page_cnt( topo ) * FD_SHMEM_NORMAL_PAGE_SZ;
+  ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + normal_page_bytes;
+
+  ulong required_gigantic_pages = 0UL;
+  ulong required_huge_pages = 0UL;
+  ulong numa_node_cnt = fd_shmem_numa_cnt();
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    required_gigantic_pages += fd_topo_gigantic_page_cnt( topo, i );
+    required_huge_pages += fd_topo_huge_page_cnt( topo, i, 0 );
+  }
+
+  PRINT( "{\n  \"summary\": {\n" );
+  PRINT( "    \"tile_cnt\": %lu,\n", topo->tile_cnt );
+  PRINT( "    \"total_memory_locked_bytes\": %lu,\n", total_bytes );
+  PRINT( "    \"required_gigantic_pages\": %lu,\n", required_gigantic_pages );
+  PRINT( "    \"required_huge_pages\": %lu,\n", required_huge_pages );
+  PRINT( "    \"required_normal_pages\": %lu,\n", fd_topo_normal_page_cnt( topo ) );
+  PRINT( "    \"numa_nodes\": [" );
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    PRINT( "%s\n      { \"node\": %lu, \"gigantic_pages\": %lu, \"huge_pages\": %lu }", i ? "," : "", i, fd_topo_gigantic_page_cnt( topo, i ), fd_topo_huge_page_cnt( topo, i, 0 ) );
+  }
+  PRINT( "\n    ],\n" );
+  PRINT( "    \"agave_affinity\": [" );
+  for( ulong i=0UL; i<topo->agave_affinity_cnt; i++ ) PRINT( "%s%lu", i ? ", " : "", topo->agave_affinity_cpu_idx[ i ] );
+  PRINT( "]\n  },\n" );
+
+  PRINT( "  \"workspaces\": [\n" );
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
+    PRINT( "    { \"id\": %lu, \"name\": ", i );
+    PRINT_JSON_CSTR( wksp->name, sizeof(wksp->name) );
+    PRINT( ", \"page_cnt\": %lu, \"page_sz\": \"%s\", \"numa_idx\": %lu, \"total_bytes\": %lu, \"footprint\": %lu, \"loose\": %lu }%s\n",
+           wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx,
+           wksp->page_cnt * wksp->page_sz, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint,
+           i==topo->wksp_cnt-1UL ? "" : "," );
+  }
+  PRINT( "  ],\n" );
+
+  PRINT( "  \"objects\": [\n" );
+  for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
+    fd_topo_obj_t * obj = &topo->objs[ i ];
+    PRINT( "    { \"id\": %lu, \"name\": ", i );
+    PRINT_JSON_CSTR( obj->name, sizeof(obj->name) );
+    PRINT( ", \"wksp\": " );
+    PRINT_JSON_CSTR( topo->workspaces[ obj->wksp_id ].name, sizeof(topo->workspaces[ obj->wksp_id ].name) );
+    PRINT( ", \"wksp_id\": %lu, \"footprint\": %lu, \"offset\": %lu, \"props\": {",
+           obj->wksp_id, obj->footprint, obj->offset );
+    int first = 1;
+    for( fd_pod_iter_t iter=fd_pod_iter_init( fd_pod_queryf_subpod( topo->props, "obj.%lu", obj->id ) );
+         !fd_pod_iter_done( iter );
+         iter=fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( !strcmp( info.key, "seed" ) ) continue; /* key is a cstr (key_sz includes NUL) */
+      switch( info.val_type ) {
+      case FD_POD_VAL_TYPE_CSTR: {
+        PRINT( "%s ", first ? "" : "," );
+        PRINT_JSON_CSTR( info.key, info.key_sz );
+        PRINT( ": " );
+        PRINT_JSON_CSTR( (char const *)info.val, info.val_sz );
+        first = 0;
+        break;
+      }
+      case FD_POD_VAL_TYPE_ULONG: {
+        ulong val; fd_ulong_svw_dec( info.val, &val );
+        PRINT( "%s ", first ? "" : "," );
+        PRINT_JSON_CSTR( info.key, info.key_sz );
+        PRINT( ": %lu", val );
+        first = 0;
+        break;
+      }
+      case FD_POD_VAL_TYPE_INT: {
+        ulong u; fd_ulong_svw_dec( info.val, &u );
+        PRINT( "%s ", first ? "" : "," );
+        PRINT_JSON_CSTR( info.key, info.key_sz );
+        PRINT( ": %i", (int)fd_long_zz_dec( u ) );
+        first = 0;
+        break;
+      }
+      }
+    }
+    PRINT( "%s} }%s\n", first ? "" : " ", i==topo->obj_cnt-1UL ? "" : "," );
+  }
+  PRINT( "  ],\n" );
+
+  PRINT( "  \"links\": [\n" );
+  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ i ];
+    PRINT( "    { \"id\": %lu, \"name\": ", i );
+    PRINT_JSON_CSTR( link->name, sizeof(link->name) );
+    PRINT( ", \"kind_id\": %lu, \"wksp_id\": %lu, \"depth\": %lu, \"mtu\": %lu, \"burst\": %lu, \"dcache_bytes\": %lu }%s\n",
+           link->kind_id, topo->objs[ link->mcache_obj_id ].wksp_id, link->depth, link->mtu, link->burst,
+           fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ),
+           i==topo->link_cnt-1UL ? "" : "," );
+  }
+  PRINT( "  ],\n" );
+
+  PRINT( "  \"tiles\": [\n" );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+
+    ulong tile_numa = 0UL;
+    if( tile->cpu_idx!=ULONG_MAX ) tile_numa = fd_shmem_numa_idx( tile->cpu_idx );
+    else                           tile_numa = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].numa_idx;
+
+    PRINT( "    { \"id\": %lu, \"name\": ", i );
+    PRINT_JSON_CSTR( tile->name, sizeof(tile->name) );
+    PRINT( ", \"kind_id\": %lu, \"wksp_id\": %lu, ",
+           tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
+    if( tile->cpu_idx!=ULONG_MAX ) PRINT( "\"cpu_idx\": %lu, ", tile->cpu_idx );
+    else                           PRINT( "\"cpu_idx\": null, " );
+    PRINT( "\"numa_idx\": %lu, \"mlock_bytes\": %lu, \"in_links\": [", tile_numa, fd_topo_mlock_max_tile1( topo, tile ) );
+    for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+      PRINT( "%s{ \"link_id\": %lu, \"reliable\": %s }", j ? ", " : "", tile->in_link_id[ j ], tile->in_link_reliable[ j ] ? "true" : "false" );
+    }
+    PRINT( "], \"out_links\": [" );
+    for( ulong j=0UL; j<tile->out_cnt; j++ ) PRINT( "%s%lu", j ? ", " : "", tile->out_link_id[ j ] );
+    PRINT( "], \"objects\": [" );
+    for( ulong j=0UL; j<tile->uses_obj_cnt; j++ ) {
+      int is_rw = tile->uses_obj_mode[ j ] == FD_SHMEM_JOIN_MODE_READ_WRITE;
+      PRINT( "%s{ \"obj_id\": %lu, \"mode\": \"%s\" }", j ? ", " : "", tile->uses_obj_id[ j ], is_rw ? "rw" : "ro" );
+    }
+    PRINT( "] }%s\n", i==topo->tile_cnt-1UL ? "" : "," );
+  }
+  PRINT( "  ]\n}" );
+
+#undef PRINT
+
+  FD_LOG_STDOUT(( "%s\n", message ));
 }
