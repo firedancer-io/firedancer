@@ -890,7 +890,6 @@ static int
 is_commission_update_allowed( ulong slot, fd_epoch_schedule_t const * epoch_schedule ) {
   if( FD_LIKELY( epoch_schedule->slots_per_epoch > 0UL ) ) {
     ulong relative_slot = fd_ulong_sat_sub( slot, epoch_schedule->first_normal_slot );
-    // TODO underflow and overflow edge cases in addition to div by 0
     relative_slot %= epoch_schedule->slots_per_epoch;
     return fd_ulong_sat_mul( relative_slot, 2 ) <= epoch_schedule->slots_per_epoch;
   } else {
