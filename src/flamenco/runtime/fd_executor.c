@@ -1524,6 +1524,18 @@ fd_execute_txn( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( runtime->log.log_collector ) ) fd_log_collector_init( runtime->log.log_collector, runtime->log.enable_log_collector );
 
   fd_txn_t const * txn = TXN( txn_in->txn );
+  if( FD_LIKELY( txn->instr_cnt ) ) {
+    int syscall_err = fd_vm_syscall_cache_prepare( &runtime->syscall_cache,
+                                                   bank->f.slot,
+                                                   &bank->f.features );
+    if( FD_UNLIKELY( syscall_err ) ) {
+      int instr_exec_result = FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
+      FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, 0U );
+      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+    }
+  }
+
   for( ushort i=0; i<txn->instr_cnt; i++ ) {
     /* Set up the instr info for the current instruction */
     fd_instr_info_t * instr_info = &runtime->instr.trace[ runtime->instr.trace_length++ ];

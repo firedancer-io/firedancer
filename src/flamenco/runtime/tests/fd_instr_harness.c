@@ -404,7 +404,12 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
   /* Execute the test */
-  int exec_result = fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
+  int syscall_err = fd_vm_syscall_cache_prepare( &ctx->runtime->syscall_cache,
+                                                 runner->bank->f.slot,
+                                                 &runner->bank->f.features );
+  int exec_result = FD_UNLIKELY( syscall_err )
+      ? FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE
+      : fd_execute_instr( ctx->runtime, runner->bank, ctx->txn_in, ctx->txn_out, instr );
 
   /* Allocate space to capture outputs */
   ulong output_end = (ulong)output_buf + output_bufsz;

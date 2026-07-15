@@ -21,7 +21,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
                              ulong                     slot,
                              fd_features_t const *     features,
                              uchar                     is_deploy ) {
-  if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( (!syscalls) || (slot==FD_FEATURE_DISABLED) ) ) return FD_VM_ERR_INVAL;
 
   int enable_blake3_syscall            = 0;
   int enable_get_sysvar_syscall        = 0;
@@ -29,7 +29,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_bls12_381_syscall         = 0;
   int enable_sha512_syscall            = 0;
 
-  if( slot ) {
+  if( features ) {
     enable_blake3_syscall            = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
     enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
@@ -150,4 +150,86 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 # undef REGISTER
 
   return FD_VM_SUCCESS;
+}
+
+fd_vm_syscall_cache_t *
+fd_vm_syscall_cache_init( fd_vm_syscall_cache_t * cache ) {
+  if( FD_UNLIKELY( !cache ) ) return NULL;
+
+  fd_memset( cache, 0, sizeof(fd_vm_syscall_cache_t) );
+  fd_sbpf_syscalls_new( cache->exec_mem   );
+  fd_sbpf_syscalls_new( cache->deploy_mem );
+  return cache;
+}
+
+static void
+fd_vm_syscall_cache_slot_interval( fd_features_t const * features,
+                                   ulong                 slot,
+                                   ulong *               slot_lo,
+                                   ulong *               slot_hi ) {
+  ulong lo = 0UL;
+  ulong hi = ULONG_MAX;
+
+  for( ulong feature_idx=0UL; feature_idx<FD_FEATURE_ID_CNT; feature_idx++ ) {
+    ulong activation_slot = features->f[ feature_idx ];
+    if( activation_slot<=slot ) lo = fd_ulong_max( lo, activation_slot );
+    else                        hi = fd_ulong_min( hi, activation_slot-1UL );
+  }
+
+  *slot_lo = lo;
+  *slot_hi = hi;
+}
+
+int
+fd_vm_syscall_cache_prepare( fd_vm_syscall_cache_t * cache,
+                             ulong                   slot,
+                             fd_features_t const *   features ) {
+  if( FD_UNLIKELY( (!cache) | (!features) | (slot>=ULONG_MAX-1UL) ) ) return FD_VM_ERR_INVAL;
+
+  ulong deploy_slot = slot+1UL;
+  if( FD_LIKELY( cache->prepared &&
+                 fd_memeq( &cache->features, features, sizeof(fd_features_t) ) &&
+                 slot       >=cache->exec_slot_lo   && slot       <=cache->exec_slot_hi &&
+                 deploy_slot>=cache->deploy_slot_lo && deploy_slot<=cache->deploy_slot_hi ) ) {
+    return FD_VM_SUCCESS;
+  }
+
+  uchar exec_mem  [ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN))) = {0};
+  uchar deploy_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN))) = {0};
+  fd_sbpf_syscalls_t * exec   = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( exec_mem   ) );
+  fd_sbpf_syscalls_t * deploy = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( deploy_mem ) );
+
+  int err = fd_vm_syscall_register_slot( exec, slot, features, 0 );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_vm_syscall_register_slot( deploy, deploy_slot, features, 1 );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  ulong exec_slot_lo;
+  ulong exec_slot_hi;
+  ulong deploy_slot_lo;
+  ulong deploy_slot_hi;
+  fd_vm_syscall_cache_slot_interval( features, slot,        &exec_slot_lo,   &exec_slot_hi   );
+  fd_vm_syscall_cache_slot_interval( features, deploy_slot, &deploy_slot_lo, &deploy_slot_hi );
+
+  fd_memcpy( cache->exec_mem,   exec_mem,   sizeof(exec_mem)   );
+  fd_memcpy( cache->deploy_mem, deploy_mem, sizeof(deploy_mem) );
+  fd_memcpy( &cache->features, features, sizeof(fd_features_t) );
+  cache->exec_slot_lo   = exec_slot_lo;
+  cache->exec_slot_hi   = exec_slot_hi;
+  cache->deploy_slot_lo = deploy_slot_lo;
+  cache->deploy_slot_hi = deploy_slot_hi;
+  cache->prepared       = 1;
+  return FD_VM_SUCCESS;
+}
+
+fd_sbpf_syscalls_t const *
+fd_vm_syscall_cache_exec( fd_vm_syscall_cache_t const * cache ) {
+  if( FD_UNLIKELY( (!cache) || (!cache->prepared) ) ) return NULL;
+  return (fd_sbpf_syscalls_t const *)(void const *)cache->exec_mem;
+}
+
+fd_sbpf_syscalls_t const *
+fd_vm_syscall_cache_deploy( fd_vm_syscall_cache_t const * cache ) {
+  if( FD_UNLIKELY( (!cache) || (!cache->prepared) ) ) return NULL;
+  return (fd_sbpf_syscalls_t const *)(void const *)cache->deploy_mem;
 }

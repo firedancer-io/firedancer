@@ -749,6 +749,27 @@ fd_vm_trace_printf( fd_vm_trace_t      const * trace,
    concurrently for a slot.  They could use the same syscalls for setup,
    memory and cache efficiency. */
 
+/* fd_vm_syscall_cache_t is a process-local cache of the execution and
+   deployment syscall maps.  It owns fixed backing storage for both
+   maps and a full snapshot of the feature activation slots used to
+   construct them.  The map entries contain process-local function and
+   name pointers, so this object must not be copied into a bank or
+   shared workspace, moved between processes, or relocated while a VM
+   borrows either map.  The fields are implementation details. */
+
+struct fd_vm_syscall_cache {
+  fd_features_t features;
+  ulong         exec_slot_lo;
+  ulong         exec_slot_hi;
+  ulong         deploy_slot_lo;
+  ulong         deploy_slot_hi;
+  int           prepared;
+
+  uchar exec_mem  [ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
+  uchar deploy_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
+};
+typedef struct fd_vm_syscall_cache fd_vm_syscall_cache_t;
+
 /* fd_vm_syscall_register inserts the syscall with the given cstr name
    into the given syscalls.  The VM syscall implementation to use is
    given by func (NULL is fine though a VM itself may not accept such as
@@ -773,9 +794,11 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    (also ending any interest in the corresponding name cstr) and
    registers all syscalls appropriate for the slot.  Returns
    FD_VM_SUCCESS (0) on success and FD_VM_ERR code (negative) on
-   failure.  Reasons for failure include INVAL (NULL syscalls) and FULL
-   (tried to register too many system calls ... compile time map size
-   needs to be adjusted).
+   failure.  Reasons for failure include INVAL (NULL syscalls or
+   slot==FD_FEATURE_DISABLED) and FULL (tried to register too many
+   system calls ... compile time map size needs to be adjusted).  NULL
+   features enables all supported gated syscalls, as used by
+   fd_vm_syscall_register_all.
 
    is_deploy should be 1 if the set of syscalls registered should be that
    used to verify programs before they are deployed, and 0 if it
@@ -786,6 +809,44 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *  syscalls,
                              ulong                 slot,
                              fd_features_t const * features,
                              uchar                 is_deploy );
+
+/* fd_vm_syscall_cache_init initializes cache from arbitrary memory and
+   invalidates both maps.  Returns cache on success and NULL if cache is
+   NULL. */
+
+fd_vm_syscall_cache_t *
+fd_vm_syscall_cache_init( fd_vm_syscall_cache_t * cache );
+
+/* fd_vm_syscall_cache_prepare makes the execution map valid for slot
+   and the deployment map valid for slot+1.  features is the complete
+   cache identity.  Preparation reuses maps only while both target slots
+   remain in feature-membership-equivalent slot intervals.
+
+   Returns FD_VM_SUCCESS on success or an FD_VM_ERR code on failure.
+   Reasons for failure include INVAL (NULL cache, NULL features, or
+   slot equal to ULONG_MAX or ULONG_MAX-1) and errors from
+   fd_vm_syscall_register_slot.  The latter slot would make the
+   deployment target collide with FD_FEATURE_DISABLED.  A failure
+   leaves the previously published maps and cache identity unchanged.
+
+   The caller must ensure that no VM borrows either map while this
+   function runs. */
+
+int
+fd_vm_syscall_cache_prepare( fd_vm_syscall_cache_t * cache,
+                             ulong                   slot,
+                             fd_features_t const *   features );
+
+/* fd_vm_syscall_cache_{exec,deploy} return the prepared execution and
+   deployment maps, respectively.  They return NULL if cache is NULL or
+   has not yet been prepared.  Returned maps remain valid until the next
+   preparation and are read-only to callers. */
+
+FD_FN_PURE fd_sbpf_syscalls_t const *
+fd_vm_syscall_cache_exec( fd_vm_syscall_cache_t const * cache );
+
+FD_FN_PURE fd_sbpf_syscalls_t const *
+fd_vm_syscall_cache_deploy( fd_vm_syscall_cache_t const * cache );
 
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */

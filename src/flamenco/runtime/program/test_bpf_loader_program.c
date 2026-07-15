@@ -103,7 +103,7 @@ deploy_env_init( deploy_env_t * env,
   env->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), tag++ );
   FD_TEST( env->runtime );
   fd_memset( env->runtime, 0, sizeof(fd_runtime_t) );
-  env->runtime->instr.stack_sz = 1;
+  FD_TEST( fd_vm_syscall_cache_init( &env->runtime->syscall_cache ) );
 
   env->txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), tag++ );
   FD_TEST( env->txn_out );
@@ -127,6 +127,10 @@ deploy_env_init( deploy_env_t * env,
   FD_FEATURE_SET_ACTIVE( f, disable_sbpf_v0_execution,        FD_FEATURE_DISABLED );
   FD_FEATURE_SET_ACTIVE( f, reenable_sbpf_v0_execution,       FD_FEATURE_DISABLED );
   FD_FEATURE_SET_ACTIVE( f, disable_sbpf_v0_v1_v2_deployment, FD_FEATURE_DISABLED );
+  FD_TEST( fd_vm_syscall_cache_prepare( &env->runtime->syscall_cache,
+                                        env->bank->f.slot,
+                                        f )==FD_VM_SUCCESS );
+  env->runtime->instr.stack_sz = 1;
 }
 
 static void
@@ -180,6 +184,46 @@ test_deploy_v0_rejected_when_gated( fd_wksp_t * wksp ) {
   int err = fd_deploy_program( env->ctx, elf_v0, elf_v0_sz,
                                /* disable_sbpf_v0_v1_v2_deployment */ 1 );
   FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+
+  deploy_env_destroy( env );
+}
+
+static void
+test_deploy_requires_prepared_syscalls( fd_wksp_t * wksp ) {
+  deploy_env_t env[1];
+  deploy_env_init( env, wksp );
+
+  FD_TEST( fd_vm_syscall_cache_init( &env->runtime->syscall_cache ) );
+  int err = fd_deploy_program( env->ctx, elf_v0, elf_v0_sz,
+                               /* disable_sbpf_v0_v1_v2_deployment */ 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE );
+
+  deploy_env_destroy( env );
+}
+
+static void
+test_deploy_borrows_deployment_syscalls( fd_wksp_t * wksp ) {
+  deploy_env_t env[1];
+  deploy_env_init( env, wksp );
+
+  fd_sbpf_syscalls_t const * exec   = fd_vm_syscall_cache_exec  ( &env->runtime->syscall_cache );
+  fd_sbpf_syscalls_t const * deploy = fd_vm_syscall_cache_deploy( &env->runtime->syscall_cache );
+  FD_TEST( exec );
+  FD_TEST( deploy );
+  FD_TEST( exec!=deploy );
+
+  uchar exec_before[ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  fd_memcpy( exec_before, exec, sizeof(exec_before) );
+
+  fd_sbpf_syscalls_t * deploy_mut =
+      fd_sbpf_syscalls_join( env->runtime->syscall_cache.deploy_mem );
+  FD_TEST( deploy_mut );
+  fd_sbpf_syscalls_clear( deploy_mut );
+
+  int err = fd_deploy_program( env->ctx, elf_v0, elf_v0_sz,
+                               /* disable_sbpf_v0_v1_v2_deployment */ 0 );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+  FD_TEST( fd_memeq( exec_before, exec, sizeof(exec_before) ) );
 
   deploy_env_destroy( env );
 }
@@ -251,6 +295,8 @@ main( int     argc,
   test_deploy_v0_succeeds( wksp );
   test_deploy_v3_succeeds( wksp );
   test_deploy_v0_rejected_when_gated( wksp );
+  test_deploy_requires_prepared_syscalls( wksp );
+  test_deploy_borrows_deployment_syscalls( wksp );
 
   test_finalize_v0_feature_off( );
   test_finalize_v0_feature_on ( );

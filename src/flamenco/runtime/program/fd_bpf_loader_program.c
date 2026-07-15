@@ -123,11 +123,13 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
   int virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
 
-  uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
+  fd_sbpf_syscalls_t const * syscalls =
+      fd_vm_syscall_cache_deploy( &instr_ctx->runtime->syscall_cache );
   if( FD_UNLIKELY( !syscalls ) ) {
     //TODO: full log including err
-    fd_log_collector_msg_literal( instr_ctx, "Failed to register syscalls" );
+    if( instr_ctx->runtime->log.log_collector ) {
+      fd_log_collector_msg_literal( instr_ctx, "Failed to register syscalls" );
+    }
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
@@ -137,11 +139,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
      slot of an epoch should see features that activate at the boundary.
      https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295 */
   ulong deploy_slot = instr_ctx->bank->f.slot+1UL;
-
-  fd_vm_syscall_register_slot( syscalls,
-                               deploy_slot,
-                               &instr_ctx->bank->f.features,
-                               1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
@@ -403,17 +400,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
-  uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
+  /* TODO do we really need to re-do this on every instruction?  The
+     process-local table is now prepared once for the transaction and
+     borrowed here. */
+  fd_sbpf_syscalls_t const * syscalls =
+      fd_vm_syscall_cache_exec( &instr_ctx->runtime->syscall_cache );
   if( FD_UNLIKELY( !syscalls ) ) {
-    FD_LOG_CRIT(( "Unable to allocate syscalls" ));
+    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
-
-  /* TODO do we really need to re-do this on every instruction? */
-  fd_vm_syscall_register_slot( syscalls,
-                               instr_ctx->bank->f.slot,
-                               &instr_ctx->bank->f.features,
-                               0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                 = 0UL;

@@ -1,8 +1,19 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
 
 #include <stdlib.h> // ARM64: malloc(3), free(3)
+
+FD_STATIC_ASSERT( __builtin_types_compatible_p(
+    __typeof__( fd_vm_syscall_cache_exec( (fd_vm_syscall_cache_t const *)NULL ) ),
+    fd_sbpf_syscalls_t const * ), syscall_cache_exec_const );
+FD_STATIC_ASSERT( __builtin_types_compatible_p(
+    __typeof__( fd_vm_syscall_cache_deploy( (fd_vm_syscall_cache_t const *)NULL ) ),
+    fd_sbpf_syscalls_t const * ), syscall_cache_deploy_const );
+FD_STATIC_ASSERT( __builtin_types_compatible_p(
+    __typeof__( ((fd_runtime_t *)NULL)->syscall_cache ),
+    fd_vm_syscall_cache_t ), runtime_embeds_syscall_cache );
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -198,6 +209,235 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
+static int
+test_vm_syscall_is_registered( fd_sbpf_syscalls_t const * syscalls,
+                               char const *                name ) {
+  ulong key = (ulong)fd_murmur3_32( name, strlen( name ), 0U );
+  return !!fd_sbpf_syscalls_query_const( syscalls, key, NULL );
+}
+
+static void
+test_vm_syscall_assert_gated_syscalls( fd_sbpf_syscalls_t const * syscalls,
+                                       int                        enable_blake3_syscall,
+                                       int                        enable_get_sysvar_syscall,
+                                       int                        enable_get_epoch_stake_syscall,
+                                       int                        enable_bls12_381_syscall,
+                                       int                        enable_sha512_syscall ) {
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_blake3"             )==enable_blake3_syscall );
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_get_sysvar"         )==enable_get_sysvar_syscall );
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_get_epoch_stake"    )==enable_get_epoch_stake_syscall );
+#if FD_HAS_BLST
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_curve_decompress"   )==enable_bls12_381_syscall );
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_curve_pairing_map"  )==enable_bls12_381_syscall );
+#else
+  FD_TEST( !test_vm_syscall_is_registered( syscalls, "sol_curve_decompress"  ) );
+  FD_TEST( !test_vm_syscall_is_registered( syscalls, "sol_curve_pairing_map" ) );
+  (void)enable_bls12_381_syscall;
+#endif
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_sha512"             )==enable_sha512_syscall );
+}
+
+static void
+test_vm_syscall_register_slot_zero( void ) {
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 0, 0, 0, 0, 0 );
+
+  FD_FEATURE_SET_ACTIVE( features, blake3_syscall_enabled, 0UL );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 1, 0, 0, 0, 0 );
+
+  fd_features_disable_all( features );
+  FD_FEATURE_SET_ACTIVE( features, get_sysvar_syscall_enabled, 0UL );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 0, 1, 0, 0, 0 );
+
+  fd_features_disable_all( features );
+  FD_FEATURE_SET_ACTIVE( features, enable_get_epoch_stake_syscall, 0UL );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 0, 0, 1, 0, 0 );
+
+  fd_features_disable_all( features );
+  FD_FEATURE_SET_ACTIVE( features, enable_bls12_381_syscall, 0UL );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 0, 0, 0, 1, 0 );
+
+  fd_features_disable_all( features );
+  FD_FEATURE_SET_ACTIVE( features, enable_sha512_syscall, 0UL );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 0, 0, 0, 0, 1 );
+
+  fd_features_disable_all( features );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_syscall_is_registered( syscalls, "sol_alloc_free_" ) );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 1 )==FD_VM_SUCCESS );
+  FD_TEST( !test_vm_syscall_is_registered( syscalls, "sol_alloc_free_" ) );
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+}
+
+static void
+test_vm_syscall_register_all_gated( void ) {
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  FD_TEST( fd_vm_syscall_register_all( syscalls, 0 )==FD_VM_SUCCESS );
+  test_vm_syscall_assert_gated_syscalls( syscalls, 1, 1, 1, 1, 1 );
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+}
+
+static void
+test_vm_syscall_register_slot_sentinel( void ) {
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 7UL, features, 0 )==FD_VM_SUCCESS );
+
+  uchar syscalls_before[ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  fd_memcpy( syscalls_before, syscalls, sizeof(syscalls_before) );
+
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, ULONG_MAX, features, 0 )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_memeq( syscalls_before, syscalls, sizeof(syscalls_before) ) );
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+}
+
+static void
+test_vm_syscall_cache_init_and_materialize( void ) {
+  fd_vm_syscall_cache_t cache[1];
+  fd_memset( cache, 0xa5, sizeof(cache) );
+
+  FD_TEST( fd_vm_syscall_cache_init( cache )==cache );
+  FD_TEST( !fd_vm_syscall_cache_exec  ( cache ) );
+  FD_TEST( !fd_vm_syscall_cache_deploy( cache ) );
+
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 3UL, features )==FD_VM_SUCCESS );
+
+  fd_sbpf_syscalls_t const * exec   = fd_vm_syscall_cache_exec  ( cache );
+  fd_sbpf_syscalls_t const * deploy = fd_vm_syscall_cache_deploy( cache );
+  FD_TEST( exec );
+  FD_TEST( deploy );
+  FD_TEST( exec!=deploy );
+  FD_TEST( test_vm_syscall_is_registered( exec,   "abort"           ) );
+  FD_TEST( test_vm_syscall_is_registered( deploy, "abort"           ) );
+  FD_TEST( test_vm_syscall_is_registered( exec,   "sol_alloc_free_" ) );
+  FD_TEST( !test_vm_syscall_is_registered( deploy, "sol_alloc_free_" ) );
+}
+
+static void
+test_vm_syscall_cache_slot_regimes( void ) {
+  fd_vm_syscall_cache_t cache[1];
+  FD_TEST( fd_vm_syscall_cache_init( cache )==cache );
+
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+  FD_FEATURE_SET_ACTIVE( features, blake3_syscall_enabled, 10UL );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 9UL, features )==FD_VM_SUCCESS );
+  FD_TEST( !test_vm_syscall_is_registered( fd_vm_syscall_cache_exec  ( cache ), "sol_blake3" ) );
+  FD_TEST(  test_vm_syscall_is_registered( fd_vm_syscall_cache_deploy( cache ), "sol_blake3" ) );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 10UL, features )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_syscall_is_registered( fd_vm_syscall_cache_exec  ( cache ), "sol_blake3" ) );
+  FD_TEST( test_vm_syscall_is_registered( fd_vm_syscall_cache_deploy( cache ), "sol_blake3" ) );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 8UL, features )==FD_VM_SUCCESS );
+  FD_TEST( !test_vm_syscall_is_registered( fd_vm_syscall_cache_exec  ( cache ), "sol_blake3" ) );
+  FD_TEST( !test_vm_syscall_is_registered( fd_vm_syscall_cache_deploy( cache ), "sol_blake3" ) );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 10UL, features )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_syscall_is_registered( fd_vm_syscall_cache_exec  ( cache ), "sol_blake3" ) );
+  FD_TEST( test_vm_syscall_is_registered( fd_vm_syscall_cache_deploy( cache ), "sol_blake3" ) );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 8UL, features )==FD_VM_SUCCESS );
+  FD_TEST( !test_vm_syscall_is_registered( fd_vm_syscall_cache_exec  ( cache ), "sol_blake3" ) );
+  FD_TEST( !test_vm_syscall_is_registered( fd_vm_syscall_cache_deploy( cache ), "sol_blake3" ) );
+}
+
+static void
+test_vm_syscall_cache_full_feature_identity( void ) {
+  fd_vm_syscall_cache_t cache[1];
+  FD_TEST( fd_vm_syscall_cache_init( cache )==cache );
+
+  fd_features_t features_a[1];
+  fd_features_t features_b[1];
+  fd_features_disable_all( features_a );
+  fd_memcpy( features_b, features_a, sizeof(fd_features_t) );
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 4UL, features_a )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_syscall_is_registered( fd_vm_syscall_cache_exec( cache ), "abort" ) );
+
+  /* Perturb the table while no VM borrows it so a rebuild is observable
+     without adding a production counter solely for this test. */
+  fd_sbpf_syscalls_clear( fd_sbpf_syscalls_join( cache->exec_mem ) );
+  FD_TEST( !test_vm_syscall_is_registered( fd_vm_syscall_cache_exec( cache ), "abort" ) );
+
+  FD_FEATURE_SET_ACTIVE( features_b, deprecate_rewards_sysvar, 100UL );
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 4UL, features_b )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_syscall_is_registered( fd_vm_syscall_cache_exec( cache ), "abort" ) );
+}
+
+static void
+test_vm_syscall_cache_errors_preserve_tables( void ) {
+  fd_features_t features[1];
+  fd_features_enable_all( features );
+  fd_features_t sentinel_features[1];
+  fd_memcpy( sentinel_features, features, sizeof(fd_features_t) );
+  FD_FEATURE_SET_ACTIVE( sentinel_features, blake3_syscall_enabled, FD_FEATURE_DISABLED );
+
+  FD_TEST( !fd_vm_syscall_cache_init( NULL ) );
+  FD_TEST( fd_vm_syscall_cache_prepare( NULL, 0UL, features )==FD_VM_ERR_INVAL );
+  FD_TEST( !fd_vm_syscall_cache_exec  ( NULL ) );
+  FD_TEST( !fd_vm_syscall_cache_deploy( NULL ) );
+
+  fd_vm_syscall_cache_t cache[1];
+  FD_TEST( fd_vm_syscall_cache_init( cache )==cache );
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 7UL, features )==FD_VM_SUCCESS );
+
+  fd_sbpf_syscalls_t const * exec   = fd_vm_syscall_cache_exec  ( cache );
+  fd_sbpf_syscalls_t const * deploy = fd_vm_syscall_cache_deploy( cache );
+  uchar exec_before  [ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  uchar deploy_before[ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  fd_memcpy( exec_before,   exec,   sizeof(exec_before)   );
+  fd_memcpy( deploy_before, deploy, sizeof(deploy_before) );
+  fd_features_t features_before[1];
+  fd_memcpy( features_before, &cache->features, sizeof(fd_features_t) );
+  ulong exec_slot_lo_before   = cache->exec_slot_lo;
+  ulong exec_slot_hi_before   = cache->exec_slot_hi;
+  ulong deploy_slot_lo_before = cache->deploy_slot_lo;
+  ulong deploy_slot_hi_before = cache->deploy_slot_hi;
+  int   prepared_before       = cache->prepared;
+
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, 8UL, NULL     )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, ULONG_MAX, features )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, ULONG_MAX-1UL, features )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_syscall_cache_prepare( cache, ULONG_MAX-1UL, sentinel_features )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_syscall_cache_exec  ( cache )==exec   );
+  FD_TEST( fd_vm_syscall_cache_deploy( cache )==deploy );
+  FD_TEST( fd_memeq( exec_before,   exec,   sizeof(exec_before)   ) );
+  FD_TEST( fd_memeq( deploy_before, deploy, sizeof(deploy_before) ) );
+  FD_TEST( fd_memeq( features_before, &cache->features, sizeof(fd_features_t) ) );
+  FD_TEST( cache->exec_slot_lo  ==exec_slot_lo_before   );
+  FD_TEST( cache->exec_slot_hi  ==exec_slot_hi_before   );
+  FD_TEST( cache->deploy_slot_lo==deploy_slot_lo_before );
+  FD_TEST( cache->deploy_slot_hi==deploy_slot_hi_before );
+  FD_TEST( cache->prepared      ==prepared_before       );
+}
+
 static void
 dump_syscall_table( void ) {
   fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
@@ -221,6 +461,14 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_vm_syscall_register_slot_zero();
+  test_vm_syscall_register_all_gated();
+  test_vm_syscall_register_slot_sentinel();
+  test_vm_syscall_cache_init_and_materialize();
+  test_vm_syscall_cache_slot_regimes();
+  test_vm_syscall_cache_full_feature_identity();
+  test_vm_syscall_cache_errors_preserve_tables();
 
   char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );

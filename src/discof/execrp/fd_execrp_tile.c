@@ -444,6 +444,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->txn_dump_ctx = fd_txn_dump_context_join( fd_txn_dump_context_new( _txn_dump_ctx ) );
   }
 
+  FD_TEST( fd_vm_syscall_cache_init( &ctx->runtime->syscall_cache ) );
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;

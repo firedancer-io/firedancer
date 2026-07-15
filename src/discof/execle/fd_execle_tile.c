@@ -769,6 +769,7 @@ unprivileged_init( fd_topo_t const *      topo,
     for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
   }
 
+  FD_TEST( fd_vm_syscall_cache_init( &ctx->runtime->syscall_cache ) );
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;

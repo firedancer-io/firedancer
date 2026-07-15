@@ -213,8 +213,8 @@ fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
 struct fd_sbpf_loader {
   /* External objects */
-  ulong *              calldests; /* owned by program. NULL if calldests_max = 0 or SBPF v3+ */
-  fd_sbpf_syscalls_t * syscalls;  /* owned by caller */
+  ulong *                    calldests; /* owned by program. NULL if calldests_max = 0 or SBPF v3+ */
+  fd_sbpf_syscalls_t const * syscalls;  /* owned by caller */
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
@@ -350,7 +350,7 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
      registry. Fail if the target PC is present there.
 
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L161-L163 */
-  if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) ) ) {
+  if( FD_UNLIKELY( fd_sbpf_syscalls_query_const( loader->syscalls, pc_hash, NULL ) ) ) {
     return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
   }
 
@@ -714,7 +714,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1281-L1294 */
       key = fd_murmur3_32(name, name_len, 0UL );
       if( FD_UNLIKELY( config->reject_broken_elfs &&
-                       fd_sbpf_syscalls_query( loader->syscalls, key, NULL )==NULL ) ) {
+                       fd_sbpf_syscalls_query_const( loader->syscalls, key, NULL )==NULL ) ) {
         return FD_SBPF_ELF_ERR_UNRESOLVED_SYMBOL;
       }
     }
@@ -2095,7 +2095,7 @@ int
 fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
                       ulong                           bin_sz,
-                      fd_sbpf_syscalls_t *            syscalls,
+                      fd_sbpf_syscalls_t const *      syscalls,
                       fd_sbpf_loader_config_t const * config,
                       void *                          scratch,
                       ulong                           scratch_sz ) {

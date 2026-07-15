@@ -76,6 +76,12 @@ struct fd_runtime {
   fd_txncache_t *  status_cache;
   fd_progcache_t * progcache;
 
+  /* Process-local syscall state initialized once with this runtime.
+     The cache contains function and name pointers, must not be copied
+     into bank or shared-workspace state, and must outlive every VM that
+     borrows one of its maps. */
+  fd_vm_syscall_cache_t syscall_cache;
+
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
     fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */

@@ -210,6 +210,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   mini->runtime = runtime;
 
+  FD_TEST( fd_vm_syscall_cache_init( &runtime->syscall_cache ) );
   runtime->accdb        = accdb;
   runtime->status_cache = mini->txncache;
   runtime->progcache    = mini->progcache;

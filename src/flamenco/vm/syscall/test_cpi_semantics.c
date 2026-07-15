@@ -11,9 +11,12 @@
 #include "../../runtime/fd_system_ids.h"
 #include "../../runtime/fd_pubkey_utils.h"
 #include "../../runtime/fd_borrowed_account.h"
+#include "../../runtime/fd_executor.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/tests/fd_svm_mini.h"
 #include "../../runtime/tests/fd_svm_elfgen.h"
+#include "../../../ballet/elf/fd_elf64.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
 #include "../../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../../ballet/sbpf/fd_sbpf_opcodes.h"
 
@@ -21,6 +24,8 @@
 
 #define LAMPORTS    1000000UL
 #define INIT_DLEN   8UL
+
+FD_IMPORT_BINARY( cpi_hello_program, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
 
 /* ABI v1 per-account serialization layout (matches test_cpi_shared_data_addr.c):
    80-byte header + 8-byte data_len + data (8-aligned) + 10240 realloc + 8 rent_epoch */
@@ -91,6 +96,8 @@ struct cpi_test_cfg {
   /* Callee program text (built via build_*_text helpers) */
   ulong text_buf[ 64 ];
   ulong text_sz;
+  uchar const * elf;
+  ulong         elf_sz;
 
   /* Accounts known to the env */
   acct_spec_t       accts[ MAX_CFG_ACCTS ]; ulong n_accts;
@@ -186,7 +193,7 @@ build_error_return_text( ulong * buf, ulong err_code ) {
 
 #define ACCT_BUF_SZ (MAX_PERMITTED_DATA_INCREASE + 1024)
 
-static uchar prog_data_buf[ 4096 ] __attribute__((aligned(8)));
+static uchar prog_data_buf[ 65536 ] __attribute__((aligned(8)));
 static uchar acct_data_buf[ MAX_CFG_ACCTS ][ ACCT_BUF_SZ ] __attribute__((aligned(8)));
 
 static void
@@ -218,10 +225,11 @@ env_build( fd_svm_mini_t *        mini,
   fd_vm_t *      vm      = mini->vm;
 
   /* Build callee ELF */
-  ulong elf_sz = fd_svm_elfgen_sz( cfg->text_sz, 0UL );
-  static uchar elf_buf[ 4096 ];
-  FD_TEST( elf_sz <= sizeof(elf_buf) );
-  fd_svm_elfgen( elf_buf, elf_sz, (uchar const *)cfg->text_buf, cfg->text_sz, NULL, 0UL );
+  ulong elf_sz = cfg->elf ? cfg->elf_sz : fd_svm_elfgen_sz( cfg->text_sz, 0UL );
+  static uchar elf_buf[ 65536 ];
+  FD_TEST( elf_sz<=sizeof(elf_buf) );
+  if( cfg->elf ) fd_memcpy( elf_buf, cfg->elf, elf_sz );
+  else           fd_svm_elfgen( elf_buf, elf_sz, (uchar const *)cfg->text_buf, cfg->text_sz, NULL, 0UL );
 
   /* Reset svm_mini */
   fd_svm_mini_params_t params[1];
@@ -276,6 +284,9 @@ env_build( fd_svm_mini_t *        mini,
 
   ulong exec_bank_idx = fd_svm_mini_attach_child( mini, root_bank_idx, bank->f.slot + 1UL );
   bank = fd_svm_mini_bank( mini, exec_bank_idx );
+  FD_TEST( fd_vm_syscall_cache_prepare( &runtime->syscall_cache,
+                                        bank->f.slot,
+                                        &bank->f.features )==FD_VM_SUCCESS );
 
   fd_instr_info_t * instr = &runtime->instr.trace[0];
   memset( instr, 0, sizeof(fd_instr_info_t) );
@@ -336,7 +347,8 @@ env_build( fd_svm_mini_t *        mini,
     rodata, sizeof(rodata),
     NULL, 0UL, 0UL, 0UL, 0UL, NULL,
     TEST_VM_DEFAULT_SBPF_VERSION,
-    NULL, NULL, mini->sha256, NULL, 0U,
+    fd_vm_syscall_cache_exec( &runtime->syscall_cache ),
+    NULL, mini->sha256, NULL, 0U,
     arm, (uchar)cfg->is_deprecated,
     FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
     FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
@@ -2313,6 +2325,126 @@ test_callee_cu_exhaustion_during( fd_svm_mini_t * mini ) {
   }
 }
 
+static int test_cached_abort_called;
+
+static int
+test_cached_abort( void *  vm,
+                   ulong   arg0,
+                   ulong   arg1,
+                   ulong   arg2,
+                   ulong   arg3,
+                   ulong   arg4,
+                   ulong * _ret ) {
+  (void)vm;
+  (void)arg0;
+  (void)arg1;
+  (void)arg2;
+  (void)arg3;
+  (void)arg4;
+  test_cached_abort_called = 1;
+  *_ret = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+static void
+test_nested_cpi_borrows_prepared_execution_syscalls( fd_svm_mini_t * mini ) {
+  cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+
+  /* Repoint this fixture's entrypoint at an existing abort relocation
+     and terminate immediately afterward.  Replacing abort in the
+     prepared execution map then makes the borrowed map observable. */
+  static uchar elf[ 65536 ];
+  FD_TEST( cpi_hello_program_sz<=sizeof(elf) );
+  fd_memcpy( elf, cpi_hello_program, cpi_hello_program_sz );
+  fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, elf );
+  ehdr.e_entry = 0xba8UL;
+  FD_STORE( fd_elf64_ehdr, elf, ehdr );
+  FD_TEST( (FD_LOAD( ulong, elf+0xba8UL ) & 0xffUL)==FD_SBPF_OP_CALL_IMM );
+  FD_STORE( ulong, elf+0xbb0UL,
+            fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode={.raw=FD_SBPF_OP_EXIT} } ) );
+  cfg->elf    = elf;
+  cfg->elf_sz = cpi_hello_program_sz;
+
+  env_build( mini, cfg );
+
+  fd_runtime_t * runtime = mini->runtime;
+  fd_bank_t *    bank    = mini->vm->instr_ctx->bank;
+
+  fd_sbpf_syscalls_t const * exec   = fd_vm_syscall_cache_exec  ( &runtime->syscall_cache );
+  fd_sbpf_syscalls_t const * deploy = fd_vm_syscall_cache_deploy( &runtime->syscall_cache );
+  FD_TEST( exec );
+  FD_TEST( deploy );
+  FD_TEST( exec!=deploy );
+  FD_TEST( mini->vm->syscalls==exec );
+
+  fd_sbpf_syscalls_t * exec_mut =
+      fd_sbpf_syscalls_join( runtime->syscall_cache.exec_mem );
+  FD_TEST( exec_mut );
+  ulong abort_key = (ulong)fd_murmur3_32( "abort", 5UL, 0U );
+  fd_sbpf_syscalls_t * abort_syscall =
+      fd_sbpf_syscalls_query( exec_mut, abort_key, NULL );
+  FD_TEST( abort_syscall );
+  abort_syscall->func = test_cached_abort;
+  test_cached_abort_called = 0;
+
+  uchar exec_before  [ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  uchar deploy_before[ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  fd_memcpy( exec_before,   exec,   sizeof(exec_before)   );
+  fd_memcpy( deploy_before, deploy, sizeof(deploy_before) );
+
+  /* Desynchronize the saved identity without changing the bank.  An
+     incorrect nested preparation would rebuild both maps and remove the
+     test callback. */
+  FD_FEATURE_SET_ACTIVE( &runtime->syscall_cache.features,
+                         deprecate_rewards_sysvar,
+                         bank->f.slot+100UL );
+
+  ulong instr_va;
+  ulong infos_va;
+  ulong n_infos;
+  rust_cpi_build( mini->vm, cfg, &instr_va, &infos_va, &n_infos );
+  ulong ret = 0UL;
+  int got = fd_vm_syscall_cpi_rust( mini->vm,
+                                    instr_va,
+                                    infos_va,
+                                    n_infos,
+                                    0UL,
+                                    0UL,
+                                    &ret );
+  FD_TEST( got==FD_VM_SUCCESS );
+  FD_TEST( test_cached_abort_called );
+  FD_TEST( runtime->instr.stack_sz==1 );
+  FD_TEST( fd_vm_syscall_cache_exec  ( &runtime->syscall_cache )==exec   );
+  FD_TEST( fd_vm_syscall_cache_deploy( &runtime->syscall_cache )==deploy );
+  FD_TEST( fd_memeq( exec_before,   exec,   sizeof(exec_before)   ) );
+  FD_TEST( fd_memeq( deploy_before, deploy, sizeof(deploy_before) ) );
+}
+
+static void
+test_direct_instruction_requires_prepared_syscalls( fd_svm_mini_t * mini ) {
+  cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+  env_build( mini, cfg );
+
+  fd_runtime_t * runtime = mini->runtime;
+  fd_exec_instr_ctx_t * instr_ctx = mini->vm->instr_ctx;
+  fd_bank_t * bank = instr_ctx->bank;
+
+  FD_TEST( fd_vm_syscall_cache_init( &runtime->syscall_cache ) );
+  runtime->instr.stack_sz = 0;
+  instr_ctx->txn_out->details.compute_budget.heap_size     = FD_VM_HEAP_DEFAULT;
+  instr_ctx->txn_out->details.compute_budget.compute_meter = FD_VM_COMPUTE_UNIT_LIMIT;
+
+  int err = fd_execute_instr( runtime,
+                              bank,
+                              NULL,
+                              instr_ctx->txn_out,
+                              (fd_instr_info_t *)instr_ctx->instr );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE );
+  FD_TEST( runtime->instr.stack_sz==0 );
+  FD_TEST( !fd_vm_syscall_cache_exec  ( &runtime->syscall_cache ) );
+  FD_TEST( !fd_vm_syscall_cache_deploy( &runtime->syscall_cache ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_svm_mini_limits_t limits[1];
@@ -2416,6 +2548,8 @@ main( int argc, char ** argv ) {
   test_callee_returns_error                ( mini );
   test_cpi_to_authorized_program_restricted( mini );
   test_callee_cu_exhaustion_during         ( mini );
+  test_nested_cpi_borrows_prepared_execution_syscalls( mini );
+  test_direct_instruction_requires_prepared_syscalls   ( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
