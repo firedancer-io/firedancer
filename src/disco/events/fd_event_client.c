@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_event_client.h"
+#include "fd_event_os.h"
 
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
@@ -51,6 +52,8 @@ struct fd_event_client {
   char client_version[ 10UL ];
   char commit_hash[ 41UL ];
   char action[ 16UL ];
+  char os_id[ FD_EVENT_OS_ID_MAX ];
+  char os_version_id[ FD_EVENT_OS_VERSION_ID_MAX ];
   uchar identity_pubkey[ 32UL ];
 
   int       has_genesis_hash;
@@ -147,6 +150,8 @@ fd_event_client_new( void *                 shmem,
                      char const *           client_version,
                      char const *           commit_hash,
                      char const *           action,
+                     char const *           os_id,
+                     char const *           os_version_id,
                      ulong                  instance_id,
                      ulong                  boot_id,
                      ulong                  machine_id,
@@ -187,6 +192,8 @@ fd_event_client_new( void *                 shmem,
   fd_cstr_ncpy( client->client_version, client_version, sizeof( client->client_version ) );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->commit_hash ), commit_hash, fd_ulong_min( strlen( commit_hash ), sizeof( client->commit_hash )-1UL ) ) );
   fd_cstr_ncpy( client->action, action, sizeof( client->action ) );
+  fd_cstr_ncpy( client->os_id, os_id, sizeof( client->os_id ) );
+  fd_cstr_ncpy( client->os_version_id, os_version_id, sizeof( client->os_version_id ) );
 
   client->event_id = 0UL;
 
@@ -478,7 +485,7 @@ fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
   if( FD_UNLIKELY( fd_grpc_client_request_stream_busy( client->grpc_client ) ) ) return 0;
 
   fd_pb_encoder_t auth_req[1];
-  uchar buffer[ 256UL ];
+  uchar buffer[ 512UL ];
   fd_pb_encoder_init( auth_req, buffer, sizeof(buffer) );
 
   fd_pb_push_bytes( auth_req, 1U, client->identity_pubkey, 32UL );
@@ -490,6 +497,8 @@ fd_event_client_try_send_authenticate( fd_event_client_t * client ) {
   fd_pb_push_uint64( auth_req, 7U, client->machine_id );
   fd_pb_push_uint64( auth_req, 8U, client->boot_id );
   fd_pb_push_string( auth_req, 9U, client->action, strlen( client->action ) );
+  fd_pb_push_string( auth_req, 10U, client->os_id, strlen( client->os_id ) );
+  fd_pb_push_string( auth_req, 11U, client->os_version_id, strlen( client->os_version_id ) );
 
   fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
       client->grpc_client,

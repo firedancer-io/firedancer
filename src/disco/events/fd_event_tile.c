@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_circq.h"
 #include "fd_event_client.h"
+#include "fd_event_os.h"
 
 #include "../fd_txn_m.h"
 #include "../fd_clock_tile.h"
@@ -80,6 +81,8 @@ struct fd_event_tile {
   ulong machine_id;
   ulong instance_id;
   ulong seed;
+
+  fd_event_os_release_t os_release;
 
   ulong chunk;
 
@@ -404,6 +407,8 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->machine_id = fd_hash( FD_EVENT_ID_SEED, _machine_id, 32UL );
 
+  fd_event_os_release_load( &ctx->os_release );
+
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
     FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
   }
@@ -507,6 +512,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                            fd_version_cstr,
                                                            fd_commit_ref_cstr,
                                                            tile->event.action,
+                                                           ctx->os_release.id,
+                                                           ctx->os_release.version_id,
                                                            ctx->instance_id,
                                                            ctx->boot_id,
                                                            ctx->machine_id,
