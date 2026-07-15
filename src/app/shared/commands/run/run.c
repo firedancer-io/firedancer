@@ -971,23 +971,6 @@ run_firedancer( config_t * config,
 
   run_firedancer_init( config, init_workspaces, 1 );
 
-#if defined(__x86_64__) || defined(__aarch64__)
-
-#ifndef SYS_landlock_create_ruleset
-#define SYS_landlock_create_ruleset 444
-#endif
-
-#ifndef LANDLOCK_CREATE_RULESET_VERSION
-#define LANDLOCK_CREATE_RULESET_VERSION (1U << 0)
-#endif
-
-#endif
-  long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
-  if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) {
-    FD_LOG_WARNING(( "The Landlock access control system is not supported by your Linux kernel. Firedancer uses landlock to "
-                     "provide an additional layer of security to the sandbox, but it is not required." ));
-  }
-
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fd_log_private_logfile_fd()!=1 && close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
