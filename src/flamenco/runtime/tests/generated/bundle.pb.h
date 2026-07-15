@@ -16,7 +16,7 @@
 /* Struct definitions */
 typedef struct fd_exec_test_stake_delta {
     pb_byte_t address[32];
-    uint64_t delta;
+    uint64_t new_stake;
 } fd_exec_test_stake_delta_t;
 
 typedef struct fd_exec_test_vote_update {
@@ -81,7 +81,7 @@ extern "C" {
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_STAKE_DELTA_ADDRESS_TAG     1
-#define FD_EXEC_TEST_STAKE_DELTA_DELTA_TAG       2
+#define FD_EXEC_TEST_STAKE_DELTA_NEW_STAKE_TAG   2
 #define FD_EXEC_TEST_VOTE_UPDATE_ADDRESS_TAG     1
 #define FD_EXEC_TEST_VOTE_UPDATE_LAST_VOTE_SLOT_TAG 2
 #define FD_EXEC_TEST_VOTE_UPDATE_LAST_VOTE_TIMESTAMP_TAG 3
@@ -102,7 +102,7 @@ extern "C" {
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_STAKE_DELTA_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
-X(a, STATIC,   SINGULAR, UINT64,   delta,             2)
+X(a, STATIC,   SINGULAR, UINT64,   new_stake,         2)
 #define FD_EXEC_TEST_STAKE_DELTA_CALLBACK NULL
 #define FD_EXEC_TEST_STAKE_DELTA_DEFAULT NULL
 

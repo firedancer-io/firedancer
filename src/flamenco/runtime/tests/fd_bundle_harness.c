@@ -115,6 +115,30 @@ fd_solfuzz_bundle_mark_uncommittable( fd_txn_out_t * txn_outs,
   }
 }
 
+/* Record the latest stake and vote account updates only. */
+
+static fd_exec_test_stake_delta_t *
+fd_solfuzz_bundle_stake_delta_upsert( fd_exec_test_bundle_effects_t * effects,
+                                      fd_pubkey_t const *             key ) {
+  for( ulong i=0UL; i<effects->stake_deltas_count; i++ ) {
+    if( fd_memeq( effects->stake_deltas[i].address, key, sizeof(fd_pubkey_t) ) ) return &effects->stake_deltas[i];
+  }
+  fd_exec_test_stake_delta_t * stake_delta = &effects->stake_deltas[effects->stake_deltas_count++];
+  fd_memcpy( stake_delta->address, key, sizeof(fd_pubkey_t) );
+  return stake_delta;
+}
+
+static fd_exec_test_vote_update_t *
+fd_solfuzz_bundle_vote_update_upsert( fd_exec_test_bundle_effects_t * effects,
+                                      fd_pubkey_t const *             key ) {
+  for( ulong i=0UL; i<effects->vote_updates_count; i++ ) {
+    if( fd_memeq( effects->vote_updates[i].address, key, sizeof(fd_pubkey_t) ) ) return &effects->vote_updates[i];
+  }
+  fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
+  fd_memcpy( vote_update->address, key, sizeof(fd_pubkey_t) );
+  return vote_update;
+}
+
 static int
 fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
                            fd_exec_test_bundle_context_t const * input,
@@ -231,13 +255,12 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
     for( ulong j=0UL; j<txn_outs[i].accounts.cnt; j++ ) {
       if( txn_outs[i].accounts.stake_update[j] ) {
-        fd_exec_test_stake_delta_t * stake_delta = &effects->stake_deltas[effects->stake_deltas_count++];
-        fd_memcpy( stake_delta->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
-        stake_delta->delta = 0UL;
+        fd_exec_test_stake_delta_t * stake_delta = fd_solfuzz_bundle_stake_delta_upsert( effects, &txn_outs[i].accounts.keys[j] );
+        stake_delta->new_stake = 0UL;
 
         fd_stake_state_t const * stake_state = fd_stakes_get_state( txn_outs[i].accounts.account[j] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
-          stake_delta->delta = stake_state->stake.stake.delegation.stake;
+          stake_delta->new_stake = stake_state->stake.stake.delegation.stake;
         }
       }
 
@@ -246,8 +269,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j]->data,
                                              txn_outs[i].accounts.account[j]->data_len,
                                              &last_vote ) ) {
-          fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
-          fd_memcpy( vote_update->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
+          fd_exec_test_vote_update_t * vote_update = fd_solfuzz_bundle_vote_update_upsert( effects, &txn_outs[i].accounts.keys[j] );
           vote_update->last_vote_slot      = last_vote.slot;
           vote_update->last_vote_timestamp = (ulong)last_vote.timestamp;
         }
