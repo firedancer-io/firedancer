@@ -2673,10 +2673,6 @@ begin_snapshot_create( fd_replay_tile_t *  ctx,
     ctx->pending_full_snapshot_slot       = bank->f.slot;
     ctx->pending_full_snapshot_generation = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id );
     ctx->creating_snap_uses_armed_delta   = ctx->delta_snapshot_state==FD_REPLAY_DELTA_ARMED;
-    if( FD_UNLIKELY( ctx->creating_snap_uses_armed_delta ) ) {
-      ctx->delta_snapshot_state = FD_REPLAY_DELTA_STEADY;
-      ctx->delta_arm_slot       = ULONG_MAX;
-    }
   } else {
     ctx->creating_snap_uses_armed_delta = 0U;
   }
@@ -2923,6 +2919,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
         ctx->last_full_snapshot_slot        = ctx->pending_full_snapshot_slot;
         ctx->last_full_snapshot_generation  = ctx->pending_full_snapshot_generation;
         ctx->next_incremental_snapshot_slot = ULONG_MAX;
+        if( FD_UNLIKELY( ctx->creating_snap_uses_armed_delta ) ) {
+          ctx->delta_snapshot_state = FD_REPLAY_DELTA_STEADY;
+          ctx->delta_arm_slot       = ULONG_MAX;
+        }
       }
       ctx->is_creating_snap = 0;
       /* snapmk echoes the bank_idx from REPLAY_SIG_SNAP_CREATE in sig.

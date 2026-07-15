@@ -1688,11 +1688,16 @@ test_snapmk_completion_releases_requested_bank( fd_wksp_t * wksp ) {
   ctx->creating_snapshot_bank_idx = requested_bank->idx;
   ctx->pending_full_snapshot_slot = 1234UL;
   ctx->pending_full_snapshot_generation = 77U;
+  ctx->creating_snap_uses_armed_delta = 1U;
+  ctx->delta_snapshot_state = FD_REPLAY_DELTA_ARMED;
+  ctx->delta_arm_slot = 1200UL;
   ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, requested_bank->idx,
                              0UL, 0UL, ctl, 0UL, 0UL, test_stem ) );
   FD_TEST( ctx->last_full_snapshot_slot==1234UL );
   FD_TEST( ctx->last_full_snapshot_generation==77U );
+  FD_TEST( ctx->delta_snapshot_state==FD_REPLAY_DELTA_STEADY );
+  FD_TEST( ctx->delta_arm_slot==ULONG_MAX );
   FD_TEST( requested_bank->refcnt==0UL );
 
   FD_LOG_NOTICE(( "pass: test_snapmk_completion_releases_requested_bank" ));
@@ -1706,7 +1711,7 @@ test_delta_boundary_arm( void ) {
   fd_accdb_delta_t * delta = fd_accdb_delta_join( fd_accdb_delta_new( mem, 16UL, 42UL ) );
   FD_TEST( delta );
 
-  fd_replay_tile_t ctx[1];
+  static fd_replay_tile_t ctx[1];
   memset( ctx, 0, sizeof(ctx) );
   ctx->accdb_delta                        = delta;
   ctx->incremental_snapshot_interval_slots = 10UL;

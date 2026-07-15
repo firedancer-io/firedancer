@@ -516,9 +516,9 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
   out->is_write_head     = 0;
   /* If this partition is currently the active write head for any
      layer, partition->write_offset is stale (it's only updated at
-     handoff in change_partition).  The live tip lives in whead[layer].
-     Surface the live value so the GUI shows real-time fill, not the
-     "0 until rolled" snapshot. */
+     handoff in change_partition).  Usually the live tip lives in
+     whead[layer].  Layer 0 is only current to its last handoff during
+     snapshot loading because that single producer uses a local cursor. */
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     if( !FD_VOLATILE_CONST( accdb->has_partition[ k ] ) ) continue;
     accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->whead[ k ].val ) };

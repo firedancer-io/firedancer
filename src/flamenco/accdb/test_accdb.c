@@ -1411,10 +1411,15 @@ test_snapshot_acc_pool_bump( void ) {
   FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_claimed );
 
   /* The initial batch fits in one fresh partition.  It should consume
-     the disk range with one whead reservation (and consequently one
-     partition write operation), not one reservation per account. */
+     the disk range with one local whead bump (and consequently one
+     partition write operation), not one reservation per account.  The
+     shared head stays at the handoff point, while save_whead must expose
+     the live local tip for incremental-snapshot recovery. */
   ulong batch_sz = 8UL*sizeof(fd_accdb_disk_meta_t);
-  accdb_offset_t whead = test_shmem_mem->whead[ 0 ];
+  FD_TEST( packed_partition_offset( &test_shmem_mem->whead[ 0 ] )==0UL );
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( accdb, &recovery );
+  accdb_offset_t whead = { .val = recovery.whead_val };
   FD_TEST( packed_partition_offset( &whead )==batch_sz );
   fd_accdb_partition_t * partition_pool = (fd_accdb_partition_t *)(
       (uchar *)test_shmem_mem + test_shmem_mem->partition_pool_off );

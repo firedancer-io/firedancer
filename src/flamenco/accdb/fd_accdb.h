@@ -179,6 +179,8 @@ fd_accdb_join_readonly( void *             ljoin,
 
 /* fd_accdb_snapshot_load_{begin,end} toggle a mode on this writer
    joiner that reserves acc_pool's lazy tail for bump allocation and
+   reserves layer-0 disk space from a joiner-local write head (published
+   to shared state at partition boundaries and when loading ends), and
    causes layer-0 partition handoffs to backfill tiering for older
    snapshot-loaded partitions.  Specifically, when a new partition P
    is opened at layer 0, the partition at P-2 is retiered to Warm

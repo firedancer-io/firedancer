@@ -1295,7 +1295,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( accdb_delta_obj ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     if( FD_LIKELY( snapshots_enabled ) )
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

@@ -112,6 +112,9 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      never be promoted by compaction). */
   int snapshot_loading;
 
+  /* Joiner-local layer-0 cursor used by the single snapshot producer. */
+  accdb_offset_t snapshot_whead;
+
   /* Snapshot loading starts immediately after acc_pool_reset, so the
      pool's lazy-init tail contains practically every accmeta the load
      will need.  snapshot_load_begin claims that tail with one CAS and
@@ -260,6 +263,7 @@ fd_accdb_new( void *              ljoin,
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->delta = NULL;
   accdb->snapshot_loading = 0;
+  accdb->snapshot_whead = shmem->whead[ 0 ];
   accdb->snapshot_acc_bump = 0UL;
   accdb->snapshot_acc_bump_end = 0UL;
 
@@ -424,6 +428,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
   accdb->snapshot_loading    = 0;
+  accdb->snapshot_whead      = shmem->whead[ 0 ];
   accdb->snapshot_acc_bump   = 0UL;
   accdb->snapshot_acc_bump_end = 0UL;
   accdb->acquire_state       = FD_ACCDB_ACQUIRE_STATE_IDLE;
@@ -548,6 +553,7 @@ snapshot_acc_reserve( fd_accdb_t * accdb,
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_TEST( !accdb->snapshot_loading );
+  accdb->snapshot_whead = (accdb_offset_t){ .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
   accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
   snapshot_acc_bump_init( accdb );
@@ -565,6 +571,10 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   FD_TEST( accdb->snapshot_loading );
   spin_lock_acquire( &accdb->shmem->partition_lock );
 
+  /* The snapshot allocator only publishes on partition handoff.  Make
+     its current intra-partition tip visible before closing it. */
+  accdb->shmem->whead[ 0 ] = accdb->snapshot_whead;
+
   /* Force the next layer-0 write onto a fresh Hot partition so we do
      not keep appending live execution writes to the tail of a partition
      that was tagged Cold during snapshot load.  Must run while
@@ -579,6 +589,7 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
     fd_accdb_partition_t * newp = partition_pool_ele( accdb->partition_pool, new_idx );
     FD_VOLATILE( newp->layer ) = 0;
   }
+  accdb->snapshot_whead = accdb->shmem->whead[ 0 ];
 
   snapshot_acc_bump_fini( accdb );
   accdb->snapshot_loading = 0;
@@ -618,7 +629,9 @@ fd_accdb_snapshot_populate_delta( fd_accdb_t *       accdb,
 void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out ) {
-  out->whead_val          = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val );
+  out->whead_val          = accdb->snapshot_loading
+                            ? accdb->snapshot_whead.val
+                            : FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val );
   out->has_partition      = FD_VOLATILE_CONST( accdb->shmem->has_partition[ 0 ] );
   out->partition_max      = FD_VOLATILE_CONST( accdb->shmem->partition_max );
   out->disk_current_bytes = FD_VOLATILE_CONST( accdb->shmem->shmetrics->disk_current_bytes );
@@ -650,10 +663,11 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
      write_offset == 0 from its initialization.  The real byte offset
      is encoded in whead[0]. */
   if( shmem->has_partition[ 0 ] && cur_partition_max>recover->partition_max ) {
-    ulong active_idx = packed_partition_idx( &shmem->whead[ 0 ] );
+    accdb_offset_t active_whead = accdb->snapshot_loading ? accdb->snapshot_whead : shmem->whead[ 0 ];
+    ulong active_idx = packed_partition_idx( &active_whead );
     if( active_idx>=recover->partition_max && active_idx<cur_partition_max ) {
       fd_accdb_partition_t * active = partition_pool_ele( accdb->partition_pool, active_idx );
-      active->write_offset = packed_partition_offset( &shmem->whead[ 0 ] );
+      active->write_offset = packed_partition_offset( &active_whead );
     }
   }
 
@@ -676,6 +690,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
   }
 
   shmem->whead[ 0 ].val     = recover->whead_val;
+  accdb->snapshot_whead.val = recover->whead_val;
   shmem->has_partition[ 0 ] = recover->has_partition;
   shmem->partition_max      = recover->partition_max;
 
@@ -764,6 +779,7 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->snapshot_loading = 0;
+  accdb->snapshot_whead = shmem->whead[ 0 ];
   accdb->snapshot_acc_bump = 0UL;
   accdb->snapshot_acc_bump_end = 0UL;
   accdb->shmem = shmem;
@@ -1803,6 +1819,33 @@ change_partition( fd_accdb_t *           accdb,
 static inline ulong
 allocate_next_write( fd_accdb_t * accdb,
                      ulong        sz ) {
+  if( FD_UNLIKELY( accdb->snapshot_loading ) ) {
+    /* Snapshot loading is the sole layer-0 producer and compaction is
+       deferred for the duration of the load.  Reserve from the private
+       cursor and update its exclusively-owned partition counters with
+       plain operations.  Only partition rollover takes the shared lock
+       and publishes the cursor. */
+    for(;;) {
+      accdb_offset_t offset = accdb->snapshot_whead;
+      if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] &&
+                     packed_partition_offset( &offset )+sz<=accdb->shmem->partition_sz ) ) {
+        accdb->snapshot_whead.val += sz;
+        accdb->shmem->shmetrics->disk_current_bytes += sz;
+
+        ulong file_offset = packed_partition_file_offset( &offset, accdb->shmem->partition_sz );
+        fd_accdb_partition_t * partition = partition_pool_ele( accdb->partition_pool, packed_partition_idx( &offset ) );
+        partition->bytes_written += sz;
+        partition->write_ops++;
+        return file_offset;
+      }
+
+      spin_lock_acquire( &accdb->shmem->partition_lock );
+      change_partition( accdb, &offset, &accdb->snapshot_whead, &accdb->shmem->has_partition[ 0 ], 0 );
+      accdb->shmem->whead[ 0 ] = accdb->snapshot_whead;
+      spin_lock_release( &accdb->shmem->partition_lock );
+    }
+  }
+
   for(;;) {
     accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz ) };
     if( FD_LIKELY( packed_partition_offset( &offset )+sz<=accdb->shmem->partition_sz ) ) {
@@ -1847,8 +1890,8 @@ allocate_next_write( fd_accdb_t * accdb,
    or when its first record does not fit and the entire batch fits in a
    fresh partition.  The latter includes the first batch after reset.
 
-   Snapshot loading has one layer-0 producer, so the whead observation
-   below remains stable until allocate_next_write performs its fetch-add.
+   Snapshot loading has one layer-0 producer, so the local whead
+   observation below remains stable until allocate_next_write bumps it.
    Other accdb activity can still use the independent compaction heads. */
 static inline int
 snapshot_write_reserve( fd_accdb_t * accdb,
@@ -1858,7 +1901,7 @@ snapshot_write_reserve( fd_accdb_t * accdb,
   ulong partition_sz = accdb->shmem->partition_sz;
   if( FD_UNLIKELY( !total_sz || total_sz>partition_sz ) ) return 0;
 
-  accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
+  accdb_offset_t whead = accdb->snapshot_whead;
   ulong partition_off = packed_partition_offset( &whead );
   ulong avail = partition_off<=partition_sz ? partition_sz-partition_off : 0UL;
 
