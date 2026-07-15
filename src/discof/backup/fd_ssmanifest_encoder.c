@@ -231,7 +231,7 @@ ENCODE_FN {
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* inflation_rewards_collector */
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* block_revenue_collector */
-    PUSH_VAL( ushort, (ushort)((uint)commission * 100U) ); /* inflation_rewards_commission_bps */
+    PUSH_VAL( ushort, commission ); /* inflation_rewards_commission_bps */
     PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
     PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */
     PUSH_VAL( uchar,  0        ); /* bls_pubkey_compressed = None */
@@ -293,6 +293,12 @@ ENCODE_FN {
   case STATE_LTHASH: {
     PUSH_VAL( uchar, 1 );
     PUSH_VAL( fd_lthash_value_t, bank->f.lthash );
+    enc->state = STATE_BLOCK_ID;
+    break;
+  }
+  case STATE_BLOCK_ID: {
+    PUSH_VAL( uchar, 1 );
+    PUSH_VAL( fd_hash_t, bank->f.block_id );
     enc->state = STATE_DONE;
     break;
   }
