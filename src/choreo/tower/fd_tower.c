@@ -75,6 +75,7 @@ typedef struct lockout_interval lockout_interval_t;
 #define POOL_T     lockout_interval_t
 #define POOL_NEXT  next
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 FD_FN_PURE static inline ulong
@@ -142,8 +143,6 @@ fd_tower_new( void * shmem,
     FD_LOG_WARNING(( "bad blk_max (%lu) or vtr_max (%lu)", blk_max, vtr_max ));
     return NULL;
   }
-
-  fd_memset( shmem, 0, footprint );
 
   ulong lck_interval_max  = fd_ulong_pow2_up( FD_TOWER_LOCKOS_MAX*blk_max*vtr_max );
   ulong lck_pool_max      = fd_ulong_pow2_up( 2UL * lck_interval_max );

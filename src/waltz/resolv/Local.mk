@@ -3,6 +3,8 @@ ifdef FD_HAS_HOSTED
 # High level API
 $(call add-hdrs,fd_netdb.h)
 $(call add-objs,fd_getaddrinfo,fd_waltz)
+$(call add-hdrs,fd_adns.h)
+$(call add-objs,fd_adns,fd_waltz)
 
 # Config
 $(call add-hdrs,fd_io_readline.h)
@@ -25,5 +27,8 @@ $(call make-fuzz-test,fuzz_dns_parse,fuzz_dns_parse,fd_waltz fd_util)
 
 $(call make-unit-test,test_resolv,test_resolv,fd_waltz fd_util)
 $(call run-unit-test,test_resolv)
+
+$(call make-unit-test,test_adns,test_adns,fd_waltz fd_util)
+$(call run-unit-test,test_adns)
 
 endif

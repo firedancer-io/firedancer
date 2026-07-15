@@ -284,7 +284,10 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
 
   ctx->dirty = frame_res!=0UL;
 
-  int maybe_more_output = out_produced==ctx->out.mtu || ctx->in.frag_pos<sz;
+  /* frame_res==0 means the frame ended exactly at the output boundary;
+     re-polling then reports "new frame expected" and would mark the
+     stream dirty at a clean EOF. */
+  int maybe_more_output = (out_produced==ctx->out.mtu && frame_res!=0UL) || ctx->in.frag_pos<sz;
   if( FD_LIKELY( !maybe_more_output ) ) ctx->in.frag_pos = 0UL;
   return maybe_more_output;
 }

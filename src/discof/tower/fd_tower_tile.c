@@ -1793,7 +1793,12 @@ returnable_frag( fd_tower_tile_t *   ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_DEDUP:{
-    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 1; } /* backpressure vote txns on boot until we're ready */
+    if( FD_UNLIKELY( !ctx->init ) ) {
+      /* we cannot backpressure vote txns on boot, without risking a
+         deadlock on the snapshot load pipeline. */
+      ctx->metrics.not_ready++;
+      return 0;
+    }
     fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
     count_vote_txn( ctx, fd_txn_m_txn_t_const( txnm ), fd_txn_m_payload_const( txnm ) );
     return 0;

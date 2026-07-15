@@ -336,9 +336,20 @@ test_chained_merkle_shreds( void ) {
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
   fd_shredder_set_shred_version( shredder, (ushort)6051 );
 
-  fd_fec_set_t _set[ 1 ];
-  /* memset with canary */
-  memset( _set, canary, sizeof(_set) );
+  /* Red zones around the set: the compact layout leaves no slack
+     after each data shred, so an overrun lands in the next shred and
+     may be papered over when that shred is written.  Content is
+     guarded by the merkle checks below; the zones catch writes past
+     the struct. */
+#define RED_ZONE_SZ (2048UL)
+  static uchar __attribute__((aligned(FD_CHUNK_ALIGN))) _set_guarded[ RED_ZONE_SZ+sizeof(fd_fec_set_t)+RED_ZONE_SZ ];
+  memset( _set_guarded, canary, sizeof(_set_guarded) );
+  fd_fec_set_t * _set = fd_type_pun( _set_guarded+RED_ZONE_SZ );
+
+  static uchar __attribute__((aligned(32UL))) bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) ];
+  fd_sha512_t _verify_sha[ 1 ];
+  fd_sha512_t * verify_sha = fd_sha512_join( fd_sha512_new( _verify_sha ) ); FD_TEST( verify_sha );
+  uchar const * public_key = test_private_key+32UL;
 
 #define MAX_SLOTS (4UL)
 #define MAX_SETS (10UL)
@@ -370,9 +381,6 @@ test_chained_merkle_shreds( void ) {
       for( ulong j=0; j<FD_FEC_SHRED_CNT; j++ ) {
         fd_shred_t const * shred;
 
-        /* Simple test that we didn't overflow */
-        FD_TEST( *(set->data_shreds[ j ].b+FD_SHRED_MIN_SZ) == canary );
-
         /* Test that data indexes are correct */
         shred = set->data_shreds[ j ].s;
         FD_TEST( shred->idx==setid*32 + j );
@@ -380,6 +388,15 @@ test_chained_merkle_shreds( void ) {
         FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
 
         FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MIN_SZ, FD_SHRED_BLK_MAX ) );
+
+        /* Every byte of the shred is committed to by the signed
+           merkle root, so reconstructing the root from the shred's
+           own bytes catches a stray write from any later shred's
+           generation (an overrun in the compact layout lands in a
+           neighboring shred, not past the struct). */
+        fd_bmtree_node_t root[ 1 ];
+        FD_TEST( fd_shred_merkle_root( shred, bmtree_mem, root ) );
+        FD_TEST( FD_ED25519_SUCCESS==fd_ed25519_verify( root->hash, 32UL, shred->signature, public_key, verify_sha ) );
       }
 
       for( ulong j=0; j<FD_FEC_SHRED_CNT; j++ ) {
@@ -391,7 +408,15 @@ test_chained_merkle_shreds( void ) {
         FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
 
         FD_TEST( fd_shred_parse( (const uchar *)shred, FD_SHRED_MAX_SZ, FD_SHRED_BLK_MAX ) );
+
+        fd_bmtree_node_t root[ 1 ];
+        FD_TEST( fd_shred_merkle_root( shred, bmtree_mem, root ) );
+        FD_TEST( FD_ED25519_SUCCESS==fd_ed25519_verify( root->hash, 32UL, shred->signature, public_key, verify_sha ) );
       }
+
+      /* Red zones intact: nothing wrote past the compact set */
+      for( ulong b=0UL; b<RED_ZONE_SZ; b++ ) FD_TEST( _set_guarded[ b ]==canary );
+      for( ulong b=0UL; b<RED_ZONE_SZ; b++ ) FD_TEST( _set_guarded[ RED_ZONE_SZ+sizeof(fd_fec_set_t)+b ]==canary );
     }
   }
 

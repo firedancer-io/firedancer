@@ -4,8 +4,8 @@
 #include "../genesis/fd_genesi_tile.h"
 #include "../genesis/genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../ballet/lthash/fd_lthash.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -25,6 +25,9 @@ struct fd_ipecho_tile_ctx {
   ushort bind_port;
 
   ushort expected_shred_version;
+
+  fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+  ulong         entrypoints_cnt;
 
   fd_wksp_t * genesi_in_mem;
   ulong       genesi_in_chunk0;
@@ -147,11 +150,14 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->expected_shred_version = tile->ipecho.expected_shred_version;
 
+  ctx->entrypoints_cnt = tile->ipecho.entrypoints_cnt;
+  fd_dns_resolve_peers( tile->ipecho.entrypoints[ 0 ], sizeof(tile->ipecho.entrypoints[ 0 ]), tile->ipecho.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
+
   ctx->retrieving = 1;
-  if( FD_LIKELY( tile->ipecho.entrypoints_cnt ) ) {
+  if( FD_LIKELY( ctx->entrypoints_cnt ) ) {
     ctx->client = fd_ipecho_client_join( fd_ipecho_client_new( _client ) );
     FD_TEST( ctx->client );
-    fd_ipecho_client_init( ctx->client, tile->ipecho.entrypoints, tile->ipecho.entrypoints_cnt );
+    fd_ipecho_client_init( ctx->client, ctx->entrypoints, ctx->entrypoints_cnt );
   } else {
     ctx->client = NULL;
   }

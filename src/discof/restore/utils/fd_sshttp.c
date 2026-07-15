@@ -673,19 +673,20 @@ read_response( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
-    ulong need_len = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
-    if( FD_UNLIKELY( *data_len<need_len ) ) {
-      FD_LOG_WARNING(( "data buffer too small (data_len=%lu required=%lu response_len=%lu parsed=%lu)",
-                       *data_len, need_len, http->response_len, (ulong)parsed ));
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
-    *data_len = need_len;
-    fd_memcpy( data, http->response+parsed, *data_len );
-    http->content_read += *data_len;
+    /* Body bytes past the caller's buffer are kept in response, with
+       response_len repurposed as the residual length, drained by
+       read_body before it reads the socket again. */
+    ulong leftover = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
+    ulong copy_len = fd_ulong_min( leftover, *data_len );
+    fd_memcpy( data, http->response+parsed, copy_len );
+    memmove( http->response, http->response+(ulong)parsed+copy_len, leftover-copy_len );
+    http->response_len  = leftover-copy_len;
+    http->content_read += copy_len;
+    *data_len = copy_len;
     return FD_SSHTTP_ADVANCE_DATA;
   } else {
     FD_TEST( http->response_len==(ulong)parsed );
+    http->response_len = 0UL;
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 }
@@ -709,6 +710,17 @@ read_body( fd_sshttp_t * http,
   }
 
   FD_TEST( http->content_read<http->content_len );
+
+  if( FD_UNLIKELY( http->response_len ) ) { /* residual body bytes from read_response */
+    ulong copy_len = fd_ulong_min( http->response_len, *data_len );
+    fd_memcpy( data, http->response, copy_len );
+    memmove( http->response, http->response+copy_len, http->response_len-copy_len );
+    http->response_len  -= copy_len;
+    http->content_read  += copy_len;
+    *data_len = copy_len;
+    return FD_SSHTTP_ADVANCE_DATA;
+  }
+
   long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
   if( FD_UNLIKELY( read<=0 ) ) return (int)read;
 

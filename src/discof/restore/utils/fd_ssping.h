@@ -21,9 +21,13 @@ struct fd_sspeer_selector_private;
 typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
 
 #define FD_SSPING_FD_MIN 20000
-#define FD_SSPING_FD_CNT   249 /* Limit to how many pings can be
+#define FD_SSPING_FD_CNT   247 /* Limit to how many pings can be
                                   inflight.  Chosen so that it doesn't
-                                  overflow the tile limit. */
+                                  overflow the tile limit (256 allowed
+                                  fds, less the workspace fd, stderr,
+                                  logfile, snapshot dir + 2 output
+                                  fds, the 2 netdb fds for DNS, and
+                                  the adns UDP socket). */
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 

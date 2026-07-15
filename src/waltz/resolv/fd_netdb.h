@@ -46,6 +46,14 @@ FD_PROTOTYPES_BEGIN
 fd_netdb_fds_t *
 fd_netdb_open_fds( fd_netdb_fds_t * fds );
 
+/* fd_netdb_close_fds closes the fds opened by fd_netdb_open_fds (for
+   callers that only resolve before entering a sandbox and must not
+   leave stray fds open).  fd_netdb_open_fds may be called again
+   afterwards.  Thread-local, like fd_netdb_open_fds. */
+
+void
+fd_netdb_close_fds( void );
+
 /* fd_getaddrinfo is derived from musl libc getaddrinfo. */
 
 int
