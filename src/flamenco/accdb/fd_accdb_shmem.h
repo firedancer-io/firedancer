@@ -26,13 +26,10 @@ struct fd_accdb_shmem_metrics {
 
 typedef struct fd_accdb_shmem_metrics fd_accdb_shmem_metrics_t;
 
-enum {
-  FD_ACCDB_SNAPSHOT_SYNC_IDLE      = 0UL,
-  FD_ACCDB_SNAPSHOT_SYNC_START     = 1UL,
-  FD_ACCDB_SNAPSHOT_SYNC_RUNNING   = 2UL,
-  FD_ACCDB_SNAPSHOT_SYNC_FINISHING = 3UL
-};
-
+#define FD_ACCDB_SNAPSHOT_SYNC_IDLE        (0UL)
+#define FD_ACCDB_SNAPSHOT_SYNC_START       (1UL)
+#define FD_ACCDB_SNAPSHOT_SYNC_RUNNING     (2UL)
+#define FD_ACCDB_SNAPSHOT_SYNC_FINISHING   (3UL)
 #define FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA (4UL)
 
 static inline ulong
@@ -42,7 +39,12 @@ fd_accdb_snapshot_sync_state( ulong const * sync ) {
 
 static inline void
 fd_accdb_snapshot_sync_advance( ulong * sync ) {
-  __atomic_fetch_add( sync, 1UL, __ATOMIC_RELEASE );
+  ulong old = __atomic_load_n( sync, __ATOMIC_RELAXED );
+  for(;;) {
+    ulong next = (old & ~3UL) | (((old & 3UL)+1UL) & 3UL);
+    if( FD_LIKELY( __atomic_compare_exchange_n( sync, &old, next, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED ) ) ) return;
+    FD_SPIN_PAUSE();
+  }
 }
 
 static inline void

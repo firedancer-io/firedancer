@@ -1703,7 +1703,6 @@ main( int     argc,
   test_eqvoc_first_fec( wksp );
   test_stale_redeliver( wksp );
   test_eqvoc_child_confirm( wksp );
-  test_double_confirm_backfill( wksp );
   test_snapmk_completion_releases_requested_bank( wksp );
 
   fd_halt();

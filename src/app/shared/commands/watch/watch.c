@@ -605,18 +605,20 @@ write_backup( config_t const * config,
   char * accounts_rate_str   = COUNTF( accounts_per_second );
   char * account_size_str    = have_snaprd && acc_sum ? fmt_size( fd_alloca_check( 1UL, 64UL ), 64UL, read_sum / acc_sum ) : "         -";
 
-  PRINT( "📦 " BOLD BYELLOW "BACKUP......" RESET UNBOLD
-         " " BOLD "ACCOUNTS" UNBOLD " %s  %s /s"
-         " " BOLD "READ"     UNBOLD " %3.f MB/s"
-         " " BOLD "COMP"     UNBOLD " %3.f MB/s"
-         " " BOLD "ACCT SZ"  UNBOLD " %s"
-         " " BOLD "PCT"      UNBOLD " %.1f %%" CLEARLN "\n",
+  PRINT( ROWH( "◒", BYELLOW, "backup      " )
+         "  %s " BOLD "%5.1f" RESET U( "%%" )
+         K( "accounts" ) "%s"
+         K( "rate" ) "%s" U( "/s" )
+         K( "read" ) "%3.f" U( " MB/s" )
+         K( "comp" ) "%3.f" U( " MB/s" )
+         K( "acct sz" ) "%s" CLEARLN "\n",
+    BAR( progress, 20UL ),
+    progress,
     accounts_packed_str,
     accounts_rate_str,
     read_megabytes_per_second,
     comp_megabytes_per_second,
-    account_size_str,
-    progress );
+    account_size_str );
   return 1U;
 }
 

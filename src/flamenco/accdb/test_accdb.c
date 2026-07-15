@@ -1490,6 +1490,22 @@ test_delta_commit_and_full_snapshot_reset( void ) {
   charge_busy = 0;
   fd_accdb_background( accdb, &charge_busy );
   FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+  FD_TEST( test_shmem_mem->snapshot_sync==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+
+  /* The FINISHING->IDLE transition must not spill into RESET_DELTA.
+     Insert a post-full change, then prove that the next incremental
+     handshake preserves it. */
+  accdb_write( accdb, root, pubkey0, 12UL, data, sizeof(data), owner );
+  FD_TEST( fd_accdb_delta_head( delta )==1UL );
+  fd_accdb_snapshot_sync_start( &test_shmem_mem->snapshot_sync, 0 );
+  charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+  FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+  FD_TEST( fd_accdb_delta_head( delta )==1UL );
+  fd_accdb_snapshot_sync_advance( &test_shmem_mem->snapshot_sync );
+  charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+  FD_TEST( test_shmem_mem->snapshot_sync==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
 
   fd_accdb_set_delta( accdb, NULL );
   free( delta_mem );

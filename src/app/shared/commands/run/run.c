@@ -388,12 +388,7 @@ main_pid_namespace( void * _args ) {
          least privilege. */
       if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
 
-      /* snapmk and snapzp join the accdb shmem (account index and
-         cache) but never touch the on-disk accounts file directly:
-         snaprd reads it for them and forwards the bytes over a link.
-         Withhold the accounts.db fds to keep them at least privilege. */
-      if( FD_UNLIKELY( !strcmp( tile->name, "snapzp" ) ) ) tile_uses_accdb_ro = 0;
-      if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb    = 0;
+      if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb = 0;
 
       /* snapwr writes accdb pwrite()s without joining accdb shmem, so
          it needs the RW fd despite not appearing as an accdb obj user
