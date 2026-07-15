@@ -276,16 +276,36 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_SYSVAR_INSTRUCTIONS_FOOTPRINT bounds the worst-case serialized
    size of the sysvar instructions account.  See
-   fd_sysvar_instructions.c for the format.  Worst case:
+   fd_sysvar_instructions.c for the format.
+
+   Worst case size for V0/legacy transactions.  Each bullet is bounded by
+   its own maximum; those maxima compete for the same 1232-byte tx and
+   can't all be reached at once, so the sum is a deliberately loose
+   over-estimate:
      - 2 bytes header (num_instructions)
-     - FD_TXN_INSTR_MAX * 2 = 128 bytes (instruction offsets)
+     - instruction offsets: 2 bytes * FD_TXN_INSTR_MAX (64) = 128 bytes
      - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
        = 36 bytes * FD_TXN_INSTR_MAX (64) = 2304 bytes
-     - per-acct ref: 33 bytes * FD_INSTR_ACCT_MAX (1094) = 36102 bytes
-     - instr data total: bounded by FD_TXN_MTU (1232 bytes)
+     - account refs: each takes 1 byte (an index) in the tx but serializes
+       to 33 bytes (1 flag + 32-byte pubkey); a 1232-byte tx holds at most
+       ~1094 indices across all its instructions, so 33 * 1094 = 36102 bytes
+     - instr data: bounded by the legacy MTU FD_TXN_MTU_V0 (1232 bytes)
      - 2 bytes tail (current_instr_idx)
-   Total: 39770 bytes, rounded up to 40960. */
-#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (40960UL)
+   Total: 39770 bytes
+
+   Worst case size for V1 transactions:
+   Instruction start offsets are u16, so an accepted sysvar has every
+   offset <= 65535; a larger offset overflows and is rejected (matching
+   agave).  The worst case is the last instruction starting at 65535:
+
+     - 65535 bytes (offset of the last instruction)
+     - per-acct ref: 33 bytes * 255 = 8415 bytes
+     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
+       = 36 bytes
+     - instr data: bounded by FD_TXN_MTU (4096 bytes)
+     - 2 bytes tail (current_instr_idx)
+   Total: 78084 bytes, rounded up to 81920. */
+#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (81920UL)
 
 #define FD_HARD_FORKS_MAX (64UL)
 
