@@ -363,7 +363,7 @@ fd_banks_new( void * shmem,
     }
   }
 
-  fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( fd_stake_rewards_new( stake_rewards_pool_mem, max_stake_accounts, max_fork_width ) );
+  fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( fd_stake_rewards_new( stake_rewards_pool_mem, max_stake_accounts, max_fork_width, seed ) );
   if( FD_UNLIKELY( !stake_rewards ) ) {
     FD_LOG_WARNING(( "Failed to create stake rewards" ));
     return NULL;

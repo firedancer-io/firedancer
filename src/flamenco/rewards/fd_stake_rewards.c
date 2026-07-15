@@ -6,6 +6,11 @@
 
 #define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
 
+/* This is an arbitrary value but it's a buffer that basically says that
+   there won't be more than 2x the stake account limit of accounts that
+   receive stake rewards in an epoch across forks. */
+#define PUBKEY_POOL_CAPACITY_MULTIPLIER (2UL)
+
 struct fork {
   int next;
 };
@@ -17,11 +22,34 @@ typedef struct fork fork_t;
 #define POOL_IDX_T int
 #include "../../util/tmpl/fd_pool.c"
 
-struct partition_ele {
+struct pubkey_ele {
   fd_pubkey_t pubkey;
-  ulong       lamports;
-  ulong       credits_observed;
   uint        next;
+};
+typedef struct pubkey_ele pubkey_ele_t;
+
+#define POOL_NAME  pubkey_pool
+#define POOL_T     pubkey_ele_t
+#define POOL_NEXT  next
+#define POOL_IDX_T uint
+#define POOL_LAZY  1
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               pubkey_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              pubkey_ele_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_NEXT               next
+#define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct partition_ele {
+  ulong lamports;
+  ulong credits_observed;
+  uint  pubkey_idx;
+  uint  next;
 };
 typedef struct partition_ele partition_ele_t;
 
@@ -39,6 +67,8 @@ struct fd_stake_rewards {
   ulong       magic;
   ulong       max_stake_accounts;
   fork_info_t fork_info[MAX_SUPPORTED_FORKS];
+  ulong       pubkey_pool_offset;
+  ulong       pubkey_map_offset;
   ulong       fork_pool_offset;
   ulong       partitions_offset;
   ulong       epoch;
@@ -52,6 +82,16 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 static inline fork_t *
 get_fork_pool( fd_stake_rewards_t const * stake_rewards ) {
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->fork_pool_offset );
+}
+
+static inline pubkey_ele_t *
+get_pubkey_pool( fd_stake_rewards_t const * stake_rewards ) {
+  return fd_type_pun( (uchar *)stake_rewards + stake_rewards->pubkey_pool_offset );
+}
+
+static inline pubkey_map_t *
+get_pubkey_map( fd_stake_rewards_t const * stake_rewards ) {
+  return fd_type_pun( (uchar *)stake_rewards + stake_rewards->pubkey_map_offset );
 }
 
 static inline partition_ele_t *
@@ -73,18 +113,23 @@ ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
                             ulong max_fork_width ) {
   ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
+  ulong max_pubkeys       = fd_ulong_sat_mul( PUBKEY_POOL_CAPACITY_MULTIPLIER, max_stake_accounts );
+  ulong map_chain_cnt     = pubkey_map_chain_cnt_est( max_pubkeys );
 
   ulong l = FD_LAYOUT_INIT;
-  l  = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),  sizeof(fd_stake_rewards_t) );
-  l =  FD_LAYOUT_APPEND( l, fork_pool_align(),         fork_pool_footprint( max_fork_width ) );
-  l  = FD_LAYOUT_APPEND( l, alignof(partition_ele_t),  fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
+  l = FD_LAYOUT_APPEND( l, pubkey_pool_align(),      pubkey_pool_footprint( max_pubkeys ) );
+  l = FD_LAYOUT_APPEND( l, pubkey_map_align(),       pubkey_map_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
   return FD_LAYOUT_FINI( l, fd_stake_rewards_align() );
 }
 
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  max_fork_width ) {
+                      ulong  max_fork_width,
+                      ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -94,16 +139,34 @@ fd_stake_rewards_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_stake_accounts>(ulong)UINT_MAX ) ) {
+  if( FD_UNLIKELY( max_stake_accounts>(ulong)UINT_MAX/PUBKEY_POOL_CAPACITY_MULTIPLIER ) ) {
     FD_LOG_WARNING(( "max_stake_accounts is too large" ));
     return NULL;
   }
   ulong partition_ele_cnt = fd_ulong_sat_mul( max_fork_width, max_stake_accounts );
+  ulong max_pubkeys        = PUBKEY_POOL_CAPACITY_MULTIPLIER * max_stake_accounts;
+  ulong map_chain_cnt      = pubkey_map_chain_cnt_est( max_pubkeys );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
-  void *               fork_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
-  void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
+  fd_stake_rewards_t * stake_rewards   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
+  void *               pubkey_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, pubkey_pool_align(),      pubkey_pool_footprint( max_pubkeys ) );
+  void *               pubkey_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, pubkey_map_align(),       pubkey_map_footprint( map_chain_cnt ) );
+  void *               fork_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
+  void *               partitions_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( partition_ele_cnt, sizeof(partition_ele_t) ) );
+
+  pubkey_ele_t * pubkey_pool = pubkey_pool_join( pubkey_pool_new( pubkey_pool_mem, max_pubkeys ) );
+  if( FD_UNLIKELY( !pubkey_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create pubkey pool" ));
+    return NULL;
+  }
+  stake_rewards->pubkey_pool_offset = (ulong)pubkey_pool - (ulong)shmem;
+
+  pubkey_map_t * pubkey_map = pubkey_map_join( pubkey_map_new( pubkey_map_mem, map_chain_cnt, seed ) );
+  if( FD_UNLIKELY( !pubkey_map ) ) {
+    FD_LOG_WARNING(( "Failed to create pubkey map" ));
+    return NULL;
+  }
+  stake_rewards->pubkey_map_offset = (ulong)pubkey_map - (ulong)shmem;
 
   fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_fork_width ) );
   if( FD_UNLIKELY( !fork_pool ) ) {
@@ -145,6 +208,8 @@ fd_stake_rewards_join( void * shmem ) {
 
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
+  pubkey_pool_reset( get_pubkey_pool( stake_rewards ) );
+  pubkey_map_reset( get_pubkey_map( stake_rewards ) );
   fork_pool_reset( get_fork_pool( stake_rewards ) );
   stake_rewards->epoch = ULONG_MAX;
 }
@@ -169,9 +234,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt ) {
   fork_t * fork_pool = get_fork_pool( stake_rewards );
 
-  /* If this is the first reference to the stake rewards for this epoch,
-     reset the fork pool shared by the epoch's reward partitions. */
+  /* If this is the first reference to stake rewards for this epoch,
+     reset all state shared by the epoch's reward forks. */
   if( FD_LIKELY( stake_rewards->epoch!=epoch ) ) {
+    pubkey_pool_reset( get_pubkey_pool( stake_rewards ) );
+    pubkey_map_reset( get_pubkey_map( stake_rewards ) );
     fork_pool_reset( fork_pool );
     stake_rewards->epoch = epoch;
   }
@@ -210,10 +277,22 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
     FD_LOG_CRIT(( "invariant violation: curr_fork_len>=stake_rewards->max_stake_accounts" ));
   }
 
+  pubkey_ele_t * pubkey_pool = get_pubkey_pool( stake_rewards );
+  pubkey_map_t * pubkey_map  = get_pubkey_map( stake_rewards );
+  pubkey_ele_t * pubkey_ele  = pubkey_map_ele_query( pubkey_map, pubkey, NULL, pubkey_pool );
+  if( FD_UNLIKELY( !pubkey_ele ) ) {
+    if( FD_UNLIKELY( !pubkey_pool_free( pubkey_pool ) ) ) {
+      FD_LOG_CRIT(( "Too many unique stake reward pubkeys in epoch (max %lu)", pubkey_pool_max( pubkey_pool ) ));
+    }
+    pubkey_ele         = pubkey_pool_ele_acquire( pubkey_pool );
+    pubkey_ele->pubkey = *pubkey;
+    FD_TEST( pubkey_map_ele_insert( pubkey_map, pubkey_ele, pubkey_pool ) );
+  }
+
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );
-  partition_ele->pubkey           = *pubkey;
   partition_ele->lamports         = lamports;
   partition_ele->credits_observed = credits_observed;
+  partition_ele->pubkey_idx       = (uint)pubkey_pool_idx( pubkey_pool, pubkey_ele );
   partition_ele->next             = UINT_MAX;
 
   int is_first_ele = stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index] == UINT_MAX;
@@ -258,8 +337,9 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out ) {
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->iter_curr_fork_idx );
+  pubkey_ele_t *    pubkey_ele    = pubkey_pool_ele( get_pubkey_pool( stake_rewards ), partition_ele->pubkey_idx );
 
-  *pubkey_out           = partition_ele->pubkey;
+  *pubkey_out           = pubkey_ele->pubkey;
   *lamports_out         = partition_ele->lamports;
   *credits_observed_out = partition_ele->credits_observed;
 }
