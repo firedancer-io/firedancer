@@ -270,7 +270,7 @@
   {"name":"delay_commission_updates","pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B"},
   {"name":"validate_chained_block_id","pubkey":"vcmrbYbiMVKaq1snKP6eCacNDcr6qZvpCNUjmk6gxvZ"},
   {"name":"upgrade_bpf_stake_program_to_v5","pubkey":"STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk"},
-  {"name":"enable_sha512_syscall","pubkey":"s512oDwgx8hjMnaQjXfqqrZroVj4HvC6TkN3iSSWXCh"},
+  {"name":"enable_sha512_syscall","pubkey":"s512oDwgx8hjMnaQjXfqqrZroVj4HvC6TkN3iSSWXCh","hardcode_for_fuzzing":1},
   {"name":"disable_sbpf_v0_v1_v2_deployment","pubkey":"B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g"},
   {"name":"commission_rate_in_basis_points","pubkey":"Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj"},
   {"name":"loader_v3_minimum_extend_program_size","pubkey":"YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5"},
