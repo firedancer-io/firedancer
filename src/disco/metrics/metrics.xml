@@ -655,7 +655,6 @@ EXAMPLES
     <counter name="PktNoKey" enum="QuicEncryptionLevel" summary="Packets that failed decryption due to missing key" />
     <counter name="PktNoConn" enum="QuicPktHandle" summary="Packets with an unknown connection ID" />
     <counter name="PktSrcInvalid" summary="Packets dropped due to a wrong source IP" />
-    <counter name="PktTxAllocFailed" summary="Packet transmit jobs dropped due to allocation failure" />
     <counter name="PktNetHeaderInvalid" summary="Packets dropped due to weird IP or UDP header" />
     <counter name="PktHeaderInvalid" summary="Packets dropped due to weird QUIC header" />
     <counter name="PktUndersize" summary="QUIC packets dropped due to being too small" />
@@ -910,9 +909,6 @@ EXAMPLES
     <histogram name="CuPct" min="0" max="100">
         <summary>Percent of the total block cost limit used for each block pack produced</summary>
     </histogram>
-
-    <counter name="TxnDeleteMissed" summary="Attempts to delete a transaction that wasn't found" />
-    <counter name="TxnDeleteHit" summary="Attempts to delete a transaction that was found and deleted" />
 </tile>
 
 <!-- Frankendancer transaction result -->
@@ -1364,9 +1360,6 @@ EXAMPLES
     <histogram name="ResponseLatencyNanos" min="10000000" max="1000000000">
       <summary>Time it took to receive a repair request response, in nanoseconds</summary>
     </histogram>
-    <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds">
-      <summary>Duration of signing a message</summary>
-    </histogram>
     <counter name="BlockEvicted" summary="Blocks evicted from the forest" />
     <counter name="BlockInsertFailed" summary="Blocks we failed to insert into the forest due to failed eviction" />
     <gauge name="SlotLastEvicted"          summary="Most recent slot evicted from forest" />
@@ -1407,7 +1400,6 @@ EXAMPLES
     <counter name="TotalPktCount" summary="How many network packets we have sent, including pings, responses, etc" />
     <counter name="SentResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages are we sending" />
     <counter name="SentResponseBytes" summary="Total payload bytes sent in response packets" />
-    <counter name="SentPingBackCount" summary="How many ping-back packets we sent to nodes not yet in the ping cache" />
 
     <counter name="MissedResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages could we not fulfill" />
     <counter name="FailedSigverify" summary="How many times we failed to verify the signature of a request" />
@@ -1482,7 +1474,6 @@ EXAMPLES
 </enum>
 
 <tile name="gossip">
-    <gauge name="PingTrackerCapacity" summary="Peer tracking capacity of the ping tracker" />
     <gauge name="PingTracked" enum="PingTrackedType" summary="Peers being tracked for ping/pong" />
     <counter name="PingTrackerPongResult" enum="PongResponse" summary="Result of processing a pong response to a ping" />
     <counter name="PingTrackerEvicted" summary="Peers evicted from the ping tracker to make space for new peers" />
@@ -1888,8 +1879,6 @@ EXAMPLES
 
     <counter name="FragIgnored" summary="replay_slot_completed frags we ignored" />
     <gauge name="SlotLastIgnored" summary="Most recent ignored replay_slot_completed frag" />
-    <counter name="FragEqvocDetected" summary="replay_slot_completed frags we detect as equivocations" />
-    <gauge name="SlotLastEqvoc" summary="Most recent equivocating replay_slot_completed frag" />
 
     <!-- Tower slot metadata -->
 
