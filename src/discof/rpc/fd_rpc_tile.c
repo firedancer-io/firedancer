@@ -259,8 +259,6 @@ struct fd_rpc_tile {
   int has_genesis_hash;
   fd_hash_t genesis_hash[ 1 ];
 
-  uchar genesis_tar[ FD_RPC_TAR_SZ ];
-  uchar genesis_tar_bz[ FD_RPC_TAR_BZ_SZ ];
   ulong genesis_tar_bz_sz;
 
   fd_alloc_t * bz2_alloc;
@@ -276,6 +274,9 @@ struct fd_rpc_tile {
   fd_rpc_out_t replay_out[1];
 
   fd_histf_t request_duration[ 1 ];
+
+  uchar genesis_tar[ FD_RPC_TAR_SZ ];
+  uchar genesis_tar_bz[ FD_RPC_TAR_BZ_SZ ];
 
 # if FD_HAS_ZSTD
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
@@ -2355,7 +2356,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_rpc_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t ) );
   fd_http_server_t * _http = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( http_params ) );
 
-  fd_memset( ctx, 0, sizeof(fd_rpc_tile_t) );
+  fd_memset( ctx, 0, offsetof(fd_rpc_tile_t, genesis_tar) ); /* trailing large buffers are write-before-read scratch */
 
   if( FD_UNLIKELY( !strcmp( tile->rpc.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));

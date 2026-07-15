@@ -1868,7 +1868,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xd3\x90\x59\xed\x06\x42\x15\x11\xe5\x76\x8c\x1e\x16\x42\xf4\x9c\xef\x1e\xab\xf4\xbe\x4e\xde\x46\x6f\x8a\x62\x12\x69\xee\xd6"},
                                  /* s512oDwgx8hjMnaQjXfqqrZroVj4HvC6TkN3iSSWXCh */
     .name                      = "enable_sha512_syscall",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_sbpf_v0_v1_v2_deployment)>>3,
     .id                        = {"\x96\x73\x7f\x9a\xb4\x9c\x39\xb0\xb7\x87\x52\xdb\x07\xef\xee\xbf\xa6\xd1\x0c\x4f\xc4\xea\x72\xe2\x8d\x72\x22\xf0\xea\xf4\xf4\x97"},

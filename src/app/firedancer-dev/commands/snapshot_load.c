@@ -23,6 +23,51 @@
 
 #define NAME "snapshot-load"
 
+#define SL_RESET  "\033[0m"
+#define SL_BOLD   "\033[1m"
+#define SL_DIM    "\033[2m"
+#define SL_RED    "\033[31m"
+#define SL_GREEN  "\033[32m"
+#define SL_YELLOW "\033[33m"
+
+static char const *
+sev_color( int    color,
+           double pct ) {
+  if( FD_UNLIKELY( !color ) ) return "";
+  if( FD_UNLIKELY( pct>=85.0 ) ) return SL_RED;
+  if( FD_UNLIKELY( pct>=50.0 ) ) return SL_YELLOW;
+  return "";
+}
+
+static double
+clamp_pct( double pct ) {
+  return fd_double_if( pct<0.0, 0.0, fd_double_if( pct>100.0, 100.0, pct ) );
+}
+
+static char *
+fmt_bar( char * buf,
+         ulong  buf_sz,
+         int    color,
+         double pct,
+         ulong  width ) {
+  ulong filled = (ulong)( clamp_pct( pct )*(double)width/100.0+0.5 );
+  ulong len = 0UL, l;
+  FD_TEST( fd_cstr_printf_check( buf, buf_sz, &len, "%s", color ? SL_GREEN : "" ) );
+  for( ulong i=0UL;    i<filled; i++ ) { FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, "█" ) ); len += l; }
+  FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, "%s", color ? SL_DIM : "" ) ); len += l;
+  for( ulong i=filled; i<width;  i++ ) { FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, "░" ) ); len += l; }
+  FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, "%s", color ? SL_RESET : "" ) );
+  return buf;
+}
+
+static char const *
+phase_cstr( ulong state ) {
+  if( FD_LIKELY( ( state>= 5UL && state<= 8UL ) || ( state>=13UL && state<=16UL ) ) ) return "full";
+  if( FD_LIKELY( ( state>= 9UL && state<=12UL ) || ( state>=17UL && state<=20UL ) ) ) return "incr";
+  if( FD_UNLIKELY( state==21UL ) ) return "done";
+  return "wait";
+}
+
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
 fd_topo_run_tile_t
@@ -431,29 +476,26 @@ snapshot_load_cmd_fn( args_t *   args,
 
   ulong total_off_old    = 0UL;
   ulong decomp_off_old   = 0UL;
-  ulong snapld_backp_old = 0UL;
   ulong snapld_wait_old  = 0UL;
-  ulong snapdc_backp_old = 0UL;
   ulong snapdc_wait_old  = 0UL;
-  ulong snapin_backp_old = 0UL;
   ulong snapin_wait_old  = 0UL;
-  ulong snapwr_backp_old = 0UL;
   ulong snapwr_wait_old  = 0UL;
   ulong acc_cnt_old      = 0UL;
 
+  int color = fd_log_colorize() && isatty( STDOUT_FILENO );
+  char const * c_bold = color ? SL_BOLD : "";
+  char const * c_dim  = color ? SL_DIM  : "";
+  char const * c_norm = color ? SL_RESET : "";
+
   sleep( 1 );
   if( watch ) {
-    puts( "" );
-    puts( "Columns:" );
-    puts( "- comp:  Compressed bandwidth"             );
-    puts( "- raw:   Uncompressed bandwidth"           );
-    puts( "- backp: Backpressured by downstream tile" );
-    puts( "- stall: Waiting on upstream tile"         );
-    puts( "- acc:   Number of accounts"               );
-    puts( "" );
-    fputs( "--------------------------------------------", stdout );
-    fputs( "[ld],[dc],[in],[wr]--------[ld],[dc],[in],[wr]", stdout );
-    puts( "--------------" );
+    printf( "%scomp%s compressed %s·%s %sraw%s uncompressed %s·%s %sacc%s accounts %s·%s "
+            "%sbusy%s %%%s of load·decompress·insert·write, yellow when the bottleneck%s\n",
+            c_dim, c_norm, c_dim, c_norm,
+            c_dim, c_norm, c_dim, c_norm,
+            c_dim, c_norm, c_dim, c_norm,
+            c_dim, c_norm, c_dim, c_norm );
+    fflush( stdout );
   }
 
   long next = start+1000L*1000L*1000L;
@@ -477,50 +519,70 @@ snapshot_load_cmd_fn( args_t *   args,
                          snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
     ulong decomp_off   = snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ] +
                          snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
-    ulong snapld_backp = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snapld_wait  = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapld_backp;
-    ulong snapdc_backp = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snapdc_wait  = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapdc_backp;
-    ulong snapin_backp = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
-    ulong snapwr_backp = snapwr_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snapwr_wait  = snapwr_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapwr_backp;
+    /* Waiting on either neighbor counts as not busy */
+    ulong snapld_wait  = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
+                       + snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
+    ulong snapdc_wait  = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
+                       + snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
+    ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
+                       + snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
+    ulong snapwr_wait  = snapwr_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ]
+                       + snapwr_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
 
-    double progress = 100.0 * (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] / (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
+    char const * phase = phase_cstr( snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ] );
+    ulong consumed, dc_in, dc_out, size_bytes;
+    if( FD_UNLIKELY( !strcmp( phase, "incr" ) ) ) {
+      consumed   = fd_ulong_min( snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ],
+                                 snapwr_metrics[ MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
+      dc_in      = snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ];
+      dc_out     = snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
+    } else {
+      consumed   = fd_ulong_min( snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],
+                                 snapwr_metrics[ MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ] );
+      dc_in      = snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ];
+      dc_out     = snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ];
+      size_bytes = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
+    }
+    double done_comp = dc_out ? (double)dc_in*( (double)consumed/(double)dc_out ) : 0.0;
+    double progress  = size_bytes ? clamp_pct( 100.0*done_comp/(double)size_bytes ) : 0.0;
 
     ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_LOADED    ) ];
 
     if( watch ) {
-      printf( "%5.1f %% comp=%4.0fMB/s snap=%4.0fMB/s",
-              progress,
-              (double)( total_off -total_off_old  )/1e6,
-              (double)( decomp_off-decomp_off_old )/1e6 );
+      double busy[ 4 ] = {
+        clamp_pct( 100.0-( ( (double)( snapld_wait-snapld_wait_old )*ns_per_tick )/1e7 ) ),
+        clamp_pct( 100.0-( ( (double)( snapdc_wait-snapdc_wait_old )*ns_per_tick )/1e7 ) ),
+        clamp_pct( 100.0-( ( (double)( snapin_wait-snapin_wait_old )*ns_per_tick )/1e7 ) ),
+        clamp_pct( 100.0-( ( (double)( snapwr_wait-snapwr_wait_old )*ns_per_tick )/1e7 ) ),
+      };
 
-      printf( " backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%)",
-          ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
-          ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
-          ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7,
-          ( (double)( snapwr_backp-snapwr_backp_old )*ns_per_tick )/1e7 );
+      char bar[ 256 ];
+      printf( " %s%4s%s %s %s%5.1f%%%s"
+              "  %scomp%s %5.2f %sGB/s%s"
+              "  %sraw%s %5.2f %sGB/s%s"
+              "  %sacc%s %4.1f %sM/s%s",
+              c_dim, phase, c_norm,
+              fmt_bar( bar, sizeof(bar), color, progress, 20UL ),
+              c_bold, progress, c_norm,
+              c_dim, c_norm, (double)( total_off -total_off_old  )/1e9, c_dim, c_norm,
+              c_dim, c_norm, (double)( decomp_off-decomp_off_old )/1e9, c_dim, c_norm,
+              c_dim, c_norm, (double)( acc_cnt   -acc_cnt_old    )/1e6, c_dim, c_norm );
 
-      printf( " busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%)",
-          100-( ( (double)( snapld_wait-snapld_wait_old )*ns_per_tick )/1e7 ),
-          100-( ( (double)( snapdc_wait-snapdc_wait_old )*ns_per_tick )/1e7 ),
-          100-( ( (double)( snapin_wait-snapin_wait_old )*ns_per_tick )/1e7 ),
-          100-( ( (double)( snapwr_wait-snapwr_wait_old )*ns_per_tick )/1e7 ) );
-
-      printf( " acc=%4.1f M/s\n",
-              (double)( acc_cnt-acc_cnt_old  )/1e6 );
+      static char const * tile_key[ 4 ] = { "ld", "dc", "in", "wr" };
+      printf( "  %sbusy%s", c_dim, c_norm );
+      for( ulong i=0UL; i<4UL; i++ )
+        printf( " %s%s%s %s%3.0f%s%%%s",
+                c_dim, tile_key[ i ], c_norm,
+                sev_color( color, busy[ i ] ), busy[ i ], c_dim, c_norm );
+      printf( "\n" );
       fflush( stdout );
     }
     total_off_old    = total_off;
     decomp_off_old   = decomp_off;
-    snapld_backp_old = snapld_backp;
     snapld_wait_old  = snapld_wait;
-    snapdc_backp_old = snapdc_backp;
     snapdc_wait_old  = snapdc_wait;
-    snapin_backp_old = snapin_backp;
     snapin_wait_old  = snapin_wait;
-    snapwr_backp_old = snapwr_backp;
     snapwr_wait_old  = snapwr_wait;
     acc_cnt_old      = acc_cnt;
 

@@ -1271,7 +1271,11 @@ fd_guih_printf_peer( fd_guih_t *    gui,
         char version[ 64UL ];
         FD_TEST( fd_gossip_version_cstr( gui->gossip.peers[ gossip_idx ].version.major, gui->gossip.peers[ gossip_idx ].version.minor, gui->gossip.peers[ gossip_idx ].version.patch, version, sizeof( version ) ) );
         jsonp_string( gui->http, "version", version );
-        jsonp_null( gui->http, "client_id" ); /* TODO: Frankendancer support */
+        if( FD_LIKELY( gui->gossip.peers[ gossip_idx ].has_version ) ) {
+          jsonp_ulong( gui->http, "client_id", gui->gossip.peers[ gossip_idx ].version.client_id );
+        } else {
+          jsonp_null( gui->http, "client_id" );
+        }
         jsonp_ulong( gui->http, "feature_set", gui->gossip.peers[ gossip_idx ].version.feature_set );
         jsonp_ulong( gui->http, "wallclock", gui->gossip.peers[ gossip_idx ].wallclock );
         jsonp_ulong( gui->http, "shred_version", gui->gossip.peers[ gossip_idx ].shred_version );
