@@ -3,7 +3,6 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../util/net/fd_net_headers.h"
 
 #include <net/if.h>
 
@@ -291,10 +290,6 @@ struct fd_config {
   struct {
     ulong         entrypoints_cnt;
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
-    fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
-
-    /* The IPv4 addr that [gossip.host] resolves to. */
-    uint          resolved_host;
     ushort        port;
   } gossip;
 

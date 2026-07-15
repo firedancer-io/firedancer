@@ -225,8 +225,8 @@ struct fd_topo_tile {
     struct {
       char identity_key_path[ PATH_MAX ];
 
-      ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      ulong entrypoints_cnt;
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       long boot_timestamp_nanos;
 
@@ -235,6 +235,7 @@ struct fd_topo_tile {
       ushort shred_version;
       int allow_private_address;
 
+      char          gossip_host[ 256 ];
       fd_ip4_port_t gossip_addr;
       fd_ip4_port_t src_addr;
     } gossvf;
@@ -242,11 +243,13 @@ struct fd_topo_tile {
     struct {
       char identity_key_path[ PATH_MAX ];
 
-      ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      ulong entrypoints_cnt;
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       long boot_timestamp_nanos;
 
+      char   gossip_host[ 256 ];
+      uint   net_ip_addr; /* net.ip_addr fallback when gossip_host empty */
       uint   ip_addr;
       uint   bind_ip_addr;
       ushort shred_version;
@@ -600,8 +603,8 @@ struct fd_topo_tile {
     struct fd_topo_tile_snapct {
       char snapshots_path[ PATH_MAX ];
 
-      ulong         entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      ulong entrypoints_cnt;
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       struct {
         uint max_local_full_effective_age;
@@ -616,11 +619,7 @@ struct fd_topo_tile {
         } gossip;
 
         ulong         servers_cnt;
-        struct {
-          fd_ip4_port_t addr;
-          char          hostname[ 256UL ];
-          int           is_https;
-        } servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED ];
+        char          servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ 128 ];
       } sources;
 
       int  incremental_snapshots;
@@ -657,7 +656,7 @@ struct fd_topo_tile {
 
       ushort expected_shred_version;
       ulong entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
     } ipecho;
 
     struct {
@@ -674,7 +673,7 @@ struct fd_topo_tile {
 
       ushort expected_shred_version;
       ulong entrypoints_cnt;
-      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      char  entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
 
       int has_expected_genesis_hash;
       uchar expected_genesis_hash[ 32UL ];

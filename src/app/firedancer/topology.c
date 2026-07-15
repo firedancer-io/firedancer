@@ -29,7 +29,6 @@
 #include <sys/random.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <stdlib.h>
 #include <netdb.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
@@ -248,154 +247,8 @@ setup_topo_accdb( fd_topo_t *  topo,
   return obj;
 }
 
-/* Resolves an address to a single ip address.  If the address is
-   already a valid IPv4 address it is parsed directly, otherwise it is
-   treated as a hostname and resolved via DNS.  If multiple ip address
-   records are returned by getaddrinfo, only the first IPV4 address is
-   returned via ip_addr. */
-static int
-resolve_address( char const * address,
-                 uint       * ip_addr ) {
-  if( FD_LIKELY( fd_cstr_to_ip4_addr( address, ip_addr ) ) ) return 1;
-
-  struct addrinfo hints = { .ai_family = AF_INET };
-  struct addrinfo * res;
-  int err = getaddrinfo( address, NULL, &hints, &res );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "cannot resolve address \"%s\": %i-%s", address, err, gai_strerror( err ) ));
-    return 0;
-  }
-
-  int resolved = 0;
-  for( struct addrinfo * cur=res; cur; cur=cur->ai_next ) {
-    if( FD_UNLIKELY( cur->ai_addr->sa_family!=AF_INET ) ) continue;
-    struct sockaddr_in const * addr = (struct sockaddr_in const *)cur->ai_addr;
-    *ip_addr = addr->sin_addr.s_addr;
-    resolved = 1;
-    break;
-  }
-
-  freeaddrinfo( res );
-  return resolved;
-}
-
-/* Resolves a hostname to multiple ip addresses, specified by
-   ip_addr_cnt.  ip_addrs points to an array of fd_ip4_port_t objects.
-   hints points to an optionally NULL addrinfo hints object.  If hints
-   is NULL, a default hints settings containing the IPV4 address family
-   hint will be used. */
-static int
-resolve_addresses( char const *             address,
-                   struct addrinfo const *  hints,
-                   fd_ip4_port_t *          ip_addrs,
-                   ulong                    ip_addr_cnt ) {
-  struct addrinfo default_hints = { .ai_family = AF_INET };
-  if( FD_UNLIKELY( !hints ) ) {
-    hints = &default_hints;
-  }
-
-  struct addrinfo * res;
-  int err = getaddrinfo( address, NULL, hints, &res );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "cannot resolve address \"%s\": %i-%s", address, err, gai_strerror( err ) ));
-    return 0;
-  }
-
-  int resolved = 0;
-  for( struct addrinfo * cur=res; cur; cur=cur->ai_next ) {
-    if( FD_UNLIKELY( (ulong)resolved>=ip_addr_cnt ) ) break;
-    if( FD_UNLIKELY( cur->ai_addr->sa_family!=AF_INET ) ) continue;
-    struct sockaddr_in const * addr = (struct sockaddr_in const *)cur->ai_addr;
-    ip_addrs[ resolved ].addr = addr->sin_addr.s_addr;
-    resolved++;
-  }
-
-  freeaddrinfo( res );
-  return resolved;
-}
-
-static int
-resolve_peer( char const *            peer,
-              struct addrinfo const * addr_resolve_hints,
-              char const *            config_str,
-              char                    hostname[ static 256UL ],
-              fd_ip4_port_t *         ip4_port,
-              ulong                   ip4_port_cnt,
-              int *                   is_https ) {
-
-  /* Split host:port */
-  int          https     = 0;
-  char const * host_port = peer;
-  if( FD_LIKELY( strncmp( peer, "http://", 7UL )==0 ) ) {
-    if( FD_LIKELY( is_https ) ) *is_https  = 0;
-    host_port += 7UL;
-  } else if( FD_LIKELY( strncmp( peer, "https://", 8UL )==0 ) ) {
-    if( FD_LIKELY( is_https ) ) *is_https  = 1;
-    host_port += 8UL;
-    https      = 1;
-  }
-
-  char const * colon    = strrchr( host_port, ':' );
-  char const * host_end = colon;
-  if( FD_UNLIKELY( !colon && !https ) ) {
-    FD_LOG_ERR(( "invalid [%s] entry \"%s\": no port number", config_str, host_port ));
-  } else if( FD_LIKELY( !colon && https ) ) {
-    host_end = host_port + strlen( host_port );
-  }
-
-  ulong fqdn_len = (ulong)( host_end-host_port );
-  if( FD_UNLIKELY( fqdn_len>255 ) ) {
-    FD_LOG_ERR(( "invalid [%s] entry \"%s\": hostname too long", config_str, host_port ));
-  }
-  fd_memcpy( hostname, host_port, fqdn_len );
-  hostname[ fqdn_len ] = '\0';
-
-  /* Resolve hostname */
-  int resolved = resolve_addresses( hostname, addr_resolve_hints, ip4_port, ip4_port_cnt );
-
-  /* Parse port number */
-
-  if( FD_LIKELY( colon ) ) {
-    char const * port_str = host_end+1;
-    char const * endptr   = NULL;
-    ulong port = strtoul( port_str, (char **)&endptr, 10 );
-    if( FD_UNLIKELY( endptr==port_str || !port || port>USHORT_MAX || *endptr!='\0' ) ) {
-      FD_LOG_ERR(( "invalid [%s] entry \"%s\": invalid port number", config_str, host_port ));
-    }
-    for( ulong i=0UL; i<(ulong)resolved; i++ ) ip4_port[ i ].port = fd_ushort_bswap( (ushort)port );
-  } else if( FD_LIKELY( !colon && https ) ) {
-    /* use default https port */
-    for( ulong i=0UL; i<(ulong)resolved; i++ ) ip4_port[ i ].port = fd_ushort_bswap( 443U );
-  } else {
-    FD_LOG_ERR(( "invalid [%s] entry \"%s\": no port number", config_str, host_port ));
-  }
-
-  return resolved;
-}
-
-void
-resolve_gossip_entrypoints( config_t * config ) {
-  ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
-  for( ulong i=0UL; i<entrypoint_cnt; i++ ) {
-    char hostname[ 256UL ];
-    if( FD_UNLIKELY( 0==resolve_peer( config->gossip.entrypoints[ i ], NULL, "gossip.entrypoints", hostname, &config->gossip.resolved_entrypoints[ i ], 1, NULL ) ) ) {
-      FD_LOG_ERR(( "failed to resolve address of [gossip.entrypoints] entry \"%s\"", config->gossip.entrypoints[ i ] ));
-    }
-  }
-
-  if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
-    if( FD_UNLIKELY( !resolve_address( config->firedancer.gossip.host, &config->gossip.resolved_host ) ) )
-      FD_LOG_ERR(( "could not resolve [gossip.host] %s", config->firedancer.gossip.host ));
-  } else {
-    config->gossip.resolved_host = 0U;
-  }
-}
-
 void
 fd_topo_initialize( config_t * config ) {
-  /* TODO: Not here ... */
-  resolve_gossip_entrypoints( config );
-
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
@@ -1301,7 +1154,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->ipecho.bind_address           = config->net.ip_addr;
     tile->ipecho.bind_port              = config->gossip.port;
     tile->ipecho.entrypoints_cnt        = config->gossip.entrypoints_cnt;
-    fd_memcpy( tile->ipecho.entrypoints, config->gossip.resolved_entrypoints, tile->ipecho.entrypoints_cnt * sizeof(fd_ip4_port_t) );
+    for( ulong i=0UL; i<tile->ipecho.entrypoints_cnt; i++ )
+      fd_cstr_ncpy( tile->ipecho.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(tile->ipecho.entrypoints[ i ]) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "genesi" ) ) ) {
 
@@ -1310,7 +1164,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->genesi.genesis_path, config->paths.genesis, sizeof(tile->genesi.genesis_path) );
     tile->genesi.expected_shred_version = config->consensus.expected_shred_version;
     tile->genesi.entrypoints_cnt        = config->gossip.entrypoints_cnt;
-    fd_memcpy( tile->genesi.entrypoints, config->gossip.resolved_entrypoints, tile->genesi.entrypoints_cnt * sizeof(fd_ip4_port_t) );
+    for( ulong i=0UL; i<tile->genesi.entrypoints_cnt; i++ )
+      fd_cstr_ncpy( tile->genesi.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(tile->genesi.entrypoints[ i ]) );
 
     tile->genesi.has_expected_genesis_hash = !!strcmp( config->consensus.expected_genesis_hash, "" );
 
@@ -1338,13 +1193,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossvf.boot_timestamp_nanos   = config->boot_timestamp_nanos;
 
     tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
-    fd_memcpy( tile->gossvf.entrypoints, config->gossip.resolved_entrypoints, tile->gossvf.entrypoints_cnt * sizeof(fd_ip4_port_t) );
-
-    if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
-      tile->gossvf.gossip_addr.addr = config->gossip.resolved_host;
-    } else {
-      tile->gossvf.gossip_addr.addr = config->net.ip_addr;
+    for( ulong i=0UL; i<tile->gossvf.entrypoints_cnt; i++ ) {
+      fd_cstr_ncpy( tile->gossvf.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(tile->gossvf.entrypoints[ i ]) );
     }
+
+    fd_cstr_ncpy( tile->gossvf.gossip_host, config->firedancer.gossip.host, sizeof(tile->gossvf.gossip_host) );
+    tile->gossvf.gossip_addr.addr = config->net.ip_addr;
     tile->gossvf.gossip_addr.port = fd_ushort_bswap( config->gossip.port );
 
     tile->gossvf.src_addr.addr = config->net.ip_addr;
@@ -1352,11 +1206,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
 
-    if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
-      tile->gossip.ip_addr = config->gossip.resolved_host;
-    } else {
-      tile->gossip.ip_addr = config->net.ip_addr;
-    }
+    fd_cstr_ncpy( tile->gossip.gossip_host, config->firedancer.gossip.host, sizeof(tile->gossip.gossip_host) );
+    tile->gossip.net_ip_addr = config->net.ip_addr;
+    tile->gossip.ip_addr     = config->net.ip_addr;
     tile->gossip.bind_ip_addr        = config->net.ip_addr;
     fd_cstr_ncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
     tile->gossip.shred_version       = config->consensus.expected_shred_version;
@@ -1377,13 +1229,17 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.rserve           = config->tiles.rserve.repair_serve_listen_port;
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
-    fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
+    for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {
+      fd_cstr_ncpy( tile->gossip.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(tile->gossip.entrypoints[ i ]) );
+    }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapct" ) ) ) {
 
     fd_memcpy( tile->snapct.snapshots_path, config->paths.snapshots, PATH_MAX );
     tile->snapct.entrypoints_cnt = fd_ulong_min( config->gossip.entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
-    fd_memcpy( tile->snapct.entrypoints, config->gossip.resolved_entrypoints, tile->snapct.entrypoints_cnt * sizeof(fd_ip4_port_t) );
+    for( ulong i=0UL; i<tile->snapct.entrypoints_cnt; i++ ) {
+      fd_cstr_ncpy( tile->snapct.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(tile->snapct.entrypoints[ i ]) );
+    }
     tile->snapct.sources.max_local_full_effective_age = config->firedancer.snapshots.sources.max_local_full_effective_age;
     tile->snapct.sources.max_local_incremental_age    = config->firedancer.snapshots.sources.max_local_incremental_age;
     tile->snapct.incremental_snapshots                = config->firedancer.snapshots.incremental_snapshots;
@@ -1408,31 +1264,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       }
     }
 
-    ulong resolved_peers_cnt = 0UL;
     for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
-      fd_ip4_port_t resolved_addrs[ FD_TOPO_MAX_RESOLVED_ADDRS ];
-      struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
-      int num_resolved = resolve_peer( config->firedancer.snapshots.sources.servers[ i ],
-                                       &hints,
-                                       "snapshots.sources.servers",
-                                       tile->snapct.sources.servers[ resolved_peers_cnt ].hostname,
-                                       resolved_addrs,
-                                       FD_TOPO_MAX_RESOLVED_ADDRS,
-                                       &tile->snapct.sources.servers[ resolved_peers_cnt ].is_https );
-      if( FD_UNLIKELY( 0==num_resolved ) ) {
-        FD_LOG_ERR(( "[snapshots.sources.servers[%lu]] invalid (%s)", i, config->firedancer.snapshots.sources.servers[ i ] ));
-      } else {
-        for( ulong i=0UL; i<(ulong)num_resolved; i++ ) tile->snapct.sources.servers[ resolved_peers_cnt+i ].addr = resolved_addrs[ i ];
-        for( ulong i=1UL; i<(ulong)num_resolved; i++ ) {
-          tile->snapct.sources.servers[ resolved_peers_cnt+i ].is_https = tile->snapct.sources.servers[ resolved_peers_cnt ].is_https;
-          fd_memcpy( tile->snapct.sources.servers[ resolved_peers_cnt+i ].hostname,
-                     tile->snapct.sources.servers[ resolved_peers_cnt ].hostname,
-                     sizeof(tile->snapct.sources.servers[ resolved_peers_cnt ].hostname) );
-        }
-        resolved_peers_cnt += (ulong)num_resolved;
-      }
+      fd_cstr_ncpy( tile->snapct.sources.servers[ i ],
+                    config->firedancer.snapshots.sources.servers[ i ],
+                    sizeof(tile->snapct.sources.servers[ i ]) );
     }
-    tile->snapct.sources.servers_cnt = resolved_peers_cnt;
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) ) ) {
 
     fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );

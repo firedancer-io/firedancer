@@ -21,13 +21,8 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
-void
-resolve_gossip_entrypoints( config_t * config );
-
 static void
 gossip_cmd_topo( config_t * config ) {
-  resolve_gossip_entrypoints( config );
-
   /* Disable non-gossip listen ports */
   config->tiles.shred.shred_listen_port = 0U;
   config->tiles.quic.quic_transaction_listen_port = 0U;
@@ -73,8 +68,10 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   fd_cstr_ncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
-    gossip_tile->gossip.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
+    fd_cstr_ncpy( gossip_tile->gossip.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(gossip_tile->gossip.entrypoints[ i ]) );
   }
+  fd_cstr_ncpy( gossip_tile->gossip.gossip_host, config->firedancer.gossip.host, sizeof(gossip_tile->gossip.gossip_host) );
+  gossip_tile->gossip.net_ip_addr          = config->net.ip_addr;
   gossip_tile->gossip.ip_addr              = config->net.ip_addr;
   gossip_tile->gossip.shred_version        = config->consensus.expected_shred_version;
   gossip_tile->gossip.max_entries          = config->tiles.gossip.max_entries;
@@ -96,12 +93,13 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     gossvf_tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
     gossvf_tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
     gossvf_tile->gossvf.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    fd_cstr_ncpy( gossvf_tile->gossvf.gossip_host, config->firedancer.gossip.host, sizeof(gossvf_tile->gossvf.gossip_host) );
     gossvf_tile->gossvf.gossip_addr.addr = config->net.ip_addr;
     gossvf_tile->gossvf.gossip_addr.port = fd_ushort_bswap( config->gossip.port );
     gossvf_tile->gossvf.src_addr.addr    = config->net.ip_addr;
     gossvf_tile->gossvf.src_addr.port    = fd_ushort_bswap( config->gossip.port );
     for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
-      gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
+      fd_cstr_ncpy( gossvf_tile->gossvf.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(gossvf_tile->gossvf.entrypoints[ i ]) );
     }
   }
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
@@ -125,7 +123,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   ipecho_tile->ipecho.bind_port = config->gossip.port;
   ipecho_tile->ipecho.entrypoints_cnt = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
-    ipecho_tile->ipecho.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
+    fd_cstr_ncpy( ipecho_tile->ipecho.entrypoints[ i ], config->gossip.entrypoints[ i ], sizeof(ipecho_tile->ipecho.entrypoints[ i ]) );
   }
 
   fd_topob_wksp( topo, "ipecho_out" );
