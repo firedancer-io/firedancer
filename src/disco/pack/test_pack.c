@@ -115,6 +115,7 @@ make_transaction1( fd_txn_p_t * txnp,
                    ulong *      priority_fees,
                    ulong *      pack_cost_estimate ) {
   uchar * p = txnp->payload;
+  txnp->reference_block_height = 0UL;
   uchar * p_base = p;
   fd_txn_t * t = TXN( txnp );
 
@@ -363,7 +364,8 @@ insert1( fd_txn_p_t * txnp,
   fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
   memcpy( slot->txnp, txnp, sizeof(fd_txn_p_t) );
   ulong _deleted;
-  return fd_pack_insert_txn_fini( pack, slot, i, &_deleted );
+  slot->txnp->reference_block_height = i;
+  return fd_pack_insert_txn_fini( pack, slot, &_deleted );
 }
 
 static int
@@ -756,7 +758,8 @@ performance_test2( void ) {
         fd_memcpy( slot->txnp->payload, payload_scratch[ i ], payload_sz[ i ]                                                );
         fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
         ulong _deleted;
-        fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+        slot->txnp->reference_block_height = 0UL;
+        fd_pack_insert_txn_fini( pack, slot, &_deleted );
       }
       ulong scheduled = 0UL;
       for( ulong i=0UL; i<1024UL/MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
@@ -855,7 +858,8 @@ void performance_test( int extra_bench ) {
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         ulong _deleted;
-        fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+        slot->txnp->reference_block_height = 0UL;
+        fd_pack_insert_txn_fini( pack, slot, &_deleted );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) insert   += fd_log_wallclock( );
 
@@ -901,7 +905,8 @@ void performance_test( int extra_bench ) {
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         ulong _deleted;
-        fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+        slot->txnp->reference_block_height = 0UL;
+        fd_pack_insert_txn_fini( pack, slot, &_deleted );
       }
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
@@ -930,7 +935,8 @@ void performance_test( int extra_bench ) {
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         ulong _deleted;
-        fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+        slot->txnp->reference_block_height = 0UL;
+        fd_pack_insert_txn_fini( pack, slot, &_deleted );
       }
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
@@ -1008,7 +1014,8 @@ void performance_end_block( void ) {
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
         ulong _deleted;
-        fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+        slot->txnp->reference_block_height = 0UL;
+        fd_pack_insert_txn_fini( pack, slot, &_deleted );
       }
       while( fd_pack_avail_txn_cnt( pack )>0UL ) {
         FD_TEST( fd_pack_schedule_next_microblock( pack, 5000000UL, 0.0f, 0UL, ALL, outcome.results ) );
@@ -1037,7 +1044,7 @@ void heap_overflow_test( void ) {
     fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
     make_transaction1( slot->txnp, j, 800U, 500U, 3.0, "ABC", "DEF", NULL, NULL );  /* 11733 cus */
     ulong _deleted;
-    fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+    fd_pack_insert_txn_fini( pack, slot, &_deleted );
   }
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
 
@@ -1049,7 +1056,7 @@ void heap_overflow_test( void ) {
     fd_txn_e_t * slot = fd_pack_insert_txn_init( pack );
     make_transaction1( slot->txnp, j, 500U, 500U, 10.0, "GHJ", "KLMNOP", &r_hi, NULL );  /* 11434 cus */
     ulong _deleted;
-    fd_pack_insert_txn_fini( pack, slot, 0UL, &_deleted );
+    fd_pack_insert_txn_fini( pack, slot, &_deleted );
   }
 
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
@@ -1617,7 +1624,8 @@ test_bundle_nonce( void ) {
   /* Cannot insert transaction with same nonce, even with higher prio */
   fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
   make_nonce_transaction1( txn->txnp, 1UL, 999.0, 5, 0, 'b' );
-  result = fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted );
+  txn->txnp->reference_block_height = 1000UL;
+  result = fd_pack_insert_txn_fini( pack, txn, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
@@ -1638,7 +1646,8 @@ test_bundle_nonce( void ) {
   /* Now, insert transaction (nonce free again) */
   txn = fd_pack_insert_txn_init( pack );
   make_nonce_transaction1( txn->txnp, 3UL, 10.0, 5, 0, 'b' );
-  result = fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted );
+  txn->txnp->reference_block_height = 1000UL;
+  result = fd_pack_insert_txn_fini( pack, txn, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
@@ -1674,7 +1683,8 @@ test_bundle_nonce( void ) {
     fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
     make_nonce_transaction1( txn->txnp, j, 2.0, 4, 0, (char)( 'A'+j ) );
     ulong _deleted;
-    FD_TEST( fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+    txn->txnp->reference_block_height = 1000UL;
+    FD_TEST( fd_pack_insert_txn_fini( pack, txn, &_deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
   }
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 4, 0, 'a' );
