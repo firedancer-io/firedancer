@@ -1410,6 +1410,19 @@ test_snapshot_acc_pool_bump( void ) {
   FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top0 );
   FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_claimed );
 
+  /* The initial batch fits in one fresh partition.  It should consume
+     the disk range with one whead reservation (and consequently one
+     partition write operation), not one reservation per account. */
+  ulong batch_sz = 8UL*sizeof(fd_accdb_disk_meta_t);
+  accdb_offset_t whead = test_shmem_mem->whead[ 0 ];
+  FD_TEST( packed_partition_offset( &whead )==batch_sz );
+  fd_accdb_partition_t * partition_pool = (fd_accdb_partition_t *)(
+      (uchar *)test_shmem_mem + test_shmem_mem->partition_pool_off );
+  fd_accdb_partition_t * partition = partition_pool_ele( partition_pool, packed_partition_idx( &whead ) );
+  FD_TEST( partition );
+  FD_TEST( partition->write_ops==1UL );
+  FD_TEST( partition->bytes_written==batch_sz );
+
   fd_accdb_snapshot_load_end( accdb );
   ulong lazy_restored = FD_VOLATILE_CONST( pool->ver_lazy );
   FD_TEST( acc_pool_private_vidx_idx( lazy_restored )==8UL );

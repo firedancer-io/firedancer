@@ -527,6 +527,24 @@ snapshot_acc_acquire( fd_accdb_t * accdb ) {
   return acc_pool_acquire( accdb->acc_pool_join );
 }
 
+/* Reserve cnt consecutive entries from the snapshot loader's claimed
+   lazy tail.  The batch path knows how many new accmetas it needs after
+   probing all hash chains, so it can advance the bump pointer once and
+   then index the returned range locally.  NULL asks the caller to fall
+   back to snapshot_acc_acquire (which can also consume ver_top). */
+static inline fd_accdb_accmeta_t *
+snapshot_acc_reserve( fd_accdb_t * accdb,
+                      ulong        cnt ) {
+  ulong bump = accdb->snapshot_acc_bump;
+  ulong end  = accdb->snapshot_acc_bump_end;
+  FD_TEST( bump<=end );
+  if( FD_LIKELY( cnt<=end-bump ) ) {
+    accdb->snapshot_acc_bump = bump+cnt;
+    return &accdb->acc_pool[ bump ];
+  }
+  return NULL;
+}
+
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_TEST( !accdb->snapshot_loading );
@@ -1820,6 +1838,36 @@ allocate_next_write( fd_accdb_t * accdb,
     change_partition( accdb, &offset, &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
     spin_lock_release( &accdb->shmem->partition_lock );
   }
+}
+
+/* Try to reserve a whole snapshot batch with one whead operation.
+   snapwr lays records out individually and pads only before the first
+   record that would cross a partition boundary.  Consequently, a
+   batch is contiguous exactly when it fits in the current partition,
+   or when its first record does not fit and the entire batch fits in a
+   fresh partition.  The latter includes the first batch after reset.
+
+   Snapshot loading has one layer-0 producer, so the whead observation
+   below remains stable until allocate_next_write performs its fetch-add.
+   Other accdb activity can still use the independent compaction heads. */
+static inline int
+snapshot_write_reserve( fd_accdb_t * accdb,
+                        ulong        first_sz,
+                        ulong        total_sz,
+                        ulong *      out_file_offset ) {
+  ulong partition_sz = accdb->shmem->partition_sz;
+  if( FD_UNLIKELY( !total_sz || total_sz>partition_sz ) ) return 0;
+
+  accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val ) };
+  ulong partition_off = packed_partition_offset( &whead );
+  ulong avail = partition_off<=partition_sz ? partition_sz-partition_off : 0UL;
+
+  int fits_here = accdb->shmem->has_partition[ 0 ] && total_sz<=avail;
+  int fits_next = !accdb->shmem->has_partition[ 0 ] || first_sz>avail;
+  if( FD_UNLIKELY( !fits_here && !fits_next ) ) return 0;
+
+  *out_file_offset = allocate_next_write( accdb, total_sz );
+  return 1;
 }
 
 /* Compaction write allocation.  Single-threaded: only the compaction
@@ -4056,6 +4104,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
                                ulong *             out_ignored_lamports ) {
+  FD_TEST( cnt<=8UL );
+
   int incremental = fork_id.val!=USHORT_MAX;
 
   fd_accdb_fork_t * fork     = NULL;
@@ -4155,6 +4205,36 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
   }
 
+  /* Phase 2c: reserve commit resources in bulk.  Every input consumes
+     disk space, including ignored accounts (snapwr writes them before
+     snapin discovers that they are stale), while only new and
+     cross-fork accounts consume acc_pool entries. */
+
+  ulong entry_sz[ 8 ];
+  ulong file_off[ 8 ];
+  ulong total_sz = 0UL;
+  ulong new_cnt  = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    entry_sz[ i ] = sizeof(fd_accdb_disk_meta_t) + data_lens[ i ];
+    total_sz     += entry_sz[ i ];
+    new_cnt      += (ulong)( !skip[ i ] && !existing[ i ] );
+  }
+
+  fd_accdb_accmeta_t * reserved_acc = new_cnt ? snapshot_acc_reserve( accdb, new_cnt ) : NULL;
+  ulong reserved_acc_idx = 0UL;
+
+  ulong batch_file_off = 0UL;
+  int batch_contiguous = cnt && snapshot_write_reserve( accdb, entry_sz[ 0 ], total_sz, &batch_file_off );
+  if( FD_LIKELY( batch_contiguous ) ) {
+    ulong off = batch_file_off;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      file_off[ i ] = off;
+      off          += entry_sz[ i ];
+    }
+  } else {
+    for( ulong i=0UL; i<cnt; i++ ) file_off[ i ] = allocate_next_write( accdb, entry_sz[ i ] );
+  }
+
   /* Phase 3: commit.  For each account either update the existing
      entry in-place (replace), allocate and insert at the chain head
      (new), or skip entirely (ignore).  This matches the
@@ -4166,9 +4246,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
          sync — snapwr unconditionally writes every account to disk.
          Mark the space as immediately freed since it is dead on
          arrival. */
-      ulong dead_sz  = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-      ulong dead_off = allocate_next_write( accdb, dead_sz );
-      fd_accdb_shmem_bytes_freed( accdb->shmem, dead_off, dead_sz );
+      fd_accdb_shmem_bytes_freed( accdb->shmem, file_off[ i ], entry_sz[ i ] );
       ignored_lamports += lamports[ i ];
       ignored++;
       continue;
@@ -4185,7 +4263,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = snapshot_acc_acquire( accdb );
+      if( FD_LIKELY( reserved_acc ) ) accmeta = &reserved_acc[ reserved_acc_idx++ ];
+      else                            accmeta = snapshot_acc_acquire( accdb );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -4217,11 +4296,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     accmeta->cache_idx       = (uint)slots[ i ];
     accmeta->lamports        = lamports[ i ];
     accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
-    ulong entry_sz       = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-    ulong file_off       = allocate_next_write( accdb, entry_sz );
-    accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
-    accdb->shmem->shmetrics->disk_used_bytes += entry_sz;
+    accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off[ i ], fork_id.val ) : file_off[ i ];
+    accdb->shmem->shmetrics->disk_used_bytes += entry_sz[ i ];
   }
+
+  FD_TEST( !reserved_acc || reserved_acc_idx==new_cnt );
 
   /* accounts_total tracks acc_pool entries: increment for every new
      allocation (both genuinely new accounts and cross-fork overrides
