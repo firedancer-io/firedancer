@@ -33,6 +33,7 @@ struct fd_snapzp {
 
   ulong kind_id;
   ulong frame_id;
+  ulong snapshot_slot;
   void *      snapmk_zp_mem;
   ulong       snapmk_zp_chunk0;
   ulong       snapmk_zp_wmark;
@@ -265,6 +266,18 @@ compress_pending( fd_snapzp_t * ctx ) {
 }
 
 static void
+account_vec_name( char * name,
+                  ulong  slot,
+                  ulong  vec_id ) {
+  char * p = fd_cstr_init( name );
+  p = fd_cstr_append_cstr( p, "accounts/" );
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, slot,   fd_ulong_base10_dig_cnt( slot   ) );
+  p = fd_cstr_append_char( p, '.' );
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, vec_id, fd_ulong_base10_dig_cnt( vec_id ) );
+  fd_cstr_fini( p );
+}
+
+static void
 flush( fd_snapzp_t * ctx ) {
   /* Align input frame by 512 bytes */
   ulong content_usz = ctx->raw_buf.size;
@@ -298,10 +311,7 @@ flush( fd_snapzp_t * ctx ) {
   /* Generate a unique file name */
   ulong frame_id = ctx->frame_id++;
   ulong vec_id   = (frame_id * SNAPZP_TILE_MAX) + ctx->kind_id;
-  char * p = fd_cstr_init( meta.name );
-  p = fd_cstr_append_cstr( p, "accounts/0." );
-  p = fd_cstr_append_ulong_as_text( p, 0, 0, vec_id, fd_ulong_base10_dig_cnt( vec_id ) );
-  fd_cstr_fini( p );
+  account_vec_name( meta.name, ctx->snapshot_slot, vec_id );
   fd_tar_meta_set_chksum( &meta );
   memcpy( comp_head+10, &meta, sizeof(fd_tar_meta_t) );
 
@@ -342,6 +352,7 @@ process_start( fd_snapzp_t * ctx,
   }
   ctx->fd = FD_BACKUP_POOL_DIO_FD( frag->slot_idx );
   ctx->fork_id = (fd_accdb_fork_id_t){ .val = frag->fork_id };
+  ctx->snapshot_slot = frag->slot;
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {

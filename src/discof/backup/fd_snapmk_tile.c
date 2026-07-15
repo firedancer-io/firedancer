@@ -1187,6 +1187,7 @@ after_credit( fd_snapmk_t *       ctx,
       ulong chunk;
       fd_backup_start_msg_t * frag = alloc_zp_payload( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
+      frag->slot = ctx->bank->f.slot;
       frag->slot_idx = ctx->cur_slot_idx;
       frag->fork_id = ctx->bank->accdb_fork_id.val;
       frag->incremental = (ushort)ctx->incremental;

@@ -33,6 +33,12 @@ FD_UNIT_TEST( idle_sleep_only_between_snapshots ) {
   FD_TEST( ctx->idle_cnt==1UL );
 }
 
+FD_UNIT_TEST( account_vec_uses_snapshot_slot ) {
+  char name[ 100UL ];
+  account_vec_name( name, 433150325UL, 74UL );
+  FD_TEST( !strcmp( name, "accounts/433150325.74" ) );
+}
+
 static void
 fill_key( fd_pubkey_t * key,
           uchar         seed ) {

@@ -61,6 +61,7 @@
    file descriptor; file names are managed by snapmk alone. */
 
 struct fd_backup_start_msg {
+  ulong slot;
   uint slot_idx;
   ushort fork_id;
   ushort incremental;
