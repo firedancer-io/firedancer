@@ -16,7 +16,7 @@ FD_GUI_GEOIP_ZSTD_WINDOW_LOG = 23
 FD_GUI_GEOIP_MAX_CITY_NAME_SZ = 80
 FD_GUI_GEOIP_MAX_CITY_CNT = 160000
 FD_GUI_GEOIP_MAX_COUNTRY_CNT = 254
-FD_GUI_GEOIP_DBIP_MAX_NODES = 2**24
+FD_GUI_GEOIP_BIN_MAX = 128 * 2**20
 
 assert( zstandard.ZstdCompressionParameters.from_level(FD_GUI_GEOIP_ZSTD_COMPRESSION_LEVEL).window_log == FD_GUI_GEOIP_ZSTD_WINDOW_LOG )
 
@@ -49,6 +49,45 @@ def convert_dbip(input_path: Path, output_path: Path) -> None:
     city_names_coalesced = {cy: list(netaddr.cidr_merge(ips)) for cy, ips in city_names.items()}
     city_to_index = {cy: idx for idx, cy in enumerate(sorted(city_names.keys()))}
 
+    # Flatten the (possibly nested) CIDR records into disjoint segments
+    # partitioning the whole IPv4 space, with longest-prefix-match
+    # semantics: sort by (network, prefixlen), then sweep with a stack
+    # of open ranges.  Segment i covers [start[i], start[i+1]); country
+    # 255 / city 0xFFFFFFFF mean unmapped.  Lookup in the validator is
+    # then a binary search over start[], and startup is a single
+    # streaming decompress (see fd_gui_peers.h).
+    UNKNOWN = (255, 0xFFFFFFFF)
+    records = []
+    for cy, ips in city_names_coalesced.items():
+        for ip in ips:
+            # int, not IPAddress: ranges ending at 2**32 overflow IPAddress
+            records.append((int(ip.network), ip.prefixlen, country_to_index[city_to_country[cy]], city_to_index[cy]))
+    records.sort()
+
+    segments = []  # (start, country_idx, city_idx)
+    def emit(start, country, city):
+        if start >= 2**32:  # zero-width tail (a range ended exactly at 2**32)
+            return
+        if segments and segments[-1][0] == start:
+            segments[-1] = (start, country, city)
+            return
+        if segments and segments[-1][1:] == (country, city):
+            return
+        segments.append((start, country, city))
+
+    stack = [(2**32, *UNKNOWN)]  # (end_exclusive, country, city)
+    emit(0, *UNKNOWN)
+    for network, prefixlen, country, city in records:
+        end = network + 2**(32 - prefixlen)
+        while stack[-1][0] <= network:
+            closed_end = stack.pop()[0]
+            emit(closed_end, stack[-1][1], stack[-1][2])
+        stack.append((end, country, city))
+        emit(network, country, city)
+    while len(stack) > 1:
+        closed_end = stack.pop()[0]
+        emit(closed_end, stack[-1][1], stack[-1][2])
+
     with open(output_path, 'wb') as f:
         f.write(struct.pack('<Q', len(country_codes)))
         for cc in sorted(country_codes):
@@ -58,18 +97,20 @@ def convert_dbip(input_path: Path, output_path: Path) -> None:
         for cy in sorted(city_names.keys()):
             f.write(cy.encode('ascii'))
 
-        records = sum(len(ips) for _, ips in city_names_coalesced.items())
-        assert(records <= FD_GUI_GEOIP_DBIP_MAX_NODES)
-        f.write(struct.pack('<Q', records))
+        # 4-byte align so the validator uses the arrays in place
+        f.write(b'\0' * (-f.tell() % 4))
+        f.write(struct.pack('<Q', len(segments)))
+        for start, _, _ in segments:
+            f.write(struct.pack('<I', start))
+        for _, country, _ in segments:
+            f.write(struct.pack('<B', country))
+        f.write(b'\0' * (-f.tell() % 4))
+        for _, _, city in segments:
+            f.write(struct.pack('<I', city))
 
-        for cy, ips in city_names_coalesced.items():
-            for ip in ips:
-                f.write(struct.pack('>I', ip.network))
-                f.write(struct.pack('<B', ip.prefixlen))
-                f.write(struct.pack('<B', country_to_index[city_to_country[cy]]))
-                f.write(struct.pack('<I', city_to_index[cy]))
+        assert f.tell() <= FD_GUI_GEOIP_BIN_MAX
 
-    print(f"Converted {records} records with {len(country_codes)} country codes")
+    print(f"Converted {len(records)} records into {len(segments)} segments with {len(country_codes)} country codes")
 
 def update_db(url: str, output_path: Path, processor: Callable[[Path, Path], None]) -> None:
     req = urllib.request.Request(url=url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})

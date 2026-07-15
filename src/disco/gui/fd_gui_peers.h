@@ -41,50 +41,35 @@
   | country_codes (2*country_code_cnt bytes) |
   | city_names_cnt (8 bytes) |
   | city_names (see below) |
-  | record_cnt (8 bytes) |
-  | records (record_cnt*10UL) |
-
-  Record binary layout
-  | ip (4 bytes) |
-  | prefix_sz (1 byte) |
-  | country_code_idx (1 byte) |
-  | city_name_idx (4 bytes) |
+  | zero pad to 4-byte alignment |
+  | seg_cnt (8 bytes) |
+  | seg_start (4*seg_cnt bytes) |
+  | seg_country (1*seg_cnt bytes) |
+  | zero pad to 4-byte alignment |
+  | seg_city (4*seg_cnt bytes) |
 
   country_code_cnt: ulong count of country codes (little-endian)
   country_codes: Array of 2-byte ASCII country codes, not null-terminated.
   city_names_cnt: ulong count of city names (little-endian).
   city_names: Concatenation of variable-length, null-terminated city names
-  record_cnt: ulong count of CIDR IP ranges in records
-  records: Series of 10-byte records containing:
-  ip: network ipv4 address (big-endian)
-  prefix_sz: uchar count of 1 bits (up to 32) in the netmask of the CIDR address
-  country_code_idx: uchar country code index, into country_codes
-  city_name_idx: uint city name index, into city_names.
+  seg_cnt: ulong count of segments
 
-  In the trie, each node represents one bit position in an IP address.
-  Paths follow 0 (left child) and 1 (right child) bits from the IP's MSB
-  to LSB.  Nodes with has_prefix=1 indicate a match at that prefix
-  length country_code_idx references the 2-letter country code in the
-  table.  Maximum depth is 32 levels (for IPv4).
+  The segments partition the entire IPv4 space into disjoint,
+  contiguous ranges: segment i covers [seg_start[i], seg_start[i+1])
+  (host byte order, little-endian on disk; seg_start[0]==0 and the
+  last segment extends to 2^32).  The generator flattens the source
+  database's (possibly nested) CIDR records into this form with
+  longest-prefix-match semantics, so lookup is a binary search over
+  seg_start rather than a bit trie walk: the columnar arrays are used
+  in place directly out of the decompressed image, making startup a
+  single streaming decompress.  seg_country[i] is an index into
+  country_codes, or 255 for unmapped space; seg_city[i] is an index
+  into city_names, or UINT_MAX. */
 
-  FD_GUI_GEOIP_*_MAX_NODES should be larger than 2*num_records (since
-  records are stored in the leaves of a binary tree). */
-
-#define FD_GUI_GEOIP_DBIP_MAX_NODES   (1UL<<24UL) /* 16M nodes */
+#define FD_GUI_GEOIP_BIN_MAX          (128UL<<20) /* decompressed image cap */
 #define FD_GUI_GEOIP_MAX_CITY_NAME_SZ (80UL)
 #define FD_GUI_GEOIP_MAX_CITY_CNT     (160000UL)
 #define FD_GUI_GEOIP_MAX_COUNTRY_CNT  (254UL)
-
-struct fd_gui_geoip_node {
-  uchar has_prefix;
-  uchar country_code_idx;
-  uint  city_name_idx;
-
-  struct fd_gui_geoip_node * left;
-  struct fd_gui_geoip_node * right;
-};
-
-typedef struct fd_gui_geoip_node fd_gui_geoip_node_t;
 
 struct fd_gui_wfs_peer {
   fd_pubkey_t identity_key;
@@ -376,7 +361,12 @@ struct fd_gui_peers_ws_conn {
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
 
 struct fd_gui_ip_db {
-  fd_gui_geoip_node_t * nodes;
+  /* Columnar disjoint-segment table, pointing into the decompressed
+     database image (see format comment above). */
+  ulong         seg_cnt;
+  uint const *  seg_start;   /* [seg_cnt] sorted, host byte order */
+  uchar const * seg_country; /* [seg_cnt] index into country_code, 255=unknown */
+  uint const *  seg_city;    /* [seg_cnt] index into city_name, UINT_MAX=unknown */
   char country_code[ FD_GUI_GEOIP_MAX_COUNTRY_CNT ][ 3 ]; /* ISO 3166-1 alpha-2 country codes as cstrings */
   char city_name[ FD_GUI_GEOIP_MAX_CITY_CNT ][ FD_GUI_GEOIP_MAX_CITY_NAME_SZ ]; /* city_names as cstrings */
 };
@@ -439,18 +429,15 @@ struct fd_gui_peers_ctx {
     };
   } scratch;
 
-#if FD_HAS_ZSTD
-  ZSTD_DCtx * zstd_dctx;
-#endif
-
+  uchar * dbip_image;
   fd_gui_ip_db_t dbip;
 
-  int                       wfs_enabled;
-  fd_gui_wfs_peer_t         wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
-  ulong                     wfs_peers_cnt;
-  int                       wfs_peers_valid;
-  int                       wfs_stakes_sent;
-  wfs_fresh_dlist_t         wfs_fresh_dlist[ 1 ];
+  int               wfs_enabled;
+  fd_gui_wfs_peer_t wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
+  ulong             wfs_peers_cnt;
+  int               wfs_peers_valid;
+  int               wfs_stakes_sent;
+  wfs_fresh_dlist_t wfs_fresh_dlist[ 1 ];
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
