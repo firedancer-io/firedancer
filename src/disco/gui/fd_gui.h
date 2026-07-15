@@ -429,7 +429,7 @@ typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
 
 struct fd_gui_slot_staged_shred_event {
   long   timestamp;
-  ulong  slot;
+  uint   slot;
   ushort shred_idx;
   uchar  event;
 };
@@ -478,10 +478,10 @@ typedef struct fd_gui_ephemeral_slot fd_gui_ephemeral_slot_t;
 
 struct __attribute__((packed)) fd_gui_txn {
   uchar signature[ FD_TXN_SIGNATURE_SZ ];
-  ulong transaction_fee;
   ulong priority_fee;
   ulong tips;
-  long timestamp_arrival_nanos;
+  long  timestamp_arrival_nanos;
+  uint  transaction_fee;
 
   /* compute_units_requested has both execution and non-execution cus */
   uint compute_units_requested : 21; /* <= 1.4M */
@@ -489,17 +489,17 @@ struct __attribute__((packed)) fd_gui_txn {
   uint bank_idx                :  6; /* in [0, 64) */
   uint error_code              :  6; /* in [0, 64) */
 
+  uint microblock_idx : 18;
+  uint flags : 5; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
+  uint source_tpu : 3; /* FD_TXN_M_TPU_SOURCE_* */
+  uint source_ipv4;
+
   /* relative to leader start */
   float           microblock_start_ns_dt;
   float           microblock_end_ns_dt;
 
   /* relative to microblock_start */
   fd_txn_ns_dt_t txn_ns_dt;
-
-  uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
-  uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
-  uint  source_ipv4;
-  uint  microblock_idx;
 };
 
 typedef struct fd_gui_txn fd_gui_txn_t;
@@ -549,11 +549,11 @@ struct fd_gui_txn_waterfall {
 typedef struct fd_gui_txn_waterfall fd_gui_txn_waterfall_t;
 
 struct fd_gui_tile_stats {
-  long  sample_time_nanos;
+  fd_histf_t bundle_rx_delay_hist; /* Histogram of bundle rx delay */
 
+  long  sample_time_nanos;
   ulong net_in_rx_bytes;           /* Number of bytes received by the net or sock tile*/
   ulong quic_conn_cnt;             /* Number of active QUIC connections */
-  fd_histf_t bundle_rx_delay_hist; /* Histogram of bundle rx delay */
   ulong bundle_rtt_smoothed_nanos; /* RTT (nanoseconds) moving average */
   ulong verify_drop_cnt;           /* Number of transactions dropped by verify tiles */
   ulong verify_total_cnt;          /* Number of transactions received by verify tiles */
@@ -568,44 +568,49 @@ struct fd_gui_tile_stats {
 typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 
 struct fd_gui_slot {
-  ulong slot;
-  ulong parent_slot;
-  ulong vote_slot;
-  ulong reset_slot;
+  fd_gui_tile_stats_t tile_stats_begin[ 1 ];
+  fd_gui_tile_stats_t tile_stats_end[ 1 ];
+
+  fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
+  fd_gui_txn_waterfall_t waterfall_end[ 1 ];
+
   long  completed_time;
-  uint  max_compute_units;
-  int   mine;
-  int   skipped;
-  int   must_republish;
-  int   level;
-  uint  compute_units;
   ulong transaction_fee;
   ulong priority_fee;
   ulong tips;
+
+  /* Some slot info is only tracked for our own leader slots. These
+     slots are kept in a separate buffer. */
+  uint leader_history_idx;
+
+  struct {
+    uint start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
+                           contiguous chunk of events in the shred history corresponding to this slot. */
+    uint end_offset;   /* One past the last shred event in the contiguous chunk of events in the shred history
+                           corresponding to this slot. */
+  } shreds;
+
+  uint  max_compute_units;
+  uint  compute_units;
+
   uint  shred_cnt;
-  uchar vote_latency;
 
   uint vote_success;
   uint vote_failed;
   uint nonvote_success;
   uint nonvote_failed;
 
-  /* Some slot info is only tracked for our own leader slots. These
-     slots are kept in a separate buffer. */
-  ulong leader_history_idx;
+  uint slot;
+  uint parent_slot;
+  uint vote_slot;
+  uint reset_slot;
 
-  fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
-  fd_gui_txn_waterfall_t waterfall_end[ 1 ];
+  uchar mine;
+  uchar skipped;
+  uchar must_republish;
+  uchar level;
 
-  fd_gui_tile_stats_t tile_stats_begin[ 1 ];
-  fd_gui_tile_stats_t tile_stats_end[ 1 ];
-
-  struct {
-    ulong start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
-                           contiguous chunk of events in the shred history corresponding to this slot. */
-    ulong end_offset;   /* One past the last shred event in the contiguous chunk of events in the shred history
-                           corresponding to this slot. */
-  } shreds;
+  uchar vote_latency;
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
@@ -951,7 +956,7 @@ struct fd_gui {
   fd_gui_turbine_slot_t turbine_slots[ FD_GUI_TURBINE_RECV_TIMESTAMPS ];
 
   fd_gui_leader_slot_t leader_slots[ FD_GUI_LEADER_CNT ][ 1 ];
-  ulong leader_slots_cnt;
+  uint leader_slots_cnt;
 
   fd_gui_txn_t txs[ FD_GUI_TXN_HISTORY_SZ ][ 1 ];
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
@@ -1214,8 +1219,9 @@ fd_gui_current_epoch_idx( fd_gui_t * gui ) {
 
 static inline fd_gui_slot_t *
 fd_gui_get_slot( fd_gui_t const * gui, ulong _slot ) {
+  if( FD_UNLIKELY( _slot>=UINT_MAX ) ) return NULL;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot==ULONG_MAX || _slot==ULONG_MAX || slot->slot!=_slot ) ) return NULL;
+  if( FD_UNLIKELY( slot->slot==UINT_MAX || slot->slot!=(uint)_slot ) ) return NULL;
   return (fd_gui_slot_t *)slot;
 }
 
@@ -1229,7 +1235,7 @@ fd_gui_get_leader_slot( fd_gui_t const * gui, ulong _slot ) {
   fd_gui_slot_t const * slot = fd_gui_get_slot( gui, _slot );
   if( FD_UNLIKELY( !slot
                 || !slot->mine
-                || slot->leader_history_idx==ULONG_MAX
+                || slot->leader_history_idx==UINT_MAX
                 || slot->leader_history_idx + FD_GUI_LEADER_CNT < gui->leader_slots_cnt
                 || gui->leader_slots[ slot->leader_history_idx % FD_GUI_LEADER_CNT ]->slot!=_slot ) ) return NULL;
   return (fd_gui_leader_slot_t *)gui->leader_slots[ slot->leader_history_idx % FD_GUI_LEADER_CNT ];

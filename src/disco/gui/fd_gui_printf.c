@@ -324,8 +324,8 @@ fd_gui_printf_catch_up_history( fd_gui_t * gui ) {
           } \
           fd_gui_slot_t * s = fd_gui_get_slot( gui, gui->shreds.history_slot ); \
           while( s \
-              && s->shreds.start_offset!=ULONG_MAX \
-              && s->shreds.end_offset!=ULONG_MAX \
+              && s->shreds.start_offset!=UINT_MAX \
+              && s->shreds.end_offset!=UINT_MAX \
               && s->shreds.end_offset>s->shreds.start_offset \
               && gui->shreds.history[ (s->shreds.end_offset-1UL) % FD_GUI_SHREDS_HISTORY_SZ ].timestamp + age_ns > gui->summary.boot_progress.catching_up_time_nanos ) { \
             for( ulong i=s->shreds.end_offset; i>s->shreds.start_offset; i-- ) { \
@@ -1947,8 +1947,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
-        if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
-        else                                            jsonp_null( gui->http, "vote_slot" );
+        if( FD_UNLIKELY( slot->vote_slot!=UINT_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
+        else                                           jsonp_null( gui->http, "vote_slot" );
         if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
         else                                               jsonp_null( gui->http, "vote_latency" );
 
@@ -2081,8 +2081,8 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
-        if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
-        else                                            jsonp_null( gui->http, "vote_slot" );
+        if( FD_UNLIKELY( slot->vote_slot!=UINT_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
+        else                                           jsonp_null( gui->http, "vote_slot" );
         if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
         else                                               jsonp_null( gui->http, "vote_latency" );
 
@@ -2153,8 +2153,8 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
-        if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
-        else                                            jsonp_null( gui->http, "vote_slot" );
+        if( FD_UNLIKELY( slot->vote_slot!=UINT_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
+        else                                           jsonp_null( gui->http, "vote_slot" );
         if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
         else                                               jsonp_null( gui->http, "vote_latency" );
 
@@ -2427,8 +2427,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
-        if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
-        else                                            jsonp_null( gui->http, "vote_slot" );
+        if( FD_UNLIKELY( slot->vote_slot!=UINT_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
+        else                                           jsonp_null( gui->http, "vote_slot" );
         if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
         else                                               jsonp_null( gui->http, "vote_latency" );
 
