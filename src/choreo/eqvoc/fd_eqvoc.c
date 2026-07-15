@@ -95,6 +95,7 @@ typedef struct {
 } dup_t;
 
 #define POOL_NAME dup_pool
+#define POOL_LAZY 1
 #define POOL_T    dup_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -130,6 +131,7 @@ typedef struct {
 } fec_t;
 
 #define POOL_NAME fec_pool
+#define POOL_LAZY 1
 #define POOL_T    fec_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -169,6 +171,7 @@ struct prf {
 typedef struct prf prf_t;
 
 #define POOL_NAME prf_pool
+#define POOL_LAZY 1
 #define POOL_T    prf_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -205,6 +208,7 @@ struct vtr {
 typedef struct vtr vtr_t;
 
 #define POOL_NAME vtr_pool
+#define POOL_LAZY 1
 #define POOL_T    vtr_t
 #include "../../util/tmpl/fd_pool.c"
 

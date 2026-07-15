@@ -55,6 +55,7 @@
 typedef fd_votes_blk_t blk_t;
 
 #define POOL_NAME blk_pool
+#define POOL_LAZY 1
 #define POOL_T    blk_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -91,6 +92,7 @@ struct vtr {
 typedef struct vtr vtr_t;
 
 #define POOL_NAME vtr_pool
+#define POOL_LAZY 1
 #define POOL_T    vtr_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -129,6 +131,7 @@ struct slot {
 typedef struct slot slot_t;
 
 #define POOL_NAME slot_pool
+#define POOL_LAZY 1
 #define POOL_T    slot_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -217,8 +220,6 @@ fd_votes_new( void * shmem,
     FD_LOG_WARNING(( "bad slot_max (%lu) or vtr_max (%lu)", slot_max, vtr_max ));
     return NULL;
   }
-
-  fd_memset( shmem, 0, footprint );
 
   slot_max      = fd_ulong_pow2_up( slot_max );
   vtr_max       = fd_ulong_pow2_up( vtr_max );

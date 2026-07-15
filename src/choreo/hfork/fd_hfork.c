@@ -99,6 +99,7 @@ struct bhm {
 typedef struct bhm bhm_t;
 
 #define POOL_NAME bhm_pool
+#define POOL_LAZY 1
 #define POOL_T    bhm_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -134,6 +135,7 @@ struct blk {
 typedef struct blk blk_t;
 
 #define POOL_NAME blk_pool
+#define POOL_LAZY 1
 #define POOL_T    blk_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -177,6 +179,7 @@ struct vte {
 typedef struct vte vte_t;
 
 #define POOL_NAME vte_pool
+#define POOL_LAZY 1
 #define POOL_T    vte_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -214,6 +217,7 @@ struct vtr {
 typedef struct vtr vtr_t;
 
 #define POOL_NAME vtr_pool
+#define POOL_LAZY 1
 #define POOL_T    vtr_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -339,8 +343,6 @@ fd_hfork_new( void * shmem,
     FD_LOG_WARNING(( "bad per_vtr_max (%lu) or vtr_max (%lu)", per_vtr_max, vtr_max ));
     return NULL;
   }
-
-  fd_memset( shmem, 0, footprint );
 
   vtr_max   = fd_ulong_pow2_up( vtr_max );
   ulong max = fd_ulong_pow2_up( per_vtr_max * vtr_max );
