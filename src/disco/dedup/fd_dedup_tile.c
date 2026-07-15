@@ -117,6 +117,7 @@ during_frag( fd_dedup_ctx_t * ctx,
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( src );
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
       ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
+      if( FD_UNLIKELY( fd_tcache_tag_is_null( ha_dedup_tag ) ) ) ha_dedup_tag = 1UL; /* avoid colliding with the tcache empty-slot sentinel (FD_TCACHE_INSERT/QUERY assume tag is never null) */
       int _is_dup;
       FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
       (void)_is_dup;
@@ -126,6 +127,7 @@ during_frag( fd_dedup_ctx_t * ctx,
     /* Executed txns just have their signature inserted into the tcache
        so we can dedup them easily. */
     ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, src, FD_TXN_SIGNATURE_SZ );
+    if( FD_UNLIKELY( fd_tcache_tag_is_null( ha_dedup_tag ) ) ) ha_dedup_tag = 1UL;
     int _is_dup;
     FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
     (void)_is_dup;
@@ -191,6 +193,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
   if( FD_LIKELY( !txnm->block_engine.bundle_id ) ) {
     /* Compute fd_hash(signature) for dedup. */
     ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_m_payload( txnm )+txn->signature_off, 64UL );
+    if( FD_UNLIKELY( fd_tcache_tag_is_null( ha_dedup_tag ) ) ) ha_dedup_tag = 1UL;
 
     FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
   } else {

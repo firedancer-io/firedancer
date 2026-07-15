@@ -101,6 +101,31 @@ main( int     argc,
     FD_TEST( map[ map_idx ]==tag );
   }
 
+  FD_LOG_NOTICE(( "Testing null tag precondition (documents caller responsibility, not a tcache bug)" ));
+
+  /* FD_TCACHE_QUERY/INSERT explicitly assume tag is never
+     FD_TCACHE_TAG_NULL (0) -- that value is the "empty slot" sentinel.
+     If a caller passes tag==0 anyway (e.g. an unchecked hash output
+     that happens to collide with 0), it is treated as matching any
+     empty slot: found comes back true even though nothing was ever
+     inserted for that tag, and INSERT never actually stores it.  This
+     confirms callers computing tags from untrusted/hashed input (like
+     disco/dedup/fd_dedup_tile.c) must remap a null tag to a non-null
+     sentinel before calling QUERY/INSERT -- this is NOT something the
+     macro itself can safely detect for you, by design (documented
+     precondition, checked here for regression coverage). */
+  {
+    int   null_found;
+    ulong null_map_idx;
+    FD_TCACHE_QUERY( null_found, null_map_idx, map, map_cnt, FD_TCACHE_TAG_NULL );
+    FD_TEST( null_found ); /* matches the first empty slot probed, even though tag 0 was never inserted */
+    (void)null_map_idx;
+
+    int null_dup;
+    FD_TCACHE_INSERT( null_dup, oldest, ring, depth, map, map_cnt, FD_TCACHE_TAG_NULL );
+    FD_TEST( null_dup ); /* "duplicate" on the very first insert of tag 0 -- it is silently never stored */
+  }
+
   FD_LOG_NOTICE(( "Testing remove" ));
 
   for( ulong seq=0UL; seq<depth; seq++ ) {
