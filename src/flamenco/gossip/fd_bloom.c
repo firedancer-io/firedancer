@@ -133,6 +133,7 @@ void
 fd_bloom_insert( fd_bloom_t *  bloom,
                  uchar const * key,
                  ulong         key_sz ) {
+  if( FD_UNLIKELY( !bloom->bits_len ) ) return;
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
     ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ] ) % bloom->bits_len;
     bloom->bits[ bit / 64UL ] |= (1UL << (bit % 64UL));
@@ -143,6 +144,7 @@ int
 fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,
                    ulong         key_sz ) {
+  if( FD_UNLIKELY( !bloom->keys_len || !bloom->bits_len ) ) return 0;
   for( ulong i=0UL; i<bloom->keys_len; i++ ) {
     ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ]) % bloom->bits_len;
     if( !(bloom->bits[ bit / 64UL ] & (1UL << (bit % 64UL))) ) {
