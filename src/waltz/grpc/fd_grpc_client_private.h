@@ -46,25 +46,27 @@ fd_grpc_h2_stream_upcast( fd_h2_stream_t * stream ) {
 
 /* I/O paths
 
-   RX path
-   - fd_grpc_client_rxtx
-   - calls fd_h2_rbuf_ssl_read
-   - calls SSL_read_ex
-   - calls recv(2)
+   RX path (TLS)
+   - fd_grpc_client_rxtx_tls
+   - calls recv(2) to read TCP ciphertext
+   - calls fd_tlsrec_conn_rx to decrypt
+   - pushes plaintext into fd_h2_rbuf
 
-   TX path
-   - fd_grpc_client_rxtx
-   - calls fd_h2_rbuf_ssl_write
-   - calls SSL_write_ex
-   - calls send(2) */
+   TX path (TLS)
+   - fd_grpc_client_rxtx_tls
+   - pops plaintext from fd_h2_rbuf
+   - calls fd_tlsrec_conn_tx to encrypt
+   - calls send(2) to write TCP ciphertext
 
-#include "../../waltz/h2/fd_h2_rbuf_ossl.h"
+   RX/TX path (plaintext sockets)
+   - fd_grpc_client_rxtx_socket
+   - calls fd_h2_rbuf_recvmsg / fd_h2_rbuf_sendmsg */
 
 /* gRPC client internal state.  Quick overview:
 
    - The client maintains exactly one gRPC connection.
-   - This conn includes a TCP socket, SSL handle, and a fd_h2 conn
-     (and accompanying buffers).
+   - This conn includes a TCP socket, fd_tlsrec handle, and a fd_h2
+     conn (and accompanying buffers).
    - The client object dies when the connection dies.
 
    - The client manages a small pool of stream objects.
@@ -108,8 +110,6 @@ struct fd_grpc_client_private {
   ushort port; /* <=65535 */
   uchar  host_len; /* <=255 */
 
-  /* TLS connection */
-  uint  ssl_hs_done : 1;
   uint  h2_hs_done : 1;
 
   /* Inflight request
@@ -138,6 +138,10 @@ struct fd_grpc_client_private {
   ulong   frame_rx_buf_max;
   uchar * frame_tx_buf;
   ulong   frame_tx_buf_max;
+
+  uchar tls_tx_buf[ 16384UL+256UL ];
+  ulong tls_tx_off;
+  ulong tls_tx_sz;
 
   /* Version string */
   uchar version_len;

@@ -35,7 +35,6 @@ include config/extra/with-lz4.mk
 
 # After with-zstd.mk: with-rocksdb.mk keys on FD_HAS_ZSTD
 ifneq ($(CROSS),1)
-include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
 endif
 

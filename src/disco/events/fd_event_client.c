@@ -13,11 +13,8 @@
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
 
-#if FD_HAS_OPENSSL
-#include "../../waltz/openssl/fd_openssl.h"
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#endif
+#include "../../waltz/tlsrec/fd_tlsrec.h"
+#include "../../ballet/x509/fd_x509_ca_store.h"
 
 #include <netinet/tcp.h>
 #include <unistd.h>
@@ -94,10 +91,9 @@ struct fd_event_client {
   int sockfd;
 
   int    use_tls;
-#if FD_HAS_OPENSSL
-  SSL_CTX * ssl_ctx;
-  SSL     * ssl;
-#endif
+  fd_tls_t           tls[1];
+  fd_tlsrec_conn_t   tls_conn[1];
+  fd_x509_ca_store_t ca_store[1];
 
   /* wallclock deadline for auth handshake, LONG_MAX if not
      authenticating. */
@@ -152,7 +148,7 @@ fd_event_client_new( void *                 shmem,
                      ulong                  machine_id,
                      ulong                  buf_max,
                      int                    use_tls,
-                     void *                 ssl_ctx ) {
+                     void *                 tls_cfg ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -201,16 +197,7 @@ fd_event_client_new( void *                 shmem,
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
   client->use_tls = use_tls;
-#if FD_HAS_OPENSSL
-  client->ssl_ctx = (SSL_CTX *)ssl_ctx;
-  client->ssl = NULL;
-#else
-  (void)ssl_ctx;
-  if( FD_UNLIKELY( use_tls ) ) {
-    FD_LOG_ERR(( "TLS requested for event service but this build does not include OpenSSL. "
-                 "To install OpenSSL, re-run ./deps.sh and do a clean rebuild." ));
-  }
-#endif
+  (void)tls_cfg;
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
@@ -301,12 +288,6 @@ disconnect( fd_event_client_t * client,
             int                 reason,
             int                 err,
             int                 _backoff ) {
-#if FD_HAS_OPENSSL
-  if( FD_UNLIKELY( client->ssl ) ) {
-    SSL_free( client->ssl );
-    client->ssl = NULL;
-  }
-#endif
   if( FD_LIKELY( -1!=client->sockfd ) ) {
     if( FD_UNLIKELY( -1==close( client->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     client->sockfd = -1;
@@ -428,43 +409,13 @@ reconnect( fd_event_client_t * client,
     return;
   }
 
-# if FD_HAS_OPENSSL
   if( client->use_tls ) {
-    BIO * bio = fd_openssl_bio_new_socket( client->sockfd, BIO_NOCLOSE );
-    if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_WARNING(( "fd_openssl_bio_new_socket failed" ));
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    SSL * ssl = SSL_new( client->ssl_ctx );
-    if( FD_UNLIKELY( !ssl ) ) {
-      FD_LOG_WARNING(( "SSL_new failed" ));
-      BIO_free( bio );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
-    SSL_set_connect_state( ssl );
-
-    /* SNI and hostname verification */
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
-      FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed" ));
-      SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-    if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
-      FD_LOG_WARNING(( "SSL_set1_host failed" ));
-      SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    client->ssl = ssl;
+    fd_tls_t * tls = client->tls;
+    ulong sni_len = fd_ulong_min( client->server_fqdn_len, sizeof(tls->server_name)-1 );
+    fd_memcpy( tls->server_name, client->server_fqdn, sni_len );
+    tls->server_name_len = (ushort)sni_len;
+    fd_tlsrec_conn_init( client->tls_conn, tls, 0 );
   }
-# endif /* FD_HAS_OPENSSL */
 
   fd_grpc_client_reset( client->grpc_client );
 
@@ -820,11 +771,9 @@ fd_event_client_poll( fd_event_client_t * client,
   }
   if( FD_LIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) {
     int rxtx_err;
-#   if FD_HAS_OPENSSL
     if( client->use_tls )
-      rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
+      rxtx_err = fd_grpc_client_rxtx_tls( client->grpc_client, client->tls_conn, client->sockfd, charge_busy );
     else
-#   endif
       rxtx_err = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy );
     if( FD_UNLIKELY( -1==rxtx_err ) ) {
       disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );

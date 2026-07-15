@@ -1,4 +1,4 @@
-#include <linux/limits.h>
+#include <linux/limits.h>  /* PATH_MAX — needed before fd_ssarchive.h */
 #include "fd_ssresolve.h"
 #include "fd_ssarchive.h"
 
@@ -17,7 +17,7 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
-#define FD_SSRESOLVE_IO_BUF_SZ (4096UL)
+#define FD_SSRESOLVE_IO_BUF_SZ (16384UL+256UL)  /* Must hold a full TLS record (RFC 8446 §5.1) */
 
 #define FD_SSRESOLVE_CONNECT             (0) /* TLS handshake in progress */
 #define FD_SSRESOLVE_STATE_REQ           (1) /* sending request for snapshot */
@@ -42,8 +42,10 @@ struct fd_ssresolve_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
+  /* Native TLS state */
   fd_tlsrec_conn_t tls_conn;
 
+  /* Decrypted app data buffer */
   uchar tls_app_buf[ FD_TLSREC_CAP ];
   ulong tls_app_buf_off;
   ulong tls_app_buf_sz;
@@ -154,6 +156,7 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
   ssresolve->is_https     = 1;
   ssresolve->hostname     = hostname;
 
+  /* Copy and configure fd_tls for this connection */
   fd_tlsrec_conn_init( &ssresolve->tls_conn, tls, 0 );
 
   FD_TEST( hostname && hostname[0] != '\0' );
@@ -164,6 +167,7 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
     ssresolve->tls_conn.tls.server_name_len = (ushort)hostname_len;
   }
 
+  /* Re-generate ephemeral X25519 key pair for this connection */
   fd_tls_rand( &ssresolve->tls_conn.tls.rand,
                ssresolve->tls_conn.tls.key_share_private, 32UL );
   fd_x25519_public( ssresolve->tls_conn.tls.key_share_public,
@@ -196,6 +200,8 @@ fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
   }
 }
 
+/* Native TLS send/recv helpers */
+
 static long
 ssresolve_send_tls( fd_ssresolve_t * ssresolve,
                     void *           buf,
@@ -222,6 +228,7 @@ static long
 ssresolve_recv_tls( fd_ssresolve_t * ssresolve,
                     void *           buf,
                     ulong            bufsz ) {
+  /* Drain buffered decrypted data */
   if( ssresolve->tls_app_buf_sz > ssresolve->tls_app_buf_off ) {
     ulong avail = ssresolve->tls_app_buf_sz - ssresolve->tls_app_buf_off;
     ulong copy  = fd_ulong_min( avail, bufsz );
@@ -430,6 +437,7 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 
 static int
 ssresolve_connect_tls( fd_ssresolve_t * ssresolve ) {
+  /* Read available TCP data */
   uchar tcp_rx_buf[ FD_SSRESOLVE_IO_BUF_SZ ];
   long tcp_rx_sz = recvfrom( ssresolve->sockfd, tcp_rx_buf, sizeof(tcp_rx_buf), 0, NULL, NULL );
   if( tcp_rx_sz < 0 && errno != EAGAIN ) return FD_SSRESOLVE_ADVANCE_ERROR;
@@ -474,6 +482,7 @@ ssresolve_connect_tls( fd_ssresolve_t * ssresolve ) {
 
 static int
 ssresolve_shutdown_tls( fd_ssresolve_t * ssresolve ) {
+  /* Just transition to DONE — no graceful TLS shutdown needed */
   ssresolve->state = FD_SSRESOLVE_STATE_DONE;
   return FD_SSRESOLVE_ADVANCE_SUCCESS;
 }

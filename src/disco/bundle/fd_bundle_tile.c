@@ -6,11 +6,8 @@
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
 #include "../../waltz/http/fd_url.h"
-#include "../../waltz/openssl/fd_openssl_tile.h"
-
-#if FD_HAS_OPENSSL
+#include "../../ballet/ed25519/fd_x25519.h"
 #include <errno.h>
-#endif
 
 #include <dirent.h> /* opendir */
 #include <stdio.h> /* snprintf */
@@ -53,7 +50,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
-  /* Leftover space for OpenSSL allocations */
+  /* Leftover space for TLS allocations */
   return tile->bundle.ssl_heap_sz;
 }
 
@@ -108,9 +105,6 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, CONN_ERROR_NO_FEE_INFO,      ctx->metrics.missing_builder_info_fail_cnt );
   FD_MGAUGE_SET( BUNDLE, TXN_PENDING,          pending_txn_cnt( ctx->pending_txns )   );
   FD_MCNT_SET  ( BUNDLE, TXN_BUFFER_FULL,     ctx->metrics.backpressure_drop_cnt );
-#if FD_HAS_OPENSSL
-  FD_MCNT_SET( BUNDLE, CONN_ERROR_SSL_ALLOC,        fd_ossl_alloc_errors                 );
-#endif
 
   FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE_NANOS,   (ulong)ctx->rtt->latest_rtt   );
   FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS, (ulong)ctx->rtt->smoothed_rtt );
@@ -344,74 +338,31 @@ fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
   }
 
   ctx->is_ssl = !!is_ssl;
-#if !FD_HAS_OPENSSL
-  if( FD_UNLIKELY( is_ssl ) ) {
-    FD_LOG_ERR(( "This build does not include OpenSSL. To install OpenSSL, re-run ./deps.sh and do a clean re build." ));
-  }
-#endif
-}
-
-#if FD_HAS_OPENSSL
-
-static void
-fd_ossl_keylog_callback( SSL const *  ssl,
-                         char const * line ) {
-  SSL_CTX * ssl_ctx = SSL_get_SSL_CTX( ssl );
-  fd_bundle_tile_t * ctx = SSL_CTX_get_ex_data( ssl_ctx, 0 );
-  ulong line_len = strlen( line );
-  struct iovec iovs[2] = {
-    { .iov_base=(void *)line, .iov_len=line_len },
-    { .iov_base=(void *)"\n", .iov_len=1UL }
-  };
-  if( FD_UNLIKELY( writev( ctx->keylog_fd, iovs, 2 )!=(long)line_len+1 ) ) {
-    FD_LOG_WARNING(( "write(keylog) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
 }
 
 static void
-fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
-                             void *             alloc_mem,
-                             int                tls_cert_verify ) {
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
-  if( FD_UNLIKELY( !alloc ) ) {
-    FD_LOG_ERR(( "fd_alloc_new failed" ));
-  }
-  ctx->ssl_alloc = alloc;
-  fd_ossl_tile_init( alloc );
+fd_bundle_tile_init_tls( fd_bundle_tile_t * ctx ) {
+  /* Initialize native TLS */
+  fd_tls_t * tls = fd_tls_join( fd_tls_new( ctx->tls ) );
 
-  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
-  if( FD_UNLIKELY( !ssl_ctx ) ) {
-    FD_LOG_ERR(( "SSL_CTX_new failed" ));
-  }
+  /* Generate ephemeral X25519 key pair */
+  uchar private_key[32];
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, (uint)fd_log_wallclock(), 0UL ) );
+  for( ulong i=0; i<32; i++ ) private_key[i] = fd_rng_uchar( rng );
+  fd_memcpy( tls->key_share_private, private_key, 32 );
+  fd_x25519_public( tls->key_share_public, tls->key_share_private );
 
-  if( FD_UNLIKELY( !SSL_CTX_set_ex_data( ssl_ctx, 0, ctx ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_ex_data failed" ));
-  }
+  /* ALPN: h2 */
+  static uchar const alpn[] = { 2, 'h', '2' };
+  fd_memcpy( tls->alpn, alpn, sizeof(alpn) );
+  tls->alpn_sz = sizeof(alpn);
 
-  if( FD_UNLIKELY( !SSL_CTX_set_mode( ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_AUTO_RETRY ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_mode failed" ));
-  }
-
-  if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
-  }
-
-  if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (const unsigned char *)"\x02h2", 3 ) ) ) {
-    FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
-  }
-
-  if( tls_cert_verify ) {
-    fd_ossl_load_certs( ssl_ctx );
-  }
-
-  if( FD_LIKELY( ctx->keylog_fd >= 0 ) ) {
-    SSL_CTX_set_keylog_callback( ssl_ctx, fd_ossl_keylog_callback );
-  }
-
-  ctx->ssl_ctx = ssl_ctx;
+  /* Load system CA certificates */
+  long ca_cnt = fd_x509_ca_store_load( ctx->ca_store, "/etc/ssl/certs/ca-certificates.crt" );
+  if( ca_cnt < 0 )
+    ca_cnt = fd_x509_ca_store_load( ctx->ca_store, "/etc/pki/tls/certs/ca-bundle.crt" );
+  FD_LOG_INFO(( "Loaded %ld CA certificates", ca_cnt ));
 }
-
-#endif /* FD_HAS_OPENSSL */
 
 static void
 privileged_init( fd_topo_t const *      topo,
@@ -443,8 +394,6 @@ privileged_init( fd_topo_t const *      topo,
 
   ctx->keylog_fd = -1;
 
-# if FD_HAS_OPENSSL
-
   if( FD_UNLIKELY( tile->bundle.key_log_path[0] ) ) {
     ctx->keylog_fd = open( tile->bundle.key_log_path, O_WRONLY|O_APPEND|O_CREAT, 0644 );
     if( FD_UNLIKELY( ctx->keylog_fd < 0 ) ) {
@@ -452,12 +401,8 @@ privileged_init( fd_topo_t const *      topo,
     }
   }
 
-  /* OpenSSL goes and tries to read files and allocate memory and
-     other dumb things on a thread local basis, so we need a special
-     initializer to do it before seccomp happens in the process. */
-  fd_bundle_tile_init_openssl( ctx, alloc_mem, tile->bundle.tls_cert_verify );
-
-# endif /* FD_HAS_OPENSSL */
+  /* Initialize native TLS before seccomp (reads CA certs from disk) */
+  fd_bundle_tile_init_tls( ctx );
 
   /* Init resolver */
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {

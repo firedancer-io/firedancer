@@ -43,7 +43,7 @@ fd_sshttp_cert_verify_cb( void *        ctx,
   (void)handshake;
   fd_sshttp_t * http = (fd_sshttp_t *)ctx;
 
-  if( !http->ca_store_loaded ) return 0;
+  if( FD_UNLIKELY( !http->ca_store_loaded ) ) return -1;
 
   uchar const * p   = cert_chain;
   uchar const * end = cert_chain + cert_chain_sz;
@@ -86,10 +86,8 @@ fd_sshttp_cert_verify_cb( void *        ctx,
   ulong hostname_len = http->hostname ? strlen( http->hostname ) : 0;
   int err = fd_x509_verify_chain( chain_der, chain_der_sz, chain_cnt,
                                   &http->ca_store, http->hostname, hostname_len );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "Certificate chain verification failed (err=%d) for %s", err,
-                     http->hostname ? http->hostname : "(unknown)" ));
-  }
+  if( FD_UNLIKELY( err ) )
+    FD_LOG_WARNING(( "certificate verification failed (%d) for %s", err, http->hostname ));
   return err;
 }
 
@@ -141,11 +139,11 @@ http_init_tls( fd_sshttp_t * http ) {
 }
 
 static int
-http_flush_tls_tx( fd_sshttp_t * http ) {
-  while( http->tls_tx_buf_sz > http->tls_tx_buf_off ) {
+tls_flush_pending( fd_sshttp_t * http ) {
+  while( http->tls_tx_buf_off < http->tls_tx_buf_sz ) {
     ulong remain = http->tls_tx_buf_sz - http->tls_tx_buf_off;
-    long sent = sendto( http->sockfd, http->tls_tx_buf + http->tls_tx_buf_off,
-                        remain, MSG_NOSIGNAL, NULL, 0 );
+    long  sent   = sendto( http->sockfd, http->tls_tx_buf + http->tls_tx_buf_off,
+                           remain, MSG_NOSIGNAL, NULL, 0 );
     if( sent < 0 && errno == EAGAIN ) return 0;
     if( sent < 0 ) return -1;
     http->tls_tx_buf_off += (ulong)sent;
@@ -156,87 +154,86 @@ http_flush_tls_tx( fd_sshttp_t * http ) {
 }
 
 static int
+tls_sendto( fd_sshttp_t * http,
+            uchar const * data,
+            ulong         data_sz ) {
+  if( !data_sz ) return 0;
+  long sent = sendto( http->sockfd, data, data_sz, MSG_NOSIGNAL, NULL, 0 );
+  if( sent < 0 && errno == EAGAIN ) sent = 0;
+  if( sent < 0 ) return -1;
+  ulong remain = data_sz - (ulong)sent;
+  if( remain ) {
+    fd_memcpy( http->tls_tx_buf, data + sent, remain );
+    http->tls_tx_buf_off = 0UL;
+    http->tls_tx_buf_sz  = remain;
+  }
+  return 0;
+}
+
+static int
 http_connect_tls( fd_sshttp_t * http,
                   long          now ) {
-  if( FD_UNLIKELY( now>http->deadline ) ) {
-    FD_LOG_WARNING(( "deadline exceeded during TLS connect to " FD_IP4_ADDR_FMT ":%hu",
-                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+  if( FD_UNLIKELY( now > http->deadline ) ) {
+    FD_LOG_WARNING(( "TLS handshake timeout" ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  {
-    int flush = http_flush_tls_tx( http );
-    if( flush < 0 ) {
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
-    if( !flush ) return FD_SSHTTP_ADVANCE_AGAIN;
-  }
+  /* Flush any buffered outgoing data (e.g., ClientHello from a
+     previous call where the TCP connect was still in progress). */
+
+  int flush = tls_flush_pending( http );
+  if( flush < 0 ) { fd_sshttp_cancel( http ); return FD_SSHTTP_ADVANCE_ERROR; }
+  if( !flush    ) return FD_SSHTTP_ADVANCE_AGAIN;
+
+  /* Receive TCP ciphertext */
 
   uchar tcp_rx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
-  long tcp_rx_sz = recvfrom( http->sockfd, tcp_rx_buf, sizeof(tcp_rx_buf), 0, NULL, NULL );
-  if( tcp_rx_sz < 0 && errno != EAGAIN ) {
-    FD_LOG_WARNING(( "recvfrom() failed (%d-%s) during TLS connect to " FD_IP4_ADDR_FMT ":%hu",
-                     errno, fd_io_strerror( errno ),
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
+  long  tcp_rx_sz = recvfrom( http->sockfd, tcp_rx_buf, sizeof(tcp_rx_buf), 0, NULL, NULL );
+  if( tcp_rx_sz < 0 && errno != EAGAIN ) { fd_sshttp_cancel( http ); return FD_SSHTTP_ADVANCE_ERROR; }
   if( tcp_rx_sz < 0 ) tcp_rx_sz = 0;
 
-  fd_tlsrec_slice_t tcp_rx_slice[1];
-  fd_tlsrec_slice_init( tcp_rx_slice, tcp_rx_buf, (ulong)tcp_rx_sz );
+  /* Drive the TLS handshake */
 
-  uchar tcp_tx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
-  ulong tcp_tx_sz = sizeof(tcp_tx_buf);
-  uchar app_rx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
-  ulong app_rx_sz = sizeof(app_rx_buf);
+  fd_tlsrec_slice_t tcp_rx[1];
+  fd_tlsrec_slice_init( tcp_rx, tcp_rx_buf, (ulong)tcp_rx_sz );
 
-  int rc = fd_tlsrec_conn_rx( &http->tls_conn, tcp_rx_sz ? tcp_rx_slice : NULL,
+  uchar tcp_tx_buf[ FD_SSHTTP_TLS_BUF_SZ ];   ulong tcp_tx_sz = sizeof(tcp_tx_buf);
+  uchar app_rx_buf[ FD_SSHTTP_TLS_BUF_SZ*2 ]; ulong app_rx_sz = sizeof(app_rx_buf);
+
+  int rc = fd_tlsrec_conn_rx( &http->tls_conn,
+                              tcp_rx_sz ? tcp_rx : NULL,
                               tcp_tx_buf, &tcp_tx_sz,
                               app_rx_buf, &app_rx_sz );
-  if( FD_UNLIKELY( rc != FD_TLSREC_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_tlsrec handshake failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu",
-                     rc, fd_tlsrec_strerror( rc ),
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+  if( FD_UNLIKELY( rc ) ) {
+    FD_LOG_WARNING(( "TLS handshake failed (%d-%s)", rc, fd_tlsrec_strerror( rc ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  if( tcp_tx_sz > 0 ) {
-    long sent = sendto( http->sockfd, tcp_tx_buf, tcp_tx_sz, MSG_NOSIGNAL, NULL, 0 );
-    if( sent < 0 && errno == EAGAIN ) {
-      fd_memcpy( http->tls_tx_buf, tcp_tx_buf, tcp_tx_sz );
-      http->tls_tx_buf_off = 0UL;
-      http->tls_tx_buf_sz  = tcp_tx_sz;
-    } else if( sent < 0 ) {
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    } else if( (ulong)sent < tcp_tx_sz ) {
-      ulong remain = tcp_tx_sz - (ulong)sent;
-      fd_memcpy( http->tls_tx_buf, tcp_tx_buf + sent, remain );
-      http->tls_tx_buf_off = 0UL;
-      http->tls_tx_buf_sz  = remain;
-    }
+  /* Send handshake response */
+
+  if( tcp_tx_sz && tls_sendto( http, tcp_tx_buf, tcp_tx_sz ) < 0 ) {
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  if( fd_tlsrec_conn_is_ready( &http->tls_conn ) ) {
-    if( app_rx_sz > 0 ) {
-      ulong copy = fd_ulong_min( app_rx_sz, sizeof(http->tls_app_buf) );
-      fd_memcpy( http->tls_app_buf, app_rx_buf, copy );
-      http->tls_app_buf_off = 0UL;
-      http->tls_app_buf_sz  = copy;
-    }
+  /* Transition to request state once handshake completes */
 
+  if( fd_tlsrec_conn_is_ready( &http->tls_conn ) ) {
+    if( app_rx_sz ) {
+      ulong n = fd_ulong_min( app_rx_sz, sizeof(http->tls_app_buf) );
+      fd_memcpy( http->tls_app_buf, app_rx_buf, n );
+      http->tls_app_buf_off = 0;
+      http->tls_app_buf_sz  = n;
+    }
     http->state    = FD_SSHTTP_STATE_REQ;
     http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 
   if( fd_tlsrec_conn_is_failed( &http->tls_conn ) ) {
-    FD_LOG_WARNING(( "TLS handshake failed to " FD_IP4_ADDR_FMT ":%hu",
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+    FD_LOG_WARNING(( "TLS handshake failed" ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -248,9 +245,9 @@ static long
 http_send_tls( fd_sshttp_t * http,
                void *        buf,
                ulong         bufsz ) {
-  int flush = http_flush_tls_tx( http );
+  int flush = tls_flush_pending( http );
   if( flush < 0 ) return FD_SSHTTP_ADVANCE_ERROR;
-  if( !flush ) return FD_SSHTTP_ADVANCE_AGAIN;
+  if( !flush    ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   fd_tlsrec_slice_t app_tx[1];
   fd_tlsrec_slice_init( app_tx, buf, bufsz );
@@ -259,30 +256,10 @@ http_send_tls( fd_sshttp_t * http,
   ulong tcp_tx_sz = sizeof(tcp_tx_buf);
 
   int rc = fd_tlsrec_conn_tx( &http->tls_conn, tcp_tx_buf, &tcp_tx_sz, app_tx );
-  if( FD_UNLIKELY( rc != FD_TLSREC_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_tlsrec_conn_tx failed (%d-%s)", rc, fd_tlsrec_strerror( rc ) ));
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
+  if( FD_UNLIKELY( rc ) ) return FD_SSHTTP_ADVANCE_ERROR;
 
-  if( tcp_tx_sz > 0 ) {
-    long sent = sendto( http->sockfd, tcp_tx_buf, tcp_tx_sz, MSG_NOSIGNAL, NULL, 0 );
-    if( sent < 0 && errno == EAGAIN ) {
-      fd_memcpy( http->tls_tx_buf, tcp_tx_buf, tcp_tx_sz );
-      http->tls_tx_buf_off = 0UL;
-      http->tls_tx_buf_sz  = tcp_tx_sz;
-      return FD_SSHTTP_ADVANCE_AGAIN;
-    }
-    if( FD_UNLIKELY( sent < 0 ) ) {
-      FD_LOG_WARNING(( "sendto() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
-    if( (ulong)sent < tcp_tx_sz ) {
-      ulong remain = tcp_tx_sz - (ulong)sent;
-      fd_memcpy( http->tls_tx_buf, tcp_tx_buf + sent, remain );
-      http->tls_tx_buf_off = 0UL;
-      http->tls_tx_buf_sz  = remain;
-    }
-  }
+  if( tls_sendto( http, tcp_tx_buf, tcp_tx_sz ) < 0 )
+    return FD_SSHTTP_ADVANCE_ERROR;
 
   return (long)( bufsz - fd_tlsrec_slice_sz( app_tx ) );
 }
@@ -291,61 +268,63 @@ static long
 http_recv_tls( fd_sshttp_t * http,
                void *        buf,
                ulong         bufsz ) {
-  if( http->tls_app_buf_sz > http->tls_app_buf_off ) {
+
+  /* Drain any buffered plaintext from a previous call */
+
+  if( http->tls_app_buf_off < http->tls_app_buf_sz ) {
     ulong avail = http->tls_app_buf_sz - http->tls_app_buf_off;
-    ulong copy  = fd_ulong_min( avail, bufsz );
-    fd_memcpy( buf, http->tls_app_buf + http->tls_app_buf_off, copy );
-    http->tls_app_buf_off += copy;
+    ulong n     = fd_ulong_min( avail, bufsz );
+    fd_memcpy( buf, http->tls_app_buf + http->tls_app_buf_off, n );
+    http->tls_app_buf_off += n;
     if( http->tls_app_buf_off >= http->tls_app_buf_sz ) {
-      http->tls_app_buf_off = 0UL;
-      http->tls_app_buf_sz  = 0UL;
+      http->tls_app_buf_off = 0;
+      http->tls_app_buf_sz  = 0;
     }
-    return (long)copy;
+    return (long)n;
   }
+
+  /* Read ciphertext from socket */
 
   uchar tcp_rx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
-  long tcp_rx_sz = recvfrom( http->sockfd, tcp_rx_buf, sizeof(tcp_rx_buf), 0, NULL, NULL );
+  long  tcp_rx_sz = recvfrom( http->sockfd, tcp_rx_buf, sizeof(tcp_rx_buf), 0, NULL, NULL );
   if( tcp_rx_sz < 0 && errno == EAGAIN ) return FD_SSHTTP_ADVANCE_AGAIN;
-  if( tcp_rx_sz < 0 ) {
-    FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
+  if( tcp_rx_sz < 0 ) return FD_SSHTTP_ADVANCE_ERROR;
   if( tcp_rx_sz == 0 ) return FD_SSHTTP_ADVANCE_AGAIN;
 
-  fd_tlsrec_slice_t tcp_rx_slice[1];
-  fd_tlsrec_slice_init( tcp_rx_slice, tcp_rx_buf, (ulong)tcp_rx_sz );
+  /* Decrypt */
 
-  uchar tcp_tx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
-  ulong tcp_tx_sz = sizeof(tcp_tx_buf);
-  uchar app_rx_buf[ FD_SSHTTP_TLS_BUF_SZ ];
-  ulong app_rx_sz = sizeof(app_rx_buf);
+  fd_tlsrec_slice_t tcp_rx[1];
+  fd_tlsrec_slice_init( tcp_rx, tcp_rx_buf, (ulong)tcp_rx_sz );
 
-  int rc = fd_tlsrec_conn_rx( &http->tls_conn, tcp_rx_slice,
+  uchar tcp_tx_buf[ FD_SSHTTP_TLS_BUF_SZ ];   ulong tcp_tx_sz = sizeof(tcp_tx_buf);
+  uchar app_rx_buf[ FD_SSHTTP_TLS_BUF_SZ*2 ]; ulong app_rx_sz = sizeof(app_rx_buf);
+
+  int rc = fd_tlsrec_conn_rx( &http->tls_conn, tcp_rx,
                               tcp_tx_buf, &tcp_tx_sz,
                               app_rx_buf, &app_rx_sz );
-  if( FD_UNLIKELY( rc != FD_TLSREC_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_tlsrec_conn_rx failed (%d-%s)", rc, fd_tlsrec_strerror( rc ) ));
-    return FD_SSHTTP_ADVANCE_ERROR;
+  if( FD_UNLIKELY( rc ) ) return FD_SSHTTP_ADVANCE_ERROR;
+
+  /* Send any TLS control messages (e.g. post-handshake acks) */
+
+  if( tcp_tx_sz ) {
+    (void)sendto( http->sockfd, tcp_tx_buf, tcp_tx_sz, MSG_NOSIGNAL, NULL, 0 );
   }
 
-  if( tcp_tx_sz > 0 ) {
-    long sent = sendto( http->sockfd, tcp_tx_buf, tcp_tx_sz, MSG_NOSIGNAL, NULL, 0 );
-    (void)sent;
-  }
+  if( !app_rx_sz ) return FD_SSHTTP_ADVANCE_AGAIN;
 
-  if( app_rx_sz == 0 ) return FD_SSHTTP_ADVANCE_AGAIN;
+  /* Deliver what the caller wants, buffer the rest */
 
-  ulong copy = fd_ulong_min( app_rx_sz, bufsz );
-  fd_memcpy( buf, app_rx_buf, copy );
+  ulong n = fd_ulong_min( app_rx_sz, bufsz );
+  fd_memcpy( buf, app_rx_buf, n );
 
-  if( copy < app_rx_sz ) {
-    ulong remain = app_rx_sz - copy;
-    fd_memcpy( http->tls_app_buf, app_rx_buf + copy, remain );
-    http->tls_app_buf_off = 0UL;
+  if( n < app_rx_sz ) {
+    ulong remain = app_rx_sz - n;
+    fd_memcpy( http->tls_app_buf, app_rx_buf + n, remain );
+    http->tls_app_buf_off = 0;
     http->tls_app_buf_sz  = remain;
   }
 
-  return (long)copy;
+  return (long)n;
 }
 
 static int
@@ -362,8 +341,30 @@ static int
 http_shutdown_tls( fd_sshttp_t * http,
                    long          now ) {
   (void)now;
+  /* For native TLS we just close the socket — no graceful shutdown
+     needed for the snapshot download use case. */
   http->state = http->next_state;
   return FD_SSHTTP_ADVANCE_AGAIN;
+}
+
+void
+fd_sshttp_load_ca_store( fd_sshttp_t * sshttp ) {
+  static char const * ca_paths[] = {
+    "/etc/ssl/certs/ca-certificates.crt",  /* Debian/Ubuntu */
+    "/etc/pki/tls/certs/ca-bundle.crt",    /* RHEL/Fedora */
+    "/etc/ssl/cert.pem",                   /* Alpine/macOS */
+    NULL
+  };
+  for( int i = 0; ca_paths[i]; i++ ) {
+    long loaded = fd_x509_ca_store_load( &sshttp->ca_store, ca_paths[i] );
+    if( loaded >= 0 ) {
+      FD_LOG_NOTICE(( "Loaded %ld CA certificates from %s", loaded, ca_paths[i] ));
+      sshttp->ca_store_loaded = 1;
+      return;
+    }
+  }
+  FD_LOG_WARNING(( "No CA certificate bundle found — TLS certificate "
+                   "chain validation will be skipped" ));
 }
 
 FD_FN_CONST ulong
@@ -401,31 +402,14 @@ fd_sshttp_new( void * shmem ) {
   sshttp->resolved_slot = 0UL;
   fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );
 
+  /* Initialize native TLS config */
   sshttp->tls_app_buf_off = 0UL;
   sshttp->tls_app_buf_sz  = 0UL;
   fd_sshttp_tls_init( &sshttp->tls, sshttp );
 
+  /* CA trust store — loaded via fd_sshttp_load_ca_store() during
+     privileged_init, before the seccomp sandbox locks down. */
   sshttp->ca_store_loaded = 0;
-  if( !fd_sshttp_fuzz ) {
-    static char const * ca_paths[] = {
-      "/etc/ssl/certs/ca-certificates.crt",
-      "/etc/pki/tls/certs/ca-bundle.crt",
-      "/etc/ssl/cert.pem",
-      NULL
-    };
-    for( int i = 0; ca_paths[i]; i++ ) {
-      long loaded = fd_x509_ca_store_load( &sshttp->ca_store, ca_paths[i] );
-      if( loaded >= 0 ) {
-        FD_LOG_INFO(( "Loaded %ld CA certificates from %s", loaded, ca_paths[i] ));
-        sshttp->ca_store_loaded = 1;
-        break;
-      }
-    }
-    if( !sshttp->ca_store_loaded ) {
-      FD_LOG_WARNING(( "No CA certificate bundle found — TLS certificate "
-                       "chain validation will be skipped" ));
-    }
-  }
 
   FD_COMPILER_MFENCE();
   sshttp->magic = FD_SSHTTP_MAGIC;
@@ -455,6 +439,8 @@ fd_sshttp_join( void * shhttp ) {
 
   return sshttp;
 }
+
+/* http_init_ssl removed — replaced by http_init_tls (native fd_tls) */
 
 int
 fd_sshttp_init( fd_sshttp_t * http,
@@ -555,6 +541,7 @@ fd_sshttp_cancel( fd_sshttp_t * http ) {
   }
   http->state = FD_SSHTTP_STATE_INIT;
 
+  /* Clean up native TLS state */
   http->tls_app_buf_off = 0UL;
   http->tls_app_buf_sz  = 0UL;
   http->tls_tx_buf_off  = 0UL;

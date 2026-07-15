@@ -378,7 +378,6 @@ fuzz_client_reset( ulong seed ) {
   fd_grpc_client_set_authority( g_client, "localhost", 9UL, 443U );
   fd_grpc_client_set_version( g_client, "fuzz", 4UL );
 
-  g_client->ssl_hs_done = 1;
   g_client->h2_hs_done  = 1;
   g_client->conn->flags = 0U;
   g_client->conn->self_settings.max_concurrent_streams = FD_GRPC_CLIENT_MAX_STREAMS;
