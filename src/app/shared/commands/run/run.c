@@ -181,50 +181,63 @@ cgroup_procs_write( char const * path ) {
   return 1;
 }
 
-static int
-join_isolation_cgroup( char const * name,
-                       char         out_original[ static PATH_MAX ] ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/fs/cgroup/%s/cgroup.procs", name ) );
+struct spawn_cgroup {
+  int  probed;    /* isolation cgroup existence checked, original saved */
+  int  present;   /* isolation cgroup exists */
+  int  joined;    /* currently a member of the isolation cgroup */
+  char isolation[ PATH_MAX ];
+  char original[ PATH_MAX ];
+};
 
-  /* The cpuset stage not being configured (no cgroup) is the common
-     case and must be decided FIRST: on cgroup v1-only or hybrid
-     hosts /proc/self/cgroup does not have the v2 format, and
-     validating it before knowing the stage is even in use would
-     turn every tile launch on such hosts into a fatal error. */
-  if( FD_UNLIKELY( access( path, F_OK ) ) ) return 0;
+static void
+join_isolation_cgroup( char const *          name,
+                       struct spawn_cgroup * cg ) {
+  if( FD_UNLIKELY( !cg->probed ) ) {
+    cg->probed = 1;
+    FD_TEST( fd_cstr_printf_check( cg->isolation, sizeof(cg->isolation), NULL, "/sys/fs/cgroup/%s/cgroup.procs", name ) );
 
-  /* Remember where we came from.  The v2 entry in /proc/self/cgroup
-     is the line "0::<path>"; on a pure v2 hierarchy it is the only
-     line, but on hybrid systems v1 controller lines precede it, so
-     search rather than assume. */
-  char buf[ 4096 ];
-  int fd = open( "/proc/self/cgroup", O_RDONLY );
-  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  long n = read( fd, buf, sizeof(buf)-1UL );
-  if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "read(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  buf[ n ] = '\0';
+    /* The cpuset stage not being configured (no cgroup) is the common
+       case and must be decided FIRST: on cgroup v1-only or hybrid
+       hosts /proc/self/cgroup does not have the v2 format, and
+       validating it before knowing the stage is even in use would
+       turn every tile launch on such hosts into a fatal error. */
+    cg->present = !access( cg->isolation, F_OK );
+    if( FD_LIKELY( !cg->present ) ) return;
 
-  char * line = buf;
-  while( line && strncmp( line, "0::", 3UL ) ) {
-    line = strchr( line, '\n' );
-    if( FD_LIKELY( line ) ) line++;
+    /* Remember where we came from.  The v2 entry in /proc/self/cgroup
+       is the line "0::<path>"; on a pure v2 hierarchy it is the only
+       line, but on hybrid systems v1 controller lines precede it, so
+       search rather than assume. */
+    char buf[ 4096 ];
+    int fd = open( "/proc/self/cgroup", O_RDONLY );
+    if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    long n = read( fd, buf, sizeof(buf)-1UL );
+    if( FD_UNLIKELY( n<0L ) ) FD_LOG_ERR(( "read(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(/proc/self/cgroup) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    buf[ n ] = '\0';
+
+    char * line = buf;
+    while( line && strncmp( line, "0::", 3UL ) ) {
+      line = strchr( line, '\n' );
+      if( FD_LIKELY( line ) ) line++;
+    }
+    if( FD_UNLIKELY( !line || !line[ 0 ] ) )
+      FD_LOG_ERR(( "no cgroup v2 entry in /proc/self/cgroup while the cpuset isolation cgroup `/sys/fs/cgroup/%s` "
+                   "exists. Remove it with `%s configure fini cpuset`", name, FD_BINARY_NAME ));
+    char * nl = strchr( line, '\n' ); if( FD_LIKELY( nl ) ) *nl = '\0';
+    FD_TEST( fd_cstr_printf_check( cg->original, PATH_MAX, NULL,
+                                   "/sys/fs/cgroup%s/cgroup.procs", line+3UL ) );
   }
-  if( FD_UNLIKELY( !line || !line[ 0 ] ) )
-    FD_LOG_ERR(( "no cgroup v2 entry in /proc/self/cgroup while the cpuset isolation cgroup `/sys/fs/cgroup/%s` "
-                 "exists. Remove it with `%s configure fini cpuset`", name, FD_BINARY_NAME ));
-  char * nl = strchr( line, '\n' ); if( FD_LIKELY( nl ) ) *nl = '\0';
-  FD_TEST( fd_cstr_printf_check( out_original, PATH_MAX, NULL,
-                                 "/sys/fs/cgroup%s/cgroup.procs", line+3UL ) );
 
-  return cgroup_procs_write( path );
+  if( FD_UNLIKELY( !cg->present || cg->joined ) ) return;
+  cg->joined = cgroup_procs_write( cg->isolation );
 }
 
 static void
-leave_isolation_cgroup( char const * original ) {
-  if( FD_UNLIKELY( !cgroup_procs_write( original ) ) )
-    FD_LOG_ERR(( "could not return to original cgroup `%s`", original ));
+leave_isolation_cgroup( struct spawn_cgroup * cg ) {
+  if( FD_LIKELY( !cg->joined ) ) return;
+  if( FD_UNLIKELY( !cgroup_procs_write( cg->original ) ) ) FD_LOG_ERR(( "could not return to original cgroup `%s`", cg->original ));
+  cg->joined = 0;
 }
 
 static pid_t
@@ -233,19 +246,19 @@ execve_tile( char const *           name,
              fd_cpuset_t const *    floating_cpu_set,
              int                    floating_priority,
              int                    config_memfd,
-             int                    pipefd ) {
+             int                    pipefd,
+             struct spawn_cgroup *  cg ) {
   FD_CPUSET_DECL( cpu_set );
-  int  joined_cgroup = 0;
-  char original_cgroup[ PATH_MAX ];
   if( FD_LIKELY( tile->cpu_idx!=ULONG_MAX ) ) {
     /* Join the cpuset isolation cgroup (if configured) and set the
        thread affinity before we clone the new process, to ensure
        kernel first touch happens on the desired thread.  The child
        inherits both. */
-    joined_cgroup = join_isolation_cgroup( name, original_cgroup );
+    join_isolation_cgroup( name, cg );
     fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
+    leave_isolation_cgroup( cg );
     fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -276,7 +289,6 @@ execve_tile( char const *           name,
     char const * args[ 9 ] = { _current_executable_path, "run1", tile->name, kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
     if( FD_UNLIKELY( -1==execve( _current_executable_path, (char **)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
-    if( FD_UNLIKELY( joined_cgroup ) ) leave_isolation_cgroup( original_cgroup );
     if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;
   }
@@ -349,68 +361,75 @@ main_pid_namespace( void * _args ) {
 
   initialize_accdb_fd( config );
 
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( tile->is_agave ) ) continue;
+  struct spawn_cgroup spawn_cg = {0};
 
-    if( need_xdp ) {
-      if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
-          /* close XDP related file descriptors */
-          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        }
-      } else {
-        for( uint i=0U; i<xdp_fds_cnt; i++ ) {
-          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong pass=0UL; pass<2UL; pass++ ) {
+    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+      fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+      if( FD_UNLIKELY( tile->is_agave ) ) continue;
+      if( FD_UNLIKELY( (tile->cpu_idx!=ULONG_MAX)!=pass ) ) continue;
+
+      if( need_xdp ) {
+        if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
+          for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+            /* close XDP related file descriptors */
+            if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+            if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
+        } else {
+          for( uint i=0U; i<xdp_fds_cnt; i++ ) {
+            if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+            if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
         }
       }
+
+      if( FD_LIKELY( config->is_firedancer ) ) {
+        int tile_uses_accdb    = 0;
+        int tile_uses_accdb_ro = 0;
+        for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+          fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
+          if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
+            if( FD_UNLIKELY( tile->uses_obj_mode[ i ]==FD_SHMEM_JOIN_MODE_READ_ONLY ) ) tile_uses_accdb_ro = 1;
+            else                                                                        tile_uses_accdb    = 1;
+            break;
+          }
+        }
+
+        /* The gui joins the accdb shmem read-only (for partition stats)
+          but never reads account data from the on-disk file, so it does
+          not need the accounts.db fd.  Withhold it to keep the gui at
+          least privilege. */
+        if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
+
+        /* snapwr writes accdb pwrite()s without joining accdb shmem, so
+          it needs the RW fd despite not appearing as an accdb obj user
+          in the topology. */
+        if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        } else {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+
+        if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        } else {
+          if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+      }
+
+      int pipefd[ 2 ];
+      if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
+      child_pids[ child_cnt ] = execve_tile( config->name, tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ], &spawn_cg );
+      child_idxs[ child_cnt ] = i;
+      if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      strncpy( child_names[ child_cnt ], tile->name, 32 );
+      child_cnt++;
     }
-
-    if( FD_LIKELY( config->is_firedancer ) ) {
-      int tile_uses_accdb    = 0;
-      int tile_uses_accdb_ro = 0;
-      for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
-        fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
-        if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
-          if( FD_UNLIKELY( tile->uses_obj_mode[ i ]==FD_SHMEM_JOIN_MODE_READ_ONLY ) ) tile_uses_accdb_ro = 1;
-          else                                                                        tile_uses_accdb    = 1;
-          break;
-        }
-      }
-
-      /* The gui joins the accdb shmem read-only (for partition stats)
-         but never reads account data from the on-disk file, so it does
-         not need the accounts.db fd.  Withhold it to keep the gui at
-         least privilege. */
-      if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
-
-      /* snapwr writes accdb pwrite()s without joining accdb shmem, so
-         it needs the RW fd despite not appearing as an accdb obj user
-         in the topology. */
-      if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
-        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      } else {
-        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
-
-      if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
-        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      } else {
-        if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      }
-    }
-
-    int pipefd[ 2 ];
-    if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-    child_pids[ child_cnt ] = execve_tile( config->name, tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
-    child_idxs[ child_cnt ] = i;
-    if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    strncpy( child_names[ child_cnt ], tile->name, 32 );
-    child_cnt++;
   }
+
+  leave_isolation_cgroup( &spawn_cg );
 
   /* Obtain the actual grandchild PID from the pipe */
   for( ulong i=0UL; i<child_cnt; i++ ) {
