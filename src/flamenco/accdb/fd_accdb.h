@@ -147,7 +147,8 @@ fd_accdb_t *
 fd_accdb_join( void * shaccdb );
 
 /* fd_accdb_set_delta attaches the optional changed-pubkey index used by
-   execution joiners.  Call once immediately after join. */
+   execution and snapshot-loading joiners.  Call once immediately after
+   join. */
 void
 fd_accdb_set_delta( fd_accdb_t *       accdb,
                     fd_accdb_delta_t * delta );
@@ -177,22 +178,34 @@ fd_accdb_join_readonly( void *             ljoin,
                         int                fd_ro );
 
 /* fd_accdb_snapshot_load_{begin,end} toggle a mode on this writer
-   joiner that causes layer-0 partition handoffs to backfill tiering
-   for older snapshot-loaded partitions.  Specifically, when a new
-   partition P is opened at layer 0, the partition at P-2 is retiered
-   to Warm (layer 1) and the partition at P-3 is retiered to Cold
-   (layer 2).  This compensates for the fact that snapshot-loaded
-   accounts never get a second write and therefore never get promoted
-   by normal compaction-driven tiering.
+   joiner that reserves acc_pool's lazy tail for bump allocation and
+   causes layer-0 partition handoffs to backfill tiering for older
+   snapshot-loaded partitions.  Specifically, when a new partition P
+   is opened at layer 0, the partition at P-2 is retiered to Warm
+   (layer 1) and the partition at P-3 is retiered to Cold (layer 2).
+   This compensates for the fact that snapshot-loaded accounts never
+   get a second write and therefore never get promoted by normal
+   compaction-driven tiering.
 
-   Only the snapin tile is expected to use this.  The flag is
-   per-joiner and is not visible across processes. */
+   Only the snapin tile is expected to use this.  Begin/end must be
+   paired.  The mode and bump cursor are per-joiner; the lazy-tail
+   reservation is visible to all acc_pool joiners. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
+
+/* fd_accdb_snapshot_populate_delta adds every account changed by the
+   successfully loaded incremental-snapshot fork to the attached changed-
+   pubkey index.  It is a no-op when no delta is attached.  Call after the
+   incremental snapshot is fully validated but before advancing or purging
+   fork_id, since either operation may release the fork's transaction list. */
+
+void
+fd_accdb_snapshot_populate_delta( fd_accdb_t *       accdb,
+                                  fd_accdb_fork_id_t fork_id );
 
 /* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
    Used by fd_accdb_snapshot_{save,revert}_whead to save and restore

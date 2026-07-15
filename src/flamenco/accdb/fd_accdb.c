@@ -111,6 +111,16 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      that never gets a second write (and therefore would otherwise
      never be promoted by compaction). */
   int snapshot_loading;
+
+  /* Snapshot loading starts immediately after acc_pool_reset, so the
+     pool's lazy-init tail contains practically every accmeta the load
+     will need.  snapshot_load_begin claims that tail with one CAS and
+     these indices bump through the claimed range without touching the
+     shared pool for each account.  The ordinary pool free stack stays
+     live so an incremental snapshot purge can return entries while a
+     later retry is still loading. */
+  ulong snapshot_acc_bump;
+  ulong snapshot_acc_bump_end;
 };
 
 static inline fd_accdb_cache_line_t *
@@ -250,6 +260,8 @@ fd_accdb_new( void *              ljoin,
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->delta = NULL;
   accdb->snapshot_loading = 0;
+  accdb->snapshot_acc_bump = 0UL;
+  accdb->snapshot_acc_bump_end = 0UL;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -412,13 +424,115 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
   accdb->snapshot_loading    = 0;
+  accdb->snapshot_acc_bump   = 0UL;
+  accdb->snapshot_acc_bump_end = 0UL;
   accdb->acquire_state       = FD_ACCDB_ACQUIRE_STATE_IDLE;
+}
+
+/* Claim acc_pool's unmaterialized lazy-init tail for the snapshot
+   writer.  This is a single CAS per load rather than one CAS per new
+   account.  Explicitly released entries remain on ver_top and are
+   therefore still available to other acc_pool users (most notably an
+   incremental-snapshot purge).
+
+   acc_pool is POOL_LAZY, and only acquire_lazy mutates ver_lazy.  Once
+   the tail is replaced with idx_null, no ordinary acquire can change it
+   until we restore the unused suffix in snapshot_acc_bump_fini. */
+static void
+snapshot_acc_bump_init( fd_accdb_t * accdb ) {
+  acc_pool_t *       join    = accdb->acc_pool_join;
+  acc_pool_shmem_t * pool    = join->pool;
+  ulong              ele_max = join->ele_max;
+  ulong volatile *   lazy    = (ulong volatile *)&pool->ver_lazy;
+  ulong              idx_null = acc_pool_idx_null();
+
+  FD_TEST( accdb->snapshot_acc_bump==accdb->snapshot_acc_bump_end );
+
+  FD_COMPILER_MFENCE();
+  for(;;) {
+    ulong ver_lazy = *lazy;
+    ulong ver      = acc_pool_private_vidx_ver( ver_lazy );
+    ulong idx      = acc_pool_private_vidx_idx( ver_lazy );
+
+    if( FD_UNLIKELY( ver & 1UL ) ) {
+      FD_SPIN_PAUSE();
+      continue;
+    }
+    if( FD_UNLIKELY( idx==idx_null ) ) {
+      accdb->snapshot_acc_bump = ele_max;
+      accdb->snapshot_acc_bump_end = ele_max;
+      break;
+    }
+    if( FD_UNLIKELY( idx>=ele_max ) ) {
+      FD_LOG_CRIT(( "corrupt acc_pool lazy index (idx=%lu ele_max=%lu)", idx, ele_max ));
+    }
+
+    ulong new_ver_lazy = acc_pool_private_vidx( ver+2UL, idx_null );
+    if( FD_LIKELY( acc_pool_private_cas( lazy, ver_lazy, new_ver_lazy )==ver_lazy ) ) {
+      accdb->snapshot_acc_bump = idx;
+      accdb->snapshot_acc_bump_end = ele_max;
+      break;
+    }
+    FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+/* Return the unused suffix of the claimed lazy tail.  While a snapshot
+   reservation is active ver_lazy must remain empty: ordinary pool
+   users can consume explicit free-list entries, but cannot publish a
+   new lazy tail. */
+static void
+snapshot_acc_bump_fini( fd_accdb_t * accdb ) {
+  ulong bump = accdb->snapshot_acc_bump;
+  ulong end  = accdb->snapshot_acc_bump_end;
+
+  if( FD_LIKELY( bump<end ) ) {
+    acc_pool_shmem_t * pool = accdb->acc_pool_join->pool;
+    ulong volatile * lazy = (ulong volatile *)&pool->ver_lazy;
+    ulong idx_null = acc_pool_idx_null();
+
+    FD_COMPILER_MFENCE();
+    for(;;) {
+      ulong ver_lazy = *lazy;
+      ulong ver      = acc_pool_private_vidx_ver( ver_lazy );
+      ulong idx      = acc_pool_private_vidx_idx( ver_lazy );
+
+      if( FD_UNLIKELY( ver & 1UL ) ) {
+        FD_SPIN_PAUSE();
+        continue;
+      }
+      if( FD_UNLIKELY( idx!=idx_null ) ) {
+        FD_LOG_CRIT(( "acc_pool lazy tail changed during snapshot load (idx=%lu)", idx ));
+      }
+
+      ulong new_ver_lazy = acc_pool_private_vidx( ver+2UL, bump );
+      if( FD_LIKELY( acc_pool_private_cas( lazy, ver_lazy, new_ver_lazy )==ver_lazy ) ) break;
+      FD_SPIN_PAUSE();
+    }
+    FD_COMPILER_MFENCE();
+  }
+
+  accdb->snapshot_acc_bump = 0UL;
+  accdb->snapshot_acc_bump_end = 0UL;
+}
+
+static inline fd_accdb_accmeta_t *
+snapshot_acc_acquire( fd_accdb_t * accdb ) {
+  ulong bump = accdb->snapshot_acc_bump;
+  if( FD_LIKELY( bump<accdb->snapshot_acc_bump_end ) ) {
+    accdb->snapshot_acc_bump = bump+1UL;
+    return &accdb->acc_pool[ bump ];
+  }
+  return acc_pool_acquire( accdb->acc_pool_join );
 }
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
+  FD_TEST( !accdb->snapshot_loading );
   accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
+  snapshot_acc_bump_init( accdb );
 }
 
 static inline void
@@ -430,6 +544,7 @@ change_partition( fd_accdb_t *           accdb,
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
+  FD_TEST( accdb->snapshot_loading );
   spin_lock_acquire( &accdb->shmem->partition_lock );
 
   /* Force the next layer-0 write onto a fresh Hot partition so we do
@@ -447,6 +562,7 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
     FD_VOLATILE( newp->layer ) = 0;
   }
 
+  snapshot_acc_bump_fini( accdb );
   accdb->snapshot_loading = 0;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
 
@@ -459,6 +575,26 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   }
 
   spin_lock_release( &accdb->shmem->partition_lock );
+}
+
+void
+fd_accdb_snapshot_populate_delta( fd_accdb_t *       accdb,
+                                  fd_accdb_fork_id_t fork_id ) {
+  if( FD_LIKELY( !accdb->delta ) ) return;
+  if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_snapshot_populate_delta: invalid fork id %u (capacity %lu)",
+                  (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
+  }
+
+  fd_accdb_delta_writer_enter( accdb->delta );
+  uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
+  while( txn_idx!=UINT_MAX ) {
+    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
+    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ txn->acc_pool_idx ];
+    (void)fd_accdb_delta_insert( accdb->delta, acc->key.pubkey );
+    txn_idx = txn->fork.next;
+  }
+  fd_accdb_delta_writer_leave( accdb->delta );
 }
 
 void
@@ -609,6 +745,9 @@ fd_accdb_join_readonly( void *             ljoin,
 
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->snapshot_loading = 0;
+  accdb->snapshot_acc_bump = 0UL;
+  accdb->snapshot_acc_bump_end = 0UL;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
@@ -3857,7 +3996,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   int replace = !!accmeta;
 
   if( FD_UNLIKELY( !accmeta ) ) {
-    accmeta = acc_pool_acquire( accdb->acc_pool_join );
+    accmeta = snapshot_acc_acquire( accdb );
     if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
 
     uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -4046,7 +4185,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = acc_pool_acquire( accdb->acc_pool_join );
+      accmeta = snapshot_acc_acquire( accdb );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );

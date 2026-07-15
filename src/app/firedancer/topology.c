@@ -1296,6 +1296,8 @@ fd_topo_initialize( config_t * config ) {
   if( accdb_delta_obj ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    if( FD_LIKELY( snapshots_enabled ) )
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], accdb_delta_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -1530,10 +1532,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
-    tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
-    tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
-    tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
+    tile->snapin.max_live_slots     = config->firedancer.runtime.max_live_slots;
+    tile->snapin.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",       ULONG_MAX );
+    tile->snapin.accdb_delta_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_delta", ULONG_MAX );
+    tile->snapin.txncache_obj_id    = fd_pod_query_ulong( config->topo.props, "txncache",    ULONG_MAX );
+    tile->snapin.banks_obj_id       = fd_pod_query_ulong( config->topo.props, "banks",       ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwr" ) ) ) {
     tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);

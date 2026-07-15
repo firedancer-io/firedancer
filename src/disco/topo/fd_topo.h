@@ -650,6 +650,7 @@ struct fd_topo_tile {
     struct {
       ulong max_live_slots;
       ulong accdb_obj_id;
+      ulong accdb_delta_obj_id;
       ulong txncache_obj_id;
       ulong banks_obj_id;
     } snapin;

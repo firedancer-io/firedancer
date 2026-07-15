@@ -1366,6 +1366,76 @@ test_incremental_cross_fork_override( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Snapshot inserts should consume the acc_pool lazy tail with plain
+   bump increments.  In particular, writing accounts must not mutate
+   either shared pool head, and ending a partial load must restore the
+   unused lazy suffix for the next load. */
+static void
+test_snapshot_acc_pool_bump( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 16UL, 8UL, 64UL, 64UL, 1UL<<30UL );
+  fd_accdb_attach_child( accdb, SENTINEL );
+
+  acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
+  ulong top0  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy0 = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_idx( top0 )==acc_pool_idx_null() );
+  FD_TEST( acc_pool_private_vidx_idx( lazy0 )==0UL );
+
+  uchar pks[ 16 ][ 32UL ] = {{0}};
+  for( ulong i=0UL; i<16UL; i++ ) pks[ i ][ 0 ] = (uchar)(i+1UL);
+
+  /* Exercise the batched loader, which is the production snapin path. */
+  uchar const * pubkeys[ 8 ];
+  ulong slots[ 8 ];
+  ulong lamports[ 8 ];
+  ulong data_lens[ 8 ] = {0};
+  int executables[ 8 ] = {0};
+  for( ulong i=0UL; i<8UL; i++ ) {
+    pubkeys[ i ]  = pks[ i ];
+    slots[ i ]    = 10UL;
+    lamports[ i ] = i+1UL;
+  }
+
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong lazy_claimed = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_claimed )==acc_pool_idx_null() );
+
+  ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports;
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 8UL, pubkeys,
+                                           slots, lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports ) );
+  FD_TEST( ignored==0UL && replaced==0UL && loaded==8UL );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top0 );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_claimed );
+
+  fd_accdb_snapshot_load_end( accdb );
+  ulong lazy_restored = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_restored )==8UL );
+
+  /* Claim the restored suffix and exercise the single-account path.
+     None of the eight inserts may perform a shared-pool CAS. */
+  fd_accdb_snapshot_load_begin( accdb );
+  lazy_claimed = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_claimed )==acc_pool_idx_null() );
+  for( ulong i=8UL; i<16UL; i++ ) {
+    ulong old_lamports;
+    FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pks[ i ],
+                                          11UL, i+1UL, 0UL, 0,
+                                          &old_lamports )==1 );
+    FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top0 );
+    FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_claimed );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==16UL );
+  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top  ) )==acc_pool_idx_null() );
+  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_lazy ) )==acc_pool_idx_null() );
+
+  test_teardown( accdb, fd );
+}
+
 /* test_sentinel_index_wrap is a regression for issue #543: at the
    maximum partition_cnt==8192 the initial write-head sentinel's packed
    partition index (partition_cnt) does not fit in the 13-bit index
@@ -1436,6 +1506,80 @@ test_sentinel_index_wrap( void ) {
   ulong fp = fd_accdb_shmem_footprint( 1024UL, 64UL, 8192UL, max_cnt,
                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
+}
+
+static int
+delta_contains( fd_accdb_delta_t * delta,
+                uchar const        pubkey[ 32 ] ) {
+  ulong cnt = fd_ulong_min( fd_accdb_delta_head( delta ), delta->max );
+  fd_accdb_delta_ele_t const * ele = fd_accdb_delta_ele( delta );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( !memcmp( ele[ i ].pubkey, pubkey, 32UL ) ) return 1;
+  }
+  return 0;
+}
+
+/* A successfully validated incremental load must seed accdb_delta with
+   every accepted account before advance_root consumes the fork's txn
+   list (and removes rooted tombstones from accdb). */
+static void
+test_incremental_snapshot_populates_delta( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 16UL, 8UL, 64UL, 64UL, 1UL<<30UL );
+
+  ulong delta_fp = fd_accdb_delta_footprint( 8UL );
+  void * delta_mem = aligned_alloc( fd_accdb_delta_align(), delta_fp );
+  FD_TEST( delta_mem );
+  fd_accdb_delta_t * delta = fd_accdb_delta_join( fd_accdb_delta_new( delta_mem, 8UL, 99UL ) );
+  FD_TEST( delta );
+  fd_accdb_set_delta( accdb, delta );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  uchar pks[ 4 ][ 32UL ] = {{0}};
+  for( ulong i=0UL; i<4UL; i++ ) pks[ i ][ 0 ] = (uchar)(0xA0UL+i);
+
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong replaced_lamports;
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pks[ 0 ], 10UL, 10UL, 0UL, 0, &replaced_lamports )==1 );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pks[ 1 ], 10UL, 20UL, 0UL, 0, &replaced_lamports )==1 );
+
+  /* Full-snapshot writes create no txn records and therefore do not
+     belong to the incremental delta. */
+  fd_accdb_snapshot_populate_delta( accdb, root );
+  FD_TEST( fd_accdb_delta_head( delta )==0UL );
+
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, incr, pks[ 0 ], 20UL, 11UL, 0UL, 0, &replaced_lamports )==2 );
+
+  uchar const * pubkeys[ 3 ] = { pks[ 1 ], pks[ 2 ], pks[ 3 ] };
+  ulong slots[ 3 ]           = { 20UL, 20UL, 20UL };
+  ulong lamports[ 3 ]        = { 0UL, 30UL, 40UL }; /* pks[1] is a tombstone */
+  ulong data_lens[ 3 ]       = { 0UL, 0UL, 0UL };
+  int executables[ 3 ]       = { 0, 0, 0 };
+  ulong ignored, replaced, loaded, ignored_lamports;
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, incr, 3UL, pubkeys, slots,
+                                           lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports ) );
+  FD_TEST( !ignored && replaced==1UL && loaded==2UL );
+  FD_TEST( fd_accdb_delta_head( delta )==0UL );
+
+  fd_accdb_snapshot_populate_delta( accdb, incr );
+  FD_TEST( fd_accdb_delta_head( delta )==4UL );
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( delta_contains( delta, pks[ i ] ) );
+
+  /* Finalization is idempotent and the tombstone key survives root
+     advancement even though its accmeta does not. */
+  fd_accdb_snapshot_populate_delta( accdb, incr );
+  FD_TEST( fd_accdb_delta_head( delta )==4UL );
+  fd_accdb_advance_root( accdb, incr );
+  fd_accdb_snapshot_load_end( accdb );
+  drain_background( accdb );
+  FD_TEST( delta_contains( delta, pks[ 1 ] ) );
+
+  fd_accdb_set_delta( accdb, NULL );
+  free( delta_mem );
+  test_teardown( accdb, fd );
 }
 
 static void
@@ -1586,11 +1730,17 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();
 
+  FD_LOG_NOTICE(( "test_snapshot_acc_pool_bump ..." ));
+  test_snapshot_acc_pool_bump();
+
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
 
   FD_LOG_NOTICE(( "test_delta_commit_and_full_snapshot_reset ..." ));
   test_delta_commit_and_full_snapshot_reset();
+
+  FD_LOG_NOTICE(( "test_incremental_snapshot_populates_delta ..." ));
+  test_incremental_snapshot_populates_delta();
 
   FD_LOG_NOTICE(( "success" ));
 

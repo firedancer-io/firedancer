@@ -2986,6 +2986,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->replay.accdb_delta_obj_id!=ULONG_MAX ) ) {
     ctx->accdb_delta = fd_accdb_delta_join( fd_topo_obj_laddr( topo, tile->replay.accdb_delta_obj_id ) );
     FD_TEST( ctx->accdb_delta );
+    fd_accdb_set_delta( ctx->accdb, ctx->accdb_delta );
   }
 
   ctx->capture_ctx = NULL;

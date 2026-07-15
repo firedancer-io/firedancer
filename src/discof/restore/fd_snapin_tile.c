@@ -1310,6 +1310,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       if( !ctx->full ) {
+        fd_accdb_snapshot_populate_delta( ctx->accdb, ctx->accdb_incr_fork_id );
         fd_accdb_advance_root( ctx->accdb, ctx->accdb_incr_fork_id );
         ctx->accdb_root_fork_id = ctx->accdb_incr_fork_id;
         ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -1459,6 +1460,11 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem );
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
   FD_TEST( ctx->accdb );
+  if( FD_UNLIKELY( tile->snapin.accdb_delta_obj_id!=ULONG_MAX ) ) {
+    fd_accdb_delta_t * delta = fd_accdb_delta_join( fd_topo_obj_laddr( topo, tile->snapin.accdb_delta_obj_id ) );
+    FD_TEST( delta );
+    fd_accdb_set_delta( ctx->accdb, delta );
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

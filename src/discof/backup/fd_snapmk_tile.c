@@ -1613,6 +1613,10 @@ snap_begin( fd_snapmk_t * ctx,
      setup.  For a full snapshot, the accdb tile gates new writers,
      drains acquire/release brackets, clears accdb_delta, and only then
      acknowledges START.  It also pauses accdb compaction until DONE. */
+  /* TODO: Make this boundary generation-aware.  Execution can already
+     have committed accounts newer than root_generation when a full
+     snapshot starts; clearing the whole delta loses those post-base
+     changes from subsequent incremental snapshots. */
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
   fd_accdb_snapshot_sync_start( ctx->accdb_snapshot_sync, !incremental );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
