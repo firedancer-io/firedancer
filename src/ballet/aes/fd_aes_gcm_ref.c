@@ -7,6 +7,17 @@
 #define fd_gcm_gmult fd_gcm_gmult_4bit
 #define fd_gcm_ghash fd_gcm_ghash_4bit
 
+/* fd_aes_gcm_tag_eq compares two 16-byte GCM authentication tags in
+   constant time (independent of where the first differing byte is),
+   to avoid a timing side channel on tag verification. */
+static inline int
+fd_aes_gcm_tag_eq( uchar const * a,
+                    uchar const * b ) {
+  uchar diff = 0;
+  for( ulong i=0UL; i<16UL; i++ ) diff = (uchar)( diff | (uchar)( a[i] ^ b[i] ) );
+  return diff==0;
+}
+
 static void
 fd_aes_gcm_setiv( fd_aes_gcm_ref_t * gcm,
                   uchar const        iv[ 12 ] ) {
@@ -282,5 +293,5 @@ fd_aes_gcm_decrypt_ref( fd_aes_gcm_ref_t * aes_gcm,
 
   /* CRYPTO_gcm128_finish */
   fd_gcm128_finish( aes_gcm );
-  return 0==memcmp( aes_gcm->Xi.c, tag, 16 );  /* TODO USE CONSTANT TIME COMPARE */
+  return fd_aes_gcm_tag_eq( aes_gcm->Xi.c, tag );
 }
