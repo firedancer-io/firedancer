@@ -1069,6 +1069,15 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 }
 
 ulong
+fd_sched_peek_block_start_slot( fd_sched_t const * sched ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) return ULONG_MAX;
+  FD_TEST( sched->active_bank_idx<sched->block_cnt_max );
+  fd_sched_block_t const * block = sched->block_pool+sched->active_bank_idx;
+  return block->block_start_signaled ? ULONG_MAX : block->slot;
+}
+
+ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( ref_q_empty( sched->ref_q ) );

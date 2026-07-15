@@ -1596,7 +1596,7 @@ test_incremental_snapshot_populates_delta( void ) {
 }
 
 static void
-test_delta_commit_and_full_snapshot_reset( void ) {
+test_delta_commit_snapshot_preserve_and_explicit_reset( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
 
@@ -1632,15 +1632,14 @@ test_delta_commit_and_full_snapshot_reset( void ) {
   accdb_write( accdb, root, pubkey1, 0UL, NULL, 0UL, owner );
   FD_TEST( fd_accdb_delta_head( delta )==2UL );
 
-  /* Full snapshot START is not acknowledged until the accdb tile owns
-     and completes the reset. */
-  fd_accdb_snapshot_sync_start( &test_shmem_mem->snapshot_sync, 1 );
+  /* Snapshot synchronization does not establish a delta boundary. */
+  fd_accdb_snapshot_sync_start( &test_shmem_mem->snapshot_sync );
   FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_START );
   int charge_busy = 0;
   fd_accdb_background( accdb, &charge_busy );
   FD_TEST( charge_busy );
   FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
-  FD_TEST( fd_accdb_delta_head( delta )==0UL );
+  FD_TEST( fd_accdb_delta_head( delta )==2UL );
 
   /* Finish the simulated snapshot handshake. */
   fd_accdb_snapshot_sync_advance( &test_shmem_mem->snapshot_sync );
@@ -1649,12 +1648,16 @@ test_delta_commit_and_full_snapshot_reset( void ) {
   FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
   FD_TEST( test_shmem_mem->snapshot_sync==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
 
-  /* The FINISHING->IDLE transition must not spill into RESET_DELTA.
-     Insert a post-full change, then prove that the next incremental
-     handshake preserves it. */
+  /* Replay establishes the boundary explicitly before the target slot. */
+  fd_accdb_delta_reset_begin( delta );
+  FD_TEST( fd_accdb_delta_reset_try( delta ) );
+  FD_TEST( fd_accdb_delta_head( delta )==0UL );
+
+  /* Insert a post-boundary change, then prove snapshot synchronization
+     preserves it. */
   accdb_write( accdb, root, pubkey0, 12UL, data, sizeof(data), owner );
   FD_TEST( fd_accdb_delta_head( delta )==1UL );
-  fd_accdb_snapshot_sync_start( &test_shmem_mem->snapshot_sync, 0 );
+  fd_accdb_snapshot_sync_start( &test_shmem_mem->snapshot_sync );
   charge_busy = 0;
   fd_accdb_background( accdb, &charge_busy );
   FD_TEST( fd_accdb_snapshot_sync_state( &test_shmem_mem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
@@ -1749,8 +1752,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
 
-  FD_LOG_NOTICE(( "test_delta_commit_and_full_snapshot_reset ..." ));
-  test_delta_commit_and_full_snapshot_reset();
+  FD_LOG_NOTICE(( "test_delta_commit_snapshot_preserve_and_explicit_reset ..." ));
+  test_delta_commit_snapshot_preserve_and_explicit_reset();
 
   FD_LOG_NOTICE(( "test_incremental_snapshot_populates_delta ..." ));
   test_incremental_snapshot_populates_delta();

@@ -431,7 +431,7 @@ FD_UNIT_TEST( incremental_filter_batch ) {
 
 /* state keeps the disk-account state alive after credit. */
 FD_UNIT_TEST( state ) {
-  fd_snapmk_t ctx[1];
+  static fd_snapmk_t ctx[1];
   memset( ctx, 0, sizeof(fd_snapmk_t) );
   ctx->state = SNAPMK_STATE_ACCOUNTS_DISK;
 
@@ -501,6 +501,45 @@ FD_UNIT_TEST( snapshot_pool_slot_selection ) {
 
   fd_cstr_ncpy( ctx->final_name, ctx->pool[ 1 ].name, sizeof(ctx->final_name) );
   FD_TEST( snap_select_slot( ctx, 0U, ctx->full_slot_cnt, 0 )==1U );
+}
+
+FD_UNIT_TEST( abort_recycles_published_incremental ) {
+  char dir[] = "/tmp/fd_snapmk_abort_XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  int dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( dir_fd>=0 );
+
+  char const * final_name = "incremental-snapshot-100-200-hash.tar.zst";
+  int fd = openat( dir_fd, final_name, O_CREAT|O_EXCL|O_RDWR, 0600 );
+  FD_TEST( fd>=0 );
+  FD_TEST( write( fd, "partial snapshot bytes", 22UL )==22L );
+  FD_TEST( dup2( fd, FD_BACKUP_POOL_FD( 0 ) )==FD_BACKUP_POOL_FD( 0 ) );
+  FD_TEST( !close( fd ) );
+
+  static fd_snapmk_t ctx[1];
+  memset( ctx, 0, sizeof(ctx) );
+  ctx->snap_dir_fd = dir_fd;
+  ctx->pool_cnt    = 1U;
+  fd_cstr_ncpy( ctx->pool[ 0 ].name, final_name, sizeof(ctx->pool[ 0 ].name) );
+  ctx->pool[ 0 ].full_slot = 100UL;
+  ctx->pool[ 0 ].incr_slot = 200UL;
+
+  snap_abort_slot( ctx, 0U );
+
+  char partial_name[ FD_BACKUP_POOL_PARTIAL_NAME_MAX ];
+  fd_backup_pool_partial_name( partial_name, 0U );
+  FD_TEST( !strcmp( ctx->pool[ 0 ].name, partial_name ) );
+  FD_TEST( ctx->pool[ 0 ].full_slot==ULONG_MAX );
+  FD_TEST( ctx->pool[ 0 ].incr_slot==ULONG_MAX );
+  struct stat st[1];
+  FD_TEST( !fstatat( dir_fd, partial_name, st, 0 ) );
+  FD_TEST( st->st_size==0L );
+  FD_TEST( fstatat( dir_fd, final_name, st, 0 ) && errno==ENOENT );
+
+  FD_TEST( !close( FD_BACKUP_POOL_FD( 0 ) ) );
+  FD_TEST( !unlinkat( dir_fd, partial_name, 0 ) );
+  FD_TEST( !close( dir_fd ) );
+  FD_TEST( !rmdir( dir ) );
 }
 
 /* flow_control uses consumer fseqs, not stale stem credits, for flush

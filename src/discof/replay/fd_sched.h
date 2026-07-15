@@ -293,6 +293,11 @@ fd_sched_is_drained( fd_sched_t * sched );
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
+/* Returns the slot of an active block whose BLOCK_START task has not yet
+   been returned, or ULONG_MAX.  This does not mutate scheduler state. */
+ulong
+fd_sched_peek_block_start_slot( fd_sched_t const * sched );
+
 /* Mark a task as complete.  For transaction execution, this means that
    the effects of the execution are now visible on any core that could
    execute a subsequent transaction.  Returns 0 on success, -1 if given

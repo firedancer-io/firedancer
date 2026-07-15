@@ -67,6 +67,7 @@ ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULON
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
 ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
+ulong mock_sched_peek_start_fn  ( fd_sched_t const * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
   mock_sched_root_notify_cnt++;
   mock_sched_root_notify_idx = i;
@@ -81,6 +82,7 @@ void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn
+#define fd_sched_peek_block_start_slot mock_sched_peek_start_fn
 #define fd_sched_root_notify       mock_sched_root_notify_fn
 
 /* ---- Mock leader setup dependencies ---- */
@@ -1668,21 +1670,69 @@ test_snapmk_completion_releases_requested_bank( fd_wksp_t * wksp ) {
      that the completion protocol is self-identifying regardless. */
   ctx->published_root_bank_idx = current_bank->idx;
   ctx->is_creating_snap        = 1;
+  ctx->creating_snap_incremental  = 1U;
+  ctx->creating_snapshot_bank_idx = requested_bank->idx;
   ctx->in_kind[ 0 ]            = IN_KIND_SNAPMK;
 
+  ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_ABORTED, 0, 1, 0 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, requested_bank->idx,
-                             0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+                             0UL, 0UL, ctl, 0UL, 0UL, test_stem ) );
   FD_TEST( !ctx->is_creating_snap );
   FD_TEST( requested_bank->refcnt==0UL );
   FD_TEST( current_bank->refcnt==1UL );
 
+  /* A completed full publishes its base metadata only with DONE. */
+  requested_bank->refcnt = 1UL;
+  ctx->is_creating_snap          = 1;
+  ctx->creating_snap_incremental = 0U;
+  ctx->creating_snapshot_bank_idx = requested_bank->idx;
+  ctx->pending_full_snapshot_slot = 1234UL;
+  ctx->pending_full_snapshot_generation = 77U;
+  ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, requested_bank->idx,
+                             0UL, 0UL, ctl, 0UL, 0UL, test_stem ) );
+  FD_TEST( ctx->last_full_snapshot_slot==1234UL );
+  FD_TEST( ctx->last_full_snapshot_generation==77U );
+  FD_TEST( requested_bank->refcnt==0UL );
+
   FD_LOG_NOTICE(( "pass: test_snapmk_completion_releases_requested_bank" ));
+}
+
+static void
+test_delta_boundary_arm( void ) {
+  ulong fp = fd_accdb_delta_footprint( 16UL );
+  void * mem = aligned_alloc( fd_accdb_delta_align(), fp );
+  FD_TEST( mem );
+  fd_accdb_delta_t * delta = fd_accdb_delta_join( fd_accdb_delta_new( mem, 16UL, 42UL ) );
+  FD_TEST( delta );
+
+  fd_replay_tile_t ctx[1];
+  memset( ctx, 0, sizeof(ctx) );
+  ctx->accdb_delta                        = delta;
+  ctx->incremental_snapshot_interval_slots = 10UL;
+  ctx->full_snapshot_interval_slots        = 100UL;
+  ctx->next_full_snapshot_slot              = 100UL;
+  ctx->delta_snapshot_state                 = FD_REPLAY_DELTA_STEADY;
+  ctx->delta_arm_slot                       = ULONG_MAX;
+
+  FD_TEST( !delta_boundary_blocks_slot( ctx, 99UL ) );
+  FD_TEST(  delta_boundary_blocks_slot( ctx, 100UL ) );
+  FD_TEST( ctx->delta_snapshot_state==FD_REPLAY_DELTA_ARMING );
+  FD_TEST( ctx->delta_arm_slot==100UL );
+  FD_TEST( try_arm_snapshot_delta( ctx, test_stem ) );
+  FD_TEST( ctx->delta_snapshot_state==FD_REPLAY_DELTA_ARMED );
+  FD_TEST( !delta_boundary_blocks_slot( ctx, 100UL ) );
+
+  free( mem );
+  FD_LOG_NOTICE(( "pass: test_delta_boundary_arm" ));
 }
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_delta_boundary_arm();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                      );

@@ -247,9 +247,13 @@ run_lane_policy_case( void ) {
   FD_TEST( strstr( state, "lane_demoted_cnt 4," ) );
 
   fd_sched_task_t task[ 1 ];
+  ulong pending_slot = TEST_ROOT_SLOT+5UL;
+  FD_TEST( fd_sched_peek_block_start_slot( sched )==pending_slot );
+  FD_TEST( fd_sched_peek_block_start_slot( sched )==pending_slot ); /* peek is non-mutating */
   FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
   FD_TEST( task->task_type==FD_SCHED_TT_BLOCK_START );
   FD_TEST( task->block_start->bank_idx==6UL );
+  FD_TEST( fd_sched_peek_block_start_slot( sched )==ULONG_MAX );
   FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
   FD_TEST( fd_sched_is_drained( sched ) );
 

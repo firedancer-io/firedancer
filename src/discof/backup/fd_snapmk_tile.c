@@ -234,6 +234,8 @@ struct fd_snapmk {
 
 typedef struct fd_snapmk fd_snapmk_t;
 
+static void snap_abort_slot( fd_snapmk_t * ctx, uint slot_idx );
+
 static inline void
 fd_snapmk_accparse_reset( fd_snapmk_accparse_t *     parse,
                           uint const *               acc_map,
@@ -1046,7 +1048,9 @@ check_credit( fd_snapmk_t *       ctx,
     }
     break;
   case SNAPMK_STATE_DONE:
+  case SNAPMK_STATE_ABORT:
     refresh_zp_flow_control( ctx, stem );
+    if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_ABORT ) ) snapmk_update_release( ctx, stem );
     *is_backpressured = 0;
     if( FD_UNLIKELY( ctx->out_flush_pending ) ) {
       for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
@@ -1452,8 +1456,7 @@ after_credit( fd_snapmk_t *       ctx,
       ctx->base_slot       = ctx->bank->f.slot;
       ctx->base_generation = ctx->cur_root_generation;
     }
-    ctx->cur_slot_idx    = UINT_MAX;
-    ctx->out_fd          = -1;
+    ctx->out_fd = -1;
 
     char final_path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( final_path, PATH_MAX, NULL, "%s/%s", ctx->snap_dir, ctx->final_name ) );
@@ -1489,6 +1492,41 @@ after_credit( fd_snapmk_t *       ctx,
     while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
     fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
     while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
+    ctx->cur_slot_idx = UINT_MAX;
+    metrics_snapshot_clear( ctx );
+    ctx->state = SNAPMK_STATE_IDLE;
+    FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
+    *charge_busy = 1;
+    break;
+  }
+  case SNAPMK_STATE_ABORT: {
+    ulong zp_ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
+    int published_done = 0;
+    for( ulong i=0UL; i<ctx->zp_cnt; i++ ) {
+      if( !fd_ulong_extract_bit( ctx->out_flush_pending, (int)i ) ) continue;
+      if( !stem->cr_avail[ i ] ) continue;
+      fd_stem_publish( stem, i, 0UL, 0UL, 0UL, zp_ctl, 0UL, 0UL );
+      ctx->out_flush_seq[ i ] = stem->seqs[ i ];
+      ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
+      *charge_busy = 1;
+      published_done = 1;
+      break;
+    }
+    if( published_done || ctx->out_flush_pending ) break;
+
+    uint aborted_slot_idx = ctx->cur_slot_idx;
+    ulong aborted_bank_idx = ctx->bank->idx;
+    snap_abort_slot( ctx, aborted_slot_idx );
+    ctx->cur_slot_idx = UINT_MAX;
+    ctx->out_fd       = -1;
+
+    while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
+    fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
+    while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
+
+    ulong meta_ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_ABORTED, 0, 1, 0 );
+    fd_stem_publish( stem, ctx->out_meta_idx, aborted_bank_idx, 0UL, 0UL, meta_ctl, 0UL, 0UL );
+    FD_LOG_NOTICE(( "incremental snapshot creation aborted" ));
     metrics_snapshot_clear( ctx );
     ctx->state = SNAPMK_STATE_IDLE;
     FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
@@ -1562,6 +1600,26 @@ snap_recycle_slot( fd_snapmk_t * ctx,
   return slot_idx;
 }
 
+static void
+snap_abort_slot( fd_snapmk_t * ctx,
+                 uint          slot_idx ) {
+  FD_TEST( slot_idx<ctx->pool_cnt );
+  fd_backup_pool_slot_t * pool_slot = &ctx->pool[ slot_idx ];
+  if( FD_UNLIKELY( ftruncate( FD_BACKUP_POOL_FD( slot_idx ), 0L ) ) )
+    FD_LOG_ERR(( "ftruncate(%s) failed: %s", pool_slot->name, fd_io_strerror( errno ) ));
+
+  char partial_name[ FD_BACKUP_POOL_PARTIAL_NAME_MAX ];
+  fd_backup_pool_partial_name( partial_name, slot_idx );
+  if( FD_UNLIKELY( strcmp( pool_slot->name, partial_name ) ) ) {
+    if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, pool_slot->name,
+                               ctx->snap_dir_fd, partial_name ) ) )
+      FD_LOG_ERR(( "renameat(%s, %s) failed: %s", pool_slot->name, partial_name, fd_io_strerror( errno ) ));
+  }
+  fd_cstr_ncpy( pool_slot->name, partial_name, sizeof(pool_slot->name) );
+  pool_slot->full_slot = ULONG_MAX;
+  pool_slot->incr_slot = ULONG_MAX;
+}
+
 static uint
 snap_acquire_slot( fd_snapmk_t * ctx ) {
   uint slot_idx = snap_select_slot( ctx, 0U, ctx->full_slot_cnt, 0 );
@@ -1609,16 +1667,11 @@ snap_begin( fd_snapmk_t * ctx,
   while( FD_UNLIKELY( __atomic_load_n( &ctx->accdb_root_fork->val, __ATOMIC_ACQUIRE )!=root_fork_id.val ) ) FD_SPIN_PAUSE();
   ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
 
-  /* Establish the full-snapshot delta boundary before doing any snapshot
-     setup.  For a full snapshot, the accdb tile gates new writers,
-     drains acquire/release brackets, clears accdb_delta, and only then
-     acknowledges START.  It also pauses accdb compaction until DONE. */
-  /* TODO: Make this boundary generation-aware.  Execution can already
-     have committed accounts newer than root_generation when a full
-     snapshot starts; clearing the whole delta loses those post-base
-     changes from subsequent incremental snapshots. */
+  /* The replay tile establishes the delta boundary before execution
+     crosses the target full-snapshot slot.  Snapshot synchronization
+     only pauses accdb background mutation while this pinned fork is read. */
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) FD_YIELD();
-  fd_accdb_snapshot_sync_start( ctx->accdb_snapshot_sync, !incremental );
+  fd_accdb_snapshot_sync_start( ctx->accdb_snapshot_sync );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) FD_YIELD();
 
   uchar snap_hash[32];
@@ -1725,6 +1778,22 @@ returnable_frag( fd_snapmk_t *       ctx,
     case REPLAY_SIG_SNAP_CREATE: {
       fd_replay_snap_create_t const * msg = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
       snap_begin( ctx, msg->bank_idx, msg->incremental, msg->base_slot, msg->base_generation );
+      break;
+    }
+    case REPLAY_SIG_SNAP_CANCEL: {
+      fd_replay_snap_cancel_t const * msg = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
+      if( FD_UNLIKELY( ctx->state==SNAPMK_STATE_IDLE ) ) break; /* completion won the race */
+      FD_CHECK_CRIT( ctx->incremental, "attempted to cancel a full snapshot" );
+      FD_CHECK_CRIT( ctx->bank && ctx->bank->idx==msg->bank_idx,
+                     "snapshot cancel bank mismatch" );
+      ctx->raw_buf.pos       = 0UL;
+      ctx->raw_buf.size      = 0UL;
+      ctx->comp_buf.pos      = 0UL;
+      ctx->disk_out_idx      = ULONG_MAX;
+      ctx->accparse->input_active = 0;
+      ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
+      ctx->state             = SNAPMK_STATE_ABORT;
+      FD_MGAUGE_SET( SNAPMK, STATE, ctx->state );
       break;
     }
     default:

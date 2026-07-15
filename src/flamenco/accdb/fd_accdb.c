@@ -4335,21 +4335,6 @@ fd_accdb_background( fd_accdb_t * accdb,
       return;
     }
 
-    /* A full snapshot boundary is owned by the accdb tile.  Gate new
-       delta writers, drain existing acquire/release brackets, and clear
-       the delta before acknowledging START. */
-    if( FD_UNLIKELY( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_START &&
-                     (FD_VOLATILE_CONST( *snap_sync_p ) & FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA) ) ) {
-      if( FD_LIKELY( accdb->delta ) ) {
-        fd_accdb_delta_reset_begin( accdb->delta );
-        if( FD_UNLIKELY( !fd_accdb_delta_reset_try( accdb->delta ) ) ) {
-          *charge_busy = 1;
-          return;
-        }
-      }
-      __atomic_fetch_and( snap_sync_p, ~FD_ACCDB_SNAPSHOT_SYNC_RESET_DELTA, __ATOMIC_RELEASE );
-    }
-
     /* acknowledge the client's snapshot start/stop request */
     FD_DCHECK_CRIT( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_START ||
                     snap_sync==FD_ACCDB_SNAPSHOT_SYNC_FINISHING,

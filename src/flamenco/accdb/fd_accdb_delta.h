@@ -5,8 +5,8 @@
 
 /* fd_accdb_delta is a concurrent, separately-chained set of pubkeys
    changed since the last full snapshot boundary.  Entries are never
-   removed individually: the accdb tile resets the complete structure at
-   the next full snapshot boundary.  Readers iterate the chains, so an
+   removed individually: replay resets the complete structure at a
+   capture boundary before the next full snapshot.  Readers iterate the chains, so an
    entry only becomes visible after its initializing writer publishes it
    through the chain-head CAS. */
 

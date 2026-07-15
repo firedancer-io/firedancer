@@ -18,6 +18,10 @@
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include <stdio.h>
 
+#define FD_REPLAY_DELTA_STEADY (0U)
+#define FD_REPLAY_DELTA_ARMING (1U)
+#define FD_REPLAY_DELTA_ARMED  (2U)
+
 struct fd_replay_in_link {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -325,6 +329,17 @@ struct fd_replay_tile {
   uint        supports_leader : 1;
   uint        supports_snap_create : 1;
   uint        is_creating_snap : 1;
+  uint        creating_snap_incremental : 1;
+  uint        creating_snap_uses_armed_delta : 1;
+  uint        snap_cancel_sent : 1;
+  uint        delta_reset_started : 1;
+
+  uint        delta_snapshot_state;
+  ulong       delta_arm_slot;
+  ulong       creating_snapshot_bank_idx;
+  ulong       pending_full_snapshot_slot;
+  uint        pending_full_snapshot_generation;
+  ulong       prepared_slot_highwater;
 
   ulong       full_snapshot_interval_slots; /* 0 means disabled */
   ulong       next_full_snapshot_slot; /* periodic scheduled */

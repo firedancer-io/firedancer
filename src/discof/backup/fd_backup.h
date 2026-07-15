@@ -18,6 +18,7 @@
 #define FD_BACKUP_ORIG_DONE         5  /* mk->zp: stop compressing; mk->replay: free bank_idx */
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6 /* mk->zp: batch of cold accounts within one rd frag */
 #define FD_BACKUP_ORIG_ACC_DELTA      7 /* mk->zp: changed pubkeys for accdb reads */
+#define FD_BACKUP_ORIG_ABORTED        8 /* mk->replay: incremental snapshot aborted */
 #define FD_BACKUP_ORIG_DISK_START  16  /* mk->rd: start reading from disk */
 #define FD_BACKUP_ORIG_DISK_FRAG   17  /* rd->mk: accdb file frag */
 
@@ -35,6 +36,7 @@
 #define SNAPMK_STATE_EOF_MARKER      10 /* writing tar EOF marker */
 #define SNAPMK_STATE_DONE            11 /* done, notify replay tile */
 #define SNAPMK_STATE_FAIL            12 /* error state, doing cleanup */
+#define SNAPMK_STATE_ABORT           13 /* cancel incremental and clean up */
 
 /* FD_BACKUP_CACHE_PARA controls the batch size of ultra-sparse random
    index lookups from acc_map.  Tunes memory-level parallelism settings

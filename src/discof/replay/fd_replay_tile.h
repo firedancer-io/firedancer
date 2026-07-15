@@ -72,6 +72,7 @@
 #define REPLAY_SIG_WFS_DONE       (8)
 #define REPLAY_SIG_DROP_BANK_REF  (9)
 #define REPLAY_SIG_SNAP_CREATE   (10)
+#define REPLAY_SIG_SNAP_CANCEL   (11)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -203,6 +204,11 @@ struct fd_replay_snap_create {
 };
 typedef struct fd_replay_snap_create fd_replay_snap_create_t;
 
+struct fd_replay_snap_cancel {
+  ulong bank_idx;
+};
+typedef struct fd_replay_snap_cancel fd_replay_snap_cancel_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_root_advanced_t   root_advanced;
@@ -213,6 +219,7 @@ union fd_replay_message {
   fd_replay_fec_evicted_t     reasm_evicted;
   fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_snap_create_t     snap_create;
+  fd_replay_snap_cancel_t     snap_cancel;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

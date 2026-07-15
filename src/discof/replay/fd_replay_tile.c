@@ -4,6 +4,7 @@
 #include "fd_execrp.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
+#include "../backup/fd_backup.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
@@ -235,6 +236,70 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
 
+static inline int
+delta_boundary_enabled( fd_replay_tile_t const * ctx ) {
+  return !!ctx->accdb_delta &&
+         !!ctx->incremental_snapshot_interval_slots &&
+         !!ctx->full_snapshot_interval_slots;
+}
+
+/* Returns non-zero while slot preparation must remain paused. */
+static int
+delta_boundary_blocks_slot( fd_replay_tile_t * ctx,
+                            ulong              slot ) {
+  if( FD_LIKELY( !delta_boundary_enabled( ctx ) ||
+                 ctx->next_full_snapshot_slot==ULONG_MAX ||
+                 slot<ctx->next_full_snapshot_slot ) ) return 0;
+
+  if( FD_LIKELY( ctx->delta_snapshot_state==FD_REPLAY_DELTA_ARMED &&
+                 ctx->delta_arm_slot==ctx->next_full_snapshot_slot ) ) return 0;
+
+  if( FD_UNLIKELY( ctx->delta_snapshot_state==FD_REPLAY_DELTA_STEADY ) ) {
+    ctx->delta_snapshot_state = FD_REPLAY_DELTA_ARMING;
+    ctx->delta_arm_slot       = ctx->next_full_snapshot_slot;
+    ctx->delta_reset_started  = 0U;
+    ctx->snap_cancel_sent     = 0U;
+    FD_LOG_NOTICE(( "pausing execution before slot %lu to establish incremental snapshot delta boundary",
+                    ctx->delta_arm_slot ));
+  }
+  return 1;
+}
+
+static int
+try_arm_snapshot_delta( fd_replay_tile_t *  ctx,
+                        fd_stem_context_t * stem ) {
+  if( FD_LIKELY( ctx->delta_snapshot_state!=FD_REPLAY_DELTA_ARMING ) ) return 0;
+
+  if( FD_UNLIKELY( ctx->is_creating_snap ) ) {
+    if( FD_UNLIKELY( ctx->creating_snap_incremental && !ctx->snap_cancel_sent ) ) {
+      fd_replay_snap_cancel_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+      msg->bank_idx = ctx->creating_snapshot_bank_idx;
+      fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CANCEL,
+                       ctx->replay_out->chunk, sizeof(*msg), 0UL, 0UL,
+                       fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*msg),
+                                                       ctx->replay_out->chunk0, ctx->replay_out->wmark );
+      ctx->snap_cancel_sent = 1U;
+      FD_LOG_NOTICE(( "canceling active incremental snapshot before delta boundary at slot %lu",
+                      ctx->delta_arm_slot ));
+      return 1;
+    }
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !ctx->delta_reset_started ) ) {
+    fd_accdb_delta_reset_begin( ctx->accdb_delta );
+    ctx->delta_reset_started = 1U;
+  }
+  if( FD_UNLIKELY( !fd_accdb_delta_reset_try( ctx->accdb_delta ) ) ) return 0;
+
+  ctx->delta_reset_started          = 0U;
+  ctx->delta_snapshot_state         = FD_REPLAY_DELTA_ARMED;
+  ctx->accdb_delta_overflow_warned  = 0;
+  FD_LOG_NOTICE(( "incremental snapshot delta armed before slot %lu", ctx->delta_arm_slot ));
+  return 1;
+}
+
 static void
 replay_block_start( fd_replay_tile_t * ctx,
                     ulong              bank_idx,
@@ -261,6 +326,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
+  ctx->prepared_slot_highwater = fd_ulong_max( ctx->prepared_slot_highwater, slot );
   bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
@@ -556,6 +622,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   ctx->leader_bank->preparation_begin_nanos = before;
 
   ctx->leader_bank->f.slot = slot;
+  ctx->prepared_slot_highwater = fd_ulong_max( ctx->prepared_slot_highwater, slot );
 
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
@@ -892,6 +959,8 @@ try_become_leader( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( reset_leader && !fd_memeq( reset_leader, ctx->identity_pubkey, 32UL ) ) ) return 0;
   }
 
+  if( FD_UNLIKELY( delta_boundary_blocks_slot( ctx, ctx->next_leader_slot ) ) ) return 0;
+
   long now_nanos = fd_log_wallclock();
 
   ctx->is_leader = 1;
@@ -1102,6 +1171,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->notified_root_bank      = bank;
   ctx->published_root_slot     = 0UL;
   ctx->published_root_bank_idx = 0UL;
+  ctx->prepared_slot_highwater = 0UL;
+  if( FD_UNLIKELY( ctx->full_snapshot_interval_slots ) )
+    ctx->next_full_snapshot_slot = ctx->full_snapshot_interval_slots;
 
   ctx->reset_slot            = 0UL;
   ctx->reset_block_id        = ctx->initial_block_id;
@@ -1228,6 +1300,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->notified_root_bank      = bank;
     ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->published_root_bank_idx = 0UL;
+    ctx->prepared_slot_highwater = snapshot_slot;
+    if( FD_UNLIKELY( ctx->full_snapshot_interval_slots ) )
+      ctx->next_full_snapshot_slot = ((snapshot_slot/ctx->full_snapshot_interval_slots)+1UL)*ctx->full_snapshot_interval_slots;
 
     ctx->reset_slot            = snapshot_slot;
     ctx->reset_block_id        = manifest_block_id;
@@ -1420,6 +1495,10 @@ try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
+
+  ulong block_start_slot = fd_sched_peek_block_start_slot( ctx->sched );
+  if( FD_UNLIKELY( block_start_slot!=ULONG_MAX &&
+                   delta_boundary_blocks_slot( ctx, block_start_slot ) ) ) return 0;
 
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
@@ -1784,9 +1863,8 @@ begin_snapshot_create( fd_replay_tile_t *  ctx,
 
 /* snapshot_target_slot returns the slot at which root advancement has
    to stop to create a snapshot (the first rooted slot >= the target is
-   snapshotted), or ULONG_MAX if no snapshot is pending.  Lazily
-   initializes the periodic schedule off the boot slot on the first
-   root advancement.  *out_incremental is set non-zero if only the
+   snapshotted), or ULONG_MAX if no snapshot is pending.  *out_incremental
+   is set non-zero if only the
    incremental schedule is due at the returned slot; when a full
    (periodic or manually scheduled) snapshot is due at the same slot,
    the full snapshot wins. */
@@ -1800,12 +1878,10 @@ snapshot_target_slot( fd_replay_tile_t * ctx,
   ulong interval = ctx->full_snapshot_interval_slots;
   ulong periodic = ULONG_MAX;
   if( FD_UNLIKELY( interval ) ) {
-    if( FD_UNLIKELY( ctx->next_full_snapshot_slot==ULONG_MAX ) ) {
-      ctx->next_full_snapshot_slot = ((ctx->published_root_slot/interval)+1UL)*interval;
-    }
     /* If snapshot production fell behind by more than one interval,
        then skip ahead */
-    periodic = fd_ulong_max( ctx->next_full_snapshot_slot, (ctx->consensus_root_slot/interval)*interval );
+    if( FD_LIKELY( ctx->delta_snapshot_state!=FD_REPLAY_DELTA_ARMING ) )
+      periodic = fd_ulong_max( ctx->next_full_snapshot_slot, (ctx->consensus_root_slot/interval)*interval );
   }
 
   ulong full_target = fd_ulong_min( periodic, ctx->scheduled_snapshot_slot );
@@ -1821,7 +1897,9 @@ snapshot_target_slot( fd_replay_tile_t * ctx,
   } else if( FD_LIKELY( delta_ok ) ) {
     ctx->accdb_delta_overflow_warned = 0;
   }
-  if( FD_UNLIKELY( incr_interval && delta_ok && ctx->last_full_snapshot_slot!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( incr_interval && delta_ok &&
+                   ctx->delta_snapshot_state==FD_REPLAY_DELTA_STEADY &&
+                   ctx->last_full_snapshot_slot!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ctx->next_incremental_snapshot_slot==ULONG_MAX ) ) {
       ctx->next_incremental_snapshot_slot = ((ctx->last_full_snapshot_slot/incr_interval)+1UL)*incr_interval;
     }
@@ -1925,7 +2003,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
       ctx->next_incremental_snapshot_slot = ((advanceable_root_slot/ctx->incremental_snapshot_interval_slots)+1UL)*ctx->incremental_snapshot_interval_slots;
     } else {
       if( FD_LIKELY( ctx->full_snapshot_interval_slots && advanceable_root_slot>=ctx->next_full_snapshot_slot ) ) {
-        ctx->next_full_snapshot_slot = ((advanceable_root_slot/ctx->full_snapshot_interval_slots)+1UL)*ctx->full_snapshot_interval_slots;
+        ulong schedule_floor = fd_ulong_max( advanceable_root_slot, ctx->prepared_slot_highwater );
+        ctx->next_full_snapshot_slot = ((schedule_floor/ctx->full_snapshot_interval_slots)+1UL)*ctx->full_snapshot_interval_slots;
       }
       if( FD_UNLIKELY( advanceable_root_slot>=ctx->scheduled_snapshot_slot ) ) {
         ctx->scheduled_snapshot_slot = ULONG_MAX;
@@ -2105,6 +2184,12 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( try_prune_bank( ctx ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( try_arm_snapshot_delta( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2585,9 +2670,15 @@ begin_snapshot_create( fd_replay_tile_t *  ctx,
   bank->refcnt++;
 
   if( FD_UNLIKELY( !incremental ) ) {
-    ctx->last_full_snapshot_slot        = bank->f.slot;
-    ctx->last_full_snapshot_generation  = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id );
-    ctx->next_incremental_snapshot_slot = ULONG_MAX;
+    ctx->pending_full_snapshot_slot       = bank->f.slot;
+    ctx->pending_full_snapshot_generation = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id );
+    ctx->creating_snap_uses_armed_delta   = ctx->delta_snapshot_state==FD_REPLAY_DELTA_ARMED;
+    if( FD_UNLIKELY( ctx->creating_snap_uses_armed_delta ) ) {
+      ctx->delta_snapshot_state = FD_REPLAY_DELTA_STEADY;
+      ctx->delta_arm_slot       = ULONG_MAX;
+    }
+  } else {
+    ctx->creating_snap_uses_armed_delta = 0U;
   }
 
   fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -2597,7 +2688,10 @@ begin_snapshot_create( fd_replay_tile_t *  ctx,
   msg->incremental     = incremental;
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  ctx->is_creating_snap = 1;
+  ctx->is_creating_snap          = 1;
+  ctx->creating_snap_incremental = !!incremental;
+  ctx->creating_snapshot_bank_idx = ctx->published_root_bank_idx;
+  ctx->snap_cancel_sent          = 0U;
 }
 
 static void
@@ -2615,6 +2709,17 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     FD_LOG_WARNING(( "admin requested snapshot creation, but client has not yet started" ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_NOT_READY );
     return;
+  }
+
+  if( FD_UNLIKELY( ctx->accdb_delta && ctx->incremental_snapshot_interval_slots ) ) {
+    int compatible = ctx->delta_snapshot_state==FD_REPLAY_DELTA_ARMED &&
+                     (target_slot ? target_slot>=ctx->delta_arm_slot
+                                  : ctx->published_root_slot>=ctx->delta_arm_slot);
+    if( FD_UNLIKELY( !compatible ) ) {
+      FD_LOG_WARNING(( "admin requested full snapshot without a compatible armed incremental delta boundary" ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_NOT_READY );
+      return;
+    }
   }
 
   if( FD_UNLIKELY( target_slot ) ) {
@@ -2805,6 +2910,20 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_SNAPMK: {
+      ulong orig = fd_frag_meta_ctl_orig( ctl );
+      if( FD_UNLIKELY( orig!=FD_BACKUP_ORIG_DONE && orig!=FD_BACKUP_ORIG_ABORTED ) )
+        FD_LOG_CRIT(( "unexpected snapmk completion orig %lu", orig ));
+      if( FD_UNLIKELY( sig!=ctx->creating_snapshot_bank_idx ) )
+        FD_LOG_CRIT(( "snapshot completion bank mismatch expected %lu got %lu",
+                      ctx->creating_snapshot_bank_idx, sig ));
+      if( FD_UNLIKELY( orig==FD_BACKUP_ORIG_ABORTED ) ) {
+        FD_CHECK_CRIT( ctx->creating_snap_incremental,
+                       "snapmk aborted a full snapshot" );
+      } else if( FD_UNLIKELY( !ctx->creating_snap_incremental ) ) {
+        ctx->last_full_snapshot_slot        = ctx->pending_full_snapshot_slot;
+        ctx->last_full_snapshot_generation  = ctx->pending_full_snapshot_generation;
+        ctx->next_incremental_snapshot_slot = ULONG_MAX;
+      }
       ctx->is_creating_snap = 0;
       /* snapmk echoes the bank_idx from REPLAY_SIG_SNAP_CREATE in sig.
          Release that exact bank instead of relying on the root-pinning
@@ -2813,6 +2932,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
       FD_TEST( bank );
       FD_TEST( bank->refcnt>0UL );
       bank->refcnt--;
+      ctx->creating_snapshot_bank_idx       = ULONG_MAX;
+      ctx->creating_snap_incremental        = 0U;
+      ctx->creating_snap_uses_armed_delta   = 0U;
+      ctx->snap_cancel_sent                 = 0U;
       break;
     }
     default:
@@ -3047,6 +3170,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->is_creating_snap      = 0;
   ctx->supports_snap_create  = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
+  ctx->creating_snap_incremental      = 0U;
+  ctx->creating_snap_uses_armed_delta = 0U;
+  ctx->snap_cancel_sent               = 0U;
+  ctx->delta_reset_started            = 0U;
+  ctx->delta_snapshot_state           = FD_REPLAY_DELTA_STEADY;
+  ctx->delta_arm_slot                 = ULONG_MAX;
+  ctx->creating_snapshot_bank_idx     = ULONG_MAX;
+  ctx->pending_full_snapshot_slot     = ULONG_MAX;
+  ctx->pending_full_snapshot_generation = 0U;
+  ctx->prepared_slot_highwater          = 0UL;
 
   ctx->full_snapshot_interval_slots        = tile->replay.full_snapshot_interval_slots;
   ctx->next_full_snapshot_slot             = ULONG_MAX;
