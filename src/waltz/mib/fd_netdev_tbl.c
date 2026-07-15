@@ -166,8 +166,8 @@ fd_netdev_tbl_fprintf( fd_netdev_tbl_join_t const * tbl,
     fd_netdev_t const * dev = &tbl->dev_tbl[j];
     if( !dev->oper_status ) continue;
     WRAP_PRINTF( file,
-        "%lu: %s: mtu %u state (%i-%s)",
-        j, dev->name, dev->mtu,
+        "%u: %s: mtu %u state (%i-%s)",
+        dev->if_idx, dev->name, dev->mtu,
         dev->oper_status, fd_oper_status_cstr( dev->oper_status ) );
     if( dev->slave_tbl_idx>=0 ) {
       WRAP_PRINT( file, " master" );

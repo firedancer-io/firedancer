@@ -7,7 +7,6 @@
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../disco/net/fd_net_tile.h"
-#include "../../../../util/tile/fd_tile_private.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -66,7 +65,7 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_bench_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( affinity, parsed_tile_to_cpu, 0 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -215,6 +214,7 @@ bench_cmd_fn( args_t *   args,
 
     args_t watch_args;
     watch_args.watch.drain_output_fd = pipefd[0];
+    watch_args.watch.full = 1;
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* FIXME allow running sandboxed/multiprocess */

@@ -105,7 +105,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong joiner_cnt  = fd_ulong_max( limits->accdb_joiner_cnt, 1UL );
 
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
-  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
+  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, 0 );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
   ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
@@ -144,7 +144,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong const joiner_cnt  = fd_ulong_max( limits->accdb_joiner_cnt, 1UL );
 
   ulong pcache_sz        = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
-  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
+  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, 0 );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
                                                limits->max_stake_accounts, limits->max_vote_accounts );
@@ -174,7 +174,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   fd_memset( mini, 0, sizeof(fd_svm_mini_t) );
   mini->wksp = wksp;
 
-  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot, 0, 0UL ) );
   if( FD_UNLIKELY( !shtxncache ) ) FD_LOG_ERR(( "fd_txncache_shmem_new failed" ));
 
   /* Create accdb backed by memfd */
@@ -394,6 +394,8 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
                                       ULONG_MAX,  /* activation_epoch (bootstrap) */
                                       ULONG_MAX,  /* deactivation_epoch */
                                       0UL,        /* credits_observed */
+                                      fd_ulong_max( stake_min_bal, uniform_stake ),
+                                      (uint)FD_STAKE_STATE_SZ,
                                       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* warmup_cooldown_rate */ );
 
     stakes[i] = (fd_vote_stake_weight_t){
@@ -458,7 +460,8 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   /* Create the root fork in accdb */
   fd_accdb_fork_id_t root_fork_id = fd_accdb_attach_child( accdb, SENTINEL );
-  bank->accdb_fork_id = root_fork_id;
+  bank->accdb_fork_id        = root_fork_id;
+  bank->parent_accdb_fork_id = root_fork_id;
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
@@ -479,7 +482,9 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   /* Default slots_per_year matches Solana mainnet genesis defaults
      (target_tick_duration=6250000ns, ticks_per_slot=64). */
-  bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / 6250000.0) / 64.0;
+  bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / 6250000.0) / 64.0;
+  bank->f.slot_params_default        = bank->f.slot_params;
 
   if( params->rent ) {
     bank->f.rent = *params->rent;
@@ -646,9 +651,10 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   ulong bank_idx = bank->idx;
   bank->f.slot = child_slot;
 
-  bank->progcache_fork_id = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
-  bank->txncache_fork_id  = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
-  bank->accdb_fork_id     = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
+  bank->progcache_fork_id    = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
+  bank->txncache_fork_id     = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
+  bank->accdb_fork_id        = fd_accdb_attach_child    ( accdb,                 parent_bank->accdb_fork_id     );
+  bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( mini->banks, bank, accdb, mini->runtime_stack, NULL, &is_epoch_boundary );

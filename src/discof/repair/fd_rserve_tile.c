@@ -16,7 +16,6 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/net/fd_net_headers.h"
 
-#include <sys/mman.h>
 #include "generated/fd_rserve_tile_seccomp.h"
 
 #define IN_KIND_NET    (0)

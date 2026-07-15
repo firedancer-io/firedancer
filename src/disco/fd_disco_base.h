@@ -16,10 +16,10 @@
 #define DST_PROTO_SEND     (6UL)
 #define DST_PROTO_RSERVE   (7UL)
 
-#define POH_PKT_TYPE_MICROBLOCK    (0UL)
-#define POH_PKT_TYPE_BECAME_LEADER (1UL)
-#define POH_PKT_TYPE_FEAT_ACT_SLOT (2UL)
-#define POH_PKT_TYPE_LEADER_BANK   (3UL)
+#define POH_PKT_TYPE_MICROBLOCK      (0UL)
+#define POH_PKT_TYPE_BECAME_LEADER   (1UL)
+#define POH_PKT_TYPE_SHRED_EPOCH_MSG (2UL)
+#define POH_PKT_TYPE_LEADER_BANK     (3UL)
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum

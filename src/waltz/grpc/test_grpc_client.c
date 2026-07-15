@@ -239,6 +239,24 @@ FD_UNIT_TEST( error_data_end_stream_releases_stream ) {
   FD_TEST( client->conn->stream_active_cnt[1]==0U );
 }
 
+FD_UNIT_TEST( empty_data_end_stream_releases_stream ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+  stream->hdrs.h2_status     = 200U;
+  stream->hdrs.is_grpc_proto = 1U;
+  fd_h2_stream_close_tx( &stream->s, client->conn );
+  fd_h2_stream_rx_data( &stream->s, client->conn, FD_H2_FLAG_END_STREAM );
+
+  ulong const rx_end_cnt = g_rx_end_cnt;
+  fd_grpc_h2_cb_data( client->conn, &stream->s, NULL, 0UL, FD_H2_FLAG_END_STREAM );
+
+  FD_TEST( g_rx_end_cnt==rx_end_cnt+1UL );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+}
+
 FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );

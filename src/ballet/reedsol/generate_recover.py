@@ -76,7 +76,10 @@ def make_recover_var(n, max_shreds):
         else:
             cprint(f'FD_REEDSOL_GENERATE_IFFT( {n}, 0, ALL_VARS );')
         cprint('')
-        cprint(f'FD_REEDSOL_GENERATE_FDERIV( {n}, ALL_VARS );')
+        if n>64:
+            cprint(f'fd_reedsol_fderiv_{n}( ALL_VARS_REF );')
+        else:
+            cprint(f'FD_REEDSOL_GENERATE_FDERIV( {n}, ALL_VARS );')
         cprint('')
         if n>64:
             cprint(f'fd_reedsol_fft_{n}_0( ALL_VARS_REF );')
@@ -129,8 +132,12 @@ def make_recover_var(n, max_shreds):
         chunk_cnt = 0
         while potential_shreds_remaining>0:
             cprint("if( shreds_remaining>0UL ) {")
-            cprint(f"FD_REEDSOL_GENERATE_IFFT( {n}, {n*chunk_cnt:2}, ALL_VARS );")
-            cprint(f"FD_REEDSOL_GENERATE_FFT(  {n}, {n*(chunk_cnt+1):2}, ALL_VARS );")
+            if n>64:
+                cprint(f"fd_reedsol_ifft_{n}_{n*chunk_cnt}( ALL_VARS_REF );")
+                cprint(f"fd_reedsol_fft_{n}_{n*(chunk_cnt+1)}( ALL_VARS_REF );")
+            else:
+                cprint(f"FD_REEDSOL_GENERATE_IFFT( {n}, {n*chunk_cnt:2}, ALL_VARS );")
+                cprint(f"FD_REEDSOL_GENERATE_FFT(  {n}, {n*(chunk_cnt+1):2}, ALL_VARS );")
             cprint("")
             cprint(f"switch( fd_ulong_min( shreds_remaining, {n}UL ) ) " + "{")
             for k in range(min(n, potential_shreds_remaining)-1, -1, -1):

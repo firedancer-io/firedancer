@@ -390,6 +390,7 @@ EXAMPLES
     <int value="1" name="Idle" label="Idle (task was not runnable)" />
     <int value="2" name="User" label="User (task was scheduled and executing in user mode)" />
     <int value="3" name="System" label="System (task was scheduled and executing in kernel mode)" />
+    <int value="4" name="Interrupt" label="Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)" />
 </enum>
 
 <common>
@@ -408,7 +409,15 @@ EXAMPLES
     <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime, in nanoseconds" />
     <counter name="IrqPreempted" summary="Times the tile was interrupted by an IRQ (fixed tiles only)" />
     <counter name="TlbShootdown" summary="TLB shootdowns observed on the tile CPU (fixed tiles only)" />
+    <counter name="TimerTick" summary="Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only)" />
 </common>
+
+<enum name="RouteFail">
+    <int value="0" name="NoRoute" label="No matching route" />
+    <int value="1" name="RouteType" label="Unsupported route type" />
+    <int value="2" name="Interface" label="Interface not available" />
+    <int value="3" name="SourceIp" label="No source IP address chosen" />
+</enum>
 
 <tile name="net">
     <counter name="PktRx" summary="Packets received" />
@@ -422,7 +431,8 @@ EXAMPLES
     <counter name="PktTxSubmitted" summary="Packet transmit jobs submitted" />
     <counter name="PktTxCompleted" summary="Packet transmit jobs marked as completed by the kernel" />
     <counter name="PktTxBytes" summary="Bytes transmitted (including Ethernet header)" />
-    <counter name="PktTxNoRoute" summary="Packet transmit jobs dropped due to route failure" />
+    <counter name="PktTxInvalid" summary="Packet transmit jobs dropped due to invalid packet data" />
+    <counter name="PktTxRouteFail" enum="RouteFail" summary="Packet transmit jobs dropped due to route failure" />
     <counter name="PktTxNoNeighbor" summary="Packet transmit jobs dropped due to unresolved neighbor" />
     <counter name="PktTxRingFull" summary="Packet transmit jobs dropped due to XDP TX ring full or missing completions" />
     <gauge name="TxBufferBusy" summary="Transmit buffers currently busy" />
@@ -446,6 +456,7 @@ EXAMPLES
     <counter name="GrePktTxSubmitted" summary="GRE packet transmit jobs submitted" />
     <counter name="GrePktTxNoRoute" summary="GRE packet transmit jobs dropped due to route failure" />
     <counter name="PktRxSrcInvalid" summary="Incoming packets dropped due to invalid source IP address" />
+    <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes installed in the forwarding table" />
 </tile>
 
 <enum name="SocketError">
@@ -1016,6 +1027,22 @@ EXAMPLES
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />
 
+    <!-- extensive program cache metrics.  Useful for development, will be
+        cut down with time -->
+    <counter name="ProgcacheLookup" summary="Program cache lookups" />
+    <counter name="ProgcacheHit" summary="Program cache hits" />
+    <counter name="ProgcacheMiss" summary="Program cache misses" />
+    <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory events (heap)" />
+    <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory events (descriptor table)" />
+    <counter name="ProgcacheFill" summary="Program cache insertions" />
+    <counter name="ProgcacheFillBytes" summary="Bytes inserted into program cache" />
+    <counter name="ProgcacheSpill" summary="Program cache spills (OOM fallback mechanism)" />
+    <counter name="ProgcacheSpillBytes" summary="Bytes spilled from program cache (OOM fallback mechanism)" />
+    <counter name="ProgcacheEviction" summary="Program cache evictions" />
+    <counter name="ProgcacheEvictionBytes" summary="Bytes evicted from program cache" />
+    <counter name="ProgcacheDurationSeconds" converter="seconds" summary="Time spent on program cache operations, in seconds" />
+    <counter name="ProgcacheLoadDurationSeconds" converter="seconds" summary="Time spent loading programs, in seconds" />
+
     <counter name="AccdbAccountAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountWritableAcquired" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
@@ -1580,7 +1607,6 @@ EXAMPLES
     <counter name="RouteFullSync" summary="Full route table syncs done" />
     <counter name="UpdateProcessed" enum="NetlinkMessage" summary="Netlink live updates processed" />
     <gauge name="InterfaceCount" summary="Network interfaces" />
-    <gauge name="RouteCount" enum="RouteTable" summary="IPv4 routes" />
     <counter name="NeighborProbeSent" summary="Neighbor solicit requests sent to kernel" />
     <counter name="NeighborProbeFailed" summary="Neighbor solicit requests that failed to send (kernel too slow)" />
     <counter name="NeighborProbeRateLimitHost" summary="Neighbor solicit requests that exceeded the per-host rate limit" />
@@ -1703,6 +1729,9 @@ EXAMPLES
 </tile>
 
 <tile name="genesi">
+</tile>
+
+<tile name="admin">
 </tile>
 
 <enum name="ConnCloseResult">

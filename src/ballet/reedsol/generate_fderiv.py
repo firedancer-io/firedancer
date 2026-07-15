@@ -1,8 +1,7 @@
 import galois
 import numpy as np
 
-header = """
-/* Note: This file is auto generated. */
+header = """/* Note: This file is auto generated. */
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h
 
@@ -101,7 +100,7 @@ def print_macro(macro_name, args, lines, indent=2):
     for line in lines:
         print(" "*(2*indent) + line + " "*(maxwidth-len(line)-1-2*indent) + "\\", file=outf)
     print(" "*indent + "} while( 0 )", file=outf)
-    print("\n\n", file=outf)
+    print("", file=outf)
 
 for N in (16, 32, 64, 128, 256):
     inputs = [ f"in{j:02}" for j in range(N) ]
@@ -117,4 +116,35 @@ for N in (16, 32, 64, 128, 256):
 
     print_macro(f"FD_REEDSOL_FDERIV_IMPL_{N}", inputs, macro_lines)
 
+    if N>=128:
+        # Wrapped impl lives in a separate compilation unit to speed up compile times
+        print(f"void fd_reedsol_fderiv_{N}( " + ', '.join(['gf_t*']*N) + " );", file=outf)
+        print("", file=outf)
+
 print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h */", file=outf)
+
+for N in (128, 256):
+    with open(f'wrapped_impl/fd_reedsol_fderiv_impl_{N}.c', "wt") as outf:
+        print('/* Note: This file is auto generated. */', file=outf)
+        print('#include "../fd_reedsol_fderiv.h"', file=outf)
+        print('\nFD_FN_UNSANITIZED void', file=outf)
+        fn_name = f"fd_reedsol_fderiv_{N}( "
+        print(fn_name + "gf_t * _in00,", file=outf)
+        for l in range(1, N):
+            if l<N-1:
+                _next = ","
+            else:
+                _next = " ) {"
+            print(" "*len(fn_name) + f"gf_t * _in{l:02}{_next}", file=outf)
+
+        for l in range(0, N):
+            print(f"  gf_t in{l:02} = *_in{l:02};", file=outf)
+
+        print("", file=outf)
+
+        print(f"  FD_REEDSOL_GENERATE_FDERIV( {N:3}, {', '.join([f'in{l:02}' for l in range(N) ])} );", file=outf)
+
+        for l in range(0, N):
+            print(f"  *_in{l:02} = in{l:02};", file=outf)
+
+        print("}", file=outf)

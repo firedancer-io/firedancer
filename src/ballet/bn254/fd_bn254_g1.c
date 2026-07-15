@@ -1,11 +1,23 @@
-#include "./fd_bn254.h"
+#include "./fd_bn254_field_inl.h"
+#include "./fd_bn254_glv.h"
 
 /* G1 */
 
-static inline int
-fd_bn254_g1_is_zero( fd_bn254_g1_t const * p ) {
-  return fd_bn254_fp_is_zero( &p->Z );
-}
+/* GLV consts, decl in fd_bn254_glv.h, shared with fd_bn254_g2.c. */
+
+/* beta in Montgomery form.
+   0x30644e72e131a0295e6dd9e7e0acccb0c28f069fbb966e3de4bd44e5607cfd48 */
+const fd_bn254_fp_t fd_bn254_const_beta_mont[1] = {{{
+  0x3350c88e13e80b9cUL, 0x7dce557cdb5e56b9UL, 0x6001b4b8b615564aUL, 0x2682e617020217e0UL
+}}};
+
+/* Lattice constants, see glv.py */
+const ulong na[ 2 ] = { 0x8211bbeb7d4f1128UL, 0x6f4d8248eeb859fcUL };
+const ulong nb[ 1 ] = { 0x89d3256894d213e3UL };
+const ulong nc[ 2 ] = { 0x0be4e1541221250bUL, 0x6f4d8248eeb859fdUL };
+
+/* g2 = round(2^256 * N_B / r), 66-bit (2 limbs). Same for G1 and G2. */
+const ulong g2_const[ 2 ] = { 0xd91d232ec7e0b3d7UL, 0x0000000000000002UL };
 
 static inline fd_bn254_g1_t *
 fd_bn254_g1_set( fd_bn254_g1_t *       r,
@@ -325,7 +337,7 @@ fd_bn254_g1_scalar_mul( fd_bn254_g1_t *           r,
 /* fd_bn254_g1_frombytes_internal extracts (x, y) and performs basic checks.
    This is used by fd_bn254_g1_compress() and fd_bn254_g1_frombytes_check_subgroup().
    https://github.com/arkworks-rs/algebra/blob/v0.4.2/ec/src/models/short_weierstrass/mod.rs#L173-L178 */
-static inline fd_bn254_g1_t *
+fd_bn254_g1_t *
 fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
                                 uchar const     in[64],
                                 int             big_endian ) {
@@ -355,7 +367,7 @@ fd_bn254_g1_frombytes_internal( fd_bn254_g1_t * p,
 }
 
 /* fd_bn254_g1_frombytes_check_subgroup performs frombytes AND checks subgroup membership. */
-static inline fd_bn254_g1_t *
+fd_bn254_g1_t *
 fd_bn254_g1_frombytes_check_subgroup( fd_bn254_g1_t * p,
                                       uchar const     in[64],
                                       int             big_endian ) {

@@ -24,7 +24,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
   int enable_blake3_syscall            = 0;
-  int enable_last_restart_slot_syscall = 0;
   int enable_get_sysvar_syscall        = 0;
   int enable_get_epoch_stake_syscall   = 0;
   int enable_bls12_381_syscall         = 0;
@@ -32,7 +31,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   if( slot ) {
     enable_blake3_syscall            = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
-    enable_last_restart_slot_syscall = FD_FEATURE_ACTIVE( slot, features, last_restart_slot_sysvar );
     enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
     enable_bls12_381_syscall         = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
@@ -41,7 +39,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   } else { /* enable ALL */
 
     enable_blake3_syscall            = 1;
-    enable_last_restart_slot_syscall = 1;
     enable_get_sysvar_syscall        = 1;
     enable_get_epoch_stake_syscall   = 1;
     enable_bls12_381_syscall         = 1;
@@ -101,9 +98,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   REGISTER( "sol_get_rent_sysvar",                   fd_vm_syscall_sol_get_rent_sysvar );
 
-  if( FD_LIKELY( enable_last_restart_slot_syscall ) ) {
-    REGISTER( "sol_get_last_restart_slot",           fd_vm_syscall_sol_get_last_restart_slot_sysvar );
-  }
+  REGISTER( "sol_get_last_restart_slot",             fd_vm_syscall_sol_get_last_restart_slot_sysvar );
 
   if( enable_get_sysvar_syscall ) {
     REGISTER( "sol_get_sysvar",                      fd_vm_syscall_sol_get_sysvar );

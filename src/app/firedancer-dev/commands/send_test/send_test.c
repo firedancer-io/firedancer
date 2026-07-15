@@ -22,7 +22,6 @@ up the entire gossip subtopo.
 #include "../../../shared/fd_config.h" /* config_t */
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus_t */
-#include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
 #include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h" /* FD_STAKE_OUT_MTU */
@@ -64,7 +63,7 @@ send_test_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( strcmp( config->layout.affinity, "auto" ) ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( strcmp( config->layout.affinity, "auto" ) ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 0 );
 
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )

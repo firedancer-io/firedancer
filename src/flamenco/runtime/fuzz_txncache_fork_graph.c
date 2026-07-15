@@ -126,7 +126,7 @@ fuzz_bounded( fuzz_cursor_t * cur,
 
 static fd_txncache_t *
 setup( ulong max_live_slots, ulong max_txn_per_slot ) {
-  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0UL ) );
+  fd_txncache_shmem_t * shtc = fd_txncache_shmem_join( fd_txncache_shmem_new( fuzz_shmem, max_live_slots, max_txn_per_slot, 0, 0UL ) );
   FD_TEST( shtc );
 
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( fuzz_ljoin, shtc ) );
@@ -1128,7 +1128,7 @@ LLVMFuzzerInitialize( int *    argc,
   fd_log_level_logfile_set( 4 );
   atexit( fd_halt );
 
-  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT );
+  fuzz_shmem_fp = fd_txncache_shmem_footprint( FUZZ_MAX_LIVE_SLOTS, FUZZ_MAX_TXN_PER_SLOT, 0 );
   fuzz_ljoin_fp = fd_txncache_footprint( FUZZ_MAX_LIVE_SLOTS );
   FD_TEST( fuzz_shmem_fp );
   FD_TEST( fuzz_ljoin_fp );

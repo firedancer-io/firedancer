@@ -501,17 +501,19 @@ init_load( fd_snapct_tile_t *  ctx,
     else       fd_memcpy( out->snapshot_hash, ctx->peer.incr_hash, FD_HASH_FOOTPRINT );
   }
 
+  out->is_redirect = !file; /* always use redirect for HTTP downloads */
+
+  if( file ) out->file_sz = full ? ctx->local_in.full_snapshot_size : ctx->local_in.incremental_snapshot_size;
+  else       out->file_sz = 0UL;
+
   if( !file ) {
     out->addr = ctx->peer.addr;
-    char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
     if( full ) {
-      fd_base58_encode_32( ctx->peer.full_hash, NULL, encoded_hash );
-      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, encoded_hash ) );
-      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, encoded_hash ) );
+      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
+      FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot.tar.bz2" ) );
     } else {
-      fd_base58_encode_32( ctx->peer.incr_hash, NULL, encoded_hash );
-      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
-      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
+      FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
+      FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot.tar.bz2" ) );
     }
 
     out->is_https = 0; /* if not found in the config list, it's not https */
@@ -528,13 +530,6 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
   ctx->load_complete = 0;
-
-  /* If we are downloading the snapshot, we will get the snapshot size
-     in bytes from a metadata message sent from snapld. */
-  if( file ) {
-    if( full ) ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
-    else       ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
-  }
 
   if( !file ) {
     if( full ) {
@@ -557,32 +552,11 @@ init_load( fd_snapct_tile_t *  ctx,
     }
   }
 
-  /* Regardless of whether we load the snapshot from a file or download
-     it, we know the name of the snapshot and can publish it to the gui
-     here. */
-  if( full ) {
-    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
-      if( file ) {
-        fd_cstr_fini( ctx->http_full_snapshot_name );
-        snapshot_path_gui_publish( ctx, stem, ctx->local_in.full_snapshot_path, 1 );
-      }
-      else {
-        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
-        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ) );
-        snapshot_path_gui_publish( ctx, stem, snapshot_path, 1 );
-      }
-    }
-  } else {
-    if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
-      if( file ) {
-        fd_cstr_fini( ctx->http_incr_snapshot_name );
-        snapshot_path_gui_publish( ctx, stem, ctx->local_in.incremental_snapshot_path, 0 );
-      } else {
-        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
-        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ) );
-        snapshot_path_gui_publish( ctx, stem, snapshot_path, 0 );
-      }
-    }
+  /* Clear stale http_*_snapshot_name for file loads before rename
+     functions run.  GUI publish is deferred to the META handler. */
+  if( file ) {
+    if( full ) fd_cstr_fini( ctx->http_full_snapshot_name );
+    else       fd_cstr_fini( ctx->http_incr_snapshot_name );
   }
 }
 
@@ -597,27 +571,41 @@ log_download( fd_snapct_tile_t * ctx,
     gossip_ci_entry_t const * ci_entry = gossip_ci_map_iter_ele_const( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
     if( ci_entry->rpc_addr.l==addr.l ) {
       FD_TEST( ci_entry->allowed );
+
+      int is_entrypoint = 0;
+      for( ulong i=0UL; i<ctx->config.entrypoints_cnt; i++ ) {
+        if( FD_UNLIKELY( ctx->config.entrypoints[ i ].addr==addr.addr ) ) { is_entrypoint = 1; break; }
+      }
+      char const * kind = ctx->config.sources.gossip.allow_any ? "untrusted gossip peer" : "trusted gossip peer";
+      if( FD_UNLIKELY( is_entrypoint ) ) kind = "entrypoint gossip peer";
+
       FD_BASE58_ENCODE_32_BYTES( ci_entry->pubkey.uc, pubkey_b58 );
-      FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from allowed gossip peer %s at http://" FD_IP4_ADDR_FMT ":%hu/%s",
-                      full ? "full" : "incremental", slot, pubkey_b58,
-                      FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
-                      full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ));
+      FD_LOG_NOTICE(( "downloading %s snapshot from %s %s%s%s",
+                      full ? "full" : "incremental", kind, fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
+      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from %s %s at " FD_IP4_ADDR_FMT ":%hu",
+                    full ? "full" : "incremental", slot, kind, pubkey_b58,
+                    FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       return;
     }
   }
 
   for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
     if( addr.l==ctx->config.sources.servers[ i ].addr.l ) {
-      if( ctx->config.sources.servers[ i ].is_https ) {
-        FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at https://%s:%hu/%s",
-                        full ? "full" : "incremental", slot, i,
-                        ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ),
-                        full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ));
+      char const * scheme = ctx->config.sources.servers[ i ].is_https ? "https" : "http";
+      if( ctx->config.sources.servers[ i ].hostname[ 0 ] ) {
+        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
+                        full ? "full" : "incremental",
+                        fd_log_style_bold(), scheme, ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://%s:%hu",
+                      full ? "full" : "incremental", slot, i,
+                      scheme, ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
       } else {
-        FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at http://" FD_IP4_ADDR_FMT ":%hu/%s",
-                        full ? "full" : "incremental", slot, i,
-                        FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
-                        full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ));
+        FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
+                        full ? "full" : "incremental",
+                        fd_log_style_bold(), scheme, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+        FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://" FD_IP4_ADDR_FMT ":%hu",
+                      full ? "full" : "incremental", slot, i,
+                      scheme, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       }
       return;
     }
@@ -692,7 +680,8 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         ulong local_slot = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
         send_expected_slot( ctx, stem, local_slot );
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
+        FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
@@ -785,8 +774,9 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( can_use_local_full ) ) {
         send_expected_slot( ctx, stem, local_effective_slot );
 
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
-                        ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
+        FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
+                      ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
@@ -794,9 +784,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
           if( local_effective_slot==ULONG_MAX ) {
             if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
-              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
-                              "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
-                              ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
+              FD_LOG_INFO(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
+                            "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
+                            ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
             } else {
               FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
                               "could be found (cluster slot %lu), downloading instead",
@@ -853,7 +843,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.slot = local_slot;
         send_expected_slot( ctx, stem, local_slot );
 
-        FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+        FD_LOG_NOTICE(( "reading incremental snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.incremental_snapshot_path, fd_log_style_normal() ));
+        FD_LOG_INFO(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
         init_load( ctx, stem, 0, 1 );
       } else {
@@ -1462,13 +1453,17 @@ snapld_frag( fd_snapct_tile_t *  ctx,
              fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
     /* Before snapld starts sending down data fragments, it first sends
-       a metadata message containing the total size of the snapshot as
-       well as the filename.  This is only done for HTTP loading. */
-    int full;
+       a metadata message containing the total size of the snapshot.
+       Both file and HTTP paths send this message. */
+    int full, file;
     switch( ctx->state ) {
-      case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; break;
-      case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; break;
+      case FD_SNAPCT_STATE_READING_FULL_FILE:        full = 1; file = 1; break;
+      case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE: full = 0; file = 1; break;
+      case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; file = 0; break;
+      case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; file = 0; break;
 
+      case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
+      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
       case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
         return; /* Ignore */
@@ -1480,7 +1475,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
 
     if( FD_UNLIKELY( meta->total_sz==0UL ) ) {
       if( FD_UNLIKELY( !ctx->malformed ) ) {
-        FD_LOG_WARNING(( "received zero Content-Length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
+        FD_LOG_WARNING(( "received zero-length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
         ctx->malformed = 1;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
       }
@@ -1489,6 +1484,26 @@ snapld_frag( fd_snapct_tile_t *  ctx,
 
     if( full ) ctx->metrics.full.bytes_total        = meta->total_sz;
     else       ctx->metrics.incremental.bytes_total = meta->total_sz;
+
+    /* Publish snapshot path to GUI.  For file loads, use the local
+       path directly.  For HTTP downloads, construct the full URL from
+       the resolved snapshot name. */
+    if( file ) {
+      if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+        snapshot_path_gui_publish( ctx, stem, full ? ctx->local_in.full_snapshot_path : ctx->local_in.incremental_snapshot_path, full );
+      }
+    } else {
+      if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
+      else       fd_cstr_ncpy( ctx->http_incr_snapshot_name, meta->resolved_name, PATH_MAX );
+
+      if( FD_LIKELY( !!ctx->out_gui.mem ) ) {
+        char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
+        FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                 FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ),
+                 full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ) );
+        snapshot_path_gui_publish( ctx, stem, snapshot_path, full );
+      }
+    }
 
     return;
   }

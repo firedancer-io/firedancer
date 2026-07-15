@@ -14,7 +14,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_fseq;
 extern fd_topo_obj_callbacks_t fd_obj_cb_metrics;
 extern fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl;
 extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
-extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 
@@ -25,7 +24,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_metrics,
   &fd_obj_cb_netdev_tbl,
   &fd_obj_cb_neigh4_hmap,
-  &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
   NULL,
@@ -39,8 +37,11 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
+  &fd_cfg_stage_sysfs_poll,
   NULL,
 };
+
+FD_STATIC_ASSERT( sizeof(STAGES)/sizeof(STAGES[0])<=CONFIGURE_STAGE_COUNT, stage_array_larger_than_configure_stage_count );
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
@@ -93,7 +94,7 @@ extern action_t fd_action_ready;
 extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
 extern action_t fd_action_set_identityh;
-extern action_t fd_action_get_identity;
+extern action_t fd_action_get_identityh;
 extern action_t fd_action_help;
 extern action_t fd_action_version;
 extern action_t fd_action_metrics;
@@ -109,7 +110,7 @@ action_t * ACTIONS[] = {
   &fd_action_mem,
   &fd_action_netconf,
   &fd_action_set_identityh,
-  &fd_action_get_identity,
+  &fd_action_get_identityh,
   &fd_action_help,
   &fd_action_version,
   &fd_action_metrics,

@@ -372,8 +372,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] );
   FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 2000000UL );
 
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
   fd_runtime_fini_bundle( env->runtime );
 
   /* After commit, a fresh non-bundle txn sees 2000000. */
@@ -384,7 +384,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[2].err.is_committable );
   FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 2000000UL );
   env->txn_out[2].err.is_committable = 0;
-  fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
+  fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2], 0 );
 
   FD_LOG_NOTICE(( "test rw -> rw... ok" ));
 
@@ -438,10 +438,10 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[3].accounts.is_writable[1] == 0 );
   FD_TEST( env->txn_out[3].accounts.account[1]->lamports == 2000011UL );
 
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[2] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[3] );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[2], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[3], 0 );
   fd_runtime_fini_bundle( env->runtime );
 
   FD_LOG_NOTICE(( "test rw -> ro -> rw -> ro... ok" ));
@@ -579,8 +579,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 ); /* prior owner released ownership */
     FD_TEST( env->txn_out[0].accounts.is_writable[1] == 0 );      /* still read-only for tx0 */
 
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
     /* Post-commit non-bundle read must observe the write (would be the
@@ -593,7 +593,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[2].err.is_committable );
     FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 4000000UL );
     env->txn_out[2].err.is_committable = 0;
-    fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
+    fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2], 0 );
 
     env->txn_in.bundle.is_bundle = 1; /* restore for subsequent tests */
   }
@@ -639,8 +639,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[1].accounts.account[1]->data_len != 64UL );
   FD_TEST( memcmp( env->txn_out[1].accounts.account[1]->owner, &some_program, 32UL ) );
 
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
   fd_runtime_fini_bundle( env->runtime );
 
   /* Post-commit non-bundle read (fresh message). */
@@ -654,7 +654,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_pubkey_t zero_owner = {0};
   FD_TEST( !memcmp( env->txn_out[2].accounts.account[1]->owner, &zero_owner, 32UL ) );
   env->txn_out[2].err.is_committable = 0;
-  fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
+  fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2], 0 );
 
   FD_LOG_NOTICE(( "test reclaim divergence... ok" ));
 
@@ -702,6 +702,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                                       0UL,
                                       ULONG_MAX,
                                       0UL,
+                                      2000000000UL,
+                                      (uint)FD_STAKE_STATE_SZ,
                                       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
     {
@@ -743,8 +745,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[1].accounts.is_writable[1] );
     FD_TEST( env->txn_out[1].accounts.account[1]->lamports==0UL );
 
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
     {
@@ -1103,8 +1105,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[1].err.is_committable );
     FD_TEST( env->txn_out[1].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
 
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
     FD_LOG_NOTICE(( "test bundle-forwarded nonce... ok" ));
@@ -1137,9 +1139,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_out[1].accounts.rm_vote [1] = 1;
   env->txn_out[2].accounts.new_vote[1] = 1;
 
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
-  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[2] );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
+  fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[2], 0 );
   fd_runtime_fini_bundle( env->runtime );
 
   fd_new_votes_t * new_votes = fd_bank_new_votes( env->bank );
@@ -1203,8 +1205,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 );
     FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 );
 
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
     fd_new_votes_apply_delta( nv, fidx );
@@ -1240,6 +1242,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                          (uint)FD_STAKE_STATE_SZ, sdata, &fd_solana_stake_program_id );
     fd_stake_delegations_root_update( fd_banks_stake_delegations_root_query( env->mini->banks ),
                                       &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
                                       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 
     fd_txn_p_t sp[2] = {0};
@@ -1268,8 +1271,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     env->txn_out[1].accounts.account[1]->data_len   = 0UL;
     fd_memset( env->txn_out[1].accounts.account[1]->owner, 0, 32UL );
 
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
-    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0], 0 );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
     fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );

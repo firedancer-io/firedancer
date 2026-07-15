@@ -188,7 +188,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
      fd_quic to coalesce packet ACKs. */
   long ack_delay;
-# define FD_QUIC_DEFAULT_ACK_DELAY (long)(50e6) /* 50ms */
+# define FD_QUIC_DEFAULT_ACK_DELAY (long)(10e6) /* 10ms */
 
   /* ack_threshold: immediately send an ACK when the number of
      unacknowledged stream bytes exceeds this value. */

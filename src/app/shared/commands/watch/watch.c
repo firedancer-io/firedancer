@@ -1,6 +1,8 @@
 #include "watch.h"
 #include "generated/watch_seccomp.h"
 
+#include "../../fd_bootinfo.h"
+
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../discof/gossip/fd_gossip_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -36,6 +38,10 @@ static int ended_on_newline = 1;
 
 static char  frame_buf[ 65536UL ];
 static ulong frame_len;
+
+/* Show all category detail rows, not just the primary row of each.
+   Set from --full. */
+static int watch_full = 0;
 
 static void
 flush_frame( void ) {
@@ -104,8 +110,9 @@ fmt_count( char * buf,
   if( FD_LIKELY( count<1000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%lu", count ) );
   else if( FD_LIKELY( count<1000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f K", (double)count/1000.0 ) );
   else if( FD_LIKELY( count<1000000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f M", (double)count/1000000.0 ) );
+  else FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f G", (double)count/1000000000.0 ) );
 
-  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
+  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%7s", tmp ) );
   return buf;
 }
 
@@ -119,7 +126,7 @@ fmt_countf( char * buf,
   else if( FD_LIKELY( count<1000000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f M", (double)count/1000000.0 ) );
   else memcpy( tmp, "-", 2UL );
 
-  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
+  FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%7s", tmp ) );
   return buf;
 }
 
@@ -257,10 +264,14 @@ static ulong rserve_rps_valid_samples_idx = 0UL;
 static ulong rserve_rps_valid_samples[ 100UL ];
 static ulong rserve_rps_invalid_samples_idx = 0UL;
 static ulong rserve_rps_invalid_samples[ 100UL ];
+static ulong rserve_rps_miss_samples[ 100UL ];
+static ulong rserve_rps_sigvfy_samples[ 100UL ];
+static ulong rserve_rps_stale_samples[ 100UL ];
+static ulong rserve_rps_other_rej_samples[ 100UL ];
 
 #define RESET   "\033[0m"
 #define BOLD    "\033[1m"
-#define UNBOLD  "\033[22m"
+#define DIM     "\033[2m"
 
 #define RED     "\033[31m"
 #define GREEN   "\033[32m"
@@ -274,6 +285,48 @@ static ulong rserve_rps_invalid_samples[ 100UL ];
 #define BYELLOW "\033[93m"
 
 #define CLEARLN "\033[K"
+
+/* Row grammar: an accent tinted glyph + bold colored section label
+   in a fixed 12 char column, a dim divider, then dim lowercase keys
+   with plain values so the data carries the visual weight.  ROWH()
+   opens a section row (pass the label pre-padded to 12 chars), ROWC
+   opens a continuation row aligned under the divider, K() emits one
+   key, U() a dim unit suffix.  Icons are single cell glyphs from the
+   geometric shapes block so every row aligns in every font. */
+#define ROWH( icon, color, label ) color icon " " BOLD label RESET DIM "│" RESET
+#define ROWC        "              " DIM "│" RESET
+#define K( key )    "  " DIM key " " RESET
+#define U( unit )   DIM unit RESET
+
+/* Severity color for utilization style percentages: quiet when calm,
+   loud only when it matters. */
+static char const *
+sev_color( double pct ) {
+  if( FD_UNLIKELY( pct>=85.0 ) ) return RED;
+  if( FD_UNLIKELY( pct>=50.0 ) ) return YELLOW;
+  return "";
+}
+
+/* Unicode block progress bar, filled green with a dim tail. */
+static char *
+fmt_bar( char * buf,
+         ulong  buf_sz,
+         double pct,
+         ulong  width ) {
+  pct = fd_double_if( pct<0.0, 0.0, fd_double_if( pct>100.0, 100.0, pct ) );
+  ulong filled = (ulong)( pct*(double)width/100.0+0.5 );
+  ulong len = 0UL, l;
+  FD_TEST( fd_cstr_printf_check( buf, buf_sz, &len, GREEN ) );
+  for( ulong i=0UL;     i<filled; i++ ) { FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, "█" ) ); len += l; }
+  FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, DIM ) ); len += l;
+  for( ulong i=filled; i<width;   i++ ) { FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, "░" ) ); len += l; }
+  FD_TEST( fd_cstr_printf_check( buf+len, buf_sz-len, &l, RESET ) );
+  return buf;
+}
+
+#define BAR( pct, width ) (__extension__({                        \
+    fmt_bar( fd_alloca_check( 1UL, 256UL ), 256UL, pct, width );  \
+  }))
 
 #define PRINT(...) do {                          \
   ulong _len;                                    \
@@ -318,9 +371,9 @@ write_bench( config_t const * config,
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_sent_samples[ i ];
   char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
 
-  PRINT( "🌶  " BOLD BGREEN "BENCH......." RESET UNBOLD
-         " " BOLD "GENERATED TPS" UNBOLD " %s"
-         " " BOLD "BENCHG BUSY"   UNBOLD, tps_str );
+  PRINT( ROWH( "◎", BGREEN, "bench       " )
+         K( "tps" ) "%s"
+         K( "benchg" ), tps_str );
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchg" ) ) ) continue;
 
@@ -329,10 +382,10 @@ write_bench( config_t const * config,
     double idle_pct = 100.0*(double)( diff_tile( config, "benchg", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ) )/(double)total_ticks;
     double busy_pct = 100.0 - idle_pct - backp_pct;
 
-    PRINT( " %.1f %%", busy_pct );
+    PRINT( " %s%.1f" U( "%%" ) RESET, sev_color( busy_pct ), busy_pct );
   }
 
-  PRINT( " " BOLD "BENCHS BUSY" UNBOLD );
+  PRINT( K( "benchs" ) );
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchs" ) ) ) continue;
 
@@ -341,7 +394,7 @@ write_bench( config_t const * config,
     double idle_pct = 100.0*(double)( diff_tile( config, "benchs", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ) )/(double)total_ticks;
     double busy_pct = 100.0 - idle_pct - backp_pct;
 
-    PRINT( " %.1f %%", busy_pct );
+    PRINT( " %s%.1f" U( "%%" ) RESET, sev_color( busy_pct ), busy_pct );
   }
 
   PRINT( CLEARLN "\n" );
@@ -362,16 +415,17 @@ write_backtest( config_t const * config,
   ulong completed_slots = current_slot-start_slot;
 
   if( FD_UNLIKELY( final_slot==ULONG_MAX ) ) {
-    PRINT( "🧪 " BOLD BGREEN "BACKTEST...." RESET UNBOLD
-            " " BOLD "PCT" UNBOLD "     ? (%lu/?)" CLEARLN "\n", completed_slots );
+    PRINT( ROWH( "◇", BGREEN, "backtest    " )
+           K( "slots" ) "%lu" U( " / ?" ) CLEARLN "\n", completed_slots );
     return;
   }
 
   ulong  total_slots = final_slot-start_slot;
   double progress    = total_slots ? 100.0 * (double)completed_slots / (double)total_slots : 100.0;
-  PRINT( "🧪 " BOLD BGREEN "BACKTEST...." RESET UNBOLD
-         " " BOLD "PCT" UNBOLD " %.1f %% (%lu/%lu)" CLEARLN "\n",
-    progress, completed_slots, total_slots );
+  PRINT( ROWH( "◇", BGREEN, "backtest    " )
+         "  %s " BOLD "%5.1f" RESET U( "%%" )
+         K( "slots" ) "%lu" U( " /" ) " %lu" CLEARLN "\n",
+    BAR( progress, 20UL ), progress, completed_slots, total_slots );
 }
 
 static void
@@ -451,29 +505,33 @@ write_snapshots( config_t const * config,
   double snapin_idle_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapin_total_ticks;
   double snapwr_idle_pct = 100.0*(double)diff_tile( config, "snapwr", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapwr_total_ticks;
 
-  PRINT( "⚡ " BOLD BYELLOW "SNAPSHOTS..." RESET UNBOLD
-          " " BOLD "STATE" UNBOLD " %s"
-          " " BOLD "PCT"   UNBOLD " %.1f %%"
-          " " BOLD "RX"    UNBOLD " %3.f MB/s"
-          " " BOLD "WR"    UNBOLD " %3.f MB/s"
-          " " BOLD "ACC"   UNBOLD " %3.1f M/s"
-          " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
-          " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-    fd_snapct_state_str( (int)state ),
+  double busy [ 5 ] = { 100.0-snapct_idle_pct-snapct_backp_pct,
+                        100.0-snapld_idle_pct-snapld_backp_pct,
+                        100.0-snapdc_idle_pct-snapdc_backp_pct,
+                        100.0-snapin_idle_pct-snapin_backp_pct,
+                        100.0-snapwr_idle_pct-snapwr_backp_pct };
+  double backp[ 5 ] = { snapct_backp_pct, snapld_backp_pct, snapdc_backp_pct, snapin_backp_pct, snapwr_backp_pct };
+  char const * stage[ 5 ] = { "ct", "ld", "dc", "in", "wr" };
+
+  PRINT( ROWH( "◐", BYELLOW, "snapshot    " )
+         "  %s " BOLD "%5.1f" RESET U( "%%" )
+         K( "state" ) "%s"
+         K( "rx" ) "%3.0f" U( " MB/s" )
+         K( "wr" ) "%3.0f" U( " MB/s" )
+         K( "acc" ) "%3.1f" U( " M/s" )
+         K( "busy" ),
+    BAR( progress, 20UL ),
     progress,
+    fd_snapct_state_str( (int)state ),
     megabytes_per_second,
     wr_megabytes_per_second,
-    million_accounts_per_second,
-    snapct_backp_pct,
-    snapld_backp_pct,
-    snapdc_backp_pct,
-    snapin_backp_pct,
-    snapwr_backp_pct,
-    100.0-snapct_idle_pct-snapct_backp_pct,
-    100.0-snapld_idle_pct-snapld_backp_pct,
-    100.0-snapdc_idle_pct-snapdc_backp_pct,
-    100.0-snapin_idle_pct-snapin_backp_pct,
-    100.0-snapwr_idle_pct-snapwr_backp_pct );
+    million_accounts_per_second );
+  for( ulong i=0UL; i<5UL; i++ )
+    PRINT( " " U( "%s" ) " %s%3.0f" U( "%%" ) RESET, stage[ i ], sev_color( busy[ i ] ), busy[ i ] );
+  PRINT( K( "backp" ) );
+  for( ulong i=0UL; i<5UL; i++ )
+    PRINT( " " U( "%s" ) " %s%3.0f" U( "%%" ) RESET, stage[ i ], sev_color( backp[ i ] ), backp[ i ] );
+  PRINT( CLEARLN "\n" );
 }
 
 static long
@@ -647,19 +705,20 @@ write_accdb( config_t const * config,
   double frag_pct    = current_bytes ? 100.0*(double)frag_bytes/(double)current_bytes : 0.0;
   double index_pct   = acct_cap      ? 100.0*(double)acct_cnt/(double)acct_cap        : 0.0;
 
-  PRINT( "💾 " BOLD GREEN "ACCOUNTS...." RESET UNBOLD
-         " " BOLD "CACHE SIZE"    UNBOLD " %lu GiB"
-         " " BOLD "DISK"          UNBOLD " %.1f GB"
-         " " BOLD "LIVE DATA"     UNBOLD " %.1f GB"
-         " " BOLD "FRAGMENTATION" UNBOLD " %.1f GB (%4.1f%%)"
-         " " BOLD "INDEX"         UNBOLD " %4.1f%% (%.1fM / %.1fM)"
-         " " BOLD "COMPACTION"    UNBOLD " %s (%lu / %lu)"
-         " " BOLD "BUSY"          UNBOLD " %3.0f%%" CLEARLN "\n",
+  PRINT( ROWH( "■", GREEN, "accounts    " )
+         K( "cache" ) "%lu" U( " GiB" )
+         K( "disk" ) "%.1f" U( " GB" )
+         K( "live" ) "%.1f" U( " GB" )
+         K( "frag" ) "%.1f" U( " GB" ) " %s%4.1f" U( "%%" ) RESET
+         K( "index" ) "%s%4.1f" U( "%%" ) RESET " " U( "%.1fM/%.1fM" )
+         K( "compact" ) "%s " U( "%lu/%lu" )
+         K( "busy" ) "%s%3.0f" U( "%%" ) RESET CLEARLN "\n",
     config->firedancer.accounts.cache_size_gib,
-    data_gb, live_gb, frag_gb, frag_pct,
-    index_pct, (double)acct_cnt/1e6, (double)acct_cap/1e6,
-    in_compaction ? "running" : "idle", compact_done, compact_req,
-    accdb_busy_pct );
+    data_gb, live_gb,
+    frag_gb, sev_color( frag_pct ), frag_pct,
+    sev_color( index_pct ), index_pct, (double)acct_cnt/1e6, (double)acct_cap/1e6,
+    in_compaction ? YELLOW "running" RESET : DIM "idle" RESET, compact_done, compact_req,
+    sev_color( accdb_busy_pct ), accdb_busy_pct );
 
   ulong const cap = sizeof(accdb_acquired_samples)/sizeof(accdb_acquired_samples[0]);
   ulong n = fd_ulong_min( accdb_samples_idx, cap );
@@ -706,13 +765,15 @@ write_accdb( config_t const * config,
   char * pre_str   = COUNTF( preevicted );
   char * wait_str  = COUNTF( waited   );
 
-  PRINT( "               "
-         " " BOLD "ACQUIRE" UNBOLD " %s /s (%s wr /s)"
-         " " BOLD "HIT"     UNBOLD " %5.1f%%"
-         " " BOLD "MISS"    UNBOLD " %s /s"
-         " " BOLD "EVICT"   UNBOLD " %s /s (+%s /s)"
-         " " BOLD "WAIT"    UNBOLD " %s /s"
-         " " BOLD "IO"      UNBOLD " %s rd %s wr-acq %s wr-pe %s cp" CLEARLN "\n",
+  if( FD_LIKELY( !watch_full ) ) return 1;
+
+  PRINT( ROWC
+         K( "acquire" ) "%s" U( "/s" ) " " U( "(%s wr/s)" )
+         K( "hit" ) "%5.1f" U( "%%" )
+         K( "miss" ) "%s" U( "/s" )
+         K( "evict" ) "%s" U( "/s (+%s/s)" )
+         K( "wait" ) "%s" U( "/s" )
+         K( "io" ) "%s" U( " rd" ) " %s" U( " wr-acq" ) " %s" U( " wr-pe" ) " %s" U( " cp" ) CLEARLN "\n",
     acq_str, wr_str, hit_pct, miss_str, evict_str, pre_str, wait_str,
     read_str, write_str, preevict_str, copy_str );
 
@@ -734,43 +795,21 @@ write_accdb( config_t const * config,
     commit_overwrite_class_str[ c ] = COUNTF_T( 100.0*(double)sum_co/(double)n );
   }
 
-  PRINT( "               "
-         " " BOLD "EVICT/s BY CLASS" UNBOLD
-         " " BOLD "128B" UNBOLD " %s (+%s)"
-         " " BOLD "512B" UNBOLD " %s (+%s)"
-         " " BOLD "2K"   UNBOLD " %s (+%s)"
-         " " BOLD "8K"   UNBOLD " %s (+%s)"
-         " " BOLD "32K"  UNBOLD " %s (+%s)"
-         " " BOLD "128K" UNBOLD " %s (+%s)"
-         " " BOLD "1M"   UNBOLD " %s (+%s)"
-         " " BOLD "10M"  UNBOLD " %s (+%s)" CLEARLN "\n",
-    evict_class_str[0], preevict_class_str[0],
-    evict_class_str[1], preevict_class_str[1],
-    evict_class_str[2], preevict_class_str[2],
-    evict_class_str[3], preevict_class_str[3],
-    evict_class_str[4], preevict_class_str[4],
-    evict_class_str[5], preevict_class_str[5],
-    evict_class_str[6], preevict_class_str[6],
-    evict_class_str[7], preevict_class_str[7] );
+  /* Per size class grid: dim header row, then one row per family
+     with every cell right aligned in a fixed 19 char column. */
+  static char const * class_lbl[ 8 ] = { "128b", "512b", "2k", "8k", "32k", "128k", "1m", "10m" };
 
-  PRINT( "               "
-         " " BOLD "COMMIT/s        " UNBOLD
-         " " BOLD "128B" UNBOLD " %s (=%s)"
-         " " BOLD "512B" UNBOLD " %s (=%s)"
-         " " BOLD "2K"   UNBOLD " %s (=%s)"
-         " " BOLD "8K"   UNBOLD " %s (=%s)"
-         " " BOLD "32K"  UNBOLD " %s (=%s)"
-         " " BOLD "128K" UNBOLD " %s (=%s)"
-         " " BOLD "1M"   UNBOLD " %s (=%s)"
-         " " BOLD "10M"  UNBOLD " %s (=%s)" CLEARLN "\n",
-    commit_new_class_str[0], commit_overwrite_class_str[0],
-    commit_new_class_str[1], commit_overwrite_class_str[1],
-    commit_new_class_str[2], commit_overwrite_class_str[2],
-    commit_new_class_str[3], commit_overwrite_class_str[3],
-    commit_new_class_str[4], commit_overwrite_class_str[4],
-    commit_new_class_str[5], commit_overwrite_class_str[5],
-    commit_new_class_str[6], commit_overwrite_class_str[6],
-    commit_new_class_str[7], commit_overwrite_class_str[7] );
+  PRINT( ROWC K( "class   " ) );
+  for( ulong c=0UL; c<8UL; c++ ) PRINT( DIM "%21s" RESET, class_lbl[ c ] );
+  PRINT( CLEARLN "\n" );
+
+  PRINT( ROWC K( "evict/s " ) );
+  for( ulong c=0UL; c<8UL; c++ ) PRINT( "        %6s" DIM "+" RESET "%6s", evict_class_str[ c ], preevict_class_str[ c ] );
+  PRINT( CLEARLN "\n" );
+
+  PRINT( ROWC K( "commit/s" ) );
+  for( ulong c=0UL; c<8UL; c++ ) PRINT( "        %6s" DIM "=" RESET "%6s", commit_new_class_str[ c ], commit_overwrite_class_str[ c ] );
+  PRINT( CLEARLN "\n" );
 
   ulong cache_used_off = MIDX( GAUGE, ACCDB, CACHE_CLASS_USED );
   ulong cache_max_off  = MIDX( GAUGE, ACCDB, CACHE_CLASS_MAX  );
@@ -785,24 +824,14 @@ write_accdb( config_t const * config,
     cache_pct     [ c ] = max ? 100.0*(double)used/(double)max : 0.0;
   }
 
-  PRINT( "               "
-         " " BOLD "CACHE FULL" UNBOLD
-         " " BOLD "128B" UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "512B" UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "2K"   UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "8K"   UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "32K"  UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "128K" UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "1M"   UNBOLD " %s/%s (%5.1f%%)"
-         " " BOLD "10M"  UNBOLD " %s/%s (%5.1f%%)" CLEARLN "\n",
-    cache_used_str[0], cache_max_str[0], cache_pct[0],
-    cache_used_str[1], cache_max_str[1], cache_pct[1],
-    cache_used_str[2], cache_max_str[2], cache_pct[2],
-    cache_used_str[3], cache_max_str[3], cache_pct[3],
-    cache_used_str[4], cache_max_str[4], cache_pct[4],
-    cache_used_str[5], cache_max_str[5], cache_pct[5],
-    cache_used_str[6], cache_max_str[6], cache_pct[6],
-    cache_used_str[7], cache_max_str[7], cache_pct[7] );
+  PRINT( ROWC K( "cache   " ) );
+  for( ulong c=0UL; c<8UL; c++ ) {
+    /* COUNT_T strings are already 6 wide: cell = 1+5+1+1+6+1+6 = 21. */
+    PRINT( " %s%5.1f" U( "%%" ) RESET " %s" DIM "/" RESET "%s",
+      sev_color( cache_pct[ c ] ), cache_pct[ c ],
+      cache_used_str[ c ], cache_max_str[ c ] );
+  }
+  PRINT( CLEARLN "\n" );
 
   ulong cache_resv_off = MIDX( GAUGE, ACCDB, CACHE_CLASS_RESERVED );
   char * cache_resv_str[ 8 ];
@@ -812,19 +841,10 @@ write_accdb( config_t const * config,
     else                  cache_resv_str[ c ] = COUNT_T( resv );
   }
 
-  PRINT( "               "
-         " " BOLD "RESERVED  " UNBOLD
-         " " BOLD "128B" UNBOLD " %s         "
-         " " BOLD "512B" UNBOLD " %s         "
-         " " BOLD "2K"   UNBOLD " %s         "
-         " " BOLD "8K"   UNBOLD " %s         "
-         " " BOLD "32K"  UNBOLD " %s         "
-         " " BOLD "128K" UNBOLD " %s         "
-         " " BOLD "1M"   UNBOLD " %s         "
-         " " BOLD "10M"  UNBOLD " %s         " CLEARLN "\n",
-    cache_resv_str[0], cache_resv_str[1], cache_resv_str[2], cache_resv_str[3],
-    cache_resv_str[4], cache_resv_str[5], cache_resv_str[6], cache_resv_str[7] );
-  return 6;
+  PRINT( ROWC K( "reserved" ) );
+  for( ulong c=0UL; c<8UL; c++ ) PRINT( "               %6s", cache_resv_str[ c ] );
+  PRINT( CLEARLN "\n" );
+  return 7;
 }
 
 static uint
@@ -859,13 +879,14 @@ write_wfs( config_t const * config,
   double         stake_online  = (double)_stake_online / stake_div;
   double         stake_total   = (double)_stake_total  / stake_div;
 
-  PRINT( "⏳ " BOLD YELLOW "CLUSTER BOOT" RESET UNBOLD
-         " " BOLD "STATE" UNBOLD " %s"
-         " " BOLD "STAKE" UNBOLD " %3.0f%% (%.1f%s / %.1f%s)"
-         " " BOLD "SHRED VERSION" UNBOLD " %lu"
-         " " BOLD "PEERS" UNBOLD " %lu online %lu offline"
-         " " BOLD "BANK HASH"  UNBOLD " %s" CLEARLN "\n",
+  PRINT( ROWH( "○", YELLOW, "cluster boot" )
+         K( "state" ) "%s"
+         K( "stake" ) "%s " BOLD "%3.0f" RESET U( "%%" ) " " U( "(%.1f%s / %.1f%s)" )
+         K( "shred ver" ) "%lu"
+         K( "peers" ) "%lu" U( " online " ) "%lu" U( " offline" )
+         K( "bank hash" ) "%s" CLEARLN "\n",
     state_str,
+    BAR( stake_pct, 10UL ),
     stake_pct,
     stake_online,
     stake_unit,
@@ -894,19 +915,19 @@ write_gossip( config_t const * config,
   double gossip_idle_pct = 100.0*(double)diff_tile( config, "gossip", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gossip_total_ticks;
   double gossip_busy_pct = 100.0 - gossip_backp_pct - gossip_idle_pct;
 
-  PRINT( "💬 " BOLD BLUE "GOSSIP......" RESET UNBOLD
-         " " BOLD "RX"    UNBOLD " %s"
-         " " BOLD "TX"    UNBOLD " %s"
-         " " BOLD "CRDS"  UNBOLD " %s"
-         " " BOLD "PEERS" UNBOLD " %s"
-         " " BOLD "BUSY"  UNBOLD " %3.0f%%"
-         " " BOLD "BACKP" UNBOLD " %3.0f%%" CLEARLN "\n",
+  PRINT( ROWH( "●", BLUE, "gossip      " )
+         K( "rx" ) "%s"
+         K( "tx" ) "%s"
+         K( "crds" ) "%s"
+         K( "peers" ) "%s"
+         K( "busy" ) "%s%3.0f" U( "%%" ) RESET
+         K( "backp" ) "%s%3.0f" U( "%%" ) RESET CLEARLN "\n",
     DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
     contact_info,
-    gossip_busy_pct,
-    gossip_backp_pct );
+    sev_color( gossip_busy_pct ), gossip_busy_pct,
+    sev_color( gossip_backp_pct ), gossip_backp_pct );
   return 1U;
 }
 
@@ -919,15 +940,17 @@ write_repair( config_t const * config,
   if( repair_tile_idx==ULONG_MAX ) return 0U;
   ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
-  PRINT( "🧱 " BOLD RED "REPAIR......" RESET UNBOLD
-         " " BOLD "RX"            UNBOLD " %s"
-         " " BOLD "TX"            UNBOLD " %s"
-         " " BOLD "REPAIR SLOT"   UNBOLD " %lu (%02ld)"
-         " " BOLD "TURBINE SLOT"  UNBOLD " %lu" CLEARLN "\n",
+  long repair_lag = (long)repair_slot-(long)turbine_slot;
+  PRINT( ROWH( "▲", RED, "repair      " )
+         K( "rx" ) "%s"
+         K( "tx" ) "%s"
+         K( "repair slot" ) "%lu %s%+03ld" RESET
+         K( "turbine slot" ) "%lu" CLEARLN "\n",
     DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
     repair_slot,
-    (long)repair_slot-(long)turbine_slot,
+    repair_lag<-4L ? RED : DIM,
+    repair_lag,
     turbine_slot );
   return 1U;
 }
@@ -940,12 +963,15 @@ write_rserve( config_t const * config,
   ulong rserve_tile_idx = fd_topo_find_tile( &config->topo, "rserve", 0UL );
   if( rserve_tile_idx==ULONG_MAX ) return 0UL;
 
-  (void)cur_tile;
+  ulong const * t = cur_tile + rserve_tile_idx*FD_METRICS_TOTAL_SZ;
 
   ulong shreds_stored_sum = 0UL;
   ulong num_stored_shreds = fd_ulong_min( shreds_stored_samples_idx, sizeof(shreds_stored_sample)/sizeof(shreds_stored_sample[0]));
   for( ulong i=0UL; i<num_stored_shreds; i++ ) shreds_stored_sum += shreds_stored_sample[ i ];
   char * shreds_stored = COUNTF( 100.0*(double)shreds_stored_sum/(double)num_stored_shreds );
+
+  ulong shreds_cur = t[ MIDX( GAUGE, RSERVE, SHREDS_CURRENT ) ];
+  ulong shreds_max = t[ MIDX( GAUGE, RSERVE, SHREDS_MAX     ) ];
 
   ulong valid_sum = 0UL;
   ulong num_valid_samples = fd_ulong_min( rserve_rps_valid_samples_idx, sizeof(rserve_rps_valid_samples)/sizeof(rserve_rps_valid_samples[0]) );
@@ -960,16 +986,53 @@ write_rserve( config_t const * config,
   ulong num_total_samples = fd_ulong_max( num_valid_samples, 1UL );
   char * total_str = COUNTF( 100.0*(double)(valid_sum+invalid_sum)/(double)num_total_samples );
 
-  PRINT( "🔧 " BOLD GREEN "RSERVE......" RESET UNBOLD
-         " " BOLD "RX" UNBOLD " %s"
-         " " BOLD "TX" UNBOLD " %s"
-         " " BOLD "STORED SHREDS" UNBOLD " %s /s"
-         " " BOLD "RPS" UNBOLD " %s (%s valid, %s invalid) /s" CLEARLN "\n",
+  ulong n_inv = fd_ulong_max( num_invalid_samples, 1UL );
+
+  ulong miss_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) miss_sum += rserve_rps_miss_samples[ i ];
+  char * miss_str = COUNTF( 100.0*(double)miss_sum/(double)n_inv );
+
+  ulong sigvfy_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) sigvfy_sum += rserve_rps_sigvfy_samples[ i ];
+  char * sigvfy_str = COUNTF( 100.0*(double)sigvfy_sum/(double)n_inv );
+
+  ulong stale_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) stale_sum += rserve_rps_stale_samples[ i ];
+  char * stale_str = COUNTF( 100.0*(double)stale_sum/(double)n_inv );
+
+  ulong other_sum = 0UL;
+  for( ulong i=0UL; i<num_invalid_samples; i++ ) other_sum += rserve_rps_other_rej_samples[ i ];
+  char * other_str = COUNTF( 100.0*(double)other_sum/(double)n_inv );
+
+  ulong  disk_used  = t[ MIDX( GAUGE, RSERVE, DISK_CURRENT_BYTES   ) ];
+  ulong  disk_alloc = t[ MIDX( GAUGE, RSERVE, DISK_ALLOCATED_BYTES ) ];
+  double disk_gb    = (double)disk_alloc/1e9;
+  double disk_pct   = disk_alloc ? 100.0*(double)disk_used/(double)disk_alloc : 0.0;
+
+  char * shreds_cur_str = COUNT( shreds_cur );
+  char * shreds_max_str = COUNT( shreds_max );
+
+  PRINT( ROWH( "□", GREEN, "rserve      " )
+         K( "rx" ) "%s"
+         K( "tx" ) "%s"
+         K( "shreds" ) "%s" U( "/s" ) " " U( "(%s / %s)" )
+         K( "disk" ) "%.1f" U( " GB" ) " %s%4.1f" U( "%%" ) RESET,
       DIFF_LINK_BYTES( "net_rserve", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
       DIFF_LINK_BYTES( "rserve_net", COUNTER, LINK, FRAG_CONSUMED_BYTES ),
-      shreds_stored,
+      shreds_stored, shreds_cur_str, shreds_max_str,
+      disk_gb, sev_color( disk_pct ), disk_pct );
+  PRINT( K( "rps" ) "%s" U( "/s" ) " " U( "(%s valid, %s invalid)" ) CLEARLN "\n",
       total_str, valid_str, invalid_str );
-  return 1U;
+
+  if( FD_LIKELY( !watch_full ) ) return 1U;
+
+  PRINT( ROWC
+         K( "miss" ) "%s" U( "/s" )
+         K( "sigvfy" ) "%s" U( "/s" )
+         K( "stale" ) "%s" U( "/s" )
+         K( "other" ) "%s" U( "/s" ) CLEARLN "\n",
+      miss_str, sigvfy_str, stale_str, other_str );
+  return 2U;
 }
 
 static uint
@@ -1014,16 +1077,18 @@ write_replay( config_t const * config,
   for( ulong i=0UL; i<num_cups_samples; i++ ) cups_sum += cups_samples[ i ];
   char * mcups_str = COUNTF( 100.0*(double)cups_sum/(double)num_cups_samples );
 
-  PRINT( "💥 " BOLD MAGENTA "REPLAY......" RESET UNBOLD
-         " " BOLD "SLOT"      UNBOLD " %lu (%02ld)"
-         " " BOLD "CU/s"      UNBOLD " %s"
-         " " BOLD "TPS"       UNBOLD " %s"
-         " " BOLD "SPS"       UNBOLD " %s"
-         " " BOLD "LEADER IN" UNBOLD " %s"
-         " " BOLD "ROOT DIST" UNBOLD " %lu"
-         " " BOLD "BANKS"     UNBOLD " %2lu" CLEARLN "\n",
+  long replay_lag = (long)reset_slot-(long)turbine_slot;
+  PRINT( ROWH( "▶", MAGENTA, "replay      " )
+         K( "slot" ) BOLD "%lu" RESET " %s%+03ld" RESET
+         K( "cu/s" ) "%s"
+         K( "tps" ) "%s"
+         K( "sps" ) "%s"
+         K( "leader in" ) "%s"
+         K( "root dist" ) "%lu"
+         K( "banks" ) "%2lu" CLEARLN "\n",
     reset_slot,
-    (long)reset_slot-(long)turbine_slot,
+    replay_lag<-4L ? RED : DIM,
+    replay_lag,
     mcups_str,
     tps_str,
     sps_str,
@@ -1075,17 +1140,17 @@ write_gui( config_t const * config,
   char * sent_frame_count_s = COUNT( (ulong)sent_frame_count );
   long received_frame_count = diff_tile( config, gui_name, prev_tile, cur_tile, off_websocket_frame_rx );
 
-  PRINT( "👁  " BOLD CYAN "GUI........." RESET UNBOLD
-         " " BOLD "CONNS"  UNBOLD " %lu"
-         " " BOLD "FRAMES" UNBOLD " %s in %s out"
-         " " BOLD "BW"     UNBOLD " %s in %s out"
-         " " BOLD "BUSY"   UNBOLD " %3.0f%% " CLEARLN "\n",
+  PRINT( ROWH( "◉", CYAN, "gui         " )
+         K( "conns" ) "%lu"
+         K( "frames" ) "%s" U( " in" ) " %s" U( " out" )
+         K( "bw" ) "%s" U( " in" ) " %s" U( " out" )
+         K( "busy" ) "%s%3.0f" U( "%%" ) RESET CLEARLN "\n",
     connection_count,
     COUNT( (ulong)received_frame_count ),
     sent_frame_count_s,
     bytes_read_s,
     bytes_written_s,
-    gui_busy_pct );
+    sev_color( gui_busy_pct ), gui_busy_pct );
   return 1U;
 }
 
@@ -1098,12 +1163,12 @@ write_event( config_t const * config,
   ulong connection_state = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, CONN_STATE ) ];
   char const * connection_state_str;
   switch( connection_state ) {
-    case 0UL: connection_state_str = "disconnected";    break;
-    case 1UL: connection_state_str = "connecting";      break;
-    case 2UL: connection_state_str = "authenticating";  break;
-    case 3UL: connection_state_str = "confirming_auth"; break;
-    case 4UL: connection_state_str = "connected";       break;
-    default:  connection_state_str = "unknown";         break;
+    case 0UL: connection_state_str = RED    "disconnected"    RESET; break;
+    case 1UL: connection_state_str = YELLOW "connecting"      RESET; break;
+    case 2UL: connection_state_str = YELLOW "authenticating"  RESET; break;
+    case 3UL: connection_state_str = YELLOW "confirming_auth" RESET; break;
+    case 4UL: connection_state_str = GREEN  "connected"       RESET; break;
+    default:  connection_state_str = RED    "unknown"         RESET; break;
   }
 
   ulong event_queue_count = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, QUEUE_DEPTH ) ];
@@ -1142,16 +1207,16 @@ write_event( config_t const * config,
   char * event_queue_unsent_s  = COUNT( event_queue_unsent );
   char * event_last_acked_id_s = COUNT( event_last_acked_id );
 
-  PRINT( "📡 " BOLD YELLOW "EVENT......." RESET UNBOLD
-         " " BOLD "STATE"    UNBOLD " %12s"
-         " " BOLD "UNACKED"  UNBOLD " %s"
-         " " BOLD "QUEUE"    UNBOLD " %s"
-         " " BOLD "SENT"     UNBOLD " %s /s"
-         " " BOLD "ACKED"    UNBOLD " %s /s"
-         " " BOLD "LAST ACK" UNBOLD " %s"
-         " " BOLD "BW"       UNBOLD " %s in %s out"
-         " " BOLD "DROPS"    UNBOLD " %s"
-         " " BOLD "FULL"     UNBOLD " %3.0f%%" CLEARLN "\n",
+  PRINT( ROWH( "◆", YELLOW, "event       " )
+         K( "state" ) "%s"
+         K( "unacked" ) "%s"
+         K( "queue" ) "%s"
+         K( "sent" ) "%s" U( "/s" )
+         K( "acked" ) "%s" U( "/s" )
+         K( "last ack" ) "%s"
+         K( "bw" ) "%s" U( " in" ) " %s" U( " out" )
+         K( "drops" ) "%s"
+         K( "full" ) "%s%3.0f" U( "%%" ) RESET CLEARLN "\n",
     connection_state_str,
     event_queue_unacked_s,
     event_queue_unsent_s,
@@ -1161,8 +1226,22 @@ write_event( config_t const * config,
     bytes_read_str,
     bytes_written_str,
     COUNT( event_queue_drops ),
-    event_queue_pct_full );
+    sev_color( event_queue_pct_full ), event_queue_pct_full );
   return 1U;
+}
+
+/* Pad a value to a fixed display width so fields that fill in after
+   boot (identity, vote, shred version, ...) never shift the columns
+   to their right on redraw.  Unknown values render as a dim "-". */
+static char *
+fmt_field( char *       buf,
+           ulong        buf_sz,
+           char const * val,
+           int          known,
+           int          width ) {
+  if( FD_LIKELY( known ) ) FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%-*s", width, val ) );
+  else                     FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, DIM "%-*s" RESET, width, "-" ) );
+  return buf;
 }
 
 static char *
@@ -1192,30 +1271,25 @@ write_node_info( config_t const *       config,
                  ulong const *          cur_tile,
                  fd_node_info_t const * node_info ) {
 
-  char identity_str[ FD_BASE58_ENCODED_32_SZ ];
-  if( FD_LIKELY( node_info && !fd_pubkey_check_zero( &node_info->identity ) ) ) {
-    fd_base58_encode_32( node_info->identity.key, NULL, identity_str );
-  } else {
-    strcpy( identity_str, "???" );
-  }
+  char identity_b58[ FD_BASE58_ENCODED_32_SZ ];
+  int  has_identity = node_info && !fd_pubkey_check_zero( &node_info->identity );
+  if( FD_LIKELY( has_identity ) ) fd_base58_encode_32( node_info->identity.key, NULL, identity_b58 );
 
-  char vote_acc_str[ FD_BASE58_ENCODED_32_SZ ];
-  if( FD_LIKELY( node_info && !fd_pubkey_check_zero( &node_info->vote_account ) ) ) {
-    fd_base58_encode_32( node_info->vote_account.key, NULL, vote_acc_str );
-  } else {
-    strcpy( vote_acc_str, "???" );
-  }
+  char vote_acc_b58[ FD_BASE58_ENCODED_32_SZ ];
+  int  has_vote_acc = node_info && !fd_pubkey_check_zero( &node_info->vote_account );
+  if( FD_LIKELY( has_vote_acc ) ) fd_base58_encode_32( node_info->vote_account.key, NULL, vote_acc_b58 );
 
-  char shred_ver_str[ 16 ];
+  char shred_ver[ 16 ];
+  int  has_shred_ver = 1;
   ulong ipecho_idx = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
   ushort shred_version = 0;
   if( FD_LIKELY( ipecho_idx!=ULONG_MAX ) ) shred_version = (ushort)cur_tile[ ipecho_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, IPECHO, CURRENT_SHRED_VERSION ) ];
   if( shred_version ) {
-    fd_cstr_printf_check( shred_ver_str, sizeof(shred_ver_str), NULL, "%hu", shred_version );
+    fd_cstr_printf_check( shred_ver, sizeof(shred_ver), NULL, "%hu", shred_version );
   } else if( config->consensus.expected_shred_version ) {
-    fd_cstr_printf_check( shred_ver_str, sizeof(shred_ver_str), NULL, "(%hu)", config->consensus.expected_shred_version );
+    fd_cstr_printf_check( shred_ver, sizeof(shred_ver), NULL, "(%hu)", config->consensus.expected_shred_version );
   } else {
-    fd_cstr_printf_check( shred_ver_str, sizeof(shred_ver_str), NULL, "???" );
+    has_shred_ver = 0;
   }
 
   char genesis_hash_b58[ FD_BASE58_ENCODED_32_SZ ] = {0};
@@ -1225,17 +1299,16 @@ write_node_info( config_t const *       config,
     fd_base58_encode_32( node_info->genesis_hash.key, NULL, genesis_hash_b58 );
     base58_short( genesis_short, node_info->genesis_hash.key );
     has_genesis_b58 = 1;
-  } else {
-    fd_cstr_ncpy( genesis_short, "???", sizeof(genesis_short) );
   }
 
-  char const * cluster_str = "unknown";
+  char const * cluster_str = "";
   if( has_genesis_b58 ) {
     ulong cluster_id = fd_genesis_cluster_identify( genesis_hash_b58 );
-    cluster_str = fd_genesis_cluster_name( cluster_id );
+    cluster_str = cluster_id==FD_CLUSTER_MAINNET_BETA ? "mainnet" : fd_genesis_cluster_name( cluster_id );
   }
 
   char uptime_str[ 32UL ];
+  int  has_uptime = 1;
   long now = fd_log_wallclock();
   if( FD_LIKELY( config->boot_timestamp_nanos>0L && now>config->boot_timestamp_nanos ) ) {
     ulong elapsed_s = (ulong)( (now - config->boot_timestamp_nanos) / (long)1e9 );
@@ -1247,7 +1320,7 @@ write_node_info( config_t const *       config,
     else if( hours ) fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "%luh %lum %lus", hours, mins, secs );
     else fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "%lum %lus", mins, secs );
   } else {
-    fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "???" );
+    has_uptime = 0;
   }
 
   ulong replay_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
@@ -1261,24 +1334,35 @@ write_node_info( config_t const *       config,
   double stake_percent = 0.0;
   if( tot_stake>0UL ) stake_percent = 100.0*(double)stake_amount/(double)tot_stake;
 
-  PRINT( "🔑" BOLD ORANGE " NODE........" RESET UNBOLD
-         " " BOLD "ID"      UNBOLD " %44s"
-         " " BOLD "VOTE"    UNBOLD " %44s"
-         " " BOLD "CLUSTER" UNBOLD " %s"
-         " " BOLD "UPTIME"  UNBOLD " %s"
-         " " BOLD "SHRED"   UNBOLD " %s"
-         " " BOLD "GENESIS" UNBOLD " %s",
-    identity_str,
-    vote_acc_str,
-    cluster_str,
-    uptime_str,
-    shred_ver_str,
-    genesis_short );
+  /* Fixed width slots (base58 keys are at most 44 chars) so fields
+     that appear over time never shift their neighbors. */
+  char id_field  [ 64 ]; fmt_field( id_field,   sizeof(id_field),   identity_b58, has_identity,    44 );
+  char vote_field[ 64 ]; fmt_field( vote_field, sizeof(vote_field), vote_acc_b58, has_vote_acc,    44 );
+  char clus_field[ 32 ]; fmt_field( clus_field, sizeof(clus_field), cluster_str,  has_genesis_b58,  8 );
+  char up_field  [ 64 ]; fmt_field( up_field,   sizeof(up_field),   uptime_str,   has_uptime,      12 );
+  char sv_field  [ 32 ]; fmt_field( sv_field,   sizeof(sv_field),   shred_ver,    has_shred_ver,    7 );
+
+  PRINT( ROWH( "◈", ORANGE, "node        " )
+         K( "id" ) BOLD "%s" RESET
+         K( "vote" ) "%s"
+         K( "cluster" ) BOLD "%s" RESET
+         K( "uptime" ) "%s"
+         K( "shred" ) "%s"
+         K( "genesis" ) "%s",
+    id_field,
+    vote_field,
+    clus_field,
+    up_field,
+    sv_field,
+    has_genesis_b58 ? genesis_short : DIM "-" RESET );
   PRINT( CLEARLN "\n" );
 
-  PRINT( "                " BOLD "BALANCE" UNBOLD " %s"
-         " " BOLD "STAKE"   UNBOLD " %s (%.2f %%)"
-         " " BOLD "CREDITS" UNBOLD " %lu" CLEARLN "\n",
+  if( FD_LIKELY( !watch_full ) ) return 1U;
+
+  PRINT( ROWC
+         K( "balance" ) "%s" U( " SOL" )
+         K( "stake" ) "%s" U( " SOL" ) " " U( "(%.2f%%)" )
+         K( "credits" ) "%lu" CLEARLN "\n",
          identity_balance_str, stake_amount_str, stake_percent, epoch_credits );
 
   return 2U;
@@ -1290,8 +1374,7 @@ write_summary( config_t const *           config,
                ulong const *              cur_tile,
                ulong const *              prev_tile,
                ulong const *              cur_link,
-               ulong const *              prev_link,
-               int                        interposing ) {
+               ulong const *              prev_link ) {
   (void)config;
   (void)prev_tile;
   (void)cur_tile;
@@ -1299,10 +1382,6 @@ write_summary( config_t const *           config,
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
   PRINT( "\033[?7l" ); /* disable autowrap mode */
   lines_printed = 0UL;
-  if( FD_UNLIKELY( interposing ) ) {
-    PRINT( "───────────────" CLEARLN "\n" );
-    lines_printed = 1UL;
-  }
 
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   int shutdown = 1;
@@ -1408,10 +1487,9 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
-  int interposing = drain_output_fd>=0;
 
   frame_len = 0UL;
-  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
   flush_frame();
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -1419,7 +1497,7 @@ run( config_t const * config,
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
         frame_len = 0UL;
-        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
         flush_frame();
       }
     }
@@ -1487,7 +1565,30 @@ run( config_t const * config,
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_INVALID_TOKEN ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_NOT_FOR_US ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_OUTDATED ) ) +
+          diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_PING_CACHE_LOOKUP ) ) +
           diff_tile( config, "rserve", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, RSERVE, FAILED_INVALID_SHRED_INDEX ) ) );
+      {
+        ulong slot = rserve_rps_invalid_samples_idx % (sizeof(rserve_rps_miss_samples)/sizeof(rserve_rps_miss_samples[0]));
+        ulong const * prev = tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ;
+        ulong const * cur  = tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ;
+
+        rserve_rps_miss_samples[ slot ] = (ulong)(
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_PING ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_WINDOW ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_HIGHEST_WINDOW ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, MISSED_RESPONSE_TYPES_ORPHAN ) ) );
+
+        rserve_rps_sigvfy_samples[ slot ] = (ulong)diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_SIGVERIFY ) );
+
+        rserve_rps_stale_samples[ slot ] = (ulong)diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_OUTDATED ) );
+
+        rserve_rps_other_rej_samples[ slot ] = (ulong)(
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_OWN_KEY ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_INVALID_TOKEN ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_NOT_FOR_US ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_INVALID_SHRED_INDEX ) ) +
+            diff_tile( config, "rserve", prev, cur, MIDX( COUNTER, RSERVE, FAILED_PING_CACHE_LOOKUP ) ) );
+      }
       rserve_rps_invalid_samples_idx++;
 
       /* Move cursor to top of dashboard and overwrite in place.
@@ -1500,7 +1601,7 @@ run( config_t const * config,
       } else {
         PRINT( "\033[%luA\r", lines_printed );
       }
-      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
+      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
       PRINT( "\033[0J" );    /* clear any leftover lines below */
       PRINT( "\033[?25h" ); /* show cursor */
       flush_frame();
@@ -1510,15 +1611,20 @@ run( config_t const * config,
 }
 
 void
-watch_cmd_args( int *    pargc FD_PARAM_UNUSED,
-                char *** pargv FD_PARAM_UNUSED,
+watch_cmd_args( int *    pargc,
+                char *** pargv,
                 args_t * args ) {
   args->watch.drain_output_fd = -1;
+  args->watch.full            = fd_env_strip_cmdline_contains( pargc, pargv, "--full" );
 }
 
 void
 watch_cmd_fn( args_t *   args,
               config_t * config ) {
+  /* Development commands spawn watch internally with the validator's
+     own config, only discover when invoked standalone. */
+  if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_adopt( config );
+
   int allow_fds[ 5 ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
@@ -1529,6 +1635,7 @@ watch_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( args->watch.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->watch.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
+  if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -1557,16 +1664,24 @@ watch_cmd_fn( args_t *   args,
 
   fd_topo_fill( &config->topo );
 
+  watch_full = args->watch.full;
   run( config, args->watch.drain_output_fd );
+}
+
+static void
+watch_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--full", NULL, "Show all detail rows for each category, not just the primary row" );
 }
 
 action_t fd_action_watch = {
   .name           = "watch",
   .args           = watch_cmd_args,
   .fn             = watch_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = watch_cmd_perm,
   .description    = "Watch a locally running Firedancer instance with a terminal GUI",
   .detail         = "Connects to a running validator and renders a terminal dashboard of the\n"
                     "most important monitoring and operational metrics.",
+  .usage          = "watch [--full]",
+  .args_help      = watch_args_help,
 };

@@ -190,11 +190,10 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     /* Direct mapping is not enabled, so we need to copy the account data
        from the VM's serialized buffer back to the borrowed account.
 
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1255-L1264 */
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/cpi.rs#L1155-L1162 */
     int err;
-    if( fd_borrowed_account_can_data_be_resized( callee_acc, caller_account->serialized_data_len, &err ) &&
-        fd_borrowed_account_can_data_be_changed( callee_acc, &err ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1258 */
+    if( fd_borrowed_account_can_data_be_resized( callee_acc, caller_account->serialized_data_len, &err ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/cpi.rs#L1157 */
       err = fd_borrowed_account_set_data_from_slice( callee_acc, caller_account->serialized_data, caller_account->serialized_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );

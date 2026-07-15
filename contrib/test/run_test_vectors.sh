@@ -75,6 +75,7 @@ export FD_LOG_PATH="$LOG_PATH/solfuzz.log"
   "$WORK_DIR/instr/fixtures" \
   "$WORK_DIR/shred/fixtures" \
   "$WORK_DIR/cost/fixtures" \
-  "$WORK_DIR/vm_serialization/fixtures"
+  "$WORK_DIR/vm_serialization/fixtures" \
+  "$WORK_DIR/gossip/fixtures"
 
 echo "Test vectors success"

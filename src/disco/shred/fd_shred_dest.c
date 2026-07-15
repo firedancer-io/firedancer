@@ -292,8 +292,16 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] );
-    /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
-    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
+    /* Map FD_WSAMPLE_INDETERMINATE (UINT_MAX-1) and FD_WSAMPLE_EMPTY
+       (UINT_MAX) to FD_SHRED_DEST_NO_DEST.  If wsample returns either
+       sentinel value, it will be cast to -2 or -1, so the max will be
+       -1, as desired.  Otherwise, since wsample guarantees the returned
+       index is in [0, INT_MAX], it will remain non-negative when cast
+       to an int, so the max will be that value. */
+    FD_STATIC_ASSERT( (int)FD_WSAMPLE_INDETERMINATE             <=-1, wsample_val );
+    FD_STATIC_ASSERT( (int)FD_WSAMPLE_EMPTY                     <=-1, wsample_val );
+    FD_STATIC_ASSERT( FD_SHRED_DEST_NO_DEST==(fd_shred_dest_idx_t)-1, wsample_val );
+    if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_int_max( (int)fd_wsample_sample( sdest->staked ), -1 );
     else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
   }
   fd_wsample_restore_all( sdest->staked );
@@ -441,7 +449,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       if( FD_UNLIKELY( sample==FD_WSAMPLE_INDETERMINATE ) ) break;
 
       if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
-        out[ stored_cnt*out_stride + i ] = (ushort)sample;
+        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
         stored_cnt++;
       }
       cursor++;
@@ -459,7 +467,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
       if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) break;
 
       if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {
-        out[ stored_cnt*out_stride + i ] = (ushort)sample;
+        out[ stored_cnt*out_stride + i ] = (fd_shred_dest_idx_t)sample;
         stored_cnt++;
       }
       cursor++;

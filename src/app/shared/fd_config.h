@@ -9,7 +9,7 @@
 
 #define NAME_SZ                     (256UL)
 #define AFFINITY_SZ                 (256UL)
-#define CONFIGURE_STAGE_COUNT       ( 14UL)
+#define CONFIGURE_STAGE_COUNT       ( 24UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
 #define IP4_PORT_STR_MAX            ( 22UL)
 
@@ -206,6 +206,7 @@ struct fd_config_net {
   struct {
     char xdp_mode[ 8 ];
     int  xdp_zero_copy;
+    char poll_mode[ 16 ]; /* "prefbusy" or "softirq" */
 
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
@@ -243,6 +244,8 @@ struct fd_config {
   uint gid;
 
   int is_firedancer;
+  int is_dev;
+  int has_user_config;
   union {
     fd_configh_t frankendancer;
     fd_configf_t firedancer;
@@ -358,6 +361,7 @@ struct fd_config {
     struct {
       int report_shreds;
       int report_transactions;
+      int report_transaction_diffs;
     } event;
 
     struct {

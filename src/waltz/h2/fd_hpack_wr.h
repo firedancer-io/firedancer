@@ -10,7 +10,11 @@
 #define FD_HPACK_INDEXED_SHORT( val ) ((uchar)( 0x80|(val) ))
 
 #if FD_HAS_X86
+#if defined(__GNUC__) && !defined(__clang__)
+#include <x86gprintrin.h>
+#else
 #include <immintrin.h>
+#endif
 #endif
 
 FD_PROTOTYPES_BEGIN

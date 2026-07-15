@@ -75,7 +75,7 @@ configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
                  config_t const *    config ) {
   if( FD_UNLIKELY( stage->enabled && !stage->enabled( config ) ) ) {
-    FD_LOG_INFO(( "%s ... skipping .. not enabled", stage->name ));
+    FD_LOG_INFO(( "%s%s%s ... skipping .. not enabled", fd_log_style_bold(), stage->name, fd_log_style_normal() ));
     return 0;
   }
 
@@ -83,10 +83,10 @@ configure_stage( configure_stage_t * stage,
     case CONFIGURE_CMD_INIT: {
       configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_PRE_INIT );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )
-        FD_LOG_NOTICE(( "%s ... unconfigured ... %s", stage->name, result.message ));
+        FD_LOG_NOTICE(( "%s%s%s ... unconfigured ... %s%s%s", fd_log_style_bold(), stage->name, fd_log_style_normal(), fd_log_style_dim(), result.message, fd_log_style_normal() ));
       else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED ) ) {
         if( FD_LIKELY( stage->fini ) ) {
-          FD_LOG_NOTICE(( "%s ... undoing ... %s", stage->name, result.message ));
+          FD_LOG_NOTICE(( "%s%s%s ... undoing ... %s%s%s", fd_log_style_bold(), stage->name, fd_log_style_normal(), fd_log_style_dim(), result.message, fd_log_style_normal() ));
           stage->fini( config, 1 );
         } else if( FD_UNLIKELY( !stage->always_recreate ) ) {
           FD_LOG_ERR(( "%s ... does not support undo but was not valid ... %s", stage->name, result.message ));
@@ -96,13 +96,13 @@ configure_stage( configure_stage_t * stage,
         if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) )
           FD_LOG_ERR(( "%s ... clean was unable to get back to an unconfigured state ... %s", stage->name, result.message ));
       } else {
-        FD_LOG_INFO(( "%s ... already valid", stage->name ));
+        FD_LOG_INFO(( "%s%s%s ... already valid", fd_log_style_bold(), stage->name, fd_log_style_normal() ));
         return 0;
       }
 
-      FD_LOG_NOTICE(( "%s ... configuring", stage->name ));
+      FD_LOG_NOTICE(( "%s%s%s ... configuring", fd_log_style_bold(), stage->name, fd_log_style_normal() ));
       if( FD_LIKELY( stage->init ) ) stage->init( config );
-      FD_LOG_INFO(( "%s ... done", stage->name ));
+      FD_LOG_INFO(( "%s%s%s ... done", fd_log_style_bold(), stage->name, fd_log_style_normal() ));
 
       result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_POST_INIT );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )
@@ -114,14 +114,14 @@ configure_stage( configure_stage_t * stage,
     case CONFIGURE_CMD_CHECK: {
       configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_CHECK );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) ) {
-        FD_LOG_WARNING(( "%s ... not configured ... %s", stage->name, result.message ));
+        FD_LOG_WARNING(( "%s%s%s ... not configured ... %s%s%s", fd_log_style_bold(), stage->name, fd_log_style_normal(), fd_log_style_dim(), result.message, fd_log_style_normal() ));
         return 1;
       } else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED ) ) {
         if( FD_UNLIKELY( !stage->always_recreate ) ) {
-          FD_LOG_WARNING(( "%s ... invalid ... %s", stage->name, result.message ));
+          FD_LOG_WARNING(( "%s%s%s ... invalid ... %s%s%s", fd_log_style_bold(), stage->name, fd_log_style_normal(), fd_log_style_dim(), result.message, fd_log_style_normal() ));
           return 1;
         } else {
-          FD_LOG_NOTICE(( "%s ... not configured ... must always be recreated", stage->name ));
+          FD_LOG_NOTICE(( "%s%s%s ... not configured ... must always be recreated", fd_log_style_bold(), stage->name, fd_log_style_normal() ));
         }
       }
       break;
@@ -130,13 +130,13 @@ configure_stage( configure_stage_t * stage,
       configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_PRE_FINI );
 
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) ) {
-        FD_LOG_NOTICE(( "%s ... not configured ... %s", stage->name, result.message ));
+        FD_LOG_NOTICE(( "%s%s%s ... not configured ... %s%s%s", fd_log_style_bold(), stage->name, fd_log_style_normal(), fd_log_style_dim(), result.message, fd_log_style_normal() ));
         return 0;
       } else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate && !stage->fini ) ) {
         FD_LOG_ERR(( "%s ... not valid ... %s", stage->name, result.message ));
       }
 
-      FD_LOG_NOTICE(( "%s ... finishing", stage->name ));
+      FD_LOG_NOTICE(( "%s%s%s ... finishing", fd_log_style_bold(), stage->name, fd_log_style_normal() ));
       int fini_done = 0;
       if( FD_LIKELY( stage->fini ) ) fini_done = stage->fini( config, 0 );
 

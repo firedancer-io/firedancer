@@ -108,8 +108,6 @@ typedef struct fork fork_t;
 
 #define FD_VOTE_STAKES_MAGIC (0xF17EDA2CE7601E71UL) /* FIREDANCER VOTER V1 */
 
-#define MAX_FORK_WIDTH (128UL)
-
 struct fd_vote_stakes {
   ulong magic;
   ulong index_pool_off;
@@ -119,8 +117,8 @@ struct fd_vote_stakes {
   ulong fork_pool_off;
   ulong fork_dlist_off;
 
-  ulong  stakes_pool_off[ MAX_FORK_WIDTH ];
-  ulong  stakes_map_off[ MAX_FORK_WIDTH ];
+  ulong  stakes_pool_off[ FD_VOTE_STAKES_MAX_FORK_WIDTH+1UL ];
+  ulong  stakes_map_off[ FD_VOTE_STAKES_MAX_FORK_WIDTH+1UL ];
 
   stakes_map_iter_t fork_iter;
 

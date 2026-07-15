@@ -4,6 +4,7 @@
 #include "fd_dump_pb.h"
 #include "generated/bundle.pb.h"
 #include "../fd_cost_tracker.h"
+#include "../fd_slot_params.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -49,8 +50,9 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
 
-  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
-  runner->bank->accdb_fork_id     = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->progcache_fork_id    = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
+  runner->bank->accdb_fork_id        = fd_accdb_attach_child( accdb, runner->root_fork_id );
+  runner->bank->parent_accdb_fork_id = runner->bank->accdb_fork_id;
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
@@ -75,8 +77,10 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, runner->bank->accdb_fork_id, &test_ctx->account_shared_data[i], i );
   }
 
-  runner->bank->f.ticks_per_slot = 64;
-  runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.ticks_per_slot             = 64;
+  runner->bank->f.slot_params                = FD_SLOT_PARAMS_400MS;
+  runner->bank->f.slot_params.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+  runner->bank->f.slot_params_default        = runner->bank->f.slot_params;
 
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
 
@@ -87,7 +91,7 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   /* Initialize cost tracker */
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( runner->bank );
-  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, slot );
+  fd_cost_tracker_init( cost_tracker, &runner->bank->f.features, &runner->bank->f.slot_params, slot );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
   fd_memset( txns, 0, txn_cnt*sizeof(fd_txn_p_t) );
@@ -207,7 +211,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         fd_solfuzz_bundle_mark_uncommittable( txn_outs, ran_cnt );
       } else {
         txn_outs[i].err.is_committable = 0;
-        fd_runtime_cancel_txn( runtime, &txn_outs[i] );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, &txn_outs[i], 0 );
       }
       break;
     }
@@ -250,12 +254,12 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
       }
     }
 
-    if( !is_bundle ) fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
+    if( !is_bundle ) fd_runtime_commit_txn( runtime, runner->bank, NULL, &txn_outs[i], 0 );
   }
 
   if( is_bundle && !saw_exec_err ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, &txn_outs[i], 0 );
     }
   }
 

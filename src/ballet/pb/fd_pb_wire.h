@@ -10,7 +10,11 @@
 /* Select a varint coding strategy */
 
 #if defined(__BMI2__) && __LZCNT__
+#if defined(__GNUC__) && !defined(__clang__)
+#include <x86gprintrin.h>
+#else
 #include <immintrin.h>
+#endif
 #define FD_PB_VARINT_CORE 1 /* x86 PDEP and LZCNT */
 #else
 #define FD_PB_VARINT_CORE 0 /* portable */

@@ -2,11 +2,13 @@
 #include "fd_sshttp_private.h"
 #include "fd_ssarchive.h"
 
-#include "../../../waltz/http/picohttpparser.h"
+#include "../../../third_party/picohttpparser/picohttpparser.h"
 #include "../../../waltz/openssl/fd_openssl_tile.h"
 #include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../waltz/http/fd_http.h"
+
+FD_STATIC_ASSERT( FD_HASH_FOOTPRINT==32UL, resolved_hash_sz );
 
 #include <unistd.h>
 #include <errno.h>
@@ -50,6 +52,8 @@ fd_sshttp_new( void * shmem ) {
   sshttp->sockfd = -1;
   sshttp->content_len = 0UL;
   fd_cstr_fini( sshttp->snapshot_name );
+  sshttp->resolved_slot = 0UL;
+  fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );
 
 #if FD_HAS_OPENSSL
   sshttp->ssl     = NULL;
@@ -160,7 +164,12 @@ fd_sshttp_init( fd_sshttp_t * http,
 #endif
   }
 
-  if( hops!=ULONG_MAX ) http->hops = hops;
+  if( hops!=ULONG_MAX ) {
+    http->hops = hops;
+    fd_cstr_fini( http->snapshot_name );
+    http->resolved_slot = 0UL;
+    fd_memset( http->resolved_hash, 0, FD_HASH_FOOTPRINT );
+  }
   http->request_sent = 0UL;
   int fmt_ok;
   if( FD_LIKELY( is_https ) ) {
@@ -508,6 +517,10 @@ follow_redirect( fd_sshttp_t *        http,
         return FD_SSHTTP_ADVANCE_ERROR;
       }
 
+      http->resolved_slot = (incremental_entry_slot!=ULONG_MAX)
+                            ? incremental_entry_slot : full_entry_slot;
+      fd_memcpy( http->resolved_hash, decoded_hash, FD_HASH_FOOTPRINT );
+
       char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
 
@@ -556,9 +569,9 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  FD_LOG_NOTICE(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
-                  (int)location_len, location ));
+  FD_LOG_INFO(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
+                FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                (int)location_len, location ));
 
   if( FD_UNLIKELY( http->is_https ) ) {
     http->next_state   = FD_SSHTTP_STATE_REDIRECT;
@@ -713,6 +726,16 @@ fd_sshttp_snapshot_name( fd_sshttp_t const * http ) {
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http ) {
   return http->content_len;
+}
+
+ulong
+fd_sshttp_resolved_slot( fd_sshttp_t const * http ) {
+  return http->resolved_slot;
+}
+
+uchar const *
+fd_sshttp_resolved_hash( fd_sshttp_t const * http ) {
+  return http->resolved_hash;
 }
 
 int

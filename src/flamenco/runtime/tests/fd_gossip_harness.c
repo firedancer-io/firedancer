@@ -428,8 +428,7 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
                           ulong                 in_sz ) {
   if( FD_UNLIKELY( in_sz>FD_TPU_MTU ) ) FD_LOG_CRIT(( "invariant violation: gossip input %lu bytes exceeds MTU %lu, check fuzzer configuration", in_sz, FD_TPU_MTU ));
 
-  fd_gossip_message_t * msg = fd_spad_alloc( runner->spad, alignof(fd_gossip_message_t), sizeof(fd_gossip_message_t) );
-  fd_memset( msg, 0, sizeof(fd_gossip_message_t) );
+  fd_gossip_message_t msg[1] = {0};
   fd_exec_test_gossip_effects_t effects = FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO;
 
   int ok = fd_gossip_message_deserialize( msg, in, in_sz );

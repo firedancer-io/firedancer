@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include <s2n-bignum.h>
+#include "../../third_party/s2n-bignum/include/s2n-bignum.h"
 
 /* s2n-bignum implementation of Keccak-f1600.  sha3_keccak_f1600 is a
    formally-verified hand-written x86-64/AArch64 assembly routine from

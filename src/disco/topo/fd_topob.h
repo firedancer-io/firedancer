@@ -172,6 +172,15 @@ fd_topob_finish( fd_topo_t *                topo,
 /* Classify a tile name into one of the FD_TOPOB_PRIORITY_* categories. */
 int
 fd_topob_tile_priority_type( char const * name );
+
+void
+fd_topob_validate_cpu_overlaps( fd_topo_t const * topo );
+
+ulong
+fd_topob_parse_affinity_cstr( char const * cstr,
+                              ushort *     tile_to_cpu,
+                              int          allow_repeats );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_topo_fd_topob_h */

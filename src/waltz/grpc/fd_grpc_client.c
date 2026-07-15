@@ -1,6 +1,6 @@
 #include "fd_grpc_client.h"
 #include "fd_grpc_client_private.h"
-#include "../../ballet/nanopb/pb_encode.h" /* pb_msgdesc_t */
+#include "../../third_party/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
 #include "../h2/fd_h2_rbuf_sock.h"
 #include "fd_grpc_codec.h"
@@ -826,11 +826,7 @@ fd_grpc_h2_cb_data(
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   if( FD_UNLIKELY( ( stream->hdrs.h2_status!=200 ) |
                    ( !stream->hdrs.is_grpc_proto ) ) ) {
-    if( flags & FD_H2_FLAG_END_STREAM ) {
-      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
-      fd_grpc_client_stream_release( client, stream );
-    }
-    return;
+    goto check_end_stream;
   }
 
   do {
@@ -842,7 +838,7 @@ fd_grpc_h2_cb_data(
       stream->msg_buf_used += hdr_frag_sz;
       data     = (void const *)( (ulong)data + (ulong)hdr_frag_sz );
       data_sz -= hdr_frag_sz;
-      if( FD_UNLIKELY( stream->msg_buf_used < sizeof(fd_grpc_hdr_t) ) ) return;
+      if( FD_UNLIKELY( stream->msg_buf_used < sizeof(fd_grpc_hdr_t) ) ) goto check_end_stream;
 
       /* Header complete */
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
@@ -876,6 +872,10 @@ fd_grpc_h2_cb_data(
 
   } while( data_sz );
 
+
+  /* Check whether the server might want to end the stream in a DATA frame so no stream is leaked.
+     This shouldn't happen in gRPC as server responses should indicate end of stream in headers */
+  check_end_stream:
   if( flags & FD_H2_FLAG_END_STREAM ) {
     /* FIXME incomplete gRPC message */
     if( FD_UNLIKELY( stream->msg_buf_used ) ) {
@@ -893,14 +893,16 @@ fd_grpc_h2_rst_stream( fd_h2_conn_t *   conn,
                        fd_h2_stream_t * h2_stream,
                        uint             error_code,
                        int              closed_by ) {
+  fd_grpc_client_t * client = conn->ctx;
   if( closed_by==1 ) {
-    FD_LOG_WARNING(( "Server terminated request stream_id=%u (%u-%s)",
-                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+    FD_LOG_WARNING(( "server %s%.*s%s terminated request %s(%u-%s)%s",
+                     fd_log_style_bold(), (int)client->host_len, client->host, fd_log_style_normal(),
+                     fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   } else {
-    FD_LOG_WARNING(( "Stream failed stream_id=%u (%u-%s)",
-                     h2_stream->stream_id, error_code, fd_h2_strerror( error_code ) ));
+    FD_LOG_WARNING(( "request to server %s%.*s%s failed %s(%u-%s)%s",
+                     fd_log_style_bold(), (int)client->host_len, client->host, fd_log_style_normal(),
+                     fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   }
-  fd_grpc_client_t *    client = conn->ctx;
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
   fd_grpc_client_stream_release( client, stream );

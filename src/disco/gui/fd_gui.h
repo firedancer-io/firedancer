@@ -275,6 +275,8 @@ struct fd_gui_tile_timers {
   ulong  minflt;
   ulong  majflt;
   ulong  interrupts;
+  ulong  tlb_shootdowns;
+  ulong  timer_ticks;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
@@ -674,6 +676,7 @@ struct fd_gui {
     int          is_full_client;
     char const * version;
     char const * cluster;
+    char         accounts_database_path[ PATH_MAX ];
 
     char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
     ushort expected_shred_version;
@@ -977,6 +980,7 @@ struct fd_gui {
 
       ulong start_slot;
       ulong end_slot;
+      ulong target_slot_duration_nanos;
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
@@ -1063,6 +1067,7 @@ fd_gui_new( void *                   shmem,
             int                      schedule_strategy,
             char const *             wfs_expected_bank_hash_cstr,
             ushort                   expected_shred_version,
+            char const *             accounts_database_path,
             fd_topo_t const *        topo,
             fd_accdb_shmem_t const * accdb_shmem,
             long                     now );

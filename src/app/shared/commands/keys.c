@@ -123,7 +123,7 @@ generate_keypair( char const *     keyfile,
   if( FD_UNLIKELY( write( fd, "]", 1 )!=1L ) ) FD_LOG_ERR(( "could not create keypair, write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "could not create keypair, close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_LOG_NOTICE(( "successfully created keypair in `%s`", keyfile ));
+  FD_LOG_NOTICE(( "successfully created keypair in %s%s%s", fd_log_style_dim(), keyfile, fd_log_style_normal() ));
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

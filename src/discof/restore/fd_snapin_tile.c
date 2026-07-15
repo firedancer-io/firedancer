@@ -56,9 +56,11 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
-   root slots Agave could possibly serve in a snapshot. */
-#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+/* The most root slots Agave could possibly serve in a snapshot.  The
+   txnpage pool sizing assumes staged entries never exceed this. */
+#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+
+FD_STATIC_ASSERT( FD_SLOT_DELTA_MAX_ENTRIES==FD_TXNCACHE_SNAPSHOT_SLOT_DELTA_MAX, slot_delta_max );
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -215,8 +217,8 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
     char  dup_buf   [ 32 ];
     format_count( loaded_buf, sizeof(loaded_buf), ctx->metrics.accounts_loaded );
     format_count( dup_buf,    sizeof(dup_buf),    accounts_dup                 );
-    FD_LOG_NOTICE(( "loaded %s accounts (%s dups) from snapshot in %.3f seconds",
-                    loaded_buf, dup_buf, (double)elapsed_ns/1e9 ));
+    FD_LOG_NOTICE(( "loaded %s accounts %s(%s dups)%s from snapshot in %.3f seconds",
+                    loaded_buf, fd_log_style_dim(), dup_buf, fd_log_style_normal(), (double)elapsed_ns/1e9 ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -1137,7 +1139,8 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
-                     ulong               chunk ) {
+                     ulong               chunk,
+                     ulong               sz ) {
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
@@ -1209,13 +1212,28 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
-         against the slot in the snapshot manifest.  For downloaded
-         snapshots, this is simply a best estimate.  The actual
-         advertised slot for downloaded snapshots is received in a
-         separate fd_ssctrl_meta_t message below. */
+         against the slot in the snapshot manifest.  For redirect-based
+         HTTP downloads, these are initial estimates from gossip and
+         will be updated by the META message below once the redirect
+         resolves to a concrete snapshot filename. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
       fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_META: {
+      /* For redirect-based HTTP downloads, the META message carries
+         the resolved slot and hash from the actual snapshot filename
+         the server redirected to.  Update the advertised values so
+         that process_manifest can verify the manifest against them. */
+      FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
+      fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      if( meta->resolved_slot!=ULONG_MAX ) {
+        ctx->advertised_slot = meta->resolved_slot;
+        fd_memcpy( ctx->advertised_hash, meta->resolved_hash, FD_HASH_FOOTPRINT );
+      }
+      forward_msg = 0; /* snapct already receives META directly from snapld */
       break;
     }
 
@@ -1353,7 +1371,7 @@ returnable_frag( fd_snapin_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig, chunk );
+  else                                           handle_control_frag( ctx, stem, sig, chunk, sz );
 
   return 0;
 }
@@ -1520,6 +1538,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_accdb_partition_added_t);
+}
+
 fd_topo_run_tile_t fd_tile_snapin = {
   .name                     = NAME,
   .populate_allowed_fds     = populate_allowed_fds,
@@ -1528,7 +1551,7 @@ fd_topo_run_tile_t fd_tile_snapin = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .max_event_sz             = sizeof(fd_event_accdb_partition_added_t),
+  .max_event_sz             = max_event_sz,
   .run                      = stem_run,
 };
 

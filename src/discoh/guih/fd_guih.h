@@ -295,6 +295,8 @@ struct fd_guih_tile_timers {
   ulong  minflt;
   ulong  majflt;
   ulong  interrupts;
+  ulong  tlb_shootdowns;
+  ulong  timer_ticks;
 };
 
 typedef struct fd_guih_tile_timers fd_guih_tile_timers_t;
@@ -802,6 +804,7 @@ struct fd_guih {
 
       ulong start_slot;
       ulong end_slot;
+      ulong target_slot_duration_nanos;
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];

@@ -10,6 +10,10 @@ $(call add-objs,fd_stake_delegations,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_stake_delegations,test_stake_delegations,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_stake_delegations)
+ifdef FD_HAS_DOUBLE
+$(call make-unit-test,test_warmup_cooldown_allowance,test_warmup_cooldown_allowance,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_warmup_cooldown_allowance)
+endif
 endif
 
 $(call add-hdrs,fd_top_votes.h)

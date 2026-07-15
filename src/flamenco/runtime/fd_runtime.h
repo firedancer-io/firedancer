@@ -213,6 +213,12 @@ typedef struct fd_runtime fd_runtime_t;
 struct fd_txn_in {
   fd_txn_p_t const * txn;
 
+  /* FEC-set merkle root at dispatch time. */
+  uchar fec_merkle_root[ 32 ];
+
+  /* 0-indexed position of this txn within its block. */
+  ulong index_in_slot;
+
   struct {
     int            is_bundle;
     fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
@@ -230,7 +236,7 @@ struct fd_txn_out {
        when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */
     int  exec_err;
     int  exec_err_kind;
-    int  exec_err_idx;
+    uint exec_err_idx;
     uint custom_err;
   } err;
 
@@ -257,6 +263,7 @@ struct fd_txn_out {
     ulong                       signature_count;           /* Number of signatures in the transaction */
     fd_signature_t              signature;                 /* First transaction signature */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
+    ulong                       commit_index_in_slot;      /* 0-indexed commit-completion order within this slot */
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
@@ -282,10 +289,20 @@ struct fd_txn_out {
     uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];
     ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ];
     ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t starting_owner[ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
-    uchar      executable_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+    int        executable_from_parent[ MAX_TX_ACCOUNT_LOCKS ]; /* 1 => read-only copy from the parent fork (loader gates on pd_write); 0 => current-fork copy (loader keeps the slot check) */
+    int        executable_pd_write[ MAX_TX_ACCOUNT_LOCKS ];    /* probe result: deploy-status-changing write committed on the current fork this slot */
+    ulong      executable_cur_len[ MAX_TX_ACCOUNT_LOCKS ];     /* current-fork committed data length, ULONG_MAX if none; for loaded-account-size accounting */
+
+    /* Programdata deployed this slot has no executable[] entry, but
+       Agave still counts its size toward loaded-accounts-data-size
+       before the invoke fails; recorded here at setup. */
+    ushort      executable_skipped_cnt;
+    fd_pubkey_t executable_skipped_key[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       executable_skipped_len[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */
@@ -355,9 +372,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
    database. */
 
 void
-fd_runtime_commit_txn( fd_runtime_t * runtime,
-                       fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
+fd_runtime_commit_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs );
 
 /* fd_runtime_cancel_txn cancels the result of a transaction execution
    and frees any resources that may have been acquired.  A transaction
@@ -368,8 +387,11 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       canceled as they will not be included in the block. */
 
 void
-fd_runtime_cancel_txn( fd_runtime_t * runtime,
-                       fd_txn_out_t * txn_out );
+fd_runtime_cancel_txn( fd_runtime_t *      runtime,
+                       fd_bank_t *         bank,
+                       fd_txn_in_t const * txn_in,
+                       fd_txn_out_t *      txn_out,
+                       int                 report_transaction_diffs );
 
 /* fd_runtime_prepare_bundle_accounts is called before executing a
    bundle.  It is responsible for acquiring the union of all accounts

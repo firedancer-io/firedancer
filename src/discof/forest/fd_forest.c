@@ -1131,7 +1131,11 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
 
 /* Updates a forest_blk_t's parent, which requires updates to the blk
    itself, the blk's old parent, the new parent, and all its
-   descendants. */
+   descendants.  The blk is released and re-inserted fresh
+   under the new parent: all recorded state (shred idxs, merkle roots,
+   verification progress) is discarded except confirmed_bid, on the
+   assumption it belonged to a different version of the slot.  Returns
+   the new ele; the old pointer must not be reused. */
 static fd_forest_blk_t *
 verified_parent_update( fd_forest_t * forest, fd_forest_blk_t * ele, ulong parent_slot ) {
   fd_forest_blk_t * pool          = fd_forest_pool( forest );
@@ -1250,13 +1254,9 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     } else {
 
       /* A validated mr, but the parent slot is wrong.  This means we
-         initially received a the wrong version of the slot that also
-         had a different parent slot.  We need to update the parent slot
-         to the correct one.  We can _probably_ get away with not doing
-         this update (it wouldn't cause the validator to halt), but for
-         the sake of correctness, we'll do it.  It is theoretically only
-         possible for the parent_slot update to happen once, after
-         the fec_chain_verify has identified an incorrect FEC. */
+         initially received the wrong version of the slot that also
+         had a different parent slot.  We need to update the parent
+         slot to the correct one. */
 
       if( FD_UNLIKELY( ele->parent_slot != parent_slot ) ) ele = verified_parent_update( forest, ele, parent_slot );
       ele->merkle_roots[fec_idx].mr = *mr;
@@ -1265,6 +1265,13 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     }
   } else { /* No verification / knowledge of canonical merkle root */
     if( FD_UNLIKELY( !merkle_recvd( ele, fec_idx ) ) ) {
+
+      /* On first mr received for FEC set 0, adopt the shred's parent.
+         Otherwise later confirmation would chain verify into the wrong
+         ancestor. */
+
+      if( FD_UNLIKELY( ele->parent_slot != parent_slot && fec_idx == 0 ) ) ele = verified_parent_update( forest, ele, parent_slot );
+
       ele->merkle_roots[fec_idx].mr  = *mr;
       ele->merkle_roots[fec_idx].cmr = *cmr;
     } else {

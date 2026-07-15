@@ -262,13 +262,11 @@ fd_config_fill( fd_config_t * config,
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
-  strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
-  config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
+  fd_cstr_ncpy( config->hostname, utsname.nodename, sizeof(config->hostname) ); /* Just truncate the name if it's too long to fit */
 
-  ulong cluster = FD_CLUSTER_UNKNOWN;
-  if( FD_UNLIKELY( !config->is_firedancer ) ) {
-    cluster = fd_genesis_cluster_identify( config->frankendancer.consensus.expected_genesis_hash );
-  }
+  ulong cluster;
+  if( FD_UNLIKELY( !config->is_firedancer ) ) cluster = fd_genesis_cluster_identify( config->frankendancer.consensus.expected_genesis_hash );
+  else                                        cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
   config->is_live_cluster = cluster!=FD_CLUSTER_UNKNOWN;
   strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
@@ -312,7 +310,8 @@ fd_config_fill( fd_config_t * config,
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
   config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
-  config->log.level_flush1   = parse_log_level( config->log.level_flush );
+  if( FD_UNLIKELY( !strcmp( config->log.level_flush, "NONE" ) ) ) config->log.level_flush1 = 8;
+  else                                                            config->log.level_flush1 = parse_log_level( config->log.level_flush );
   if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
   if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
   if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
@@ -324,7 +323,8 @@ fd_config_fill( fd_config_t * config,
   replace( config->paths.base, "{name}", config->name );
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
-    if( FD_UNLIKELY( config->is_live_cluster ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
+    /* Development binaries generate an identity key on boot. */
+    if( FD_UNLIKELY( config->is_live_cluster && !dev ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
 
     FD_TEST( fd_cstr_printf_check( config->paths.identity_key,
                                    sizeof(config->paths.identity_key),
@@ -354,6 +354,8 @@ fd_config_fill( fd_config_t * config,
   }
 
   long ts = -fd_log_wallclock();
+  config->is_dev = dev;
+
   config->tick_per_ns_mu = dev ? fd_tempo_tick_per_ns_dev( &config->tick_per_ns_sigma )
                                : fd_tempo_tick_per_ns    ( &config->tick_per_ns_sigma );
   FD_LOG_INFO(( "calibrating fd_tempo tick_per_ns took %ld ms", (fd_log_wallclock()+ts)/(1000L*1000L) ));
@@ -423,14 +425,6 @@ fd_config_fill( fd_config_t * config,
     FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
   }
 
-  if( FD_UNLIKELY( config->is_firedancer && config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
-    FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
-                 "ready for production deployment, has not been tested, and is "
-                 "missing consensus critical functionality. Joining a live Solana "
-                 "cluster may destabilize the network. Please do not attempt. You "
-                 "can start against the testnet cluster by specifying the testnet "
-                 "entrypoints from https://docs.solana.com/clusters under "
-                 "[gossip.entrypoints] in your configuration file.", fd_genesis_cluster_name( cluster ) ));
 }
 
 #define CFG_HAS_NON_EMPTY( key ) do {                  \
@@ -531,6 +525,11 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
+
+    if( 0!=strcmp( config->net.xdp.poll_mode, "prefbusy" ) && 0!=strcmp( config->net.xdp.poll_mode, "softirq" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.poll_mode`: must be \"prefbusy\" or \"softirq\"" ));
+    }
+
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
     if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&

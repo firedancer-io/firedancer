@@ -38,7 +38,7 @@ execve_as_root( int     argc,
   args[ argc+4 ] = NULL;
 
   /* ok to leak these dynamic strings because we are about to execve anyway */
-  char * envp[ 3 ] = {0};
+  char * envp[ 4 ] = {0};
   char * env;
   int    idx = 0;
   if( FD_LIKELY(( env = getenv( "FIREDANCER_CONFIG_TOML" ) )) ) {
@@ -49,6 +49,8 @@ execve_as_root( int     argc,
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "TERM=%s", env ) == -1 ) )
       FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "FD_LOG_PATH_ANNOUNCED=%s", fd_log_private_path ) == -1 ) )
+    FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   execve( "/usr/bin/sudo", args, envp );
   FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -148,7 +150,10 @@ fd_dev_main( int                        argc,
   config.development.no_clone = config.development.no_clone || no_clone;
   config.development.sandbox = config.development.sandbox && !no_sandbox && !config.development.no_clone;
 
-  int is_allowed_live = action->is_diagnostic==1;
+  /* Frankendancer has a separate production binary (fdctl); for
+     Firedancer running the dev binary against a live cluster is a
+     supported flow. */
+  int is_allowed_live = is_firedancer || action->is_diagnostic==1;
   if( FD_UNLIKELY( config.is_live_cluster && !is_allowed_live ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "

@@ -1,6 +1,7 @@
 /* fd_solfuzz_exec.c contains internal executors */
 
 #include "fd_solfuzz_private.h"
+#include "fd_gossip_harness.h"
 #include "generated/block.pb.h"
 #include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
@@ -10,6 +11,7 @@
 #include "generated/cost.pb.h"
 #include "generated/elf.pb.h"
 #include "generated/shred.pb.h"
+#include "generated/gossip.pb.h"
 
 #include "../fd_executor_err.h"
 
@@ -450,5 +452,47 @@ fd_solfuzz_pb_cost_fixture( fd_solfuzz_runner_t * runner,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_cost_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_gossip_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_gossip_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid gossip fixture." ));
+    return 0;
+  }
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+
+  uchar const * input    = fixture->input ? fixture->input->bytes : NULL;
+  ulong         input_sz = fixture->input ? fixture->input->size  : 0UL;
+
+  ulong   out_sz = 32UL*1024UL*1024UL;
+  uchar * out    = fd_spad_alloc( runner->spad, 1UL, out_sz );
+  if( !fd_solfuzz_gossip_decode( runner, out, &out_sz, input, input_sz ) ) {
+    FD_LOG_WARNING(( "No output effects" ));
+  } else {
+    ulong   exp_sz = 32UL*1024UL*1024UL;
+    uchar * exp    = fd_spad_alloc( runner->spad, 1UL, exp_sz );
+    if( !sol_compat_encode( exp, &exp_sz, &fixture->output, &fd_exec_test_gossip_effects_t_msg ) ) {
+      FD_LOG_WARNING(( "Error encoding expected" ));
+    } else if( out_sz!=exp_sz ) {
+      FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz ));
+    } else if( !fd_memeq( out, exp, out_sz ) ) {
+      FD_LOG_WARNING(( "Binary cmp failed: different values." ));
+    } else {
+      ok = 1;
+    }
+  }
+
+  fd_spad_pop( runner->spad );
+
+  // Cleanup
+  pb_release( &fd_exec_test_gossip_fixture_t_msg, fixture );
   return ok;
 }

@@ -1,4 +1,4 @@
 #!/bin/sh
 
-(git grep -n 'for (') && exit 1
-(git grep -n 'if (') && exit 1
+(git grep -n 'for (' -- ':!src/third_party') && exit 1
+(git grep -n 'if (' -- ':!src/third_party') && exit 1

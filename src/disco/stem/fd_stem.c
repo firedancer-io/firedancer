@@ -602,7 +602,7 @@ STEM_(run1)( ulong                        in_cnt,
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
 #if FD_HAS_AVX
-    __m256i yline   = FD_VOLATILE_CONST( this_in_mline->avx );
+    fd_frag_meta_v256_t yline = FD_VOLATILE_CONST( this_in_mline->avx );
     ulong seq_found = fd_frag_meta_avx_seq( yline );
     ulong sig       = fd_frag_meta_avx_sig( yline );
 #elif FD_HAS_SSE

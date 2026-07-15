@@ -168,12 +168,12 @@ main( int     argc,
   toc = (long)1e9; do toc = fd_log_sleep( toc ); while( toc );
   tic = fd_log_wallclock() - (tic+(long)1e9);
   FD_LOG_NOTICE(( "Test fd_log_sleep delta %li ns", tic ));
-  FD_TEST( fd_long_abs( tic ) < (ulong)25e6 );
+  FD_TEST( -(long)25e6<tic && tic<(long)1e9 );
 
   tic = fd_log_wallclock();
   tic = fd_log_wait_until( tic+(long)1e9 ) - (tic+(long)1e9);
   FD_LOG_NOTICE(( "Test fd_log_wait_until delta %li ns", tic ));
-  FD_TEST( fd_long_abs( tic ) < (ulong)25e6 );
+  FD_TEST( 0L<=tic && tic<(long)1e9 );
 
   /* Debugging helpers */
   static uchar const hex[16] = { 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf };

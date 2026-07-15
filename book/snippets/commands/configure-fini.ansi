@@ -1,5 +1,7 @@
 $ fdctl configure fini all
-[32mNOTICE [0m ethtool ... finishing
+[32mNOTICE [0m ethtool-loopback ... finishing
+[32mNOTICE [0m ethtool-offloads ... finishing
+[32mNOTICE [0m ethtool-channels ... finishing
 [32mNOTICE [0m sysctl ... finishing
 [32mNOTICE [0m hugetlbfs ... finishing
 [32mNOTICE [0m RUN: `umount /mnt/.fd/.huge`

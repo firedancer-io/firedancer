@@ -1490,7 +1490,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd4\xca\x06\xb3\x6d\xa7\x8e\xef\xd9\x92\x66\x67\x6d\xe3\x92\xab\x4e\x56\x31\x5b\xd3\x9e\x97\x15\xd2\xf6\x0d\x3d\x02\x29\xf8\x10"},
                                  /* FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z */
     .name                      = "enable_get_epoch_stake_syscall",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_account_loader_special_case)>>3,
     .id                        = {"\xc7\x2b\x39\x35\x25\x63\x29\x7f\x69\x4f\x2d\x7f\x8c\x2c\xbb\x62\x13\x3e\x4d\xf8\xc9\xc0\x2d\x75\xed\xed\x28\x6a\x6f\x44\xe6\x8f"},
@@ -1559,7 +1560,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x56\x29\xfd\x5b\x06\x1d\x78\x49\xfc\x80\x45\xef\xbe\x42\x3f\xbc\x45\x8b\x26\xf1\x43\x04\xd8\x27\x0e\xfb\xba\x13\x22\x82\x30\xc6"},
                                  /* 6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu */
     .name                      = "raise_block_limits_to_60m",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, raise_block_limits_to_100m)>>3,
     .id                        = {"\x05\xa2\xfa\x02\xbf\x06\x9b\xb5\xcf\xeb\xc7\x5c\x1d\xc9\x2a\x8b\x6c\x88\x83\x7e\xad\x76\x0e\x05\x45\xf5\xa8\x63\x63\x9c\xe7\xad"},
@@ -1616,7 +1618,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\x51\x2b\xe1\x3a\x96\x4f\x49\x50\xb7\xac\x06\xb0\x90\x4d\x04\xbb\xbf\x29\xc7\x0c\x01\xf6\x52\x11\x2b\x02\xfa\x13\x90\x98\x76"},
                                  /* RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph */
     .name                      = "vote_only_retransmitter_signed_fec_sets",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, mask_out_rent_epoch_in_vm_serialization)>>3,
     .id                        = {"\x06\x35\x10\xb8\x8d\xba\x0a\x21\x00\x8d\x28\x53\xaf\xe3\xa7\x61\x15\x06\x67\x97\x6d\x00\x38\x42\x50\xb5\x71\xf9\x6a\x30\x65\xf7"},
@@ -1810,7 +1813,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x12\xc0\xcc\x9e\x1c\x42\x5c\xf5\xc7\xde\x6c\x39\x5e\xc1\xbf\xdc\x21\x5a\x01\x3e\x68\x94\x70\x0e\x15\xa2\x20\x46\x17\x7a\xfb\x7b"},
                                  /* 2GCrNXbzmt4xrwdcKS2RdsLzsgu4V5zHAemW57pcHT6a */
     .name                      = "remove_simple_vote_from_cost_model",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, limit_instruction_accounts)>>3,
     .id                        = {"\x52\xd1\xb6\xb3\x5a\x56\x28\x74\x22\x0c\xa4\x14\xc4\x5b\xf8\xb5\x41\xa9\xab\xc4\xe9\x73\x7d\xf5\xc7\x62\x41\x5a\x84\xd7\x5b\x33"},
@@ -1894,6 +1898,78 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\xbc\x3b\x68\xa2\x90\x42\x94\x71\x68\x24\xf6\xad\x2a\x32\xe9\x49\x30\x42\xa3\x80\x46\x91\x94\x6c\x28\x18\x33\xcd\x6f\x71\x55"},
                                  /* vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA */
     .name                      = "validate_chained_block_id_2",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_350ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x30\xfb\x5b\x03\xde\x02\x4b\x47\xef\x92\xd3\xfe\xa0\x57\x5e\x9a\x1e\x5f\xd9\xd6\xcb\x6d\x19\x4b\x0f\x80\x49\x3c\xa6"},
+                                 /* iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ */
+    .name                      = "reduce_slot_time_to_350ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_300ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x36\x88\x99\x6a\x91\x79\x8d\x6b\xfb\x98\x23\x05\x98\x9b\x58\x21\x93\x36\xc0\x9d\x1c\xd4\x30\x18\xff\x7d\x39\x38\xfb"},
+                                 /* iBRLL3k18HST852F1Mf3Lv83waTNQmmqvKDxvYGwQFL */
+    .name                      = "reduce_slot_time_to_300ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_250ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x37\x20\x1a\xa1\x50\x65\x89\xb6\x6b\xd4\x52\x0e\xa9\xbb\xff\xf2\x1c\xeb\x4d\x1a\x8f\x07\x53\xaa\x97\xae\x36\xc5\xe6"},
+                                 /* iBRLMc81UjRa8fn8A6eE8bJTnRbgQoPTynM51akENCV */
+    .name                      = "reduce_slot_time_to_250ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, reduce_slot_time_to_200ms)>>3,
+    .id                        = {"\x0a\x8c\x98\x3f\x83\xc7\xc8\x2b\x9e\x34\xe0\xfa\x90\x4f\xc3\xd3\x31\x94\xe8\x34\x59\x8f\x0c\xe6\xb7\xf2\x29\x10\xb5\x0d\x71\xd7"},
+                                 /* iBRLjhJnkmDZgNoZRDMW11d8ZV7HvsL3vAyRjZB5npW */
+    .name                      = "reduce_slot_time_to_200ms",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_6333)>>3,
+    .id                        = {"\x35\x0d\x9f\xc4\x1f\x1f\xd7\xf2\xdd\xce\xca\xfa\x8f\x5f\xae\x76\xd4\x93\xdf\xa5\x5c\xf2\x66\x7d\x8b\x31\x01\x35\x9c\x8f\x83\x5b"},
+                                 /* 4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC */
+    .name                      = "set_lamports_per_byte_to_6333",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_5080)>>3,
+    .id                        = {"\x4a\x56\xbe\x1f\x51\xef\x5c\x80\xcc\x02\xc6\x46\x2b\xeb\x7d\x8c\x22\x91\xc1\x59\xdc\x1c\x2e\x08\x89\x83\xdc\x4e\x47\xc9\x71\xa2"},
+                                 /* 61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81 */
+    .name                      = "set_lamports_per_byte_to_5080",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_2575)>>3,
+    .id                        = {"\xdd\x53\x17\x32\x99\x74\x3e\x41\x0a\x19\xc8\x8e\xd1\x45\xa8\x4d\x09\x52\x91\xc3\x27\xcb\x1a\x8a\x9b\x6e\xee\xaf\x46\x36\x97\xd7"},
+                                 /* Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz */
+    .name                      = "set_lamports_per_byte_to_2575",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_1322)>>3,
+    .id                        = {"\xeb\xcd\x13\x56\x4b\xd9\xe3\xb8\x77\x18\x7f\x80\x49\x2a\x74\x92\x7e\x4b\xf9\x66\xd1\x95\xe7\x0e\xbc\x56\xda\x25\x84\x7b\x3e\x7e"},
+                                 /* GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM */
+    .name                      = "set_lamports_per_byte_to_1322",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_696)>>3,
+    .id                        = {"\x0b\x6a\x74\x87\xee\x08\x84\x07\x1d\xd4\xe9\xe7\x97\x29\x50\x32\x5d\x96\x72\x7c\x04\x04\x24\xe2\xc1\xf6\x4e\x90\x3a\x78\xda\xfb"},
+                                 /* mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY */
+    .name                      = "set_lamports_per_byte_to_696",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, set_lamports_per_byte_to_6960)>>3,
+    .id                        = {"\x3d\xf4\x3b\x99\x54\x61\x60\x0b\xf2\x9a\xa8\xf3\xab\xd8\x14\x37\x0d\xd1\x17\xce\x0e\xc4\xd2\xcc\x9a\xb3\x43\x29\xf1\xe4\xb9\xbb"},
+                                 /* 5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni */
+    .name                      = "set_lamports_per_byte_to_6960",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, relax_post_exec_min_balance_check)>>3,
+    .id                        = {"\xb5\xb4\xe3\xe7\x17\x0f\xb3\x8a\xd3\x7c\x18\xf7\x8a\xfe\x4c\x43\x3c\x0c\xc6\x6a\x59\xb9\x5c\xdd\x47\xdc\x15\x4f\x1b\x15\xcd\x7d"},
+                                 /* DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg */
+    .name                      = "relax_post_exec_min_balance_check",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, upgrade_bpf_stake_program_to_v5_1)>>3,
+    .id                        = {"\x0c\xd3\x92\xa1\x2c\xdc\xf8\xe8\x25\x59\xf2\x43\xe3\x56\xbd\xed\xb3\x1f\xcd\x3d\x89\x09\x4b\xaa\x8b\x4a\x5d\x64\xd1\x85\x32\x81"},
+                                 /* s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr */
+    .name                      = "upgrade_bpf_stake_program_to_v5_1",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2189,6 +2265,18 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_274 0xbe56a012b91e1808UL, .val = &ids[274]
 #define MAP_PERFECT_275 0x902a0ec624adfb04UL, .val = &ids[275]
 #define MAP_PERFECT_276 0x944290a2683bbc0dUL, .val = &ids[276]
+#define MAP_PERFECT_277 0xde035bfb30988c0aUL, .val = &ids[277]
+#define MAP_PERFECT_278 0x916a998836988c0aUL, .val = &ids[278]
+#define MAP_PERFECT_279 0x50a11a2037988c0aUL, .val = &ids[279]
+#define MAP_PERFECT_280 0x2bc8c7833f988c0aUL, .val = &ids[280]
+#define MAP_PERFECT_281 0xf2d71f1fc49f0d35UL, .val = &ids[281]
+#define MAP_PERFECT_282 0x805cef511fbe564aUL, .val = &ids[282]
+#define MAP_PERFECT_283 0x413e7499321753ddUL, .val = &ids[283]
+#define MAP_PERFECT_284 0xb8e3d94b5613cdebUL, .val = &ids[284]
+#define MAP_PERFECT_285 0x078408ee87746a0bUL, .val = &ids[285]
+#define MAP_PERFECT_286 0x0b606154993bf43dUL, .val = &ids[286]
+#define MAP_PERFECT_287 0x8ab30f17e7e3b4b5UL, .val = &ids[287]
+#define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2476,4 +2564,16 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points      
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_minimum_extend_program_size                   )>>3==274UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, define_ltds_fee_only_semantics                          )>>3==275UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id_2                             )>>3==276UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_350ms                               )>>3==277UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_300ms                               )>>3==278UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_250ms                               )>>3==279UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reduce_slot_time_to_200ms                               )>>3==280UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6333                           )>>3==281UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_5080                           )>>3==282UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_2575                           )>>3==283UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_1322                           )>>3==284UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_696                            )>>3==285UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6960                           )>>3==286UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_post_exec_min_balance_check                       )>>3==287UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5_1                       )>>3==288UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

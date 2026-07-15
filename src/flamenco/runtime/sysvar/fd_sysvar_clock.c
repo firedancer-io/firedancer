@@ -56,7 +56,7 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
       (long)bank->f.genesis_creation_time,
-      (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.ns_per_slot.ud ) / NS_IN_S ) );
+      (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.slot_params.ns_per_slot ) / NS_IN_S ) );
 }
 
 static void
@@ -120,7 +120,6 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
   uint128 total_stake = 0UL;
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->f.slot;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
@@ -176,7 +175,7 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
         timestamp and adding the estimated time since the last vote
         (delta from last vote slot to current slot * slot duration).
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
-    ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
+    ulong offset   = fd_slot_params_slot_range_duration_ns( bank, last_vote_slot+1UL, current_slot+1UL );
     long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
 
     /* For each timestamp, accumulate the stake from E-2.  If the acc
@@ -210,7 +209,6 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
   uint128 total_stake = 0UL;
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->f.slot;
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
@@ -247,7 +245,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
         timestamp and adding the estimated time since the last vote
         (delta from last vote slot to current slot * slot duration).
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
-    ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
+    ulong offset   = fd_slot_params_slot_range_duration_ns( bank, last_vote_slot+1UL, current_slot+1UL );
     long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
 
     /* For each timestamp, accumulate the stake from E-2.  If the entry
@@ -284,7 +282,6 @@ get_timestamp_estimate( fd_bank_t *             bank,
                         ulong const *           parent_epoch,
                         int *                   out_estimate_present ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->f.slot;
 
   ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
@@ -336,7 +333,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
   long  epoch_start_timestamp = clock->epoch_start_timestamp;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L71-L72 */
-  ulong poh_estimate_offset = fd_ulong_sat_mul( slot_duration, fd_ulong_sat_sub( current_slot, epoch_start_slot ) );
+  ulong poh_estimate_offset = fd_slot_params_slot_range_duration_ns( bank, epoch_start_slot+1UL, current_slot+1UL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L73-L77 */
   ulong estimate_offset = fd_ulong_sat_mul( NS_IN_S, fd_ulong_sat_sub( (ulong)estimate, (ulong)epoch_start_timestamp ) );

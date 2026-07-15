@@ -646,6 +646,18 @@ fd_log_flush( void );
    the ephemeral log and non-zero indicates to colorize it. */
 
 int fd_log_colorize( void );
+
+/* fd_log_style_{bold,dim,normal} return the terminal escape for the
+   style when the ephemeral log is colorized and "" otherwise, for
+   emphasis inside log messages.  Convention: bold for identifiers the
+   operator chose or must recognize, dim for provenance detail, plain
+   for everything else.  The logfile always receives the message with
+   escapes stripped. */
+
+char const * fd_log_style_bold  ( void );
+char const * fd_log_style_dim   ( void );
+char const * fd_log_style_normal( void );
+
 int fd_log_level_logfile ( void );
 int fd_log_level_stderr  ( void );
 int fd_log_level_flush   ( void );

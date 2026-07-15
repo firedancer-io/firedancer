@@ -1,4 +1,9 @@
+#ifndef HEADER_fd_src_ballet_bn254_fd_bn254_glv_h
+#define HEADER_fd_src_ballet_bn254_fd_bn254_glv_h
+
 /* Included by fd_bn254_g1.c and fd_bn254_g2.c, should not be used elsewhere. */
+
+#include "./fd_bn254_internal.h"
 
 /* Rundown of the BN254 GLV implementation:
 
@@ -71,19 +76,19 @@
    For G1, k1 >= 0 always, k2 may be negative.
    For G2, both k1 and k2 may be negative. */
 
+/* Const definitions live in fd_bn254_g1.c. */
+
 /* beta in Montgomery form.
    0x30644e72e131a0295e6dd9e7e0acccb0c28f069fbb966e3de4bd44e5607cfd48 */
-const fd_bn254_fp_t fd_bn254_const_beta_mont[1] = {{{
-  0x3350c88e13e80b9cUL, 0x7dce557cdb5e56b9UL, 0x6001b4b8b615564aUL, 0x2682e617020217e0UL
-}}};
+extern const fd_bn254_fp_t fd_bn254_const_beta_mont[1];
 
 /* Lattice constants, see glv.py */
-const ulong na[ 2 ] = { 0x8211bbeb7d4f1128UL, 0x6f4d8248eeb859fcUL };
-const ulong nb[ 1 ] = { 0x89d3256894d213e3UL };
-const ulong nc[ 2 ] = { 0x0be4e1541221250bUL, 0x6f4d8248eeb859fdUL };
+extern const ulong na[ 2 ];
+extern const ulong nb[ 1 ];
+extern const ulong nc[ 2 ];
 
 /* g2 = round(2^256 * N_B / r), 66-bit (2 limbs). Same for G1 and G2. */
-const ulong g2_const[ 2 ] = { 0xd91d232ec7e0b3d7UL, 0x0000000000000002UL };
+extern const ulong g2_const[ 2 ];
 
 /* Multiply 4-limb scalar s by a 3-limb constant g.
    Returns top 3 limbs. */
@@ -210,3 +215,5 @@ fd_bn254_glv_negate4( ulong v[ 4 ] ) {
     carry  = (ulong)(sum >> 64);
   }
 }
+
+#endif /* HEADER_fd_src_ballet_bn254_fd_bn254_glv_h */

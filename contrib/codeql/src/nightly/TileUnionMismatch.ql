@@ -10,6 +10,7 @@
  */
 
 import cpp
+import filter
 
 class TileUnionVariant extends Declaration {
   TileUnionVariant() {
@@ -31,6 +32,7 @@ class TileAccessInTile extends FieldAccess {
 
 from TileAccessInTile t, string tileName
 where
+  included(t.getLocation()) and
   tileName = t.getLocation().getFile().getBaseName() and
   not tileName.matches("%_" + t.toString() + "_%") and
   /* net "inheritance" case */

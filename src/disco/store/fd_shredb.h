@@ -78,9 +78,7 @@ typedef struct fd_shredb_slot_entry fd_shredb_slot_entry_t;
 
 /* On-disk ring buffer entry. */
 struct __attribute__((aligned(64))) fd_shredb_entry {
-  ulong  key;                     /* for reverse lookups on eviction */
   ushort shred_sz;                /* actual shred byte count */
-  uchar  occupied;                /* 1 if this slot holds valid data */
   uchar  shred[FD_SHRED_MAX_SZ];
 };
 typedef struct fd_shredb_entry fd_shredb_entry_t;
@@ -89,10 +87,12 @@ struct fd_shredb {
   ulong  max_shreds;                  /* ring buffer capacity */
   ulong  write_head;                  /* next ring position to write */
   ulong  cnt;                         /* current number of entries */
-  void * mapped;
-  ulong  mapped_sz;                   /* the size of `mapped` in bytes */
   int    fd;                          /* file descriptor for the backing file */
   ulong  file_shreds;                 /* current file capacity in shred entries */
+
+  ulong * evict_keys;                 /* ring_idx -> (slot,shred_idx) */
+  ulong * evict_occupied;             /* bit ring_idx is set if entry holds data */
+
   fd_shredb_shred_entry_t * shred_map;
   fd_shredb_slot_entry_t  * slot_map;
 };

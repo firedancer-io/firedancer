@@ -1571,6 +1571,8 @@
     in127 = GF_MUL( in127, 25 );                \
   } while( 0 )
 
+void fd_reedsol_fderiv_128( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
+
 #define FD_REEDSOL_FDERIV_IMPL_256( in00, in01, \
     in02, in03, in04, in05, in06, in07, in08  , \
     in09, in10, in11, in12, in13, in14, in15  , \
@@ -3406,5 +3408,7 @@
     in254 = GF_MUL( in254, 100 );               \
     in255 = GF_MUL( in255, 100 );               \
   } while( 0 )
+
+void fd_reedsol_fderiv_256( gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t*, gf_t* );
 
 #endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fderiv_h */

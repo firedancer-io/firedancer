@@ -12,6 +12,7 @@ $(call add-objs,commands/bundle_client,fddev_shared)
 $(call add-objs,commands/dev,fddev_shared)
 $(call add-objs,commands/dump,fddev_shared)
 $(call add-objs,commands/flame,fddev_shared)
+$(OBJDIR)/obj/app/shared_dev/commands/flame.o: src/app/shared_dev/commands/flamegraph_template.html src/app/shared_dev/commands/flamegraph.py
 $(call add-objs,commands/load,fddev_shared)
 $(call add-objs,commands/metrics_record,fddev_shared)
 $(call add-objs,commands/pktgen/pktgen,fddev_shared)

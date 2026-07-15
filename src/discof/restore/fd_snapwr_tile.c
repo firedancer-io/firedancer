@@ -259,6 +259,8 @@ static void
 handle_control_frag( fd_snapwr_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
+
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,

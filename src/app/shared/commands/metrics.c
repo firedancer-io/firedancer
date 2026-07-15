@@ -1,5 +1,6 @@
 #include "../fd_config.h"
 #include "../fd_action.h"
+#include "../fd_bootinfo.h"
 
 #include "../../../disco/metrics/fd_prometheus.h"
 #include "../../../waltz/http/fd_http_server_private.h"
@@ -44,6 +45,7 @@ reconstruct_topo( config_t *   config,
 static void
 metrics_cmd_fn( args_t *   args,
                 config_t * config ) {
+  fd_bootinfo_adopt( config );
   reconstruct_topo( config, args->metrics.topo );
 
   fd_http_server_params_t params = {
@@ -55,6 +57,7 @@ metrics_cmd_fn( args_t *   args,
     .outgoing_buffer_sz    = (1UL<<28UL), /* 256MiB */
   };
 
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 

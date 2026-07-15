@@ -1,7 +1,7 @@
 #include "test_bundle_common.c"
 #include "proto/block_engine.pb.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/nanopb/pb_encode.h"
+#include "../../third_party/nanopb/pb_encode.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
 FD_IMPORT_BINARY( test_bundle_response, "src/disco/bundle/test_bundle_response.binpb" );

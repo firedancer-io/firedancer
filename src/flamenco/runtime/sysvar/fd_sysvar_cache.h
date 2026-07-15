@@ -129,9 +129,16 @@ void
 fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
                               fd_accdb_t * accdb );
 
+/* fd_sysvar_cache_restore_one restores a single sysvar cache entry from
+   raw account fields (as opposed to a full fd_acc_t).  If pubkey is not
+   a sysvar or lamports is zero, this is a no-op. */
+
 void
-fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t * cache,
-                                  fd_acc_t const *    acc );
+fd_sysvar_cache_restore_one( fd_sysvar_cache_t * cache,
+                             fd_pubkey_t const * pubkey,
+                             ulong               lamports,
+                             uchar const *       acc_data,
+                             ulong               acc_data_len );
 
 /* Generic accessors for serialized sysvar account data. */
 

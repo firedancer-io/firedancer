@@ -1,0 +1,4 @@
+$ sudo firedancer configure init kworkers
+[32mNOTICE [0m kworkers ... unconfigured ... kernel workqueue cpumask includes Firedancer tile CPUs 1-40
+[32mNOTICE [0m kworkers ... configuring
+[32mNOTICE [0m RUN: `echo "ffffffff,fffffe00,00000001" > /sys/devices/virtual/workqueue/cpumask`

@@ -7,4 +7,3 @@ CPPFLAGS+=-fsanitize=memory
 LDFLAGS+=-fsanitize=memory
 #LDFLAGS+=-fsanitize-memory-track-origins
 
-include config/extra/with-libcxx.mk

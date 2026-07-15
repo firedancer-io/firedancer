@@ -51,11 +51,11 @@ maybe_kill( config_t const * config,
   if( FD_LIKELY( cmdline_len>=5UL ) ) {
     if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5UL), "fddev" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is fddev", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfddev%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     } else if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "fdctl" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is fdctl", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfdctl%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
@@ -63,7 +63,7 @@ maybe_kill( config_t const * config,
   if( FD_LIKELY( cmdline_len>=10UL ) ) {
     if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-10UL), "firedancer" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfiredancer%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
@@ -71,7 +71,7 @@ maybe_kill( config_t const * config,
   if( FD_LIKELY( cmdline_len>=14UL ) ) {
     if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-14UL), "firedancer-dev" ) ) ) {
       killed = 1;
-      FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer-dev", proc_cmdline, pid ));
+      FD_LOG_NOTICE(( "killing existing %sfiredancer-dev%s process %s(%s, pid %lu)%s", fd_log_style_bold(), fd_log_style_normal(), fd_log_style_dim(), proc_cmdline, pid, fd_log_style_normal() ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
@@ -136,14 +136,21 @@ wait_dead( long  started,
            ulong pid ) {
   /* We need to do this to prevent a race condition, since kill(SIGKILL) returns
      before the kernel actually terminates and reclaims the resources from the
-     process. */
+     process.  A task blocked in an uninterruptible syscall (e.g. an
+     fsync queued behind heavy writeback) does not die until the
+     syscall completes, which can take seconds. */
+  int notified = 0;
   while( 1 ) {
     int err = kill( (int)pid, 0 );
     if( FD_LIKELY( err==-1 && errno==ESRCH) ) return;
     else if( FD_LIKELY( err==-1 ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    if( FD_UNLIKELY( fd_log_wallclock() - started >= (long)1e9 ) )
-      FD_LOG_ERR(( "waited too long for process to exit" ));
+    long waited = fd_log_wallclock() - started;
+    if( FD_UNLIKELY( waited>=(long)1e9 && !notified ) ) {
+      FD_LOG_WARNING(( "waiting for killed process to exit %s(blocked in uninterruptible disk I/O)%s", fd_log_style_dim(), fd_log_style_normal() ));
+      notified = 1;
+    }
+    if( FD_UNLIKELY( waited >= (long)5e9 ) ) FD_LOG_ERR(( "waited too long for process to exit" ));
   }
 }
 

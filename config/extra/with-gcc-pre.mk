@@ -1,4 +1,3 @@
 # Default GCC executables
 CC=gcc
-CXX=g++
-LD=g++
+LD=gcc

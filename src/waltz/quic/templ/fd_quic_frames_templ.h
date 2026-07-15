@@ -110,8 +110,8 @@ FD_TEMPL_DEF_STRUCT_END(crypto_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(new_token_frame)
   FD_TEMPL_MBR_FRAME_TYPE  ( type, 0x07,0x07 )
-  FD_TEMPL_MBR_ELEM_VARINT ( token_len, uint              )
-  FD_TEMPL_MBR_ELEM_VAR_RAW( token,     0,8192, token_len )
+  FD_TEMPL_MBR_ELEM_VARINT ( token_len, uint )
+  FD_TEMPL_MBR_ELEM_VAR_RAW( token, 1,1024, token_len )
 FD_TEMPL_DEF_STRUCT_END(new_token_frame)
 
 
@@ -269,11 +269,11 @@ FD_TEMPL_DEF_STRUCT_END(streams_blocked_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(new_conn_id_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x18,0x18 )
-  FD_TEMPL_MBR_ELEM_VARINT ( seq_nbr,               ulong              )
-  FD_TEMPL_MBR_ELEM_VARINT ( retire_prior_to,       ulong              )
-  FD_TEMPL_MBR_ELEM        ( conn_id_len,           uchar              )
-  FD_TEMPL_MBR_ELEM_VAR_RAW( conn_id,               0,160, conn_id_len )
-  FD_TEMPL_MBR_ELEM_RAW    ( stateless_reset_token, 16                 )
+  FD_TEMPL_MBR_ELEM_VARINT ( seq_nbr,               ulong             )
+  FD_TEMPL_MBR_ELEM_VARINT ( retire_prior_to,       ulong             )
+  FD_TEMPL_MBR_ELEM        ( conn_id_len,           uchar             )
+  FD_TEMPL_MBR_ELEM_VAR_RAW( conn_id,               1,20, conn_id_len )
+  FD_TEMPL_MBR_ELEM_RAW    ( stateless_reset_token, 16                )
 FD_TEMPL_DEF_STRUCT_END(new_conn_id_frame)
 
 

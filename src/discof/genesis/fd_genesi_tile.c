@@ -5,7 +5,7 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../disco/events/generated/fd_event_gen.h"
-#include "../../ballet/bzip2/bzlib.h"
+#include "../../third_party/bzip2/bzlib.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../util/archive/fd_tar.h"
@@ -227,7 +227,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, msg_sz, 0UL, 0UL, 0UL );
     *charge_busy = 1;
-    FD_LOG_NOTICE(( "loaded local genesis.bin from file `%s`", ctx->genesis_path ));
+    FD_LOG_NOTICE(( "loaded local genesis.bin from file %s%s%s", fd_log_style_dim(), ctx->genesis_path, fd_log_style_normal() ));
 
     ctx->shutdown = 1;
   } else {
@@ -339,8 +339,9 @@ after_credit( fd_genesi_tile_t *  ctx,
     int err = renameat2( ctx->out_dir_fd, basename_partial, ctx->out_dir_fd, basename, RENAME_NOREPLACE );
     if( FD_UNLIKELY( -1==err ) ) FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    FD_LOG_NOTICE(( "retrieved genesis `%s` from peer at http://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2",
-                    ctx->genesis_path, FD_IP4_ADDR_FMT_ARGS( peer.addr ), peer.port ));
+    FD_LOG_NOTICE(( "retrieved genesis %s%s%s from peer at %shttp://" FD_IP4_ADDR_FMT ":%hu/genesis.tar.bz2%s",
+                    fd_log_style_dim(), ctx->genesis_path, fd_log_style_normal(),
+                    fd_log_style_dim(), FD_IP4_ADDR_FMT_ARGS( peer.addr ), peer.port, fd_log_style_normal() ));
 
     ctx->shutdown = 1;
   }
@@ -394,8 +395,11 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   if( FD_LIKELY( ctx->has_expected_genesis_hash && memcmp( ctx->genesis_hash, ctx->expected_genesis_hash, 32UL ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
     FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc,      genesis_hash_b58          );
-    FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
-                 "but the genesis hash derived from the genesis file at `%s` has unexpected hash `%s`", expected_genesis_hash_b58, genesis_path, genesis_hash_b58 ));
+    FD_LOG_ERR(( "An expected genesis hash of %s%s%s has been set in your configuration file at [consensus.expected_genesis_hash] "
+                 "but the genesis hash derived from the genesis file at %s%s%s has unexpected hash %s%s%s",
+                 fd_log_style_bold(), expected_genesis_hash_b58, fd_log_style_normal(),
+                 fd_log_style_dim(), genesis_path, fd_log_style_normal(),
+                 fd_log_style_bold(), genesis_hash_b58, fd_log_style_normal() ));
   }
 }
 
@@ -443,10 +447,13 @@ privileged_init( fd_topo_t const *      topo,
           if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->genesi.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->genesi.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+          char const * genesis_basename = strrchr( tile->genesi.genesis_path, '/' );
+          genesis_basename = genesis_basename ? genesis_basename+1UL : tile->genesi.genesis_path;
+
           char partialname[ PATH_MAX ];
-          FD_TEST( fd_cstr_printf_check( partialname, PATH_MAX, NULL, "%s.partial", tile->genesi.genesis_path ) );
-          ctx->out_fd = openat( ctx->out_dir_fd, "genesis.bin.partial", O_CREAT|O_WRONLY|O_CLOEXEC|O_TRUNC, S_IRUSR|S_IWUSR );
-          if( FD_UNLIKELY( -1==ctx->out_fd ) ) FD_LOG_ERR(( "openat() failed for genesis file `%s` (%i-%s)", partialname, errno, fd_io_strerror( errno ) ));
+          FD_TEST( fd_cstr_printf_check( partialname, PATH_MAX, NULL, "%s.partial", genesis_basename ) );
+          ctx->out_fd = openat( ctx->out_dir_fd, partialname, O_CREAT|O_WRONLY|O_CLOEXEC|O_TRUNC, S_IRUSR|S_IWUSR );
+          if( FD_UNLIKELY( -1==ctx->out_fd ) ) FD_LOG_ERR(( "openat() failed for genesis file `%s.partial` (%i-%s)", tile->genesi.genesis_path, errno, fd_io_strerror( errno ) ));
 
           if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -601,6 +608,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_accdb_partition_added_t);
+}
+
 fd_topo_run_tile_t fd_tile_genesi = {
   .name                     = "genesi",
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
@@ -613,6 +625,6 @@ fd_topo_run_tile_t fd_tile_genesi = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .max_event_sz             = sizeof(fd_event_accdb_partition_added_t),
+  .max_event_sz             = max_event_sz,
   .run                      = stem_run,
 };

@@ -1,5 +1,6 @@
 #include "fd_solfuzz_private.h"
 #include "../fd_cost_tracker.h"
+#include "../fd_slot_params.h"
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"
 #include "../fd_runtime_helpers.h"
@@ -10,6 +11,7 @@
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
+#include "../../rewards/fd_stake_rewards.h"
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 #include "../../capture/fd_solcap_writer.h"
@@ -91,6 +93,8 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_t *             accdb,
       stake_state->stake.stake.delegation.activation_epoch,
       stake_state->stake.stake.delegation.deactivation_epoch,
       stake_state->stake.stake.credits_observed,
+      acc.lamports,
+      (uint)acc.data_len,
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   fd_accdb_unread_one( accdb, &acc );
 }
@@ -100,6 +104,7 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   runner->bank->stake_rewards_fork_id = UCHAR_MAX;
+  fd_stake_rewards_clear( fd_bank_stake_rewards_modify( runner->bank ) );
 
   fd_progcache_reset( runner->progcache->join );
 
@@ -137,7 +142,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Attach a fork off the runner's root for context loading */
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
-  bank->accdb_fork_id = fork_id;
+  bank->accdb_fork_id        = fork_id;
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
@@ -214,11 +220,15 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Using default configuration of 64 ticks per slot
      https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
-  uint128 ns_per_slot = FD_LOAD(uint128, block_bank->ns_per_slot );
-  bank->f.ns_per_slot = (fd_w_u128_t){ .ud = ns_per_slot };
-  bank->f.ticks_per_slot = 64UL;
-  runner->bank->f.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
-  bank->f.hashes_per_tick = (slot+1UL)*64UL;
+  uint128 ns_per_slot_128                    = FD_LOAD(uint128, block_bank->ns_per_slot );
+  FD_TEST( ns_per_slot_128<=(uint128)ULONG_MAX );
+  ulong   ns_per_slot                        = (ulong)ns_per_slot_128;
+  bank->f.slot_params                        = FD_SLOT_PARAMS_400MS;
+  bank->f.slot_params.ns_per_slot            = ns_per_slot;
+  bank->f.ticks_per_slot                     = 64UL;
+  runner->bank->f.slot_params.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
+  bank->f.slot_params.hashes_per_tick        = (slot+1UL)*64UL;
+  bank->f.slot_params_default                = bank->f.slot_params;
 
   /* Load in accounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
@@ -275,7 +285,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar missing or invalid" ));
   }
-  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, accdb, fork_id );
+  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ), accdb, fork_id );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
@@ -403,13 +413,13 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       txn_out->err.exec_err = res;
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
-        fd_runtime_cancel_txn( runtime, txn_out );
+        fd_runtime_cancel_txn( runtime, NULL, NULL, txn_out, 0 );
         has_err = 1;
         continue;
       }
 
       /* Finalize the transaction */
-      fd_runtime_commit_txn( runtime, runner->bank, txn_out );
+      fd_runtime_commit_txn( runtime, runner->bank, NULL, txn_out, 0 );
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         has_err = 1;
@@ -576,7 +586,6 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
-      .vote_cost  = cost_tracker ? cost_tracker->vote_cost  : 0UL,
     };
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */

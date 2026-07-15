@@ -2,9 +2,6 @@
 #define HEADER_fd_src_ballet_blake3_fd_blake3_h
 
 #include "../fd_ballet_base.h"
-#if FD_HAS_AVX
-#include "../../util/simd/fd_avx.h"
-#endif
 
 /* fd_blake3 provides APIs for BLAKE3 hashing of messages.
 
@@ -214,13 +211,9 @@ struct __attribute__((aligned(FD_BLAKE3_ALIGN))) fd_blake3_pos {
 
   /* This point is 128-byte aligned */
 
-# if FD_HAS_AVX
-  union { uchar uc[ 32 ]; wb_t wb; } tail;
-  union { uchar uc[ 32 ]; wb_t wb; } head;
-# else
-  union { uchar uc[ 32 ]; } tail;
-  union { uchar uc[ 32 ]; } head;
-# endif
+  /* 32-byte aligned so the implementation can use vector accesses */
+  union { uchar uc[ 32 ] __attribute__((aligned(32))); } tail;
+  union { uchar uc[ 32 ] __attribute__((aligned(32))); } head;
 
   /* leaf_idx is the number of leaf chunks processed so far.  All but
      the last leaf chunk are of size FD_CHUNK_SZs.  live_cnt is the

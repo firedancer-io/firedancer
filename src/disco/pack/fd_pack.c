@@ -11,6 +11,52 @@
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 
+/* inline fd_hash and specialize for 32 bytes */
+static inline ulong
+fd_hash_32( ulong        seed,
+            void const * buf ) {
+#define ROTATE_LEFT(x,r) (((x)<<(r)) | ((x)>>(64-(r))))
+#define C1 (11400714785074694791UL)
+#define C2 (14029467366897019727UL)
+#define C3 ( 1609587929392839161UL)
+#define C4 ( 9650029242287828579UL)
+  uchar const * p    = ((uchar const *)buf);
+
+  ulong w = seed + (C1+C2);
+  ulong x = seed + C2;
+  ulong y = seed;
+  ulong z = seed - C1;
+
+  w += FD_LOAD( ulong, p    )*C2; w = ROTATE_LEFT( w, 31 ); w *= C1;
+  x += FD_LOAD( ulong, p+ 8 )*C2; x = ROTATE_LEFT( x, 31 ); x *= C1;
+  y += FD_LOAD( ulong, p+16 )*C2; y = ROTATE_LEFT( y, 31 ); y *= C1;
+  z += FD_LOAD( ulong, p+24 )*C2; z = ROTATE_LEFT( z, 31 ); z *= C1;
+
+  ulong h = ROTATE_LEFT( w, 1 ) + ROTATE_LEFT( x, 7 ) + ROTATE_LEFT( y, 12 ) + ROTATE_LEFT( z, 18 );
+
+  w *= C2; w = ROTATE_LEFT( w, 31 ); w *= C1; h ^= w; h = h*C1 + C4;
+  x *= C2; x = ROTATE_LEFT( x, 31 ); x *= C1; h ^= x; h = h*C1 + C4;
+  y *= C2; y = ROTATE_LEFT( y, 31 ); y *= C1; h ^= y; h = h*C1 + C4;
+  z *= C2; z = ROTATE_LEFT( z, 31 ); z *= C1; h ^= z; h = h*C1 + C4;
+
+  h += 32UL;
+
+  /* Final avalanche */
+  h ^= h >> 33;
+  h *= C2;
+  h ^= h >> 29;
+  h *= C3;
+  h ^= h >> 32;
+
+#undef C4
+#undef C3
+#undef C2
+#undef C1
+#undef ROTATE_LEFT
+
+  return h;
+}
+
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 typedef struct {
@@ -348,7 +394,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -364,7 +410,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
@@ -448,7 +494,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 #define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_MEMOIZE           0
-#define MAP_KEY_HASH(key,s)   ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_HASH(key,s)   ((uint)fd_hash_32( s, (key).b ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* PENALTY_TREAP_THRESHOLD: How many references to an account do we
@@ -817,7 +863,7 @@ fd_pack_new( void                   * mem,
 
   (void)trp_pool_leave( pool );
 
-  penalty_map_new( _penalty_map, lg_penalty_trp, 0UL );
+  penalty_map_new( _penalty_map, lg_penalty_trp, fd_rng_ulong( rng ) );
 
   /* These treaps can have at most pack_depth elements at any moment,
      but they come from a pool of size pack_depth+extra_depth. */
@@ -835,9 +881,9 @@ fd_pack_new( void                   * mem,
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
-  acct_uses_new( _uses,        lg_uses_tbl_sz, 0UL );
-  acct_uses_new( _writer_cost, lg_max_writers, 0UL );
-  acct_uses_new( _bundle_temp, lg_bundle_temp, 0UL );
+  acct_uses_new( _uses,        lg_uses_tbl_sz, fd_rng_ulong( rng ) );
+  acct_uses_new( _writer_cost, lg_max_writers, fd_rng_ulong( rng ) );
+  acct_uses_new( _bundle_temp, lg_bundle_temp, fd_rng_ulong( rng ) );
 
   pack->written_list     = _written_lst;
   pack->written_list_cnt = 0UL;
@@ -881,7 +927,7 @@ fd_pack_new( void                   * mem,
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
   pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
 
-  bitset_map_new( _acct_bitset, lg_acct_in_trp, 0UL );
+  bitset_map_new( _acct_bitset, lg_acct_in_trp, fd_rng_ulong( rng ) );
 
   fd_chkdup_new( pack->chkdup, rng );
 
@@ -985,10 +1031,13 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
       max_allocated_data_per_block             max_cost_per_block
 
      0       <=allocated_data      <=20 * 1024^2
-     48*10^6 <= max_cost_per_block < 2^32
+     30*10^6 <= max_cost_per_block < 2^32
      1020    <= cost_estimate      < 1.6 * 10^6
-     max_allocated_data_per_block = 100 * 1000^2
+     50*10^6 <= max_allocated_data_per_block <= 100 * 1000^2
+                (changes with the slot time duration)
      So the numerator (<2^57) and denominator (<2^48) can't overflow.
+     Both cost_estimate and max_allocated_data_per_block non-zero,
+     so the denominator is never zero.
      1 <= divisor <= 1 + (max_cost_per_block * .000206)
      */
   ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
@@ -1053,7 +1102,7 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn ) { t
 
 /* These require txn, accts, and alt_adj to be defined as per usual */
 #define ACCT_IDX_TO_PTR( idx ) (__extension__( {                                               \
-      ulong __idx = (idx);                                                                     \
+      ulong __idx = (ulong)(idx);                                                              \
       fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
       }))
 #define ACCT_ITER_TO_PTR( iter ) (__extension__( {                                             \

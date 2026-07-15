@@ -1,4 +1,5 @@
 #include "monitor_gossip.h"
+#include "../../../shared/fd_bootinfo.h"
 #include "gossip_diag.h"
 #include "generated/monitor_gossip_seccomp.h"
 
@@ -49,6 +50,7 @@ monitor_gossip_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 void
 monitor_gossip_cmd_fn( args_t *   args,
                        config_t * config ) {
+  fd_bootinfo_adopt( config );
   reconstruct_topo( config, args->monitor_gossip.topo );
 
   struct sigaction sa = {
@@ -68,6 +70,7 @@ monitor_gossip_cmd_fn( args_t *   args,
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd();
 
+  fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -129,7 +132,7 @@ action_t fd_action_monitor_gossip = {
   .name           = "monitor-gossip",
   .args           = monitor_gossip_cmd_args,
   .fn             = monitor_gossip_cmd_fn,
-  .require_config = 1,
+  .require_config = 0,
   .perm           = monitor_gossip_cmd_perm,
   .is_diagnostic  = 1,
   .description    = "Monitor gossip diagnostics on a running Firedancer instance",

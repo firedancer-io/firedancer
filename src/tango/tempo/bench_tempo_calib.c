@@ -59,6 +59,7 @@ run_config( char const * label,
             ulong        rep_cnt,
             double       ref ) {
   if( rep_cnt>256UL ) rep_cnt = 256UL;
+  if( rep_cnt<1UL   ) rep_cnt = 1UL;
   double mus[ 256 ];
   double sigmas[ 256 ];
   long   t_total = 0L;

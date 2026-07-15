@@ -17,9 +17,9 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts * 2UL ) );
   l = FD_LAYOUT_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width+1UL ) );
   l = FD_LAYOUT_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
-  for( ulong i=0; i<max_fork_width; i++ ) {
+  for( ulong i=0; i<max_fork_width+1UL; i++ ) {
     l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
     l = FD_LAYOUT_APPEND( l, stakes_map_align(),  stakes_map_footprint( map_chain_cnt ) );
   }
@@ -42,7 +42,7 @@ fd_vote_stakes_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_fork_width>MAX_FORK_WIDTH ) ) {
+  if( FD_UNLIKELY( max_fork_width>FD_VOTE_STAKES_MAX_FORK_WIDTH ) ) {
     FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }
@@ -54,9 +54,9 @@ fd_vote_stakes_new( void * shmem,
   void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts * 2UL ) );
   void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
   void *             index_map_multi_mem = FD_SCRATCH_ALLOC_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
-  void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
+  void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width+1UL ) );
   void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
-  for( ulong i=0; i<max_fork_width; i++ ) {
+  for( ulong i=0; i<max_fork_width+1UL; i++ ) {
     void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
     stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts ) );
     if( FD_UNLIKELY( !stakes_pool ) ) {
@@ -92,7 +92,7 @@ fd_vote_stakes_new( void * shmem,
     return NULL;
   }
 
-  fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_fork_width ) );
+  fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_fork_width+1UL ) );
   if( FD_UNLIKELY( !fork_pool ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes fork pool" ));
     return NULL;
@@ -101,11 +101,6 @@ fd_vote_stakes_new( void * shmem,
   fork_dlist_t * fork_dlist = fork_dlist_join( fork_dlist_new( fork_dlist_mem ) );
   if( FD_UNLIKELY( !fork_dlist ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes fork dlist" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( max_fork_width>USHORT_MAX ) ) {
-    FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }
 
@@ -397,6 +392,46 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
   fd_rwlock_unwrite( &vote_stakes->lock );
 }
 
+void
+fd_vote_stakes_purge_child( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx ) {
+  fd_rwlock_write( &vote_stakes->lock );
+
+  if( FD_UNLIKELY( fork_idx==vote_stakes->root_idx ) ) {
+    fd_rwlock_unwrite( &vote_stakes->lock );
+    return;
+  }
+
+  fork_t *       fork_pool  = get_fork_pool( vote_stakes );
+  fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
+
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_t *       index_map       = get_index_map( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+
+  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
+  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
+  for( stakes_map_iter_t iter = stakes_map_iter_init( stakes_map, stakes_pool );
+       !stakes_map_iter_done( iter, stakes_map, stakes_pool );
+       iter = stakes_map_iter_next( iter, stakes_map, stakes_pool ) ) {
+    stake_t *     stake = stakes_map_iter_ele( iter, stakes_map, stakes_pool );
+    index_ele_t * ele   = index_pool_ele( index_pool, stake->idx );
+    ele->refcnt--;
+
+    if( FD_UNLIKELY( ele->refcnt==0U ) ) {
+      FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
+      FD_TEST( index_map_multi_ele_remove_fast( index_map_multi, ele, index_pool ) );
+      index_pool_ele_release( index_pool, ele );
+    }
+  }
+  fork_dlist_idx_remove( fork_dlist, fork_idx, fork_pool );
+  fork_pool_idx_release( fork_pool, fork_idx );
+  stakes_map_reset( get_stakes_map( vote_stakes, fork_idx ) );
+  stakes_pool_reset( get_stakes_pool( vote_stakes, fork_idx ) );
+
+  fd_rwlock_unwrite( &vote_stakes->lock );
+}
+
 static int
 fd_vote_stakes_query_private( fd_vote_stakes_t *  vote_stakes,
                               ushort              fork_idx,
@@ -512,7 +547,7 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
   fork_pool_reset( fork_pool );
 
   /* For each fork, reset the stakes map and pool */
-  for( ushort i=0; i<vote_stakes->max_fork_width; i++ ) {
+  for( ushort i=0; i<vote_stakes->max_fork_width+1UL; i++ ) {
     stakes_map_reset( get_stakes_map( vote_stakes, i ) );
     stakes_pool_reset( get_stakes_pool( vote_stakes, i ) );
   }

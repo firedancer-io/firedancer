@@ -7,7 +7,6 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
 #include "../../../util/pod/fd_pod_format.h"
-#include "../../../util/tile/fd_tile_private.h"
 
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
@@ -112,6 +111,7 @@ repair_generate_epoch_info_msg( ulong                                       epoc
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_id_stake = 0UL;
+  epoch_info_msg->ns_per_slot       = FD_SLOT_PARAMS_400MS.ns_per_slot;
 
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
@@ -289,7 +289,7 @@ repair_topo( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 0 );
 
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
     if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
@@ -340,7 +340,7 @@ repair_topo( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
-  /**/                 fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL,                                    FD_EPOCH_OUT_MTU,              1UL );
+  /**/                 fd_topob_link( topo, "replay_epoch", "replay_epoch", 16UL,                                     FD_EPOCH_OUT_MTU,              1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                          1UL );
@@ -353,7 +353,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_fec_complete_t),   1UL );
 
-  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  FD_POH_SHRED_MTU,              1UL );
 
   /**/                 fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,                                    FD_TXN_MTU,                    1UL );
 

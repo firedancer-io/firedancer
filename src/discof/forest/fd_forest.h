@@ -690,8 +690,9 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
    don't know the parent slot of.  The caller should pass in parent_slot
    == ULONG_MAX.  In this case, the block inserted will remain an
    orphan/subtree at least until the next blk_insert is called with a
-   different parent_slot, after which point no more updates to the
-   parent_slot will be allowed.  For non-sentinel blocks, blk insert is
+   different parent_slot, after which point blk_insert will not update
+   the parent_slot again (shred inserts may still update it, see
+   fd_forest_data_shred_insert).  For non-sentinel blocks, blk insert is
    idempotent, and can be called multiple times with the same slot.
 
    If the forest pool is full at the time of insertion, a block will be
@@ -718,13 +719,13 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
    that this shred does not belong to the canonical FEC set.
 
    A possible side effect of data_shred_insert is that it may update the
-   parent slot of the block IF the inserted shred has a verifiably
-   correct merkle root.  Note this is different from a sentinel block
-   parent update. A data shred insert can only update the parent slot if
-   the data shred has a verified merkle root, and the parent slot is
-   incorrect.  A sentinel block will update its parent with the first
-   parent slot it receives, but it can be later updated with a
-   data_shred_insert.  Each update type can only be performed once. */
+   parent slot of the block IF 1) the inserted shred has a verifiably
+   correct merkle root, or 2) the shred belongs in fec set 0, and no
+   other merkle roots has arrived for fec set 0.
+
+   Note this is different from a sentinel block parent update. A
+   sentinel block will update its parent with the first parent slot it
+   receives, but it can be later updated with a data_shred_insert. */
 
 fd_forest_blk_t *
 fd_forest_data_shred_insert( fd_forest_t * forest,
@@ -745,7 +746,10 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
    forest. Assumes slot is already in forest, and should typically be
    called directly after fd_forest_block_insert. Returns the forest ele
    corresponding to the shred slot if the FEC was accepted, NULL
-   otherwise. */
+   otherwise.  Like data_shred_insert, this may update the block's
+   parent slot: a completed FEC set 0 whose merkle root overwrites a
+   conflicting recorded version re-links the block to the parent named
+   by the completing shred. */
 
 fd_forest_blk_t *
 fd_forest_fec_insert( fd_forest_t * forest,

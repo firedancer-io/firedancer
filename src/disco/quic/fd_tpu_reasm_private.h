@@ -19,12 +19,6 @@
 #define MAP_NEXT  chain_next
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* fd_tpu_reasm_reset initializes all reassembly slots to their initial
-   state.  Corrupts messages currently visible in mcache ring. */
-
-void
-fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm );
-
 static inline FD_FN_PURE fd_tpu_reasm_map_t *
 fd_tpu_reasm_map_laddr( fd_tpu_reasm_t * reasm ) {
   return (fd_tpu_reasm_map_t *)( (ulong)reasm + reasm->map_off );

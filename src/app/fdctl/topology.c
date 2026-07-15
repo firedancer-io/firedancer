@@ -8,7 +8,6 @@
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/net/fd_ip4.h"
-#include "../../util/tile/fd_tile_private.h"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
@@ -127,7 +126,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_cpus_init( cpus );
 
   ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_topob_parse_affinity_cstr( config->layout.affinity, parsed_tile_to_cpu, 0 );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
@@ -338,7 +337,7 @@ fd_topo_initialize( config_t * config ) {
 
     if( FD_LIKELY( strcmp( "", config->frankendancer.layout.agave_affinity ) ) ) {
       ushort agave_cpu[ FD_TILE_MAX ];
-      ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->frankendancer.layout.agave_affinity, agave_cpu );
+      ulong agave_cpu_cnt = fd_topob_parse_affinity_cstr( config->frankendancer.layout.agave_affinity, agave_cpu, 0 );
 
       for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
         if( FD_UNLIKELY( agave_cpu[ i ]>=cpus->cpu_cnt ) )
@@ -362,14 +361,14 @@ fd_topo_initialize( config_t * config ) {
     }
   } else {
     ushort blocklist_cores[ FD_TILE_MAX ];
-    topo->blocklist_cores_cnt = fd_tile_private_cpus_parse( config->layout.blocklist_cores, blocklist_cores );
+    topo->blocklist_cores_cnt = fd_topob_parse_affinity_cstr( config->layout.blocklist_cores, blocklist_cores, 0 );
     if( FD_UNLIKELY( topo->blocklist_cores_cnt>FD_TILE_MAX ) ) {
       FD_LOG_ERR(( "The CPU string in the configuration file under [layout.blocklist_cores] specifies more CPUs than Firedancer can use. "
                     "You should reduce the number of CPUs in the excluded cores string." ));
     }
 
     for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
-      /* Since we use fd_tile_private_cpus_parse() like for affinity, the user
+      /* Since we use fd_topob_parse_affinity_cstr() like for affinity, the user
          may input a string containing `f`. That's parsed correctly, but it's
          meaningless for blocklisted cores, so we reject it here.  */
       if( FD_UNLIKELY( blocklist_cores[ i ]==USHORT_MAX ) ) {

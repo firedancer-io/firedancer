@@ -47,8 +47,10 @@
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">idle</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Idle (task was not runnable)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">user</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (User (task was scheduled and executing in user mode)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">system</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (System (task was scheduled and executing in kernel mode)) |
+| <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">interrupt</span>"} | counter | CPU time spent in each CPU regime, in nanoseconds (Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)) |
 | <span class="metrics-name">tile_&#8203;irq_&#8203;preempted</span> | counter | Times the tile was interrupted by an IRQ (fixed tiles only) |
 | <span class="metrics-name">tile_&#8203;tlb_&#8203;shootdown</span> | counter | TLB shootdowns observed on the tile CPU (fixed tiles only) |
+| <span class="metrics-name">tile_&#8203;timer_&#8203;tick</span> | counter | Local timer interrupts (LOC) observed on the tile CPU (fixed tiles only) |
 
 </div>
 
@@ -151,6 +153,15 @@
 
 </div>
 
+## Admin Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+
+</div>
+
 ## Netlnk Tile
 
 <div class="metrics">
@@ -164,8 +175,6 @@
 | <span class="metrics-name">netlnk_&#8203;update_&#8203;processed</span><br/>{netlink_&#8203;message="<span class="metrics-enum">neighbor</span>"} | counter | Netlink live updates processed (Neighbor Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;update_&#8203;processed</span><br/>{netlink_&#8203;message="<span class="metrics-enum">ipv4_&#8203;route</span>"} | counter | Netlink live updates processed (IPv4 Route Table Entry) |
 | <span class="metrics-name">netlnk_&#8203;interface_&#8203;count</span> | gauge | Network interfaces |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes (Local) |
-| <span class="metrics-name">netlnk_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes (Main) |
 | <span class="metrics-name">netlnk_&#8203;neighbor_&#8203;probe_&#8203;sent</span> | counter | Neighbor solicit requests sent to kernel |
 | <span class="metrics-name">netlnk_&#8203;neighbor_&#8203;probe_&#8203;failed</span> | counter | Neighbor solicit requests that failed to send (kernel too slow) |
 | <span class="metrics-name">netlnk_&#8203;neighbor_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host</span> | counter | Neighbor solicit requests that exceeded the per-host rate limit |
@@ -189,7 +198,11 @@
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packet transmit jobs marked as completed by the kernel |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Bytes transmitted (including Ethernet header) |
-| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | Packet transmit jobs dropped due to route failure |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Packet transmit jobs dropped due to invalid packet data |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Packet transmit jobs dropped due to route failure (No matching route) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Packet transmit jobs dropped due to route failure (Unsupported route type) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Packet transmit jobs dropped due to route failure (Interface not available) |
+| <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Packet transmit jobs dropped due to route failure (No source IP address chosen) |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Packet transmit jobs dropped due to unresolved neighbor |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;tx_&#8203;ring_&#8203;full</span> | counter | Packet transmit jobs dropped due to XDP TX ring full or missing completions |
 | <span class="metrics-name">net_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Transmit buffers currently busy |
@@ -208,6 +221,8 @@
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | GRE packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | GRE packet transmit jobs dropped due to route failure |
 | <span class="metrics-name">net_&#8203;pkt_&#8203;rx_&#8203;src_&#8203;invalid</span> | counter | Incoming packets dropped due to invalid source IP address |
+| <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">local</span>"} | gauge | IPv4 routes installed in the forwarding table (Local) |
+| <span class="metrics-name">net_&#8203;route_&#8203;count</span><br/>{route_&#8203;table="<span class="metrics-enum">main</span>"} | gauge | IPv4 routes installed in the forwarding table (Main) |
 
 </div>
 
@@ -575,6 +590,19 @@
 | <span class="metrics-name">execle_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM setup (CPI)) |
 | <span class="metrics-name">execle_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM commit (CPI)) |
 | <span class="metrics-name">execle_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds (VM interpreter execution) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;lookup</span> | counter | Program cache lookups |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;hit</span> | counter | Program cache hits |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;miss</span> | counter | Program cache misses |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;oom_&#8203;heap</span> | counter | Program cache out-of-memory events (heap) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;oom_&#8203;desc</span> | counter | Program cache out-of-memory events (descriptor table) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;fill</span> | counter | Program cache insertions |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;fill_&#8203;bytes</span> | counter | Bytes inserted into program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;spill</span> | counter | Program cache spills (OOM fallback mechanism) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;spill_&#8203;bytes</span> | counter | Bytes spilled from program cache (OOM fallback mechanism) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction</span> | counter | Program cache evictions |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Bytes evicted from program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;duration_&#8203;seconds</span> | counter | Time spent on program cache operations, in seconds |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;load_&#8203;duration_&#8203;seconds</span> | counter | Time spent loading programs, in seconds |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;acquired</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size (0-128 B) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;acquired</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size (129-512 B) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;account_&#8203;acquired</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size (513 B-2 KiB) |

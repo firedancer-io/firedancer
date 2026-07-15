@@ -174,66 +174,153 @@ fd_executor_check_rent_state_with_account( fd_pubkey_t const *     pubkey,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L87-L101 */
-fd_rent_state_t
-fd_executor_get_account_rent_state( fd_acc_t const *  acc,
-                                    fd_rent_t const * rent ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L88-L89 */
-  if( FD_UNLIKELY( !acc->lamports ) ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_UNINITIALIZED };
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L75-L95 */
+static fd_rent_state_t
+get_account_rent_state( ulong account_lamports,
+                        ulong account_size,
+                        ulong min_balance ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L85-L86 */
+  if( FD_UNLIKELY( account_lamports==0UL ) ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_UNINITIALIZED };
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L90-L94 */
-  if( FD_UNLIKELY( acc->lamports>=fd_rent_exempt_minimum_balance( rent, acc->data_len ) ) ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L87-L88 */
+  if( FD_LIKELY( account_lamports>=min_balance ) ) {
     return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_RENT_EXEMPT };
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/svm_rent_collector.rs#L95-L99 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L89-L93 */
   return (fd_rent_state_t){
     .discriminant = FD_RENT_STATE_RENT_PAYING,
-    .lamports     = acc->lamports,
-    .data_size    = acc->data_len,
+    .lamports     = account_lamports,
+    .data_size    = account_size,
   };
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L293-L342 */
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L97-L112 */
+static fd_rent_state_t
+get_pre_exec_account_rent_state( ulong account_lamports,
+                                 ulong account_size,
+                                 ulong min_balance,
+                                 int   disallow_rent_paying ) {
+  fd_rent_state_t rent_state = get_account_rent_state( account_lamports, account_size, min_balance );
+  if( rent_state.discriminant==FD_RENT_STATE_RENT_PAYING && disallow_rent_paying ) {
+    rent_state.discriminant = FD_RENT_STATE_RENT_EXEMPT;
+  }
+  return rent_state;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L114-L142 */
+static fd_rent_state_t
+get_post_exec_account_rent_state( ulong                   account_lamports,
+                                  ulong                   account_size,
+                                  ulong                   min_balance,
+                                  fd_rent_state_t const * pre_rent_state,
+                                  ulong                   pre_exec_balance,
+                                  int                     relax_rent_exempt_criteria ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L127-L129 */
+  if( !relax_rent_exempt_criteria ) {
+    return get_account_rent_state( account_lamports, account_size, min_balance );
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L132 */
+  if( FD_UNLIKELY( account_lamports==0UL ) ) {
+    return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_UNINITIALIZED };
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L133 */
+  if( FD_LIKELY( account_lamports>=min_balance ) ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_RENT_EXEMPT };
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L134-L136 */
+  if( account_lamports>=pre_exec_balance && pre_rent_state->discriminant==FD_RENT_STATE_RENT_EXEMPT ) return (fd_rent_state_t){ .discriminant = FD_RENT_STATE_RENT_EXEMPT };
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L137-L140 */
+  return (fd_rent_state_t){
+    .discriminant = FD_RENT_STATE_RENT_PAYING,
+    .lamports     = account_lamports,
+    .data_size    = account_size,
+  };
+}
+
+int
+fd_executor_check_static_account_rent_state_transition( ulong             pre_exec_balance,
+                                                        ulong             post_exec_balance,
+                                                        ulong             data_size,
+                                                        fd_rent_t const * rent,
+                                                        int               relax_post_exec_min_balance_check ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L155 */
+  ulong rent_min_balance = fd_rent_exempt_minimum_balance( rent, data_size );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L156-L162 */
+  fd_rent_state_t pre_state = get_pre_exec_account_rent_state(
+    pre_exec_balance,
+    data_size,
+    rent_min_balance,
+    relax_post_exec_min_balance_check
+  );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L163-L170 */
+  fd_rent_state_t post_state = get_post_exec_account_rent_state(
+    post_exec_balance,
+    data_size,
+    rent_min_balance,
+    &pre_state,
+    pre_exec_balance,
+    relax_post_exec_min_balance_check
+  );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L172-L174 */
+  if( FD_UNLIKELY( !fd_executor_rent_transition_allowed( &pre_state, &post_state ) ) ) {
+    return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L351-L404 */
 static int
 fd_validate_fee_payer( fd_acc_t *        acc,
                        fd_rent_t const * rent,
-                       ulong             fee ) {
+                       ulong             fee,
+                       int               relax_post_exec_min_balance_check ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L301-L304 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L364-L367 */
   if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L305-L308 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L368-L371 */
   int system_account_kind = fd_get_system_account_kind( acc );
   if( FD_UNLIKELY( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L309-L318 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L372-L379 */
   ulong min_balance = 0UL;
   if( FD_UNLIKELY( system_account_kind==FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE ) ) {
     min_balance = fd_rent_exempt_minimum_balance( rent, FD_SYSTEM_PROGRAM_NONCE_DLEN );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L320-L327 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L381-L388 */
   if( FD_UNLIKELY( min_balance>acc->lamports || fee>acc->lamports-min_balance ) ) {
     return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L329 */
-  fd_rent_state_t payer_pre_rent_state = fd_executor_get_account_rent_state( acc, rent );
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L390 */
+  ulong pre_balance = acc->lamports;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L330-L332 */
-  int err = fd_account_meta_checked_sub_lamports( acc, fee );
-  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L391-L393 */
+  if( FD_UNLIKELY( fd_account_meta_checked_sub_lamports( acc, fee )!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L334 */
-  fd_rent_state_t payer_post_rent_state = fd_executor_get_account_rent_state( acc, rent );
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L394 */
+  ulong post_balance = acc->lamports;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/account_loader.rs#L335-L342 */
-  return fd_executor_check_rent_state_with_account( (fd_pubkey_t*)acc->pubkey, &payer_pre_rent_state, &payer_post_rent_state );
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L396-L403 */
+  return fd_executor_check_static_account_rent_state_transition(
+    pre_balance,
+    post_balance,
+    acc->data_len,
+    rent,
+    relax_post_exec_min_balance_check
+  );
 }
 
 static int
@@ -514,17 +601,36 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
     }
   }
 
-  /* Programdata account size check */
+  /* Programdata account size check.  Agave counts the current-fork
+     size, which the parent-fork executable[] copy can lag, so prefer
+     executable_cur_len when the probe reported one.  Programdata
+     deployed this slot has no executable[] copy at all; its size is
+     in the skipped list. */
   fd_acc_t const * programdata_ref = NULL;
+  ushort           pd_idx          = USHORT_MAX;
   for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
-    fd_acc_t const * acc = txn_out->accounts.executable[ i ];
-    if( !memcmp( acc->pubkey, &loader_state->inner.program.programdata_address, 32UL ) ) {
-      programdata_ref = acc;
+    fd_acc_t const * exe = txn_out->accounts.executable[ i ];
+    if( !memcmp( exe->pubkey, &loader_state->inner.program.programdata_address, 32UL ) ) {
+      programdata_ref = exe;
+      pd_idx          = i;
       break;
     }
   }
-  if( FD_UNLIKELY( !programdata_ref || !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
-  ulong programdata_sz = programdata_ref->data_len;
+  ulong programdata_sz;
+  if( FD_LIKELY( programdata_ref ) ) {
+    if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+    ulong cur = txn_out->accounts.executable_cur_len[ pd_idx ];
+    programdata_sz = ( cur!=ULONG_MAX ) ? cur : programdata_ref->data_len;
+  } else {
+    programdata_sz = 0UL;
+    for( ushort i=0; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
+      if( !memcmp( txn_out->accounts.executable_skipped_key[ i ].uc, &loader_state->inner.program.programdata_address, 32UL ) ) {
+        programdata_sz = txn_out->accounts.executable_skipped_len[ i ];
+        break;
+      }
+    }
+    if( FD_UNLIKELY( !programdata_sz ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+  }
 
   /* Try to accumulate the programdata's data size
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L625-L630 */
@@ -750,7 +856,12 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
 
-  int err = fd_validate_fee_payer( fee_payer, &bank->f.rent, total_fee );
+  int err = fd_validate_fee_payer(
+    fee_payer,
+    &bank->f.rent,
+    total_fee,
+    FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check )
+  );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Create the rollback fee payer account
@@ -1120,6 +1231,7 @@ fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
 
     txn_out->accounts.starting_lamports[ i ] = acc->lamports;
     txn_out->accounts.starting_data_len[ i ] = acc->data_len;
+    memcpy( &txn_out->accounts.starting_owner[ i ], acc->owner, sizeof(fd_pubkey_t) );
 
     /* Iterate backwards through previous bundle txns to find the relevant
        account.  No duplicate accounts can be loaded in a bundle. */
@@ -1224,6 +1336,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
       txn_out->accounts.account_acquired[ txn_idx ]  = 1U;
       txn_out->accounts.starting_lamports[ txn_idx ] = acquire_base[ i ].prior_lamports;
       txn_out->accounts.starting_data_len[ txn_idx ] = acquire_base[ i ].prior_data_len;
+      memcpy( &txn_out->accounts.starting_owner[ txn_idx ], acquire_base[ i ].owner, sizeof(fd_pubkey_t) );
     }
     runtime->accounts.account_cnt += acquire_cnt;
   }
@@ -1241,7 +1354,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     err = fd_bpf_loader_program_get_state( txn_out->accounts.account[ i ], program_loader_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
-    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, program_loader_state->inner.program.programdata_address.uc ) ) ) continue;
 
     fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
 
@@ -1256,6 +1368,18 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
        declared account over runtime->accounts.executable[], so the
        read-only copy would never be read. */
     if( FD_UNLIKELY( fd_runtime_find_index_of_account( txn_out, programdata_key )!=ULONG_MAX ) ) continue;
+
+    FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
+      int   skip_pd  = 0;
+      ulong skip_len = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+        ushort s = txn_out->accounts.executable_skipped_cnt++;
+        txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
+        txn_out->accounts.executable_skipped_len[ s ] = skip_len;
+      }
+      continue;
+    }
 
     writable[ executable_acquire_cnt ]               = 0;
     executable_acquire_idx[ executable_acquire_cnt ] = executable_account_cnt;
@@ -1272,11 +1396,17 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
      and not txn_out->accounts.cnt. */
   FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
   fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
-  fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
+  fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
+  int acquired_from_parent = bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val;
   for( ushort i=0; i<executable_acquire_cnt; i++ ) {
     ushort exe_idx = executable_acquire_idx[ i ];
-    txn_out->accounts.executable[ exe_idx ]          = &acquire_base[ i ];
-    txn_out->accounts.executable_acquired[ exe_idx ] = 1U;
+    txn_out->accounts.executable[ exe_idx ]             = &acquire_base[ i ];
+    txn_out->accounts.executable_from_parent[ exe_idx ] = acquired_from_parent;
+    int   pd  = 0;
+    ulong len = ULONG_MAX;
+    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len );
+    txn_out->accounts.executable_pd_write[ exe_idx ] = pd;
+    txn_out->accounts.executable_cur_len[ exe_idx ]  = len;
   }
   runtime->accounts.executable_cnt += executable_acquire_cnt;
 
@@ -1306,6 +1436,7 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
 static int
 fd_executor_txn_check( fd_bank_t *    bank,
                        fd_txn_out_t * txn_out ) {
+  int   err                 = 0;
   ulong starting_lamports_l = 0UL;
   ulong starting_lamports_h = 0UL;
   ulong ending_lamports_l   = 0UL;
@@ -1338,47 +1469,40 @@ fd_executor_txn_check( fd_bank_t *    bank,
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, acc->lamports );
     fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
 
-    /* Rent states are defined as followed:
-        - lamports == 0                      -> Uninitialized
-        - 0 < lamports < rent_exempt_minimum -> RentPaying
-        - lamports >= rent_exempt_minimum    -> RentExempt
-        In Agave, 'self' refers to our 'after' state. */
-    uchar after_uninitialized = acc->lamports==0UL;
-    uchar after_rent_exempt   = acc->lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, acc->data_len );
 
-    /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
-    if( FD_LIKELY( memcmp( &txn_out->accounts.keys[i], fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
-      if( after_uninitialized || after_rent_exempt ) {
-        // no-op
-      } else {
-        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
-        /* Use this carried-forward starting state, not acc->prior_*.
-           Equals prior_* for freshly acquired accounts. */
-        ulong before_lamports      = starting_lamports;
-        ulong before_data_len      = txn_out->accounts.starting_data_len[ i ];
-        uchar before_uninitialized = before_lamports==0UL;
-        uchar before_rent_exempt   = before_lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, before_data_len );
+    /* Get pre-exec rent states
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1012-L1019 */
+    fd_rent_state_t pre_state = get_pre_exec_account_rent_state(
+      starting_lamports,
+      txn_out->accounts.starting_data_len[ i ],
+      fd_rent_exempt_minimum_balance( &bank->f.rent, txn_out->accounts.starting_data_len[ i ] ),
+      FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check )
+    );
 
-        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
-        if( FD_UNLIKELY( before_uninitialized || before_rent_exempt ) ) {
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
-          return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-        } else if( (acc->data_len==before_data_len) && acc->lamports<=before_lamports ) {
-          // no-op
-        } else {
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
-          return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-        }
-      }
-    }
+    /* Post-exec rent states
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1065-L1079 */
+    int relax_rent_exempt_criteria = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) &&
+                                     txn_out->accounts.starting_data_len[ i ]>=acc->data_len &&
+                                     pre_state.discriminant==FD_RENT_STATE_RENT_EXEMPT &&
+                                     !memcmp( &txn_out->accounts.starting_owner[ i ], acc->owner, sizeof(fd_pubkey_t) );
+    fd_rent_state_t post_state = get_post_exec_account_rent_state(
+      acc->lamports,
+      acc->data_len,
+      fd_rent_exempt_minimum_balance( &bank->f.rent, acc->data_len ),
+      &pre_state,
+      starting_lamports,
+      relax_rent_exempt_criteria
+    );
+
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_account_state_info.rs#L105-L125 */
+    err = fd_executor_check_rent_state_with_account( &txn_out->accounts.keys[ i ], &pre_state, &post_state );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
     if     ( !memcmp( acc->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) txn_out->accounts.stake_update[ i ] = 1;
     else if( !memcmp( acc->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[ i ] = 1;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845 */
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_processor.rs#L1126-L1132 */
   if( FD_UNLIKELY( ending_lamports_l!=starting_lamports_l || ending_lamports_h!=starting_lamports_h ) ) {
     return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
   }
@@ -1416,7 +1540,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
     /* Execute the current instruction */
     int instr_exec_result = fd_execute_instr( runtime, bank, txn_in, txn_out, instr_info );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      if( FD_UNLIKELY( txn_out->err.exec_err_idx==INT_MAX ) ) txn_out->err.exec_err_idx = i;
+      if( FD_UNLIKELY( txn_out->err.exec_err_idx==UINT_MAX ) ) txn_out->err.exec_err_idx = i;
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
   }
@@ -1464,19 +1588,13 @@ fd_executor_instr_strerror( int err ) {
   case FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED             : return "instruction modified data of an account it does not own";
   case FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE            : return "instruction changed the balance of a read-only account";
   case FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED             : return "instruction modified data of a read-only account";
-  case FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_IDX              : return "instruction contains duplicate accounts";
   case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED                : return "instruction changed executable bit of an account";
-  case FD_EXECUTOR_INSTR_ERR_RENT_EPOCH_MODIFIED                : return "instruction modified rent epoch of an account";
   case FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS                : return "insufficient account keys for instruction";
   case FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED              : return "program other than the account's owner changed the size of the account data";
-  case FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE                 : return "instruction expected an executable account";
   case FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED                  : return "instruction tries to borrow reference for an account which is already borrowed";
   case FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING             : return "instruction left account with an outstanding borrowed reference";
-  case FD_EXECUTOR_INSTR_ERR_DUPLICATE_ACCOUNT_OUT_OF_SYNC      : return "instruction modifications of multiply-passed account differ";
   case FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR                         : return ""; // custom handling via txn_ctx->err.custom_err
   case FD_EXECUTOR_INSTR_ERR_INVALID_ERR                        : return "program returned invalid error code";
-  case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED           : return "instruction changed executable accounts data";
-  case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE          : return "instruction changed the balance of an executable account";
   case FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT : return "executable accounts must be rent exempt";
   case FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID             : return "Unsupported program id";
   case FD_EXECUTOR_INSTR_ERR_CALL_DEPTH                         : return "Cross-program invocation call depth too deep";
@@ -1489,7 +1607,6 @@ fd_executor_instr_strerror( int err ) {
   case FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION               : return "Cross-program invocation with unauthorized signer or writable account";
   case FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE  : return "Failed to create program execution environment";
   case FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE         : return "Program failed to complete";
-  case FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPILE          : return "Program failed to compile";
   case FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE                      : return "Account is immutable";
   case FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY                : return "Incorrect authority provided";
   case FD_EXECUTOR_INSTR_ERR_BORSH_IO_ERROR                     : return "Failed to serialize or deserialize account data"; // truncated

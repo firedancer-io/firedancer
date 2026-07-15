@@ -1,7 +1,8 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-# shredb_fd:  During runtime, the repair server will grow the database
-#             file using fallocate.
+# shredb_fd:  The repair server reads and writes shred entries to the
+#             database file using pread64/pwrite64, and grows it with
+#             fallocate.
 uint logfile_fd, uint shredb_fd
 
 # logging: all log messages are written to a file and/or pipe
@@ -20,11 +21,11 @@ write: (or (eq (arg 0) 2)
 # the currently allocated capacity, up until it reaches the capacity limit.
 fallocate: (eq (arg 0) shredb_fd)
 
-# shredb: prefault newly allocated pages
-#
-# After growing the database file, the shred database prefaults the
-# newly extended region with MADV_POPULATE_WRITE.
-madvise: (eq (arg 2) MADV_POPULATE_WRITE)
+# shredb: reads shred entries from the database file
+pread64: (eq (arg 0) shredb_fd)
+
+# shredb: writes shred entries to the database file
+pwrite64: (eq (arg 0) shredb_fd)
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #

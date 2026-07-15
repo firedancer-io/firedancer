@@ -629,8 +629,9 @@ fd_gui_printf_epoch( fd_gui_t * gui,
       else                                                                    jsonp_null( gui->http, "start_time_nanos" );
       if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].end_time!=LONG_MAX ) ) jsonp_ulong_as_str( gui->http, "end_time_nanos", (ulong)gui->epoch.epochs[ epoch_idx ].end_time );
       else                                                                  jsonp_null( gui->http, "end_time_nanos" );
-      jsonp_ulong( gui->http, "start_slot",              gui->epoch.epochs[ epoch_idx ].start_slot );
-      jsonp_ulong( gui->http, "end_slot",                gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui->http, "start_slot",                 gui->epoch.epochs[ epoch_idx ].start_slot );
+      jsonp_ulong( gui->http, "end_slot",                   gui->epoch.epochs[ epoch_idx ].end_slot );
+      jsonp_ulong( gui->http, "target_slot_duration_nanos", gui->epoch.epochs[ epoch_idx ].target_slot_duration_nanos );
       jsonp_ulong_as_str( gui->http, "excluded_stake_lamports", 0UL );
       jsonp_open_array( gui->http, "staked_pubkeys" );
         fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;
@@ -953,6 +954,16 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
   jsonp_open_array( gui->http, "interrupts" );
     for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
       jsonp_ulong( gui->http, NULL, cur[ gui->summary.tile[ i ] ].interrupts );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "tlb_shootdowns" );
+    for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+      jsonp_ulong( gui->http, NULL, cur[ gui->summary.tile[ i ] ].tlb_shootdowns );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "timer_ticks" );
+    for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+      jsonp_ulong( gui->http, NULL, cur[ gui->summary.tile[ i ] ].timer_ticks );
     }
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "priority" );
@@ -2516,6 +2527,8 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING:                      jsonp_string( gui->http, "phase", "running" );                      break;
         default: FD_LOG_ERR(( "unknown phase %d", gui->summary.boot_progress.phase ));
       }
+
+      jsonp_string( gui->http, "accounts_database_path", gui->summary.accounts_database_path );
 
       jsonp_double( gui->http, "joining_gossip_elapsed_seconds", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1e9 );
 

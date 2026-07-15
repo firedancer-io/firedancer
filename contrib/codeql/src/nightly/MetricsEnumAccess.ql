@@ -9,22 +9,26 @@
 
 import cpp
 import fd_metrics
+import filter
 
 from ArrayExpr access, string des
 where
-  isArrayAccessOob(access) and
-  des =
-    "The IDX value (" + access.getArrayOffset().getValue() + ") is greater than the arrays size (" +
-      access.getArrayBase().getType().(ArrayType).getArraySize() + ")."
-  or
-  isMismatchedCount(access) and
-  des =
-    "The CNT value (" + access.(MetricsEnumAccess).getMacro().getBody() +
-      ") associated with the IDX macro and the array size (" +
-      access.getArrayBase().getType().(ArrayType).getArraySize() +
-      ") do not match and could result in under/over reads/writes."
-  or
-  isMismatchedEnumName(access) and
-  des =
-    "The enum name in the IDX macro does not match the one associated with the CNT macro in the array definition."
+  included(access.getLocation()) and
+  (
+    isArrayAccessOob(access) and
+    des =
+      "The IDX value (" + access.getArrayOffset().getValue() + ") is greater than the arrays size (" +
+        access.getArrayBase().getType().(ArrayType).getArraySize() + ")."
+    or
+    isMismatchedCount(access) and
+    des =
+      "The CNT value (" + access.(MetricsEnumAccess).getMacro().getBody() +
+        ") associated with the IDX macro and the array size (" +
+        access.getArrayBase().getType().(ArrayType).getArraySize() +
+        ") do not match and could result in under/over reads/writes."
+    or
+    isMismatchedEnumName(access) and
+    des =
+      "The enum name in the IDX macro does not match the one associated with the CNT macro in the array definition."
+  )
 select access, des
