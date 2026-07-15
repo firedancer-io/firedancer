@@ -8,5 +8,6 @@ $(call run-unit-test,test_snapmk_tile)
 $(call make-unit-test,test_snapzp_tile,test_snapzp_tile,fd_discof fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_snapzp_tile)
 $(call make-unit-test,test_snap_roundtrip,test_snap_roundtrip,fd_discof fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_snap_roundtrip)
 endif
 endif

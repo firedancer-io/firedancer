@@ -5,6 +5,7 @@
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../flamenco/stakes/fd_vote_stakes.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,7 @@
 #define MAX_TXN_PER_SLOT 4096UL
 #define VALIDATOR_CNT    3UL
 #define ROOT_SLOT        42UL
+#define COMMISSION_BPS   ((ushort)1234U)
 
 static fd_txncache_t *
 create_txncache( void ) {
@@ -97,6 +99,25 @@ populate_txncache( fd_txncache_t * tc,
 }
 
 static void
+populate_manifest_fixture( fd_bank_t * bank ) {
+  fd_pubkey_t vote_key     = { .ul = { 1UL, 2UL, 3UL, 4UL } };
+  fd_pubkey_t identity_key = { .ul = { 5UL, 6UL, 7UL, 8UL } };
+  ulong       stake        = 1000000000UL;
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+  fd_vote_stakes_root_insert_key ( vote_stakes, &vote_key, &identity_key, stake, COMMISSION_BPS, bank->f.epoch );
+  fd_vote_stakes_root_update_meta( vote_stakes, &vote_key, &identity_key, stake, COMMISSION_BPS, bank->f.epoch );
+
+  fd_epoch_credits_t * epoch_credits = fd_bank_epoch_credits( bank );
+  memset( epoch_credits, 0, sizeof(fd_epoch_credits_t) );
+  memcpy( epoch_credits->pubkey, vote_key.uc, sizeof(vote_key.uc) );
+  *fd_bank_epoch_credits_len( bank ) = 1UL;
+  bank->f.total_epoch_stake          = stake;
+  bank->f.block_id                   = (fd_hash_t){ .ul = { 9UL, 10UL, 11UL, 12UL } };
+}
+
+static void
 test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_LOG_NOTICE(( "test_manifest_roundtrip" ));
 
@@ -134,6 +155,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
 
   int result = fd_ssmanifest_parser_consume( parser, buf, total_written );
   FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
+  FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
 
   FD_TEST( manifest->slot==bank->f.slot );
   FD_TEST( manifest->block_height==bank->f.block_height );
@@ -142,8 +164,15 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->epoch_schedule_params.slots_per_epoch==bank->f.epoch_schedule.slots_per_epoch );
   FD_TEST( manifest->rent_params.lamports_per_uint8_year==bank->f.rent.lamports_per_uint8_year );
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
+  FD_TEST( manifest->has_block_id );
+  FD_TEST( !memcmp( manifest->block_id, bank->f.block_id.uc, sizeof(bank->f.block_id.uc) ) );
 
   ulong expected_epoch_cnt = (bank->f.epoch > 0UL) ? 3UL : 2UL;
+  FD_TEST( expected_epoch_cnt==2UL );
+  FD_TEST( manifest->epoch_stakes[0].vote_stakes_len==1UL );
+  FD_TEST( manifest->epoch_stakes[0].vote_stakes[0].commission==COMMISSION_BPS );
+  FD_TEST( manifest->epoch_stakes[1].vote_stakes_len==1UL );
+  FD_TEST( manifest->epoch_stakes[1].vote_stakes[0].commission==COMMISSION_BPS );
   for( ulong i=0UL; i<expected_epoch_cnt; i++ ) {
     FD_LOG_NOTICE(( "epoch_stakes[%lu]: epoch=%lu total_stake=%lu vote_stakes_len=%lu",
                     i,
@@ -151,6 +180,14 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
                     manifest->epoch_stakes[i].total_stake,
                     manifest->epoch_stakes[i].vote_stakes_len ));
   }
+
+  /* Older manifests end immediately before the optional block ID. */
+  memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  fd_ssmanifest_parser_init( parser, manifest );
+  result = fd_ssmanifest_parser_consume( parser, buf, total_written-sizeof(uchar)-sizeof(fd_hash_t) );
+  FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
+  FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
+  FD_TEST( !manifest->has_block_id );
 
   free( parser_mem );
   free( manifest );
@@ -259,6 +296,7 @@ main( int     argc,
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   FD_TEST( bank );
 
+  populate_manifest_fixture( bank );
   test_manifest_roundtrip( bank );
   test_txncache_roundtrip();
 

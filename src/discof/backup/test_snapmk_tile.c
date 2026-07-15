@@ -465,6 +465,44 @@ FD_UNIT_TEST( idle_sleep_only_between_snapshots ) {
   FD_TEST( ctx->in_idle_cnt==1UL );
 }
 
+FD_UNIT_TEST( snapshot_pool_slot_selection ) {
+  static fd_snapmk_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapmk_t) );
+  ctx->full_slot_cnt = 2U;
+  ctx->pool_cnt      = 7U;
+
+  for( uint i=0U; i<ctx->full_slot_cnt; i++ ) {
+    ctx->pool[ i ].full_slot = 100UL + (ulong)i;
+    ctx->pool[ i ].incr_slot = ULONG_MAX;
+    FD_TEST( fd_cstr_printf_check( ctx->pool[ i ].name, sizeof(ctx->pool[ i ].name), NULL,
+                                  "snapshot-%lu-hash.tar.zst", ctx->pool[ i ].full_slot ) );
+  }
+  for( uint i=ctx->full_slot_cnt; i<ctx->pool_cnt; i++ ) {
+    ctx->pool[ i ].full_slot = 100UL;
+    ctx->pool[ i ].incr_slot = 190UL + (ulong)i;
+    FD_TEST( fd_cstr_printf_check( ctx->pool[ i ].name, sizeof(ctx->pool[ i ].name), NULL,
+                                  "incremental-snapshot-100-%lu-hash.tar.zst", ctx->pool[ i ].incr_slot ) );
+  }
+
+  /* The target already belongs to slot 5.  Select it even though slot 2
+     is the oldest and slot 3 is free.  This avoids renaming a different
+     inode over the existing target name. */
+  fd_cstr_ncpy( ctx->final_name, ctx->pool[ 5 ].name, sizeof(ctx->final_name) );
+  ctx->pool[ 3 ].full_slot = ULONG_MAX;
+  ctx->pool[ 3 ].incr_slot = ULONG_MAX;
+  FD_TEST( snap_select_slot( ctx, ctx->full_slot_cnt, ctx->pool_cnt, 1 )==5U );
+
+  fd_cstr_ncpy( ctx->final_name, "incremental-snapshot-100-999-hash.tar.zst", sizeof(ctx->final_name) );
+  FD_TEST( snap_select_slot( ctx, ctx->full_slot_cnt, ctx->pool_cnt, 1 )==3U ); /* free */
+
+  ctx->pool[ 3 ].full_slot = 100UL;
+  ctx->pool[ 3 ].incr_slot = 193UL;
+  FD_TEST( snap_select_slot( ctx, ctx->full_slot_cnt, ctx->pool_cnt, 1 )==2U ); /* oldest */
+
+  fd_cstr_ncpy( ctx->final_name, ctx->pool[ 1 ].name, sizeof(ctx->final_name) );
+  FD_TEST( snap_select_slot( ctx, 0U, ctx->full_slot_cnt, 0 )==1U );
+}
+
 /* flow_control uses consumer fseqs, not stale stem credits, for flush
    barriers. */
 FD_UNIT_TEST( flow_control ) {

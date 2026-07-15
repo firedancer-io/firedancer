@@ -1500,26 +1500,51 @@ after_credit( fd_snapmk_t *       ctx,
   }
 }
 
-/* snap_acquire_slot picks the full-snapshot pool slot the next
-   snapshot is written into.  Prefers a free slot (one holding a
-   "snapshot<i>.partial" placeholder); if all full slots are occupied,
-   "deletes" the oldest full snapshot by truncating its file to zero
-   and renaming it back to its placeholder name.  The sandbox forbids
-   creating or unlinking files, so files only ever move between their
-   placeholder name and a snapshot name. */
+/* snap_select_slot picks the pool slot the next snapshot is written
+   into.  If a prior run already published the exact target filename,
+   recycle the slot backing that directory entry.  Otherwise, prefer a
+   free slot and then the oldest snapshot.
+
+   Reusing the exact-name slot is important after a restart.  Replay can
+   regenerate slots for which files already exist.  Renaming a different
+   pool slot over such a file would unlink the old slot's inode while its
+   bookkeeping still names that directory entry.  A later eviction would
+   then fail with ENOENT. */
 
 static uint
-snap_acquire_slot( fd_snapmk_t * ctx ) {
-  uint  slot_idx  = UINT_MAX;
-  ulong oldest    = ULONG_MAX;
-  for( uint i=0U; i<ctx->full_slot_cnt; i++ ) {
+snap_select_slot( fd_snapmk_t * ctx,
+                  uint          begin,
+                  uint          end,
+                  int           incremental ) {
+  FD_TEST( begin<end );
+
+  for( uint i=begin; i<end; i++ ) {
+    if( FD_UNLIKELY( !strcmp( ctx->pool[ i ].name, ctx->final_name ) ) ) return i;
+  }
+
+  uint  slot_idx = UINT_MAX;
+  ulong oldest   = ULONG_MAX;
+  for( uint i=begin; i<end; i++ ) {
     if( FD_UNLIKELY( ctx->pool[ i ].full_slot==ULONG_MAX ) ) return i; /* free */
-    if( FD_LIKELY( ctx->pool[ i ].full_slot<oldest ) ) {
-      oldest   = ctx->pool[ i ].full_slot;
+    ulong slot = incremental ? ctx->pool[ i ].incr_slot : ctx->pool[ i ].full_slot;
+    if( FD_LIKELY( slot<oldest ) ) {
+      oldest   = slot;
       slot_idx = i;
     }
   }
   FD_TEST( slot_idx!=UINT_MAX );
+  return slot_idx;
+}
+
+/* snap_recycle_slot "deletes" a managed snapshot by truncating its
+   file to zero and renaming it back to its placeholder name.  The
+   sandbox forbids creating or unlinking files, so files only ever move
+   between their placeholder name and a snapshot name. */
+
+static uint
+snap_recycle_slot( fd_snapmk_t * ctx,
+                   uint          slot_idx ) {
+  FD_TEST( slot_idx<ctx->pool_cnt );
 
   fd_backup_pool_slot_t * pool_slot = &ctx->pool[ slot_idx ];
   FD_LOG_NOTICE(( "Evicting old snapshot %s", pool_slot->name ));
@@ -1538,32 +1563,17 @@ snap_acquire_slot( fd_snapmk_t * ctx ) {
 }
 
 static uint
-snap_acquire_slot_incremental( fd_snapmk_t * ctx ) {
-  uint  slot_idx = UINT_MAX;
-  ulong oldest   = ULONG_MAX;
-  for( uint i=ctx->full_slot_cnt; i<ctx->pool_cnt; i++ ) {
-    if( FD_UNLIKELY( ctx->pool[ i ].full_slot==ULONG_MAX ) ) return i; /* free */
-    if( FD_LIKELY( ctx->pool[ i ].incr_slot<oldest ) ) {
-      oldest   = ctx->pool[ i ].incr_slot;
-      slot_idx = i;
-    }
-  }
-  FD_TEST( slot_idx!=UINT_MAX );
+snap_acquire_slot( fd_snapmk_t * ctx ) {
+  uint slot_idx = snap_select_slot( ctx, 0U, ctx->full_slot_cnt, 0 );
+  if( FD_UNLIKELY( ctx->pool[ slot_idx ].full_slot==ULONG_MAX ) ) return slot_idx;
+  return snap_recycle_slot( ctx, slot_idx );
+}
 
-  fd_backup_pool_slot_t * pool_slot = &ctx->pool[ slot_idx ];
-  FD_LOG_NOTICE(( "Evicting old snapshot %s", pool_slot->name ));
-  if( FD_UNLIKELY( ftruncate( FD_BACKUP_POOL_FD( slot_idx ), 0L ) ) ) {
-    FD_LOG_ERR(( "ftruncate(%s) failed: %s", pool_slot->name, fd_io_strerror( errno ) ));
-  }
-  char partial_name[ FD_BACKUP_POOL_PARTIAL_NAME_MAX ];
-  fd_backup_pool_partial_name( partial_name, slot_idx );
-  if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, pool_slot->name, ctx->snap_dir_fd, partial_name ) ) ) {
-    FD_LOG_ERR(( "renameat(%s, %s) failed: %s", pool_slot->name, partial_name, fd_io_strerror( errno ) ));
-  }
-  fd_cstr_ncpy( pool_slot->name, partial_name, sizeof(pool_slot->name) );
-  pool_slot->full_slot = ULONG_MAX;
-  pool_slot->incr_slot = ULONG_MAX;
-  return slot_idx;
+static uint
+snap_acquire_slot_incremental( fd_snapmk_t * ctx ) {
+  uint slot_idx = snap_select_slot( ctx, ctx->full_slot_cnt, ctx->pool_cnt, 1 );
+  if( FD_UNLIKELY( ctx->pool[ slot_idx ].full_slot==ULONG_MAX ) ) return slot_idx;
+  return snap_recycle_slot( ctx, slot_idx );
 }
 
 static void
@@ -1589,6 +1599,15 @@ snap_begin( fd_snapmk_t * ctx,
     ctx->base_slot       = base_slot;
     ctx->base_generation = base_generation;
   }
+
+  fd_accdb_fork_id_t root_fork_id = bank->accdb_fork_id;
+  FD_TEST( root_fork_id.val!=USHORT_MAX );
+  /* Replay publishes the bank root immediately after submitting accdb's
+     asynchronous advance_root command.  Wait for that command before
+     starting snapshot synchronization: once synchronization is RUNNING,
+     accdb deliberately pauses advance_root until the snapshot completes. */
+  while( FD_UNLIKELY( __atomic_load_n( &ctx->accdb_root_fork->val, __ATOMIC_ACQUIRE )!=root_fork_id.val ) ) FD_SPIN_PAUSE();
+  ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
 
   /* Establish the full-snapshot delta boundary before doing any snapshot
      setup.  For a full snapshot, the accdb tile gates new writers,
@@ -1637,14 +1656,6 @@ snap_begin( fd_snapmk_t * ctx,
   }
 
   fd_ssmanifest_writer_init( ctx->manifest_writer, bank );
-
-  fd_accdb_fork_id_t root_fork_id = bank->accdb_fork_id;
-  FD_TEST( root_fork_id.val!=USHORT_MAX );
-  /* Replay publishes the bank root after submitting accdb advance_root,
-     but the accdb tile applies that command asynchronously.  Wait until
-     accdb reaches the same fork as the bank manifest we are writing. */
-  while( FD_UNLIKELY( __atomic_load_n( &ctx->accdb_root_fork->val, __ATOMIC_ACQUIRE )!=root_fork_id.val ) ) FD_SPIN_PAUSE();
-  ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
 
   ulong min_generation     = incremental ? ctx->base_generation+1UL : 0UL;
   int   include_tombstones = incremental;
