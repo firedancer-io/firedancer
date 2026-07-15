@@ -453,8 +453,11 @@ STEM_(run1)( ulong                        in_cnt,
 
             /* If a reliable consumer exits, they can set the credit
                return fseq to STEM_SHUTDOWN_SEQ to indicate they are no
-               longer actively consuming. */
-            cons_cr_avail = fd_ulong_if( cons_seq[ cons_idx ]==STEM_SHUTDOWN_SEQ, out_depth[ out_idx ], cons_cr_avail );
+               longer actively consuming.  ULONG_MAX is the fseq boot
+               value before a consumer starts its run loop, so treat
+               it the same way. */
+            cons_cr_avail = fd_ulong_if( (cons_seq[ cons_idx ]==STEM_SHUTDOWN_SEQ) |
+                                         (cons_seq[ cons_idx ]==ULONG_MAX), out_depth[ out_idx ], cons_cr_avail );
             slowest_cons = fd_ulong_if( cons_cr_avail<min_cr_avail, cons_idx, slowest_cons );
 
             cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
