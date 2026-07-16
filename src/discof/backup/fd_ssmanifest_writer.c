@@ -21,7 +21,8 @@
 #define STATE_NODE_VOTE_ACCOUNTS    17
 #define STATE_AUTH_VOTER            18
 #define STATE_LTHASH                19
-#define STATE_DONE                  20
+#define STATE_BLOCK_ID              20
+#define STATE_DONE                  21
 #define STATE_INIT STATE_BLOCKHASH_QUEUE
 
 fd_ssmanifest_writer_t *
