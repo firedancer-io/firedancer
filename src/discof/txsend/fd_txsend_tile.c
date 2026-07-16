@@ -302,6 +302,8 @@ after_credit( fd_txsend_tile_t *  ctx,
               int *               charge_busy ) {
   ctx->stem = stem;
 
+  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+
   *charge_busy = fd_quic_service( ctx->quic, fd_log_wallclock() );
   *opt_poll_in = !*charge_busy; /* refetch credits to prevent above documented situation */
 
@@ -626,6 +628,8 @@ before_frag( fd_txsend_tile_t * ctx,
              ulong              in_idx,
              ulong              seq,
              ulong              sig ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) ctx->tower_in_expect_seq = seq+1UL;
   if( FD_UNLIKELY( ctx->halt_net_frags && ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) return -1;
 
@@ -785,6 +789,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->src_port    = tile->txsend.txsend_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
+
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[ 0 ]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -842,8 +848,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

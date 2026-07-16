@@ -798,7 +798,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 
   fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
 
-  /* Signals fd_sleep_until_replay_started */
+  /* Signals fd_startup_gate */
   FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
 }
 

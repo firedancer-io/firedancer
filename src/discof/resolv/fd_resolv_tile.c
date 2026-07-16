@@ -14,7 +14,6 @@
 #include "../../util/pod/fd_pod_format.h"
 
 #include <time.h>
-
 #include "generated/fd_resolv_tile_seccomp.h"
 
 #if FD_HAS_AVX
@@ -160,6 +159,8 @@ typedef struct {
   map_chain_t *        map_chain;
   lru_list_t           lru_list[1];
 
+  fd_startup_gate_t startup_gate[1];
+
   ulong completed_slot;
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
@@ -219,6 +220,8 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+
   if( FD_UNLIKELY( ctx->in[in_idx].kind==IN_KIND_REPLAY ) ) return 0;
 
   /* Bundle transactions (sig==1) must arrive at pack in order.  Route
@@ -360,6 +363,8 @@ after_credit( fd_resolv_ctx_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+
   if( FD_LIKELY( ctx->flush_pool_idx==ULONG_MAX ) ) return;
 
   *charge_busy = 1;
@@ -657,7 +662,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_sleep_until_replay_started( topo );
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 }
 
 static ulong

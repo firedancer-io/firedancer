@@ -38,6 +38,8 @@ typedef struct link_ctx {
 struct fd_execrp_tile {
   ulong tile_idx;
 
+  fd_startup_gate_t startup_gate[1];
+
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
@@ -195,6 +197,15 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
+static inline void
+after_credit( fd_execrp_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)stem; (void)opt_poll_in; (void)charge_busy;
+  fd_startup_gate_idle( ctx->startup_gate );
+}
+
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               in_idx,
@@ -206,6 +217,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
   FD_MGAUGE_SET( EXECRP, PROCESSING, 1UL );
@@ -470,7 +483,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_sleep_until_replay_started( topo );
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 }
 
 static ulong
@@ -511,6 +524,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_execrp_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
