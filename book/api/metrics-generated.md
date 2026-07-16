@@ -1821,9 +1821,12 @@
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getIdentity</span>"} | counter | Number of RPC requests served (getIdentity) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getInflationGovernor</span>"} | counter | Number of RPC requests served (getInflationGovernor) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getLatestBlockhash</span>"} | counter | Number of RPC requests served (getLatestBlockhash) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getLeaderSchedule</span>"} | counter | Number of RPC requests served (getLeaderSchedule) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getMinimumBalanceForRentExemption</span>"} | counter | Number of RPC requests served (getMinimumBalanceForRentExemption) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getMultipleAccounts</span>"} | counter | Number of RPC requests served (getMultipleAccounts) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlot</span>"} | counter | Number of RPC requests served (getSlot) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlotLeader</span>"} | counter | Number of RPC requests served (getSlotLeader) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlotLeaders</span>"} | counter | Number of RPC requests served (getSlotLeaders) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getTransactionCount</span>"} | counter | Number of RPC requests served (getTransactionCount) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getVersion</span>"} | counter | Number of RPC requests served (getVersion) |
 | <span class="metrics-name">rpc_&#8203;conn_&#8203;active</span> | gauge | The number of active HTTP connections to the RPC service |

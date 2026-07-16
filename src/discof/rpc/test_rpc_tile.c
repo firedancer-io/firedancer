@@ -183,6 +183,28 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  cJSON * integer      = cJSON_Parse( "1" );
+  cJSON * decimal      = cJSON_Parse( "1.0" );
+  cJSON * exponent     = cJSON_Parse( "1e0" );
+  cJSON * u64_max      = cJSON_Parse( "18446744073709551615" );
+  cJSON * u64_overflow = cJSON_Parse( "18446744073709551616" );
+  cJSON * i64_min      = cJSON_Parse( "-9223372036854775808" );
+  cJSON * i64_overflow = cJSON_Parse( "-9223372036854775809" );
+  FD_TEST( cJSON_IsInteger( integer      ) );
+  FD_TEST( !cJSON_IsInteger( decimal      ) );
+  FD_TEST( !cJSON_IsInteger( exponent     ) );
+  FD_TEST( cJSON_IsInteger( u64_max      ) );
+  FD_TEST( !cJSON_IsInteger( u64_overflow ) );
+  FD_TEST( cJSON_IsInteger( i64_min      ) );
+  FD_TEST( !cJSON_IsInteger( i64_overflow ) );
+  cJSON_Delete( integer      );
+  cJSON_Delete( decimal      );
+  cJSON_Delete( exponent     );
+  cJSON_Delete( u64_max      );
+  cJSON_Delete( u64_overflow );
+  cJSON_Delete( i64_min      );
+  cJSON_Delete( i64_overflow );
+
   uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) );
 
@@ -535,6 +557,231 @@ main( int     argc,
 
     expect_rpc_response( ctx, req_buf,
         "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
+  }
+
+  /* -- getMinimumBalanceForRentExemption param validation (usize) -- */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[\"x\"]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected usize.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[-1]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: integer `-1`, expected usize.\"},\"id\":1}" );
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[true]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: boolean `true`, expected usize.\"},\"id\":1}" );
+
+  /* -- getSlotLeader / getSlotLeaders -- */
+  {
+    /* Build a one-validator leader schedule for epoch 0 spanning slots
+       [0,32).  With a single staked node it is the leader for every
+       slot in the epoch. */
+    fd_pubkey_t leader_id; memset( leader_id.uc, 0x77, 32 );
+    fd_pubkey_t leader_vk; memset( leader_vk.uc, 0x88, 32 );
+    FD_BASE58_ENCODE_32_BYTES( leader_id.uc, leader_id_b58 );
+
+    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)epoch_msg_buf;
+    memset( emsg, 0, sizeof(epoch_msg_buf) );
+    emsg->epoch           = 0UL;
+    emsg->start_slot      = 0UL;
+    emsg->slot_cnt        = 32UL;
+    emsg->staked_vote_cnt = 1UL;
+    emsg->staked_id_cnt   = 1UL;
+    FD_TEST( fd_epoch_schedule_derive( &emsg->epoch_schedule, 32UL, 0UL, 0 ) );
+    fd_vote_stake_weight_t * w = fd_epoch_info_msg_stake_weights( emsg );
+    w[0].vote_key = leader_vk;
+    w[0].id_key   = leader_id;
+    w[0].stake    = 1000000UL;
+
+    ctx->epoch_schedule     = emsg->epoch_schedule;
+    ctx->has_epoch_schedule = 1;
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, emsg );
+    fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+    ctx->banks[0].slot = 10UL;
+    ctx->processed_idx = 0UL;
+    ctx->confirmed_idx = 0UL;
+    ctx->finalized_idx = 0UL;
+
+    /* getSlotLeader -> leader of the current (finalized) slot */
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":1}", leader_id_b58 ) );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeader\"}", res_buf );
+
+    /* getSlotLeaders -> one entry per consecutive slot */
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":[\"%s\",\"%s\",\"%s\",\"%s\"],\"id\":1}",
+        leader_id_b58, leader_id_b58, leader_id_b58, leader_id_b58 ) );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,4]}", res_buf );
+
+    /* Floating-point tokens are not valid u64 values, even when their
+       values are integral. */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1.0,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.0`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[1e0,0]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: floating point `1.0`, expected u64.\"},\"id\":1}" );
+
+    /* limit == 0 -> empty array, no error */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,0]}",
+        "{\"jsonrpc\":\"2.0\",\"result\":[],\"id\":1}" );
+
+    /* limit > 5000 -> invalid params */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,5001]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid limit; max 5000\"},\"id\":1}" );
+
+    /* slot outside the tracked epoch -> unavailable error */
+    {
+      ulong bad_slot  = 1000000UL;
+      ulong bad_epoch = fd_slot_to_epoch( &ctx->epoch_schedule, bad_slot, NULL );
+      FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[%lu,1]}", bad_slot ) );
+      FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid slot range: leader schedule for epoch %lu is unavailable\"},\"id\":1}", bad_epoch ) );
+      expect_rpc_response( ctx, req_buf, res_buf );
+    }
+
+    /* wrong type for limit -> invalid params */
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getSlotLeaders\",\"params\":[0,\"x\"]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected u64.\"},\"id\":1}" );
+
+    /* -- getLeaderSchedule -- */
+    /* The single validator leads every slot in epoch 0, so the schedule
+       maps its identity to the full list of epoch-relative indices. */
+    {
+      char slots_buf[ 256 ];
+      char * sp = fd_cstr_init( slots_buf );
+      for( ulong i=0UL; i<32UL; i++ ) sp = fd_cstr_append_printf( sp, "%s%lu", i ? "," : "", i );
+      fd_cstr_fini( sp );
+
+      FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"result\":{\"%s\":[%s]},\"id\":1}", leader_id_b58, slots_buf ) );
+
+      /* no params -> current (finalized) epoch */
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\"}", res_buf );
+
+      /* null slot -> current epoch */
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[null]}", res_buf );
+
+      /* explicit in-epoch slot */
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[5]}", res_buf );
+
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[1.0]}",
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[1e0]}",
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+
+      /* config object as the first (wrapper) param, identity matches */
+      FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[{\"identity\":\"%s\"}]}", leader_id_b58 ) );
+      expect_rpc_response( ctx, req_buf, res_buf );
+
+      /* slot + config, identity matches */
+      FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0,{\"identity\":\"%s\"}]}", leader_id_b58 ) );
+      expect_rpc_response( ctx, req_buf, res_buf );
+
+      /* identity filter matching no leader -> empty map */
+      {
+        fd_pubkey_t other; memset( other.uc, 0x55, 32 );
+        FD_BASE58_ENCODE_32_BYTES( other.uc, other_b58 );
+        FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0,{\"identity\":\"%s\"}]}", other_b58 ) );
+        expect_rpc_response( ctx, req_buf,
+            "{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}" );
+      }
+
+      /* slot in an untracked epoch -> null result (NOT an error) */
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[1000000]}",
+          "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":1}" );
+
+      /* invalid identity string -> invalid param */
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0,{\"identity\":\"0\"}]}",
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
+
+      /* invalid wrapper type (string/float/bool/negative slot) -> the
+         generic untagged-enum error, matching Agave's serde. */
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[\"x\"]}",
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[1.1]}",
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+      expect_rpc_response( ctx,
+          "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[-1]}",
+          "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: data did not match any variant of untagged enum RpcLeaderScheduleConfigWrapper.\"},\"id\":1}" );
+    }
+  }
+
+  /* getLeaderSchedule: one identity backing multiple staked vote
+     accounts. */
+  {
+    fd_pubkey_t leader_id; memset( leader_id.uc, 0x33, 32 );
+    fd_pubkey_t vote_a;    memset( vote_a.uc,    0xa1, 32 );
+    fd_pubkey_t vote_b;    memset( vote_b.uc,    0xb2, 32 );
+    FD_BASE58_ENCODE_32_BYTES( leader_id.uc, dup_id_b58 );
+
+    uchar epoch_msg_buf[ FD_EPOCH_INFO_MSG_HEADER_SZ + 2UL*sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    fd_epoch_info_msg_t * emsg = (fd_epoch_info_msg_t *)epoch_msg_buf;
+    memset( emsg, 0, sizeof(epoch_msg_buf) );
+    emsg->epoch           = 0UL;
+    emsg->start_slot      = 0UL;
+    emsg->slot_cnt        = 32UL;
+    emsg->staked_vote_cnt = 2UL;
+    emsg->staked_id_cnt   = 1UL;
+    FD_TEST( fd_epoch_schedule_derive( &emsg->epoch_schedule, 32UL, 0UL, 0 ) );
+    /* Two vote accounts for the same identity, equal stake (so both
+       indices are sampled across the epoch).  Regardless of which index
+       leads a given slot, the identity is the same, so the identity
+       leads every slot. */
+    fd_vote_stake_weight_t * w = fd_epoch_info_msg_stake_weights( emsg );
+    w[0].vote_key = vote_a; w[0].id_key = leader_id; w[0].stake = 1000000UL;
+    w[1].vote_key = vote_b; w[1].id_key = leader_id; w[1].stake = 1000000UL;
+
+    ctx->epoch_schedule     = emsg->epoch_schedule;
+    ctx->has_epoch_schedule = 1;
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, emsg );
+    fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+    ctx->banks[0].slot = 10UL;
+
+    /* Confirm the schedule really places the one identity at two
+       distinct pub[] indices and that both lead at least one rotation,
+       so the response below actually exercises the identity-merge path
+       (rather than passing only because a single index was sampled). */
+    fd_epoch_leaders_t const * dup_lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, 0UL );
+    FD_TEST( dup_lsched && dup_lsched->pub_cnt==2UL );
+    FD_TEST( 0==memcmp( dup_lsched->pub[0].uc, leader_id.uc, 32UL ) );
+    FD_TEST( 0==memcmp( dup_lsched->pub[1].uc, leader_id.uc, 32UL ) );
+    int seen_idx0 = 0, seen_idx1 = 0;
+    for( ulong r=0UL; r<dup_lsched->sched_cnt; r++ ) {
+      seen_idx0 |= dup_lsched->sched[ r ]==0U;
+      seen_idx1 |= dup_lsched->sched[ r ]==1U;
+    }
+    FD_TEST( seen_idx0 && seen_idx1 );
+
+    char slots_buf[ 256 ];
+    char * sp = fd_cstr_init( slots_buf );
+    for( ulong i=0UL; i<32UL; i++ ) sp = fd_cstr_append_printf( sp, "%s%lu", i ? "," : "", i );
+    fd_cstr_fini( sp );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"%s\":[%s]},\"id\":1}", dup_id_b58, slots_buf ) );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0]}", res_buf );
   }
 
   /* Don't bother with cleanup since all resources are reclaimed by the
