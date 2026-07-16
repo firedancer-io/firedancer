@@ -285,6 +285,7 @@ fd_txn_parse_core( uchar const             * payload,
     ushort data_sz  = (ushort)0;
     CHECK_LEFT( MIN_INSTR_SZ                    );   uchar program_id     = payload[ i ];     i++;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             acct_cnt,                  i );     i+=bytes_consumed;
+    CHECK( acct_cnt<=FD_TXN_INSTR_ACCT_MAX      );
     CHECK_LEFT( acct_cnt                        );   ulong acct_off       =          i  ;
     for( ulong k=0; k<acct_cnt; k++ ) { max_acct=fd_uchar_max( max_acct,  payload[ k+i ] ); } i+=acct_cnt;
     READ_CHECKED_COMPACT_U16( bytes_consumed,             data_sz,                   i );     i+=bytes_consumed;

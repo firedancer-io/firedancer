@@ -506,20 +506,6 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
     return FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION;
   }
 
-  /* SIMD-0406: enforce limit on number of instruction accounts.
-
-     TODO: when limit_instruction_accounts is activated everywhere,
-     remove this and make the transaction parser check stricter.
-
-     https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, limit_instruction_accounts ) ) ) {
-    fd_txn_t const * txn = TXN( txn_in->txn );
-    for( ushort i=0; i<txn->instr_cnt; i++ ) {
-      if( FD_UNLIKELY( txn->instr[i].acct_cnt > FD_BPF_INSTR_ACCT_MAX ) ) {
-        return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
-      }
-    }
-  }
 
   /* tx-v1 (SIMD-0385) carries its compute budget in the ConfigMask
      rather than in ComputeBudget program instructions, so it takes a

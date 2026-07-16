@@ -1821,7 +1821,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x52\xd1\xb6\xb3\x5a\x56\x28\x74\x22\x0c\xa4\x14\xc4\x5b\xf8\xb5\x41\xa9\xab\xc4\xe9\x73\x7d\xf5\xc7\x62\x41\x5a\x84\xd7\x5b\x33"},
                                  /* 6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC */
     .name                      = "limit_instruction_accounts",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
     .id                        = {"\x07\x36\xf2\xe3\x3a\x52\xff\xd2\x69\xb9\x98\xdc\x58\xcf\x07\xc0\x35\xc3\x8a\x0e\xab\x82\xa0\x89\xb8\xb7\x5e\xc2\x0f\xcb\x39\x97"},

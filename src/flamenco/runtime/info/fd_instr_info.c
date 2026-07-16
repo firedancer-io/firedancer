@@ -19,8 +19,8 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
   /* Set the program id */
   instr->program_id = txn_instr->program_id;
   instr->acct_cnt   = txn_instr->acct_cnt;
-  if( FD_UNLIKELY( instr->acct_cnt > FD_INSTR_ACCT_MAX ) ) {
-    FD_LOG_CRIT(( "invariant violation: Instruction has too many accounts: %d > %lu", instr->acct_cnt, FD_INSTR_ACCT_MAX ));
+  if( FD_UNLIKELY( instr->acct_cnt > FD_TXN_INSTR_ACCT_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: Instruction has too many accounts: %d > %lu", instr->acct_cnt, FD_TXN_INSTR_ACCT_MAX ));
   }
   instr->data_sz  = txn_instr->data_sz;
   memcpy( instr->data, txn_in->txn->payload+txn_instr->data_off, instr->data_sz );

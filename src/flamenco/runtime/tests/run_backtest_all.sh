@@ -112,7 +112,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot_block_id_none-v4.1
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold-v4.1.0-beta.1 -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks-v4.1.0-beta.1 -m 1000 -e 240
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.1.0-beta.1 -m 3000 -e 1000
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l limit_instruction_accounts_rekey-v4.1.0-beta.1 -m 1000 -e 275
 # [skipped: fails under v4.1: slashing Core-BPF migration build-hash mismatch] src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefund-v4.1.0-beta.1 -m 1000 -e 520
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_check_migration-v4.1.0-beta.1 -m 1000 -e 260

@@ -79,8 +79,6 @@ $(call make-unit-test,test_lamports_per_byte_feature_gates,test_lamports_per_byt
 $(call run-unit-test,test_lamports_per_byte_feature_gates)
 $(call make-unit-test,test_vat_refresh_vote_accounts,test_vat_refresh_vote_accounts,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vat_refresh_vote_accounts)
-$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_ballet fd_util)
-$(call run-unit-test,test_instr_acct_bounds)
 $(call make-unit-test,test_define_ltds_fee_only_semantics,test_define_ltds_fee_only_semantics,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_define_ltds_fee_only_semantics)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_ballet fd_util)

@@ -1291,13 +1291,6 @@ validate_transaction( fd_pack_t               * pack,
   if( FD_UNLIKELY( bundle_blacklist & !!check_bundle_blacklist             ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
   /*           ... that use a blocklisted account */
   if( FD_UNLIKELY( acct_blocklist                                          ) ) return FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST;
-  /*           ... that have an instruction with too many accounts */
-  /*               TODO: move this check into the transaction parser
-                   when limit_instruction_accounts is activated
-                   everywhere. */
-  for( ushort i=0; i<txn->instr_cnt; i++ ) {
-    if( FD_UNLIKELY( txn->instr[ i ].acct_cnt > FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION ) ) return FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT;
-  }
 
   return 0;
 }

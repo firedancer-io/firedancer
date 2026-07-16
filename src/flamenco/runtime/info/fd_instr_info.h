@@ -30,8 +30,8 @@ struct fd_instr_info {
   uchar                    data[ FD_INSTR_DATA_MAX ];
   ushort                   data_sz;
 
-  fd_instruction_account_t accounts[ FD_INSTR_ACCT_MAX ];
-  uchar                    is_duplicate[ FD_INSTR_ACCT_MAX ];
+  fd_instruction_account_t accounts[ FD_TXN_INSTR_ACCT_MAX ];
+  uchar                    is_duplicate[ FD_TXN_INSTR_ACCT_MAX ];
 
   /* Stack height when this instruction was pushed onto the stack (including itself) */
   uchar stack_height;
