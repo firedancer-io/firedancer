@@ -14,7 +14,13 @@
 #define VALIDATOR_CNT    3UL
 #define ROOT_SLOT        474UL /* epoch 1 with 432 slots/epoch */
 
-static fd_txncache_t *
+typedef struct {
+  fd_txncache_t * tc;
+  void *          shmem;
+  void *          ljoin;
+} test_txncache_t;
+
+static test_txncache_t
 create_txncache( void ) {
   ulong shmem_fp = fd_txncache_shmem_footprint( MAX_LIVE_SLOTS, MAX_TXN_PER_SLOT, 0 );
   void * shmem_raw = aligned_alloc( fd_txncache_shmem_align(), shmem_fp );
@@ -27,7 +33,7 @@ create_txncache( void ) {
   FD_TEST( ljoin_raw );
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( ljoin_raw, shmem ) );
   FD_TEST( tc );
-  return tc;
+  return (test_txncache_t){ .tc = tc, .shmem = shmem_raw, .ljoin = ljoin_raw };
 }
 
 #define NULL_FORK ((fd_txncache_fork_id_t){ .val = USHORT_MAX })
@@ -100,6 +106,9 @@ static void
 test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_LOG_NOTICE(( "test_manifest_roundtrip" ));
 
+  static fd_hash_t const block_id = { .ul = { 0x0123456789ABCDEFUL, 0xFEDCBA9876543210UL, 0x0F1E2D3C4B5A6978UL, 0x8877665544332211UL } };
+  bank->f.block_id = block_id;
+
   /* Seed two vote accounts with epoch credits so the encoder emits
      vote entries, then set non-default SIMD-0232 collectors: distinct
      inflation and block collectors for vote0 on the t_1 tag (epoch),
@@ -107,10 +116,12 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( bank->f.epoch>=1UL );
   fd_pubkey_t vote0 = { .ul = { 0x51, 10 } }; fd_pubkey_t node0 = { .ul = { 0x52, 11 } };
   fd_pubkey_t vote1 = { .ul = { 0x53, 12 } }; fd_pubkey_t node1 = { .ul = { 0x54, 13 } };
+  ushort const commission_t_1 = 1234U;
+  ushort const commission_t_2 = 5678U;
   fd_vote_stakes_t * vs_seed  = fd_bank_vote_stakes( bank );
   ushort             vs_root  = fd_vote_stakes_get_root_idx( vs_seed );
-  fd_vote_stakes_insert( vs_seed, vs_root, &vote0, &node0, &node0, 1000UL, 1000UL, 100, 100, 1, 1, bank->f.epoch );
-  fd_vote_stakes_insert( vs_seed, vs_root, &vote1, &node1, &node1, 2000UL, 2000UL, 100, 100, 1, 1, bank->f.epoch );
+  fd_vote_stakes_insert( vs_seed, vs_root, &vote0, &node0, &node0, 1000UL, 1000UL, commission_t_1, commission_t_2, 1, 1, bank->f.epoch );
+  fd_vote_stakes_insert( vs_seed, vs_root, &vote1, &node1, &node1, 2000UL, 2000UL, commission_t_1, commission_t_2, 1, 1, bank->f.epoch );
   fd_epoch_credits_t * ec_seed = fd_bank_epoch_credits( bank );
   memset( &ec_seed[0], 0, sizeof(fd_epoch_credits_t) );
   memset( &ec_seed[1], 0, sizeof(fd_epoch_credits_t) );
@@ -168,6 +179,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->epoch_schedule_params.slots_per_epoch==bank->f.epoch_schedule.slots_per_epoch );
   FD_TEST( manifest->rent_params.lamports_per_uint8_year==bank->f.rent.lamports_per_uint8_year );
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
+  FD_TEST( manifest->has_block_id );
+  FD_TEST( !memcmp( manifest->block_id, block_id.uc, sizeof(fd_hash_t) ) );
 
   /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
      key epoch+1) with the epoch override tag and t_2 entries (key
@@ -188,6 +201,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
     for( ulong i=0UL; i<t1->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t1->vote_stakes[i];
+      FD_TEST( vs->commission==commission_t_1 );
       if( !memcmp( vs->vote, &vote0, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
@@ -205,6 +219,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
     int seen_t2_vote1 = 0; int seen_t2_vote0 = 0;
     for( ulong i=0UL; i<t2->vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * vs = &t2->vote_stakes[i];
+      FD_TEST( vs->commission==commission_t_2 );
       if( !memcmp( vs->vote, &vote1, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
@@ -242,7 +257,8 @@ static void
 test_txncache_roundtrip( void ) {
   FD_LOG_NOTICE(( "test_txncache_roundtrip" ));
 
-  fd_txncache_t * tc = create_txncache();
+  test_txncache_t test_tc = create_txncache();
+  fd_txncache_t * tc = test_tc.tc;
 
   uchar blockhashes[4][32];
   uchar txnhashes[6][20];
@@ -320,6 +336,8 @@ test_txncache_roundtrip( void ) {
   free( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( parser ) ) );
   free( chunk_buf );
   free( buf );
+  free( test_tc.ljoin );
+  free( test_tc.shmem );
 }
 
 int
