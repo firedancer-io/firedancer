@@ -218,7 +218,8 @@ unprivileged_init( fd_topo_t const *      topo,
 /* State 9: ALL_SWITCHED
      All remaining tiles that use the identity key have confirmed that
      they have switched to the new key.  Gossip has not yet updated its
-     identity key, and both Gossip and Bundle remain halted. */
+     identity key.  Repair, Gossip, Tower, TxSend, and Bundle remain
+     halted. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCHED             (9UL)
 
 /* State 10: SIGNERS_UNHALT_REQUESTED

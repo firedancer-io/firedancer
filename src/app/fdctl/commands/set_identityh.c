@@ -112,7 +112,7 @@
 
 /* State 8: BUNDLE_UNHALT_REQUESTED
      The bundle tile can now safely resume signing with the new key.
-     If the bundle tile doesn't exist, unhalt PoH directly. */
+     If the bundle tile doesn't exist, skip this stage. */
 #define FD_SET_IDENTITY_STATE_BUNDLE_UNHALT_REQUESTED (8UL)
 
 /* State 9: POH_UNHALT_REQUESTED
@@ -248,8 +248,7 @@ poll_keyswitch( fd_topo_t *   topo,
           FD_SPIN_PAUSE();
           return;
         } else {
-          if( FD_LIKELY( !strcmp( tile->name, "bundle" ) ) ) FD_LOG_ERR(( "Unexpected bundle:%lu keyswitch state %lu", tile->kind_id, keyswitch->state ));
-          else                                               FD_LOG_ERR(( "Unexpected shred:%lu keyswitch state %lu", tile->kind_id, keyswitch->state ));
+          FD_LOG_ERR(( "Unexpected %s:%lu keyswitch state %lu", tile->name, tile->kind_id, keyswitch->state ));
         }
       }
 
