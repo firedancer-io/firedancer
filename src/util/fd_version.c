@@ -1,14 +1,14 @@
 #include "fd_version.h"
 #include "cstr/fd_cstr.h"
+#include "fd_version_generated.h"
 
 /* Firedancer version */
-__attribute__((weak)) ulong const fd_major_version = 0;
-__attribute__((weak)) ulong const fd_minor_version = 1;
-__attribute__((weak)) ulong const fd_patch_version = 1;
+__attribute__((weak)) ulong const fd_major_version = FD_VERSION_MAJOR;
+__attribute__((weak)) ulong const fd_minor_version = FD_VERSION_MINOR;
+__attribute__((weak)) ulong const fd_patch_version = FD_VERSION_PATCH;
 char const * fd_version_cstr = ""; /* set on boot */
 
 /* Commit information */
-#include "fd_version_generated.h"
 __attribute__((weak)) char const fd_commit_ref_private[] = FIREDANCER_COMMIT_REF_CSTR;
 char const * fd_commit_ref_cstr = ""; /* cstr */
 uint         fd_commit_ref_u32  = 0;  /* set on boot */
