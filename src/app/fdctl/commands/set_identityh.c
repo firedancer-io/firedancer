@@ -192,14 +192,9 @@ poll_keyswitch( fd_topo_t *   topo,
       } else if( FD_UNLIKELY( poh->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
         FD_SPIN_PAUSE();
       } else if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_FAILED ) ) {
-        /* Agave rejected the switch before PoH halted, so unlock without
-           sending an unhalt request. */
+        /* Failed to switch identity in Agave, so abort the entire process. */
+        *state = FD_SET_IDENTITY_STATE_ALL_SWITCHED;
         *has_error = 1;
-        fd_memzero_explicit( poh->bytes, 64UL );
-        FD_COMPILER_MFENCE();
-        poh->state = FD_KEYSWITCH_STATE_UNLOCKED;
-        FD_COMPILER_MFENCE();
-        *state = FD_SET_IDENTITY_STATE_UNLOCKED;
       } else {
         FD_LOG_ERR(( "Unexpected poh keyswitch state %lu", poh->state ));
       }
@@ -319,7 +314,7 @@ poll_keyswitch( fd_topo_t *   topo,
     }
     case FD_SET_IDENTITY_STATE_ALL_SWITCHED: {
       int bundle_exists = fd_topo_find_tile( topo, "bundle", 0UL )!=ULONG_MAX;
-      if( FD_LIKELY( !bundle_exists ) ) {
+      if( FD_LIKELY( *has_error || !bundle_exists ) ) {
         fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
         FD_COMPILER_MFENCE();
         poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
