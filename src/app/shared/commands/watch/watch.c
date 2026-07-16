@@ -433,32 +433,55 @@ write_snapshots( config_t const * config,
                  ulong const *    cur_tile,
                  ulong const *    prev_tile ) {
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
+  ulong snapdc_idx = fd_topo_find_tile( &config->topo, "snapdc", 0UL );
+  ulong snapin_idx = fd_topo_find_tile( &config->topo, "snapin", 0UL );
+  ulong snapwr_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
   ulong state = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ];
 
-  ulong bytes_read = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ];
-  ulong bytes_total = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
-
   double progress = 0.0;
+  int    incremental = 0;
   switch( state ) {
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS:
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL:
     case FD_SNAPCT_STATE_COLLECTING_PEERS:
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:
       break;
-    case FD_SNAPCT_STATE_READING_FULL_FILE:
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
     case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
-    case FD_SNAPCT_STATE_READING_FULL_HTTP:
-    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
-    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
     case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
-      if( FD_LIKELY( bytes_total>0UL ) ) progress = 100.0 * (double)bytes_read / (double)bytes_total;
+      incremental = 1;
+      __attribute__((fallthrough));
+    case FD_SNAPCT_STATE_READING_FULL_FILE:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
+    case FD_SNAPCT_STATE_READING_FULL_HTTP:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE: {
+      /* Progress is the compressed-equivalent of bytes fully applied
+         (min of parse/write consumption, converted back through the
+         decompress ratio), same as snapshot-load, rather than bytes
+         merely downloaded by snapct. */
+      ulong consumed, dc_in, dc_out, size_bytes;
+      if( FD_UNLIKELY( incremental ) ) {
+        consumed   = fd_ulong_min( cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ],
+                                   cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, INCREMENTAL_BYTES_READ ) ] );
+        dc_in      = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ];
+        dc_out     = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        size_bytes = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, INCREMENTAL_SIZE_BYTES ) ];
+      } else {
+        consumed   = fd_ulong_min( cur_tile[ snapin_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],
+                                   cur_tile[ snapwr_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FULL_BYTES_READ ) ] );
+        dc_in      = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ];
+        dc_out     = cur_tile[ snapdc_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ];
+        size_bytes = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_SIZE_BYTES ) ];
+      }
+      double done_comp = dc_out ? (double)dc_in*( (double)consumed/(double)dc_out ) : 0.0;
+      if( FD_LIKELY( size_bytes ) ) progress = fd_double_if( done_comp>(double)size_bytes, 100.0, 100.0*done_comp/(double)size_bytes );
       break;
+    }
     case FD_SNAPCT_STATE_SHUTDOWN:
       progress = 100.0;
       break;
