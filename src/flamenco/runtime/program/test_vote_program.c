@@ -6,6 +6,7 @@
 #include "../../features/fd_features.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include "vote/fd_vote_codec.h"
+#include "vote/fd_vote_state_versioned.h"
 #include "../../../disco/fd_txn_p.h"
 
 #define TEST_SLOTS_PER_EPOCH (32UL)
@@ -209,6 +210,89 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 }
 
 static void
+setup_update_commission_collector_txn( test_env_t *        env,
+                                       fd_pubkey_t *       collector_pubkey,
+                                       uint                kind,
+                                       int                 alias_vote_account,
+                                       int                 collector_writable,
+                                       fd_pubkey_t const * collector_owner,
+                                       ulong               collector_lamports ) {
+  static char * hex =
+    "01"
+    "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    "010001"
+    "04"
+    "0880dc185717ce96239eb7bb7260938b79c9e8e00a79f8891f5ed1227f24cd2b" /* signer */
+    "ad2277e4f7c1fc98173bfe282470eccbf78c50451f9d9a9aecc0fbe67915af7a" /* vote account */
+    "2222222222222222222222222222222222222222222222222222222222222222" /* collector */
+    "0761481d357474bb7c4d7624ebd3bdb3d8355e73d11043fc0da3538000000000" /* vote program */
+    "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17" /* blockhash */
+    "01"
+    "030301020008"
+    "1100000000000000" /* UpdateCommissionCollector(InflationRewards) */
+  ;
+
+  ulong txn_sz = strlen( hex ) / 2UL;
+  env->txn_p->payload_sz = txn_sz;
+  fd_hex_decode( env->txn_p->payload, hex, txn_sz );
+  FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
+
+  fd_txn_t * txn = TXN( env->txn_p );
+  FD_TEST( txn->instr_cnt==1UL );
+  FD_TEST( txn->instr[ 0 ].acct_cnt==3UL );
+  FD_TEST( txn->instr[ 0 ].data_sz==8UL );
+
+  if( FD_UNLIKELY( !collector_writable ) ) {
+    env->txn_p->payload[ txn->message_off+2UL ] = 2U;
+  }
+  if( FD_UNLIKELY( alias_vote_account ) ) {
+    env->txn_p->payload[ txn->instr[ 0 ].acct_off+1UL ] = 1U;
+  }
+  fd_memset( env->txn_p->payload+txn->instr[ 0 ].data_off+4UL, 0, sizeof(uint) );
+  env->txn_p->payload[ txn->instr[ 0 ].data_off+4UL ] = (uchar)kind;
+
+  FD_TEST( fd_txn_parse( env->txn_p->payload, txn_sz, TXN(env->txn_p), NULL )>0 );
+
+  fd_hex_decode( collector_pubkey, "2222222222222222222222222222222222222222222222222222222222222222", 32UL );
+  if( FD_LIKELY( !alias_vote_account ) ) {
+    create_account_raw( env->mini->runtime->accdb,
+                        env->bank->accdb_fork_id,
+                        collector_pubkey,
+                        collector_lamports,
+                        0UL,
+                        NULL,
+                        collector_owner );
+  }
+
+  fd_memset( env->txn_out, 0, sizeof(env->txn_out) );
+  env->txn_in->txn              = env->txn_p;
+  env->txn_in->bundle.is_bundle = 0;
+}
+
+static void
+read_vote_collectors( fd_acc_t const * vote_acc,
+                      fd_pubkey_t *    inflation_rewards_collector,
+                      fd_pubkey_t *    block_revenue_collector ) {
+  fd_vote_state_versioned_t vote_state[1];
+  FD_TEST( !fd_vsv_deserialize( vote_acc, vote_state ) );
+  FD_TEST( vote_state->kind==fd_vote_state_versioned_enum_v4 );
+  *inflation_rewards_collector = vote_state->v4.inflation_rewards_collector;
+  *block_revenue_collector     = vote_state->v4.block_revenue_collector;
+}
+
+static void
+read_persisted_vote_collectors( test_env_t *  env,
+                                fd_pubkey_t * inflation_rewards_collector,
+                                fd_pubkey_t * block_revenue_collector ) {
+  fd_pubkey_t vote_pubkey[1];
+  fd_hex_decode( vote_pubkey, "ad2277e4f7c1fc98173bfe282470eccbf78c50451f9d9a9aecc0fbe67915af7a", 32UL );
+
+  fd_acc_t vote_acc = fd_accdb_read_one( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote_pubkey->uc );
+  read_vote_collectors( &vote_acc, inflation_rewards_collector, block_revenue_collector );
+  fd_accdb_unread_one( env->mini->runtime->accdb, &vote_acc );
+}
+
+static void
 test_account_initialize( fd_svm_mini_t * mini ) {
   static test_env_t env[1];
   setup_test( env, mini );
@@ -274,6 +358,118 @@ test_account_initialize_v2_no_simd_0387( fd_svm_mini_t * mini ) {
   FD_TEST( !txn_succeeded( env ) );
 
   FD_LOG_NOTICE(( "test_account_initialize_v2_no_simd_0387... ok" ));
+}
+
+struct update_commission_collector_test_case {
+  char const *        name;
+  uint                kind;
+  int                 feature_active;
+  int                 alias_vote_account;
+  int                 collector_writable;
+  int                 collector_rent_exempt;
+  fd_pubkey_t const * collector_owner;
+  int                 expected_err;
+};
+typedef struct update_commission_collector_test_case update_commission_collector_test_case_t;
+
+static void
+run_update_commission_collector_test( fd_svm_mini_t *                                mini,
+                                      update_commission_collector_test_case_t const * test_case ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  setup_account_initialize_txn( env );
+
+  fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
+  FD_TEST( txn_succeeded( env ) );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+
+  fd_pubkey_t initial_inflation_rewards_collector[1];
+  fd_pubkey_t initial_block_revenue_collector[1];
+  read_persisted_vote_collectors( env, initial_inflation_rewards_collector, initial_block_revenue_collector );
+
+  if( test_case->feature_active ) {
+    FD_FEATURE_SET_ACTIVE( &env->bank->f.features, custom_commission_collector, 0UL );
+  } else {
+    FD_TEST( !FD_FEATURE_ACTIVE_BANK( env->bank, custom_commission_collector ) );
+  }
+
+  fd_pubkey_t collector_pubkey[1];
+  ulong collector_min_balance = fd_rent_exempt_minimum_balance( &env->bank->f.rent, 0UL );
+  ulong collector_lamports    = test_case->collector_rent_exempt ? collector_min_balance : collector_min_balance-1UL;
+  setup_update_commission_collector_txn( env,
+                                         collector_pubkey,
+                                         test_case->kind,
+                                         test_case->alias_vote_account,
+                                         test_case->collector_writable,
+                                         test_case->collector_owner,
+                                         collector_lamports );
+
+  fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
+
+  fd_pubkey_t actual_inflation_rewards_collector[1];
+  fd_pubkey_t actual_block_revenue_collector[1];
+  read_vote_collectors( env->txn_out->accounts.account[ 1 ],
+                        actual_inflation_rewards_collector,
+                        actual_block_revenue_collector );
+
+  if( test_case->expected_err==FD_EXECUTOR_INSTR_SUCCESS ) {
+    FD_TEST( txn_succeeded( env ) );
+
+    fd_pubkey_t vote_pubkey[1];
+    fd_hex_decode( vote_pubkey, "ad2277e4f7c1fc98173bfe282470eccbf78c50451f9d9a9aecc0fbe67915af7a", 32UL );
+    fd_pubkey_t const * expected_collector = test_case->alias_vote_account ? vote_pubkey : collector_pubkey;
+
+    if( test_case->kind==fd_commission_kind_enum_inflation_rewards ) {
+      FD_TEST( fd_pubkey_eq( actual_inflation_rewards_collector, expected_collector ) );
+      FD_TEST( fd_pubkey_eq( actual_block_revenue_collector, initial_block_revenue_collector ) );
+    } else {
+      FD_TEST( test_case->kind==fd_commission_kind_enum_block_revenue );
+      FD_TEST( fd_pubkey_eq( actual_inflation_rewards_collector, initial_inflation_rewards_collector ) );
+      FD_TEST( fd_pubkey_eq( actual_block_revenue_collector, expected_collector ) );
+    }
+  } else {
+    FD_TEST( !txn_succeeded( env ) );
+    FD_TEST( env->txn_out->err.is_committable );
+    FD_TEST( env->txn_out->err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR );
+    FD_TEST( env->txn_out->err.exec_err==test_case->expected_err );
+    FD_TEST( fd_pubkey_eq( actual_inflation_rewards_collector, initial_inflation_rewards_collector ) );
+    FD_TEST( fd_pubkey_eq( actual_block_revenue_collector, initial_block_revenue_collector ) );
+  }
+
+  FD_TEST( env->txn_out->err.is_committable );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out, 0 );
+
+  fd_pubkey_t persisted_inflation_rewards_collector[1];
+  fd_pubkey_t persisted_block_revenue_collector[1];
+  read_persisted_vote_collectors( env, persisted_inflation_rewards_collector, persisted_block_revenue_collector );
+  FD_TEST( fd_pubkey_eq( persisted_inflation_rewards_collector, actual_inflation_rewards_collector ) );
+  FD_TEST( fd_pubkey_eq( persisted_block_revenue_collector, actual_block_revenue_collector ) );
+
+  FD_LOG_NOTICE(( "%s... ok", test_case->name ));
+}
+
+static void
+test_update_commission_collector( fd_svm_mini_t * mini ) {
+  update_commission_collector_test_case_t const test_cases[] = {
+    { "test_update_commission_collector_inflation_rewards",
+      fd_commission_kind_enum_inflation_rewards, 1, 0, 1, 1, &fd_solana_system_program_id, FD_EXECUTOR_INSTR_SUCCESS },
+    { "test_update_commission_collector_block_revenue",
+      fd_commission_kind_enum_block_revenue,     1, 0, 1, 1, &fd_solana_system_program_id, FD_EXECUTOR_INSTR_SUCCESS },
+    { "test_update_commission_collector_vote_account_alias",
+      fd_commission_kind_enum_block_revenue,     1, 1, 1, 1, &fd_solana_system_program_id, FD_EXECUTOR_INSTR_SUCCESS },
+    { "test_update_commission_collector_feature_disabled",
+      fd_commission_kind_enum_inflation_rewards, 0, 0, 1, 1, &fd_solana_system_program_id, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA },
+    { "test_update_commission_collector_invalid_owner",
+      fd_commission_kind_enum_inflation_rewards, 1, 0, 1, 1, &fd_solana_vote_program_id,   FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER },
+    { "test_update_commission_collector_not_rent_exempt",
+      fd_commission_kind_enum_inflation_rewards, 1, 0, 1, 0, &fd_solana_system_program_id, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS },
+    { "test_update_commission_collector_read_only",
+      fd_commission_kind_enum_inflation_rewards, 1, 0, 0, 1, &fd_solana_system_program_id, FD_EXECUTOR_INSTR_ERR_INVALID_ARG },
+  };
+
+  for( ulong i=0UL; i<sizeof(test_cases)/sizeof(test_cases[0]); i++ ) {
+    run_update_commission_collector_test( mini, &test_cases[ i ] );
+  }
 }
 
 static void
@@ -364,6 +560,7 @@ main( int     argc,
   test_account_initialize_simd_0387( mini );
   test_account_initialize_v2_invalid_proof( mini );
   test_account_initialize_v2_no_simd_0387( mini );
+  test_update_commission_collector( mini );
 
   test_authorized_voters_footprint();
   test_vote_lockouts_footprint();
