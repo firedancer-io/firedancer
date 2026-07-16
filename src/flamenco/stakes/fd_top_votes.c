@@ -18,14 +18,14 @@ struct vote_ele {
   fd_pubkey_t pubkey;
   fd_pubkey_t node_account;
   ulong       stake;
-  ulong       last_vote_slot;
   long        last_vote_timestamp;
+  uint        last_vote_slot;
   ushort      commission;
-  uchar       is_valid;
 
   ushort      left;
   ushort      right;
   ushort      next;
+  uchar       is_valid;
 };
 typedef struct vote_ele vote_ele_t;
 
