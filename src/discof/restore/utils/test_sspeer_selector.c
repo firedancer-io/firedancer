@@ -156,10 +156,10 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector,
 
   /* Add a peer with the same latency but lagging slots behind.
      Cluster incr is 1500, peer incr is 1400.  slots_behind=100.
-     score = 3_000_000 + 100*1000 = 3_100_000. */
+     score = 3_000_000 + 200*100^2 = 5_000_000. */
   fd_sspeer_key_t key3[1]; FD_TEST( generate_rand_sspeer_key( key3, rng, fd_rng_int( rng )&0x1/*is_url*/ ) );
   fd_ip4_port_t addr3 = { .addr = FD_IP4_ADDR( 35, 123, 172, 229 ), .port = fd_ushort_bswap( 8899 ) };
-  FD_TEST( add_peer( selector, key3, addr3, 1000UL, 1400UL, 3UL*1000UL*1000UL )==3UL*1000UL*1000UL + 100UL*1000UL );
+  FD_TEST( add_peer( selector, key3, addr3, 1000UL, 1400UL, 3UL*1000UL*1000UL )==3UL*1000UL*1000UL + 200UL*100UL*100UL );
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
@@ -185,7 +185,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector,
   /* Add a fast peer that doesn't have resolved slots */
   fd_sspeer_key_t key5[1]; FD_TEST( generate_rand_sspeer_key( key5, rng, fd_rng_int( rng )&0x1/*is_url*/ ) );
   fd_ip4_port_t addr5 = { .addr = FD_IP4_ADDR( 35, 123, 172, 231 ), .port = fd_ushort_bswap( 8899 ) };
-  FD_TEST( add_peer( selector, key5, addr5, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL + 1000UL*1000UL*1000UL);
+  FD_TEST( add_peer( selector, key5, addr5, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL + 200UL*1000UL*1000UL*1000UL*1000UL);
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
@@ -961,11 +961,11 @@ test_cluster_slot_rescoring( fd_sspeer_selector_t * selector,
   FD_TEST( cs.incremental==9800UL );
 
   /* Scores unchanged from the previous rescore at (9000, 9800):
-     Peer B: behind = 9800-9200 = 600. score = 3_600_000.
+     Peer B: behind = 9800-9200 = 600. score = 3_000_000 + 200*600^2 = 75_000_000.
      Peer C: behind = max(0, 9800-9800) = 0.   score = 4_000_000. */
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr_B.l );
-  FD_TEST( best.score==3UL*1000UL*1000UL + 600UL*1000UL );
+  FD_TEST( best.addr.l==addr_C.l );
+  FD_TEST( best.score==4UL*1000UL*1000UL );
 
   /* Cleanup */
   fd_sspeer_selector_remove( selector, key_B );
@@ -1285,7 +1285,7 @@ test_score_saturation( fd_sspeer_selector_t * selector,
   fd_sspeer_selector_remove( selector, key );
 
   /* Slots-behind penalty: peer incr_slot 100 behind cluster. */
-  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 100UL*1000UL );
+  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 200UL*100UL*100UL );
   fd_sspeer_selector_remove( selector, key );
 
   /* Default latency (FD_SSPEER_LATENCY_UNKNOWN input). */
@@ -1293,11 +1293,11 @@ test_score_saturation( fd_sspeer_selector_t * selector,
   fd_sspeer_selector_remove( selector, key );
 
   /* Default latency + slot-behind penalty combined. */
-  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, FD_SSPEER_LATENCY_UNKNOWN )==100UL*1000UL*1000UL + 100UL*1000UL );
+  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, FD_SSPEER_LATENCY_UNKNOWN )==100UL*1000UL*1000UL + 200UL*100UL*100UL );
   fd_sspeer_selector_remove( selector, key );
 
   /* Unresolved full slot: DEFAULT_SLOTS_BEHIND penalty. */
-  FD_TEST( add_peer( selector, key, addr, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 1000UL*1000UL*1000UL );
+  FD_TEST( add_peer( selector, key, addr, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 200UL*1000UL*1000UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
 
   /* full_slot==UNKNOWN with incr_slot!=UNKNOWN is rejected. */
@@ -1313,11 +1313,11 @@ test_score_saturation( fd_sspeer_selector_t * selector,
   /* Score saturation: establish cluster near FD_SSPEER_PLAUSIBLE_MAX_SLOT
      via helper.  With MAX_SLOTS_BEHIND_CAP, the peer's slots_behind is
      capped to 864000 instead of the raw distance.
-     score = 5_000_000 (latency) + 864_000 * 1000 (capped penalty) = 869_000_000. */
+     score = 5_000_000 (latency) + 200 * 864_000^2 (capped penalty) = 149_299_205_000_000. */
   fd_sspeer_selector_remove( selector, helper_key );
   FD_TEST( add_peer( selector, helper_key, helper_addr, FD_SSPEER_PLAUSIBLE_MAX_SLOT-1UL, FD_SSPEER_PLAUSIBLE_MAX_SLOT-1UL, 100UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
   fd_sspeer_selector_process_cluster_slot( selector );
-  FD_TEST( add_peer( selector, key, addr, 0UL, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 864000UL*1000UL );
+  FD_TEST( add_peer( selector, key, addr, 0UL, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 200UL*864000UL*864000UL );
   fd_sspeer_selector_remove( selector, key );
   fd_sspeer_selector_remove( selector, helper_key );
 
@@ -1352,18 +1352,18 @@ test_slots_behind_cap( fd_sspeer_selector_t * selector,
 
   /* Honest peers' scores should use capped slots_behind (864,000)
      instead of the raw 999,700.
-     score = 5_000_000 (latency) + 864_000 * 1000 (capped penalty) = 869_000_000. */
+     score = 5_000_000 (latency) + 200 * 864_000^2 (capped penalty) = 149_299_205_000_000. */
   fd_sspeer_key_t probe_key[1]; FD_TEST( generate_rand_sspeer_key( probe_key, rng, 0 ) );
   fd_ip4_port_t   probe_addr;   FD_TEST( generate_rand_addr_non_zero( &probe_addr, rng ) );
   ulong capped_score = add_peer( selector, probe_key, probe_addr, 300UL, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL );
-  FD_TEST( capped_score==5UL*1000UL*1000UL + 864000UL*1000UL );
+  FD_TEST( capped_score==5UL*1000UL*1000UL + 200UL*864000UL*864000UL );
 
   /* Honest peers remain selectable (not saturated to SCORE_MAX). */
   FD_TEST( capped_score<FD_SSPEER_SCORE_MAX );
 
-  /* Without the cap, score would have been 5_000_000 + 999_700 * 1000 = 1_004_700_000,
+  /* Without the cap, score would have been 5_000_000 + 200 * 999_700^2 = 199_880_023_000_000,
      verify the capped score is strictly less. */
-  FD_TEST( capped_score<5UL*1000UL*1000UL + 999700UL*1000UL );
+  FD_TEST( capped_score<5UL*1000UL*1000UL + 200UL*999700UL*999700UL );
 
   /* Cleanup. */
   fd_sspeer_selector_remove( selector, attacker_key );
@@ -2023,12 +2023,12 @@ test_max_high_slot_outlier( fd_sspeer_selector_t * selector,
   FD_TEST( cs.incremental==1000UL );
 
   /* Honest peer 0: behind = 1000-300 = 700.
-     score = 1_000_000 + 700*1000 = 1_700_000.
+     score = 1_000_000 + 200*700^2 = 99_000_000.
      Attacker: behind = 0.  score = 100_000_000.
      Best is still honest peer 0. */
   fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==honest_addrs[0].l );
-  FD_TEST( best.score==1UL*1000UL*1000UL + 700UL*1000UL );
+  FD_TEST( best.score==1UL*1000UL*1000UL + 200UL*700UL*700UL );
 
   /* Cleanup */
   for( ulong i=0; i<5UL; i++ ) {
@@ -2067,7 +2067,7 @@ test_max_high_slot_outlier( fd_sspeer_selector_t * selector,
 
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==honest_addrs[0].l );
-  FD_TEST( best.score==1UL*1000UL*1000UL + 700UL*1000UL );
+  FD_TEST( best.score==1UL*1000UL*1000UL + 200UL*700UL*700UL );
 
   for( ulong i=0; i<5UL; i++ ) fd_sspeer_selector_remove( selector, &honest_keys[i] );
   for( ulong i=0; i<2UL; i++ ) fd_sspeer_selector_remove( selector, &mal_keys_2[i] );
