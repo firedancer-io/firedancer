@@ -31,6 +31,35 @@ uchar payload_c[ FD_TXN_MTU ];
 uchar min_okay[  FD_TXN_MTU ];
 uchar max_okay[  FD_TXN_MTU ];
 
+uchar legacy_buf[ FD_TXN_MTU ];
+
+static ulong
+build_legacy_one_instr( uchar * buf, ushort instr_acct_cnt ) {
+  ulong o = 0UL;
+  buf[ o++ ] = 0x01;                                         /* signature count = 1 (compact-u16)   */
+  for( ulong j=0UL; j<64UL; j++ ) buf[ o++ ] = 0;            /* 1 signature                          */
+  buf[ o++ ] = 0x01;                                         /* header: num_required_signatures = 1  */
+  buf[ o++ ] = 0x00;                                         /* header: num_readonly_signed = 0      */
+  buf[ o++ ] = 0x01;                                         /* header: num_readonly_unsigned = 1    */
+  buf[ o++ ] = 0x02;                                         /* account address count = 2            */
+  for( ulong a=0UL; a<2UL; a++ )
+    for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j); /* 2 addresses                   */
+  for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(0xB0+j);     /* recent blockhash              */
+  buf[ o++ ] = 0x01;                                         /* instruction count = 1                */
+  buf[ o++ ] = 0x01;                                         /* program_id index = 1                 */
+  /* acct_cnt (compact-u16) */
+  ushort v = instr_acct_cnt;
+  for(;;) {
+    uchar b = (uchar)( v & 0x7F );
+    v = (ushort)( v >> 7 );
+    if( v ) buf[ o++ ] = (uchar)( b | 0x80 );
+    else  { buf[ o++ ] = b; break; }
+  }
+  for( ulong k=0UL; k<instr_acct_cnt; k++ ) buf[ o++ ] = 0;  /* account indices (all 0)              */
+  buf[ o++ ] = 0x00;                                         /* instruction data length = 0          */
+  return o;
+}
+
 void txn1_correctness( void ) {
   fd_txn_parse_counters_t  counters = {0};
   static uchar const first_sig_byte [  4 ] = {   97, 189,  11, 108 };
@@ -77,6 +106,22 @@ void txn1_correctness( void ) {
   FD_TEST( ix[ 6 ].data_sz    == 12UL );
   FD_TEST( transaction1[ ix[ 6 ].acct_off ] ==  14UL );
   FD_TEST( transaction1[ ix[ 6 ].data_off ] == 211UL );
+
+  { /* exactly 255 accounts parses */
+    ulong sz = build_legacy_one_instr( legacy_buf, (ushort)FD_TXN_INSTR_ACCT_MAX );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( fd_txn_parse( legacy_buf, sz, out_buf, &counters ) );
+    FD_TEST( counters.success_cnt==1UL );
+    FD_TEST( parsed->transaction_version == FD_TXN_VLEGACY );
+    FD_TEST( parsed->instr_cnt           == 1 );
+    FD_TEST( parsed->instr[0].acct_cnt   == (ushort)FD_TXN_INSTR_ACCT_MAX );
+  }
+  { /* 256 accounts is rejected */
+    ulong sz = build_legacy_one_instr( legacy_buf, (ushort)(FD_TXN_INSTR_ACCT_MAX+1UL) );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( 0UL == fd_txn_parse( legacy_buf, sz, out_buf, &counters ) );
+    FD_TEST( counters.failure_cnt==1UL );
+  }
 }
 void txn2_correctness( void ) {
   fd_txn_parse_counters_t counters = {0};

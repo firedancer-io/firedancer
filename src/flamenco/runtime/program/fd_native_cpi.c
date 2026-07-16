@@ -15,7 +15,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
                              ulong                             signers_cnt ) {
   /* Set up the instr info */
   fd_instr_info_t *        instr_info = &ctx->runtime->instr.trace[ ctx->runtime->instr.trace_length++ ];
-  fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_instruction_account_t instruction_accounts[ FD_TXN_INSTR_ACCT_MAX ];
   ulong                    instruction_accounts_cnt;
 
   /* Set the stack size */
@@ -26,7 +26,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   ulong program_id = fd_runtime_find_index_of_account( ctx->txn_out, native_program_id );
   if( FD_LIKELY( program_id!=ULONG_MAX ) ) instr_info->program_id = (uchar)program_id;
 
-  fd_pubkey_t instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ];
+  fd_pubkey_t instr_acct_keys[ FD_TXN_INSTR_ACCT_MAX ];
   uchar       acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
 
   instr_info->acct_cnt = (ushort)acct_metas_len;

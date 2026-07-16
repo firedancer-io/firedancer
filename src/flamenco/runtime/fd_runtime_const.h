@@ -146,63 +146,6 @@ FD_PROTOTYPES_BEGIN
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
 
-/* FD_INSTR_ACCT_MAX is the maximum number of accounts that can
-   be referenced by a single instruction.
-
-   This is different from FD_BPF_INSTR_ACCT_MAX, which is enforced by the
-   BPF serializer. It is possible to pass in more than FD_BPF_INSTR_ACCT_MAX
-   instruction accounts in a transaction (for example mainnet transaction)
-   3eDdfZE6HswPxFKrtnQPsEmTkyL1iP57gRPEXwaqNGAqF1paGXCYYMwh7z4uQDUMgFor742sikVSQZW1gFRDhPNh).
-
-   A transaction like this will be loaded and sanitized, but will fail in the
-   bpf serialization stage. It is also possible to invoke a native program with
-   more than FD_BPF_INSTR_ACCT_MAX instruction accounts that will execute successfully.
-
-   Therefore we need to derive a bound from a worst-case transaction: one that
-   has the maximum possible number of instruction accounts at the expense of
-   everything else. This is a legacy transaction with a single account address,
-   a single signature, a single instruction with empty data and as many
-   instruction accounts as possible.
-
-   Therefore, the maximum number of instruction accounts is:
-     (MTU - fixed overhead) / (size of instruction account)
-   = (MTU
-       - signature count (1 byte, value=1)
-       - signature (64 bytes)
-       - signature count in header (1 byte)
-       - readonly signed count (1 byte)
-       - readonly unsigned count (1 byte)
-       - account count (1 byte, compact-u16 value=1)
-       - 1 account address (32 bytes)
-       - recent blockhash (32 bytes)
-       - instruction count (1 byte, compact-u16 value=1)
-       - program id index (1 byte)
-       - instruction account count (2 bytes)
-       - data len (1 byte, value=0)
-   = 1232 - 1 - 64 - 1 - 1 - 1 - 1 - 32 - 32 - 1 - 1 - 2 - 1
-   = 1094
-
-   TODO: SIMD-406 (https://github.com/solana-foundation/solana-improvement-documents/pull/406)
-   limits the number of instruction accounts to 255 in transaction sanitization.
-
-   Once the corresponding feature gate has been activated, we can reduce
-   FD_INSTR_ACCT_MAX to 255. We cannot reduce this before as this would cause
-   the result of the get_processed_sibling_instruction syscall to diverge from
-   Agave. */
-#define FD_INSTR_ACCT_MAX           (1094UL)
-
-/* FD_BPF_INSTR_ACCT_MAX is the maximum number of accounts that
-   an instruction that goes through the bpf loader serializer can reference.
-
-   The BPF loader has a lower limit for the number of instruction accounts
-   than is enforced in transaction sanitization.
-
-   TODO: remove this limit once SIMD-406 is activated, as we can then use the
-   same limit everywhere.
-
-   https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L30-L32 */
-#define FD_BPF_INSTR_ACCT_MAX       (255UL)
-
 /* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the per-unique-account
    serialization overhead EXCLUDING the account's data body: the fixed
    metadata fields, plus the realloc headroom (MAX_PERMITTED_DATA_INCREASE)
@@ -262,12 +205,12 @@ FD_PROTOTYPES_BEGIN
                                                                    account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT                  +     \
                                                                    ((direct_mapping) ? 0UL : ((ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT +              \
                                                                                               (ulong)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN))       +     \
-                                                                   (FD_BPF_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   (FD_TXN_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
                                                                    sizeof(ulong)                      /* instr data len */                          +     \
                                                                    FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             +     \
                                                                    sizeof(fd_pubkey_t)                /* program id     */                          +     \
                                                                    (FD_BPF_ALIGN_OF_U128-1UL) +                                                           \
-                                                                   FD_BPF_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
+                                                                   FD_TXN_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
 
