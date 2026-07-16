@@ -148,10 +148,17 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    if( ctx->tcp_sock>=0 ) fd_bundle_client_reset( ctx );
+    ctx->halt_signing = 1;
     fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->defer_reset = 1;
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    ctx->defer_reset    = 1;
     ctx->sleep_check_ns = 0;
+    ctx->halt_signing   = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
   fd_bundle_tile_maybe_sleep( ctx, now_ns );
@@ -238,6 +245,8 @@ before_credit( fd_bundle_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->stem ) ) {
     ctx->stem = stem;
   }
+
+  if( FD_UNLIKELY( ctx->halt_signing ) ) return;
 
   if( FD_UNLIKELY( ctx->sleep_mode ) ) {
     if( ctx->tcp_sock>=0 ) {
@@ -559,6 +568,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->reset_slot       = ULONG_MAX;
   ctx->sleep_mode       = has_replay_in; /* start asleep until we learn leader schedule */
   ctx->sleep_check_ns   = 0;
+  ctx->halt_signing     = 0;
   if( !has_replay_in ) memset( &ctx->replay_in, 0, sizeof(ctx->replay_in) );
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
