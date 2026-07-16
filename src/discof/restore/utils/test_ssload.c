@@ -561,28 +561,36 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
 
-  uchar pubkey_a[32]; fd_memset( pubkey_a, 0xAA, 32 );
-  uchar vote_a[32];   fd_memset( vote_a,   0xA1, 32 );
   manifest->stake_delegations_len = 1UL;
-  fd_memcpy( manifest->stake_delegations[0].stake_pubkey, pubkey_a, 32 );
-  fd_memcpy( manifest->stake_delegations[0].vote_pubkey,  vote_a,   32 );
+  manifest->stake_delegations[0].stake_pubkey = (fd_pubkey_t){{'a'}};
+  manifest->stake_delegations[0].vote_pubkey  = (fd_pubkey_t){{'v'}};
   manifest->stake_delegations[0].stake_delegation   = 1000UL;
   manifest->stake_delegations[0].activation_epoch   = 0UL;
   manifest->stake_delegations[0].deactivation_epoch = ULONG_MAX;
 
-  uchar pubkey_x[32]; fd_memset( pubkey_x, 0xBB, 32 );
-  uchar ident_x[32];  fd_memset( ident_x,  0xB1, 32 );
   manifest->epoch_stakes[1].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,     pubkey_x, 32 );
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity, ident_x,  32 );
-  manifest->epoch_stakes[1].vote_stakes[0].stake      = 5000UL;
-  manifest->epoch_stakes[1].vote_stakes[0].commission = 10;
-  manifest->epoch_stakes[1].total_stake               = 5000UL;
+  manifest->epoch_stakes[1].vote_stakes[0] = (fd_snapshot_manifest_vote_stakes_t) {
+    .vote       = (fd_pubkey_t){{'x'}},
+    .identity   = (fd_pubkey_t){{'X'}},
+    .stake      = 5000UL,
+    .commission = 10,
+  };
+  manifest->epoch_stakes[1].total_stake = 5000UL;
+
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0] = (fd_snapshot_manifest_vote_stakes_t) {
+    .vote                 = (fd_pubkey_t){{'x'}},
+    .identity             = (fd_pubkey_t){{'X'}},
+    .commission_inflation = (fd_pubkey_t){{'i'}},
+    .commission_block     = (fd_pubkey_t){{'b'}},
+    .stake                = 4000UL,
+    .commission           = 11,
+  };
+  manifest->epoch_stakes[0].total_stake = 4000UL;
 
   /* Also add a new_votes entry (vote account with stake==0). */
-  uchar nv_pubkey_a[32]; fd_memset( nv_pubkey_a, 0xE1, 32 );
   manifest->vote_accounts_len = 1UL;
-  fd_memcpy( manifest->vote_accounts[0].vote_account_pubkey, nv_pubkey_a, 32 );
+  manifest->vote_accounts[0].vote_account_pubkey = (fd_pubkey_t){{'n'}};
   manifest->vote_accounts[0].stake = 0UL;
 
   /* First apply: simulate initial full snapshot load. */
@@ -591,12 +599,19 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   /* Verify entries from first apply are present. */
   fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )!=NULL );
+  FD_TEST( fd_stake_delegation_root_query( sd, &(fd_pubkey_t){{'a'}} )!=NULL );
   FD_TEST( fd_stake_delegations_cnt( sd )==1UL );
 
   fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
   ushort root_idx = fd_vote_stakes_get_root_idx( vs );
   FD_TEST( fd_vote_stakes_ele_cnt( vs, root_idx )==1 );
+
+  FD_TEST( *fd_bank_snapshot_commission_t_3_len( bank )==1UL );
+  fd_stashed_commission_t const * stashed = &fd_bank_snapshot_commission_t_3( bank )[ 0 ];
+  FD_TEST( fd_pubkey_eq( &stashed->pubkey,                      &(fd_pubkey_t){{'x'}} ) );
+  FD_TEST( fd_pubkey_eq( &stashed->inflation_rewards_collector, &(fd_pubkey_t){{'i'}} ) );
+  FD_TEST( fd_pubkey_eq( &stashed->block_revenue_collector,     &(fd_pubkey_t){{'b'}} ) );
+  FD_TEST( stashed->commission==11U );
 
   fd_new_votes_t * nv = fd_bank_new_votes( bank );
   FD_TEST( fd_new_votes_cnt( nv )==1UL );
@@ -607,27 +622,35 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   fd_memset( manifest, 0, sizeof(*manifest) );
   setup_valid_manifest_base( manifest );
 
-  uchar pubkey_b[32]; fd_memset( pubkey_b, 0xCC, 32 );
-  uchar vote_b[32];   fd_memset( vote_b,   0xC1, 32 );
   manifest->stake_delegations_len = 1UL;
-  fd_memcpy( manifest->stake_delegations[0].stake_pubkey, pubkey_b, 32 );
-  fd_memcpy( manifest->stake_delegations[0].vote_pubkey,  vote_b,   32 );
+  manifest->stake_delegations[0].stake_pubkey = (fd_pubkey_t){{'c'}};
+  manifest->stake_delegations[0].vote_pubkey  = (fd_pubkey_t){{'w'}};
   manifest->stake_delegations[0].stake_delegation   = 2000UL;
   manifest->stake_delegations[0].activation_epoch   = 0UL;
   manifest->stake_delegations[0].deactivation_epoch = ULONG_MAX;
 
-  uchar pubkey_y[32]; fd_memset( pubkey_y, 0xDD, 32 );
-  uchar ident_y[32];  fd_memset( ident_y,  0xD1, 32 );
   manifest->epoch_stakes[1].vote_stakes_len = 1UL;
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].vote,     pubkey_y, 32 );
-  fd_memcpy( manifest->epoch_stakes[1].vote_stakes[0].identity, ident_y,  32 );
-  manifest->epoch_stakes[1].vote_stakes[0].stake      = 7000UL;
-  manifest->epoch_stakes[1].vote_stakes[0].commission = 5;
-  manifest->epoch_stakes[1].total_stake               = 7000UL;
+  manifest->epoch_stakes[1].vote_stakes[0] = (fd_snapshot_manifest_vote_stakes_t) {
+    .vote       = (fd_pubkey_t){{'y'}},
+    .identity   = (fd_pubkey_t){{'Y'}},
+    .stake      = 7000UL,
+    .commission = 5,
+  };
+  manifest->epoch_stakes[1].total_stake = 7000UL;
 
-  uchar nv_pubkey_b[32]; fd_memset( nv_pubkey_b, 0xE2, 32 );
+  manifest->epoch_stakes[0].vote_stakes_len = 1UL;
+  manifest->epoch_stakes[0].vote_stakes[0] = (fd_snapshot_manifest_vote_stakes_t) {
+    .vote                 = (fd_pubkey_t){{'y'}},
+    .identity             = (fd_pubkey_t){{'Y'}},
+    .commission_inflation = (fd_pubkey_t){{'j'}},
+    .commission_block     = (fd_pubkey_t){{'d'}},
+    .stake                = 6000UL,
+    .commission           = 6,
+  };
+  manifest->epoch_stakes[0].total_stake = 6000UL;
+
   manifest->vote_accounts_len = 1UL;
-  fd_memcpy( manifest->vote_accounts[0].vote_account_pubkey, nv_pubkey_b, 32 );
+  manifest->vote_accounts[0].vote_account_pubkey = (fd_pubkey_t){{'m'}};
   manifest->vote_accounts[0].stake = 0UL;
 
   /* Second apply: simulate back-to-back retry after a failed first
@@ -637,8 +660,8 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   /* Stake delegations: pubkey_A must have been removed, pubkey_B must
      be present, exactly 1 entry (not 2). */
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
-  FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_b )!=NULL );
+  FD_TEST( fd_stake_delegation_root_query( sd, &(fd_pubkey_t){{'a'}} )==NULL );
+  FD_TEST( fd_stake_delegation_root_query( sd, &(fd_pubkey_t){{'c'}} )!=NULL );
   FD_TEST( fd_stake_delegations_cnt( sd )==1UL );
 
   /* Vote stakes: pubkey_X must have been removed, pubkey_Y must be
@@ -647,15 +670,20 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   FD_TEST( fd_vote_stakes_ele_cnt( vs, root_idx )==1 );
 
   ulong stake_out;
-  FD_TEST( fd_vote_stakes_query_t_1( vs, root_idx, (fd_pubkey_t *)pubkey_x, &stake_out, NULL, NULL )==0 );
-  FD_TEST( fd_vote_stakes_query_t_1( vs, root_idx, (fd_pubkey_t *)pubkey_y, &stake_out, NULL, NULL )==1 );
+  FD_TEST( fd_vote_stakes_query_t_1( vs, root_idx, &(fd_pubkey_t){{'x'}}, &stake_out, NULL, NULL )==0 );
+  FD_TEST( fd_vote_stakes_query_t_1( vs, root_idx, &(fd_pubkey_t){{'y'}}, &stake_out, NULL, NULL )==1 );
   FD_TEST( stake_out==7000UL );
+
+  FD_TEST( *fd_bank_snapshot_commission_t_3_len( bank )==1UL );
+  stashed = &fd_bank_snapshot_commission_t_3( bank )[ 0 ];
+  FD_TEST( fd_pubkey_eq( &stashed->pubkey,                      &(fd_pubkey_t){{'y'}} ) );
+  FD_TEST( fd_pubkey_eq( &stashed->inflation_rewards_collector, &(fd_pubkey_t){{'j'}} ) );
+  FD_TEST( fd_pubkey_eq( &stashed->block_revenue_collector,     &(fd_pubkey_t){{'d'}} ) );
+  FD_TEST( stashed->commission==6U );
 
   /* New votes: old entry must have been removed, new entry must be
      present, exactly 1 entry (not 2). */
   FD_TEST( fd_new_votes_cnt( nv )==1UL );
-  fd_pubkey_t nv_pk_a; fd_memcpy( nv_pk_a.uc, nv_pubkey_a, 32UL );
-  fd_pubkey_t nv_pk_b; fd_memcpy( nv_pk_b.uc, nv_pubkey_b, 32UL );
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
   fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
   ulong nv_cnt = 0UL;
@@ -666,8 +694,8 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
     fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
     if( FD_UNLIKELY( is_tombstone ) ) continue;
     nv_cnt++;
-    saw_a |= fd_pubkey_eq( pk, &nv_pk_a );
-    saw_b |= fd_pubkey_eq( pk, &nv_pk_b );
+    saw_a |= fd_pubkey_eq( pk, &(fd_pubkey_t){{'n'}} );
+    saw_b |= fd_pubkey_eq( pk, &(fd_pubkey_t){{'m'}} );
   }
   fd_new_votes_iter_fini( it );
   FD_TEST( nv_cnt==1UL );

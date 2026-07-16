@@ -1084,9 +1084,9 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
   }
   for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-    vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
+    vote_scratch[ vote_scratch_cnt ].id_key   = manifest->vote_accounts[ i ].node_account_pubkey;
+    vote_scratch[ vote_scratch_cnt ].vote_key = manifest->vote_accounts[ i ].vote_account_pubkey;
+    vote_scratch[ vote_scratch_cnt ].stake    = manifest->vote_accounts[ i ].stake;
     vote_scratch_cnt++;
   }
 

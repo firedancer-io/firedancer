@@ -406,8 +406,8 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
     ulong       stake      = voter_stake( i );
     put_vote_account_v4( env, &v, &v, commission, VOTE_ACCOUNT_LAMPORTS,
                          voter_has_bls( i ), 0UL, voter_vote_ts( i ) );
-    fd_vote_stakes_root_insert_key ( vote_stakes, &v, &v, stake, commission, 0UL );
-    fd_vote_stakes_root_update_meta( vote_stakes, &v, &v, stake, commission, 0UL );
+    fd_vote_stakes_root_insert_key ( vote_stakes, &v, &v, &v, &v, stake, commission, 0UL );
+    fd_vote_stakes_root_update_meta( vote_stakes, &v, &v, &v, &v, stake, commission, 0UL );
     add_delegated_stake_account     ( env, &s, &v, stake );
     add_bank_stake_delegation_entry ( env, &s, &v, stake );
   }
@@ -608,8 +608,11 @@ test_vat_transition( fd_wksp_t * wksp ) {
       for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
         fd_pubkey_t v = vote_key( i );
         ulong stake_t_2 = 0UL;
+        fd_pubkey_t block_revenue_collector_t_1;
         FD_TEST( !fd_vote_stakes_query_t_1( vs, fork_idx, &v, NULL, NULL, NULL ) );
         FD_TEST(  fd_vote_stakes_query_t_2( vs, fork_idx, &v, &stake_t_2, NULL, NULL ) );
+        FD_TEST(  fd_vote_stakes_query_collectors( vs, fork_idx, &v, NULL, NULL, &block_revenue_collector_t_1, NULL ) );
+        FD_TEST(  fd_pubkey_eq( &block_revenue_collector_t_1, &v ) );
         FD_TEST(  stake_t_2==stake_for_epoch( i, epoch-1UL ) );
       }
     }

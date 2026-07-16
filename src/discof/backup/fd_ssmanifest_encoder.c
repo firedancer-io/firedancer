@@ -192,6 +192,8 @@ ENCODE_FN {
     fd_pubkey_t pubkey       = {0};
     ulong       stake        = 0UL;
     fd_pubkey_t node_account = {0};
+    fd_pubkey_t inflation_rewards_collector = {0};
+    fd_pubkey_t block_revenue_collector     = {0};
     ushort      commission   = 0;
     ulong       ec_cnt       = 0UL;
     fd_epoch_credits_t const * ec = NULL;
@@ -203,15 +205,33 @@ ENCODE_FN {
       ec     = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
       ec_cnt = ec->cnt;
       fd_memcpy( &pubkey, ec->pubkey, 32UL );
-      fd_vote_stakes_query_t_1( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+      if( fd_vote_stakes_query_t_1( vs, fork_idx, &pubkey, &stake, &node_account, &commission ) ) {
+        FD_TEST( fd_vote_stakes_query_collectors( vs,
+                                                  fork_idx,
+                                                  &pubkey,
+                                                  &inflation_rewards_collector,
+                                                  NULL,
+                                                  &block_revenue_collector,
+                                                  NULL ) );
+      }
     } else if( entry_type==1U ) {
       fd_epoch_credits_t const * ec_src = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
       fd_memcpy( &pubkey, ec_src->pubkey, 32UL );
-      fd_vote_stakes_query_t_2( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+      if( fd_vote_stakes_query_t_2( vs, fork_idx, &pubkey, &stake, &node_account, &commission ) ) {
+        FD_TEST( fd_vote_stakes_query_collectors( vs,
+                                                  fork_idx,
+                                                  &pubkey,
+                                                  NULL,
+                                                  &inflation_rewards_collector,
+                                                  NULL,
+                                                  &block_revenue_collector ) );
+      }
     } else {
       fd_stashed_commission_t const * sc = &fd_bank_snapshot_commission_t_3( enc->bank )[ enc->vote_idx ];
-      fd_memcpy( &pubkey, sc->pubkey, 32UL );
-      commission = sc->commission;
+      pubkey                      = sc->pubkey;
+      inflation_rewards_collector = sc->inflation_rewards_collector;
+      block_revenue_collector     = sc->block_revenue_collector;
+      commission                  = sc->commission;
     }
 
     enc->total_stake += stake;
@@ -229,8 +249,8 @@ ENCODE_FN {
     PUSH_VAL( uint,       3U           ); /* variant = V4 */
     PUSH_VAL( fd_pubkey_t, node_account ); /* node_pubkey */
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* inflation_rewards_collector */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* block_revenue_collector */
+    PUSH_VAL( fd_pubkey_t, inflation_rewards_collector ); /* inflation_rewards_collector */
+    PUSH_VAL( fd_pubkey_t, block_revenue_collector     ); /* block_revenue_collector */
     PUSH_VAL( ushort, (ushort)((uint)commission * 100U) ); /* inflation_rewards_commission_bps */
     PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
     PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */

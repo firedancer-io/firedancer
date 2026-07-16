@@ -7,6 +7,8 @@
 struct index_key {
   fd_pubkey_t pubkey;
   fd_pubkey_t node_account_t_1;
+  fd_pubkey_t inflation_rewards_collector_t_1;
+  fd_pubkey_t block_revenue_collector_t_1;
   ulong       stake_t_1 : 63;
   ulong       epoch : 1;
   uint        commission_t_1;
@@ -19,6 +21,8 @@ struct index_ele {
     struct {
       fd_pubkey_t pubkey;
       fd_pubkey_t node_account_t_1;
+      fd_pubkey_t inflation_rewards_collector_t_1;
+      fd_pubkey_t block_revenue_collector_t_1;
       ulong       stake_t_1 : 63;
       ulong       epoch : 1;
       uint        commission_t_1;
@@ -28,6 +32,8 @@ struct index_ele {
   };
   ulong       stake_t_2;
   fd_pubkey_t node_account_t_2;
+  fd_pubkey_t inflation_rewards_collector_t_2;
+  fd_pubkey_t block_revenue_collector_t_2;
   uint        next;
   uint        prev_multi;
   uint        next_multi;

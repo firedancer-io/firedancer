@@ -131,17 +131,15 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
         !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL, NULL, NULL );
-    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
+    fd_vote_stakes_iter_ele_t ele = fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter );
+    if( FD_UNLIKELY( !ele.stake_t_2 ) ) continue;
 
     ulong last_vote_slot;
     long  last_vote_timestamp;
     uchar is_valid = 1;
-    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
+    int   found = fd_top_votes_query( top_votes, &ele.pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
     if( FD_UNLIKELY( !found ) ) {
-      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, ele.pubkey.uc );
       if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
         fd_accdb_unread_one( accdb, &acc );
         continue;
@@ -184,12 +182,12 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
-      .stake     = { .ud=stake_t_2 },
+      .stake     = { .ud=ele.stake_t_2 },
     };
     ts_ele_cnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
-    total_stake += stake_t_2;
+    total_stake += ele.stake_t_2;
   }
   fd_vote_stakes_fork_iter_fini( vote_stakes );
 

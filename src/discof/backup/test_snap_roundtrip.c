@@ -97,6 +97,49 @@ populate_txncache( fd_txncache_t * tc,
 }
 
 static void
+prepare_manifest_stakes( fd_bank_t * bank ) {
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ushort              fork_idx    = fd_vote_stakes_get_root_idx( vote_stakes );
+
+  fd_vote_stakes_iter_ele_t vote_stake[ VALIDATOR_CNT ];
+  ulong                     vote_stake_cnt = 0UL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    FD_TEST( vote_stake_cnt<VALIDATOR_CNT );
+    vote_stake[ vote_stake_cnt++ ] = fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter );
+  }
+  fd_vote_stakes_fork_iter_fini( vote_stakes );
+  FD_TEST( vote_stake_cnt==VALIDATOR_CNT );
+
+  for( ulong i=0UL; i<vote_stake_cnt; i++ ) {
+    fd_pubkey_t inflation_rewards_collector = { .ul[0] = 0xC011EC700UL+i };
+    fd_pubkey_t block_revenue_collector     = { .ul[0] = 0xB10C00000UL+i };
+    fd_vote_stakes_root_update_meta( vote_stakes,
+                                     &vote_stake[ i ].pubkey,
+                                     &vote_stake[ i ].node_account_t_2,
+                                     &inflation_rewards_collector,
+                                     &block_revenue_collector,
+                                     vote_stake[ i ].stake_t_2,
+                                     vote_stake[ i ].commission_t_2,
+                                     bank->f.epoch );
+
+    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
+    fd_memset( epoch_credits, 0, sizeof(fd_epoch_credits_t) );
+    fd_memcpy( epoch_credits->pubkey, vote_stake[ i ].pubkey.uc, sizeof(fd_pubkey_t) );
+
+    fd_stashed_commission_t * stashed_commission = &fd_bank_snapshot_commission_t_3( bank )[ i ];
+    stashed_commission->pubkey                      = vote_stake[ i ].pubkey;
+    stashed_commission->inflation_rewards_collector = (fd_pubkey_t){ .ul[0] = 0xC011EC300UL+i };
+    stashed_commission->block_revenue_collector     = (fd_pubkey_t){ .ul[0] = 0xB10C30000UL+i };
+    stashed_commission->commission                  = vote_stake[ i ].commission_t_2;
+  }
+  *fd_bank_epoch_credits_len( bank ) = vote_stake_cnt;
+  *fd_bank_snapshot_commission_t_3_len( bank ) = vote_stake_cnt;
+}
+
+static void
 test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_LOG_NOTICE(( "test_manifest_roundtrip" ));
 
@@ -133,6 +176,7 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   fd_ssmanifest_parser_init( parser, manifest );
 
   int result = fd_ssmanifest_parser_consume( parser, buf, total_written );
+  if( result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN ) result = fd_ssmanifest_parser_fini( parser );
   FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
 
   FD_TEST( manifest->slot==bank->f.slot );
@@ -144,12 +188,45 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
 
   ulong expected_epoch_cnt = (bank->f.epoch > 0UL) ? 3UL : 2UL;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ushort             fork_idx    = fd_vote_stakes_get_root_idx( vote_stakes );
   for( ulong i=0UL; i<expected_epoch_cnt; i++ ) {
     FD_LOG_NOTICE(( "epoch_stakes[%lu]: epoch=%lu total_stake=%lu vote_stakes_len=%lu",
                     i,
                     manifest->epoch_stakes[i].epoch,
                     manifest->epoch_stakes[i].total_stake,
                     manifest->epoch_stakes[i].vote_stakes_len ));
+
+    uint entry_type = (bank->f.epoch > 0UL) ? (uint)i : (uint)(i+1UL);
+    for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[i].vote_stakes[j];
+      fd_pubkey_t expected_inflation_rewards_collector;
+      fd_pubkey_t expected_block_revenue_collector;
+      if( entry_type==2U ) {
+        FD_TEST( fd_vote_stakes_query_collectors( vote_stakes,
+                                                  fork_idx,
+                                                  &elem->vote,
+                                                  &expected_inflation_rewards_collector,
+                                                  NULL,
+                                                  &expected_block_revenue_collector,
+                                                  NULL ) );
+      } else if( entry_type==1U ) {
+        FD_TEST( fd_vote_stakes_query_collectors( vote_stakes,
+                                                  fork_idx,
+                                                  &elem->vote,
+                                                  NULL,
+                                                  &expected_inflation_rewards_collector,
+                                                  NULL,
+                                                  &expected_block_revenue_collector ) );
+      } else {
+        fd_stashed_commission_t const * stashed_commission = &fd_bank_snapshot_commission_t_3( bank )[ j ];
+        FD_TEST( fd_pubkey_eq( &elem->vote, &stashed_commission->pubkey ) );
+        expected_inflation_rewards_collector = stashed_commission->inflation_rewards_collector;
+        expected_block_revenue_collector     = stashed_commission->block_revenue_collector;
+      }
+      FD_TEST( fd_pubkey_eq( &elem->commission_inflation, &expected_inflation_rewards_collector ) );
+      FD_TEST( fd_pubkey_eq( &elem->commission_block, &expected_block_revenue_collector ) );
+    }
   }
 
   free( parser_mem );
@@ -254,11 +331,13 @@ main( int     argc,
   fd_svm_mini_params_default( params );
   params->mock_validator_cnt = VALIDATOR_CNT;
   params->root_slot          = ROOT_SLOT;
-  params->slots_per_epoch    = 432UL;
+  params->slots_per_epoch    = 32UL;
   ulong bank_idx = fd_svm_mini_reset( mini, params );
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   FD_TEST( bank );
+  bank->f.epoch = 1UL;
 
+  prepare_manifest_stakes( bank );
   test_manifest_roundtrip( bank );
   test_txncache_roundtrip();
 

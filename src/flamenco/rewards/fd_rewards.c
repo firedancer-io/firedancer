@@ -218,6 +218,47 @@ fd_vote_commission_split( ushort                  commission,
   #undef MAX_BPS
 }
 
+/* Validates an external SIMD-0232 inflation commission collector after
+   adding all rewards routed to it. */
+static int
+fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
+                                          fd_pubkey_t const * collector,
+                                          fd_acc_t const *    account,
+                                          ulong               rewards ) {
+  if( FD_UNLIKELY( memcmp( account->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+  if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector ) ||
+                   fd_pubkey_is_pending_reserved_key( collector ) ) ) return 1;
+
+  ulong post_balance;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( account->lamports, rewards, &post_balance ) ) ) return 1;
+
+  if( FD_UNLIKELY( fd_pubkey_eq( collector, &fd_sysvar_incinerator_id ) ) ) return 0;
+
+  int is_rent_exempt = post_balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, account->data_len );
+  return !is_rent_exempt &&
+         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !account->lamports );
+}
+
+static int
+fd_rewards_inflation_collector( fd_bank_t *           bank,
+                                fd_pubkey_t const *    vote_pubkey,
+                                fd_pubkey_t *          collector_out ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+    return fd_top_votes_query_collectors( fd_bank_top_votes_t_1_query( bank ),
+                                          vote_pubkey,
+                                          collector_out,
+                                          NULL );
+  }
+
+  return fd_vote_stakes_query_collectors( fd_bank_vote_stakes( bank ),
+                                          bank->vote_stakes_fork_id,
+                                          vote_pubkey,
+                                          collector_out,
+                                          NULL,
+                                          NULL,
+                                          NULL );
+}
+
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
 static int
 redeem_rewards( fd_stake_delegation_t const *   stake,
@@ -827,27 +868,94 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       rewards_calc_result );
 
 
-  /* Iterate over all the vote reward nodes and distribute the rewards
-     to the vote accounts.  After each reward has been paid out,
-     calcualte the lthash for each vote account. */
+  /* Iterate over all vote reward nodes and distribute commission
+     rewards. */
   ulong distributed_rewards = 0UL;
-  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
-       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
-       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) {
+    /* Aggregate by collector before validation.  A set of small rewards
+       may collectively make a new collector rent-exempt. */
+    fd_stake_accum_t *     collector_pool = runtime_stack->stakes.stake_accum;
+    fd_stake_accum_map_t * collector_map  = runtime_stack->stakes.stake_accum_map;
+    fd_stake_accum_map_reset( collector_map );
+    ulong collector_cnt = 0UL;
 
-    uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
-    fd_vote_rewards_t * ele = &vote_ele_pool[idx];
+    for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+         !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+         iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+      uint                idx         = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+      fd_vote_rewards_t * vote_reward = &vote_ele_pool[idx];
+      ulong               rewards     = vote_reward->vote_rewards;
+      if( FD_UNLIKELY( !rewards ) ) continue;
 
-    ulong rewards = runtime_stack->stakes.vote_ele[ idx ].vote_rewards;
-    if( rewards==0UL ) {
-      continue;
+      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+      fd_pubkey_t collector;
+      FD_TEST( fd_rewards_inflation_collector( bank, &vote_reward->pubkey, &collector ) );
+
+      fd_stake_accum_t * collector_reward =
+        fd_stake_accum_map_ele_query( collector_map, &collector, NULL, collector_pool );
+      if( FD_UNLIKELY( !collector_reward ) ) {
+        FD_TEST( collector_cnt<runtime_stack->max_vote_accounts );
+        collector_reward         = &collector_pool[ collector_cnt++ ];
+        collector_reward->pubkey = collector;
+        collector_reward->stake  = rewards;
+        fd_stake_accum_map_ele_insert( collector_map, collector_reward, collector_pool );
+      } else {
+        collector_reward->stake = fd_ulong_sat_add( collector_reward->stake, rewards );
+      }
     }
 
-    /* Credit rewards to vote account (creating a new system account if
-       it does not exist) */
-    fd_pubkey_t const * vote_pubkey = &ele->pubkey;
-    fd_accdb_svm_credit( bank, accdb, capture_ctx, vote_pubkey, rewards );
-    distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+    for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( collector_map, collector_pool );
+         !fd_stake_accum_map_iter_done( iter, collector_map, collector_pool );
+         iter = fd_stake_accum_map_iter_next( iter, collector_map, collector_pool ) ) {
+      fd_stake_accum_t * collector_reward =
+        fd_stake_accum_map_iter_ele( iter, collector_map, collector_pool );
+      if( FD_UNLIKELY( !collector_reward->stake ) ) continue;
+
+      /* If the collector is also a vote account that collects its own
+         reward, only that self-reward is paid.  External rewards routed
+         to the same address are burned. */
+      fd_vote_rewards_t * self_vote_reward =
+        fd_vote_rewards_map_ele_query( vote_ele_map, &collector_reward->pubkey, NULL, vote_ele_pool );
+      fd_pubkey_t self_collector;
+      int         is_vote_account = 0;
+      if( self_vote_reward && self_vote_reward->vote_rewards ) {
+        FD_TEST( fd_rewards_inflation_collector( bank, &self_vote_reward->pubkey, &self_collector ) );
+        is_vote_account = fd_pubkey_eq( &self_collector, &self_vote_reward->pubkey );
+      }
+      ulong    rewards = is_vote_account ? self_vote_reward->vote_rewards : collector_reward->stake;
+
+      fd_acc_t account = fd_accdb_read_one( accdb, bank->accdb_fork_id, collector_reward->pubkey.uc );
+      int      invalid = !is_vote_account &&
+                         fd_rewards_validate_commission_collector( bank,
+                                                                   &collector_reward->pubkey,
+                                                                   &account,
+                                                                   rewards );
+      if( is_vote_account ) {
+        ulong post_balance;
+        invalid = __builtin_uaddl_overflow( account.lamports, rewards, &post_balance );
+      }
+      fd_accdb_unread_one( accdb, &account );
+
+      if( FD_UNLIKELY( invalid ) ) continue;
+
+      fd_accdb_svm_credit( bank,
+                           accdb,
+                           capture_ctx,
+                           &collector_reward->pubkey,
+                           rewards );
+    }
+  } else {
+    for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+         !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+         iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+      uint                idx     = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+      fd_vote_rewards_t * ele     = &vote_ele_pool[idx];
+      ulong               rewards = ele->vote_rewards;
+      if( FD_UNLIKELY( !rewards ) ) continue;
+
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &ele->pubkey, rewards );
+      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+    }
   }
 
   /* Verify that we didn't pay any more than we expected to */
@@ -1146,8 +1254,11 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
        valid since the epoch credits are populated from the t-1 stakes
        in the snapshot manfiest. */
     ushort commission_t_1 = 0;
-    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
-    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
+    if( vat_active ) {
+      FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+    } else {
+      FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
+    }
 
     /* Now get the t-2 information (if it exists).  This is not
        guaranteed to be valid since it's possible for a vote account to
@@ -1174,7 +1285,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
     for( ulong i=0UL; i<commission_t_3_len; i++ ) {
       fd_stashed_commission_t const * ele = &commission_t_3[i];
-      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
       if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
     }
   }

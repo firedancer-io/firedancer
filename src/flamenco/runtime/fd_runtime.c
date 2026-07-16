@@ -92,16 +92,18 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
     ulong               stake       = epoch_weights[i].stake;
 
     if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
+      stake_weights[ idx ].stake                   = stake;
+      stake_weights[ idx ].id_key                  = *node_pubkey;
+      stake_weights[ idx ].vote_key                = *vote_pubkey;
+      stake_weights[ idx ].block_revenue_collector = epoch_weights[ i ].block_revenue_collector;
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].stake    = stake;
+      stake_weights[ idx ].id_key                  = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].vote_key                = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].block_revenue_collector = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].stake                   = stake;
       idx++;
     }
   }
@@ -169,16 +171,18 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     ulong               stake       = epoch_weights[i].stake;
 
     if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
+      stake_weights[ idx ].stake                   = stake;
+      stake_weights[ idx ].id_key                  = *node_pubkey;
+      stake_weights[ idx ].vote_key                = *vote_pubkey;
+      stake_weights[ idx ].block_revenue_collector = epoch_weights[ i ].block_revenue_collector;
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
-      stake_weights[ idx ].stake    = stake;
+      stake_weights[ idx ].id_key                  = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].vote_key                = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].block_revenue_collector = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].stake                   = stake;
       idx++;
     }
   }
@@ -232,6 +236,28 @@ fd_runtime_validate_fee_collector( fd_bank_t const * bank,
   );
 }
 
+/* Validates an external SIMD-0232 commission collector after adding
+   the fee reward.  Vote-account collectors bypass these checks. */
+static int
+fd_runtime_validate_custom_fee_collector( fd_bank_t const *   bank,
+                                          fd_pubkey_t const * collector_id,
+                                          fd_acc_t const *    collector,
+                                          ulong               fee ) {
+  if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+  if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector_id ) ||
+                   fd_pubkey_is_pending_reserved_key( collector_id ) ) ) return 1;
+
+  ulong post_balance;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( collector->lamports, fee, &post_balance ) ) ) return 1;
+
+  if( FD_UNLIKELY( fd_pubkey_eq( collector_id, &fd_sysvar_incinerator_id ) ) ) return 0;
+
+  int is_rent_exempt = post_balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, collector->data_len );
+  if( FD_UNLIKELY( !is_rent_exempt &&
+                   ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !collector->lamports ) ) ) return 1;
+  return 0;
+}
+
 /* fd_runtime_settle_fees settles transaction fees accumulated during a
    slot.  A portion is burnt, another portion is credited to the fee
    collector (typically leader). */
@@ -263,13 +289,34 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
 
+    int                 custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
+    fd_pubkey_t const * vote_account                = custom_commission_collector
+                                                     ? fd_epoch_leaders_get_vote( leaders, bank->f.slot )
+                                                     : NULL;
+    fd_pubkey_t const * collector_id                = custom_commission_collector
+                                                     ? fd_epoch_leaders_get_block_revenue_collector( leaders, bank->f.slot )
+                                                     : leader;
+    if( FD_UNLIKELY( !collector_id || (custom_commission_collector && !vote_account) ) ) {
+      FD_LOG_CRIT(( "missing commission collector for slot %lu", bank->f.slot ));
+    }
+
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
-    fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, leader, 1 );
-    if( FD_UNLIKELY( fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
+    fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
+    int invalid_collector;
+    if( custom_commission_collector ) {
+      invalid_collector = !fd_pubkey_eq( collector_id, vote_account ) &&
+                          fd_runtime_validate_custom_fee_collector( bank, collector_id, &acc, fee_reward );
+    } else {
+      invalid_collector = fd_runtime_validate_fee_collector( bank, &acc, fee_reward );
+    }
+    if( FD_UNLIKELY( invalid_collector ) ) {
       FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     } else {
-      acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
+      if( FD_UNLIKELY( __builtin_uaddl_overflow( acc.lamports, fee_reward, &acc.lamports ) ) ) {
+        FD_LOG_INFO(( "slot %lu fee collector overflow, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
+        acc.lamports = update->lamports_before;
+      }
     }
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   }

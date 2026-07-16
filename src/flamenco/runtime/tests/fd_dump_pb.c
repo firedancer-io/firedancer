@@ -620,9 +620,8 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-    fd_pubkey_t pubkey;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
-    add_account_to_dumped_accounts( dumped_accounts, &pubkey );
+    fd_vote_stakes_iter_ele_t ele = fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter );
+    add_account_to_dumped_accounts( dumped_accounts, &ele.pubkey );
   }
   fd_vote_stakes_fork_iter_fini( vote_stakes );
 
@@ -639,31 +638,24 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake_t_1;
-    ulong       stake_t_2;
-    fd_pubkey_t node_t_1;
-    fd_pubkey_t node_t_2;
-    ushort      commission_t_1;
-    ushort      commission_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_t_1, &node_t_2, &commission_t_1, &commission_t_2 );
+    fd_vote_stakes_iter_ele_t ele = fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter );
 
-    if( stake_t_1 ) {
+    if( ele.stake_t_1 ) {
       fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
-      fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
-      fd_memcpy( acc->node_pubkey, &node_t_1, sizeof(fd_pubkey_t) );
-      acc->stake               = stake_t_1;
-      acc->commission_bps      = commission_t_1;
+      fd_memcpy( acc->address,     &ele.pubkey,           sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->node_pubkey, &ele.node_account_t_1, sizeof(fd_pubkey_t) );
+      acc->stake               = ele.stake_t_1;
+      acc->commission_bps      = ele.commission_t_1;
       acc->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3;
       acc->epoch_credits_count = 0U;
     }
 
-    if( stake_t_2 ) {
+    if( ele.stake_t_2 ) {
       fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];
-      fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
-      fd_memcpy( acc->node_pubkey, &node_t_2, sizeof(fd_pubkey_t) );
-      acc->stake               = stake_t_2;
-      acc->commission_bps      = commission_t_2;
+      fd_memcpy( acc->address,     &ele.pubkey,           sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->node_pubkey, &ele.node_account_t_2, sizeof(fd_pubkey_t) );
+      acc->stake               = ele.stake_t_2;
+      acc->commission_bps      = ele.commission_t_2;
       acc->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3;
       acc->epoch_credits_count = 0U;
     }

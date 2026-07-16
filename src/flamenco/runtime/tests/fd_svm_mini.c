@@ -382,8 +382,8 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
     /* Populate bank structures */
 
-    fd_vote_stakes_root_insert_key ( vote_stakes, &vote_key, &identity_key, uniform_stake, 0, 0UL );
-    fd_vote_stakes_root_update_meta( vote_stakes, &vote_key, &identity_key, uniform_stake, 0, 0UL );
+    fd_vote_stakes_root_insert_key ( vote_stakes, &vote_key, &identity_key, &vote_key, &identity_key, uniform_stake, 0, 0UL );
+    fd_vote_stakes_root_update_meta( vote_stakes, &vote_key, &identity_key, &vote_key, &identity_key, uniform_stake, 0, 0UL );
 
     fd_top_votes_insert( top_votes_t_1, &vote_key, &identity_key, uniform_stake, 0 );
     fd_top_votes_insert( top_votes_t_2, &vote_key, &identity_key, uniform_stake, 0 );

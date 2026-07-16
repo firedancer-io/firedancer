@@ -102,8 +102,9 @@ fd_epoch_leaders_new( void  *                  shmem,
      struct                   (align=8, footprint=48)
      list of indices          (align=4, footprint=4*ceil(slot_cnt/4))
      (up to 60 bytes of padding to align to 64)
-     list of pubkeys          (align=32, footprint=32*pub_cnt)
-     the indeterminate pubkey (align=32, footprint=32)
+     list of identity pubkeys (align=32, footprint=32*(pub_cnt+1))
+     list of vote pubkeys     (align=32, footprint=32*(pub_cnt+1))
+     list of fee collectors   (align=32, footprint=32*(pub_cnt+1))
      leader membership bitset (align=8, footprint=8*ceil((pub_cnt+1)/64))
      (possibly 32 bytes of padding to align to 64)
 
@@ -111,7 +112,8 @@ fd_epoch_leaders_new( void  *                  shmem,
      wsample, which needs some memory to work.  Turns out that we
      probably have all the memory we need right here in shmem, we just
      need to be careful about how we use it; for most of the values of
-     pub_cnt we care about, wsample's footprint is less than 32*pub_cnt.
+     pub_cnt we care about, wsample's footprint is less than
+     96*(pub_cnt+1).
 
      This works out because we can delay copying the pubkeys until we're
      done with the wsample object.  There's a lot of type punning going
@@ -155,30 +157,39 @@ fd_epoch_leaders_new( void  *                  shmem,
   fd_wsample_delete( fd_wsample_leave( wsample ) );
   fd_chacha_rng_delete( fd_chacha_rng_leave( rng ) );
 
-  /* Now we can use the space for the pubkeys */
-  for( ulong i=0UL; i<pub_cnt; i++ ) memcpy( pubkeys+i, &stakes[ i ].id_key, 32UL );
+  /* Now we can use the space for the pubkeys and collectors. */
+  fd_pubkey_t * vote_pubkeys = pubkeys      + pub_cnt + 1UL;
+  fd_pubkey_t * collectors   = vote_pubkeys + pub_cnt + 1UL;
+  for( ulong i=0UL; i<pub_cnt; i++ ) {
+    pubkeys     [ i ] = stakes[ i ].id_key;
+    vote_pubkeys[ i ] = stakes[ i ].vote_key;
+    collectors  [ i ] = stakes[ i ].block_revenue_collector;
+  }
 
-  /* copy indeterminate leader to the last spot */
-  static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
-  memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
+  /* Copy the indeterminate leader to the last spot in each table. */
+  pubkeys     [ pub_cnt ] = (fd_pubkey_t){{ FD_INDETERMINATE_LEADER }};
+  vote_pubkeys[ pub_cnt ] = (fd_pubkey_t){{ FD_INDETERMINATE_LEADER }};
+  collectors  [ pub_cnt ] = (fd_pubkey_t){{ FD_INDETERMINATE_LEADER }};
 
-  ulong leader_bits_laddr = fd_ulong_align_up( (ulong)(pubkeys+pub_cnt+1UL), alignof(ulong) );
-  ulong * leader_bits = (ulong *)fd_type_pun( (void *)leader_bits_laddr );
+  ulong   leader_bits_laddr = fd_ulong_align_up( (ulong)(collectors+pub_cnt+1UL), alignof(ulong) );
+  ulong * leader_bits       = (ulong *)fd_type_pun( (void *)leader_bits_laddr );
 
   FD_TEST( leader_bits_laddr + leader_bits_word_cnt*sizeof(ulong) <= (ulong)shmem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
   for( ulong i=0UL; i<leader_bits_word_cnt; i++ ) leader_bits[i] = 0UL;
   for( ulong i=0UL; i<sched_cnt; i++ ) leader_bits[ sched[i]>>6 ] |= (1UL<<(sched[i]&63UL));
 
   /* Construct the final struct */
-  leaders->epoch                = epoch;
-  leaders->slot0                = slot0;
-  leaders->slot_cnt             = slot_cnt;
-  leaders->pub                  = pubkeys;
-  leaders->pub_cnt              = pub_cnt;
-  leaders->sched                = sched;
-  leaders->sched_cnt            = sched_cnt;
-  leaders->leader_bits          = leader_bits;
-  leaders->leader_bits_word_cnt = leader_bits_word_cnt;
+  leaders->epoch                   = epoch;
+  leaders->slot0                   = slot0;
+  leaders->slot_cnt                = slot_cnt;
+  leaders->pub                     = pubkeys;
+  leaders->vote_pub                = vote_pubkeys;
+  leaders->block_revenue_collector = collectors;
+  leaders->pub_cnt                 = pub_cnt;
+  leaders->sched                   = sched;
+  leaders->sched_cnt               = sched_cnt;
+  leaders->leader_bits             = leader_bits;
+  leaders->leader_bits_word_cnt    = leader_bits_word_cnt;
 
   return (void *)shmem;
 }

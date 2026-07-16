@@ -273,6 +273,126 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_leader_not_system_owned: PASSED" ));
 }
 
+static void
+test_custom_commission_collector( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->mock_validator_cnt = 0UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, custom_commission_collector, 0UL );
+
+  fd_pubkey_t vote_key      = { .ul[0] = 0xA11CEUL };
+  fd_pubkey_t leader_key    = { .ul[0] = 0xB0BUL };
+  fd_pubkey_t collector_key = { .ul[0] = 0xC011EC7UL };
+  fd_vote_stake_weight_t stake = {
+    .vote_key                = vote_key,
+    .id_key                  = leader_key,
+    .block_revenue_collector = collector_key,
+    .stake                   = 1000000000UL,
+  };
+
+  ulong  epoch       = bank->f.epoch;
+  ulong  slot0       = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
+  ulong  slot_cnt    = bank->f.epoch_schedule.slots_per_epoch;
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
+
+  ulong min_balance = fd_rent_exempt_minimum_balance( &bank->f.rent, 0UL );
+  fd_svm_mini_add_lamports( mini, fork_id, &collector_key, min_balance );
+  fd_svm_mini_add_lamports( mini, fork_id, &leader_key,    min_balance );
+
+  bank->f.execution_fees = 10000UL;
+  bank->f.priority_fees  = 5000UL;
+
+  ulong collector_before = read_lamports( mini, fork_id, &collector_key );
+  ulong leader_before    = read_lamports( mini, fork_id, &leader_key );
+  fd_svm_mini_freeze( mini, child_idx );
+
+  ulong expected_reward = 5000UL + (10000UL - 10000UL/2UL);
+  FD_TEST( read_lamports( mini, fork_id, &collector_key )==collector_before+expected_reward );
+  FD_TEST( read_lamports( mini, fork_id, &leader_key    )==leader_before );
+
+  FD_LOG_NOTICE(( "test_custom_commission_collector: PASSED" ));
+}
+
+static void
+test_custom_commission_collector_validation( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->mock_validator_cnt = 0UL;
+
+  /* An external collector with a non-system owner is invalid. */
+  ulong root_idx  = fd_svm_mini_reset( mini, params );
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, custom_commission_collector, 0UL );
+
+  fd_pubkey_t vote_key      = { .ul[0] = 0xA11CEUL };
+  fd_pubkey_t leader_key    = { .ul[0] = 0xB0BUL };
+  fd_pubkey_t collector_key = { .ul[0] = 0xBADCA11UL };
+  fd_vote_stake_weight_t stake = {
+    .vote_key                = vote_key,
+    .id_key                  = leader_key,
+    .block_revenue_collector = collector_key,
+    .stake                   = 1000000000UL,
+  };
+  ulong  epoch       = bank->f.epoch;
+  ulong  slot0       = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
+  ulong  slot_cnt    = bank->f.epoch_schedule.slots_per_epoch;
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
+
+  ulong min_balance = fd_rent_exempt_minimum_balance( &bank->f.rent, 0UL );
+  fd_svm_mini_add_lamports( mini, fork_id, &collector_key, min_balance );
+  fd_acc_t collector_acc = fd_accdb_write_one( mini->runtime->accdb, fork_id, collector_key.uc );
+  fd_memcpy( collector_acc.owner, fd_solana_vote_program_id.uc, 32UL );
+  collector_acc.commit = 1;
+  fd_accdb_unwrite_one( mini->runtime->accdb, &collector_acc );
+
+  bank->f.priority_fees = 50000UL;
+  ulong collector_before = read_lamports( mini, fork_id, &collector_key );
+  ulong cap_before       = bank->f.capitalization;
+  fd_svm_mini_freeze( mini, child_idx );
+  FD_TEST( read_lamports( mini, fork_id, &collector_key )==collector_before );
+  FD_TEST( bank->f.capitalization==cap_before-50000UL );
+
+  /* The leader's own vote account bypasses external collector checks. */
+  root_idx  = fd_svm_mini_reset( mini, params );
+  child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
+  bank      = fd_svm_mini_bank   ( mini, child_idx );
+  fork_id   = fd_svm_mini_fork_id( mini, child_idx );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, custom_commission_collector, 0UL );
+
+  stake.block_revenue_collector = vote_key;
+  epoch       = bank->f.epoch;
+  slot0       = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
+  slot_cnt    = bank->f.epoch_schedule.slots_per_epoch;
+  leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
+
+  fd_svm_mini_add_lamports( mini, fork_id, &vote_key, min_balance );
+  fd_acc_t vote_acc = fd_accdb_write_one( mini->runtime->accdb, fork_id, vote_key.uc );
+  fd_memcpy( vote_acc.owner, fd_solana_vote_program_id.uc, 32UL );
+  vote_acc.commit = 1;
+  fd_accdb_unwrite_one( mini->runtime->accdb, &vote_acc );
+
+  bank->f.priority_fees = 50000UL;
+  ulong vote_before = read_lamports( mini, fork_id, &vote_key );
+  fd_svm_mini_freeze( mini, child_idx );
+  FD_TEST( read_lamports( mini, fork_id, &vote_key )==vote_before+50000UL );
+
+  FD_LOG_NOTICE(( "test_custom_commission_collector_validation: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -285,6 +405,8 @@ main( int     argc,
   test_leader_does_not_exist( mini );
   test_payout_below_rent_exempt( mini );
   test_leader_not_system_owned( mini );
+  test_custom_commission_collector( mini );
+  test_custom_commission_collector_validation( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

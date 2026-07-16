@@ -660,6 +660,19 @@ fd_vote_account_commission_bps( uchar const * data,
                                 int           commission_rate_in_bps,
                                 ushort *      out );
 
+/* fd_vote_account_collectors returns SIMD-0232 commission
+   collectors.  Older vote states use the vote account for inflation
+   rewards and the node identity for block revenue.  Returns 0 on
+   success, 1 on error. */
+
+int
+fd_vote_account_collectors( uchar const *       data,
+                            ulong               data_sz,
+                            fd_pubkey_t const * vote_pubkey,
+                            fd_pubkey_t const * node_pubkey,
+                            fd_pubkey_t *       inflation_rewards_collector_out,
+                            fd_pubkey_t *       block_revenue_collector_out );
+
 /* Reads the last_timestamp directly from raw bincode-encoded vote
    account data.  Returns 0 on success, 1 on error. */
 int

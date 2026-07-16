@@ -116,9 +116,10 @@ repair_generate_epoch_info_msg( ulong                                       epoc
   for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
     ulong stake = epoch_stakes->vote_stakes[ i ].stake;
     if( FD_UNLIKELY( !stake ) ) continue;
-    stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+    stake_weights[ idx ].stake                   = stake;
+    stake_weights[ idx ].id_key                  = epoch_stakes->vote_stakes[ i ].identity;
+    stake_weights[ idx ].vote_key                = epoch_stakes->vote_stakes[ i ].vote;
+    stake_weights[ idx ].block_revenue_collector = epoch_stakes->vote_stakes[ i ].commission_block;
     idx++;
   }
   epoch_info_msg->staked_vote_cnt = idx;

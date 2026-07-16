@@ -460,8 +460,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     }
     fd_stake_delegations_root_update(
         stake_delegations,
-        (fd_pubkey_t *)elem->stake_pubkey,
-        (fd_pubkey_t *)elem->vote_pubkey,
+        &elem->stake_pubkey,
+        &elem->vote_pubkey,
         elem->stake_delegation,
         elem->activation_epoch,
         elem->deactivation_epoch,
@@ -476,7 +476,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   fd_new_votes_reset_root( new_votes );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
-    if( FD_UNLIKELY( elem->stake==0UL ) ) fd_new_votes_root_insert( new_votes, (fd_pubkey_t *)elem->vote_account_pubkey );
+    if( FD_UNLIKELY( elem->stake==0UL ) ) fd_new_votes_root_insert( new_votes, &elem->vote_account_pubkey );
   }
 
   /* We also want to set the total stake to be the total amount of stake
@@ -525,16 +525,24 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     fd_vote_stakes_root_insert_key(
         vote_stakes,
-        (fd_pubkey_t *)elem->vote,
-        (fd_pubkey_t *)elem->identity,
+        &elem->vote,
+        &elem->identity,
+        &elem->commission_inflation,
+        &elem->commission_block,
         elem->stake,
         elem->commission,
         bank->f.epoch );
 
-    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+    fd_top_votes_insert_with_collectors( top_votes_t_1,
+                                         &elem->vote,
+                                         &elem->identity,
+                                         &elem->commission_inflation,
+                                         &elem->commission_block,
+                                         elem->stake,
+                                         elem->commission );
 
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
-    fd_memcpy( ec->pubkey, elem->vote, 32UL );
+    fd_memcpy( ec->pubkey, elem->vote.uc, 32UL );
     ec->cnt          = elem->epoch_credits_history_len;
     ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
@@ -552,11 +560,19 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
-      fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+      fd_top_votes_insert_with_collectors( top_votes_t_2,
+                                           &elem->vote,
+                                           &elem->identity,
+                                           &elem->commission_inflation,
+                                           &elem->commission_block,
+                                           elem->stake,
+                                           elem->commission );
       fd_vote_stakes_root_update_meta(
           vote_stakes,
-          (fd_pubkey_t *)elem->vote,
-          (fd_pubkey_t *)elem->identity,
+          &elem->vote,
+          &elem->identity,
+          &elem->commission_inflation,
+          &elem->commission_block,
           elem->stake,
           elem->commission,
           bank->f.epoch );
@@ -570,8 +586,10 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
     for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-      fd_memcpy( snapshot_commission[i].pubkey, elem->vote, 32UL );
-      snapshot_commission[i].commission = elem->commission;
+      snapshot_commission[ i ].pubkey                      = elem->vote;
+      snapshot_commission[ i ].inflation_rewards_collector = elem->commission_inflation;
+      snapshot_commission[ i ].block_revenue_collector     = elem->commission_block;
+      snapshot_commission[ i ].commission                  = elem->commission;
     }
   } else {
     *fd_bank_snapshot_commission_t_3_len( bank ) = 0UL;

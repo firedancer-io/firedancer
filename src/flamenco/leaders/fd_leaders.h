@@ -49,7 +49,7 @@
         (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)                 \
         )                                                                                ),                 \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +               \
-      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL) + FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ), \
+      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 96UL*((pub_cnt)+1UL) + FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ), \
                                        FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
@@ -63,8 +63,11 @@ struct fd_epoch_leaders {
   ulong slot0;
   ulong slot_cnt;
 
-  /* pub is a lookup table for node public keys with length pub_cnt */
+  /* pub is a lookup table for node public keys with length pub_cnt.
+     vote_pub and block_revenue_collector use matching indices. */
   fd_pubkey_t * pub;
+  fd_pubkey_t * vote_pub;
+  fd_pubkey_t * block_revenue_collector;
   ulong         pub_cnt;
 
   /* sched contains the leader schedule in the form of indexes into
@@ -160,6 +163,26 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
+}
+
+FD_FN_PURE static inline fd_pubkey_t const *
+fd_epoch_leaders_get_vote( fd_epoch_leaders_t const * leaders,
+                           ulong                      slot ) {
+  if( FD_UNLIKELY( leaders==NULL ) ) return NULL;
+  ulong slot_delta = slot - leaders->slot0;
+  if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
+  if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
+  return leaders->vote_pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ];
+}
+
+FD_FN_PURE static inline fd_pubkey_t const *
+fd_epoch_leaders_get_block_revenue_collector( fd_epoch_leaders_t const * leaders,
+                                              ulong                      slot ) {
+  if( FD_UNLIKELY( leaders==NULL ) ) return NULL;
+  ulong slot_delta = slot - leaders->slot0;
+  if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
+  if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
+  return leaders->block_revenue_collector + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ];
 }
 
 FD_FN_PURE static inline int

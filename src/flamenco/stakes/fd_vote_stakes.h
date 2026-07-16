@@ -170,6 +170,8 @@ void
 fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account_t_1,
+                                fd_pubkey_t const * inflation_rewards_collector_t_1,
+                                fd_pubkey_t const * block_revenue_collector_t_1,
                                 ulong               stake_t_1,
                                 ushort              commission_t_1,
                                 ulong               epoch );
@@ -178,6 +180,8 @@ void
 fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
+                                 fd_pubkey_t const * inflation_rewards_collector_t_2,
+                                 fd_pubkey_t const * block_revenue_collector_t_2,
                                  ulong               stake_t_2,
                                  ushort              commission_t_2,
                                  ulong               epoch );
@@ -193,6 +197,10 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        fd_pubkey_t const * pubkey,
                        fd_pubkey_t const * node_account_t_1,
                        fd_pubkey_t const * node_account_t_2,
+                       fd_pubkey_t const * inflation_rewards_collector_t_1,
+                       fd_pubkey_t const * inflation_rewards_collector_t_2,
+                       fd_pubkey_t const * block_revenue_collector_t_1,
+                       fd_pubkey_t const * block_revenue_collector_t_2,
                        ulong               stake_t_1,
                        ulong               stake_t_2,
                        ushort              commission_t_1,
@@ -274,6 +282,15 @@ fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
                           fd_pubkey_t *       node_account_out,
                           ushort *            commission_out );
 
+int
+fd_vote_stakes_query_collectors( fd_vote_stakes_t *  vote_stakes,
+                                 ushort              fork_idx,
+                                 fd_pubkey_t const * pubkey,
+                                 fd_pubkey_t *       inflation_collector_t_1_out,
+                                 fd_pubkey_t *       inflation_collector_t_2_out,
+                                 fd_pubkey_t *       block_collector_t_1_out,
+                                 fd_pubkey_t *       block_collector_t_2_out );
+
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */
 
@@ -298,6 +315,26 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
 struct stakes_map_iter_t;
 typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
 
+struct fd_vote_stakes_iter_ele {
+  fd_pubkey_t pubkey;
+
+  fd_pubkey_t node_account_t_1;
+  fd_pubkey_t node_account_t_2;
+
+  fd_pubkey_t inflation_rewards_collector_t_1;
+  fd_pubkey_t inflation_rewards_collector_t_2;
+  fd_pubkey_t block_revenue_collector_t_1;
+  fd_pubkey_t block_revenue_collector_t_2;
+
+  ulong  stake_t_1;
+  ulong  stake_t_2;
+  ushort commission_t_1;
+  ushort commission_t_2;
+  uchar  exists_t_1;
+  uchar  exists_t_2;
+};
+typedef struct fd_vote_stakes_iter_ele fd_vote_stakes_iter_ele_t;
+
 /* A caller can iterate through the entries for a given fork.  The
    iterator is initialized by a call to fd_vote_stakes_fork_iter_init.
    The caller is responsible for managing the memory for the iterator.
@@ -319,7 +356,7 @@ typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
         !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
+     fd_vote_stakes_iter_ele_t ele = fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter );
    }
    fd_vote_stakes_fork_iter_fini( vote_stakes );
 
@@ -343,17 +380,10 @@ fd_vote_stakes_fork_iter_next( fd_vote_stakes_t *      vote_stakes,
                                ushort                  fork_idx,
                                fd_vote_stakes_iter_t * iter );
 
-void
+fd_vote_stakes_iter_ele_t
 fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ushort                  fork_idx,
-                              fd_vote_stakes_iter_t * iter,
-                              fd_pubkey_t *           pubkey_out,
-                              ulong *                 stake_t_1_out_opt,
-                              ulong *                 stake_t_2_out_opt,
-                              fd_pubkey_t *           node_account_t_1_out_opt,
-                              fd_pubkey_t *           node_account_t_2_out_opt,
-                              ushort *                commission_t_1_out_opt,
-                              ushort *                commission_t_2_out_opt );
+                              fd_vote_stakes_iter_t * iter );
 
 void
 fd_vote_stakes_fork_iter_fini( fd_vote_stakes_t * vote_stakes );

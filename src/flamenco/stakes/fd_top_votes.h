@@ -44,7 +44,7 @@ typedef struct fd_top_votes fd_top_votes_t;
    structure when the max number of vote accounts is
    FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000). */
 
-#define FD_TOP_VOTES_MAX_FOOTPRINT (210432UL)
+#define FD_TOP_VOTES_MAX_FOOTPRINT (338432UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -96,6 +96,15 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      ulong               stake,
                      ushort              commission );
 
+void
+fd_top_votes_insert_with_collectors( fd_top_votes_t *    top_votes,
+                                     fd_pubkey_t const * pubkey,
+                                     fd_pubkey_t const * node_account,
+                                     fd_pubkey_t const * inflation_rewards_collector,
+                                     fd_pubkey_t const * block_revenue_collector,
+                                     ulong               stake,
+                                     ushort              commission );
+
 /* fd_top_votes_update updates the last vote timestamp and slot for a
    given vote account in the top votes set.  If the vote account is not
    in the top votes set, the update is ignored and is treated as a
@@ -133,6 +142,14 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     long *                 last_vote_timestamp_out_opt,
                     ushort *               commission_out_opt,
                     uchar *                is_valid_out_opt );
+
+/* fd_top_votes_query_collectors returns the historical
+   SIMD-0232 commission collectors for a vote account. */
+int
+fd_top_votes_query_collectors( fd_top_votes_t const * top_votes,
+                               fd_pubkey_t const *    pubkey,
+                               fd_pubkey_t *          inflation_rewards_collector_out,
+                               fd_pubkey_t *          block_revenue_collector_out );
 
 /* fd_top_votes_refresh refreshes the top votes set given an accdb
    user and a transaction xid.  The top votes are populated with a

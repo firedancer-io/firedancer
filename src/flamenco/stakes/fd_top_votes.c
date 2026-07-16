@@ -17,6 +17,8 @@ typedef struct fd_top_votes fd_top_votes_t;
 struct vote_ele {
   fd_pubkey_t pubkey;
   fd_pubkey_t node_account;
+  fd_pubkey_t inflation_rewards_collector;
+  fd_pubkey_t block_revenue_collector;
   ulong       stake;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
@@ -182,6 +184,23 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
                      ushort              commission ) {
+  fd_top_votes_insert_with_collectors( top_votes,
+                                       pubkey,
+                                       node_account,
+                                       pubkey,
+                                       node_account,
+                                       stake,
+                                       commission );
+}
+
+void
+fd_top_votes_insert_with_collectors( fd_top_votes_t *    top_votes,
+                                     fd_pubkey_t const * pubkey,
+                                     fd_pubkey_t const * node_account,
+                                     fd_pubkey_t const * inflation_rewards_collector,
+                                     fd_pubkey_t const * block_revenue_collector,
+                                     ulong               stake,
+                                     ushort              commission ) {
 /* If the heap is full, treat the current minimum stake as the cutoff
    stake.  This matches Agave's retain(stake > floor_stake) behavior:
    1. Reject candidates below the cutoff.
@@ -209,14 +228,16 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
     if( FD_UNLIKELY( stake==min_stake ) ) return;
   }
 
-  vote_ele_t * ele         = pool_ele_acquire( pool );
-  ele->pubkey              = *pubkey;
-  ele->node_account        = *node_account;
-  ele->stake               = stake;
-  ele->commission          = commission;
-  ele->last_vote_slot      = 0UL;
-  ele->last_vote_timestamp = 0L;
-  ele->is_valid            = 1;
+  vote_ele_t * ele                 = pool_ele_acquire( pool );
+  ele->pubkey                      = *pubkey;
+  ele->node_account                = *node_account;
+  ele->inflation_rewards_collector = *inflation_rewards_collector;
+  ele->block_revenue_collector     = *block_revenue_collector;
+  ele->stake                       = stake;
+  ele->commission                  = commission;
+  ele->last_vote_slot              = 0UL;
+  ele->last_vote_timestamp         = 0L;
+  ele->is_valid                    = 1;
   heap_ele_insert( heap, ele, pool );
   map_ele_insert( map, ele, pool );
 }
@@ -269,6 +290,19 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   if( commission_out_opt )          *commission_out_opt          = ele->commission;
   if( is_valid_out_opt )            *is_valid_out_opt            = ele->is_valid;
+  return 1;
+}
+
+int
+fd_top_votes_query_collectors( fd_top_votes_t const * top_votes,
+                               fd_pubkey_t const *    pubkey,
+                               fd_pubkey_t *          inflation_rewards_collector_out,
+                               fd_pubkey_t *          block_revenue_collector_out ) {
+  vote_ele_t const * pool = get_pool( top_votes );
+  vote_ele_t const * ele  = map_ele_query_const( get_map( top_votes ), pubkey, NULL, pool );
+  if( FD_UNLIKELY( !ele ) ) return 0;
+  if( inflation_rewards_collector_out ) *inflation_rewards_collector_out = ele->inflation_rewards_collector;
+  if( block_revenue_collector_out )     *block_revenue_collector_out     = ele->block_revenue_collector;
   return 1;
 }
 

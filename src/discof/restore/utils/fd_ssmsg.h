@@ -43,10 +43,10 @@ fd_ssmsg_frag_to_slot( ulong low,
 
 struct fd_snapshot_manifest_vote_account {
   /* The pubkey of the vote account */
-  uchar vote_account_pubkey[ 32UL ];
+  fd_pubkey_t vote_account_pubkey;
 
   /* The pubkey of the node account */
-  uchar node_account_pubkey[ 32UL ];
+  fd_pubkey_t node_account_pubkey;
 
   ulong stake;
   ulong last_slot;
@@ -74,10 +74,10 @@ typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_accou
 
 struct fd_snapshot_manifest_stake_delegation {
   /* The stake pubkey */
-  uchar stake_pubkey[ 32UL ];
+  fd_pubkey_t stake_pubkey;
 
   /* The vote pubkey that the stake account is delegated to */
-  uchar vote_pubkey[ 32UL ];
+  fd_pubkey_t vote_pubkey;
 
   /* The amount of stake delegated */
   ulong stake_delegation;
@@ -102,16 +102,16 @@ typedef struct fd_snapshot_manifest_stake_delegation fd_snapshot_manifest_stake_
 
 struct fd_snapshot_manifest_vote_stakes {
   /* The vote pubkey */
-  uchar vote[ 32UL ];
+  fd_pubkey_t vote;
 
   /* The validator identity pubkey, aka node pubkey */
-  uchar identity[ 32UL ];
+  fd_pubkey_t identity;
 
   /* The commission account for inflation rewards (vote, before SIMD-0232) */
-  uchar commission_inflation[ 32UL ];
+  fd_pubkey_t commission_inflation;
 
   /* The commission account for block revenue (identity, before SIMD-0232) */
-  uchar commission_block[ 32UL ];
+  fd_pubkey_t commission_block;
 
   /* Whether this vote account has a BLS pubkey set */
   uchar has_identity_bls;

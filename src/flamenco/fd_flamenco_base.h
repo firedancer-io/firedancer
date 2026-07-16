@@ -149,8 +149,10 @@ struct fd_epoch_credits {
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 
 struct fd_stashed_commission {
-  uchar  pubkey[32];
-  ushort commission;
+  fd_pubkey_t pubkey;
+  fd_pubkey_t inflation_rewards_collector;
+  fd_pubkey_t block_revenue_collector;
+  ushort      commission;
 };
 typedef struct fd_stashed_commission fd_stashed_commission_t;
 
