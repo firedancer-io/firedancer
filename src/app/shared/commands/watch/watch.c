@@ -1515,7 +1515,7 @@ run( config_t const * config,
   write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
   flush_frame();
 
-  long next = fd_log_wallclock()+(long)1e9;
+  long next = fd_log_wallclock()+(long)1e7;
   for(;;) {
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
