@@ -146,7 +146,12 @@ before_credit( fd_backt_tile_t *   ctx,
 
   if( FD_UNLIKELY( ctx->pending_sz==ULONG_MAX ) ) {
     ulong sz = fd_backtest_src_shred( ctx->src, ctx->pending, FD_SHRED_MAX_SZ );
-    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { ctx->source_exhausted = 1; return; } /* source exhausted */
+    if( FD_UNLIKELY( sz>=ULONG_MAX ) ) { /* source exhausted */
+      if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+        FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+      ctx->source_exhausted = 1;
+      return;
+    }
     ctx->pending_sz = sz;
     if( FD_UNLIKELY( !fd_shred_parse( ctx->pending, ctx->pending_sz, FD_SHRED_BLK_MAX ) ) ) {
       FD_LOG_HEXDUMP_WARNING(( "invalid shred", ctx->pending, ctx->pending_sz ));
@@ -160,7 +165,13 @@ before_credit( fd_backt_tile_t *   ctx,
   if( FD_UNLIKELY( shred->slot<=ctx->start_slot ) ) { ctx->pending_sz = ULONG_MAX; return; }
 
   /* Skip shreds past end_slot */
-  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) { ctx->source_exhausted = 1; ctx->pending_sz = ULONG_MAX; return; }
+  if( FD_UNLIKELY( shred->slot>ctx->end_slot ) ) {
+    if( FD_UNLIKELY( !ctx->reading_slot_cnt ) )
+      FD_LOG_ERR(( "ledger has no slots to replay in (%lu, %lu] (no rooted slots after the snapshot slot?)", ctx->start_slot, ctx->end_slot ));
+    ctx->source_exhausted = 1;
+    ctx->pending_sz = ULONG_MAX;
+    return;
+  }
 
   /* Handle slot transition */
   if( FD_UNLIKELY( shred->slot!=ctx->reading_slot || !ctx->reading_slot_cnt ) ) {

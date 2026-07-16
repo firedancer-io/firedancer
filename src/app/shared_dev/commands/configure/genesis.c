@@ -68,7 +68,6 @@ default_enable_features( fd_features_t * features ) {
   features->warp_timestamp_again = 0UL;
   features->reduce_stake_warmup_cooldown = 0UL;
   features->disable_turbine_fanout_experiments = 0UL;
-  features->blake3_syscall_enabled = 0UL;
   features->last_restart_slot_sysvar = 0UL;
   features->disable_fees_sysvar = 0UL;
 }

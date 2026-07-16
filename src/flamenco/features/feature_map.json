@@ -14,7 +14,7 @@
   {"name":"check_init_vote_data","pubkey":"3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"secp256k1_recover_syscall_enabled","pubkey":"6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"system_transfer_zero_check","pubkey":"BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"blake3_syscall_enabled","pubkey":"HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3"},
+  {"name":"blake3_syscall_enabled","pubkey":"HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3","reverted":1},
   {"name":"dedupe_config_program_signers","pubkey":"8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"verify_tx_signatures_len","pubkey":"EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"vote_stake_checked_instructions","pubkey":"BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X","cleaned_up":1,"hardcode_for_fuzzing":1},

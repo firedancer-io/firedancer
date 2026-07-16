@@ -850,8 +850,7 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 
-/* syscall(174c5122) "sol_blake3"
-   syscall(d7793abb) "sol_keccak256"
+/* syscall(d7793abb) "sol_keccak256"
    syscall(11f49d86) "sol_sha256"
 
    Inputs:
@@ -880,7 +879,6 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
      FD_VM_SUCCESS: success.  *_ret=0 and hash[i] holds the hash of the
      concatentation of the slices.  Compute budget decremented. */
 
-FD_VM_SYSCALL_DECL( sol_blake3    );
 FD_VM_SYSCALL_DECL( sol_keccak256 );
 FD_VM_SYSCALL_DECL( sol_sha256    );
 FD_VM_SYSCALL_DECL( sol_sha512    );

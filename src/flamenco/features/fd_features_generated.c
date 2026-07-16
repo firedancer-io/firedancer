@@ -110,7 +110,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xf4\x84\xea\xee\xb8\xa4\x94\xe9\x28\x63\x46\xac\x46\x52\xff\x97\xa2\xca\x0d\x75\x29\xce\x59\x81\x14\x6e\x83\x07\x1f\x14\x9d\xb2"},
                                  /* HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3 */
     .name                      = "blake3_syscall_enabled",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, dedupe_config_program_signers)>>3,
     .id                        = {"\x73\x15\x7f\xdd\x92\xe0\xa1\x10\xaa\xbb\x79\xc2\x61\x81\x1e\xd2\xf7\xd5\x72\x9c\x19\xd7\x3e\x17\xd0\xbb\xb0\x23\xa7\x9d\x86\xaf"},
