@@ -14,16 +14,30 @@ typedef struct vote_state_ele vote_state_ele_t;
 
 struct vote_account_ele {
   fd_pubkey_t pubkey;
+  fd_pubkey_t node_account;
   ulong       stake;
-  uint        next;
   ushort      commission;
+  ushort      left;
+  ushort      right;
+  ushort      next;
 };
 typedef struct vote_account_ele vote_account_ele_t;
+
+FD_STATIC_ASSERT( sizeof(vote_account_ele_t)==80UL, vote_account_ele );
+FD_STATIC_ASSERT( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT<USHORT_MAX, vote_account_idx );
+
+#define HEAP_NAME       vote_account_heap
+#define HEAP_IDX_T      ushort
+#define HEAP_T          vote_account_ele_t
+#define HEAP_LT(e0,e1) ( ((e0)->stake < (e1)->stake) | \
+                         (((e0)->stake==(e1)->stake) & \
+                          (memcmp( &(e0)->pubkey, &(e1)->pubkey, sizeof(fd_pubkey_t) )<0 ) ) )
+#include "../../util/tmpl/fd_heap.c"
 
 #define POOL_NAME  vote_account_pool
 #define POOL_T     vote_account_ele_t
 #define POOL_NEXT  next
-#define POOL_IDX_T uint
+#define POOL_IDX_T ushort
 #define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
@@ -34,13 +48,16 @@ typedef struct vote_account_ele vote_account_ele_t;
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0), (k1), sizeof(fd_pubkey_t) ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( (seed), (key), sizeof(fd_pubkey_t) ))
 #define MAP_NEXT               next
-#define MAP_IDX_T              uint
+#define MAP_IDX_T              ushort
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct vote_account_group {
   ulong pool_off;
   ulong map_off;
-  uint  next;
+  union {
+    uint next;
+    uint owner_bank_idx;
+  };
 };
 typedef struct vote_account_group vote_account_group_t;
 
@@ -65,10 +82,15 @@ struct __attribute__((aligned(FD_TOP_VOTES_V2_ALIGN))) fd_top_votes_v2 {
   ulong t_2_state_off;
   ulong bank_info_off;
   ulong t_1_group_pool_off;
+  ulong insert_heap_off;
 
-  /* t-2 alternates between two epoch-scoped account sets. */
+  ulong insert_min_stake_wmark;
+  uint  insert_bank_idx;
+
   vote_account_group_t t_2_accounts[ FD_TOP_VOTES_V2_T_2_GROUP_CNT ];
 };
+
+FD_STATIC_ASSERT( sizeof(fd_top_votes_v2_t)==FD_TOP_VOTES_V2_ALIGN, top_votes_v2_header );
 
 static inline ulong
 vote_state_footprint( ulong max_live_banks ) {
@@ -85,6 +107,23 @@ static inline vote_account_group_t *
 get_t_1_group_pool( fd_top_votes_v2_t const * top_votes ) {
   void * pool_mem = (void *)( (ulong)top_votes + top_votes->t_1_group_pool_off );
   return t_1_group_pool_join( pool_mem );
+}
+
+static inline vote_account_heap_t *
+get_insert_heap( fd_top_votes_v2_t const * top_votes ) {
+  return vote_account_heap_join( (uchar *)top_votes + top_votes->insert_heap_off );
+}
+
+static inline vote_account_ele_t *
+get_vote_account_pool( fd_top_votes_v2_t const *   top_votes,
+                       vote_account_group_t const * group ) {
+  return vote_account_pool_join( (uchar *)top_votes + group->pool_off );
+}
+
+static inline vote_account_map_t *
+get_vote_account_map( fd_top_votes_v2_t const *   top_votes,
+                      vote_account_group_t const * group ) {
+  return vote_account_map_join( (uchar *)top_votes + group->map_off );
 }
 
 static inline vote_state_ele_t *
@@ -173,6 +212,7 @@ ensure_bank_initialized( fd_top_votes_v2_t * top_votes,
   FD_TEST( t_1_group_pool_free( group_pool ) );
   vote_account_group_t * group = t_1_group_pool_ele_acquire( group_pool );
   vote_account_group_reset( top_votes, group );
+  group->owner_bank_idx = (uint)bank_idx;
 
   bank_info[ bank_idx ].t_1_group_idx = (uint)t_1_group_pool_idx( group_pool, group );
   bank_info[ bank_idx ].t_2_group_idx = 0U;
@@ -197,10 +237,11 @@ fd_top_votes_v2_footprint( ulong max_fork_width,
   if( FD_UNLIKELY( state_sz==ULONG_MAX ) ) return 0UL;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_top_votes_v2_align(),   sizeof(fd_top_votes_v2_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),      fd_ulong_sat_mul( max_live_banks, sizeof(bank_info_t) ) );
-  l = FD_LAYOUT_APPEND( l, t_1_group_pool_align(),    t_1_group_pool_footprint( max_fork_width ) );
-  l = FD_LAYOUT_APPEND( l, alignof(vote_state_ele_t), state_sz );
+  l = FD_LAYOUT_APPEND( l, fd_top_votes_v2_align(),      sizeof(fd_top_votes_v2_t) );
+  l = FD_LAYOUT_APPEND( l, vote_account_heap_align(),    vote_account_heap_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) );
+  l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),         fd_ulong_sat_mul( max_live_banks, sizeof(bank_info_t) ) );
+  l = FD_LAYOUT_APPEND( l, t_1_group_pool_align(),       t_1_group_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, alignof(vote_state_ele_t),    state_sz );
   for( ulong i=0UL; i<FD_TOP_VOTES_V2_T_2_GROUP_CNT+max_fork_width; i++ ) {
     l = FD_LAYOUT_APPEND( l, vote_account_pool_align(), vote_account_pool_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) );
     l = FD_LAYOUT_APPEND( l, vote_account_map_align(),  vote_account_map_footprint( map_chain_cnt ) );
@@ -230,10 +271,21 @@ fd_top_votes_v2_new( void * mem,
 
   ulong map_chain_cnt = vote_account_chain_cnt();
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_top_votes_v2_t * top_votes         = FD_SCRATCH_ALLOC_APPEND( l, fd_top_votes_v2_align(),   sizeof(fd_top_votes_v2_t) );
+  fd_top_votes_v2_t * top_votes = FD_SCRATCH_ALLOC_APPEND(
+      l, fd_top_votes_v2_align(), sizeof(fd_top_votes_v2_t) );
+  void * insert_heap_mem = FD_SCRATCH_ALLOC_APPEND(
+      l,
+      vote_account_heap_align(),
+      vote_account_heap_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) );
   bank_info_t *       bank_info         = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),      fd_ulong_sat_mul( max_live_banks, sizeof(bank_info_t) ) );
   void *              t_1_group_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, t_1_group_pool_align(),    t_1_group_pool_footprint( max_fork_width ) );
   void *              state_mem         = FD_SCRATCH_ALLOC_APPEND( l, alignof(vote_state_ele_t), vote_state_footprint( max_live_banks ) );
+
+  if( FD_UNLIKELY( !vote_account_heap_join(
+          vote_account_heap_new( insert_heap_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) ) ) ) {
+    FD_LOG_WARNING(( "failed to create shared insertion heap" ));
+    return NULL;
+  }
 
   vote_account_group_t * t_1_group_pool = t_1_group_pool_join(
       t_1_group_pool_new( t_1_group_pool_mem, max_fork_width ) );
@@ -248,6 +300,9 @@ fd_top_votes_v2_new( void * mem,
   top_votes->t_2_state_off     = (ulong)state_mem         - (ulong)top_votes;
   top_votes->bank_info_off     = (ulong)bank_info         - (ulong)top_votes;
   top_votes->t_1_group_pool_off = (ulong)t_1_group_pool_mem - (ulong)top_votes;
+  top_votes->insert_heap_off         = (ulong)insert_heap_mem - (ulong)top_votes;
+  top_votes->insert_min_stake_wmark = 0UL;
+  top_votes->insert_bank_idx        = UINT_MAX;
 
   for( ulong i=0UL; i<max_live_banks; i++ ) {
     bank_info[ i ].t_1_group_idx = UINT_MAX;
@@ -303,6 +358,25 @@ fd_top_votes_v2_join( void * mem ) {
   if( FD_UNLIKELY( top_votes->footprint!=fd_top_votes_v2_footprint( top_votes->max_fork_width,
                                                                     top_votes->max_live_banks ) ) ) {
     FD_LOG_WARNING(( "invalid top votes v2 footprint" ));
+    return NULL;
+  }
+
+  ulong insert_heap_footprint =
+      vote_account_heap_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT );
+  if( FD_UNLIKELY( top_votes->insert_heap_off>top_votes->footprint ||
+                   insert_heap_footprint>top_votes->footprint-top_votes->insert_heap_off ||
+                   !fd_ulong_is_aligned( (ulong)top_votes+top_votes->insert_heap_off,
+                                         vote_account_heap_align() ) ) ) {
+    FD_LOG_WARNING(( "invalid top votes v2 shared insertion heap" ));
+    return NULL;
+  }
+  vote_account_heap_t * insert_heap = get_insert_heap( top_votes );
+  if( FD_UNLIKELY( !insert_heap ||
+                   vote_account_heap_ele_max( insert_heap )!=FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ||
+                   vote_account_heap_ele_cnt( insert_heap )>FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ||
+                   (top_votes->insert_bank_idx!=UINT_MAX &&
+                    top_votes->insert_bank_idx>=top_votes->max_live_banks) ) ) {
+    FD_LOG_WARNING(( "invalid top votes v2 insertion state" ));
     return NULL;
   }
 
@@ -368,6 +442,7 @@ void
 fd_top_votes_v2_new_child( fd_top_votes_v2_t * top_votes,
                            ulong               parent_idx,
                            ulong               child_idx ) {
+  FD_TEST( top_votes->insert_bank_idx==UINT_MAX );
   FD_TEST( parent_idx<top_votes->max_live_banks );
   FD_TEST( child_idx <top_votes->max_live_banks );
   if( FD_UNLIKELY( parent_idx==child_idx ) ) return;
@@ -386,6 +461,7 @@ void
 fd_top_votes_v2_new_epoch_child( fd_top_votes_v2_t * top_votes,
                                  ulong               parent_idx,
                                  ulong               child_idx ) {
+  FD_TEST( top_votes->insert_bank_idx==UINT_MAX );
   FD_TEST( parent_idx<top_votes->max_live_banks );
   FD_TEST( child_idx <top_votes->max_live_banks );
   FD_TEST( parent_idx!=child_idx );
@@ -404,10 +480,108 @@ fd_top_votes_v2_new_epoch_child( fd_top_votes_v2_t * top_votes,
   FD_TEST( t_1_group_pool_free( group_pool ) );
   vote_account_group_t * child_t_1 = t_1_group_pool_ele_acquire( group_pool );
   vote_account_group_reset( top_votes, child_t_1 );
+  child_t_1->owner_bank_idx = (uint)child_idx;
 
   bank_info[ child_idx ].t_1_group_idx = (uint)t_1_group_pool_idx( group_pool, child_t_1 );
   bank_info[ child_idx ].t_2_group_idx = child_t_2;
   memset( get_t_2_state( top_votes, child_idx ),
           0,
           FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT*sizeof(vote_state_ele_t) );
+}
+
+void
+fd_top_votes_v2_insert_init( fd_top_votes_v2_t * top_votes,
+                             ulong               child_idx ) {
+  FD_TEST( child_idx<top_votes->max_live_banks );
+  FD_TEST( top_votes->insert_bank_idx==UINT_MAX );
+  ensure_bank_initialized( top_votes, child_idx );
+
+  bank_info_t *          bank_info  = get_bank_info( top_votes );
+  vote_account_group_t * group_pool = get_t_1_group_pool( top_votes );
+  vote_account_group_t * group =
+      t_1_group_pool_ele( group_pool, bank_info[ child_idx ].t_1_group_idx );
+  vote_account_ele_t * pool = get_vote_account_pool( top_votes, group );
+
+  FD_TEST( group->owner_bank_idx==(uint)child_idx );
+  FD_TEST( !vote_account_pool_used( pool ) );
+  FD_TEST( vote_account_heap_new( get_insert_heap( top_votes ),
+                                  FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) );
+
+  top_votes->insert_min_stake_wmark = 0UL;
+  top_votes->insert_bank_idx        = (uint)child_idx;
+}
+
+void
+fd_top_votes_v2_insert_fini( fd_top_votes_v2_t * top_votes ) {
+  FD_TEST( top_votes->insert_bank_idx!=UINT_MAX );
+
+  bank_info_t *          bank_info  = get_bank_info( top_votes );
+  vote_account_group_t * group_pool = get_t_1_group_pool( top_votes );
+  vote_account_group_t * group = t_1_group_pool_ele(
+      group_pool, bank_info[ top_votes->insert_bank_idx ].t_1_group_idx );
+  vote_account_ele_t *  pool = get_vote_account_pool( top_votes, group );
+  vote_account_heap_t * heap = get_insert_heap( top_votes );
+
+  FD_TEST( vote_account_heap_ele_cnt( heap )==vote_account_pool_used( pool ) );
+  FD_TEST( !vote_account_heap_verify( heap, pool ) );
+  FD_TEST( vote_account_heap_new( heap, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) );
+
+  top_votes->insert_min_stake_wmark = 0UL;
+  top_votes->insert_bank_idx        = UINT_MAX;
+}
+
+void
+fd_top_votes_v2_insert( fd_top_votes_v2_t * top_votes,
+                        fd_pubkey_t const *  pubkey,
+                        fd_pubkey_t const *  node_account,
+                        ulong                stake,
+                        ushort               commission ) {
+  FD_TEST( top_votes->insert_bank_idx!=UINT_MAX );
+  if( FD_UNLIKELY( !stake ) ) return;
+
+  bank_info_t *          bank_info  = get_bank_info( top_votes );
+  vote_account_group_t * group_pool = get_t_1_group_pool( top_votes );
+  vote_account_group_t * group = t_1_group_pool_ele(
+      group_pool, bank_info[ top_votes->insert_bank_idx ].t_1_group_idx );
+  vote_account_ele_t *  pool = get_vote_account_pool( top_votes, group );
+  vote_account_map_t *  map  = get_vote_account_map( top_votes, group );
+  vote_account_heap_t * heap = get_insert_heap( top_votes );
+
+  FD_TEST( group->owner_bank_idx==top_votes->insert_bank_idx );
+  FD_TEST( vote_account_heap_ele_cnt( heap )<vote_account_heap_ele_max( heap ) );
+
+  vote_account_ele_t * ele = vote_account_pool_ele_acquire( pool );
+  ele->pubkey       = *pubkey;
+  ele->node_account = *node_account;
+  ele->stake        = stake;
+  ele->commission   = commission;
+  vote_account_heap_ele_insert( heap, ele, pool );
+  vote_account_map_ele_insert( map, ele, pool );
+}
+
+int
+fd_top_votes_v2_query_t_1( fd_top_votes_v2_t const * top_votes,
+                           ulong                     child_idx,
+                           fd_pubkey_t const *        pubkey,
+                           fd_pubkey_t *              node_account_out_opt,
+                           ulong *                    stake_out_opt,
+                           ushort *                   commission_out_opt ) {
+  FD_TEST( child_idx<top_votes->max_live_banks );
+
+  bank_info_t const * bank_info = get_bank_info( top_votes );
+  if( FD_UNLIKELY( bank_info[ child_idx ].t_1_group_idx==UINT_MAX ) ) return 0;
+
+  vote_account_group_t * group_pool = get_t_1_group_pool( top_votes );
+  vote_account_group_t const * group = t_1_group_pool_ele_const(
+      group_pool, bank_info[ child_idx ].t_1_group_idx );
+  vote_account_ele_t const * pool = get_vote_account_pool( top_votes, group );
+  vote_account_map_t const * map  = get_vote_account_map( top_votes, group );
+  vote_account_ele_t const * ele =
+      vote_account_map_ele_query_const( map, pubkey, NULL, pool );
+  if( FD_UNLIKELY( !ele ) ) return 0;
+
+  if( node_account_out_opt ) *node_account_out_opt = ele->node_account;
+  if( stake_out_opt )        *stake_out_opt        = ele->stake;
+  if( commission_out_opt )   *commission_out_opt   = ele->commission;
+  return 1;
 }

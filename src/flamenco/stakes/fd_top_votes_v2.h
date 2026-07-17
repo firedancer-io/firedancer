@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_stakes_fd_top_votes_v2_h
 
 #include "../../util/fd_util_base.h"
+#include "../fd_flamenco_base.h"
 
 struct fd_top_votes_v2;
 typedef struct fd_top_votes_v2 fd_top_votes_v2_t;
@@ -48,6 +49,31 @@ void
 fd_top_votes_v2_new_epoch_child( fd_top_votes_v2_t * top_votes,
                                  ulong               parent_idx,
                                  ulong               child_idx );
+
+/* An insertion session exclusively binds the shared scratch heap to a
+   fresh t-1 group owned by child_idx. */
+
+void
+fd_top_votes_v2_insert_init( fd_top_votes_v2_t * top_votes,
+                             ulong               child_idx );
+
+void
+fd_top_votes_v2_insert( fd_top_votes_v2_t * top_votes,
+                        fd_pubkey_t const *  pubkey,
+                        fd_pubkey_t const *  node_account,
+                        ulong                stake,
+                        ushort               commission );
+
+void
+fd_top_votes_v2_insert_fini( fd_top_votes_v2_t * top_votes );
+
+int
+fd_top_votes_v2_query_t_1( fd_top_votes_v2_t const * top_votes,
+                           ulong                     child_idx,
+                           fd_pubkey_t const *        pubkey,
+                           fd_pubkey_t *              node_account_out_opt,
+                           ulong *                    stake_out_opt,
+                           ushort *                   commission_out_opt );
 
 FD_PROTOTYPES_END
 
