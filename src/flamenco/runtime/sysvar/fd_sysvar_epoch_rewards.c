@@ -1,4 +1,5 @@
 #include "fd_sysvar_epoch_rewards.h"
+#include "../../events/fd_event_runtime.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 
@@ -92,5 +93,6 @@ fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
   };
 
   FD_TEST( epoch_rewards.total_rewards>=epoch_rewards.distributed_rewards );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_rewards( &epoch_rewards );
   write_epoch_rewards( bank, accdb, capture_ctx, &epoch_rewards );
 }

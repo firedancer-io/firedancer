@@ -1,6 +1,7 @@
 #include "fd_ssload.h"
 
 #include "../../../disco/genesis/fd_genesis_cluster.h"
+#include "../../../flamenco/events/fd_event_runtime.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
@@ -323,7 +324,8 @@ int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
                          fd_banks_t *             banks,
                          fd_bank_t *              bank,
-                         ulong                    blockhash_seed ) {
+                         ulong                    blockhash_seed,
+                         int                      report_runtime_diffs ) {
 
   /* Slot */
 
@@ -470,6 +472,15 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
         0U,  /* acc_dlen unknown until fd_stake_delegations_refresh */
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
     );
+    if( FD_UNLIKELY( report_runtime_diffs ) ) {
+      fd_event_runtime_stake_delegation_snapshot_emit( bank,
+                                                       elem->stake_pubkey,
+                                                       elem->vote_pubkey,
+                                                       elem->stake_delegation,
+                                                       elem->activation_epoch,
+                                                       elem->deactivation_epoch,
+                                                       elem->credits_observed );
+    }
   }
 
   fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
@@ -586,12 +597,13 @@ int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed ) {
+                   ulong                    blockhash_seed ,
+                   int                      report_runtime_diffs ) {
 
   if( FD_UNLIKELY( fd_ssload_recover_validate( manifest, banks ) ) ) {
     FD_LOG_WARNING(( "snapshot manifest validation failed" ));
     return -1;
   }
 
-  return fd_ssload_recover_apply( manifest, banks, bank, blockhash_seed );
+  return fd_ssload_recover_apply( manifest, banks, bank, blockhash_seed, report_runtime_diffs );
 }

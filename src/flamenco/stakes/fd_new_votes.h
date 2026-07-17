@@ -112,11 +112,20 @@ fd_new_votes_remove( fd_new_votes_t *    new_votes,
 /* Drains the fork's delta dlist into the root map, deduplicating
    against existing root entries.  Does NOT release the fork pool
    slot: the caller must call fd_new_votes_evict_fork afterwards
-   to return the fork index to the fork pool. */
+   to return the fork index to the fork pool.  If new_votes_delta_stats
+   is non-NULL, the number of insert and tombstone ops applied is
+   accumulated into it (caller zeroes). */
+
+struct fd_new_votes_delta_stats {
+  ulong inserts;
+  ulong removes;
+};
+typedef struct fd_new_votes_delta_stats fd_new_votes_delta_stats_t;
 
 void
-fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
-                          ushort           fork_idx );
+fd_new_votes_apply_delta( fd_new_votes_t *             new_votes,
+                          ushort                       fork_idx,
+                          fd_new_votes_delta_stats_t * new_votes_delta_stats );
 
 
 /* Iterates through pubkeys visible from a bank's perspective: first

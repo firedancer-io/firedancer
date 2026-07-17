@@ -189,7 +189,7 @@ int main( int argc, char ** argv ) {
   fd_stake_history_t stake_history[1] = {0};
   ulong warmup_cooldown_rate_epoch = 0UL;
   int   use_fixed_point_stake_math = 0;
-  fd_stake_delegations_apply_fork_delta( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork );
+  fd_stake_delegations_apply_fork_delta( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork, NULL );
   fd_stake_delegations_evict_fork( stake_delegations, remove_fork );
   FD_TEST( !test_stake_delegations_find( stake_delegations, &stake_account_1 ) );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );

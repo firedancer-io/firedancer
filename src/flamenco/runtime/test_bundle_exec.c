@@ -1146,7 +1146,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   fd_new_votes_t * new_votes = fd_bank_new_votes( env->bank );
   ushort fork_idx = env->bank->new_votes_fork_id;
-  fd_new_votes_apply_delta( new_votes, fork_idx );
+  fd_new_votes_apply_delta( new_votes, fork_idx, NULL );
 
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
   fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, NULL, 0UL, iter_mem );
@@ -1181,7 +1181,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     /* Pre-populate the root map with pubkey2 so a dropped remove is
        observable as a stale survivor. */
     fd_new_votes_insert( nv, fidx, &pubkey2 );
-    fd_new_votes_apply_delta( nv, fidx );
+    fd_new_votes_apply_delta( nv, fidx, NULL );
 
     fd_txn_p_t nonowner_txn_p[2] = {0};
     fd_pubkey_t nonowner_keys[2] = { pubkey1, pubkey2 };
@@ -1209,7 +1209,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1], 0 );
     fd_runtime_fini_bundle( env->runtime );
 
-    fd_new_votes_apply_delta( nv, fidx );
+    fd_new_votes_apply_delta( nv, fidx, NULL );
 
     /* The non-owner's remove must have tombstoned the pre-existing entry. */
     uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
@@ -1296,7 +1296,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_new_votes_t * nv   = fd_bank_new_votes( env->bank );
     ushort           fidx = env->bank->new_votes_fork_id;
     fd_new_votes_insert( nv, fidx, &cancel_acc );
-    fd_new_votes_apply_delta( nv, fidx );
+    fd_new_votes_apply_delta( nv, fidx, NULL );
 
     fd_txn_p_t cp = {0};
     fd_pubkey_t ckeys[2] = { cancel_fp, cancel_acc };
@@ -1314,7 +1314,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     env->txn_out[0].err.is_committable = 0;
     fd_runtime_fini_bundle( env->runtime );
 
-    fd_new_votes_apply_delta( nv, fidx );
+    fd_new_votes_apply_delta( nv, fidx, NULL );
     uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
     fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
     FD_TEST( !fd_new_votes_iter_done( it ) ); /* cancel_acc still present */

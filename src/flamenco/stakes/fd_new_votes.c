@@ -323,8 +323,11 @@ fd_new_votes_remove( fd_new_votes_t *    new_votes,
 }
 
 void
-fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
-                          ushort           fork_idx ) {
+fd_new_votes_apply_delta( fd_new_votes_t *             new_votes,
+                          ushort                       fork_idx,
+                          fd_new_votes_delta_stats_t * new_votes_delta_stats ) {
+  ulong inserts = 0UL;
+  ulong removes = 0UL;
   if( fork_idx==USHORT_MAX ) return;
 
   fd_rwlock_write( &new_votes->lock );
@@ -336,6 +339,7 @@ fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
   while( !nv_dlist_is_empty( dlist, pool ) ) {
     fd_new_vote_ele_t * ele = nv_dlist_ele_pop_head( dlist, pool );
     if( ele->is_tombstone ) {
+      removes++;
       /* If the element is a tombstone, remove it from the root map if
          it exists and free both the root map element and the tombstone
          element.  If the element doesn't exist in the root, just free
@@ -348,6 +352,7 @@ fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
         nv_pool_ele_release( pool, ele );
       }
     } else {
+      inserts++;
       /* If the element is not a tombstone, insert it into the root map
          if it doesn't exist in the root and just transfer pool element
          ownership: otherwise, just free the pool_element. */
@@ -359,6 +364,11 @@ fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
     }
   }
   fd_rwlock_unwrite( &new_votes->lock );
+
+  if( FD_UNLIKELY( new_votes_delta_stats ) ) {
+    new_votes_delta_stats->inserts += inserts;
+    new_votes_delta_stats->removes += removes;
+  }
 }
 
 /* Iterator internals.  Phase 0 walks the root map; phase 1 walks
