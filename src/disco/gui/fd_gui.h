@@ -14,8 +14,6 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../choreo/tower/fd_tower.h"
-#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h" /* fd_slot_to_epoch */
 #include "../../util/fd_util_base.h"
@@ -159,6 +157,8 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_VOTE_STATE_DELINQUENT (2)
 
 #define FD_GUI_MAX_VOTE_DISTANCE     (512UL)
+
+#define FD_GUI_LANDED_VOTE_MAX      (4096UL)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
 #define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
@@ -310,12 +310,14 @@ struct __attribute__((packed)) fd_gui_slot {
   long      completed_time;   /* slot completion wallclock ns (LONG_MAX if unknown) */
   uint      shred_cnt;        /* slot->shred_cnt at completion */
   fd_hash_t block_hash;       /* block hash of the slot */
-  uchar     mine;             /* 1 if this was our leader slot */
+  uchar     mine:1;           /* 1 if this was our leader slot */
+  uchar     is_voter:1;       /* 1 if we were structurally a voter when this slot was replayed */
   uint      vote_success;     /* successful vote txn count     (UINT_MAX if unknown) */
   uint      vote_failed;      /* failed vote txn count         (UINT_MAX if unknown) */
   uint      nonvote_success;  /* successful nonvote txn count  (UINT_MAX if unknown) */
   uint      nonvote_failed;   /* failed nonvote txn count      (UINT_MAX if unknown) */
-  uchar     vote_latency;     /* our vote latency for the slot (UCHAR_MAX if did not vote) */
+  uchar     vote_latency;     /* our raw vote latency for the slot (UCHAR_MAX if did not vote) */
+  uchar     vote_latency_exact;/* our vote latency minus skipped slots on the landed fork, or FD_GUI_VOTE_LATENCY_NOT_VOTED if no vote landed. */
   uint      max_compute_units;/* block compute unit limit      (UINT_MAX if unknown) */
   uint      compute_units;    /* block compute units consumed  (UINT_MAX if unknown) */
   ulong     transaction_fee;  /* total transaction fee         (ULONG_MAX if unknown) */
@@ -375,6 +377,9 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_EPOCH_SCHED_CNT ((MAX_SLOTS_PER_EPOCH+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION)
 #define FD_GUI_EPOCH_PUB_CNT   (MAX_COMPRESSED_STAKE_WEIGHTS+1UL) /* +1 for indeterminate leader */
 
+#define FD_GUI_VOTE_LATENCY_NOT_VOTED ((uchar)(UCHAR_MAX))     /* vote missing */
+#define FD_GUI_VOTE_LATENCY_MAX       ((uchar)(UCHAR_MAX-1UL)) /* largest observable vote latency */
+
 struct fd_gui_epoch {
   ulong epoch;
   ulong start_slot;
@@ -385,10 +390,13 @@ struct fd_gui_epoch {
   ulong my_total_slots;                  /* our leader slots seen this epoch */
   ulong my_skipped_slots;                /* our skipped leader slots this epoch */
   ulong rankings_slot;                   /* one more than the largest slot processed into rankings */
-  ulong late_votes_sz;                   /* number of entries in late_votes[] */
   fd_gui_slot_rankings_t rankings   [ 1 ]; /* global slot rankings */
   fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
-  ulong late_votes[ MAX_SLOTS_PER_EPOCH ]; /* run-length-encoded late-vote slots */
+
+  /* Arrays of FD_GUI_VOTE_LATENCY_* */
+  uchar latency      [ MAX_SLOTS_PER_EPOCH ];
+  uchar latency_exact[ MAX_SLOTS_PER_EPOCH ];
+  uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -753,8 +761,8 @@ struct fd_gui_summary {
   fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
   fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
 
-  /* catchup_* and late_votes are run-length encoded. i.e. adjacent
-     pairs represent contiguous runs */
+  /* catchup_* is run-length encoded. i.e. adjacent pairs represent
+     contiguous runs */
   ulong catch_up_turbine[ FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ ];
   ulong catch_up_turbine_sz;
 
@@ -849,8 +857,12 @@ struct fd_gui {
     fd_gui_slot_txn_join_t    joined[ FD_MAX_TXN_PER_SLOT ];
   } slot_txn_scratch;
 
-  ulong tower_cnt;
-  fd_vote_acc_vote_t tower[ FD_TOWER_VOTE_MAX ];
+  struct {
+    ulong landed_slot;
+    ulong landed_bank_seq;
+    ulong voted_slot;
+  } landed_votes[ FD_GUI_LANDED_VOTE_MAX ];
+  ulong landed_vote_cnt;
 
   struct {
     int has_block_engine;
@@ -1044,6 +1056,12 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
                              fd_replay_slot_completed_t const * slot_completed,
                              ulong                              vote_slot,
                              long                               now );
+
+void
+fd_gui_stage_landed_vote( fd_gui_t * gui,
+                          ulong      landed_slot,
+                          ulong      landed_bank_seq,
+                          ulong      voted_slot );
 
 void
 fd_gui_handle_genesis_hash( fd_gui_t *        gui,
@@ -1327,12 +1345,14 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->bank_seq          = bank_seq;
   meta->parent_bank_seq   = parent_bank_seq;
   meta->parent_slot       = _parent_slot;
-  meta->vote_slot         = ULONG_MAX;
-  meta->vote_latency      = UCHAR_MAX;
+  meta->vote_slot          = ULONG_MAX;
+  meta->vote_latency       = UCHAR_MAX;
+  meta->vote_latency_exact = FD_GUI_VOTE_LATENCY_NOT_VOTED;
   meta->max_compute_units = UINT_MAX;
   meta->completed_time    = LONG_MAX;
   meta->parent_completed_time = LONG_MAX;
-  meta->mine              = (uchar)mine;
+  meta->mine              = (uchar)(mine & 1);
+  meta->is_voter          = 0;
   meta->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
   meta->level             = (uchar)( _slot ? FD_GUI_SLOT_LEVEL_INCOMPLETE : FD_GUI_SLOT_LEVEL_ROOTED ); /* slot 0 always rooted */
   meta->vote_failed       = UINT_MAX;

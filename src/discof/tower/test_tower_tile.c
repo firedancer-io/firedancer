@@ -131,7 +131,19 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==1 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
   FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
+  publishes_pop_head_nocopy( ctx->publishes );
+
+  /* Matching identity but no votable slot: voter with no vote txn */
+  fd_tower_out_t out_no_vote = out;
+  out_no_vote.vote_slot = ULONG_MAX;
+  publish_slot_done( ctx, &sc, &out_no_vote, 1, 100UL, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub );
+  FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
   publishes_pop_head_nocopy( ctx->publishes );
 
   /* Other identity prevents vote publishing */
@@ -142,6 +154,7 @@ test_publish_slot_done_identity_mismatch( void ) {
   FD_TEST( pub );
   FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
   FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==0 );
 
   fd_wksp_delete( fd_wksp_leave( wksp ) );
 

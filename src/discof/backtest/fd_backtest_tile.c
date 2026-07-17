@@ -364,6 +364,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         dst->active_fork_cnt       = 1UL;
         dst->authority_idx         = ULONG_MAX;
         dst->vote_acct_bal         = ULONG_MAX;
+        dst->is_voting             = 1;
         fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
         return 0;
@@ -456,6 +457,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       dst->active_fork_cnt       = 1UL;
       dst->authority_idx         = ULONG_MAX;
       dst->vote_acct_bal         = ULONG_MAX;
+      dst->is_voting             = 1;
 
       fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );

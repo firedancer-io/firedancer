@@ -2573,7 +2573,9 @@ initially replay one but the cluster votes on the other one.
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 | vote_slot                    | `number\|null` | The most recent slot for which this validator had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
-| vote_latency                 | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot.  This field is `null` if we have not yet landed a vote for this slot, and this message will be re-published once our vote lands. Due to forking or votes not landing, this field may be updated arbitrarily many times, or never |
+| vote_latency                 | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot.  This field is `null` if we have not yet landed a vote for this slot, and this message will be re-published once our vote lands |
+| vote_latency_exact           | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot, discounting slots that were skipped on the fork our vote landed on.  `null` when we have not landed a vote for this slot |
+| is_voter                     | `boolean` | True if this validator was structurally a voter (held the authorized voter key with a matching identity) at the time this slot was replayed.  This reflects the historical voting configuration and is unaffected by later runtime identity switches |
 
 #### `slot.skipped_history`
 | frequency | type       | example |
@@ -2605,17 +2607,13 @@ late or not at all. Specifically, the following slots are included
 - rooted slots with a vote latency > 1
 - rooted slots that were never voted for that were not skipped
 
-The slot array is run-length encoded. For example
+The `slot` array is run-length encoded: it holds pairs
+`[run_start, run_end]` (both inclusive) describing contiguous ranges of
+affected slots.  Each run shares the same `latency_exact` value.
 
-```
-[ a, b, c, d, e, f ]
-```
-
-means that slots `[a, b]`, slots `[c, d]`, and slots `[e, f]` all
-received late or non-existent votes.
-
-The latency array is not run-length encoded. That means if the decoded
-slots array has `n` slots, then the length of `latency` will be `n`.
+The `latency_exact` array holds one entry per run, so its length is
+exactly half the length of the `slot`. It is the skip-discounted vote
+latency (`null` for missing vote).
 
 :::details Example
 
@@ -2624,8 +2622,9 @@ slots array has `n` slots, then the length of `latency` will be `n`.
 	"topic": "slot",
 	"key": "late_votes_history",
 	"value": {
-        "slot": [286576808, 286576808, 286576810, 286576811, 286625025, 286625026],
-        "latency": [2, 3, null, 2, 2]
+        "slot": [286576808, 286576808, 286576810, 286576810, 286576811, 286576811, 286625025, 286625025],
+        "latency": [2, null, 4, 2],
+        "latency_exact": [2, null, 3, 2]
     }
 }
 ```

@@ -375,10 +375,17 @@ after_frag( fd_gui_ctx_t *      ctx,
 
         int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
         if( FD_UNLIKELY( msg->txn_exec->vote.slot!=ULONG_MAX && txn_succeeded ) ) {
+          int vote_acct_is_us = !ctx->gui->summary.has_vote_key || !memcmp( ctx->gui->summary.vote_key->uc, msg->txn_exec->vote.vote_acct->uc, sizeof(fd_pubkey_t) );
+          int is_us = vote_acct_is_us && !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
           fd_gui_peers_handle_vote( ctx->peers,
                                     msg->txn_exec->vote.vote_acct,
                                     msg->txn_exec->vote.slot,
-                                    !memcmp(ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) ) );
+                                    is_us );
+          if( FD_UNLIKELY( is_us ) ) {
+            for( ulong i=0UL; i<msg->txn_exec->vote.vote_slot_cnt; i++ ) {
+              fd_gui_stage_landed_vote( ctx->gui, msg->txn_exec->slot, msg->txn_exec->bank_seq, msg->txn_exec->vote.vote_slots[ i ] );
+            }
+          }
         }
       }
 
@@ -565,7 +572,7 @@ returnable_frag( fd_gui_ctx_t *      ctx,
   if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
     FD_TEST( sz>=sizeof(fd_tower_slot_done_t) );
     fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)src;
-    if( FD_UNLIKELY( !(tower->reset_slot==ULONG_MAX || !!fd_gui_slot_get( ctx->gui, tower->reset_slot, tower->reset_bank_seq )) ) ) return 1; /* block not replayed yet: defer polling */
+    if( FD_UNLIKELY( !fd_gui_slot_get( ctx->gui, tower->replay_slot, tower->replay_bank_seq ) ) ) return 1; /* block not replayed yet: defer polling */
     fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_tile_now( ctx->clock ) );
   }
 
