@@ -9,7 +9,7 @@
 PB_BIND(packet_PacketBatch, packet_PacketBatch, AUTO)
 
 
-PB_BIND(packet_Packet, packet_Packet, 2)
+PB_BIND(packet_Packet, packet_Packet, 4)
 
 
 PB_BIND(packet_Meta, packet_Meta, 2)
