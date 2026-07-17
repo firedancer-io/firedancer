@@ -142,21 +142,18 @@ struct fd_tower_slot_done {
 
   ulong active_fork_cnt;
 
-  /* This always contains a vote transaction with our current tower,
-     regardless of whether there is a new vote slot or not (ie. vote
-     slot can be ULONG_MAX and vote_txn will contain a txn of our
-     current tower).  The vote is not yet signed.  This is necessary to
-     support refreshing our last vote, ie. we retransmit our vote even
-     when we are locked out / can't switch vote forks.  If the vote
-     account's authorized voter is either the identity or one of the
-     authorized voters, then is_valid_vote will be 1; otherwise it will
-     be 0.
+  /* is_voting reflects whether this validator is structurally a voter
+     (holds the authorized voter key and its identity matches the vote
+     account's node identity).  Unlike has_vote_txn, it is independent
+     of whether a vote txn was produced this slot, so transient
+     non-votes (lockout, failed switch threshold, empty tower, etc.) do
+     not clear it.  A hot spare running under a dummy identity has
+     is_voting=0. */
 
-     The authority_idx is the index of the authorized voter that needs
-     to sign the vote transaction.  If the authorized voter is the
-     identity, the authority_idx will be ULONG_MAX.
+  int   is_voting;
 
-     TODO: Need to implement "refresh last vote" logic. */
+  /* authority_idx is the index of the authorized voter that needs to
+     sign the vote transaction, or ULONG_MAX if it is the identity. */
 
   int   has_vote_txn;
   ulong authority_idx;
@@ -167,11 +164,6 @@ struct fd_tower_slot_done {
      our account is not found. */
 
   ulong vote_acct_bal;
-
-  /* Our current on-chain tower with latencies optionally included. */
-
-  ulong              tower_cnt;
-  fd_vote_acc_vote_t tower[FD_TOWER_VOTE_MAX];
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 

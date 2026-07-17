@@ -12,6 +12,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
 
 #include <stdio.h>
 
@@ -353,7 +354,7 @@ fd_gui_new( void *                   shmem,
   memset( gui->summary.tile_timers_current,   0, sizeof(gui->summary.tile_timers_current)   );
   memset( gui->summary.tile_timers_packed,    0, sizeof(gui->summary.tile_timers_packed)    );
 
-  gui->tower_cnt = 0UL;
+  gui->landed_vote_cnt = 0UL;
 
   gui->block_engine.has_block_engine = 0;
 
@@ -382,7 +383,6 @@ fd_gui_set_identity( fd_gui_t *    gui,
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
   gui->summary.vote_distance = 0UL;
-  if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
 
   fd_gui_printf_identity_key( gui );
   fd_http_server_ws_broadcast( gui->http );
@@ -425,7 +425,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_live_tile_timers,
     fd_gui_printf_live_tile_metrics,
     fd_gui_printf_catch_up_history,
-    fd_gui_printf_vote_latency_history,
     fd_gui_printf_late_votes_history,
     fd_gui_printf_health
   };
@@ -2071,6 +2070,7 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
       .tips             = ULONG_MAX,
       .shred_cnt        = UINT_MAX,
       .vote_latency     = UCHAR_MAX,
+      .vote_latency_exact = UCHAR_MAX,
       .vote_success     = UINT_MAX,
       .vote_failed      = UINT_MAX,
       .nonvote_success  = UINT_MAX,
@@ -2118,10 +2118,11 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
     epoch->target_slot_duration_ns = (long)epoch_info->ns_per_slot;
     epoch->my_total_slots = 0UL;
     epoch->my_skipped_slots = 0UL;
-    epoch->late_votes_sz  = 0UL;
     epoch->rankings_slot  = epoch_info->start_slot;
     memset( epoch->rankings,    (int)(UINT_MAX), sizeof(epoch->rankings)    );
     memset( epoch->my_rankings, (int)(UINT_MAX), sizeof(epoch->my_rankings) );
+    memset( epoch->latency,       (int)FD_GUI_VOTE_LATENCY_UNKNOWN, sizeof(epoch->latency)       );
+    memset( epoch->latency_exact, (int)FD_GUI_VOTE_LATENCY_UNKNOWN, sizeof(epoch->latency_exact) );
     epoch->epoch_schedule = epoch_info->epoch_schedule;
     epoch->pub_cnt        = fd_ulong_min( lsched->pub_cnt, FD_GUI_EPOCH_PUB_CNT );
     epoch->stakes_cnt     = fd_ulong_min( epoch_info->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS );
@@ -2235,48 +2236,70 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
   }
 }
 
+/* fd_gui_compute_vote_latency walks the fork whose landing block is
+   (landed_slot, landed_bank_seq) down toward voted_slot.  On success
+   (voted_slot is an ancestor on this fork) returns 1 and writes
+   voted_slot's bank_seq on this fork to *out_voted_bank_seq and the
+   skip-discounted latency to *out_exact.  Returns 0 if voted_slot is
+   not an ancestor on this fork, or the ancestry is not yet
+   replayed/linked. */
+
+static int
+fd_gui_compute_vote_latency( fd_gui_t * gui,
+                             ulong      landed_slot,
+                             ulong      landed_bank_seq,
+                             ulong      voted_slot,
+                             ulong *    out_voted_bank_seq,
+                             ulong *    out_exact ) {
+  ulong on_fork_between = 0UL;
+  ulong cur_slot        = landed_slot;
+  ulong cur_bank_seq    = landed_bank_seq;
+  for( ulong steps=0UL; steps<1024UL; steps++ ) {
+    fd_gui_slot_t const * c = fd_gui_slot_get( gui, cur_slot, cur_bank_seq );
+    if( FD_UNLIKELY( !c ) ) return 0;
+    ulong pslot = c->parent_slot;
+    ulong pseq  = c->parent_bank_seq;
+    if( FD_UNLIKELY( pslot==ULONG_MAX ) ) return 0;
+    if( FD_UNLIKELY( pslot<voted_slot ) ) return 0;
+    if( FD_LIKELY( pslot==voted_slot ) ) {
+      *out_voted_bank_seq = pseq;
+      *out_exact          = 1UL + on_fork_between;
+      return 1;
+    }
+    on_fork_between++;
+    cur_slot     = pslot;
+    cur_bank_seq = pseq;
+  }
+  return 0;
+}
+
+/* fd_gui_record_vote_latency records the minimum vote_latency_exact
+   observed for the (voted_slot, voted_bank_seq) fork. */
+
 static void
-fd_gui_root_advance_late_votes( fd_gui_t * gui, ulong root_slot ) {
-  fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, root_slot );
+fd_gui_record_vote_latency( fd_gui_t * gui,
+                            ulong      voted_slot,
+                            ulong      voted_bank_seq,
+                            uchar      vote_latency,
+                            uchar      vote_latency_exact ) {
+  vote_latency_exact = (uchar)fd_ulong_min( vote_latency_exact, FD_GUI_VOTE_LATENCY_MAX );
+
+  fd_gui_slot_t * slot = fd_gui_slot_get( gui, voted_slot, voted_bank_seq );
+  if( FD_LIKELY( slot ) && FD_LIKELY( vote_latency_exact<slot->vote_latency_exact ) ) {
+    slot->vote_latency       = vote_latency;
+    slot->vote_latency_exact = vote_latency_exact;
+    fd_gui_printf_slot( gui, voted_slot, slot );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, voted_slot );
   if( FD_UNLIKELY( !epoch ) ) return;
-
-  ulong epoch_start = epoch->start_slot;
-  ulong epoch_end   = epoch->start_slot + epoch->slot_cnt - 1UL;
-
-  /* fd_gui_slot_is_late_vote returns 1 if slot number `_s`'s vote was late
-     (unknown latency, or latency >1) and the slot is in the current epoch. */
-#define fd_gui_slot_is_late_vote( _s, meta ) \
-  ( epoch_start<=(_s) && epoch_end>=(_s) && ( (meta)->vote_latency==UCHAR_MAX || (meta)->vote_latency>1UL ) )
-
-  /* Epoch boundary or startup -- backfill history. */
-  if( FD_UNLIKELY( epoch->late_votes_sz==0UL ) ) {
-    for( ulong s=epoch_start; s<fd_ulong_min( root_slot, epoch_end+1UL ); s++ ) {
-      fd_gui_slot_t * slot = fd_gui_slot_get_canon( gui, s );
-      if( FD_UNLIKELY( !slot ) ) continue;
-      if( FD_UNLIKELY( slot->level<FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
-
-      if( FD_UNLIKELY( fd_gui_slot_is_late_vote( s, slot ) ) ) {
-        fd_gui_try_insert_run_length_slot( epoch->late_votes, MAX_SLOTS_PER_EPOCH, &epoch->late_votes_sz, s );
-      }
-    }
+  ulong idx = voted_slot - epoch->start_slot;
+  if( FD_UNLIKELY( idx>=epoch->slot_cnt ) ) return;
+  if( FD_LIKELY( vote_latency_exact<epoch->latency_exact[ idx ] ) ) {
+    epoch->latency      [ idx ] = vote_latency;
+    epoch->latency_exact[ idx ] = vote_latency_exact;
   }
-
-  /* Start at the new root and move backwards towards the old root,
-     recording late votes for everything in-between. */
-  for( ulong i=0UL; i<fd_ulong_min( root_slot, MAX_SLOTS_PER_EPOCH ); i++ ) {
-    ulong parent_slot = root_slot - i;
-
-    fd_gui_slot_t * slot = fd_gui_slot_get_canon( gui, parent_slot );
-    if( FD_UNLIKELY( !slot ) ) break;
-
-    if( FD_UNLIKELY( fd_gui_slot_is_late_vote( parent_slot, slot ) ) ) {
-      fd_gui_try_insert_run_length_slot( epoch->late_votes, MAX_SLOTS_PER_EPOCH, &epoch->late_votes_sz, parent_slot );
-    }
-
-    if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
-  }
-
-#undef fd_gui_slot_is_late_vote
 }
 
 void
@@ -2289,9 +2312,6 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 
   /* Rooting only ever advances. */
   if( FD_UNLIKELY( gui->summary.slot_rooted!=ULONG_MAX && _slot<=gui->summary.slot_rooted ) ) return;
-
-  /* Record late votes for the newly rooted slots. */
-  fd_gui_root_advance_late_votes( gui, _slot );
 
   ulong prev_rooted = gui->summary.slot_rooted;
 
@@ -2306,6 +2326,26 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     c->level = FD_GUI_SLOT_LEVEL_ROOTED;
     fd_gui_printf_slot( gui, cslot, c );
     fd_http_server_ws_broadcast( gui->http );
+
+    /* Finalize vote latencies from votes that landed in this block. */
+    for( ulong r=0UL; r<gui->landed_vote_cnt; r++ ) {
+      if( FD_UNLIKELY( gui->landed_votes[ r ].landed_slot!=cslot || gui->landed_votes[ r ].landed_bank_seq!=cbank_seq ) ) continue;
+      ulong voted_slot = gui->landed_votes[ r ].voted_slot;
+      ulong raw = cslot - voted_slot;
+      if( FD_UNLIKELY( raw>=UCHAR_MAX ) ) continue;
+      ulong voted_bank_seq, exact;
+      if( FD_UNLIKELY( !fd_gui_compute_vote_latency( gui, cslot, cbank_seq, voted_slot, &voted_bank_seq, &exact ) ) ) continue;
+      fd_gui_record_vote_latency( gui, voted_slot, voted_bank_seq, (uchar)raw, (uchar)fd_ulong_min( exact, UCHAR_MAX ) );
+    }
+
+    fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, cslot );
+    if( FD_LIKELY( epoch ) ) {
+      ulong cidx = cslot - epoch->start_slot;
+      if( FD_LIKELY( cidx<epoch->slot_cnt && epoch->latency_exact[ cidx ]==FD_GUI_VOTE_LATENCY_UNKNOWN ) ) {
+        epoch->latency      [ cidx ] = FD_GUI_VOTE_LATENCY_NOT_VOTED;
+        epoch->latency_exact[ cidx ] = FD_GUI_VOTE_LATENCY_NOT_VOTED;
+      }
+    }
 
     ulong pslot = c->parent_slot, pseq = c->parent_bank_seq;
     if( FD_UNLIKELY( pslot==ULONG_MAX || pslot>=cslot ) ) break;
@@ -2323,6 +2363,14 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
 
     cslot = pslot; cbank_seq = pseq;
   }
+
+  ulong rooted_slot = gui->summary.slot_rooted;
+  ulong w = 0UL;
+  for( ulong r=0UL; r<gui->landed_vote_cnt; r++ ) {
+    if( FD_UNLIKELY( gui->landed_votes[ r ].landed_slot<=rooted_slot ) ) continue;
+    gui->landed_votes[ w++ ] = gui->landed_votes[ r ];
+  }
+  gui->landed_vote_cnt = w;
 }
 
 void
@@ -2527,16 +2575,37 @@ handle_tower_slot( fd_gui_t * gui, ulong reset_slot, ulong reset_bank_seq, long 
 }
 
 static inline void
-publish_vote_status( fd_gui_t * gui ) {
+set_vote_state( fd_gui_t * gui,
+                int        vote_state ) {
+  if( FD_UNLIKELY( gui->summary.vote_state!=vote_state ) ) {
+    gui->summary.vote_state = vote_state;
+    fd_gui_printf_vote_state( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+}
+
+static inline void
+publish_vote_status( fd_gui_t * gui,
+                     int        is_voting ) {
+  if( FD_UNLIKELY( !is_voting ) ) {
+    set_vote_state( gui, FD_GUI_VOTE_STATE_NON_VOTING );
+    return;
+  }
+
   fd_gui_slot_t * slot = fd_gui_slot_get( gui, gui->summary.slot_tower, gui->summary.slot_tower_bank_seq );
   FD_TEST( slot );
 
-  if( FD_UNLIKELY( slot->vote_slot==ULONG_MAX || gui->summary.slot_tower==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( gui->summary.slot_tower==ULONG_MAX ) ) return;
+
+  if( FD_UNLIKELY( slot->vote_slot==ULONG_MAX ) ) {
+    /* Voting is enabled but no vote has landed yet. */
+    set_vote_state( gui, FD_GUI_VOTE_STATE_DELINQUENT );
+    return;
+  }
 
   /* Snapshot the fields before the inner loop (which re-resolves slots). */
   ulong vote_slot  = slot->vote_slot;
   ulong reset_slot = gui->summary.slot_tower;
-  int   is_voting  = gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING;
 
   ulong vote_distance = reset_slot-vote_slot;
   if( FD_LIKELY( vote_distance<FD_GUI_MAX_VOTE_DISTANCE ) ) {
@@ -2551,20 +2620,10 @@ publish_vote_status( fd_gui_t * gui ) {
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  if( FD_LIKELY( is_voting ) ) {
-    if( FD_UNLIKELY( vote_slot==ULONG_MAX || vote_distance>150UL ) ) {
-      if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_DELINQUENT ) ) {
-        gui->summary.vote_state = FD_GUI_VOTE_STATE_DELINQUENT;
-        fd_gui_printf_vote_state( gui );
-        fd_http_server_ws_broadcast( gui->http );
-      }
-    } else {
-      if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_VOTING ) ) {
-        gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
-        fd_gui_printf_vote_state( gui );
-        fd_http_server_ws_broadcast( gui->http );
-      }
-    }
+  if( FD_UNLIKELY( vote_slot==ULONG_MAX || vote_distance>150UL ) ) {
+    set_vote_state( gui, FD_GUI_VOTE_STATE_DELINQUENT );
+  } else {
+    set_vote_state( gui, FD_GUI_VOTE_STATE_VOTING );
   }
 }
 
@@ -2587,7 +2646,10 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 
   if( FD_LIKELY( tower->reset_slot!=ULONG_MAX ) ) {
     handle_tower_slot( gui, tower->reset_slot, tower->reset_bank_seq, now );
-    publish_vote_status( gui );
+    publish_vote_status( gui, tower->is_voting );
+  } else if( FD_UNLIKELY( !tower->is_voting ) ) {
+    /* NON_VOTING does not need a reset slot, unlike publish_vote_status. */
+    set_vote_state( gui, FD_GUI_VOTE_STATE_NON_VOTING );
   }
 
   if( FD_LIKELY( gui->summary.slot_reset!=tower->reset_slot ) ) {
@@ -2602,31 +2664,49 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  /* update slot history vote latencies with new votes. */
-  for( ulong i=0UL; i<tower->tower_cnt; i++ ) {
-    ulong          tslot = tower->tower[ i ].slot;
-    uchar          latency = tower->tower[ i ].latency;
-    fd_gui_slot_t * slot = fd_gui_slot_get_canon( gui, tslot );
-    if( FD_UNLIKELY( slot && slot->vote_latency!=latency ) ) {
-      slot->vote_latency = latency;
-      fd_gui_printf_slot( gui, tslot, slot );
-      fd_http_server_ws_broadcast( gui->http );
-    }
-    if( FD_LIKELY( slot ) ) slot->vote_latency = latency;
+  /* Update vote latencies.  This is the speculative, true correct
+     latencies are published as a vote's landed slot is rooted. */
+  for( ulong r=0UL; r<gui->landed_vote_cnt; r++ ) {
+    ulong raw_latency = gui->landed_votes[ r ].landed_slot - gui->landed_votes[ r ].voted_slot;
+    if( FD_UNLIKELY( raw_latency>=FD_GUI_VOTE_LATENCY_MAX || gui->landed_votes[ r ].landed_slot>gui->summary.slot_tower ) ) continue;
 
-    if( FD_UNLIKELY( i+1UL>=tower->tower_cnt ) ) break;
-    for( ulong s=tower->tower[ i ].slot+1UL; s<tower->tower[ i+1 ].slot; s++ ) {
-      fd_gui_slot_t * gap = fd_gui_slot_get_canon( gui, s );
-      if( FD_LIKELY( gap && gap->vote_latency!=UCHAR_MAX ) ) {
-        gap->vote_latency = UCHAR_MAX;
-        fd_gui_printf_slot( gui, s, gap );
-        fd_http_server_ws_broadcast( gui->http );
-      }
+    ulong voted_bank_seq, exact_latency;
+    if( FD_UNLIKELY( !fd_gui_compute_vote_latency( gui, gui->landed_votes[ r ].landed_slot, gui->landed_votes[ r ].landed_bank_seq, gui->landed_votes[ r ].voted_slot, &voted_bank_seq, &exact_latency ) ) ) continue;
 
-      gap = fd_gui_slot_get_any( gui, s );
-      if( FD_UNLIKELY( gap ) ) gap->vote_latency = UCHAR_MAX;
-    }
+    fd_gui_slot_t * slot = fd_gui_slot_get( gui, gui->landed_votes[ r ].voted_slot, voted_bank_seq );
+    if( FD_UNLIKELY( !slot ) ) continue;
+
+    uchar e = (uchar)fd_ulong_min( exact_latency, FD_GUI_VOTE_LATENCY_MAX );
+    if( FD_LIKELY( e>=slot->vote_latency_exact ) ) continue;
+    fd_gui_record_vote_latency( gui, gui->landed_votes[ r ].voted_slot, voted_bank_seq, (uchar)raw_latency, e );
   }
+}
+
+void
+fd_gui_stage_landed_vote( fd_gui_t * gui,
+                          ulong      landed_slot,
+                          ulong      landed_bank_seq,
+                          ulong      voted_slot ) {
+  if( FD_UNLIKELY( voted_slot==ULONG_MAX || voted_slot>=landed_slot ) ) return;
+
+  /* Handle edge case of votes that land in an already-rooted slot. */
+  if( FD_UNLIKELY( gui->summary.slot_rooted!=ULONG_MAX && landed_slot<=gui->summary.slot_rooted ) ) {
+    fd_gui_slot_t const * canon = fd_gui_slot_get_canon( gui, landed_slot );
+    if( FD_UNLIKELY( !canon || canon->bank_seq!=landed_bank_seq ) ) return;
+    ulong raw = landed_slot - voted_slot;
+    if( FD_UNLIKELY( raw>=UCHAR_MAX ) ) return;
+    ulong voted_bank_seq, exact;
+    if( FD_UNLIKELY( !fd_gui_compute_vote_latency( gui, landed_slot, landed_bank_seq, voted_slot, &voted_bank_seq, &exact ) ) ) return;
+    fd_gui_record_vote_latency( gui, voted_slot, voted_bank_seq, (uchar)raw, (uchar)fd_ulong_min( exact, UCHAR_MAX ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( gui->landed_vote_cnt>=FD_GUI_LANDED_VOTE_MAX ) ) return;
+
+  gui->landed_votes[ gui->landed_vote_cnt ].landed_slot     = landed_slot;
+  gui->landed_votes[ gui->landed_vote_cnt ].landed_bank_seq = landed_bank_seq;
+  gui->landed_votes[ gui->landed_vote_cnt ].voted_slot      = voted_slot;
+  gui->landed_vote_cnt++;
 }
 
 void
@@ -2829,6 +2909,29 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
   lslot->begin_microblocks += (uint)txn_cnt;
 }
 
+static void
+fd_gui_stage_leader_block_votes( fd_gui_t *   gui,
+                                 ulong        landed_slot,
+                                 ulong        landed_bank_seq,
+                                 fd_txn_p_t * txn_p ) {
+  if( FD_LIKELY( !(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) return;
+
+  fd_txn_t const * txn     = TXN( txn_p );
+  uchar const *    payload = txn_p->payload;
+
+  fd_compact_tower_sync_serde_t tower_sync[ 1 ];
+  if( FD_UNLIKELY( !fd_txn_parse_simple_vote( txn, payload, tower_sync ) ) ) return;
+
+  fd_acct_addr_t const * accs = fd_txn_get_acct_addrs( txn, payload );
+  if( FD_UNLIKELY( memcmp( &accs[ 0 ], gui->summary.identity_key->uc, sizeof(fd_pubkey_t) ) ) ) return; /* not our vote */
+
+  ulong cur = fd_ulong_if( tower_sync->root==ULONG_MAX, 0UL, tower_sync->root );
+  for( ulong i=0UL; i<tower_sync->lockouts_cnt; i++ ) {
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, tower_sync->lockouts[ i ].offset, &cur ) ) ) return;
+    fd_gui_stage_landed_vote( gui, landed_slot, landed_bank_seq, cur );
+  }
+}
+
 void
 fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  long           tspub_ns,
@@ -2869,6 +2972,9 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
       .flags                   = flags
     };
     fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_END, now, tspub_ns, &rec );
+
+    /* Record our own votes that land in our own leader block. */
+    fd_gui_stage_leader_block_votes( gui, _slot, bank_seq, txn_p );
   }
 
   lslot->end_microblocks = lslot->end_microblocks + (uint)txn_cnt;

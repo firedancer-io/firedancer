@@ -177,13 +177,40 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
   msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
   msg->txn_exec->slot            = ctx->slot;
+  msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
 
-  if( FD_UNLIKELY( !ctx->txn_out.details.is_simple_vote || !fd_txn_parse_simple_vote( TXN( ctx->txn_in.txn ), ctx->txn_in.txn->payload, msg->txn_exec->vote.identity, msg->txn_exec->vote.vote_acct, &msg->txn_exec->vote.slot ) ) ) {
-    msg->txn_exec->vote.slot       = ULONG_MAX;
-    *msg->txn_exec->vote.identity  = (fd_pubkey_t){ 0 };
-    *msg->txn_exec->vote.vote_acct = (fd_pubkey_t){ 0 };
+  int is_vote = 0;
+  if( FD_LIKELY( ctx->txn_out.details.is_simple_vote ) ) {
+    fd_txn_t const * txn = TXN( ctx->txn_in.txn );
+    uchar const *    payload = ctx->txn_in.txn->payload;
+    fd_compact_tower_sync_serde_t tower_sync[ 1 ];
+    if( FD_LIKELY( fd_txn_parse_simple_vote( txn, payload, tower_sync ) ) ) {
+      fd_acct_addr_t const * accs = fd_txn_get_acct_addrs( txn, payload );
+      *msg->txn_exec->vote.identity  = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
+      *msg->txn_exec->vote.vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ txn->signature_cnt==1 ? 1 : 2 ] );
+
+      ulong cur       = fd_ulong_if( tower_sync->root==ULONG_MAX, 0UL, tower_sync->root );
+      ulong cnt       = 0UL;
+      int   overflow  = 0;
+      for( ulong i=0UL; i<tower_sync->lockouts_cnt; i++ ) {
+        if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, tower_sync->lockouts[ i ].offset, &cur ) ) ) { overflow = 1; break; }
+        msg->txn_exec->vote.vote_slots[ cnt++ ] = cur;
+      }
+      if( FD_LIKELY( !overflow ) ) {
+        msg->txn_exec->vote.vote_slot_cnt = (uchar)cnt;
+        msg->txn_exec->vote.slot          = cnt ? msg->txn_exec->vote.vote_slots[ cnt-1UL ] : cur;
+        is_vote                           = 1;
+      }
+    }
+  }
+
+  if( FD_UNLIKELY( !is_vote ) ) {
+    msg->txn_exec->vote.slot          = ULONG_MAX;
+    msg->txn_exec->vote.vote_slot_cnt = (uchar)0;
+    *msg->txn_exec->vote.identity     = (fd_pubkey_t){ 0 };
+    *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
   }
 
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {

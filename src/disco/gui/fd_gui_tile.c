@@ -375,10 +375,16 @@ after_frag( fd_gui_ctx_t *      ctx,
 
         int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
         if( FD_UNLIKELY( msg->txn_exec->vote.slot!=ULONG_MAX && txn_succeeded ) ) {
+          int is_us = !memcmp( ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) );
           fd_gui_peers_handle_vote( ctx->peers,
                                     msg->txn_exec->vote.vote_acct,
                                     msg->txn_exec->vote.slot,
-                                    !memcmp(ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) ) );
+                                    is_us );
+          if( FD_UNLIKELY( is_us ) ) {
+            for( ulong i=0UL; i<msg->txn_exec->vote.vote_slot_cnt; i++ ) {
+              fd_gui_stage_landed_vote( ctx->gui, msg->txn_exec->slot, msg->txn_exec->bank_seq, msg->txn_exec->vote.vote_slots[ i ] );
+            }
+          }
         }
       }
 

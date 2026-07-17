@@ -724,6 +724,8 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   /* Refuse to vote if our node identity does not match the one
      specified in the vote account (hot spare check) */
   int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
+  msg->is_voting = found_authority && identity_matches;
+
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
                  found_authority &&
                  identity_matches &&
@@ -747,9 +749,6 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   } else {
     msg->has_vote_txn = 0;
   }
-
-  msg->tower_cnt = 0UL; /* FIXME */
-  if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct, ctx->our_vote_acct_sz );
 }
 
 static void
