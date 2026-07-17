@@ -2765,6 +2765,71 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_stale_id_key_does_not_shadow_rebuild" ));
 }
 
+static void
+test_identity_switch_quiesces_replay( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_keyswitch_t     keyswitch[1];
+  static fd_node_info_box_t node_info[1];
+
+  setup_ctx( ctx, wksp );
+  memset( keyswitch, 0, sizeof(keyswitch) );
+  FD_TEST( fd_node_info_box_join( fd_node_info_box_new( node_info ) ) );
+  void * vote_tracker_mem = fd_wksp_alloc_laddr( wksp, fd_vote_tracker_align(), fd_vote_tracker_footprint(), 1UL );
+  FD_TEST( vote_tracker_mem );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 0UL ) );
+  FD_TEST( ctx->vote_tracker );
+
+  fd_pubkey_t old_identity = { .ul = { 0x11UL } };
+  fd_pubkey_t new_identity = { .ul = { 0x22UL } };
+
+  ctx->keyswitch          = keyswitch;
+  ctx->node_info          = node_info;
+  ctx->identity_pubkey[0] = old_identity;
+  keyswitch->result       = ULONG_MAX;
+  memcpy( keyswitch->bytes, &new_identity, sizeof(new_identity) );
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  ulong replay_out_idx = ctx->replay_out->idx;
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ replay_out_idx ] ), 40UL );
+  ctx->replay_out_seq = fd_mcache_seq_laddr_const( test_stem_mcaches[ replay_out_idx ] );
+  ctx->is_booted = 0;
+
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &old_identity ) );
+
+  ctx->is_booted = 1;
+  ctx->is_leader = 1;
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ replay_out_idx ] ), 41UL );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( keyswitch->result==ULONG_MAX );
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &old_identity ) );
+
+  ctx->is_leader = 0;
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ replay_out_idx ] ), 42UL );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->halt_replay );
+  FD_TEST( fd_keyswitch_state_query( keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( keyswitch->result==42UL );
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &new_identity ) );
+
+  ulong idle_cnt = ctx->execrp_idle_cnt;
+  int poll_in = 1;
+  int charge_busy = 0;
+  after_credit( ctx, test_stem, &poll_in, &charge_busy );
+  FD_TEST( ctx->execrp_idle_cnt==idle_cnt );
+  FD_TEST( poll_in );
+  FD_TEST( !charge_busy );
+
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->halt_replay );
+  FD_TEST( fd_keyswitch_state_query( keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+
+  FD_LOG_NOTICE(( "pass: test_identity_switch_quiesces_replay" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2798,7 +2863,8 @@ main( int     argc,
   test_process_rotor_fec_skip_replayed( wksp );     fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
-  test_stale_id_key_does_not_shadow_rebuild( wksp );
+  test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
+  test_identity_switch_quiesces_replay( wksp );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
