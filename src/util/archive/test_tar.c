@@ -98,6 +98,23 @@ main( int     argc,
   FD_TEST( fd_tar_meta_set_size( meta, 1234567UL ) );
   FD_TEST( fd_tar_meta_get_size( meta )==1234567UL );
 
+  /* Test checksum calculation */
+
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  memset( meta->chksum, ' ', sizeof(meta->chksum) );
+  fd_tar_meta_set_chksum( meta );
+  FD_TEST( !memcmp( meta->chksum, "0000400", sizeof(meta->chksum) ) );
+
+  memset( meta->raw, 0xff, sizeof(meta->raw) );
+  memset( meta->chksum, ' ', sizeof(meta->chksum) );
+  fd_tar_meta_set_chksum( meta );
+  FD_TEST( !memcmp( meta->chksum, "0373410", sizeof(meta->chksum) ) );
+
+  memcpy( meta, test_large_header, sizeof(fd_tar_meta_t) );
+  memset( meta->chksum, ' ', sizeof(meta->chksum) );
+  fd_tar_meta_set_chksum( meta );
+  FD_TEST( !memcmp( meta->chksum, "0014315", sizeof(meta->chksum) ) );
+
   FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();
