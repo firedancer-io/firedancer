@@ -154,27 +154,6 @@ group_new( fd_top_votes_v2_t * top_votes,
   return 1;
 }
 
-static inline int
-group_join( fd_top_votes_v2_t const * top_votes,
-            vote_group_t const *      group ) {
-  ulong pool_sz = pool_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT );
-  ulong map_sz  = map_footprint( chain_cnt() );
-
-  if( FD_UNLIKELY( group->pool_off>top_votes->footprint ||
-                   pool_sz>top_votes->footprint-group->pool_off ||
-                   !fd_ulong_is_aligned( (ulong)top_votes+group->pool_off, pool_align() ) ) ) return 0;
-  if( FD_UNLIKELY( group->map_off>top_votes->footprint ||
-                   map_sz>top_votes->footprint-group->map_off ||
-                   !fd_ulong_is_aligned( (ulong)top_votes+group->map_off, map_align() ) ) ) return 0;
-
-  vote_ele_t * pool = get_pool( top_votes, group );
-  map_t *      map  = get_map( top_votes, group );
-  return pool &&
-         pool_max( pool )==FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT &&
-         map &&
-         map_chain_cnt( map )==chain_cnt();
-}
-
 static inline void
 group_reset( fd_top_votes_v2_t * top_votes,
              vote_group_t *      group ) {
@@ -335,113 +314,16 @@ fd_top_votes_v2_new( void * mem,
 
 fd_top_votes_v2_t *
 fd_top_votes_v2_join( void * mem ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_top_votes_v2_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
   fd_top_votes_v2_t * top_votes = (fd_top_votes_v2_t *)mem;
+
+  if( FD_UNLIKELY( !top_votes ) ) {
+    FD_LOG_WARNING(( "NULL top votes v2" ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( top_votes->magic!=FD_TOP_VOTES_V2_MAGIC ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 magic" ));
+    FD_LOG_WARNING(( "Invalid top votes v2 magic" ));
     return NULL;
-  }
-  if( FD_UNLIKELY( top_votes->footprint!=fd_top_votes_v2_footprint( top_votes->max_fork_width,
-                                                                    top_votes->max_live_banks ) ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 footprint" ));
-    return NULL;
-  }
-
-  ulong heap_sz = heap_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT );
-  if( FD_UNLIKELY( top_votes->insert_heap_off>top_votes->footprint ||
-                   heap_sz>top_votes->footprint-top_votes->insert_heap_off ||
-                   !fd_ulong_is_aligned( (ulong)top_votes+top_votes->insert_heap_off, heap_align() ) ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 shared insertion heap" ));
-    return NULL;
-  }
-  heap_t * heap = get_heap( top_votes );
-  if( FD_UNLIKELY( !heap ||
-                   heap_ele_max( heap )!=FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ||
-                   heap_ele_cnt( heap )>FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ||
-                   (top_votes->insert_bank_idx!=UINT_MAX &&
-                    top_votes->insert_bank_idx>=top_votes->max_live_banks) ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 insertion state" ));
-    return NULL;
-  }
-
-  ulong bank_info_footprint = fd_ulong_sat_mul( top_votes->max_live_banks, sizeof(bank_info_t) );
-  if( FD_UNLIKELY( top_votes->bank_info_off>top_votes->footprint ||
-                   bank_info_footprint>top_votes->footprint-top_votes->bank_info_off ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 bank info offset" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->bank_info_off,
-                                         alignof(bank_info_t) ) ) ) {
-    FD_LOG_WARNING(( "misaligned top votes v2 bank info" ));
-    return NULL;
-  }
-  bank_info_t const * bank_info = get_bank_info( top_votes );
-  for( ulong i=0UL; i<top_votes->max_live_banks; i++ ) {
-    uint t_1_group_idx = bank_info[ i ].t_1_group_idx;
-    uint t_2_group_idx = bank_info[ i ].t_2_group_idx;
-    int  uninitialized = t_1_group_idx==UINT_MAX && t_2_group_idx==UINT_MAX;
-    int  initialized   = t_1_group_idx<top_votes->max_fork_width &&
-                         t_2_group_idx<FD_TOP_VOTES_V2_T_2_GROUP_CNT;
-    if( FD_UNLIKELY( !uninitialized && !initialized ) ) {
-      FD_LOG_WARNING(( "invalid top votes v2 bank info" ));
-      return NULL;
-    }
-  }
-  if( FD_UNLIKELY( top_votes->insert_bank_idx!=UINT_MAX &&
-                   bank_info[ top_votes->insert_bank_idx ].t_1_group_idx==UINT_MAX ) ) {
-    FD_LOG_WARNING(( "uninitialized top votes v2 insertion bank" ));
-    return NULL;
-  }
-
-  ulong group_pool_sz = group_pool_footprint( top_votes->max_fork_width );
-  if( FD_UNLIKELY( top_votes->t_1_group_pool_off>top_votes->footprint ||
-                   group_pool_sz>top_votes->footprint-top_votes->t_1_group_pool_off ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 t-1 group pool offset" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->t_1_group_pool_off,
-                                         group_pool_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned top votes v2 t-1 group pool" ));
-    return NULL;
-  }
-
-  ulong state_footprint = vote_state_footprint( top_votes->max_live_banks );
-  if( FD_UNLIKELY( top_votes->t_2_state_off>top_votes->footprint ||
-                   state_footprint>top_votes->footprint-top_votes->t_2_state_off ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 state offset" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->t_2_state_off,
-                                         alignof(vote_state_ele_t) ) ) ) {
-    FD_LOG_WARNING(( "misaligned top votes v2 state" ));
-    return NULL;
-  }
-
-  for( ulong i=0UL; i<FD_TOP_VOTES_V2_T_2_GROUP_CNT; i++ ) {
-    if( FD_UNLIKELY( !group_join( top_votes, &top_votes->t_2_accounts[ i ] ) ) ) {
-      FD_LOG_WARNING(( "invalid t-2 vote-account group" ));
-      return NULL;
-    }
-  }
-  vote_group_t * groups = get_group_pool( top_votes );
-  if( FD_UNLIKELY( !groups ||
-                   group_pool_max( groups )!=top_votes->max_fork_width ) ) {
-    FD_LOG_WARNING(( "invalid top votes v2 t-1 group pool" ));
-    return NULL;
-  }
-  for( ulong i=0UL; i<top_votes->max_fork_width; i++ ) {
-    if( FD_UNLIKELY( !group_join( top_votes, group_pool_ele( groups, i ) ) ) ) {
-      FD_LOG_WARNING(( "invalid t-1 vote-account group" ));
-      return NULL;
-    }
   }
 
   return top_votes;

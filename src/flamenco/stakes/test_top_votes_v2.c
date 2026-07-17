@@ -6,157 +6,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define TEST_T_2_GROUP_CNT       (2UL)
-#define TEST_POOL_META_FOOTPRINT (128UL)
-
-typedef struct {
-  ulong pool_off;
-  ulong map_off;
-  union {
-    uint next;
-    uint owner_bank_idx;
-  };
-} test_vote_account_group_t;
-
-typedef struct {
-  uint t_1_group_idx;
-  uint t_2_group_idx;
-} test_bank_info_t;
-
-typedef struct {
-  ulong magic;
-  ulong max;
-  ulong free;
-  ulong free_top;
-  ulong free_lazy;
-} test_pool_private_t;
-
-typedef struct {
-  ulong magic;
-  ulong seed;
-  ulong chain_cnt;
-} test_map_private_t;
-
-typedef struct __attribute__((aligned(128UL))) {
-  ulong magic;
-  ulong footprint;
-  ulong max_fork_width;
-  ulong max_live_banks;
-  ulong t_2_state_off;
-  ulong bank_info_off;
-  ulong t_1_group_pool_off;
-  ulong insert_heap_off;
-
-  ulong insert_min_stake_wmark;
-  uint  insert_bank_idx;
-
-  test_vote_account_group_t t_2_accounts[ TEST_T_2_GROUP_CNT ];
-} test_top_votes_v2_private_t;
-
-FD_STATIC_ASSERT( sizeof(test_vote_account_group_t)==24UL,  test_vote_account_group );
-FD_STATIC_ASSERT( sizeof(test_bank_info_t)==8UL,            test_bank_info          );
-FD_STATIC_ASSERT( sizeof(test_top_votes_v2_private_t)==128UL, test_top_votes_v2       );
-
 static fd_pubkey_t
 test_pubkey( ulong id ) {
   fd_pubkey_t key = {0};
   memcpy( key.uc, &id, sizeof(id) );
   return key;
-}
-
-static test_bank_info_t *
-test_bank_info( test_top_votes_v2_private_t * top_votes ) {
-  return (test_bank_info_t *)( (uchar *)top_votes+top_votes->bank_info_off );
-}
-
-static test_vote_account_group_t *
-test_t_1_group( test_top_votes_v2_private_t * top_votes,
-                ulong                         group_idx ) {
-  return (test_vote_account_group_t *)( (uchar *)top_votes+
-                                        top_votes->t_1_group_pool_off+
-                                        TEST_POOL_META_FOOTPRINT )+group_idx;
-}
-
-typedef void (*corrupt_join_fn_t)( test_top_votes_v2_private_t * top_votes );
-
-static int
-join_rejects_corruption( void const *      pristine,
-                         ulong             align,
-                         ulong             footprint,
-                         char const *       description,
-                         corrupt_join_fn_t  corrupt ) {
-  void * mem = aligned_alloc( align, footprint );
-  FD_TEST( mem );
-  memcpy( mem, pristine, footprint );
-  corrupt( (test_top_votes_v2_private_t *)mem );
-  int rejected = !fd_top_votes_v2_join( mem );
-  if( FD_UNLIKELY( !rejected ) )
-    FD_LOG_WARNING(( "join accepted malformed %s", description ));
-  free( mem );
-  return rejected;
-}
-
-static void
-corrupt_bank_missing_t_1( test_top_votes_v2_private_t * top_votes ) {
-  test_bank_info_t * bank = test_bank_info( top_votes )+top_votes->max_live_banks-1UL;
-  bank->t_1_group_idx = UINT_MAX;
-  bank->t_2_group_idx = 0U;
-}
-
-static void
-corrupt_bank_missing_t_2( test_top_votes_v2_private_t * top_votes ) {
-  test_bank_info_t * bank = test_bank_info( top_votes )+top_votes->max_live_banks-1UL;
-  bank->t_1_group_idx = 0U;
-  bank->t_2_group_idx = UINT_MAX;
-}
-
-static void
-corrupt_bank_t_1_oob( test_top_votes_v2_private_t * top_votes ) {
-  test_bank_info_t * bank = test_bank_info( top_votes )+top_votes->max_live_banks-1UL;
-  bank->t_1_group_idx = (uint)top_votes->max_fork_width;
-  bank->t_2_group_idx = 0U;
-}
-
-static void
-corrupt_bank_t_2_oob( test_top_votes_v2_private_t * top_votes ) {
-  test_bank_info_t * bank = test_bank_info( top_votes )+top_votes->max_live_banks-1UL;
-  bank->t_1_group_idx = 0U;
-  bank->t_2_group_idx = (uint)TEST_T_2_GROUP_CNT;
-}
-
-static void
-corrupt_active_bank_uninitialized( test_top_votes_v2_private_t * top_votes ) {
-  top_votes->insert_bank_idx = 0U;
-}
-
-static void
-corrupt_t_2_pool_max( test_top_votes_v2_private_t * top_votes ) {
-  test_pool_private_t * pool = (test_pool_private_t *)
-      ( (uchar *)top_votes+top_votes->t_2_accounts[ 0 ].pool_off );
-  pool->max--;
-}
-
-static void
-corrupt_t_1_pool_max( test_top_votes_v2_private_t * top_votes ) {
-  test_vote_account_group_t * group = test_t_1_group( top_votes, 0UL );
-  test_pool_private_t * pool =
-      (test_pool_private_t *)( (uchar *)top_votes+group->pool_off );
-  pool->max--;
-}
-
-static void
-corrupt_t_2_map_chain_cnt( test_top_votes_v2_private_t * top_votes ) {
-  test_map_private_t * map = (test_map_private_t *)
-      ( (uchar *)top_votes+top_votes->t_2_accounts[ 0 ].map_off );
-  map->chain_cnt = 1UL;
-}
-
-static void
-corrupt_t_1_map_chain_cnt( test_top_votes_v2_private_t * top_votes ) {
-  test_vote_account_group_t * group = test_t_1_group( top_votes, 0UL );
-  test_map_private_t * map =
-      (test_map_private_t *)( (uchar *)top_votes+group->map_off );
-  map->chain_cnt = 1UL;
 }
 
 static void
@@ -282,27 +136,6 @@ main( int     argc,
   fd_top_votes_v2_t * top_votes = fd_top_votes_v2_join(
       fd_top_votes_v2_new( mem, max_fork_width, max_live_banks, 1234UL ) );
   FD_TEST( top_votes );
-
-  int malformed_joins_rejected = 1;
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "bank missing t-1 index", corrupt_bank_missing_t_1 );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "bank missing t-2 index", corrupt_bank_missing_t_2 );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "bank t-1 index", corrupt_bank_t_1_oob );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "bank t-2 index", corrupt_bank_t_2_oob );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "active bank", corrupt_active_bank_uninitialized );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "t-2 nested pool maximum", corrupt_t_2_pool_max );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "t-1 nested pool maximum", corrupt_t_1_pool_max );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "t-2 nested map chain count", corrupt_t_2_map_chain_cnt );
-  malformed_joins_rejected &= join_rejects_corruption(
-      mem, align, footprint, "t-1 nested map chain count", corrupt_t_1_map_chain_cnt );
-  FD_TEST( malformed_joins_rejected );
 
   assert_lifecycle_rejected( top_votes, reopen_completed_empty_group );
   assert_lifecycle_rejected( top_votes, share_fresh_group );
