@@ -164,21 +164,21 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
       },
       {
         .name              = "DRV",
-        .supported_drivers = { { "mlx5_core", 4, 14 } },
+        .supported_drivers = { { "mlx5_core", 5, 15 } },
         .is_feat_auto      = is_xdp_mode_auto,
         .check             = xdp_drv_check,
         .apply             = xdp_drv_apply,
       },
       {
         .name              = "Prefbusy",
-        .supported_drivers = { { "mlx5_core", 5, 11 } },
+        .supported_drivers = { { "mlx5_core", 5, 15 } },
         .is_feat_auto      = is_xdp_prefbusy_auto,
         .check             = xdp_prefbusy_check,
         .apply             = xdp_prefbusy_apply
       },
       {
         .name              = "Zero Copy",
-        .supported_drivers = { { "mlx5_core", 5, 3  } },
+        .supported_drivers = { { "mlx5_core", 5, 15  } },
         .is_feat_auto      = is_xdp_zc_auto,
         .check             = xdp_zc_check,
         .apply             = xdp_zc_apply
@@ -322,8 +322,12 @@ fd_auto_net( fd_config_t          * config,
       fd_auto_feat_t const * feat = &provider->feats[f];
       if( !feat->name ) break;
 
-      if( !feat->is_feat_auto( config )
-       || !is_chosen_provider ) continue;
+      /* Checks feature is set to "auto", if so replaces "auto" with
+         default and goes onto the next checks */
+      if( !feat->is_feat_auto( config ) ) continue;
+
+      if( !is_chosen_provider
+       || !strcmp( config->net.auto_level, "minimal" ) ) continue;
 
       /* Feature's driver/Linux version requirements */
       if( !fd_auto_check_driver( info, feat->supported_drivers ) ) continue;
@@ -343,4 +347,18 @@ void
 fd_config_auto( fd_config_t * config ) {
   fd_auto_info_t info = fd_auto_scrape_info( config );
   fd_auto_net( config, &info );
+
+  FD_LOG_INFO(( "network auto configure level=%s, provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d (driver=%s kernel=%lu.%lu virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
+                  config->net.auto_level,
+                  config->net.provider,
+                  config->net.xdp.xdp_mode,
+                  config->net.xdp.poll_mode,
+                  config->net.xdp.xdp_zero_copy,
+                  config->net.xdp.native_bond,
+                  info.driver[0] ? info.driver : "unknown",
+                  info.linux_major, info.linux_minor,
+                  info.is_virtual_if,
+                  info.is_bonded_if,
+                  info.bonded_if_slave_count,
+                  config->layout.net_tile_count ));
 }

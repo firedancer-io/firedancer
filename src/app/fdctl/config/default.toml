@@ -902,6 +902,26 @@ dynamic_port_range = "8900-9000"
 # fanning in from these various network senders to transmit on the
 # queues we have available.
 [net]
+    # The auto_level controls how Firedancer's auto configuration
+    # system resolves networking options that are set to "auto"
+    # below (all options that support "auto" default to it).
+    # Options set to an explicit value are never modified,
+    # regardless of level.
+    #
+    #  "standard" (default)
+    #   Enable the networking features which auto configuration
+    #   determines are safe and supported on this system.
+    #
+    #  "minimal"
+    #   Resolve all "auto" options to their most conservative
+    #   values, disabling all hardware-specific optimizations.
+    #   This will reduce networking performance and is intended
+    #   for diagnosing problems suspected to be caused by auto
+    #   configuration, not for regular operation.  If you need
+    #   this option to make your validator work, please report
+    #   it as a bug.
+    auto_level = "standard"
+
     # The provider determines which Linux networking stack is used by
     # Firedancer.  Possible values for the option are:
     #
@@ -952,7 +972,10 @@ dynamic_port_range = "8900-9000"
         # This option selects the XDP provider.  Possible values for
         # this option are:
         #
-        # "skb" (default)
+        # "auto" (default)
+        #   Firedancer auto selects based on what your system is safely capable of.
+        #
+        # "skb"
         #   XDP provided by the kernel's generic network code.  This is
         #   the slowest mode, but it is well tested and compatible with
         #   all Linux network devices and drivers.
@@ -966,13 +989,10 @@ dynamic_port_range = "8900-9000"
         #   Full list of network drivers supporting XDP:
         #   https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp
         #
-        # "default"
-        #   Selects "skb" or "drv" automatically.
-        #
-        # If the kernel/hardware does not support driver mode, then
-        # `fdctl run` will fail to start up with "operation not
+        # With "drv" mode chosen on kernel/hardware which does not support driver
+        # mode, then `firedancer run` will fail to start up with "operation not
         # supported".
-        xdp_mode = "skb"
+        xdp_mode = "auto"
 
         # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
@@ -981,25 +1001,35 @@ dynamic_port_range = "8900-9000"
         # to 100 Gbps per net tile.
         #
         # Only works when XDP is provided by the network driver (see
-        # the xdp_mode option above).  If the kernel/hardware does not
-        # support zero copy, `fdctl run` will fail to start up with
-        # "operation not supported".
-        xdp_zero_copy = false
+        # the xdp_mode option above).  With true chosen on kernel/hardware
+        # which does not support zero copy, `firedancer run` will fail to
+        # start up with "operation not supported".
+        #
+        # If "auto" is in use for xdp_mode or native_bond, do not manually
+        # set xdp_zero_copy to true, and instead leave as either "auto" or false.
+        #
+        # Its possible values are:
+        #  true, false or "auto" (default)
+        #  (note the lack of quotes for true/false).
+        xdp_zero_copy = "auto"
 
         # The poll_mode option determines how Firedancer polls NAPI (Linux's
         # high perf networking mechanisms).  Its possible values are:
         #
-        #  "softirq" (default)
+        #  "auto" (default)
+        #   Firedancer auto selects based on what your system is safely capable of.
+        #
+        #  "softirq"
         #   Relies significantly more on Linux to manage NAPI through wakeups,
         #   softirqs, and under higher network load, a separate ksoftirqd
         #   thread which Linux schedules onto a separate core.
         #
         #  "prefbusy"
-        #   Experimental option which gives Firedancer significantly more
-        #   control over how and when NAPI is polled.  Reduces networking
-        #   related IRQs and ksoftirqds to near zero on well supported NIC
-        #   drivers, increasing determinism and stability during DoS attacks
-        #   and high net load.
+        #   Option which gives Firedancer significantly more control
+        #   over how and when NAPI is polled.  Reduces networking related
+        #   IRQs and ksoftirqds to near zero on well supported NIC drivers,
+        #   increasing determinism and stability during DoS attacks and
+        #   high net load.
         #
         #   Hardware Support: Currently best supported on mlx5 (Mellanox).
         #   Depending on the driver, XDP Copy Mode can see noticeable throughput
@@ -1008,11 +1038,11 @@ dynamic_port_range = "8900-9000"
         #
         # Extra info
         #
-        #  Requires a kernel version of at least v5.11 (Feb 2021).
+        #  Prefbusy requires a kernel version of at least v5.11 (Feb 2021).
         #
         #  Prefbusy mode increases tail latency for other applications on
         #  the system sharing the same network interface.
-        poll_mode = "softirq"
+        poll_mode = "auto"
 
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
@@ -1053,7 +1083,8 @@ dynamic_port_range = "8900-9000"
         #
         # "auto"
         #   Attempts to run in "dedicated" mode but automatically falls
-        #   back to "simple" mode if necessary.
+        #   back to "simple" mode if necessary.  Not affected by auto_level
+        #   and is separate from the auto configure system.
         rss_queue_mode = "simple"
 
         # Some specialized networking setups, including DoubleZero,
@@ -1073,21 +1104,26 @@ dynamic_port_range = "8900-9000"
 
         # Enable native network bonding support.
         #
-        # If native_bond is set to 'true' and [net.interface] is a 'bond'
-        # type network device, install XDP config at bond slave devices
-        # instead of the bond device itself.
+        # If native_bond is set to 'true' and [net.interface] is a
+        # 'bond' type network device, install XDP config at bond slave
+        # devices instead of the bond device itself.
         #
-        # Requires net_tile_count to be divisble by the number of slave
-        # devices.  This causes outgoing traffic to be load balanced with
-        # an arbitrary/opaque hash policy.  Supports up to 16 slave devices.
+        # Requires net_tile_count to be divisible by the number of slave
+        # devices.  This causes outgoing traffic to be load balanced
+        # with an arbitrary/opaque hash policy.  Supports up to 16 slave
+        # devices.
         #
-        # Assumes that bond memberships don't change, i.e. running
-        # `ip link set dev eth1 master bond0` will crash Firedancer.
+        # Assumes that bond memberships don't change, i.e. running `ip
+        # link set dev eth1 master bond0` will crash Firedancer.
         # However, it is fine to bring individual bonded devices down,
         # or unplug cables for maintenance.  In other words, executing
         # `ip link set dev eth1 down` while Firedancer is running is
         # just fine.
-        native_bond = false
+        #
+        # Its possible values are:
+        #  true, false or "auto" (default)
+        #  (note the lack of quotes for true/false).
+        native_bond = "auto"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
