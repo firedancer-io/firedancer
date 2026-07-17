@@ -753,7 +753,8 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
     fd_rdisp_complete_txn( disp, txn, 1 );
   }
   while( !zombie_dlist_is_empty( block->zombie_list, disp->pool ) ) {
-    fd_rdisp_complete_txn( disp, zombie_dlist_idx_pop_head( block->zombie_list, disp->pool ), 1 );
+    /* rdisp_complete_txn removes the peeked head */
+    fd_rdisp_complete_txn( disp, zombie_dlist_idx_peek_head( block->zombie_list, disp->pool ), 1 );
   }
 
   if( FD_LIKELY( block->staged ) ) {
