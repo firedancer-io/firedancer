@@ -7,6 +7,8 @@
 #include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../fd_system_ids.h"
+#include "../sysvar/fd_sysvar_rent.h"
 #include <stdlib.h>
 
 #define TEST_STAKE_ACCOUNT_STORES_PER_BLOCK (4096UL)
@@ -241,6 +243,54 @@ test_commission_split( void ) {
   FD_TEST( r->is_split       ==    1U  );
 
   FD_LOG_NOTICE(( "test_commission_split: PASSED" ));
+}
+
+/* Writes a VoteStateV4-serialized vote account with the given
+   commission (percent), epoch credits, and SIMD-0232 collectors. */
+static void
+patch_vote_account_v4( fd_svm_mini_t *     mini,
+                       fd_pubkey_t const * vote_key,
+                       fd_pubkey_t const * node_key,
+                       fd_pubkey_t const * inflation_collector,
+                       fd_pubkey_t const * block_collector,
+                       uchar               commission,
+                       ulong               epoch,
+                       ulong               credits,
+                       ulong               prev_credits ) {
+  uchar data[ FD_VOTE_STATE_V4_SZ ] = {0};
+  ulong o = 0UL;
+  FD_STORE( uint, data+o, 3U ); o += 4UL;                            /* variant = V4 */
+  memcpy( data+o, node_key->uc, 32UL ); o += 32UL;                   /* node_pubkey */
+  memcpy( data+o, node_key->uc, 32UL ); o += 32UL;                   /* authorized_withdrawer */
+  memcpy( data+o, inflation_collector->uc, 32UL ); o += 32UL;        /* inflation_rewards_collector */
+  memcpy( data+o, block_collector->uc, 32UL ); o += 32UL;            /* block_revenue_collector */
+  FD_STORE( ushort, data+o, (ushort)( (uint)commission*100U ) ); o += 2UL; /* inflation bps */
+  FD_STORE( ushort, data+o, (ushort)0 ); o += 2UL;                   /* block revenue bps */
+  FD_STORE( ulong, data+o, 0UL ); o += 8UL;                          /* pending_delegator_rewards */
+  data[ o++ ] = 0;                                                   /* bls pubkey = None */
+  FD_STORE( ulong, data+o, 0UL ); o += 8UL;                          /* votes len */
+  data[ o++ ] = 0;                                                   /* root slot = None */
+  FD_STORE( ulong, data+o, 0UL ); o += 8UL;                          /* authorized voters len */
+  FD_STORE( ulong, data+o, 1UL ); o += 8UL;                          /* epoch credits len */
+  FD_STORE( ulong, data+o, epoch ); o += 8UL;
+  FD_STORE( ulong, data+o, credits ); o += 8UL;
+  FD_STORE( ulong, data+o, prev_credits ); o += 8UL;
+  /* last_timestamp (slot, ts) stays zero */
+
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->key );
+  FD_TEST( acc.lamports>0UL );
+  ulong lamports_copy = acc.lamports;
+  uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+
+  fd_acc_t new_acc = {0};
+  memcpy( new_acc.pubkey, vote_key->key, 32 );
+  memcpy( new_acc.owner, owner_copy, 32 );
+  new_acc.lamports = lamports_copy;
+  new_acc.data_len = FD_VOTE_STATE_V4_SZ;
+  new_acc.data     = data;
+  fd_svm_mini_put_account_rooted( mini, &new_acc );
 }
 
 #define TEST_SLOTS_PER_EPOCH 16UL
@@ -1424,6 +1474,633 @@ test_get_reward_distribution_num_blocks_none( void ) {
   FD_LOG_NOTICE(( "test_get_reward_distribution_num_blocks_none: PASSED" ));
 }
 
+/**********************************************************************/
+/* SIMD-0232: inflation rewards commission collectors                 */
+/**********************************************************************/
+
+/* Creates the feature account so the activation survives
+   fd_features_restore at the epoch boundary. */
+static void
+activate_feature_account_( fd_svm_mini_t *     mini,
+                           fd_pubkey_t const * feature_id ) {
+  uchar data[9] = {0};
+  data[0] = 1; /* is_active */
+  /* activation_slot = 0 */
+  fd_acc_t acc = {0};
+  memcpy( acc.pubkey, feature_id->uc, 32 );
+  memcpy( acc.owner, fd_solana_feature_program_id.uc, 32 );
+  acc.lamports = 1000000UL;
+  acc.data_len = sizeof(data);
+  acc.data     = data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
+static void
+activate_custom_commission_collector( fd_svm_mini_t * mini ) {
+  fd_pubkey_t feature_id[1];
+  FD_TEST( fd_base58_decode_32( "3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf", feature_id->uc ) );
+  activate_feature_account_( mini, feature_id );
+}
+
+/* Shared setup: one 100%-commission V4 validator with the given
+   inflation collector, feature active.  Returns the distribution fork
+   after crossing the boundary. */
+static ulong
+setup_simd0232_single( fd_svm_mini_t * mini,
+                       fd_pubkey_t *   vote_key_out,
+                       fd_pubkey_t *   collector,
+                       ulong *         root_idx_out ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  activate_custom_commission_collector( mini );
+
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+  patch_vote_account_v4( mini, &vote_key, &identity_key, collector, &identity_key, 100, 0UL, 2UL, 0UL );
+
+  *vote_key_out = vote_key;
+  *root_idx_out = root_idx;
+  return root_idx;
+}
+
+/* Rewards are routed to the override collector; the vote account gets
+   nothing. */
+static ulong
+test_simd0232_collector_reward( fd_svm_mini_t * mini ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xC1, 32UL );
+
+  fd_pubkey_t vote_key; ulong root_idx;
+  setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+  /* Rent-exempt system account. */
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  ulong min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
+  fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  ulong collector_lam = read_lamports( mini, distrib_fk, &collector );
+  FD_TEST( collector_lam > min_bal );
+  ulong reward = collector_lam - min_bal;
+  FD_TEST( read_lamports( mini, distrib_fk, &vote_key )==vote_lam_before );
+
+  FD_LOG_NOTICE(( "test_simd0232_collector_reward: PASSED (reward = %lu lamports)", reward ));
+  return reward;
+}
+
+/* A non-system-owned collector burns the commission; both the
+   collector and the vote account are unchanged. */
+static void
+test_simd0232_invalid_collector_burns( fd_svm_mini_t * mini ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xC2, 32UL );
+
+  fd_pubkey_t vote_key; ulong root_idx;
+  setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+  /* Collector owned by a non-system program. */
+  fd_pubkey_t bad_owner; memset( bad_owner.uc, 0x99, 32UL );
+  uchar no_data[1] = {0};
+  fd_acc_t bad = {0};
+  memcpy( bad.pubkey, collector.uc, 32 );
+  memcpy( bad.owner, bad_owner.uc, 32 );
+  bad.lamports = 1000000000UL;
+  bad.data_len = 0UL;
+  bad.data     = no_data;
+  fd_svm_mini_put_account_rooted( mini, &bad );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  FD_TEST( read_lamports( mini, distrib_fk, &collector )==1000000000UL );
+  FD_TEST( read_lamports( mini, distrib_fk, &vote_key )==vote_lam_before );
+
+  FD_LOG_NOTICE(( "test_simd0232_invalid_collector_burns: PASSED" ));
+}
+
+/* A missing collector account is created when the rewards reach rent
+   exemption, and burned when they fall short. */
+static void
+test_simd0232_collector_rent_exemption( fd_svm_mini_t * mini,
+                                        ulong           reward ) {
+  fd_bank_t * probe_bank = fd_banks_root( mini->banks );
+  ulong min_bal = fd_rent_exempt_minimum_balance( &probe_bank->f.rent, 0UL );
+  FD_TEST( reward < min_bal ); /* test setup assumption */
+
+  /* Pre-fund so that (balance + reward) is exactly rent exempt:
+     deposit succeeds. */
+  {
+    fd_pubkey_t collector; memset( collector.uc, 0xC3, 32UL );
+    fd_pubkey_t vote_key; ulong root_idx;
+    setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+    fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal - reward );
+
+    ulong distrib_idx = advance_to_distribution( mini, root_idx );
+    fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+    FD_TEST( read_lamports( mini, distrib_fk, &collector )==min_bal );
+  }
+
+  /* One lamport short of rent exemption after the deposit: burned. */
+  {
+    fd_pubkey_t collector; memset( collector.uc, 0xC4, 32UL );
+    fd_pubkey_t vote_key; ulong root_idx;
+    setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+    fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal - reward - 1UL );
+
+    ulong distrib_idx = advance_to_distribution( mini, root_idx );
+    fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+    FD_TEST( read_lamports( mini, distrib_fk, &collector )==min_bal - reward - 1UL );
+  }
+
+  FD_LOG_NOTICE(( "test_simd0232_collector_rent_exemption: PASSED" ));
+}
+
+/* Two validators routing to the same collector aggregate their
+   rewards. */
+static void
+test_simd0232_repeated_collector( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  activate_custom_commission_collector( mini );
+
+  fd_pubkey_t collector; memset( collector.uc, 0xC5, 32UL );
+  ulong min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
+  fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal );
+
+  /* Mock validator keys are drawn sequentially from one rng seeded
+     with hash_seed. */
+  fd_rng_t rng[1];
+  fd_rng_join( fd_rng_new( rng, (uint)params->hash_seed, 0UL ) );
+  fd_pubkey_t votes[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_pubkey_t identity_key, vote_key, stake_key;
+    for( ulong j=0UL; j<4UL; j++ ) identity_key.ul[j] = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) vote_key.ul[j]     = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) stake_key.ul[j]    = fd_rng_ulong( rng );
+    (void)stake_key;
+    patch_vote_account_v4( mini, &vote_key, &identity_key, &collector, &identity_key, 100, 0UL, 2UL, 0UL );
+    votes[i] = vote_key;
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote0_before = read_lamports( mini, root_fk, &votes[0] );
+  ulong vote1_before = read_lamports( mini, root_fk, &votes[1] );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  ulong collector_lam = read_lamports( mini, distrib_fk, &collector );
+  FD_TEST( collector_lam > min_bal );
+  FD_TEST( read_lamports( mini, distrib_fk, &votes[0] )==vote0_before );
+  FD_TEST( read_lamports( mini, distrib_fk, &votes[1] )==vote1_before );
+
+  FD_LOG_NOTICE(( "test_simd0232_repeated_collector: PASSED (aggregated = %lu lamports)", collector_lam - min_bal ));
+}
+
+/* Commission routed to another vote account is burned; that vote
+   account keeps only its own self-collected reward. */
+static void
+test_simd0232_vote_account_collector_burns_external( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  activate_custom_commission_collector( mini );
+
+  fd_rng_t rng[1];
+  fd_rng_join( fd_rng_new( rng, (uint)params->hash_seed, 0UL ) );
+  fd_pubkey_t identities[2], votes[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_pubkey_t identity_key, vote_key, stake_key;
+    for( ulong j=0UL; j<4UL; j++ ) identity_key.ul[j] = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) vote_key.ul[j]     = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) stake_key.ul[j]    = fd_rng_ulong( rng );
+    (void)stake_key;
+    identities[i] = identity_key;
+    votes[i]      = vote_key;
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+
+  /* Validator 0 routes to validator 1's vote account; validator 1
+     collects for itself (default). */
+  patch_vote_account_v4( mini, &votes[0], &identities[0], &votes[1], &identities[0], 100, 0UL, 2UL, 0UL );
+  patch_vote_account_v4( mini, &votes[1], &identities[1], &votes[1], &identities[1], 100, 0UL, 2UL, 0UL );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote0_before = read_lamports( mini, root_fk, &votes[0] );
+  ulong vote1_before = read_lamports( mini, root_fk, &votes[1] );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  /* Equal stake and credits: both earned the same reward R.  B must
+     gain exactly its own R, with A's R burned. */
+  ulong vote1_after = read_lamports( mini, distrib_fk, &votes[1] );
+  FD_TEST( read_lamports( mini, distrib_fk, &votes[0] )==vote0_before );
+  FD_TEST( vote1_after > vote1_before );
+  ulong vote1_gain = vote1_after - vote1_before;
+
+  FD_LOG_NOTICE(( "test_simd0232_vote_account_collector_burns_external: PASSED (self reward = %lu)", vote1_gain ));
+}
+
+/* Commission routed to a vote account that earns no commission of its
+   own is still burned: the collector is not system-owned. */
+static void
+test_simd0232_zero_commission_vote_collector_burns( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 2UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  activate_custom_commission_collector( mini );
+
+  fd_rng_t rng[1];
+  fd_rng_join( fd_rng_new( rng, (uint)params->hash_seed, 0UL ) );
+  fd_pubkey_t identities[2], votes[2];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_pubkey_t identity_key, vote_key, stake_key;
+    for( ulong j=0UL; j<4UL; j++ ) identity_key.ul[j] = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) vote_key.ul[j]     = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) stake_key.ul[j]    = fd_rng_ulong( rng );
+    (void)stake_key;
+    identities[i] = identity_key;
+    votes[i]      = vote_key;
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+
+  /* Validator 0: 100% commission routed to validator 1's vote account.
+     Validator 1: 0% commission (earns no commission of its own). */
+  patch_vote_account_v4( mini, &votes[0], &identities[0], &votes[1], &identities[0], 100, 0UL, 2UL, 0UL );
+  patch_vote_account_v4( mini, &votes[1], &identities[1], &votes[1], &identities[1], 0, 0UL, 2UL, 0UL );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote0_before = read_lamports( mini, root_fk, &votes[0] );
+  ulong vote1_before = read_lamports( mini, root_fk, &votes[1] );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  FD_TEST( read_lamports( mini, distrib_fk, &votes[0] )==vote0_before );
+  FD_TEST( read_lamports( mini, distrib_fk, &votes[1] )==vote1_before );
+
+  FD_LOG_NOTICE(( "test_simd0232_zero_commission_vote_collector_burns: PASSED" ));
+}
+
+/* Rewards routed to the incinerator are deposited without a rent
+   check and burned at the end of the block. */
+static void
+test_simd0232_incinerator_collector( fd_svm_mini_t * mini ) {
+  fd_pubkey_t vote_key; ulong root_idx;
+  fd_pubkey_t incinerator = fd_sysvar_incinerator_id;
+  setup_simd0232_single( mini, &vote_key, &incinerator, &root_idx );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  /* The incinerator is cleared at the end of the boundary block. */
+  FD_TEST( read_lamports( mini, distrib_fk, &incinerator )==0UL );
+  FD_TEST( read_lamports( mini, distrib_fk, &vote_key )==vote_lam_before );
+
+  FD_LOG_NOTICE(( "test_simd0232_incinerator_collector: PASSED" ));
+}
+
+/* Burned commission still counts into the EpochRewards sysvar's
+   distributed_rewards: with a single 100%-commission validator whose
+   collector is invalid, everything burns yet distributed equals the
+   epoch total. */
+static void
+test_simd0232_burn_counts_in_sysvar( fd_svm_mini_t * mini,
+                                     ulong           reward ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xC6, 32UL );
+
+  fd_pubkey_t vote_key; ulong root_idx;
+  setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+  /* Non-system owner: the commission burns. */
+  fd_pubkey_t bad_owner; memset( bad_owner.uc, 0x98, 32UL );
+  uchar no_data[1] = {0};
+  fd_acc_t bad = {0};
+  memcpy( bad.pubkey, collector.uc, 32 );
+  memcpy( bad.owner, bad_owner.uc, 32 );
+  bad.lamports = 1000000000UL;
+  bad.data_len = 0UL;
+  bad.data     = no_data;
+  fd_svm_mini_put_account_rooted( mini, &bad );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+
+  ulong epoch_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  fd_accdb_fork_id_t epoch_fk = fd_svm_mini_fork_id( mini, epoch_idx );
+
+  FD_TEST( read_lamports( mini, epoch_fk, &collector )==1000000000UL );
+  FD_TEST( read_lamports( mini, epoch_fk, &vote_key )==vote_lam_before );
+
+  /* The commission (the full epoch total at 100% commission) burned,
+     but distributed_rewards still accounts for it.  The absolute value
+     is near the reference reward, scaled slightly by the extra
+     capitalization the collector account added. */
+  fd_sysvar_epoch_rewards_t er[1];
+  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er ) );
+  FD_TEST( er->distributed_rewards>0UL );
+  FD_TEST( er->distributed_rewards==er->total_rewards );
+  FD_TEST( er->distributed_rewards>=reward );
+
+  FD_LOG_NOTICE(( "test_simd0232_burn_counts_in_sysvar: PASSED (burned = %lu)", er->distributed_rewards ));
+}
+
+/* An absent collector is not created when the commission falls short
+   of rent exemption, and is created system-owned when it reaches it. */
+static void
+test_simd0232_absent_collector( fd_svm_mini_t * mini,
+                                ulong           reward ) {
+  /* Below rent exemption: burned, account never created. */
+  {
+    fd_pubkey_t collector; memset( collector.uc, 0xC7, 32UL );
+    fd_pubkey_t vote_key; ulong root_idx;
+    setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+    ulong distrib_idx = advance_to_distribution( mini, root_idx );
+    fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+    FD_TEST( read_lamports( mini, distrib_fk, &collector )==0UL );
+  }
+
+  /* Boosted inflation so the commission alone reaches rent exemption:
+     the account is created, owned by the system program. */
+  {
+    fd_pubkey_t collector; memset( collector.uc, 0xC8, 32UL );
+    fd_pubkey_t vote_key; ulong root_idx;
+    setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+    fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+    ulong  min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
+    double boost   = (double)( 4UL*min_bal )/(double)reward + 1.0;
+    root_bank->f.inflation.initial  *= boost;
+    root_bank->f.inflation.terminal *= boost;
+
+    ulong distrib_idx = advance_to_distribution( mini, root_idx );
+    fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+    fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, distrib_fk, collector.key );
+    FD_TEST( acc.lamports>=min_bal );
+    FD_TEST( !memcmp( acc.owner, fd_solana_system_program_id.uc, 32UL ) );
+    FD_TEST( acc.data_len==0UL );
+    fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  }
+
+  FD_LOG_NOTICE(( "test_simd0232_absent_collector: PASSED" ));
+}
+
+/* With relax_post_exec_min_balance_check active, a pre-existing
+   rent-paying collector still receives the deposit. */
+static void
+test_simd0232_relax_deposit( fd_svm_mini_t * mini,
+                             ulong           reward ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xC9, 32UL );
+
+  fd_pubkey_t vote_key; ulong root_idx;
+  setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, relax_post_exec_min_balance_check, 0UL );
+  fd_pubkey_t relax_id[1];
+  FD_TEST( fd_base58_decode_32( "DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg", relax_id->uc ) );
+  activate_feature_account_( mini, relax_id );
+
+  /* One lamport: rent-paying before and after the deposit. */
+  fd_svm_mini_add_lamports_rooted( mini, &collector, 1UL );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  FD_TEST( read_lamports( mini, distrib_fk, &collector )==1UL+reward );
+
+  FD_LOG_NOTICE(( "test_simd0232_relax_deposit: PASSED" ));
+}
+
+/* A reserved key never receives the commission, even when the account
+   is system-owned and rent-exempt. */
+static void
+test_simd0232_reserved_collector_burns( fd_svm_mini_t * mini ) {
+  fd_pubkey_t collector = fd_sysvar_rewards_id;
+
+  fd_pubkey_t vote_key; ulong root_idx;
+  setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+  uchar no_data[1] = {0};
+  fd_acc_t acc = {0};
+  memcpy( acc.pubkey, collector.uc, 32 );
+  memcpy( acc.owner, fd_solana_system_program_id.uc, 32 );
+  acc.lamports = 1000000000UL;
+  acc.data_len = 0UL;
+  acc.data     = no_data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  FD_TEST( read_lamports( mini, distrib_fk, &collector )==1000000000UL );
+
+  FD_LOG_NOTICE(( "test_simd0232_reserved_collector_burns: PASSED" ));
+}
+
+/* A deposit that would overflow the collector's balance burns. */
+static void
+test_simd0232_overflow_burns( fd_svm_mini_t * mini ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xCA, 32UL );
+
+  fd_pubkey_t vote_key; ulong root_idx;
+  setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+  uchar no_data[1] = {0};
+  fd_acc_t acc = {0};
+  memcpy( acc.pubkey, collector.uc, 32 );
+  memcpy( acc.owner, fd_solana_system_program_id.uc, 32 );
+  acc.lamports = ULONG_MAX-1UL;
+  acc.data_len = 0UL;
+  acc.data     = no_data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  FD_TEST( read_lamports( mini, distrib_fk, &collector )==ULONG_MAX-1UL );
+
+  FD_LOG_NOTICE(( "test_simd0232_overflow_burns: PASSED" ));
+}
+
+/* An explicit self collector (the vote account's own pubkey) receives
+   the commission without any of the external-collector checks. */
+static void
+test_simd0232_self_collector( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  activate_custom_commission_collector( mini );
+
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+  patch_vote_account_v4( mini, &vote_key, &identity_key, &vote_key, &identity_key, 100, 0UL, 2UL, 0UL );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong vote_lam_before      = read_lamports( mini, root_fk, &vote_key );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  FD_TEST( read_lamports( mini, distrib_fk, &vote_key )>vote_lam_before );
+
+  FD_LOG_NOTICE(( "test_simd0232_self_collector: PASSED" ));
+}
+
+/* Rewards recalculation (snapshot restore) rebuilds the stake
+   partitions without touching commission collectors or the sysvar. */
+static void
+test_simd0232_recalc_ignores_commission( fd_svm_mini_t * mini ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xCB, 32UL );
+
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  activate_custom_commission_collector( mini );
+
+  ulong min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
+  fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal );
+
+  /* 50% commission so both a commission and a staker portion exist. */
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+  patch_vote_account_v4( mini, &vote_key, &identity_key, &collector, &identity_key, 50, 0UL, 2UL, 0UL );
+
+  ulong epoch_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  fd_svm_mini_freeze( mini, epoch_idx );
+  fd_bank_t * epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
+  fd_accdb_fork_id_t epoch_fk = fd_svm_mini_fork_id( mini, epoch_idx );
+
+  ulong collector_after_boundary = read_lamports( mini, epoch_fk, &collector );
+  FD_TEST( collector_after_boundary>min_bal );
+
+  fd_sysvar_epoch_rewards_t er_before[1];
+  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er_before ) );
+
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( epoch_bank );
+  ulong staker_total = fd_stake_rewards_total_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id );
+  FD_TEST( staker_total>0UL );
+
+  /* Simulate a restart: drop the partitions and recalculate. */
+  fd_stake_rewards_clear( stake_rewards );
+  epoch_bank->stake_rewards_fork_id = UCHAR_MAX;
+  fd_rewards_recalculate_partitioned_rewards( mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+
+  FD_TEST( epoch_bank->stake_rewards_fork_id!=UCHAR_MAX );
+  FD_TEST( fd_stake_rewards_total_rewards( fd_bank_stake_rewards_modify( epoch_bank ), epoch_bank->stake_rewards_fork_id )==staker_total );
+
+  /* The collector and the sysvar are untouched by recalculation. */
+  FD_TEST( read_lamports( mini, epoch_fk, &collector )==collector_after_boundary );
+  fd_sysvar_epoch_rewards_t er_after[1];
+  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er_after ) );
+  FD_TEST( er_after->distributed_rewards==er_before->distributed_rewards );
+  FD_TEST( er_after->total_rewards==er_before->total_rewards );
+
+  /* Distribution still pays the staker exactly once. */
+  fd_pubkey_t stake_only = stake_key;
+  ulong stake_lam_before = read_lamports( mini, epoch_fk, &stake_only );
+  ulong distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+  FD_TEST( read_lamports( mini, distrib_fk, &stake_only )==stake_lam_before+staker_total );
+  FD_TEST( read_lamports( mini, distrib_fk, &collector )==collector_after_boundary );
+
+  FD_LOG_NOTICE(( "test_simd0232_recalc_ignores_commission: PASSED (commission=%lu staker=%lu)",
+                  collector_after_boundary-min_bal, staker_total ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1458,6 +2135,21 @@ main( int     argc,
   test_get_reward_distribution_num_blocks_normal();
   test_get_reward_distribution_num_blocks_warmup();
   test_get_reward_distribution_num_blocks_none();
+
+  ulong simd0232_reward = test_simd0232_collector_reward( mini );
+  test_simd0232_invalid_collector_burns( mini );
+  test_simd0232_collector_rent_exemption( mini, simd0232_reward );
+  test_simd0232_repeated_collector( mini );
+  test_simd0232_vote_account_collector_burns_external( mini );
+  test_simd0232_zero_commission_vote_collector_burns( mini );
+  test_simd0232_incinerator_collector( mini );
+  test_simd0232_burn_counts_in_sysvar( mini, simd0232_reward );
+  test_simd0232_absent_collector( mini, simd0232_reward );
+  test_simd0232_relax_deposit( mini, simd0232_reward );
+  test_simd0232_reserved_collector_burns( mini );
+  test_simd0232_overflow_burns( mini );
+  test_simd0232_self_collector( mini );
+  test_simd0232_recalc_ignores_commission( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

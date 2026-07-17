@@ -204,11 +204,11 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 /******************************************************************************/
 
 /* Validates the fee collector account before depositing fees.  Returns
-   0 on success.  Returns 1 if the fee collector is not owned by the
-   system program or if the fee collector's rent state transition is
-   invalid.
+   0 on success.  Returns 1 (fee is burned) if the fee collector is not
+   owned by the system program, the deposit overflows the collector's
+   balance, or the rent state transition is invalid.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L230 */
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/runtime/src/bank/fee_distribution.rs#L205-L229 */
 static int
 fd_runtime_validate_fee_collector( fd_bank_t const * bank,
                                    fd_acc_t const *  collector,
@@ -218,10 +218,11 @@ fd_runtime_validate_fee_collector( fd_bank_t const * bank,
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L208 */
   if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L229 */
+  /* Lamport overflow burns the fee.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/runtime/src/bank/fee_distribution.rs#L210-L214 */
   ulong pre_balance = collector->lamports;
   ulong post_balance;
-  FD_TEST( !__builtin_uaddl_overflow( pre_balance, fee, &post_balance ) );
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( pre_balance, fee, &post_balance ) ) ) return 1;
 
   return !!fd_executor_check_static_account_rent_state_transition(
     pre_balance,
@@ -230,6 +231,36 @@ fd_runtime_validate_fee_collector( fd_bank_t const * bank,
     &bank->f.rent,
     FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check )
   );
+}
+
+/* Validates an external SIMD-0232 block revenue collector after the
+   fee reward has been added.  Returns 0 to deposit, 1 to burn.  The
+   vote account itself is always valid and must not be passed here.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L231-L270 */
+
+static int
+fd_runtime_validate_block_revenue_collector( fd_bank_t const *   bank,
+                                             fd_pubkey_t const * collector_id,
+                                             ulong               pre_lamports,
+                                             fd_acc_t const *    collector ) {
+  /* Must be a system program owned account. */
+  if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+
+  /* Must not be a reserved account. */
+  if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector_id ) ||
+                   fd_pubkey_is_pending_reserved_key( collector_id ) ) ) return 1;
+
+  /* The incinerator is exempt from the rent check so the deposit
+     always works.  Incinerator funds are burned at the end of the
+     block. */
+  if( FD_UNLIKELY( fd_pubkey_eq( collector_id, &fd_sysvar_incinerator_id ) ) ) return 0;
+
+  /* Must be rent-exempt after the deposit.  With
+     relax_post_exec_min_balance_check (SIMD-0392) a pre-existing
+     account may stay rent-paying. */
+  int is_rent_exempt = collector->lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, collector->data_len );
+  return !is_rent_exempt &&
+         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !pre_lamports );
 }
 
 /* fd_runtime_settle_fees settles transaction fees accumulated during a
@@ -263,13 +294,52 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
 
+    /* Per SIMD-0232, the fee reward goes to the leader's block revenue
+       collector from the vote account state the leader schedule was
+       derived from (captured entering the previous epoch, tag
+       epoch-1); default is the leader identity.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L121-L148 */
+    int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
+
+    fd_pubkey_t const * collector_id = leader;
+    fd_pubkey_t const * leader_vote  = NULL;
+    fd_pubkey_t         override_collector;
+    if( custom_commission_collector ) {
+      leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+      if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
+      int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
+                                                bank->collector_overrides_fork_id,
+                                                fd_ulong_sat_sub( bank->f.epoch, 1UL ),
+                                                leader_vote,
+                                                NULL,
+                                                &override_collector );
+      if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) collector_id = &override_collector;
+    }
+
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
-    fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, leader, 1 );
-    if( FD_UNLIKELY( fd_runtime_validate_fee_collector( bank, &acc, fee_reward ) ) ) {  /* validation failed */
-      FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
+    fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
+    int burn;
+    if( custom_commission_collector ) {
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L184-L204 */
+      ulong post_balance;
+      burn = __builtin_uaddl_overflow( acc.lamports, fee_reward, &post_balance );
+      if( FD_LIKELY( !burn ) ) {
+        acc.lamports = post_balance;
+        /* The vote account itself is always a valid collector. */
+        if( !fd_pubkey_eq( collector_id, leader_vote ) ) {
+          burn = fd_runtime_validate_block_revenue_collector( bank, collector_id, update->lamports_before, &acc );
+        }
+      }
+      if( FD_UNLIKELY( burn ) ) acc.lamports = update->lamports_before;
     } else {
-      acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
+      burn = fd_runtime_validate_fee_collector( bank, &acc, fee_reward );
+      if( FD_LIKELY( !burn ) ) {
+        acc.lamports += fee_reward; /* guaranteed to not overflow, checked above */
+      }
+    }
+    if( FD_UNLIKELY( burn ) ) {
+      FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, fee_reward ));
     }
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
   }

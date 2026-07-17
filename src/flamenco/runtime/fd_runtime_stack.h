@@ -49,6 +49,9 @@ struct fd_stake_accum {
   fd_pubkey_t pubkey;
   ulong       stake;
   uint        next;
+  /* Set when the vote account is referenced by at least one stake
+     delegation; only such accounts need SIMD-0232 collector capture. */
+  uchar       has_delegation;
 };
 typedef struct fd_stake_accum fd_stake_accum_t;
 

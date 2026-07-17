@@ -221,6 +221,56 @@ fd_vote_commission_split( ushort                  commission,
   #undef MAX_BPS
 }
 
+/* Validates an external SIMD-0232 inflation commission collector
+   after all rewards routed to it have been added.  Returns 0 to
+   deposit, 1 to burn.  The vote account itself is always valid and
+   must not be passed here.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L231-L270 */
+static int
+fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
+                                          fd_pubkey_t const * collector,
+                                          fd_acc_t const *    account,
+                                          ulong               rewards ) {
+  /* Must be a system program owned account. */
+  if( FD_UNLIKELY( memcmp( account->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+
+  /* Must not be a reserved account. */
+  if( FD_UNLIKELY( fd_pubkey_is_active_reserved_key( collector ) ||
+                   fd_pubkey_is_pending_reserved_key( collector ) ) ) return 1;
+
+  ulong post_balance;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( account->lamports, rewards, &post_balance ) ) ) return 1;
+
+  /* The incinerator is exempt from the rent check so the deposit
+     always works.  Incinerator funds are burned at the end of the
+     rewards distribution block. */
+  if( FD_UNLIKELY( fd_pubkey_eq( collector, &fd_sysvar_incinerator_id ) ) ) return 0;
+
+  /* Must be rent-exempt after the deposit.  With
+     relax_post_exec_min_balance_check (SIMD-0392) a pre-existing
+     account may stay rent-paying. */
+  int is_rent_exempt = post_balance>=fd_rent_exempt_minimum_balance( &bank->f.rent, account->data_len );
+  return !is_rent_exempt &&
+         ( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) || !account->lamports );
+}
+
+/* Resolves the SIMD-0232 inflation commission collector from the vote
+   account state at the start of the distribution epoch (tag
+   bank->f.epoch); defaults to the vote account.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L667-L672 */
+static void
+fd_rewards_inflation_collector( fd_bank_t *         bank,
+                                fd_pubkey_t const * vote_pubkey,
+                                fd_pubkey_t *       collector_out ) {
+  *collector_out = *vote_pubkey;
+  fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
+                                bank->collector_overrides_fork_id,
+                                bank->f.epoch,
+                                vote_pubkey,
+                                collector_out,
+                                NULL );
+}
+
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
 static int
 redeem_rewards( fd_stake_delegation_t const *   stake,
@@ -830,27 +880,98 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       rewards_calc_result );
 
 
-  /* Iterate over all the vote reward nodes and distribute the rewards
-     to the vote accounts.  After each reward has been paid out,
-     calcualte the lthash for each vote account. */
+  /* Distribute the commission rewards.  distributed_rewards includes
+     burned and incinerated amounts: the epoch rewards sysvar counts
+     them as distributed.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L186-L217 */
   ulong distributed_rewards = 0UL;
-  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
-       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
-       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) {
+    /* Aggregate rewards per collector before validation: several small
+       rewards may collectively make a new collector rent-exempt.
+       stake_accum is free for reuse as scratch here. */
+    fd_stake_accum_t *     collector_pool = runtime_stack->stakes.stake_accum;
+    fd_stake_accum_map_t * collector_map  = runtime_stack->stakes.stake_accum_map;
+    fd_stake_accum_map_reset( collector_map );
+    ulong collector_cnt = 0UL;
 
-    uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
-    fd_vote_rewards_t * ele = &vote_ele_pool[idx];
+    for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+         !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+         iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+      uint                idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+      fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
-    ulong rewards = runtime_stack->stakes.vote_ele[ idx ].vote_rewards;
-    if( rewards==0UL ) {
-      continue;
+      ulong rewards = ele->vote_rewards;
+      if( FD_UNLIKELY( !rewards ) ) continue;
+      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+
+      fd_pubkey_t collector;
+      fd_rewards_inflation_collector( bank, &ele->pubkey, &collector );
+
+      fd_stake_accum_t * collector_reward = fd_stake_accum_map_ele_query( collector_map, &collector, NULL, collector_pool );
+      if( FD_UNLIKELY( !collector_reward ) ) {
+        FD_TEST( collector_cnt<runtime_stack->max_vote_accounts );
+        collector_reward         = &collector_pool[ collector_cnt++ ];
+        collector_reward->pubkey = collector;
+        collector_reward->stake  = rewards;
+        fd_stake_accum_map_ele_insert( collector_map, collector_reward, collector_pool );
+      } else {
+        collector_reward->stake = fd_ulong_sat_add( collector_reward->stake, rewards );
+      }
     }
 
-    /* Credit rewards to vote account (creating a new system account if
-       it does not exist) */
-    fd_pubkey_t const * vote_pubkey = &ele->pubkey;
-    fd_accdb_svm_credit( bank, accdb, capture_ctx, vote_pubkey, rewards );
-    distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+    for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( collector_map, collector_pool );
+         !fd_stake_accum_map_iter_done( iter, collector_map, collector_pool );
+         iter = fd_stake_accum_map_iter_next( iter, collector_map, collector_pool ) ) {
+      fd_stake_accum_t * collector_reward = fd_stake_accum_map_iter_ele( iter, collector_map, collector_pool );
+
+      /* A collector that is itself a self-collecting vote account is
+         paid only its own reward; rewards routed to it by other vote
+         accounts are burned (it is not system-owned).
+         https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L70-L124 */
+      fd_vote_rewards_t * self_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &collector_reward->pubkey, NULL, vote_ele_pool );
+      int is_vote_account = 0;
+      if( self_ele && self_ele->vote_rewards ) {
+        fd_pubkey_t self_collector;
+        fd_rewards_inflation_collector( bank, &self_ele->pubkey, &self_collector );
+        is_vote_account = fd_pubkey_eq( &self_collector, &self_ele->pubkey );
+      }
+      ulong rewards = is_vote_account ? self_ele->vote_rewards : collector_reward->stake;
+
+      fd_acc_t account = fd_accdb_read_one( accdb, bank->accdb_fork_id, collector_reward->pubkey.uc );
+      int      burn;
+      if( is_vote_account ) {
+        /* The vote account itself only needs the overflow check. */
+        ulong post_balance;
+        burn = __builtin_uaddl_overflow( account.lamports, rewards, &post_balance );
+      } else {
+        burn = fd_rewards_validate_commission_collector( bank, &collector_reward->pubkey, &account, rewards );
+      }
+      fd_accdb_unread_one( accdb, &account );
+
+      if( FD_UNLIKELY( burn ) ) continue;
+
+      /* Credit rewards to the collector (creating a new system account
+         if it does not exist). */
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &collector_reward->pubkey, rewards );
+    }
+  } else {
+    for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+         !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+         iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
+
+      uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+      fd_vote_rewards_t * ele = &vote_ele_pool[idx];
+
+      ulong rewards = ele->vote_rewards;
+      if( rewards==0UL ) {
+        continue;
+      }
+
+      /* Credit rewards to vote account (creating a new system account if
+         it does not exist) */
+      fd_accdb_svm_credit( bank, accdb, capture_ctx, &ele->pubkey, rewards );
+      distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
+    }
   }
 
   /* Verify that we didn't pay any more than we expected to */

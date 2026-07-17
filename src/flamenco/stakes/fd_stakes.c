@@ -633,12 +633,14 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
         FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
       }
       stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      stake_accum->pubkey = stake_delegation->vote_account;
-      stake_accum->stake  = new_acc.effective;
+      stake_accum->pubkey         = stake_delegation->vote_account;
+      stake_accum->stake          = new_acc.effective;
+      stake_accum->has_delegation = 1;
       fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
       staked_accounts++;
     } else {
-      stake_accum->stake += new_acc.effective;
+      stake_accum->stake         += new_acc.effective;
+      stake_accum->has_delegation = 1;
     }
   }
 
@@ -650,6 +652,12 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
+
+  /* Rotate the SIMD-0232 collector override fork for the new epoch. */
+  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
+  ushort co_child = fd_collector_overrides_new_child( overrides );
+  fd_collector_overrides_inherit( overrides, bank->collector_overrides_fork_id, co_child, fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
+  bank->collector_overrides_fork_id = co_child;
 
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
@@ -687,6 +695,35 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
     fd_accdb_unread_one( accdb, &acc );
+  }
+
+  /* Capture SIMD-0232 collector overrides for the admitted t-1 set.
+     Only admitted vote accounts can be scheduled as leaders or earn
+     inflation rewards, so collectors of accounts outside the set are
+     never consulted.  Capturing after selection bounds the override
+     store by the admitted set size. */
+  {
+    uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) co_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, co_iter_mem );
+         !fd_top_votes_iter_done( top_votes_t_1, iter );
+         fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
+      fd_pubkey_t vote_pubkey;
+      fd_pubkey_t node_pubkey;
+      fd_top_votes_iter_ele( top_votes_t_1, iter, &vote_pubkey, &node_pubkey, NULL, NULL, NULL, NULL, NULL );
+
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_pubkey.uc );
+      fd_pubkey_t inflation_collector;
+      fd_pubkey_t block_collector;
+      FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &vote_pubkey, &node_pubkey, &inflation_collector, &block_collector ) );
+      int has_inflation = !fd_pubkey_eq( &inflation_collector, &vote_pubkey );
+      int has_block     = !fd_pubkey_eq( &block_collector, &node_pubkey );
+      if( FD_UNLIKELY( has_inflation | has_block ) ) {
+        fd_collector_overrides_upsert( overrides, co_child, bank->f.epoch, &vote_pubkey,
+                                       has_inflation, &inflation_collector,
+                                       has_block, &block_collector );
+      }
+      fd_accdb_unread_one( accdb, &acc );
+    }
   }
 
   /* Seed status for the t-2 top votes set for clock calculation. */
@@ -866,8 +903,9 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     }
     fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
     if( !fd_stake_accum_map_ele_query( stake_accum_map, &vs_pubkey, NULL, stake_accum_pool ) ) {
-      sa->pubkey = vs_pubkey;
-      sa->stake  = 0UL;
+      sa->pubkey         = vs_pubkey;
+      sa->stake          = 0UL;
+      sa->has_delegation = 0;
       fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
       staked_accounts++;
     }
@@ -895,8 +933,9 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
 
     if( FD_LIKELY( !fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool ) ) ) {
       fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      sa->pubkey = *pubkey;
-      sa->stake  = 0UL;
+      sa->pubkey         = *pubkey;
+      sa->stake          = 0UL;
+      sa->has_delegation = 0;
       fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
       staked_accounts++;
     }
@@ -928,12 +967,14 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
         FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
       }
       stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      stake_accum->pubkey = stake_delegation->vote_account;
-      stake_accum->stake  = new_acc.effective;
+      stake_accum->pubkey         = stake_delegation->vote_account;
+      stake_accum->stake          = new_acc.effective;
+      stake_accum->has_delegation = 1;
       fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
       staked_accounts++;
     } else {
-      stake_accum->stake += new_acc.effective;
+      stake_accum->stake         += new_acc.effective;
+      stake_accum->has_delegation = 1;
     }
   }
 
@@ -992,6 +1033,12 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   ushort             child_idx   = fd_vote_stakes_new_child( vote_stakes );
   bank->vote_stakes_fork_id      = child_idx;
 
+  /* Rotate the SIMD-0232 collector override fork for the new epoch. */
+  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
+  ushort co_child = fd_collector_overrides_new_child( overrides );
+  fd_collector_overrides_inherit( overrides, bank->collector_overrides_fork_id, co_child, fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
+  bank->collector_overrides_fork_id = co_child;
+
   bank->f.total_epoch_stake = 0UL;
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
@@ -1018,6 +1065,22 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     } else {
       FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
       FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
+
+      /* Capture SIMD-0232 collector overrides.  Only delegated-to vote
+         accounts need capture: collectors of other accounts are never
+         consulted (no rewards, no leader slots). */
+      if( FD_UNLIKELY( stake_accum->has_delegation ) ) {
+        fd_pubkey_t inflation_collector;
+        fd_pubkey_t block_collector;
+        FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &stake_accum->pubkey, &node_account_t_1, &inflation_collector, &block_collector ) );
+        int has_inflation = !fd_pubkey_eq( &inflation_collector, &stake_accum->pubkey );
+        int has_block     = !fd_pubkey_eq( &block_collector, &node_account_t_1 );
+        if( FD_UNLIKELY( has_inflation | has_block ) ) {
+          fd_collector_overrides_upsert( overrides, co_child, bank->f.epoch, &stake_accum->pubkey,
+                                         has_inflation, &inflation_collector,
+                                         has_block, &block_collector );
+        }
+      }
 
       stake_t_1 = stake_accum->stake;
       bank->f.total_epoch_stake += stake_t_1;

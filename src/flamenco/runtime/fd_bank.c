@@ -4,6 +4,14 @@
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 
+/* SIMD-0232 collector override capacity: at most
+   FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT entries per epoch tag, three tags
+   live at once across the fork tree, and at most one entry variant
+   per boundary-crossing fork.  See the sizing note on
+   fd_collector_overrides_footprint. */
+#define FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) \
+  ( 3UL*FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT*(max_fork_width) )
+
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
   fd_rwlock_read( &bank->lthash_lock );
@@ -66,6 +74,11 @@ fd_banks_get_vote_stakes( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
 }
 
+static fd_collector_overrides_t *
+fd_banks_get_collector_overrides( fd_banks_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->collector_overrides_offset );
+}
+
 static fd_new_votes_t *
 fd_banks_get_new_votes( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->new_votes_offset );
@@ -109,6 +122,12 @@ fd_vote_stakes_t *
 fd_bank_vote_stakes( fd_bank_t const * bank ) {
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
   return fd_banks_get_vote_stakes( banks_data );
+}
+
+fd_collector_overrides_t *
+fd_bank_collector_overrides( fd_bank_t const * bank ) {
+  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  return fd_banks_get_collector_overrides( banks_data );
 }
 
 fd_new_votes_t *
@@ -260,6 +279,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_new_votes_align(),              fd_new_votes_footprint( max_vote_accounts, expected_vote_accounts, max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),       sizeof(fd_epoch_credits_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -289,6 +309,13 @@ fd_banks_new( void * shmem,
     FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }
+  /* The collector override store tracks fork membership in a 128-bit
+     mask with one bit reserved for the root, so at most 127 concurrent
+     forks can hold override entries. */
+  if( FD_UNLIKELY( max_fork_width>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) {
+    FD_LOG_WARNING(( "max_fork_width must be at most %lu", FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ));
+    return NULL;
+  }
 
   ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
   ulong expected_stake_accounts = fd_ulong_min( max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
@@ -306,6 +333,7 @@ fd_banks_new( void * shmem,
   void *       new_votes_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_new_votes_align(),              fd_new_votes_footprint( max_vote_accounts, expected_vote_accounts, max_total_banks ) );
   void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       sizeof(fd_epoch_credits_t) * max_vote_accounts );
   void *       snapshot_commission_t_3 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * max_vote_accounts );
+  void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -377,6 +405,13 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
+
+  fd_collector_overrides_t * collector_overrides = fd_collector_overrides_join( fd_collector_overrides_new( collector_overrides_mem, FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ), seed ) );
+  if( FD_UNLIKELY( !collector_overrides ) ) {
+    FD_LOG_WARNING(( "Failed to create collector overrides" ));
+    return NULL;
+  }
+  banks_data->collector_overrides_offset = (ulong)collector_overrides - (ulong)banks_data;
 
   fd_new_votes_t * new_votes = fd_new_votes_join( fd_new_votes_new( new_votes_mem, seed, max_vote_accounts, expected_vote_accounts, max_total_banks ) );
   if( FD_UNLIKELY( !new_votes ) ) {
@@ -459,9 +494,11 @@ fd_banks_join( void * banks_data_mem ) {
   void * new_votes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_new_votes_align(),              fd_new_votes_footprint( banks_data->max_vote_accounts, expected_vote_accounts, banks_data->max_total_banks ) );
   void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       sizeof(fd_epoch_credits_t) * banks_data->max_vote_accounts );
   void * snapshot_commission   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * banks_data->max_vote_accounts );
+  void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
   (void)new_votes_mem;
   (void)epoch_credits_mem;
   (void)snapshot_commission;
+  (void)collector_overrides_mem;
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -546,6 +583,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   bank->vote_stakes_fork_id      = fd_vote_stakes_get_root_idx( vote_stakes );
+  bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( fd_banks_get_collector_overrides( banks ) );
 
   bank->state     = FD_BANK_STATE_FROZEN;
   bank->refcnt    = 0UL;
@@ -585,6 +623,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   child_bank->f                          = parent_bank->f;
   child_bank->vote_stakes_fork_id        = parent_bank->vote_stakes_fork_id;
+  child_bank->collector_overrides_fork_id = parent_bank->collector_overrides_fork_id;
   child_bank->stake_rewards_fork_id      = parent_bank->stake_rewards_fork_id;
   child_bank->stake_delegations_fork_id  = fd_stake_delegations_new_fork( fd_banks_get_stake_delegations( banks ) );
   child_bank->new_votes_fork_id          = fd_new_votes_new_fork( fd_banks_get_new_votes( banks ) );
@@ -845,13 +884,18 @@ fd_banks_advance_root( fd_banks_t * banks,
         if( FD_LIKELY( head->vote_stakes_fork_id!=new_root->vote_stakes_fork_id ) ) {
           fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), head->vote_stakes_fork_id );
         }
+        if( FD_LIKELY( head->collector_overrides_fork_id!=USHORT_MAX &&
+                       head->collector_overrides_fork_id!=new_root->collector_overrides_fork_id ) ) {
+          fd_collector_overrides_purge_child( fd_banks_get_collector_overrides( banks ), head->collector_overrides_fork_id );
+        }
         if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX && head->stake_rewards_fork_id!=new_root->stake_rewards_fork_id ) ) {
           fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
         }
       }
     }
-    head->stake_rewards_fork_id = UCHAR_MAX;
-    head->vote_stakes_fork_id   = USHORT_MAX;
+    head->stake_rewards_fork_id       = UCHAR_MAX;
+    head->vote_stakes_fork_id         = USHORT_MAX;
+    head->collector_overrides_fork_id = USHORT_MAX;
 
     if( head->new_votes_fork_id!=USHORT_MAX ) {
       FD_LOG_DEBUG(( "evicting new votes fork (bank_idx=%lu, fork_idx=%u)", head->idx, head->new_votes_fork_id ));
@@ -885,6 +929,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_vote_stakes_advance_root( vote_stakes, new_root->vote_stakes_fork_id );
+  fd_collector_overrides_advance_root( fd_banks_get_collector_overrides( banks ), new_root->collector_overrides_fork_id );
 }
 
 /* Is the fork tree starting at the given bank entirely eligible for
@@ -999,8 +1044,9 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->is_leader   = is_leader;
   child_bank->f.block_id  = (fd_hash_t){0};
 
-  child_bank->vote_stakes_fork_id       = USHORT_MAX;
-  child_bank->stake_rewards_fork_id     = UCHAR_MAX;
+  child_bank->vote_stakes_fork_id        = USHORT_MAX;
+  child_bank->collector_overrides_fork_id = USHORT_MAX;
+  child_bank->stake_rewards_fork_id      = UCHAR_MAX;
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
   child_bank->parent_accdb_fork_id.val  = USHORT_MAX;
@@ -1124,11 +1170,15 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
     /* Only prune vote_stakes/stake_rewards for epoch boundary banks */
     if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
       fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), bank->vote_stakes_fork_id );
+      if( FD_LIKELY( bank->collector_overrides_fork_id!=USHORT_MAX ) ) {
+        fd_collector_overrides_purge_child( fd_banks_get_collector_overrides( banks ), bank->collector_overrides_fork_id );
+      }
       if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
     }
   }
-  bank->vote_stakes_fork_id   = USHORT_MAX;
-  bank->stake_rewards_fork_id = UCHAR_MAX;
+  bank->vote_stakes_fork_id         = USHORT_MAX;
+  bank->collector_overrides_fork_id = USHORT_MAX;
+  bank->stake_rewards_fork_id       = UCHAR_MAX;
 
   if( FD_LIKELY( cancel ) ) {
     cancel->bank_idx = bank->idx;
@@ -1289,6 +1339,12 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   ulong expected_vote_accounts  = fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   fd_vote_stakes_new( vote_stakes, max_vote_accounts, expected_vote_accounts, banks->max_fork_width, 999UL );
+
+  /* Resetting the override store invalidates any fork id the bank
+     acquired at an epoch boundary; re-sync it to the new root. */
+  fd_collector_overrides_t * collector_overrides = fd_banks_get_collector_overrides( banks );
+  fd_collector_overrides_reset( collector_overrides );
+  bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( collector_overrides );
 }
 
 void

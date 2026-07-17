@@ -636,6 +636,16 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   pb_size_t va_t1_cnt = 0U;
   pb_size_t va_t2_cnt = 0U;
 
+  /* SIMD-0232 collector overrides: resolve non-default collectors for
+     the t_1/t_2 snapshots (t_1 entries tagged with the bank epoch, t_2
+     with epoch-1), mirroring fd_ssmanifest_encoder.c.  Only overridden
+     collectors are emitted; an absent field means the default (vote
+     pubkey for inflation rewards, node identity for block revenue). */
+  fd_collector_overrides_t * collector_overrides = fd_bank_collector_overrides( parent_bank );
+  ushort co_fork_idx  = parent_bank->collector_overrides_fork_id;
+  ulong  co_epoch_t_1 = parent_bank->f.epoch;
+  ulong  co_epoch_t_2 = fd_ulong_sat_sub( parent_bank->f.epoch, 1UL );
+
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
@@ -656,6 +666,24 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
       acc->commission_bps      = commission_t_1;
       acc->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3;
       acc->epoch_credits_count = 0U;
+      acc->inflation_rewards_collector.size = 0U;
+      acc->block_revenue_collector.size     = 0U;
+      fd_pubkey_t inflation_collector;
+      fd_pubkey_t block_collector;
+      int co_flags = fd_collector_overrides_query( collector_overrides, co_fork_idx, co_epoch_t_1, &pubkey,
+                                                   &inflation_collector, &block_collector );
+      if( FD_UNLIKELY( co_flags ) ) {
+        /* Overrides are only ever captured from V4 vote state. */
+        acc->version = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
+        if( co_flags & FD_COLLECTOR_OVERRIDE_INFLATION ) {
+          acc->inflation_rewards_collector.size = 32U;
+          fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
+        }
+        if( co_flags & FD_COLLECTOR_OVERRIDE_BLOCK ) {
+          acc->block_revenue_collector.size = 32U;
+          fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
+        }
+      }
     }
 
     if( stake_t_2 ) {
@@ -666,6 +694,24 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
       acc->commission_bps      = commission_t_2;
       acc->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3;
       acc->epoch_credits_count = 0U;
+      acc->inflation_rewards_collector.size = 0U;
+      acc->block_revenue_collector.size     = 0U;
+      fd_pubkey_t inflation_collector;
+      fd_pubkey_t block_collector;
+      int co_flags = fd_collector_overrides_query( collector_overrides, co_fork_idx, co_epoch_t_2, &pubkey,
+                                                   &inflation_collector, &block_collector );
+      if( FD_UNLIKELY( co_flags ) ) {
+        /* Overrides are only ever captured from V4 vote state. */
+        acc->version = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
+        if( co_flags & FD_COLLECTOR_OVERRIDE_INFLATION ) {
+          acc->inflation_rewards_collector.size = 32U;
+          fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
+        }
+        if( co_flags & FD_COLLECTOR_OVERRIDE_BLOCK ) {
+          acc->block_revenue_collector.size = 32U;
+          fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
+        }
+      }
     }
   }
   fd_vote_stakes_fork_iter_fini( vote_stakes );

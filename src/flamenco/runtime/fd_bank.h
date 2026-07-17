@@ -7,6 +7,7 @@
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_top_votes.h"
 #include "../stakes/fd_vote_stakes.h"
+#include "../stakes/fd_collector_overrides.h"
 #include "../progcache/fd_progcache_xid.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
@@ -275,6 +276,7 @@ struct fd_bank {
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
   ushort                 vote_stakes_fork_id;
+  ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
   ushort                 stake_delegations_fork_id;
   ushort                 new_votes_fork_id;
@@ -408,6 +410,7 @@ struct fd_banks {
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
   ulong vote_stakes_pool_offset;
+  ulong collector_overrides_offset;
 
   ulong new_votes_offset;
 
@@ -448,6 +451,9 @@ fd_bank_epoch_credits_len( fd_bank_t * bank );
 
 fd_stashed_commission_t *
 fd_bank_snapshot_commission_t_3( fd_bank_t * bank );
+
+fd_collector_overrides_t *
+fd_bank_collector_overrides( fd_bank_t const * bank );
 
 ulong *
 fd_bank_snapshot_commission_t_3_len( fd_bank_t * bank );

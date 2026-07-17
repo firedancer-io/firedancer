@@ -125,7 +125,9 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_t
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_revoke-v4.1.0-beta.1 -m 1000 -e 290
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7-v4.1.0-beta.1 -m 20000 -e 1596
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8-v4.1.0-beta.1 -m 20000 -e 1596
-# [skipped: fails under v4.1: SIMD-0232 custom_commission_collector fee routing not in firedancer] src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -m 20000 -e 540
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -m 20000 -e 540
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l custom-collector-simd0232-multinode-v4.2.0-beta.2 -m 1000000 -e 1900 -i shredcap
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l custom-collector-simd0232-boot1204-v4.2.0-beta.2 -m 1000000 -e 1900 -i shredcap
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall-v4.1.0-beta.1 -m 1000 -e 379
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account_rekey-v4.1.0-beta.1 -m 1000 -e 329
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m-v4.1.0-beta.1 -m 10000 -e 603

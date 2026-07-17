@@ -502,6 +502,11 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_reset( vote_stakes );
 
+  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
+  fd_collector_overrides_reset( overrides );
+  bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( overrides );
+  ushort co_root = bank->collector_overrides_fork_id;
+
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_init( top_votes_t_1 );
@@ -533,6 +538,18 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
 
+    /* Record SIMD-0232 collector overrides for the t_1 set (tag
+       bank->f.epoch). */
+    {
+      int has_inflation = !!memcmp( elem->commission_inflation, elem->vote,     32UL );
+      int has_block     = !!memcmp( elem->commission_block,     elem->identity, 32UL );
+      if( FD_UNLIKELY( has_inflation | has_block ) ) {
+        fd_collector_overrides_upsert( overrides, co_root, bank->f.epoch, (fd_pubkey_t const *)elem->vote,
+                                       has_inflation, (fd_pubkey_t const *)elem->commission_inflation,
+                                       has_block, (fd_pubkey_t const *)elem->commission_block );
+      }
+    }
+
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
     ec->cnt          = elem->epoch_credits_history_len;
@@ -553,6 +570,19 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
       fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
+
+      /* Record SIMD-0232 collector overrides for the t_2 set (tag
+         bank->f.epoch-1, the leader schedule source state). */
+      {
+        int has_inflation = !!memcmp( elem->commission_inflation, elem->vote,     32UL );
+        int has_block     = !!memcmp( elem->commission_block,     elem->identity, 32UL );
+        if( FD_UNLIKELY( has_inflation | has_block ) ) {
+          fd_collector_overrides_upsert( overrides, co_root, fd_ulong_sat_sub( bank->f.epoch, 1UL ), (fd_pubkey_t const *)elem->vote,
+                                         has_inflation, (fd_pubkey_t const *)elem->commission_inflation,
+                                         has_block, (fd_pubkey_t const *)elem->commission_block );
+        }
+      }
+
       fd_vote_stakes_root_update_meta(
           vote_stakes,
           (fd_pubkey_t *)elem->vote,
