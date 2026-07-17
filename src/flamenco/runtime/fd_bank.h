@@ -18,6 +18,13 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_bank_report_runtime_diffs returns the banks-wide runtime-events
+   flag (set once at replay tile init) for a bank.  Callers use it to
+   gate fd_event_runtime calls. */
+
+int
+fd_bank_report_runtime_diffs( fd_bank_t const * bank );
+
 #define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2451) /* FIREDANCER BANKS V1 */
 #define FD_BANKS_MAX_BANKS (4096UL)
 #define FD_BANKS_ALIGN     (128UL)
@@ -254,6 +261,10 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define FD_BANK_STATE_DEAD       (4UL)
 #define FD_BANK_STATE_PRUNABLE   (5UL)
 
+/* Buffer for the slot-level account diffs reported on the
+   runtime_block event.  Layout defined in fd_event_runtime.c. */
+#define FD_BANK_EVENT_SLOT_DIFFS_FOOTPRINT (8192UL)
+
 struct fd_bank {
 
   /* Fields used for internal pool and bank management */
@@ -341,6 +352,7 @@ struct fd_bank {
     fd_hash_t              block_id;
   } f;
 
+  uchar event_slot_diffs[FD_BANK_EVENT_SLOT_DIFFS_FOOTPRINT] __attribute__((aligned(8UL)));
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -383,6 +395,7 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 
 struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
+  int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
   ulong max_total_banks;             /* Maximum number of banks */
   ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */

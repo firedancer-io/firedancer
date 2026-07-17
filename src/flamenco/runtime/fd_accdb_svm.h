@@ -10,6 +10,8 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_accdb_svm_update {
   ulong lamports_before;
+  ulong data_len_before;
+  uchar owner_before[ 32 ];
 };
 typedef struct fd_accdb_svm_update fd_accdb_svm_update_t;
 

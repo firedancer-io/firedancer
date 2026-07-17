@@ -55,6 +55,7 @@ struct fd_block_id_ele {
   ulong     slot;
   ulong     bank_seq;
   ulong     next_;
+  uint      fec_cnt;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
 
@@ -333,6 +334,8 @@ struct fd_replay_tile {
   ulong               block_id_len;
   ulong               max_live_slots;
   fd_block_id_ele_t * block_id_arr;
+
+  fd_hash_t *         fec_chain;
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
 
@@ -493,6 +496,9 @@ struct fd_replay_tile {
   fd_event_block_completed_t * block_completed_event;
 
   fd_leader_txn_timing_table_t const * leader_txn_timing;
+
+  /* If non-zero, emit the runtime events during replay. */
+  int report_runtime_diffs;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;

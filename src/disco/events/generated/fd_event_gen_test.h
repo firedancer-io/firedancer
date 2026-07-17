@@ -269,6 +269,211 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
 static void
 fd_event_block_completed_fill_max_v( void * msg ) { fd_event_block_completed_fill_max( (fd_event_block_completed_t *)msg ); }
 
+static inline void
+fd_event_runtime_block_fill_max( fd_event_runtime_block_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  msg->parent_slot = ULONG_MAX;
+  fd_memset( msg->parent_block_id, 0xFF, 32UL );
+  msg->epoch = ULONG_MAX;
+  msg->block_height = ULONG_MAX;
+  fd_memset( msg->leader, 0xFF, 32UL );
+  fd_memset( msg->bank_hash, 0xFF, 32UL );
+  fd_memset( msg->prev_bank_hash, 0xFF, 32UL );
+  fd_memset( msg->accounts_lt_hash_checksum, 0xFF, 32UL );
+  fd_memset( msg->poh_hash, 0xFF, 32UL );
+  msg->clock_sysvar_cnt = 1UL;
+  for( ulong k=0UL; k<1UL; k++ ) {
+    msg->clock_sysvar[ k ].slot = ULONG_MAX;
+    msg->clock_sysvar[ k ].epoch_start_timestamp = LONG_MAX;
+    msg->clock_sysvar[ k ].epoch = ULONG_MAX;
+    msg->clock_sysvar[ k ].leader_schedule_epoch = ULONG_MAX;
+    msg->clock_sysvar[ k ].unix_timestamp = LONG_MAX;
+  }
+  msg->recent_blockhashes_sysvar_cnt = 150UL;
+  for( ulong k=0UL; k<150UL; k++ ) {
+    fd_memset( msg->recent_blockhashes_sysvar[ k ], 0xFF, 32UL );
+  }
+  msg->last_restart_slot_sysvar = ULONG_MAX;
+  msg->num_transactions = ULONG_MAX;
+  msg->num_failed_txns = ULONG_MAX;
+  msg->num_nonvote_txns = ULONG_MAX;
+  msg->num_nonvote_failed_txns = ULONG_MAX;
+  msg->num_signatures = ULONG_MAX;
+  msg->num_shreds = ULONG_MAX;
+  msg->tick_height = ULONG_MAX;
+  msg->execution_fees = ULONG_MAX;
+  msg->priority_fees = ULONG_MAX;
+  msg->tips = ULONG_MAX;
+  msg->fees_burned = ULONG_MAX;
+  msg->leader_fee_reward = ULONG_MAX;
+  msg->capitalization = ULONG_MAX;
+  msg->total_effective_stake = ULONG_MAX;
+  msg->total_activating_stake = ULONG_MAX;
+  msg->total_deactivating_stake = ULONG_MAX;
+  msg->total_epoch_stake = ULONG_MAX;
+  msg->sysvar_diffs_cnt = 16UL;
+  for( ulong k=0UL; k<16UL; k++ ) {
+    fd_memset( msg->sysvar_diffs[ k ].pubkey, 0xFF, 32UL );
+    fd_memset( msg->sysvar_diffs[ k ].owner, 0xFF, 32UL );
+    fd_memset( msg->sysvar_diffs[ k ].prev_owner, 0xFF, 32UL );
+    msg->sysvar_diffs[ k ].lamports = ULONG_MAX;
+    msg->sysvar_diffs[ k ].prev_lamports = ULONG_MAX;
+    msg->sysvar_diffs[ k ].data_sz = ULONG_MAX;
+    msg->sysvar_diffs[ k ].prev_data_sz = ULONG_MAX;
+    msg->sysvar_diffs[ k ].is_executable = 1;
+  }
+  msg->other_diffs_cnt = 32UL;
+  for( ulong k=0UL; k<32UL; k++ ) {
+    fd_memset( msg->other_diffs[ k ].pubkey, 0xFF, 32UL );
+    fd_memset( msg->other_diffs[ k ].owner, 0xFF, 32UL );
+    fd_memset( msg->other_diffs[ k ].prev_owner, 0xFF, 32UL );
+    msg->other_diffs[ k ].lamports = ULONG_MAX;
+    msg->other_diffs[ k ].prev_lamports = ULONG_MAX;
+    msg->other_diffs[ k ].data_sz = ULONG_MAX;
+    msg->other_diffs[ k ].prev_data_sz = ULONG_MAX;
+    msg->other_diffs[ k ].is_executable = 1;
+  }
+  msg->fec_count = ULONG_MAX;
+  msg->fec_merkle_roots_cnt = 1024UL;
+  for( ulong k=0UL; k<1024UL; k++ ) {
+    fd_memset( msg->fec_merkle_roots[ k ], 0xFF, 32UL );
+  }
+}
+
+static void
+fd_event_runtime_block_fill_max_v( void * msg ) { fd_event_runtime_block_fill_max( (fd_event_runtime_block_t *)msg ); }
+
+static inline void
+fd_event_runtime_reward_fill_max( fd_event_runtime_reward_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  msg->kind = INT_MAX;
+  fd_memset( msg->pubkey, 0xFF, 32UL );
+  fd_memset( msg->owner, 0xFF, 32UL );
+  msg->prev_lamports = ULONG_MAX;
+  msg->lamports = ULONG_MAX;
+  msg->partition_idx = ULONG_MAX;
+  msg->credits_observed = ULONG_MAX;
+  msg->stake = ULONG_MAX;
+}
+
+static void
+fd_event_runtime_reward_fill_max_v( void * msg ) { fd_event_runtime_reward_fill_max( (fd_event_runtime_reward_t *)msg ); }
+
+static inline void
+fd_event_runtime_stake_delegation_fill_max( fd_event_runtime_stake_delegation_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  msg->index_in_slot = ULONG_MAX;
+  fd_memset( msg->signature, 0xFF, 64UL );
+  msg->kind = INT_MAX;
+  fd_memset( msg->stake_account, 0xFF, 32UL );
+  fd_memset( msg->vote_account, 0xFF, 32UL );
+  msg->stake = ULONG_MAX;
+  msg->activation_epoch = ULONG_MAX;
+  msg->deactivation_epoch = ULONG_MAX;
+  msg->credits_observed = ULONG_MAX;
+}
+
+static void
+fd_event_runtime_stake_delegation_fill_max_v( void * msg ) { fd_event_runtime_stake_delegation_fill_max( (fd_event_runtime_stake_delegation_t *)msg ); }
+
+static inline void
+fd_event_runtime_rooted_fill_max( fd_event_runtime_rooted_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  msg->prev_root_slot = ULONG_MAX;
+  msg->stake_delegations_upserts = ULONG_MAX;
+  msg->stake_delegations_removes = ULONG_MAX;
+  msg->stake_delegations_cnt = ULONG_MAX;
+  msg->effective_stake = ULONG_MAX;
+  msg->activating_stake = ULONG_MAX;
+  msg->deactivating_stake = ULONG_MAX;
+}
+
+static void
+fd_event_runtime_rooted_fill_max_v( void * msg ) { fd_event_runtime_rooted_fill_max( (fd_event_runtime_rooted_t *)msg ); }
+
+static inline void
+fd_event_runtime_epoch_fill_max( fd_event_runtime_epoch_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->parent_slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  msg->total_effective_stake = ULONG_MAX;
+  msg->total_activating_stake = ULONG_MAX;
+  msg->total_deactivating_stake = ULONG_MAX;
+  msg->total_epoch_stake = ULONG_MAX;
+  msg->num_staked_vote_accounts = ULONG_MAX;
+  msg->num_vote_accounts = ULONG_MAX;
+  msg->num_top_votes_eligible = ULONG_MAX;
+  msg->top_votes_min_stake = ULONG_MAX;
+  msg->stake_history_sysvar_cnt = 1UL;
+  for( ulong k=0UL; k<1UL; k++ ) {
+    msg->stake_history_sysvar[ k ].epoch = ULONG_MAX;
+    msg->stake_history_sysvar[ k ].effective = ULONG_MAX;
+    msg->stake_history_sysvar[ k ].activating = ULONG_MAX;
+    msg->stake_history_sysvar[ k ].deactivating = ULONG_MAX;
+  }
+  msg->epoch_schedule_sysvar_cnt = 1UL;
+  for( ulong k=0UL; k<1UL; k++ ) {
+    msg->epoch_schedule_sysvar[ k ].slots_per_epoch = ULONG_MAX;
+    msg->epoch_schedule_sysvar[ k ].leader_schedule_slot_offset = ULONG_MAX;
+    msg->epoch_schedule_sysvar[ k ].warmup = 1;
+    msg->epoch_schedule_sysvar[ k ].first_normal_epoch = ULONG_MAX;
+    msg->epoch_schedule_sysvar[ k ].first_normal_slot = ULONG_MAX;
+  }
+  msg->feature_activations_cnt = 16UL;
+  for( ulong k=0UL; k<16UL; k++ ) {
+    fd_memset( msg->feature_activations[ k ], 0xFF, 32UL );
+  }
+  msg->epoch_rewards_sysvar_cnt = 1UL;
+  for( ulong k=0UL; k<1UL; k++ ) {
+    msg->epoch_rewards_sysvar[ k ].total_rewards = ULONG_MAX;
+    msg->epoch_rewards_sysvar[ k ].distributed = ULONG_MAX;
+    msg->epoch_rewards_sysvar[ k ].distribution_starting_block_height = ULONG_MAX;
+    msg->epoch_rewards_sysvar[ k ].num_partitions = ULONG_MAX;
+    msg->epoch_rewards_sysvar[ k ].total_points = (uint128)-1;
+    fd_memset( msg->epoch_rewards_sysvar[ k ].parent_blockhash, 0xFF, 32UL );
+  }
+}
+
+static void
+fd_event_runtime_epoch_fill_max_v( void * msg ) { fd_event_runtime_epoch_fill_max( (fd_event_runtime_epoch_t *)msg ); }
+
+static inline void
+fd_event_runtime_vote_account_fill_max( fd_event_runtime_vote_account_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_seq = ULONG_MAX;
+  msg->slot = ULONG_MAX;
+  msg->epoch = ULONG_MAX;
+  fd_memset( msg->pubkey, 0xFF, 32UL );
+  fd_memset( msg->node_account, 0xFF, 32UL );
+  msg->stake = ULONG_MAX;
+  msg->commission_bps = UINT_MAX;
+  msg->has_commission_t_2 = 1;
+  msg->commission_t_2_bps = UINT_MAX;
+  msg->has_commission_t_3 = 1;
+  msg->commission_t_3_bps = UINT_MAX;
+  msg->reward_commission_bps = UINT_MAX;
+  msg->credits = ULONG_MAX;
+  msg->prev_credits = ULONG_MAX;
+  msg->epoch_credits_cnt = ULONG_MAX;
+}
+
+static void
+fd_event_runtime_vote_account_fill_max_v( void * msg ) { fd_event_runtime_vote_account_fill_max( (fd_event_runtime_vote_account_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -285,9 +490,15 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 7UL, FD_EVENT_BLOCK_EQUIVOCATED_BUF_MAX, sizeof(fd_event_block_equivocated_t), "block_equivocated", fd_event_block_equivocated_fill_max_v },
   { 8UL, FD_EVENT_RUNTIME_TXN_BUF_MAX, sizeof(fd_event_runtime_txn_t), "runtime_txn", fd_event_runtime_txn_fill_max_v },
   { 9UL, FD_EVENT_BLOCK_COMPLETED_BUF_MAX, sizeof(fd_event_block_completed_t), "block_completed", fd_event_block_completed_fill_max_v },
+  { 10UL, FD_EVENT_RUNTIME_BLOCK_BUF_MAX, sizeof(fd_event_runtime_block_t), "runtime_block", fd_event_runtime_block_fill_max_v },
+  { 11UL, FD_EVENT_RUNTIME_REWARD_BUF_MAX, sizeof(fd_event_runtime_reward_t), "runtime_reward", fd_event_runtime_reward_fill_max_v },
+  { 12UL, FD_EVENT_RUNTIME_STAKE_DELEGATION_BUF_MAX, sizeof(fd_event_runtime_stake_delegation_t), "runtime_stake_delegation", fd_event_runtime_stake_delegation_fill_max_v },
+  { 13UL, FD_EVENT_RUNTIME_ROOTED_BUF_MAX, sizeof(fd_event_runtime_rooted_t), "runtime_rooted", fd_event_runtime_rooted_fill_max_v },
+  { 14UL, FD_EVENT_RUNTIME_EPOCH_BUF_MAX, sizeof(fd_event_runtime_epoch_t), "runtime_epoch", fd_event_runtime_epoch_fill_max_v },
+  { 15UL, FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX, sizeof(fd_event_runtime_vote_account_t), "runtime_vote_account", fd_event_runtime_vote_account_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (7UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (13UL)
 
 FD_PROTOTYPES_END
 

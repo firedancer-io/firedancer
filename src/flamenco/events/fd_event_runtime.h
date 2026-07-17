@@ -9,6 +9,7 @@
 #include "../runtime/fd_runtime_err.h"
 #include "../runtime/fd_executor_err.h"
 #include "../runtime/fd_bank.h"
+#include "../stakes/fd_stakes.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 
 FD_PROTOTYPES_BEGIN
@@ -126,6 +127,143 @@ void
 fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
                            fd_txn_out_t const * txn_out,
                            fd_bank_t    const * bank );
+
+/* Build a runtime_stake_delegation event for the cache mutation the
+   caller just applied (stake_state is the upserted entry's parsed
+   state, or NULL for a removal) and publish it on the calling tile's
+   event link.  Called by fd_stakes_update_stake_delegation.  No-op
+   when the tile has no event link. */
+
+void
+fd_event_runtime_stake_delegation_emit( fd_txn_in_t      const * txn_in,
+                                        fd_bank_t        const * bank,
+                                        fd_pubkey_t      const * pubkey,
+                                        fd_stake_state_t const * stake_state );
+
+/* Build a runtime_stake_delegation event for a baseline stake
+   delegation cache entry loaded at boot (streamed from the snapshot
+   accounts by snapin, or loaded from genesis) and publish it on the
+   calling tile's event link.  slot/epoch are the snapshot slot and its
+   epoch (0/0 for genesis).  No-op when the tile has no event link. */
+
+void
+fd_event_runtime_stake_delegation_bootup_emit( ulong         slot,
+                                               ulong         epoch,
+                                               uchar const * stake_account,
+                                               uchar const * vote_account,
+                                               ulong         stake,
+                                               ulong         activation_epoch,
+                                               ulong         deactivation_epoch,
+                                               ulong         credits_observed );
+
+/* Record the StakeHistory sysvar entry for the new epoch. */
+
+void
+fd_event_runtime_epoch_stake_history( fd_stake_history_entry_t const * entry );
+
+/* Record the EpochRewards sysvar values initialized at this boundary */
+
+void
+fd_event_runtime_epoch_rewards( fd_sysvar_epoch_rewards_t const * epoch_rewards );
+
+/* Record the boundary vote-account counts. */
+
+void
+fd_event_runtime_epoch_votes( ulong staked_vote_accounts,
+                              ulong top_votes_eligible );
+
+/* Build a runtime_vote_account event for a vote account in the final
+   boundary snapshot and publish it on the calling tile's event link.
+   No-op when the tile has no event link. */
+
+void
+fd_event_runtime_vote_account_emit( fd_bank_t const *          bank,
+                                    uchar const *              pubkey,
+                                    uchar const *              node_account,
+                                    ulong                      stake,
+                                    uint                       commission_bps,
+                                    int                        has_commission_t_2,
+                                    uint                       commission_t_2_bps,
+                                    int                        has_commission_t_3,
+                                    uint                       commission_t_3_bps,
+                                    uint                       reward_commission_bps,
+                                    fd_epoch_credits_t const * epoch_credits );
+
+/* Record a feature id newly activated at this boundary. */
+
+void
+fd_event_runtime_epoch_feature( uchar const * feature_id );
+
+/* Build the runtime_epoch event from bank and publish it on the calling tile's event link. 
+   No-op when the tile has no event link. */
+
+void
+fd_event_runtime_epoch_emit( fd_bank_t const * bank );
+
+/* Build a runtime_rooted event for the newly rooted bank and publish
+   it on the calling tile's event link.  The delta stats cover every
+   bank on (prev_root_slot, bank slot]. No-op when the tile has no event link. */
+
+void
+fd_event_runtime_rooted_emit( fd_bank_t const *                          bank,
+                              ulong                                      prev_root_slot,
+                              fd_stake_delegations_t const *             stake_delegations,
+                              fd_stake_delegations_delta_stats_t const * stake_delegations_delta_stats );
+
+/* Build a runtime_stake_delegation event from a reward payout
+   and publish it on the calling tile's event link. No-op when the tile has no event link. */
+
+void
+fd_event_runtime_stake_delegation_payout_emit( fd_bank_t const * bank,
+                                               uchar const *     stake_account,
+                                               uchar const *     vote_account,
+                                               ulong             stake,
+                                               ulong             activation_epoch,
+                                               ulong             deactivation_epoch,
+                                               ulong             credits_observed );
+
+/* Record a block-level account diff in the bank. */
+
+void
+fd_event_runtime_block_account( fd_bank_t *   bank,
+                                uchar const * pubkey,
+                                uchar const * prev_owner,
+                                uchar const * owner,
+                                ulong         prev_lamports,
+                                ulong         lamports,
+                                ulong         prev_data_sz,
+                                ulong         data_sz,
+                                int           executable );
+
+/* Build a runtime_reward event and publish it on the calling tile's
+   event link. No-op when the tile has no event link. */
+
+void
+fd_event_runtime_reward_emit( fd_bank_t const * bank,
+                              int               kind,
+                              uchar const *     pubkey,
+                              uchar const *     owner,
+                              ulong             prev_lamports,
+                              ulong             lamports,
+                              ulong             partition_idx,
+                              ulong             credits_observed,
+                              ulong             stake );
+
+/* Build the runtime_block event for a finalized bank from the bank
+   state and its accumulated diffs and publish it on the calling
+   tile's event link. No-op when the tile has no event link. */
+
+void
+fd_event_runtime_block_emit( fd_bank_t const *             bank,
+                             uchar const *                 block_id,
+                             uchar const *                 parent_block_id,
+                             uchar const *                 leader,
+                             ulong                         execution_fees,
+                             ulong                         priority_fees,
+                             ulong                         tips,
+                             fd_sol_sysvar_clock_t const * clock,
+                             fd_hash_t const *             fec_mrs,
+                             ulong                         fec_mr_cnt );
 
 FD_PROTOTYPES_END
 

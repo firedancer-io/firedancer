@@ -589,7 +589,7 @@ int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed ) {
+                   ulong                    blockhash_seed  ) {
 
   if( FD_UNLIKELY( fd_ssload_recover_validate( manifest, banks ) ) ) {
     FD_LOG_WARNING(( "snapshot manifest validation failed" ));

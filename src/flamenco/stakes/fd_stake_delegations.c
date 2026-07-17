@@ -689,12 +689,17 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
 }
 
 void
-fd_stake_delegations_apply_fork_delta( ulong                      epoch,
-                                       fd_stake_history_t const * stake_history,
-                                       ulong *                    warmup_cooldown_rate_epoch,
-                                       int                        use_fixed_point_stake_math,
-                                       fd_stake_delegations_t *   stake_delegations,
-                                       ushort                     fork_idx ) {
+fd_stake_delegations_apply_fork_delta( ulong                                epoch,
+                                       fd_stake_history_t const *           stake_history,
+                                       ulong *                              warmup_cooldown_rate_epoch,
+                                       int                                  use_fixed_point_stake_math,
+                                       fd_stake_delegations_t *             stake_delegations,
+                                       ushort                               fork_idx,
+                                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
+
+  ulong upserts = 0UL;
+  ulong removes = 0UL;
+
   fd_rwlock_write( &stake_delegations->lock );
 
   int history_contiguous = fd_sysvar_stake_history_is_contiguous( stake_history );
@@ -707,6 +712,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
        iter = fork_map_iter_next( iter, fork_map, delta_pool ) ) {
     fd_stake_delegation_t * stake_delegation = fork_map_iter_ele( iter, fork_map, delta_pool );
     if( FD_LIKELY( !stake_delegation->is_tombstone ) ) {
+      upserts++;
       /* If the acc in the delta is an update:
          - If the acc already exists, subtract the old version's stake
          - Insert/update the new version
@@ -747,6 +753,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
         }
       }
     } else {
+      removes++;
       /* If the stake delegation in the delta is a tombstone, just
          remove the stake delegation from the root map and subtract
          its stake from the totals. */
@@ -767,6 +774,11 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
     }
   }
   FD_LOG_DEBUG(( "effective_stake=%lu, activating_stake=%lu, deactivating_stake=%lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
+
+  if( FD_UNLIKELY( stake_delegations_delta_stats ) ) {
+    stake_delegations_delta_stats->upserts += upserts;
+    stake_delegations_delta_stats->removes += removes;
+  }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
 }

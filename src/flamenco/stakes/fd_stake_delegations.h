@@ -494,15 +494,24 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
    entries for fork_idx into the root map: non-tombstone entries are
    applied via fd_stake_delegations_root_update; tombstone entries remove
    the corresponding stake account from the root map.  Caller must
-   ensure no concurrent iteration on stake_delegations for this fork. */
+   ensure no concurrent iteration on stake_delegations for this fork.
+   If stake_delegations_delta_stats is non-NULL, the number of upserts
+   and removes applied is accumulated into it (caller zeroes). */
+
+struct fd_stake_delegations_delta_stats {
+  ulong upserts;
+  ulong removes;
+};
+typedef struct fd_stake_delegations_delta_stats fd_stake_delegations_delta_stats_t;
 
 void
-fd_stake_delegations_apply_fork_delta( ulong                      epoch,
-                                       fd_stake_history_t const * stake_history,
-                                       ulong *                    warmup_cooldown_rate_epoch,
-                                       int                        use_fixed_point_stake_math,
-                                       fd_stake_delegations_t *   stake_delegations,
-                                       ushort                     fork_idx );
+fd_stake_delegations_apply_fork_delta( ulong                                epoch,
+                                       fd_stake_history_t const *           stake_history,
+                                       ulong *                              warmup_cooldown_rate_epoch,
+                                       int                                  use_fixed_point_stake_math,
+                                       fd_stake_delegations_t *             stake_delegations,
+                                       ushort                               fork_idx,
+                                       fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
 
 /* fd_stake_delegations_{mark,unmark}_delta are used to temporarily
    tag delta elements from a given fork in the base/root stake
