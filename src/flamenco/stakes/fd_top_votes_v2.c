@@ -155,26 +155,17 @@ group_new( fd_top_votes_v2_t * top_votes,
 }
 
 static inline int
-region_valid( fd_top_votes_v2_t const * top_votes,
-              ulong                     off,
-              ulong                     align,
-              ulong                     footprint ) {
-  return off<=top_votes->footprint &&
-         footprint<=top_votes->footprint-off &&
-         fd_ulong_is_aligned( (ulong)top_votes+off, align );
-}
-
-static inline int
 group_join( fd_top_votes_v2_t const * top_votes,
             vote_group_t const *      group ) {
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  group->pool_off,
-                                  pool_align(),
-                                  pool_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) ) ) ) return 0;
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  group->map_off,
-                                  map_align(),
-                                  map_footprint( chain_cnt() ) ) ) ) return 0;
+  ulong pool_sz = pool_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT );
+  ulong map_sz  = map_footprint( chain_cnt() );
+
+  if( FD_UNLIKELY( group->pool_off>top_votes->footprint ||
+                   pool_sz>top_votes->footprint-group->pool_off ||
+                   !fd_ulong_is_aligned( (ulong)top_votes+group->pool_off, pool_align() ) ) ) return 0;
+  if( FD_UNLIKELY( group->map_off>top_votes->footprint ||
+                   map_sz>top_votes->footprint-group->map_off ||
+                   !fd_ulong_is_aligned( (ulong)top_votes+group->map_off, map_align() ) ) ) return 0;
 
   vote_ele_t * pool = get_pool( top_votes, group );
   map_t *      map  = get_map( top_votes, group );
@@ -364,10 +355,10 @@ fd_top_votes_v2_join( void * mem ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->insert_heap_off,
-                                  heap_align(),
-                                  heap_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) ) ) ) {
+  ulong heap_sz = heap_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT );
+  if( FD_UNLIKELY( top_votes->insert_heap_off>top_votes->footprint ||
+                   heap_sz>top_votes->footprint-top_votes->insert_heap_off ||
+                   !fd_ulong_is_aligned( (ulong)top_votes+top_votes->insert_heap_off, heap_align() ) ) ) {
     FD_LOG_WARNING(( "invalid top votes v2 shared insertion heap" ));
     return NULL;
   }
@@ -382,17 +373,13 @@ fd_top_votes_v2_join( void * mem ) {
   }
 
   ulong bank_info_footprint = fd_ulong_sat_mul( top_votes->max_live_banks, sizeof(bank_info_t) );
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->bank_info_off,
-                                  1UL,
-                                  bank_info_footprint ) ) ) {
+  if( FD_UNLIKELY( top_votes->bank_info_off>top_votes->footprint ||
+                   bank_info_footprint>top_votes->footprint-top_votes->bank_info_off ) ) {
     FD_LOG_WARNING(( "invalid top votes v2 bank info offset" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->bank_info_off,
-                                  alignof(bank_info_t),
-                                  bank_info_footprint ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->bank_info_off,
+                                         alignof(bank_info_t) ) ) ) {
     FD_LOG_WARNING(( "misaligned top votes v2 bank info" ));
     return NULL;
   }
@@ -415,33 +402,25 @@ fd_top_votes_v2_join( void * mem ) {
   }
 
   ulong group_pool_sz = group_pool_footprint( top_votes->max_fork_width );
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->t_1_group_pool_off,
-                                  1UL,
-                                  group_pool_sz ) ) ) {
+  if( FD_UNLIKELY( top_votes->t_1_group_pool_off>top_votes->footprint ||
+                   group_pool_sz>top_votes->footprint-top_votes->t_1_group_pool_off ) ) {
     FD_LOG_WARNING(( "invalid top votes v2 t-1 group pool offset" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->t_1_group_pool_off,
-                                  group_pool_align(),
-                                  group_pool_sz ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->t_1_group_pool_off,
+                                         group_pool_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned top votes v2 t-1 group pool" ));
     return NULL;
   }
 
   ulong state_footprint = vote_state_footprint( top_votes->max_live_banks );
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->t_2_state_off,
-                                  1UL,
-                                  state_footprint ) ) ) {
+  if( FD_UNLIKELY( top_votes->t_2_state_off>top_votes->footprint ||
+                   state_footprint>top_votes->footprint-top_votes->t_2_state_off ) ) {
     FD_LOG_WARNING(( "invalid top votes v2 state offset" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !region_valid( top_votes,
-                                  top_votes->t_2_state_off,
-                                  alignof(vote_state_ele_t),
-                                  state_footprint ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->t_2_state_off,
+                                         alignof(vote_state_ele_t) ) ) ) {
     FD_LOG_WARNING(( "misaligned top votes v2 state" ));
     return NULL;
   }
