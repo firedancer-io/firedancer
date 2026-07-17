@@ -544,7 +544,8 @@ fd_top_votes_v2_insert( fd_top_votes_v2_t * top_votes,
                         ulong                stake,
                         ushort               commission ) {
   FD_TEST( top_votes->insert_bank_idx!=UINT_MAX );
-  if( FD_UNLIKELY( !stake ) ) return;
+  if( FD_UNLIKELY( stake==0UL ||
+                   stake<=top_votes->insert_min_stake_wmark ) ) return;
 
   bank_info_t *          bank_info  = get_bank_info( top_votes );
   vote_account_group_t * group_pool = get_t_1_group_pool( top_votes );
@@ -555,7 +556,22 @@ fd_top_votes_v2_insert( fd_top_votes_v2_t * top_votes,
   vote_account_heap_t * heap = get_insert_heap( top_votes );
 
   FD_TEST( group->owner_bank_idx==top_votes->insert_bank_idx );
-  FD_TEST( vote_account_heap_ele_cnt( heap )<vote_account_heap_ele_max( heap ) );
+  if( FD_UNLIKELY( vote_account_heap_ele_cnt( heap)==
+                   vote_account_heap_ele_max( heap ) ) ) {
+    vote_account_ele_t * ele =
+        vote_account_heap_ele_peek_min( heap, pool );
+    ulong min_stake = ele->stake;
+    if( stake<min_stake ) return;
+
+    top_votes->insert_min_stake_wmark = min_stake;
+    while( (ele=vote_account_heap_ele_peek_min( heap, pool )) &&
+           ele->stake==min_stake ) {
+      vote_account_heap_ele_remove_min( heap, pool );
+      vote_account_map_ele_remove( map, &ele->pubkey, NULL, pool );
+      vote_account_pool_ele_release( pool, ele );
+    }
+    if( FD_UNLIKELY( stake==min_stake ) ) return;
+  }
 
   vote_account_ele_t * ele = vote_account_pool_ele_acquire( pool );
   ele->pubkey       = *pubkey;

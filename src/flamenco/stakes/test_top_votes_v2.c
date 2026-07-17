@@ -1,5 +1,6 @@
 #include "fd_top_votes_v2.h"
 #include "../../util/fd_util.h"
+#include "../runtime/fd_runtime_const.h"
 
 #include <stdlib.h>
 #include <sys/wait.h>
@@ -122,13 +123,110 @@ main( int     argc,
   fd_top_votes_v2_new_child( top_votes, 0UL, 1UL );
   assert_t_1_present( top_votes, 1UL, &vote_a, &node_a, 10UL, 1U );
 
+  fd_top_votes_v2_new_epoch_child( top_votes, 1UL, 2UL );
+  fd_top_votes_v2_insert_init( top_votes, 2UL );
+
+  for( ulong i=0UL; i<FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT; i++ ) {
+    fd_pubkey_t vote = test_pubkey( 10000UL+i );
+    fd_pubkey_t node = test_pubkey( 100000UL+i );
+    ulong stake = i<2UL ? 10UL : 20UL+i;
+    fd_top_votes_v2_insert( top_votes, &vote, &node, stake, (ushort)(i%100UL) );
+  }
+
+  fd_pubkey_t low_vote = test_pubkey( 13000UL );
+  fd_pubkey_t low_node = test_pubkey( 130000UL );
+  fd_top_votes_v2_insert( top_votes, &low_vote, &low_node, 9UL, 3U );
+  assert_t_1_absent( top_votes, 2UL, &low_vote );
+
+  fd_pubkey_t high_vote = test_pubkey( 13001UL );
+  fd_pubkey_t high_node = test_pubkey( 130001UL );
+  fd_top_votes_v2_insert( top_votes, &high_vote, &high_node, 3000UL, 4U );
+  fd_pubkey_t tied_min_a = test_pubkey( 10000UL );
+  fd_pubkey_t tied_min_b = test_pubkey( 10001UL );
+  assert_t_1_absent(  top_votes, 2UL, &tied_min_a );
+  assert_t_1_absent(  top_votes, 2UL, &tied_min_b );
+  assert_t_1_present( top_votes, 2UL, &high_vote, &high_node, 3000UL, 4U );
+
+  fd_pubkey_t floor_vote = test_pubkey( 13002UL );
+  fd_pubkey_t floor_node = test_pubkey( 130002UL );
+  fd_top_votes_v2_insert( top_votes, &floor_vote, &floor_node, 10UL, 5U );
+  assert_t_1_absent( top_votes, 2UL, &floor_vote );
+
+  fd_pubkey_t eleven_a      = test_pubkey( 13003UL );
+  fd_pubkey_t eleven_a_node = test_pubkey( 130003UL );
+  fd_top_votes_v2_insert( top_votes, &eleven_a, &eleven_a_node, 11UL, 6U );
+  assert_t_1_present( top_votes, 2UL, &eleven_a, &eleven_a_node, 11UL, 6U );
+
+  fd_pubkey_t eleven_b      = test_pubkey( 13004UL );
+  fd_pubkey_t eleven_b_node = test_pubkey( 130004UL );
+  fd_top_votes_v2_insert( top_votes, &eleven_b, &eleven_b_node, 11UL, 7U );
+  assert_t_1_absent( top_votes, 2UL, &eleven_a );
+  assert_t_1_absent( top_votes, 2UL, &eleven_b );
+
+  fd_pubkey_t rejected_eleven      = test_pubkey( 13005UL );
+  fd_pubkey_t rejected_eleven_node = test_pubkey( 130005UL );
+  fd_top_votes_v2_insert(
+      top_votes, &rejected_eleven, &rejected_eleven_node, 11UL, 8U );
+  assert_t_1_absent( top_votes, 2UL, &rejected_eleven );
+
+  fd_pubkey_t twelve      = test_pubkey( 13006UL );
+  fd_pubkey_t twelve_node = test_pubkey( 130006UL );
+  fd_top_votes_v2_insert( top_votes, &twelve, &twelve_node, 12UL, 9U );
+  assert_t_1_present( top_votes, 2UL, &twelve, &twelve_node, 12UL, 9U );
+
+  fd_top_votes_v2_insert_fini( top_votes );
+
+  fd_pubkey_t child_2_survivor = test_pubkey( 10002UL );
+  FD_TEST( fd_top_votes_v2_query_t_1(
+      top_votes, 2UL, &child_2_survivor, NULL, NULL, NULL ) );
+
+  fd_top_votes_v2_new_epoch_child( top_votes, 2UL, 3UL );
+  fd_top_votes_v2_insert_init( top_votes, 3UL );
+
+  for( ulong i=0UL; i<FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT; i++ ) {
+    fd_pubkey_t vote = test_pubkey( 20000UL+i );
+    fd_pubkey_t node = test_pubkey( 200000UL+i );
+    fd_top_votes_v2_insert(
+        top_votes, &vote, &node, 100UL+i, (ushort)(i%100UL) );
+  }
+
+  fd_pubkey_t below_min      = test_pubkey( 23000UL );
+  fd_pubkey_t below_min_node = test_pubkey( 230000UL );
+  fd_top_votes_v2_insert(
+      top_votes, &below_min, &below_min_node, 50UL, 10U );
+  assert_t_1_absent( top_votes, 3UL, &below_min );
+
+  fd_pubkey_t replacement      = test_pubkey( 23001UL );
+  fd_pubkey_t replacement_node = test_pubkey( 230001UL );
+  fd_top_votes_v2_insert(
+      top_votes, &replacement, &replacement_node, 5000UL, 11U );
+  fd_top_votes_v2_insert_fini( top_votes );
+
+  fd_pubkey_t old_min = test_pubkey( 20000UL );
+  assert_t_1_absent( top_votes, 3UL, &old_min );
+  assert_t_1_present(
+      top_votes, 3UL, &replacement, &replacement_node, 5000UL, 11U );
+
+  FD_TEST( fd_top_votes_v2_query_t_1(
+      top_votes, 2UL, &child_2_survivor, NULL, NULL, NULL ) );
+  assert_t_1_present(
+      top_votes, 2UL, &high_vote, &high_node, 3000UL, 4U );
+
   /* All persisted references are offsets, so copying the complete object
      to a different address must preserve a valid join. */
 
   void * relocated = aligned_alloc( align, footprint );
   FD_TEST( relocated );
   memcpy( relocated, mem, footprint );
-  FD_TEST( fd_top_votes_v2_join( relocated ) );
+  fd_top_votes_v2_t * relocated_top_votes =
+      fd_top_votes_v2_join( relocated );
+  FD_TEST( relocated_top_votes );
+  assert_t_1_present( relocated_top_votes,
+                      3UL,
+                      &replacement,
+                      &replacement_node,
+                      5000UL,
+                      11U );
   FD_TEST( !fd_top_votes_v2_join( (uchar *)relocated+1UL ) );
 
   free( relocated );
