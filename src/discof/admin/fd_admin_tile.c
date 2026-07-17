@@ -129,15 +129,37 @@ unprivileged_init( fd_topo_t const *      topo,
      will not be used. */
 #define FD_SET_IDENTITY_STATE_LEADER_HALTED           (3UL)
 
-/* State 4: REPLAY_HALT_REQUESTED
-     Repair, Gossip, and Tower tiles will stop sending requests
-     downstream to the sign tile.  This is done to avoid any mismatches
-     with the identity key.  Their identity keys will be switched after
-     this step.  These tiles all use the identity key to make forward
-     progress on non-leader pipeline replay.
+/* State 4: TOWER_HALT_REQUESTED
+     Tower has been requested to stop producing new vote transactions,
+     drain its local publish queue, and switch identity.  Gossip and
+     TxSend remain active so Tower continues receiving output credits. */
+#define FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED    (4UL)
 
-     These tiles use the identity key to populate messages which are
-     signed by the sign tile:
+/* State 5: TOWER_HALTED
+     Tower has drained its pre-switch publish queue, switched identity,
+     and reported the sequence after the final drained message. */
+#define FD_SET_IDENTITY_STATE_TOWER_HALTED             (5UL)
+
+/* State 6: TXSEND_FLUSH_REQUESTED
+     TxSend has been told the Tower sequence through which it must
+     process messages before switching identity.  Gossip remains active
+     in this state so it continues returning credits on tower_out and
+     txsend_out. */
+#define FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED  (6UL)
+
+/* State 7: TXSEND_FLUSHED
+     TxSend has processed all Tower messages through the halt sequence,
+     switched its identity key, and stopped receiving Net fragments that
+     could invoke QUIC signing callbacks. */
+#define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED          (7UL)
+
+/* State 8: SIGNERS_HALT_REQUESTED
+     Repair and Gossip will stop sending requests downstream to the sign
+     tile.  This is done to avoid any mismatches with the identity key.
+     Their identity keys will be switched after this step.
+
+     These tiles use the identity key to populate messages signed by the
+     sign tile:
        (a) Repair.  The repair tile uses the identity key as part of the
            repair protocol.  The identity key is included in and used
            for signing requests.  Because Repair uses an asynchronous
@@ -146,48 +168,15 @@ unprivileged_init( fd_topo_t const *      topo,
            sign tile before halting any new signing requests.
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
-           outgoing gossip messages.
-       (c) Tower.  The tower tiles uses the identity key to generate
-           vote transactions which are sent to the send tile.  These
-           vote transactions are then signed downstream by the TxSend
-           tile instead of having its own keyguard client. */
-#define FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED   (4UL)
+           outgoing gossip messages. */
+#define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED  (8UL)
 
-/* State 5: REPLAY_HALTED
-     Repair, Gossip, and Tower are no longer sending requests to the
-     sign tile.  Replay can keep progressing at this point. However,
-     the tower tile may have an in-flight vote transaction to the TxSend
-     tile that corresponds to the old identity key. */
-#define FD_SET_IDENTITY_STATE_REPLAY_HALTED           (5UL)
+/* State 9: SIGNERS_HALTED
+     Repair and Gossip are no longer sending requests to the sign tile.
+     Tower and TxSend remain halted. */
+#define FD_SET_IDENTITY_STATE_SIGNERS_HALTED          (9UL)
 
-/* State 6: TXSEND_FLUSH_REQUESTED
-     Once the Tower tile has updated its identity key and stopped
-     sending vote transactions to the TxSend tile, any in-flight vote
-     transactions for the old identity key must be flushed to avoid
-     being badly signed.  We also know that Tower will send no more
-     vote transactions to the TxSend tile.
-
-     The TxSend tile is flushed by telling it the last sequence number
-     the Tower tile has produced for an outgoing vote transaction at the
-     time it was halted.  Once the TxSend tile has processed all vote
-     transactions up to and including that sequence number, it will
-     switch its own identity key.  There is a guarantee that the TxSend
-     tile will not request to sign any vote transactions until it is
-     unhalted.  At this point, the TxSend tile will stop receiving any
-     new frags from the Net tile.  The reason for this is to avoid any
-     QUIC callbacks that invoke key signing. */
-#define FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED  (6UL)
-
-/* State 7: TXSEND_FLUSHED
-     The TxSend tile confirms that it has seen and processed all votes
-     up to and including the last sequence number produced by the Tower
-     tile at the time it was halted.  The TxSend tile also switches its
-     own identity key which is used for signing votes and establishing
-     a QUIC connection.  The TxSend tile is now no longer receiving any
-     new frags from the Net tile. */
-#define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED          (7UL)
-
-/* State 8: ALL_SWITCH_REQUESTED
+/* State 10: ALL_SWITCH_REQUESTED
      The client now requests that all other tiles which consume the
      identity key in some way switch to the new key.  The leader
      pipeline is still halted, although it doesn't strictly need to be,
@@ -212,31 +201,32 @@ unprivileged_init( fd_topo_t const *      topo,
            outgoing shreds.
        (f) Event.  Outgoing events to the event server are signed with
            the identity key to authenticate the sender. */
-#define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED    (8UL)
+#define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED    (10UL)
 
-/* State 9: ALL_SWITCHED
+/* State 11: ALL_SWITCHED
      All remaining tiles that use the identity key have confirmed that
      they have switched to the new key.  The validator is now fully
      switched over. */
-#define FD_SET_IDENTITY_STATE_ALL_SWITCHED            (9UL)
+#define FD_SET_IDENTITY_STATE_ALL_SWITCHED            (11UL)
 
-/* State 10: REPLAY_UNHALT_REQUESTED
+/* State 12: SIGNERS_UNHALT_REQUESTED
      Now that all of the tiles are using the switched identity key, the
      tiles that rely on the sign tile can be unhalted.  These are the
-     same tiles from REPLAY_HALT_REQUESTED. */
-#define FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED (10UL)
+     same tiles from SIGNERS_HALT_REQUESTED, along with Tower and
+     TxSend. */
+#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED (12UL)
 
-/* State 11: REPLAY_UNHALTED
+/* State 13: SIGNERS_UNHALTED
      All tiles that rely on the sign tile have been unhalted and now the
      validator can resume making progress on replay. */
-#define FD_SET_IDENTITY_STATE_REPLAY_UNHALTED         (11UL)
+#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED         (13UL)
 
-/* State 12: LEADER_UNHALT_REQUESTED
+/* State 14: LEADER_UNHALT_REQUESTED
      The final state, now that all tiles have switched, the leader
      pipeline can be unblocked and the validator can resume producing
      blocks.  The next state once the Replay tile confirms the leader
      pipeline is unlocked, is UNLOCKED. */
-#define FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED (12UL)
+#define FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED (14UL)
 
 static fd_keyswitch_t *
 find_identity_keyswitch( fd_admin_tile_ctx_t * ctx,
@@ -297,12 +287,63 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_SET_IDENTITY_STATE_LEADER_HALTED: {
+      fd_keyswitch_t * tower = find_identity_keyswitch( ctx, "tower" );
+      memcpy( tower->bytes, keypair+32UL, 32UL );
+      FD_COMPILER_MFENCE();
+      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      FD_COMPILER_MFENCE();
+
+      *state = FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED;
+      FD_LOG_INFO(( "Pausing Tower and draining queued messages..." ));
+      break;
+    }
+    case FD_SET_IDENTITY_STATE_TOWER_HALT_REQUESTED: {
+      fd_keyswitch_t * tower = find_identity_keyswitch( ctx, "tower" );
+      if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        fd_memzero_explicit( tower->bytes, 64UL );
+        FD_COMPILER_MFENCE();
+        *state = FD_SET_IDENTITY_STATE_TOWER_HALTED;
+        FD_LOG_INFO(( "Tower successfully paused..." ));
+      } else if( FD_UNLIKELY( tower->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        FD_SPIN_PAUSE();
+      } else {
+        FD_LOG_ERR(( "Unexpected tower keyswitch state %lu", tower->state ));
+      }
+      break;
+    }
+    case FD_SET_IDENTITY_STATE_TOWER_HALTED: {
+      ulong tower_halted_seq = find_identity_keyswitch( ctx, "tower" )->result;
+      fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
+      txsend->param = tower_halted_seq;
+      memcpy( txsend->bytes, keypair+32UL, 32UL );
+      FD_COMPILER_MFENCE();
+      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      FD_COMPILER_MFENCE();
+
+      *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED;
+      FD_LOG_INFO(( "Flushing old identity vote transactions from TxSend..." ));
+      break;
+    }
+    case FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED: {
+      fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
+      if( FD_LIKELY( txsend->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        fd_memzero_explicit( txsend->bytes, 64UL );
+        FD_COMPILER_MFENCE();
+        *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSHED;
+        FD_LOG_INFO(( "TxSend successfully flushed..." ));
+      } else if( FD_UNLIKELY( txsend->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        FD_SPIN_PAUSE();
+      } else {
+        FD_LOG_ERR(( "Unexpected txsend keyswitch state %lu", txsend->state ));
+      }
+      break;
+    }
+    case FD_SET_IDENTITY_STATE_TXSEND_FLUSHED: {
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
-            strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) ) {
+            strcmp( tile->name, "gossip" ) ) {
           continue;
         }
 
@@ -313,18 +354,17 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
       }
-      *state = FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED;
-      FD_LOG_INFO(( "Requesting to halt all signers..." ));
+      *state = FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED;
+      FD_LOG_INFO(( "Requesting to halt remaining signers..." ));
       break;
     }
-    case FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED: {
+    case FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED: {
       int all_switched = 1;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
-            strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) ) {
+            strcmp( tile->name, "gossip" ) ) {
           continue;
         }
 
@@ -335,37 +375,14 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         }
       }
       if( FD_LIKELY( all_switched ) ) {
-        FD_LOG_INFO(( "All successfully switched identity key..." ));
-        *state = FD_SET_IDENTITY_STATE_REPLAY_HALTED;
+        FD_LOG_INFO(( "All remaining signers successfully halted..." ));
+        *state = FD_SET_IDENTITY_STATE_SIGNERS_HALTED;
       } else {
         FD_SPIN_PAUSE();
       }
       break;
     }
-    case FD_SET_IDENTITY_STATE_REPLAY_HALTED: {
-      ulong tower_halted_seq = find_identity_keyswitch( ctx, "tower" )->result;
-      fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
-      txsend->param = tower_halted_seq;
-      memcpy( txsend->bytes, keypair+32UL, 32UL );
-      FD_COMPILER_MFENCE();
-      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
-      FD_COMPILER_MFENCE();
-
-      *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED;
-      break;
-    }
-    case FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED: {
-      fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
-      if( FD_LIKELY( txsend->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        fd_memzero_explicit( txsend->bytes, 64UL );
-        FD_COMPILER_MFENCE();
-        *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSHED;
-      } else {
-        FD_SPIN_PAUSE();
-      }
-      break;
-    }
-    case FD_SET_IDENTITY_STATE_TXSEND_FLUSHED: {
+    case FD_SET_IDENTITY_STATE_SIGNERS_HALTED: {
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( strcmp( tile->name, "sign" ) ) continue;
@@ -453,10 +470,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       }
 
       FD_LOG_INFO(( "Requesting to unpause signers..." ));
-      *state = FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED;
       break;
     }
-    case FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED: {
+    case FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED: {
       int all_switched = 1;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
@@ -476,13 +493,13 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       }
       if( FD_LIKELY( all_switched ) ) {
         FD_LOG_INFO(( "Successfully unpaused all non-leader signers..." ));
-        *state = FD_SET_IDENTITY_STATE_REPLAY_UNHALTED;
+        *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED;
       } else {
         FD_SPIN_PAUSE();
       }
       break;
     }
-    case FD_SET_IDENTITY_STATE_REPLAY_UNHALTED: {
+    case FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED: {
       fd_keyswitch_t * replay = find_identity_keyswitch( ctx, "replay" );
       replay->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
       FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
