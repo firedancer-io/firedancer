@@ -173,7 +173,12 @@ vote_account_group_join( fd_top_votes_v2_t const *   top_votes,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)pool_mem, vote_account_pool_align() ) ||
                    !fd_ulong_is_aligned( (ulong)map_mem,  vote_account_map_align()  ) ) ) return 0;
 
-  return !!vote_account_pool_join( pool_mem ) && !!vote_account_map_join( map_mem );
+  vote_account_ele_t * pool = vote_account_pool_join( pool_mem );
+  vote_account_map_t * map  = vote_account_map_join( map_mem );
+  return pool &&
+         vote_account_pool_max( pool )==FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT &&
+         map &&
+         vote_account_map_chain_cnt( map )==vote_account_chain_cnt();
 }
 
 static inline void
@@ -389,6 +394,23 @@ fd_top_votes_v2_join( void * mem ) {
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)top_votes+top_votes->bank_info_off,
                                          alignof(bank_info_t) ) ) ) {
     FD_LOG_WARNING(( "misaligned top votes v2 bank info" ));
+    return NULL;
+  }
+  bank_info_t const * bank_info = get_bank_info( top_votes );
+  for( ulong i=0UL; i<top_votes->max_live_banks; i++ ) {
+    uint t_1_group_idx = bank_info[ i ].t_1_group_idx;
+    uint t_2_group_idx = bank_info[ i ].t_2_group_idx;
+    int  uninitialized = t_1_group_idx==UINT_MAX && t_2_group_idx==UINT_MAX;
+    int  initialized   = t_1_group_idx<top_votes->max_fork_width &&
+                         t_2_group_idx<FD_TOP_VOTES_V2_T_2_GROUP_CNT;
+    if( FD_UNLIKELY( !uninitialized && !initialized ) ) {
+      FD_LOG_WARNING(( "invalid top votes v2 bank info" ));
+      return NULL;
+    }
+  }
+  if( FD_UNLIKELY( top_votes->insert_bank_idx!=UINT_MAX &&
+                   bank_info[ top_votes->insert_bank_idx ].t_1_group_idx==UINT_MAX ) ) {
+    FD_LOG_WARNING(( "uninitialized top votes v2 insertion bank" ));
     return NULL;
   }
 
