@@ -189,6 +189,7 @@ struct fd_tower_tile {
   ulong       out_wmark;
   ulong       out_chunk;
   ulong       out_seq;
+  ulong       replay_in_seq;
 
   /* metrics */
 
