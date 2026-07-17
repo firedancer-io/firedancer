@@ -92,6 +92,74 @@ main( int     argc,
   }
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
 
+  /* Test the per-rotation vote address: two vote accounts share one
+     node identity, so the vote address cannot be recovered from the
+     scheduled identity alone. */
+  {
+    fd_pubkey_t id_x; memset( id_x.uc, 0x11, 32UL );
+    fd_pubkey_t id_y; memset( id_y.uc, 0x22, 32UL );
+    fd_vote_stake_weight_t shared_stakes[3] = {0};
+    memset( shared_stakes[0].vote_key.uc, 0xA1, 32UL );
+    shared_stakes[0].id_key = id_x;
+    shared_stakes[0].stake  = 3000000000UL;
+    memset( shared_stakes[1].vote_key.uc, 0xA2, 32UL );
+    shared_stakes[1].id_key = id_x;
+    shared_stakes[1].stake  = 2000000000UL;
+    memset( shared_stakes[2].vote_key.uc, 0xA3, 32UL );
+    shared_stakes[2].id_key = id_y;
+    shared_stakes[2].stake  = 1000000000UL;
+
+    ulong test_slot_cnt = 1000UL;
+    FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 1UL, 0UL, test_slot_cnt, 3UL, shared_stakes, 0UL ) );
+    leaders = fd_epoch_leaders_join( leaders_buf );
+    FD_TEST( leaders );
+
+    int seen[3] = {0};
+    for( ulong slot=0UL; slot<test_slot_cnt; slot++ ) {
+      fd_pubkey_t const * id   = fd_epoch_leaders_get     ( leaders, slot );
+      fd_pubkey_t const * vote = fd_epoch_leaders_get_vote( leaders, slot );
+      FD_TEST( id && vote );
+
+      ulong entry = ULONG_MAX;
+      for( ulong i=0UL; i<3UL; i++ ) {
+        if( !memcmp( vote->uc, shared_stakes[i].vote_key.uc, 32UL ) ) { entry = i; break; }
+      }
+      FD_TEST( entry!=ULONG_MAX );
+      FD_TEST( !memcmp( id->uc, shared_stakes[entry].id_key.uc, 32UL ) );
+      seen[entry] = 1;
+
+      /* The vote address is constant within a rotation. */
+      ulong rot0 = slot - slot%FD_EPOCH_SLOTS_PER_ROTATION;
+      FD_TEST( fd_epoch_leaders_get_vote( leaders, rot0 )==vote );
+    }
+
+    /* Both vote accounts behind the shared identity are scheduled. */
+    FD_TEST( seen[0] && seen[1] && seen[2] );
+
+    FD_TEST( fd_epoch_leaders_get_vote( leaders, test_slot_cnt )==NULL );
+    fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
+  }
+
+  /* Excluded stake: indeterminate rotations report the indeterminate
+     leader for both the identity and the vote address. */
+  {
+    FD_TEST( leaders_buf == fd_epoch_leaders_new( leaders_buf, 454UL, slot0, 432000UL, shortlist_cnt, stakes, excluded_stake ) );
+    leaders = fd_epoch_leaders_join( leaders_buf );
+    FD_TEST( leaders );
+
+    int saw_indeterminate = 0;
+    for( ulong i=0UL; i<432000UL; i++ ) {
+      fd_pubkey_t const * vote = fd_epoch_leaders_get_vote( leaders, slot0+i );
+      if( leaders_idx[i]>=shortlist_cnt ) {
+        FD_TEST( !memcmp( vote, &indeterminate[0], 32UL ) );
+        saw_indeterminate = 1;
+      } else {
+        FD_TEST( !memcmp( vote, &stakes[leaders_idx[i]].vote_key, 32UL ) );
+      }
+    }
+    FD_TEST( saw_indeterminate );
+    fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
+  }
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

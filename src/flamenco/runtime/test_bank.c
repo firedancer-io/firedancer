@@ -1027,6 +1027,26 @@ test_bank_clear( void * mem ) {
   FD_TEST( fd_banks_pool_used_cnt( banks ) == 0UL );
 }
 
+/* fd_banks_new must reject fork widths the collector override store
+   cannot track (128-bit membership mask, one bit reserved for the
+   root). */
+
+static void
+test_bank_max_fork_width_limit( fd_wksp_t * wksp ) {
+  ulong   width = FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH;
+  ulong   fp    = fd_banks_footprint( 16UL, width, 2048UL, 2048UL );
+  uchar * mem   = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );
+  FD_TEST( mem );
+
+  FD_TEST( !fd_banks_new( mem, 16UL, width+1UL, 2048UL, 2048UL, 0, 8888UL ) );
+
+  void * banks_mem = fd_banks_new( mem, 16UL, width, 2048UL, 2048UL, 0, 8888UL );
+  FD_TEST( banks_mem );
+  fd_banks_t * banks = fd_banks_join( banks_mem );
+  FD_TEST( banks );
+  fd_wksp_free_laddr( mem );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1048,6 +1068,8 @@ main( int argc, char ** argv ) {
   void *      wksp_mem      = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, mem_req ); FD_TEST( wksp_mem );
   fd_wksp_t * wksp          = fd_wksp_new( wksp_mem, "snapin", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
   fd_shmem_join_anonymous( "snapin", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, mem_req>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
+
+  test_bank_max_fork_width_limit( wksp );
 
   ulong const fp = fd_banks_footprint( 16UL, 8UL, 2048UL, 2048UL );
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );

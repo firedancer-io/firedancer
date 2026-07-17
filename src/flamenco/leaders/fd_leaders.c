@@ -101,6 +101,7 @@ fd_epoch_leaders_new( void  *                  shmem,
   /* The eventual layout that we want is:
      struct                   (align=8, footprint=48)
      list of indices          (align=4, footprint=4*ceil(slot_cnt/4))
+     vote addr per rotation   (align=32, footprint=32*ceil(slot_cnt/4))
      (up to 60 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
      the indeterminate pubkey (align=32, footprint=32)
@@ -126,6 +127,10 @@ fd_epoch_leaders_new( void  *                  shmem,
   laddr  = fd_ulong_align_up( laddr, alignof(uint) );
   uint * sched     = (uint *)fd_type_pun( (void *)laddr );
   laddr += sizeof(uint)*sched_cnt;
+
+  laddr  = fd_ulong_align_up( laddr, 32UL );
+  fd_pubkey_t * vote_addr = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
+  laddr += 32UL*sched_cnt;
 
   laddr  = fd_ulong_align_up( laddr, fd_ulong_max( sizeof(fd_pubkey_t), FD_WSAMPLE_ALIGN ) );
   /* These two alias, like a union.  We don't need pubkeys until we're
@@ -162,6 +167,12 @@ fd_epoch_leaders_new( void  *                  shmem,
   static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
   memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
 
+  /* record the leader vote address per rotation */
+  for( ulong i=0UL; i<sched_cnt; i++ ) {
+    if( FD_UNLIKELY( sched[ i ]==(uint)pub_cnt ) ) memcpy( vote_addr+i, fd_indeterminate_leader,       32UL );
+    else                                           memcpy( vote_addr+i, &stakes[ sched[ i ] ].vote_key, 32UL );
+  }
+
   ulong leader_bits_laddr = fd_ulong_align_up( (ulong)(pubkeys+pub_cnt+1UL), alignof(ulong) );
   ulong * leader_bits = (ulong *)fd_type_pun( (void *)leader_bits_laddr );
 
@@ -177,6 +188,7 @@ fd_epoch_leaders_new( void  *                  shmem,
   leaders->pub_cnt              = pub_cnt;
   leaders->sched                = sched;
   leaders->sched_cnt            = sched_cnt;
+  leaders->vote_addr            = vote_addr;
   leaders->leader_bits          = leader_bits;
   leaders->leader_bits_word_cnt = leader_bits_word_cnt;
 

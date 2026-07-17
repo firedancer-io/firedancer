@@ -62,6 +62,38 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_bank_t const *                  ba
   }
 }
 
+/* Restores SIMD-0232 collector overrides from the t_1/t_2 vote account
+   snapshots into the bank's collector override store.  Mirrors the
+   snapshot-load logic in fd_ssload.c: only non-default collectors get
+   entries (default inflation collector is the vote pubkey, default
+   block revenue collector is the node identity).  t_1 entries are
+   tagged with the bank epoch and t_2 entries with epoch-1 (the leader
+   schedule source state).  Collectors only exist in V4 vote state, so
+   entries with other versions are skipped (Agave likewise only honors
+   collectors for V4 snapshots). */
+static void
+fd_solfuzz_block_restore_collector_overrides( fd_collector_overrides_t *               overrides,
+                                              ushort                                   fork_idx,
+                                              fd_exec_test_prev_vote_account_t const * vote_accounts,
+                                              pb_size_t                                vote_accounts_cnt,
+                                              ulong                                    epoch ) {
+  if( FD_UNLIKELY( !vote_accounts ) ) return;
+
+  for( uint i=0U; i<vote_accounts_cnt; i++ ) {
+    fd_exec_test_prev_vote_account_t const * va = &vote_accounts[i];
+    if( va->version!=FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) continue;
+    int has_inflation = ( va->inflation_rewards_collector.size==32U ) &&
+                        !!memcmp( va->inflation_rewards_collector.bytes, va->address, 32UL );
+    int has_block     = ( va->block_revenue_collector.size==32U ) &&
+                        !!memcmp( va->block_revenue_collector.bytes, va->node_pubkey, 32UL );
+    if( FD_UNLIKELY( has_inflation | has_block ) ) {
+      fd_collector_overrides_upsert( overrides, fork_idx, epoch, (fd_pubkey_t const *)va->address,
+                                     has_inflation, (fd_pubkey_t const *)va->inflation_rewards_collector.bytes,
+                                     has_block, (fd_pubkey_t const *)va->block_revenue_collector.bytes );
+    }
+  }
+}
+
 /* Stores an acc in the stake delegations cache for the given vote
    account.  Deserializes and uses the present account state to derive
    delegation information. */
@@ -277,6 +309,17 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
   bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
+
+  /* SIMD-0232 collector overrides from the t_1/t_2 vote account
+     snapshots.  The override store was reset (and the bank's fork id
+     assigned) by fd_banks_clear_bank above. */
+  fd_collector_overrides_t * collector_overrides = fd_bank_collector_overrides( bank );
+  fd_solfuzz_block_restore_collector_overrides( collector_overrides, bank->collector_overrides_fork_id,
+                                                block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count,
+                                                bank->f.epoch );
+  fd_solfuzz_block_restore_collector_overrides( collector_overrides, bank->collector_overrides_fork_id,
+                                                block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count,
+                                                fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
 
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch

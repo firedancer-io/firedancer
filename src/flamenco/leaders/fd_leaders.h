@@ -42,11 +42,14 @@
 #define FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt ) (((pub_cnt)+1UL+63UL)/64UL)
 #define FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ) (FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt )*sizeof(ulong))
 #define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                                     \
-  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                                     \
+  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                   \
     FD_LAYOUT_INIT,                                                                                         \
       alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),                 \
       alignof(uint),               (                                                                        \
         (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)                 \
+        )                                                                                ),                 \
+      32UL,                        (                                                                        \
+        (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*32UL                         \
         )                                                                                ),                 \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +               \
       FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL) + FD_EPOCH_LEADERS_BITSET_FOOTPRINT( pub_cnt ), \
@@ -71,6 +74,13 @@ struct fd_epoch_leaders {
      the pub array.  For sched_cnt, refer to below. */
   uint *        sched;
   ulong         sched_cnt;
+
+  /* vote_addr is the leader vote account address per rotation
+     (sched_cnt entries; indeterminate rotations hold
+     FD_INDETERMINATE_LEADER).  Needed by SIMD-0232 fee collection:
+     multiple vote accounts can share one node identity, so the vote
+     address cannot be recovered from pub. */
+  fd_pubkey_t * vote_addr;
 
   /* leader_bits stores whether pub[idx] appears at least once in sched.
      Includes one extra index for the indeterminate leader at idx==pub_cnt. */
@@ -160,6 +170,20 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
+}
+
+/* fd_epoch_leaders_get_vote returns a pointer to the vote account
+   address of the leader for the given slot.  Same lookup semantics as
+   fd_epoch_leaders_get. */
+
+FD_FN_PURE static inline fd_pubkey_t const *
+fd_epoch_leaders_get_vote( fd_epoch_leaders_t const * leaders,
+                           ulong                      slot ) {
+  if( FD_UNLIKELY( leaders==NULL ) ) return NULL;
+  ulong slot_delta = slot - leaders->slot0;
+  if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
+  if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
+  return (fd_pubkey_t const *)( leaders->vote_addr + slot_delta/FD_EPOCH_SLOTS_PER_ROTATION );
 }
 
 FD_FN_PURE static inline int

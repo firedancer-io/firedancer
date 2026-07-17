@@ -199,19 +199,36 @@ ENCODE_FN {
     fd_vote_stakes_t * vs       = fd_bank_vote_stakes( bank );
     ushort             fork_idx = fd_vote_stakes_get_root_idx( vs );
 
+    fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
+    ushort co_root = fd_collector_overrides_get_root_idx( overrides );
+    ulong  co_epoch = ULONG_MAX; /* no collector lookup */
+
     if( entry_type==2U ) {
       ec     = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
       ec_cnt = ec->cnt;
       fd_memcpy( &pubkey, ec->pubkey, 32UL );
       fd_vote_stakes_query_t_1( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+      co_epoch = bank->f.epoch;
     } else if( entry_type==1U ) {
       fd_epoch_credits_t const * ec_src = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
       fd_memcpy( &pubkey, ec_src->pubkey, 32UL );
       fd_vote_stakes_query_t_2( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+      co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     } else {
+      /* t_3 collectors are never consulted on reload; encoded as
+         zero. */
       fd_stashed_commission_t const * sc = &fd_bank_snapshot_commission_t_3( enc->bank )[ enc->vote_idx ];
       fd_memcpy( &pubkey, sc->pubkey, 32UL );
       commission = sc->commission;
+    }
+
+    /* SIMD-0232 collectors: defaults unless overridden. */
+    fd_pubkey_t inflation_collector = {0};
+    fd_pubkey_t block_collector     = {0};
+    if( FD_LIKELY( co_epoch!=ULONG_MAX ) ) {
+      inflation_collector = pubkey;
+      block_collector     = node_account;
+      fd_collector_overrides_query( overrides, co_root, co_epoch, &pubkey, &inflation_collector, &block_collector );
     }
 
     enc->total_stake += stake;
@@ -229,8 +246,8 @@ ENCODE_FN {
     PUSH_VAL( uint,       3U           ); /* variant = V4 */
     PUSH_VAL( fd_pubkey_t, node_account ); /* node_pubkey */
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* inflation_rewards_collector */
-    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* block_revenue_collector */
+    PUSH_VAL( fd_pubkey_t, inflation_collector ); /* inflation_rewards_collector */
+    PUSH_VAL( fd_pubkey_t, block_collector     ); /* block_revenue_collector */
     PUSH_VAL( ushort, (ushort)((uint)commission * 100U) ); /* inflation_rewards_commission_bps */
     PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
     PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */

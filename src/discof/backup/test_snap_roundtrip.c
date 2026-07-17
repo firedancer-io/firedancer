@@ -12,7 +12,7 @@
 #define MAX_LIVE_SLOTS   16UL
 #define MAX_TXN_PER_SLOT 4096UL
 #define VALIDATOR_CNT    3UL
-#define ROOT_SLOT        42UL
+#define ROOT_SLOT        474UL /* epoch 1 with 432 slots/epoch */
 
 static fd_txncache_t *
 create_txncache( void ) {
@@ -100,6 +100,31 @@ static void
 test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_LOG_NOTICE(( "test_manifest_roundtrip" ));
 
+  /* Seed two vote accounts with epoch credits so the encoder emits
+     vote entries, then set non-default SIMD-0232 collectors: distinct
+     inflation and block collectors for vote0 on the t_1 tag (epoch),
+     and a block-only override for vote1 on the t_2 tag (epoch-1). */
+  FD_TEST( bank->f.epoch>=1UL );
+  fd_pubkey_t vote0 = { .ul = { 0x51, 10 } }; fd_pubkey_t node0 = { .ul = { 0x52, 11 } };
+  fd_pubkey_t vote1 = { .ul = { 0x53, 12 } }; fd_pubkey_t node1 = { .ul = { 0x54, 13 } };
+  fd_vote_stakes_t * vs_seed  = fd_bank_vote_stakes( bank );
+  ushort             vs_root  = fd_vote_stakes_get_root_idx( vs_seed );
+  fd_vote_stakes_insert( vs_seed, vs_root, &vote0, &node0, &node0, 1000UL, 1000UL, 100, 100, 1, 1, bank->f.epoch );
+  fd_vote_stakes_insert( vs_seed, vs_root, &vote1, &node1, &node1, 2000UL, 2000UL, 100, 100, 1, 1, bank->f.epoch );
+  fd_epoch_credits_t * ec_seed = fd_bank_epoch_credits( bank );
+  memset( &ec_seed[0], 0, sizeof(fd_epoch_credits_t) );
+  memset( &ec_seed[1], 0, sizeof(fd_epoch_credits_t) );
+  fd_memcpy( ec_seed[0].pubkey, &vote0, 32UL ); ec_seed[0].cnt = 1UL; ec_seed[0].epoch[0] = (ushort)bank->f.epoch; ec_seed[0].credits_delta[0] = 5U;
+  fd_memcpy( ec_seed[1].pubkey, &vote1, 32UL ); ec_seed[1].cnt = 1UL; ec_seed[1].epoch[0] = (ushort)bank->f.epoch; ec_seed[1].credits_delta[0] = 7U;
+  *fd_bank_epoch_credits_len( bank ) = 2UL;
+  fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
+  fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
+  fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
+  fd_collector_overrides_t * co = fd_bank_collector_overrides( bank );
+  ushort co_root = fd_collector_overrides_get_root_idx( co );
+  fd_collector_overrides_upsert( co, co_root, bank->f.epoch,     &vote0, 1, &infl0, 1, &blk0 );
+  fd_collector_overrides_upsert( co, co_root, bank->f.epoch-1UL, &vote1, 0, NULL,   1, &blk1 );
+
   ulong manifest_sz = fd_snap_manifest_serialized_sz( bank );
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
@@ -133,7 +158,8 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   fd_ssmanifest_parser_init( parser, manifest );
 
   int result = fd_ssmanifest_parser_consume( parser, buf, total_written );
-  FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
+  FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE || result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
+  FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
 
   FD_TEST( manifest->slot==bank->f.slot );
   FD_TEST( manifest->block_height==bank->f.block_height );
@@ -142,6 +168,60 @@ test_manifest_roundtrip( fd_bank_t * bank ) {
   FD_TEST( manifest->epoch_schedule_params.slots_per_epoch==bank->f.epoch_schedule.slots_per_epoch );
   FD_TEST( manifest->rent_params.lamports_per_uint8_year==bank->f.rent.lamports_per_uint8_year );
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
+
+  /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
+     key epoch+1) with the epoch override tag and t_2 entries (key
+     epoch) with the epoch-1 tag; t_3 entries (key epoch-1) are encoded
+     with zero collectors. */
+  {
+    fd_snapshot_manifest_epoch_stakes_t const * t1 = NULL;
+    fd_snapshot_manifest_epoch_stakes_t const * t2 = NULL;
+    fd_snapshot_manifest_epoch_stakes_t const * t3 = NULL;
+    for( ulong i=0UL; i<3UL; i++ ) {
+      if( manifest->epoch_stakes[i].epoch==bank->f.epoch+1UL ) t1 = &manifest->epoch_stakes[i];
+      if( manifest->epoch_stakes[i].epoch==bank->f.epoch     ) t2 = &manifest->epoch_stakes[i];
+      if( manifest->epoch_stakes[i].epoch==bank->f.epoch-1UL ) t3 = &manifest->epoch_stakes[i];
+    }
+    FD_TEST( t1 && t2 && t3 );
+
+    static uchar const zero32[ 32UL ] = {0};
+    int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
+    for( ulong i=0UL; i<t1->vote_stakes_len; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &t1->vote_stakes[i];
+      if( !memcmp( vs->vote, &vote0, 32UL ) ) {
+        FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
+        FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
+        seen_t1_vote0 = 1;
+      } else {
+        /* default collectors: inflation is the vote account, block is
+           the node identity */
+        FD_TEST( !memcmp( vs->commission_inflation, vs->vote,     32UL ) );
+        FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
+        if( !memcmp( vs->vote, &vote1, 32UL ) ) seen_t1_vote1 = 1;
+      }
+    }
+    FD_TEST( seen_t1_vote0 && seen_t1_vote1 );
+
+    int seen_t2_vote1 = 0; int seen_t2_vote0 = 0;
+    for( ulong i=0UL; i<t2->vote_stakes_len; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &t2->vote_stakes[i];
+      if( !memcmp( vs->vote, &vote1, 32UL ) ) {
+        FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
+        FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
+        seen_t2_vote1 = 1;
+      } else {
+        FD_TEST( !memcmp( vs->commission_inflation, vs->vote,     32UL ) );
+        FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
+        if( !memcmp( vs->vote, &vote0, 32UL ) ) seen_t2_vote0 = 1;
+      }
+    }
+    FD_TEST( seen_t2_vote1 && seen_t2_vote0 );
+
+    for( ulong i=0UL; i<t3->vote_stakes_len; i++ ) {
+      FD_TEST( !memcmp( t3->vote_stakes[i].commission_inflation, zero32, 32UL ) );
+      FD_TEST( !memcmp( t3->vote_stakes[i].commission_block,     zero32, 32UL ) );
+    }
+  }
 
   ulong expected_epoch_cnt = (bank->f.epoch > 0UL) ? 3UL : 2UL;
   for( ulong i=0UL; i<expected_epoch_cnt; i++ ) {
@@ -255,6 +335,10 @@ main( int     argc,
   params->mock_validator_cnt = VALIDATOR_CNT;
   params->root_slot          = ROOT_SLOT;
   params->slots_per_epoch    = 432UL;
+  /* Place the bank in epoch 1 so the t_1 (epoch) and t_2 (epoch-1)
+     collector override tags are distinct. */
+  fd_sol_sysvar_clock_t clock = { .slot = ROOT_SLOT, .epoch = 1UL, .leader_schedule_epoch = 2UL };
+  params->clock              = &clock;
   ulong bank_idx = fd_svm_mini_reset( mini, params );
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   FD_TEST( bank );
