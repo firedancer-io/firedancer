@@ -111,6 +111,20 @@ fdctl_cfg_get_bool( int *                 out,
   return 1;
 }
 
+/* Handles true/false/"auto" in config */
+static inline int
+fdctl_cfg_get_boolau( int *                 out,
+                      ulong                 out_sz FD_PARAM_UNUSED,
+                      fd_pod_info_t const * info,
+                      char const *          path ) {
+  if( info->val_type==FD_POD_VAL_TYPE_CSTR
+   && !strcmp( info->val, "auto" ) ) {
+    *out = 2;
+    return 1;
+  }
+  return fdctl_cfg_get_bool( out, out_sz, info, path );
+}
+
 static inline int
 fdctl_cfg_get_float( float *               out,
                      ulong                 out_sz FD_PARAM_UNUSED,

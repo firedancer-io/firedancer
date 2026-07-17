@@ -186,14 +186,14 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   net.provider                                     );
   CFG_POP      ( uint,   net.ingress_buffer_size                          );
   CFG_POP      ( cstr,   net.xdp.xdp_mode                                 );
-  CFG_POP      ( bool,   net.xdp.xdp_zero_copy                            );
+  CFG_POP      ( boolau, net.xdp.xdp_zero_copy                            );
   CFG_POP      ( cstr,   net.xdp.poll_mode                                );
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
   CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
   CFG_POP      ( bool,   net.xdp.listen_gre                               );
-  CFG_POP      ( bool,   net.xdp.native_bond                              );
+  CFG_POP      ( boolau, net.xdp.native_bond                              );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
