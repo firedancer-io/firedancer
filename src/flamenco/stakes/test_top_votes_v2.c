@@ -2,6 +2,8 @@
 #include "../../util/fd_util.h"
 
 #include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 static fd_pubkey_t
 test_pubkey( ulong id ) {
@@ -38,6 +40,44 @@ assert_t_1_absent( fd_top_votes_v2_t const * top_votes,
   FD_TEST( !fd_top_votes_v2_query_t_1( top_votes, child_idx, pubkey, NULL, NULL, NULL ) );
 }
 
+typedef void (*invalid_lifecycle_fn_t)( fd_top_votes_v2_t * top_votes );
+
+static void
+reopen_completed_empty_group( fd_top_votes_v2_t * top_votes ) {
+  fd_top_votes_v2_insert_init( top_votes, 0UL );
+  fd_top_votes_v2_insert_fini( top_votes );
+  fd_top_votes_v2_insert_init( top_votes, 0UL );
+}
+
+static void
+share_fresh_group( fd_top_votes_v2_t * top_votes ) {
+  fd_top_votes_v2_new_child( top_votes, 0UL, 1UL );
+}
+
+static void
+rotate_fresh_group( fd_top_votes_v2_t * top_votes ) {
+  fd_top_votes_v2_new_epoch_child( top_votes, 0UL, 1UL );
+}
+
+static void
+assert_lifecycle_rejected( fd_top_votes_v2_t *  top_votes,
+                           invalid_lifecycle_fn_t action ) {
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    fd_log_enable_unclean_exit();
+    fd_log_level_logfile_set( 5 );
+    fd_log_level_stderr_set( 5 );
+    action( top_votes );
+    _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) );
+  FD_TEST( WEXITSTATUS( status )==1 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -60,6 +100,10 @@ main( int     argc,
   fd_top_votes_v2_t * top_votes = fd_top_votes_v2_join(
       fd_top_votes_v2_new( mem, max_fork_width, max_live_banks, 1234UL ) );
   FD_TEST( top_votes );
+
+  assert_lifecycle_rejected( top_votes, reopen_completed_empty_group );
+  assert_lifecycle_rejected( top_votes, share_fresh_group );
+  assert_lifecycle_rejected( top_votes, rotate_fresh_group );
 
   fd_pubkey_t vote_a = test_pubkey( 1UL );
   fd_pubkey_t node_a = test_pubkey( 101UL );

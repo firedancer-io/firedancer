@@ -449,7 +449,12 @@ fd_top_votes_v2_new_child( fd_top_votes_v2_t * top_votes,
 
   ensure_bank_initialized( top_votes, parent_idx );
 
-  bank_info_t * bank_info = get_bank_info( top_votes );
+  bank_info_t *          bank_info  = get_bank_info( top_votes );
+  vote_account_group_t * group_pool = get_t_1_group_pool( top_votes );
+  vote_account_group_t * parent_t_1 = t_1_group_pool_ele(
+      group_pool, bank_info[ parent_idx ].t_1_group_idx );
+  FD_TEST( parent_t_1->owner_bank_idx==UINT_MAX );
+
   bank_info[ child_idx ] = bank_info[ parent_idx ];
 
   memcpy( get_t_2_state( top_votes, child_idx ),
@@ -475,6 +480,7 @@ fd_top_votes_v2_new_epoch_child( fd_top_votes_v2_t * top_votes,
   uint                      child_t_2  = parent->t_2_group_idx ^ 1U;
   vote_account_group_t *    t_2_group  = &top_votes->t_2_accounts[ child_t_2 ];
 
+  FD_TEST( parent_t_1->owner_bank_idx==UINT_MAX );
   vote_account_group_copy( top_votes, t_2_group, parent_t_1 );
 
   FD_TEST( t_1_group_pool_free( group_pool ) );
@@ -525,6 +531,7 @@ fd_top_votes_v2_insert_fini( fd_top_votes_v2_t * top_votes ) {
   FD_TEST( vote_account_heap_ele_cnt( heap )==vote_account_pool_used( pool ) );
   FD_TEST( !vote_account_heap_verify( heap, pool ) );
   FD_TEST( vote_account_heap_new( heap, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) );
+  group->owner_bank_idx = UINT_MAX;
 
   top_votes->insert_min_stake_wmark = 0UL;
   top_votes->insert_bank_idx        = UINT_MAX;
