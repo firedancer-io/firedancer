@@ -4,8 +4,9 @@
 #include "../../disco/fd_disco_base.h"
 
 /* fd_rdisp defines methods for building a DAG (directed acyclic graph)
-   of transactions, and executing them in the appropriate order with the
-   maximum amount of parallelism.
+   of transactions, executing them in the appropriate order with the
+   maximum amount of parallelism, and keeping track of the accounts they
+   write to compute the LtHash efficiently.
 
    Transactions must appear to execute in the order in which they occur
    in the block (the "serial fiction").  However, when two transactions
@@ -130,18 +131,69 @@
              Lane 1: 13.
    or any of the various combinations that consume more staging lanes.
    Note that the concept of staging lanes is a performance optimization,
-   not a safety feature.  With the first arrangment, the caller cannot
+   not a safety feature.  With the first arrangement, the caller cannot
    call get_next_ready on slot 13 in between slots 10 and 11, but
    there's no issue with calling it on slot 14 then, which would
-   obiously result in an incorrect replay.  It's ultimately the callers
-   responsibility to ensure correct replay. */
+   obviously result in an incorrect replay.  It's ultimately the caller's
+   responsibility to ensure correct replay.
 
-#define FD_RDISP_MAX_DEPTH       0x7FFFFFUL /* 23 bit numbers, approx 8M */
-#define FD_RDISP_MAX_BLOCK_DEPTH 0xFFFFUL   /* 16 bits */
-#define FD_RDISP_UNSTAGED        ULONG_MAX
+   In addition to scheduling transactions efficiently, rdisp also
+   provides functionality for computing the LtHash efficiently.  For
+   each account that is written to in the block, we need to subtract the
+   account's initial hash value as of the start of the block and then
+   add in the account's final hash value as of the end of the block to
+   compute the LtHash.  Thus, at least naively, there are two conceptual
+   tasks per writable account, named for how the value is used: the
+   subtraction task and the addition task.
+
+   The subtraction task is a bit simpler, since we know we're going to
+   need it for a given account once we see the first transaction that
+   marks it as writable.  In addition, because it reads the previous
+   value of the account, it never conflicts with executing transactions.
+   The subtraction tasks are only on the critical path in the way
+   transaction sigverify tasks are; they must be done before voting on
+   the block, but that's it.
+
+   The addition tasks are much trickier to get right.  We want to
+   dispatch the addition task for an account as soon as the last write
+   completes, but we don't know a priori when a write was the last
+   write, unless we wait until the slot ends.  However, waiting until
+   the slot ends means it's much more likely addition tasks end up on
+   the critical path, and our main goal is to avoid that.  Furthermore,
+   if we schedule an addition task, then subsequently receive a
+   transaction that writes to that account, we need to be careful not to
+   cause a data race.  Even though we wouldn't care about the value
+   returned, the current implementation of the acctdb does not tolerate
+   races.
+
+   All of this leads to a split and slightly complicated API.  Addition
+   tasks are represented with pseudo-transactions the caller can create
+   and then schedule when idle (see below).  These pseudo-transactions
+   can be returned when scheduling the next transaction.  On the other
+   hand, when adding a transaction, rdisp optionally populates a bitmask
+   indicating which writable accounts have not been marked as writable
+   in a transaction inserted since the most recent pseudo-transaction
+   was created for it.  That's a little obtuse, but essenitally creating
+   a pseudo-transaction for an account address makes it new again. */
+
+#define FD_RDISP_MAX_DEPTH        0x7FFFFFUL /* 23 bit numbers, approx 8M */
+#define FD_RDISP_MAX_BLOCK_DEPTH  0xFFFFUL   /* 16 bits */
+#define FD_RDISP_UNSTAGED         ULONG_MAX
+#define FD_RDISP_MAX_ACCT_PER_TXN 128UL
+
+
+#define FD_RDISP_LTHASH_PSEUDO_TXN 0x8000000000000000UL
 
 struct fd_rdisp;
 typedef struct fd_rdisp fd_rdisp_t;
+
+/* fd_rdisp_neww_* is a bitset used to indicate which accounts are new
+   writers, where new has the specific meaning described above and in
+   the comment for fd_rdisp_add_txn.  Accounts marked read-only will
+   have the corresponding bit clear. */
+#define SET_NAME fd_rdisp_neww
+#define SET_MAX  FD_RDISP_MAX_ACCT_PER_TXN
+#include "../../util/tmpl/fd_set.c"
 
 /* fd_rdisp is set up so that the tag of a block can be adjusted to
    account for differences in handling duplicate blocks/equivocation. */
@@ -215,6 +267,11 @@ fd_rdisp_suggest_staging_lane( fd_rdisp_t const *   disp,
    specified staging lane did not contain any blocks at the time of the
    call, then the newly added block will also be schedule-ready.
 
+   Note: if staging lane is in [0, 4) and the specified staging lane
+   contains a block, that block must have all of its LtHash
+   pseudo-transactions created prior to calling this function.  See
+   fd_rdisp_add_all_pseudo_txn for more details.
+
    On successful return, the tag new_block will be usable for other
    functions that take a block tag block.
 
@@ -228,10 +285,11 @@ fd_rdisp_add_block( fd_rdisp_t *          disp,
 
 /* fd_rdisp_remove_block deallocates a previously-allocated block with
    the block tag block, freeing all resources associated with it.  block
-   must be empty (not contain any transactions in the PENDING, READY,
-   DISPATCHED, or ZOMBIE states), and schedule-ready.
-   Returns 0 on success, and -1 if block is not known.  After a
-   successful return, the block tag block will not be known. */
+   must be empty (not contain any transactions or pseudo-transactions in
+   the PENDING, READY, DISPATCHED, or ZOMBIE states), not have any
+   createable pseudo-transaction, and be schedule-ready.  Returns 0 on
+   success, and -1 if block is not known.  After a successful return,
+   the block tag block will not be known. */
 int
 fd_rdisp_remove_block( fd_rdisp_t *          disp,
                        FD_RDISP_BLOCK_TAG_T  block );
@@ -339,6 +397,13 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
    executed the transaction to populate that part of the address lookup
    table yet.  This is the primary use for alts==NULL.
 
+   If new_writable is non-NULL, the provided bitset will be populated.
+   Upon return, bit i will be set in new_writable if account i (in the
+   standard order) was writable, and this is the first transaction in
+   this block to record it as writable since the most recent call to
+   fd_rdisp_add_pseudo_txn that created a pseudo-transaction for this
+   account address; otherwise bit i will be cleared.
+
    Returns 0 and does not add the transaction on failure.  Fails if
    there were no free transaction indices, if the block with tag
    insert_block did not exist, or if it was not schedule-ready.
@@ -352,28 +417,37 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
                   fd_txn_t const       * txn,
                   uchar const          * payload,
                   fd_acct_addr_t const * alts,
-                  int                    serializing );
+                  int                    serializing,
+                  fd_rdisp_neww_t        new_writable[ static fd_rdisp_neww_word_cnt ] );
 
 /* fd_rdisp_get_next_ready returns the transaction index of a READY
    transaction that was inserted with block tag schedule_block if one
-   exists, and 0 otherwise.  The block with the tag schedule_block must
-   be schedule-ready.
+   exists, otherwise an LtHash pseudo-transaction if one exists,
+   otherwise 0.  The block with the tag schedule_block must be
+   schedule-ready.
 
    If there are multiple READY transactions, which exact one is returned
    is arbitrary.  That said, this function does make some effort to pick
-   one that (upon completion) will unlock more parallelism.  disp must
-   be a valid local join.  At the time this function returns, the
-   returned transaction index (if nonzero) will transition to the
-   DISPATCHED state. */
+   one that (upon completion) will unlock more parallelism.  Similarly,
+   if there are multiple READY LtHash pseudo-transactions, this function
+   makes some effort to return one that is less likely to be written to
+   again in this block.  You can identify whether the returned value is
+   a normal transaction or an LtHash pseudo-transaction by examining the
+   high bit (returned value & FD_RDISP_LTHASH_PSEUDO_TXN non-zero), and
+   decode it with fd_rdisp_pseudo_txn_to_addr.
+
+   disp must be a valid local join.  At the time this function returns,
+   the returned transaction or pseudo-transaction index (if nonzero)
+   will transition to the DISPATCHED state. */
 ulong
 fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
                          FD_RDISP_BLOCK_TAG_T   schedule_block );
 
 /* fd_rdisp_complete_txn notifies the dispatcher that the specified
-   transaction (which must have been in the DISPATCHED state) has
-   completed.  Logs warning and returns on error (invalid txn_idx, not
-   in DISPATCHED state).  This function may cause other transactions to
-   transition from PENDING to READY.
+   transaction or pseudo-transaction (which must have been in the
+   DISPATCHED state) has completed.  Logs warning and returns on error
+   (invalid txn_idx, not in DISPATCHED state).  This function may cause
+   other transactions to transition from PENDING to READY.
 
    At the time this function returns, the specified transaction index
    will be in the FREE state, if reclaim!=0.  Otherwise, if reclaim==0,
@@ -390,6 +464,79 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
                        ulong        txn_idx,
                        int          reclaim );
 
+/* fd_rdisp_pseudo_txn_to_addr stores to out the account address
+   (pubkey) associated with a pseudo-transaction index txn_idx.  txn_idx
+   must be in the PENDING, READY, or DISPATCHED state, which means
+   txn_idx must have been returned from get_next_ready and must have
+   FD_RDISP_LTHASH_PSEUDO_TXN set.  Note that this means once you call
+   complete_txn on a txn_idx, you cannot call function on it any more.
+   disp must be a valid local join.  out must be non-NULL. */
+void
+fd_rdisp_pseudo_txn_to_addr( fd_rdisp_t const * disp,
+                             ulong              txn_idx,
+                             fd_acct_addr_t   * out );
+
+/* fd_rdisp_add_pseudo_txn creates an LtHash addition pseudo-transaction
+   for an arbitrary account that was marked as writable by a transaction
+   added to insert_block with add_txn since the last call to
+   add_pseudo_txn that returned that address (if any).  If no account
+   meets that condition, returns 0.
+
+   fd_rdisp_add_all_pseudo_txn repeats calls to add_pseudo_txn until it
+   returns 0.  The transaction indices of the pseudo-transactions that
+   get created in the process are not provided to the caller.
+
+   disp must be a valid local join, and insert_block must be a known
+   block that is insert-ready.  Returns the transaction index for the
+   pseudo-txn that was created, but for most uses, this value is not
+   very meaningful.
+
+   This function tries to create a pseudo-transaction that is READY if
+   it can.  Additionally, it will try to create a pseudo-transaction for
+   an account that is less likely to be written to again.  This means
+   when there are multiple account addresses that meet the criteria in
+   the first paragraph, which is returned is effectively arbitrary.
+   It's clear that other things being equal, creating a
+   pseudo-transaction that is READY is better than creating one that is
+   PENDING.  Similarly, it's clear that creating a pseudo-transaction
+   for an account that is less likely to be written is better than one
+   for an account more likely to be written again.  However, combining
+   them is slightly tricky.  The criteria we would like is that it's
+   better to create a pseudo-transaction for a PENDING account B than a
+   READY account A if it's likely another transaction that writes to
+   account A will arrive before we can complete the addition LtHash task
+   for A.  Implementing this requires estimating how long hashing takes
+   and a more precise estimate of when a transaction will be used again
+   than we have, so we ignore this.
+
+   Summing all that up: if you're catching or otherwise not at the tip
+   of the chain, just wait until the end of the block and call
+   add_all_pseudo_txn.  If you are at the tip of the chain, dispatch all
+   READY transactions, then all the sigverify, PoH verify, and LtHash
+   subtraction tasks first, since the results of those are definitely
+   needed.  If you're still idle, call add_pseudo_txn once, then
+   get_next_ready once, and repeat.
+
+   IMPORTANT: if insert_block is staged, add_pseudo_txn must be called
+   until it returns 0 prior to inserting another block in the same
+   staging lane.  You may also use fd_rdisp_add_all_psuedo_txn for this
+   purpose.
+
+   Note: the criteria described in the first paragraph is a bit
+   complicated, so here's an easier way to think about it.  You can
+   imagine that when a transaction is added with add_txn, all its
+   writable account addresses get added to a per-block set.  Then this
+   function removes one address from that set and creates a
+   pseudo-transaction for it.  If add_txn is subsequently called with a
+   transaction that writes to that same account, it goes back into the
+   set, so add_pseudo_txn may return it again. */
+ulong
+fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
+                         FD_RDISP_BLOCK_TAG_T   insert_block );
+
+void
+fd_rdisp_add_all_pseudo_txn( fd_rdisp_t          *  disp,
+                             FD_RDISP_BLOCK_TAG_T   insert_block );
 
 typedef struct {
   FD_RDISP_BLOCK_TAG_T  schedule_ready_block;
