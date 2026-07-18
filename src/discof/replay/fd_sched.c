@@ -2793,7 +2793,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
-  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
+  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing, NULL );
   FD_TEST( txn_idx && txn_idx<sched->depth );
 
   /* This transaction either needs to be consumed by sigverify or PoH.
