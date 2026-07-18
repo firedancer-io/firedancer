@@ -71,8 +71,6 @@
    and so they don't have globally acceptable type names (e.g.
    fd_rdisp_edge_t). */
 
-#define MAX_ACCT_PER_TXN 128UL
-
 /* edge_t: Fields typed edge_t represent an edge in one of the parallel
    account-conflict DAGs.  Each transaction stores a list of all its
    outgoing edges.  The type is actually a union of bitfield, but C
@@ -113,10 +111,10 @@ struct fd_rdisp_txn {
      with this node as their destination.  In the worst case, all the
      other transactions in the pool read from each of the max number of
      accounts that this transaction writes to,  so there are
-     MAX_ACCT_PER_TXN*depth edges that come into this node, which fits in
-     about 30 bits, so we have some room for special values.  If
-     in_degree is one of the following values, then
-     the transaction is: */
+     FD_RDISP_MAX_ACCT_PER_TXN*depth edges that come into this node,
+     which fits in about 30 bits, so we have some room for special
+     values.  If in_degree is one of the following values, then the
+     transaction is: */
 #define IN_DEGREE_FREE                (UINT_MAX   )
 #define IN_DEGREE_UNSTAGED            (UINT_MAX-1U)/* unstaged, not dispatched */
 #define IN_DEGREE_DISPATCHED          (UINT_MAX-2U)/* staged,   dispatched */
@@ -169,7 +167,7 @@ struct fd_rdisp_txn {
      (child, next, prev).  All edges from writable accounts come first,
      and we keep track of how many there are.  In the worst case, all
      accounts are reads, so we size it appropriately. */
-  edge_t edges[3UL*MAX_ACCT_PER_TXN]; /* addressed [0, w_cnt_1+1+3*r_cnt) */
+  edge_t edges[3UL*FD_RDISP_MAX_ACCT_PER_TXN]; /* addressed [0, w_cnt_1+1+3*r_cnt) */
 };
 typedef struct fd_rdisp_txn fd_rdisp_txn_t;
 
@@ -424,7 +422,7 @@ struct fd_rdisp_unstaged {
 
   uint writable_cnt;
   uint readonly_cnt;
-  fd_acct_addr_t keys[MAX_ACCT_PER_TXN];
+  fd_acct_addr_t keys[FD_RDISP_MAX_ACCT_PER_TXN];
 };
 typedef struct fd_rdisp_unstaged fd_rdisp_unstaged_t;
 
@@ -499,7 +497,7 @@ fd_rdisp_footprint( ulong depth,
                    (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return 0UL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
+  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN;
   ulong acct_chain_cnt = acct_map_chain_cnt_est( acct_depth );
 
   ulong l = FD_LAYOUT_INIT;
@@ -524,7 +522,7 @@ fd_rdisp_new( void * mem,
                    (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return NULL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
+  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN;
   ulong acct_chain_cnt = acct_map_chain_cnt_est( acct_depth );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -588,7 +586,7 @@ fd_rdisp_join( void * mem ) {
   ulong depth          = disp->depth;
   ulong block_depth    = disp->block_depth;
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
+  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN;
   ulong acct_chain_cnt = acct_map_chain_cnt_est( acct_depth );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -1442,7 +1440,7 @@ fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
 void
 fd_rdisp_verify( fd_rdisp_t const * disp,
                  uint             * scratch ) {
-  ulong acct_depth  = disp->depth*MAX_ACCT_PER_TXN;
+  ulong acct_depth  = disp->depth*FD_RDISP_MAX_ACCT_PER_TXN;
   ulong block_depth = disp->block_depth;
   FD_TEST( 0==acct_map_verify ( disp->acct_map,      acct_depth+1UL,  disp->acct_pool ) );
   FD_TEST( 0==acct_map_verify ( disp->free_acct_map, acct_depth+1UL,  disp->acct_pool ) );
