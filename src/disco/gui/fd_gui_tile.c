@@ -760,7 +760,10 @@ unprivileged_init( fd_topo_t const *      topo,
                        FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
-  ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL );
+  /* The backtest topology has no repair tile (the backt tile stands in
+     for repair and tower), but it is still the full Firedancer client. */
+  ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL ) ||
+                        ULONG_MAX!=fd_topo_find_tile( topo, "backt",  0UL );
   ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
 
   fd_clock_tile_init( ctx->clock );

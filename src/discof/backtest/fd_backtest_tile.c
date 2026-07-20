@@ -348,13 +348,22 @@ returnable_frag( fd_backt_tile_t *   ctx,
            release the bank reference count on it. */
         ctx->prev_root             = msg->slot;
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+        /* Zero the whole message: consumers (eg. the gui tile) read
+           fields like reset_bank_seq and vote_acct_bal that this mock
+           does not otherwise populate. */
+        memset( dst, 0, sizeof(fd_tower_slot_done_t) );
         dst->vote_slot             = msg->slot;
         dst->reset_slot            = msg->slot;
         dst->reset_block_id        = msg->block_id;
+        dst->reset_bank_seq        = msg->bank_seq;
         dst->root_slot             = msg->slot;
         dst->root_block_id         = msg->block_id;
         dst->replay_slot           = msg->slot;
         dst->replay_bank_idx       = msg->bank_idx;
+        dst->replay_bank_seq       = msg->bank_seq;
+        dst->active_fork_cnt       = 1UL;
+        dst->authority_idx         = ULONG_MAX;
+        dst->vote_acct_bal         = ULONG_MAX;
         fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
         return 0;
@@ -431,13 +440,22 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       ctx->prev_root             = root_slot;
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+      /* Zero the whole message: consumers (eg. the gui tile) read
+         fields like reset_bank_seq and vote_acct_bal that this mock
+         does not otherwise populate. */
+      memset( dst, 0, sizeof(fd_tower_slot_done_t) );
       dst->replay_slot           = msg->slot;
       dst->replay_bank_idx       = msg->bank_idx;
+      dst->replay_bank_seq       = msg->bank_seq;
       dst->vote_slot             = msg->slot;
       dst->reset_slot            = msg->slot;
       dst->reset_block_id        = msg->block_id;
+      dst->reset_bank_seq        = msg->bank_seq;
       dst->root_slot             = root_slot;
       dst->root_block_id         = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
+      dst->active_fork_cnt       = 1UL;
+      dst->authority_idx         = ULONG_MAX;
+      dst->vote_acct_bal         = ULONG_MAX;
 
       fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );

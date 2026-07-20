@@ -19,9 +19,11 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../disco/gui/fd_gui_config_parse.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../discof/genesis/genesis_hash.h"
 #include "../../../discof/replay/fd_replay_tile.h"
+#include "../../../discof/restore/fd_snapct_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
@@ -302,6 +304,38 @@ backtest_topo( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "execrp_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /**********************************************************************/
+  /* Add the gui tile to topo                                           */
+  /**********************************************************************/
+
+  /* The gui tile consumes the subset of its usual inputs that exist in
+     the backtest topology (there is no networking, gossip, shred or
+     leader pipeline here).  This is enough for the frontend to show
+     snapshot load and replay progress.  Genesis-mode backtest (no
+     snapshot loader) is not supported: the gui boot-progress sampler
+     requires the snapshot tiles. */
+  if( FD_UNLIKELY( config->tiles.gui.enabled && !disable_snap_loader ) ) {
+    fd_topob_wksp( topo, "gui" );
+    fd_topo_tile_t * gui_tile = fd_topob_tile( topo, "gui", "gui", "metric_in", cpu_idx++, 0, 1, 0 );
+
+    fd_topob_wksp( topo, "snapct_gui" );
+    fd_topob_wksp( topo, "snapin_gui" );
+    fd_topob_link( topo, "snapct_gui", "snapct_gui", 128UL, sizeof(fd_snapct_update_t),            1UL );
+    fd_topob_link( topo, "snapin_gui", "snapin_gui", 128UL, FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, 1UL );
+    fd_topob_tile_out( topo, "snapct", 0UL, "snapct_gui", 0UL );
+    fd_topob_tile_out( topo, "snapin", 0UL, "snapin_gui", 0UL );
+
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "tower_out",     0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_epoch",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_replay", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapct_gui",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapin_gui",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapin_manif",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+    fd_topob_tile_uses( topo, gui_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
+
+  /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
@@ -347,6 +381,8 @@ backtest_topo( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
+
+    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile->gui.tile_cnt = topo->tile_cnt;
 
     if( !strcmp( tile->name, "replay" ) ) {
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;

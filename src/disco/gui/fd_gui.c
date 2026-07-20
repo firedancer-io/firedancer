@@ -1316,11 +1316,33 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * snapwr = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapwr", 0UL ) ];
   volatile ulong * snapwr_metrics = fd_metrics_tile( snapwr->metrics );
 
-  fd_topo_tile_t const * gossip = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "gossip", 0UL ) ];
-  volatile ulong * gossip_metrics = fd_metrics_tile( gossip->metrics );
+  /* Backtest topologies have no gossip tile; treat wait-for-supermajority
+     as done. */
+  ulong            wfs_state       = FD_GOSSIP_WFS_STATE_DONE;
+  volatile ulong * gossip_metrics  = NULL;
+  ulong            gossip_tile_idx = fd_topo_find_tile( gui->topo, "gossip", 0UL );
+  if( FD_LIKELY( gossip_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * gossip = &gui->topo->tiles[ gossip_tile_idx ];
+    gossip_metrics = fd_metrics_tile( gossip->metrics );
+    wfs_state = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STATE ) ];
+  }
 
   ulong snapshot_phase = snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ];
-  ulong wfs_state      = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STATE ) ];
+
+  /* Backtest topologies have no turbine, so the regular catch-up
+     detection (turbine slot vs. replayed slot) can never trigger.
+     Consider replay caught up at the first tower root after the
+     snapshot finishes loading. */
+  if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX
+                && ULONG_MAX!=fd_topo_find_tile( gui->topo, "backt", 0UL )
+                && snapshot_phase==FD_SNAPCT_STATE_SHUTDOWN
+                && gui->summary.slot_tower!=ULONG_MAX ) ) {
+    gui->summary.slot_caught_up = gui->summary.slot_tower;
+    gui->summary.boot_progress.catching_up_time_nanos = now;
+
+    fd_gui_printf_slot_caught_up( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 
   /* state transitions */
   if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
@@ -1424,6 +1446,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY: {
+      /* Only reachable when the topology has a gossip tile. */
       gui->summary.boot_progress.wfs_total_stake     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL ) ];
       gui->summary.boot_progress.wfs_connected_stake = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE ) ];
       gui->summary.boot_progress.wfs_total_peers     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL ) ];
@@ -1666,10 +1689,14 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
        overview slots vis correct.  TODO: do this properly using frags
        sent over a link */
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
-      fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
-      volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
-      fd_gui_handle_repair_slot( gui, slot, now );
+      /* Backtest topologies have no repair tile. */
+      ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
+      if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
+        fd_topo_tile_t const * repair = &gui->topo->tiles[ repair_tile_idx ];
+        volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
+        ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
+        fd_gui_handle_repair_slot( gui, slot, now );
+      }
     }
 
     gui->next_sample_50millis += 50L*1000L*1000L;
@@ -2712,10 +2739,14 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
   /* fixes race if we just sample right after replay's SLOT_COMPLETE */
   if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
-    fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
-    volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-    ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
-    fd_gui_handle_repair_slot( gui, slot, now );
+    /* Backtest topologies have no repair tile. */
+    ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
+    if( FD_LIKELY( repair_tile_idx!=ULONG_MAX ) ) {
+      fd_topo_tile_t const * repair = &gui->topo->tiles[ repair_tile_idx ];
+      volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
+      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
+      fd_gui_handle_repair_slot( gui, slot, now );
+    }
   }
 
   /* Update slot_turbine when we are leader. */
