@@ -3,60 +3,23 @@
     "id": 11,
     "description": "One row per epoch-reward credit to an account   ",
     "fields": {
-        "bank_seq": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable."
-        },
-        "slot": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Slot in which the credit was applied"
-        },
-        "epoch": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Epoch the slot belongs to"
-        },
+        "bank_seq": { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":     { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot in which the credit was applied" },
+        "epoch":    { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Epoch the slot belongs to" },
         "kind": {
             "type": "LowCardinality(String)",
             "description": "Type of reward credit",
             "variants": {
-                "vote": {
-                    "description": "Vote-account commission credit at slot 0 of the new epoch"
-                },
-                "stake": {
-                    "description": "Stake-account credit during the partitioned-epoch-rewards window"
-                }
+                "vote":  { "description": "Vote-account commission credit at slot 0 of the new epoch" },
+                "stake": { "description": "Stake-account credit during the partitioned-epoch-rewards window" }
             }
         },
-        "pubkey": {
-            "type": "Pubkey",
-            "description": "Account pubkey"
-        },
-        "owner": {
-            "type": "Pubkey",
-            "description": "Owner program of the credited account"
-        },
-        "prev_lamports": {
-            "type": "UInt64",
-            "description": "Lamports before the credit"
-        },
-        "lamports": {
-            "type": "UInt64",
-            "description": "Lamports after the credit"
-        },
-        "partition_idx": {
-            "type": "UInt64",
-            "description": "Partitioned-rewards partition index this credit belongs to (0 for vote rewards)"
-        },
-        "credits_observed": {
-            "type": "UInt64",
-            "description": "New credits_observed stored on the stake account (0 for vote rewards)"
-        },
-        "stake": {
-            "type": "UInt64",
-            "description": "Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards)"
-        }
+        "pubkey":           { "type": "Pubkey", "description": "Account pubkey" },
+        "owner":            { "type": "Pubkey", "description": "Owner program of the credited account" },
+        "prev_lamports":    { "type": "UInt64", "description": "Lamports before the credit" },
+        "lamports":         { "type": "UInt64", "description": "Lamports after the credit" },
+        "partition_idx":    { "type": "UInt64", "description": "Partitioned-rewards partition index this credit belongs to (0 for vote rewards)" },
+        "credits_observed": { "type": "UInt64", "description": "New credits_observed stored on the stake account (0 for vote rewards)" },
+        "stake":            { "type": "UInt64", "description": "Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards)" }
     }
 }
