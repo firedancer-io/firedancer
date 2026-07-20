@@ -20,6 +20,8 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../disco/gui/fd_gui_config_parse.h"
+#include "../../../ballet/base58/fd_base58.h"
+#include "../../../disco/genesis/fd_genesis_cluster.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../discof/genesis/genesis_hash.h"
 #include "../../../discof/replay/fd_replay_tile.h"
@@ -382,7 +384,16 @@ backtest_topo( config_t * config ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
 
-    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile->gui.tile_cnt = topo->tile_cnt;
+    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
+      tile->gui.tile_cnt = topo->tile_cnt;
+
+      uchar genesis_hash[ 32 ] = {0};
+      if( FD_LIKELY( -1!=read_genesis_bin( config->paths.genesis, NULL, genesis_hash ) ) ) {
+        char genesis_hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+        fd_base58_encode_32( genesis_hash, NULL, genesis_hash_b58 );
+        strcpy( tile->gui.cluster, fd_genesis_cluster_name( fd_genesis_cluster_identify( genesis_hash_b58 ) ) );
+      }
+    }
 
     if( !strcmp( tile->name, "replay" ) ) {
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;

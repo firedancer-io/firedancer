@@ -2,9 +2,9 @@
 
 Continuously validates Firedancer's runtime against real cluster history.
 The harness watches a Solana ledger archive bucket (mainnet/testnet/
-devnet) and replays every newly uploaded ledger through `firedancer-dev
-backtest`, comparing Firedancer's bank hashes against the canonical ones
-computed by Agave. On a mismatch or crash it uploads a minimized
+devnet) and replays each new ledger through `firedancer-dev backtest`,
+comparing Firedancer's bank hashes against the canonical ones computed
+by Agave. On a mismatch or crash it uploads a minimized
 reproduction ledger to `gs://firedancer-ci-resources/`, posts to Slack,
 and resumes replaying past the bad slot.
 
@@ -55,7 +55,9 @@ GCS access uses the `firedancer-scratch@isol-firedancer` service account.
 ## How it works
 
 1. Poll the bucket hourly for a slot directory newer than the one in the
-   state file.
+   state file. Only the newest ledger is processed; since ledgers are
+   uploaded roughly every two days, the hourly poll never skips one in
+   practice.
 2. Build the `agave-ledger-tool` version named in the ledger's
    `version.txt`.
 3. Download genesis, `rocksdb.tar.zst`, and the lowest rooted snapshot

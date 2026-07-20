@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Continuous offline-replay backtest harness. Watches a Solana ledger
-# archive bucket for newly uploaded ledgers, replays each one with
+# archive bucket for new ledgers, replays the newest one with
 # `firedancer-dev backtest`, and uploads a minimized reproduction ledger
 # whenever a bank hash mismatch or crash occurs.
 #
@@ -46,6 +46,13 @@ send_slack_debug_message()    { post_to_slack "$SLACK_DEBUG_WEBHOOK_URL" "$1"; }
 log_step() {
     echo ""
     echo "=== [$(date '+%Y-%m-%d %H:%M:%S')] $1 ==="
+}
+
+# Alert and stop: called when producing or uploading a minimization artifact
+# fails; continuing would announce (or replay past) a broken reproduction.
+fail_minimization() {
+    send_slack_message "@here $1. Exiting; minimized reproduction is incomplete."
+    exit 1
 }
 
 #---------------------------------------------------------------------------
@@ -280,6 +287,11 @@ build_firedancer() {
 render_backtest_config() {
     cp $FIREDANCER_REPO/contrib/offline-replay/offline_replay.toml $LEDGER_DIR
 
+    # `configure fini all` unlinks genesis.bin after every pass (the dev
+    # genesis stage owns that file); re-extract it so each pass can read it
+    # (eg. the gui identifies the cluster from it).
+    tar -xjf $LEDGER_DIR/genesis.tar.bz2 -C $LEDGER_DIR genesis.bin
+
     export ledger=$LEDGER_DIR
     echo "ledger: $ledger"
     export end_slot=$ROCKSDB_ROOTED_MAX
@@ -407,7 +419,8 @@ handle_replay_failure() {
     # replayed from) unless it would land at or before that snapshot's slot.
     if [ "$PREVIOUS_ROOTED_SLOT" -gt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
         echo "Creating new snapshot at $PREVIOUS_ROOTED_SLOT"
-        $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
+        $AGAVE_LEDGER_TOOL create-snapshot $PREVIOUS_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change \
+            || fail_minimization "create-snapshot at slot \`$PREVIOUS_ROOTED_SLOT\` failed"
         sleep 10
         rm $LEDGER_DIR/ledger_tool -rf
         rm $LEDGER_REPLAY_SNAPSHOT
@@ -420,7 +433,8 @@ handle_replay_failure() {
     # Create a full snapshot at the rooted slot right after the bad slot;
     # replay resumes from this one.
     echo "Creating new snapshot at $NEXT_ROOTED_SLOT"
-    $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change
+    $AGAVE_LEDGER_TOOL create-snapshot $NEXT_ROOTED_SLOT -l $LEDGER_DIR --enable-capitalization-change \
+        || fail_minimization "create-snapshot at slot \`$NEXT_ROOTED_SLOT\` failed"
     sleep 10
     rm $LEDGER_DIR/ledger_tool -rf
 
@@ -443,14 +457,16 @@ handle_replay_failure() {
         --rocksdb $LEDGER_DIR/rocksdb \
         --minified-rocksdb $MISMATCH_DIR/rocksdb \
         --start-slot $PREVIOUS_ROOTED_SLOT \
-        --end-slot $MINIMIZED_END_SLOT >> $LOG 2>&1
+        --end-slot $MINIMIZED_END_SLOT >> $LOG 2>&1 \
+        || fail_minimization "fd_ledger minify failed (see \`$LOG\`)"
     sleep 10
 
     # Park the resume snapshot in old_snapshots so create-snapshot below
     # starts from the PREVIOUS_ROOTED_SLOT snapshot, not this newer one.
     mv $LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
     echo "Creating minimized snapshot for mismatch"
-    $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT --enable-capitalization-change
+    $AGAVE_LEDGER_TOOL create-snapshot $MINIMIZED_START_SLOT $MISMATCH_DIR -l $LEDGER_DIR --minimized --ending-slot $MINIMIZED_END_SLOT --enable-capitalization-change \
+        || fail_minimization "minimized create-snapshot at slot \`$MINIMIZED_START_SLOT\` failed"
     sleep 10
     rm $LEDGER_DIR/ledger_tool -rf
     mv $LEDGER_DIR/snapshot-${PREVIOUS_ROOTED_SLOT}* $OLD_SNAPSHOTS_DIR
@@ -466,16 +482,20 @@ handle_replay_failure() {
     # Tar up the minimized ledger and upload it for CI/debugging.
     MISMATCH_TAR=$MISMATCH_DIR.tar.gz
     cd $LEDGER_DIR
-    tar -czvf $(basename $MISMATCH_TAR) $(basename $MISMATCH_DIR)
-    gsutil cp $MISMATCH_TAR gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)
+    tar -czvf $(basename $MISMATCH_TAR) $(basename $MISMATCH_DIR) \
+        || fail_minimization "tar of minimized ledger \`$(basename $MISMATCH_DIR)\` failed"
+    gsutil cp $MISMATCH_TAR gs://firedancer-ci-resources/$(basename $MISMATCH_TAR) \
+        || fail_minimization "upload of minimized ledger \`$(basename $MISMATCH_TAR)\` failed"
     send_slack_message "Minimized ledger uploaded to gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)"
     send_mismatch_slack_message "Mismatch ledger uploaded to gs://firedancer-ci-resources/$(basename $MISMATCH_TAR)"
 
     # Upload the (compressed) replay log next to the minimized ledger so the
     # failure can be inspected without access to this machine.
     MISMATCH_LOG_GZ=$(basename $MISMATCH_DIR).log.gz
-    gzip -c "$LOG" > $MISMATCH_LOG_GZ
-    gsutil cp $MISMATCH_LOG_GZ gs://firedancer-ci-resources/$MISMATCH_LOG_GZ
+    gzip -c "$LOG" > $MISMATCH_LOG_GZ \
+        || fail_minimization "compressing replay log \`$LOG\` failed"
+    gsutil cp $MISMATCH_LOG_GZ gs://firedancer-ci-resources/$MISMATCH_LOG_GZ \
+        || fail_minimization "upload of replay log \`$MISMATCH_LOG_GZ\` failed"
     send_slack_message "Replay log uploaded to gs://firedancer-ci-resources/$MISMATCH_LOG_GZ"
     send_mismatch_slack_message "Replay log uploaded to gs://firedancer-ci-resources/$MISMATCH_LOG_GZ"
 
