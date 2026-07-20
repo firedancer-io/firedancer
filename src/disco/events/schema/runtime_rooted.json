@@ -3,57 +3,17 @@
     "id": 12,
     "description": "One row per root advance with the post-apply cache invariants",
     "fields": {
-        "bank_seq": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable."
-        },
-        "slot": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Slot of the newly rooted block"
-        },
-        "epoch": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Epoch the rooted slot belongs to"
-        },
-        "prev_root_slot": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Slot of the previous root"
-        },
-        "stake_delegations_upserts": {
-            "type": "UInt64",
-            "description": "Number of stake-delegations cache entries upserted into the root map by this root advance. Can find the exact entries by joining to runtime_stake_delegation on bank_seq."
-        },
-        "stake_delegations_removes": {
-            "type": "UInt64",
-            "description": "Number of stake-delegations cache entries removed from the root map by this root advance. Can find the exact entries by joining to runtime_stake_delegation on bank_seq."
-        },
-        "stake_delegations_cnt": {
-            "type": "UInt64",
-            "description": "Total entries in the root stake-delegations cache after this advance"
-        },
-        "effective_stake": {
-            "type": "UInt64",
-            "description": "Root stake-delegations effective-stake total after this advance"
-        },
-        "activating_stake": {
-            "type": "UInt64",
-            "description": "Root stake-delegations activating-stake total after this advance"
-        },
-        "deactivating_stake": {
-            "type": "UInt64",
-            "description": "Root stake-delegations deactivating-stake total after this advance"
-        },
-        "new_votes_inserts": {
-            "type": "UInt64",
-            "description": "Number of new-votes op-log inserts applied into the root by this advance. Can find the exact entries by joining to runtime_vote_account on bank_seq."
-        },
-        "new_votes_removes": {
-            "type": "UInt64",
-            "description": "Number of new-votes op-log removes applied into the root by this advance. Can find the exact entries by joining to runtime_vote_account on bank_seq."
-        }
+        "bank_seq":                  { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                      { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot of the newly rooted block" },
+        "epoch":                     { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Epoch the rooted slot belongs to" },
+        "prev_root_slot":            { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot of the previous root" },
+        "stake_delegations_upserts": { "type": "UInt64",                               "description": "Number of stake-delegations cache entries upserted into the root map by this root advance. Can find the exact entries by joining to runtime_stake_delegation on bank_seq." },
+        "stake_delegations_removes": { "type": "UInt64",                               "description": "Number of stake-delegations cache entries removed from the root map by this root advance. Can find the exact entries by joining to runtime_stake_delegation on bank_seq." },
+        "stake_delegations_cnt":     { "type": "UInt64",                               "description": "Total entries in the root stake-delegations cache after this advance" },
+        "effective_stake":           { "type": "UInt64",                               "description": "Root stake-delegations effective-stake total after this advance" },
+        "activating_stake":          { "type": "UInt64",                               "description": "Root stake-delegations activating-stake total after this advance" },
+        "deactivating_stake":        { "type": "UInt64",                               "description": "Root stake-delegations deactivating-stake total after this advance" },
+        "new_votes_inserts":         { "type": "UInt64",                               "description": "Number of new-votes op-log inserts applied into the root by this advance. Can find the exact entries by joining to runtime_vote_account on bank_seq." },
+        "new_votes_removes":         { "type": "UInt64",                               "description": "Number of new-votes op-log removes applied into the root by this advance. Can find the exact entries by joining to runtime_vote_account on bank_seq." }
     }
 }

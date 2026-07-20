@@ -3,71 +3,26 @@
     "id": 11,
     "description": "The complete history of the stake-delegations cache, one row per mutation: the baseline entries loaded at boot (kind = snapshot, one row per delegation in the snapshot manifest or genesis), the entry rewrites applied by epoch-reward payouts (kind = reward), and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove",
     "fields": {
-        "bank_seq": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable."
-        },
-        "slot": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Slot in which the mutating transaction was committed (the snapshot slot for baseline entries)"
-        },
-        "epoch": {
-            "type": "UInt64",
-            "compression": "Delta, ZSTD",
-            "description": "Epoch the slot belongs to"
-        },
-        "index_in_slot": {
-            "type": "UInt64",
-            "compression": "T64, ZSTD",
-            "description": "0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (snapshot or reward kind)"
-        },
-        "signature": {
-            "type": "Signature",
-            "description": "First signature of the mutating transaction (64 bytes; zero for the non-transaction rows, snapshot or reward kind)"
-        },
+        "bank_seq":      { "type": "UInt64",    "compression": "Delta, ZSTD", "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":          { "type": "UInt64",    "compression": "Delta, ZSTD", "description": "Slot in which the mutating transaction was committed (the snapshot slot for baseline entries)" },
+        "epoch":         { "type": "UInt64",    "compression": "Delta, ZSTD", "description": "Epoch the slot belongs to" },
+        "index_in_slot": { "type": "UInt64",    "compression": "T64, ZSTD",   "description": "0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (snapshot or reward kind)" },
+        "signature":     { "type": "Signature",                               "description": "First signature of the mutating transaction (64 bytes; zero for the non-transaction rows, snapshot or reward kind)" },
         "kind": {
             "type": "LowCardinality(String)",
             "description": "Type of the cache entry mutation",
             "variants": {
-                "upsert": {
-                    "description": "Entry fully rewritten from the post-txn account state"
-                },
-                "remove": {
-                    "description": "Entry removed"
-                },
-                "snapshot": {
-                    "description": "Baseline entry loaded into the cache at boot from the snapshot manifest (or genesis)"
-                },
-                "reward": {
-                    "description": "Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window"
-                }
+                "upsert":   { "description": "Entry fully rewritten from the post-txn account state" },
+                "remove":   { "description": "Entry removed" },
+                "snapshot": { "description": "Baseline entry loaded into the cache at boot from the snapshot manifest (or genesis)" },
+                "reward":   { "description": "Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window" }
             }
         },
-        "stake_account": {
-            "type": "Pubkey",
-            "description": "Stake account pubkey"
-        },
-        "vote_account": {
-            "type": "Pubkey",
-            "description": "Vote account pubkey"
-        },
-        "stake": {
-            "type": "UInt64",
-            "description": "Delegated lamports written to the cache"
-        },
-        "activation_epoch": {
-            "type": "UInt64",
-            "description": "Delegation activation epoch written to the cache"
-        },
-        "deactivation_epoch": {
-            "type": "UInt64",
-            "description": "Delegation deactivation epoch written to the cache"
-        },
-        "credits_observed": {
-            "type": "UInt64",
-            "description": "Vote credits_observed written to the cache"
-        }
+        "stake_account":      { "type": "Pubkey", "description": "Stake account pubkey" },
+        "vote_account":       { "type": "Pubkey", "description": "Vote account pubkey" },
+        "stake":              { "type": "UInt64", "description": "Delegated lamports written to the cache" },
+        "activation_epoch":   { "type": "UInt64", "description": "Delegation activation epoch written to the cache" },
+        "deactivation_epoch": { "type": "UInt64", "description": "Delegation deactivation epoch written to the cache" },
+        "credits_observed":   { "type": "UInt64", "description": "Vote credits_observed written to the cache" }
     }
 }

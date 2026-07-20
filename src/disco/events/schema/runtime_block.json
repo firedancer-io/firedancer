@@ -3,54 +3,18 @@
     "id": 9,
     "description": "One row per block emitted with all the block-level diffs and results",
     "fields": {
-        "bank_seq": {
-            "type": "UInt64",
-            "description": "Monotonic sequence number identifying this block within the current run; the join key from runtime_txn / slot_confirmed / block_equivocated. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable."
-        },
-        "slot": {
-            "type": "UInt64",
-            "description": "Block slot number"
-        },
-        "block_id": {
-            "type": "Hash",
-            "description": "Block id of slot (merkle root of the last FEC set)"
-        },
-        "parent_slot": {
-            "type": "UInt64",
-            "description": "Slot of the parent block"
-        },
-        "parent_block_id": {
-            "type": "Hash",
-            "description": "Parent slot's block id"
-        },
-        "epoch": {
-            "type": "UInt64",
-            "description": "Epoch this block belongs to"
-        },
-        "block_height": {
-            "type": "UInt64",
-            "description": "Block height (count of ancestor blocks) of this block in the chain"
-        },
-        "leader": {
-            "type": "Pubkey",
-            "description": "Scheduled leader identity pubkey for this block"
-        },
-        "bank_hash": {
-            "type": "Hash",
-            "description": "Bank hash of this slot"
-        },
-        "prev_bank_hash": {
-            "type": "Hash",
-            "description": "Bank hash of the parent slot"
-        },
-        "accounts_lt_hash_checksum": {
-            "type": "Hash",
-            "description": "Accounts lattice hash after this slot"
-        },
-        "poh_hash": {
-            "type": "Hash",
-            "description": "Proof-of-history hash at the end of the slot (same as blockhash)"
-        },
+        "bank_seq":                  { "type": "UInt64", "description": "Monotonic sequence number identifying this block within the current run; the join key from runtime_txn / slot_confirmed / block_equivocated. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable." },
+        "slot":                      { "type": "UInt64", "description": "Block slot number" },
+        "block_id":                  { "type": "Hash",   "description": "Block id of slot (merkle root of the last FEC set)" },
+        "parent_slot":               { "type": "UInt64", "description": "Slot of the parent block" },
+        "parent_block_id":           { "type": "Hash",   "description": "Parent slot's block id" },
+        "epoch":                     { "type": "UInt64", "description": "Epoch this block belongs to" },
+        "block_height":              { "type": "UInt64", "description": "Block height (count of ancestor blocks) of this block in the chain" },
+        "leader":                    { "type": "Pubkey", "description": "Scheduled leader identity pubkey for this block" },
+        "bank_hash":                 { "type": "Hash",   "description": "Bank hash of this slot" },
+        "prev_bank_hash":            { "type": "Hash",   "description": "Bank hash of the parent slot" },
+        "accounts_lt_hash_checksum": { "type": "Hash",   "description": "Accounts lattice hash after this slot" },
+        "poh_hash":                  { "type": "Hash",   "description": "Proof-of-history hash at the end of the slot (same as blockhash)" },
         "clock_sysvar": {
             "type": "Array",
             "max_len": 1,
@@ -59,110 +23,33 @@
                 "type": "Tuple",
                 "description": "Decoded Clock sysvar for this slot",
                 "fields": {
-                    "slot": {
-                        "type": "UInt64",
-                        "description": "Clock sysvar slot (same as this row's slot)"
-                    },
-                    "epoch_start_timestamp": {
-                        "type": "Int64",
-                        "description": "Unix timestamp of the first slot of this epoch"
-                    },
-                    "epoch": {
-                        "type": "UInt64",
-                        "description": "Clock sysvar epoch"
-                    },
-                    "leader_schedule_epoch": {
-                        "type": "UInt64",
-                        "description": "Epoch whose leader schedule is currently being computed"
-                    },
-                    "unix_timestamp": {
-                        "type": "Int64",
-                        "description": "Stake-weighted cluster unix timestamp estimate for this slot"
-                    }
+                    "slot":                  { "type": "UInt64", "description": "Clock sysvar slot (same as this row's slot)" },
+                    "epoch_start_timestamp": { "type": "Int64",  "description": "Unix timestamp of the first slot of this epoch" },
+                    "epoch":                 { "type": "UInt64", "description": "Clock sysvar epoch" },
+                    "leader_schedule_epoch": { "type": "UInt64", "description": "Epoch whose leader schedule is currently being computed" },
+                    "unix_timestamp":        { "type": "Int64",  "description": "Stake-weighted cluster unix timestamp estimate for this slot" }
                 }
             }
         },
-        "recent_blockhashes_sysvar": {
-            "type": "Array",
-            "max_len": 150,
-            "description": "Blockhash queue at the end of this slot, newest first",
-            "element": {
-                "type": "Hash",
-                "description": "Blockhash"
-            }
-        },
-        "last_restart_slot_sysvar": {
-            "type": "UInt64",
-            "description": "Highest hard fork slot less than or equal to bank slot"
-        },
-        "num_transactions": {
-            "type": "UInt64",
-            "description": "Total number of transactions committed in this block"
-        },
-        "num_failed_txns": {
-            "type": "UInt64",
-            "description": "Number of transactions that committed with an error"
-        },
-        "num_nonvote_txns": {
-            "type": "UInt64",
-            "description": "Number of non-vote transactions committed in this block"
-        },
-        "num_nonvote_failed_txns": {
-            "type": "UInt64",
-            "description": "Number of non-vote transactions that committed with an error"
-        },
-        "num_signatures": {
-            "type": "UInt64",
-            "description": "Total number of signatures processed in the block"
-        },
-        "num_shreds": {
-            "type": "UInt64",
-            "description": "Number of data shreds making up this block"
-        },
-        "tick_height": {
-            "type": "UInt64",
-            "description": "Cumulative tick height at the end of this block"
-        },
-        "execution_fees": {
-            "type": "UInt64",
-            "description": "Total execution (base) fees collected in this block, pre-burn"
-        },
-        "priority_fees": {
-            "type": "UInt64",
-            "description": "Total priority fees collected in this block (priority fees are not burned)"
-        },
-        "tips": {
-            "type": "UInt64",
-            "description": "Total gross tips credited to tip accounts in this block, before block-level tip commission"
-        },
-        "fees_burned": {
-            "type": "UInt64",
-            "description": "Lamports burned at fee settlement (50% of execution fees)"
-        },
-        "leader_fee_reward": {
-            "type": "UInt64",
-            "description": "Lamports credited to the leader at fee settlement"
-        },
-        "capitalization": {
-            "type": "UInt64",
-            "description": "Total lamport supply"
-        },
-        "total_effective_stake": {
-            "type": "UInt64",
-            "description": "Effective stake from stake delegations"
-        },
-        "total_activating_stake": {
-            "type": "UInt64",
-            "description": "Stake activating during this slot's epoch"
-        },
-        "total_deactivating_stake": {
-            "type": "UInt64",
-            "description": "Stake deactivating during this slot's epoch"
-        },
-        "total_epoch_stake": {
-            "type": "UInt64",
-            "description": "Total stake delegated to active vote accounts this epoch"
-        },
+        "recent_blockhashes_sysvar": { "type": "Array", "max_len": 150, "element": { "type": "Hash", "description": "Blockhash" }, "description": "Blockhash queue at the end of this slot, newest first" },
+        "last_restart_slot_sysvar":  { "type": "UInt64", "description": "Highest hard fork slot less than or equal to bank slot" },
+        "num_transactions":          { "type": "UInt64", "description": "Total number of transactions committed in this block" },
+        "num_failed_txns":           { "type": "UInt64", "description": "Number of transactions that committed with an error" },
+        "num_nonvote_txns":          { "type": "UInt64", "description": "Number of non-vote transactions committed in this block" },
+        "num_nonvote_failed_txns":   { "type": "UInt64", "description": "Number of non-vote transactions that committed with an error" },
+        "num_signatures":            { "type": "UInt64", "description": "Total number of signatures processed in the block" },
+        "num_shreds":                { "type": "UInt64", "description": "Number of data shreds making up this block" },
+        "tick_height":               { "type": "UInt64", "description": "Cumulative tick height at the end of this block" },
+        "execution_fees":            { "type": "UInt64", "description": "Total execution (base) fees collected in this block, pre-burn" },
+        "priority_fees":             { "type": "UInt64", "description": "Total priority fees collected in this block (priority fees are not burned)" },
+        "tips":                      { "type": "UInt64", "description": "Total gross tips credited to tip accounts in this block, before block-level tip commission" },
+        "fees_burned":               { "type": "UInt64", "description": "Lamports burned at fee settlement (50% of execution fees)" },
+        "leader_fee_reward":         { "type": "UInt64", "description": "Lamports credited to the leader at fee settlement" },
+        "capitalization":            { "type": "UInt64", "description": "Total lamport supply" },
+        "total_effective_stake":     { "type": "UInt64", "description": "Effective stake from stake delegations" },
+        "total_activating_stake":    { "type": "UInt64", "description": "Stake activating during this slot's epoch" },
+        "total_deactivating_stake":  { "type": "UInt64", "description": "Stake deactivating during this slot's epoch" },
+        "total_epoch_stake":         { "type": "UInt64", "description": "Total stake delegated to active vote accounts this epoch" },
         "sysvar_diffs": {
             "type": "Array",
             "max_len": 16,
@@ -171,38 +58,14 @@
                 "type": "Tuple",
                 "description": "Post-state of an updated sysvar account",
                 "fields": {
-                    "pubkey": {
-                        "type": "Pubkey",
-                        "description": "Sysvar account pubkey"
-                    },
-                    "owner": {
-                        "type": "Pubkey",
-                        "description": "Post-state owner pubkey"
-                    },
-                    "prev_owner": {
-                        "type": "Pubkey",
-                        "description": "Pre-state owner pubkey"
-                    },
-                    "lamports": {
-                        "type": "UInt64",
-                        "description": "Post-state lamports"
-                    },
-                    "prev_lamports": {
-                        "type": "UInt64",
-                        "description": "Pre-state lamports"
-                    },
-                    "data_sz": {
-                        "type": "UInt64",
-                        "description": "Post-state data size in bytes"
-                    },
-                    "prev_data_sz": {
-                        "type": "UInt64",
-                        "description": "Pre-state data size in bytes"
-                    },
-                    "is_executable": {
-                        "type": "Bool",
-                        "description": "True if the post-state account is executable"
-                    }
+                    "pubkey":        { "type": "Pubkey", "description": "Sysvar account pubkey" },
+                    "owner":         { "type": "Pubkey", "description": "Post-state owner pubkey" },
+                    "prev_owner":    { "type": "Pubkey", "description": "Pre-state owner pubkey" },
+                    "lamports":      { "type": "UInt64", "description": "Post-state lamports" },
+                    "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
+                    "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
+                    "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
+                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" }
                 }
             }
         },
@@ -214,53 +77,18 @@
                 "type": "Tuple",
                 "description": "Post-state of an updated account",
                 "fields": {
-                    "pubkey": {
-                        "type": "Pubkey",
-                        "description": "Account pubkey"
-                    },
-                    "owner": {
-                        "type": "Pubkey",
-                        "description": "Post-state owner pubkey"
-                    },
-                    "prev_owner": {
-                        "type": "Pubkey",
-                        "description": "Pre-state owner pubkey"
-                    },
-                    "lamports": {
-                        "type": "UInt64",
-                        "description": "Post-state lamports"
-                    },
-                    "prev_lamports": {
-                        "type": "UInt64",
-                        "description": "Pre-state lamports"
-                    },
-                    "data_sz": {
-                        "type": "UInt64",
-                        "description": "Post-state data size in bytes"
-                    },
-                    "prev_data_sz": {
-                        "type": "UInt64",
-                        "description": "Pre-state data size in bytes"
-                    },
-                    "is_executable": {
-                        "type": "Bool",
-                        "description": "True if the post-state account is executable"
-                    }
+                    "pubkey":        { "type": "Pubkey", "description": "Account pubkey" },
+                    "owner":         { "type": "Pubkey", "description": "Post-state owner pubkey" },
+                    "prev_owner":    { "type": "Pubkey", "description": "Pre-state owner pubkey" },
+                    "lamports":      { "type": "UInt64", "description": "Post-state lamports" },
+                    "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
+                    "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
+                    "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
+                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" }
                 }
             }
         },
-        "fec_count": {
-            "type": "UInt64",
-            "description": "Number of FEC sets observed while assembling this block"
-        },
-        "fec_merkle_roots": {
-            "type": "Array",
-            "max_len": 1024,
-            "description": "Merkle chain of FEC sets observed while assembling this block",
-            "element": {
-                "type": "Hash",
-                "description": "FEC merkle root"
-            }
-        }
+        "fec_count":        { "type": "UInt64", "description": "Number of FEC sets observed while assembling this block" },
+        "fec_merkle_roots": { "type": "Array", "max_len": 1024, "element": { "type": "Hash", "description": "FEC merkle root" }, "description": "Merkle chain of FEC sets observed while assembling this block" }
     }
 }
