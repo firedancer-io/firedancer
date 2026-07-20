@@ -1974,6 +1974,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "upgrade_bpf_stake_program_to_v5_1",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, custom_commission_collector)>>3,
+    .id                        = {"\x21\xf8\xbe\xce\x1c\x74\xd8\x1d\x21\xe8\x9b\xfb\x4c\xfb\xb5\x28\x83\x6b\xb6\x00\x94\x4d\x10\x21\x9e\x32\xf5\xf1\x3f\xa2\x95\xce"},
+                                 /* 3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf */
+    .name                      = "custom_commission_collector",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2279,6 +2285,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_286 0x0b606154993bf43dUL, .val = &ids[286]
 #define MAP_PERFECT_287 0x8ab30f17e7e3b4b5UL, .val = &ids[287]
 #define MAP_PERFECT_288 0xe8f8dc2ca192d30cUL, .val = &ids[288]
+#define MAP_PERFECT_289 0x1dd8741ccebef821UL, .val = &ids[289]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2578,4 +2585,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_696         
 FD_STATIC_ASSERT( offsetof( fd_features_t, set_lamports_per_byte_to_6960                           )>>3==286UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_post_exec_min_balance_check                       )>>3==287UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5_1                       )>>3==288UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, custom_commission_collector                             )>>3==289UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

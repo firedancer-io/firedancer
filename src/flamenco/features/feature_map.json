@@ -287,5 +287,6 @@
   {"name":"set_lamports_per_byte_to_696","pubkey":"mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY"},
   {"name":"set_lamports_per_byte_to_6960","pubkey":"5AqsUgSb6cgLizSaNiFn3o9XB7VUtKDtDZfcKEjEDmni"},
   {"name":"relax_post_exec_min_balance_check","pubkey":"DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg"},
-  {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"}
+  {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"},
+  {"name":"custom_commission_collector","pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"}
 ]

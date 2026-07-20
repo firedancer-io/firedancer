@@ -996,6 +996,75 @@ update_commission_bps( fd_exec_instr_ctx_t *                    ctx,
   return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
 }
 
+/* Updates the vote account's commission collector (SIMD-0232).
+   collector_account==NULL means the collector is the vote account
+   itself, which is exempt from the collector constraints.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L907-L935 */
+static int
+update_commission_collector( fd_exec_instr_ctx_t *         ctx,
+                             fd_borrowed_account_t *       vote_account,
+                             int                           target_version,
+                             fd_borrowed_account_t const * collector_account,
+                             fd_commission_kind_t const *  kind,
+                             fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                             ulong                         signers_cnt,
+                             fd_rent_t const *             rent ) {
+  fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_commission_collector.vote_state;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L916 */
+  int rc = get_vote_state_handler_checked( vote_account, target_version, 0, vote_state_versioned );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L918-L919 */
+  rc = fd_vote_verify_authorized_signer(
+      fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
+      signers,
+      signers_cnt
+  );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  /* An external collector must be system program owned, rent-exempt,
+     and not reserved (checked via the writable flag).
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L866-L905 */
+  fd_pubkey_t const * new_collector_key;
+  if( !collector_account ) {
+    new_collector_key = (fd_pubkey_t const *)vote_account->acc->pubkey;
+  } else {
+    if( FD_UNLIKELY( !fd_pubkey_eq( fd_borrowed_account_get_owner( collector_account ), &fd_solana_system_program_id ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    }
+
+    if( FD_UNLIKELY( fd_borrowed_account_get_lamports( collector_account ) <
+                     fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( collector_account ) ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    }
+
+    if( FD_UNLIKELY( !fd_borrowed_account_is_writable( collector_account ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+
+    new_collector_key = (fd_pubkey_t const *)collector_account->acc->pubkey;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L923-L930 */
+  switch( kind->discriminant ) {
+    case fd_commission_kind_enum_inflation_rewards: {
+      fd_vsv_set_inflation_rewards_collector( vote_state_versioned, new_collector_key );
+      break;
+    }
+    case fd_commission_kind_enum_block_revenue: {
+      fd_vsv_set_block_revenue_collector( vote_state_versioned, new_collector_key );
+      break;
+    }
+    default: {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/mod.rs#L934 */
+  return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L848C8-L903 */
 static int
 withdraw( fd_exec_instr_ctx_t *         ctx,
@@ -1632,7 +1701,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int bls_pubkey_management_in_vote_account = FD_FEATURE_ACTIVE_BANK( ctx->bank, bls_pubkey_management_in_vote_account );
   int delay_commission_updates              = FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates );
   int commission_rate_in_basis_points       = FD_FEATURE_ACTIVE_BANK( ctx->bank, commission_rate_in_basis_points );
-  int custom_commission_collector           = 0;
+  int custom_commission_collector           = FD_FEATURE_ACTIVE_BANK( ctx->bank, custom_commission_collector );
   int block_revenue_sharing                 = 0;
   int vote_account_initialize_v2            = 0;
 
@@ -2260,24 +2329,60 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     break;
   }
 
-  /* UpdateCommissionCollector
+  /* UpdateCommissionCollector (SIMD-0232)
    *
    * Instruction:
    * https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/instruction.rs#L202-L210
    *
    * Processor:
-   * https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L348-L376
+   * https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L383-L408
    *
    * Notes:
-   * - Unimplemented (gated on custom_commission_collector)
+   * - Feature gated on custom_commission_collector
    */
   case fd_vote_instruction_enum_update_commission_collector: {
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L384-L390 */
     if( FD_UNLIKELY( !custom_commission_collector ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
-    /* TODO: fill in when implementing custom_commission_collector */
-    FD_LOG_CRIT(( "unimplemented: update_commission_collector" ));
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L392 */
+    if( FD_UNLIKELY( ctx->instr->acct_cnt < 3 ) ) {
+      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      break;
+    }
+
+    /* If instruction account 1 is the vote account itself, no account
+       is borrowed.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L83-L98 */
+    fd_pubkey_t const * collector_key = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1, &collector_key );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
+    fd_guarded_borrowed_account_t collector = {0};
+    fd_borrowed_account_t const * collector_account = NULL;
+    if( !fd_pubkey_eq( collector_key, (fd_pubkey_t const *)me.acc->pubkey ) ) {
+      FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 1, &collector );
+      collector_account = &collector;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_processor.rs#L395-L398 */
+    fd_rent_t rent_;
+    fd_rent_t const * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, &rent_ );
+    if( FD_UNLIKELY( !rent ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+
+    rc = update_commission_collector(
+        ctx,
+        &me,
+        target_version,
+        collector_account,
+        &instruction->update_commission_collector,
+        signers,
+        signers_cnt,
+        rent
+    );
+
+    break;
   }
 
   /* DepositDelegatorRewards

@@ -332,6 +332,21 @@ fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
 }
 
 void
+fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
+                                        fd_pubkey_t const *         inflation_rewards_collector ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->v4.inflation_rewards_collector = *inflation_rewards_collector;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      /* No-op for v3 */
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
                        uchar                       commission ) {
   switch( self->kind ) {
