@@ -1333,10 +1333,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
      detection (turbine slot vs. replayed slot) can never trigger.
      Consider replay caught up at the first tower root after the
      snapshot finishes loading. */
-  if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX
-                && ULONG_MAX!=fd_topo_find_tile( gui->topo, "backt", 0UL )
-                && snapshot_phase==FD_SNAPCT_STATE_SHUTDOWN
-                && gui->summary.slot_tower!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX &&
+                   snapshot_phase==FD_SNAPCT_STATE_SHUTDOWN &&
+                   gui->summary.slot_tower!=ULONG_MAX &&
+                   fd_topo_find_tile( gui->topo, "backt", 0UL )!=ULONG_MAX ) ) {
     gui->summary.slot_caught_up = gui->summary.slot_tower;
     gui->summary.boot_progress.catching_up_time_nanos = now;
 
