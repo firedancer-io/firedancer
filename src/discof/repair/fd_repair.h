@@ -10,7 +10,7 @@
    is an implementation of the protocol itself for requesting shreds
    from other validators.
 
-   The repair protocol supports four different message types on the
+   The repair protocol supports seven different message types on the
    client side:
 
    - Pong( ping_token )
@@ -49,7 +49,27 @@
      shred for slots 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 and 0 (assuming
      no skips).
 
-    All 3 repair request types are prefixed with a common header of from
+  The below are repair request types introduced by Alpenglow.
+
+   - ParentAndFecSetCount( slot, block_id )
+
+     This is a request for the parent slot and FEC set count for the
+     provided block_id.  The responding validator will return the
+     parent slot and FEC set count it has for the provided block_id.
+
+   - FecSetRoot( slot, block_id, fec_set_idx )
+
+     This is a request for the FEC set root for the provided block_id
+     and FEC set index.  The responding validator will return the FEC
+     set root it has for the provided block_id and FEC set index.
+
+   - ShredForBlockId( slot, shred_idx, block_id )
+
+     This is a request for the shred at the provided slot, shred index
+     and block_id.  The responding validator will return the shred it
+     has for the provided slot, shred index and block_id.
+
+    All 7 repair request types are prefixed with a common header of from
     pubkey, to pubkey, ulong timestamp and uint nonce.  The timestamp is
     a standard UNIX epoch (milliseconds since 1970-01-01T00:00:00Z) and
     the nonce is echoed back by the responding validator in the repair
@@ -64,16 +84,23 @@
 
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../flamenco/fd_flamenco_base.h"
+#include "../../ballet/shred/fd_shred.h"
+#include "../../disco/shred/fd_fec_set.h"
 
 /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN,ANCESTOR_HASHES} specify
   discriminant values the protocol uses to distinguish message types. */
 
 #define FD_REPAIR_KIND_PING            (0U)
+#define AG_REPAIR_KIND_PING            (2U)
+
 #define FD_REPAIR_KIND_PONG            (7U)
 #define FD_REPAIR_KIND_SHRED           (8U)
 #define FD_REPAIR_KIND_HIGHEST_SHRED   (9U)
 #define FD_REPAIR_KIND_ORPHAN          (10U)
 #define FD_REPAIR_KIND_ANCESTOR_HASHES (11U)
+#define AG_REPAIR_KIND_PARENT_FEC_COUNT   (12U)
+#define AG_REPAIR_KIND_FEC_ROOT           (13U)
+#define AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID (14U)
 
 /* fd_repair_pong describes the schema of a Pong. */
 
@@ -127,6 +154,29 @@ struct __attribute__((packed)) fd_repair_orphan_req {
 };
 typedef struct fd_repair_orphan_req fd_repair_orphan_req_t;
 
+struct __attribute__((packed)) ag_repair_parent_fec_count_req {
+  REQ_HDR
+  ulong slot;
+  fd_hash_t block_id;
+};
+typedef struct ag_repair_parent_fec_count_req ag_repair_parent_fec_count_req_t;
+
+struct __attribute__((packed)) ag_repair_fec_root_req {
+  REQ_HDR
+  ulong slot;
+  fd_hash_t block_id;
+  uint fec_set_idx;
+};
+typedef struct ag_repair_fec_root_req ag_repair_fec_root_req_t;
+
+struct __attribute__((packed)) ag_repair_shred_block_id_req {
+  REQ_HDR
+  ulong     slot;
+  uint      shred_idx;
+  fd_hash_t block_id;
+};
+typedef struct ag_repair_shred_block_id_req ag_repair_shred_block_id_req_t;
+
 /* fd_repair_req_header gives a view into the header of the SHRED,
    HIGHEST_SHRED, and ORPHAN request types. */
 struct __attribute__((packed)) fd_repair_req_header {
@@ -137,14 +187,17 @@ typedef struct fd_repair_req_header fd_repair_req_header_t;
 /* fd_repair_msg_t defines the schema of all Repair message types. */
 
 struct __attribute__((packed)) fd_repair_msg {
-  uint kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN,ANCESTOR_HASHES} */
+  uint kind; /* FD_REPAIR_KIND_{...} */
   union {
     fd_repair_pong_t              pong;
     fd_repair_shred_req_t         shred;
     fd_repair_highest_shred_req_t highest_shred;
     fd_repair_orphan_req_t        orphan;
     fd_repair_req_header_t        header;
-    /* TODO: ancestor hashes */
+
+    ag_repair_parent_fec_count_req_t   parent_fec_set_count;
+    ag_repair_fec_root_req_t           fec_set_root;
+    ag_repair_shred_block_id_req_t shred_block_id;
   };
 };
 typedef struct fd_repair_msg fd_repair_msg_t;
@@ -154,6 +207,40 @@ struct __attribute__((packed)) fd_repair_ping {
   fd_repair_pong_t ping;
 };
 typedef struct fd_repair_ping fd_repair_ping_t;
+
+/* alpenglow blockid repair response types */
+
+typedef uchar ag_proof_node_t[FD_SHRED_MERKLE_NODE_SZ];
+#define AG_MAX_FEC_PROOF_NODE_CNT  (1U + (63 - __builtin_clzl( (ulong)FD_FEC_BLK_MAX))) /* 11 = 1 node for parent block_id + 10 for log2(1024) max fec sets */
+
+struct ag_parent_fec_count_res {
+  uint      fec_set_count;
+  ulong     parent_slot;
+  fd_hash_t parent_block_id;
+  ulong     proof_len; /* number of proof nodes in parent_proof */
+  ag_proof_node_t parent_proof[ AG_MAX_FEC_PROOF_NODE_CNT ]; /* variable-length */
+};
+typedef struct ag_parent_fec_count_res ag_parent_fec_count_res_t;
+struct ag_fec_root_res {
+  fd_hash_t root;
+  ulong     proof_len; /* number of proof nodes in fec_proof */
+  ag_proof_node_t fec_proof[ AG_MAX_FEC_PROOF_NODE_CNT ]; /* variable-length */
+};
+typedef struct ag_fec_root_res ag_fec_root_res_t;
+
+#define AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT (0U)
+#define AG_REPAIR_RESPONSE_FEC_SET_ROOT         (1U)
+struct ag_repair_response {
+  uint kind;
+  union {
+    ag_parent_fec_count_res_t parent_fec_set_res;
+    ag_fec_root_res_t         fec_set_root;
+  };
+  uint nonce;
+};
+typedef struct ag_repair_response ag_repair_response_t;
+
+#define AG_REPAIR_RESPONSE_MAX_SZ (sizeof(uint) + sizeof(ag_repair_response_t))
 
 /* FD_REPAIR_PONG_PREIMAGE_PREFIX is used by Repair's Ping-Pong protocol.
    Both a Ping and Pong contain a hash token, that is generated from a
@@ -257,16 +344,48 @@ fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t con
 fd_repair_msg_t * fd_repair_highest_shred( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );
 fd_repair_msg_t * fd_repair_orphan       ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot );
 
+fd_repair_msg_t *
+ag_repair_parent_and_fec_set_count( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, fd_hash_t const * block_id );
+
+fd_repair_msg_t *
+ag_repair_fec_set_root( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, fd_hash_t const * block_id, uint fec_set_idx );
+
+fd_repair_msg_t *
+ag_repair_shred_block_id( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, fd_hash_t const * block_id, uint shred_idx );
+
+/* ag_repair_response_de deserializes a general Alpenglow repair metadata
+   response from buf into response.
+
+     u32 tag: 0=ParentFecSetCount, 1=FecSetRoot
+     tag 0: u32 fec_set_count, u64 parent_slot, u8[32] parent_block_id,
+            u64 proof_sz, u8[proof_sz] proof
+     tag 1: u8[32] fec_set_root, u64 proof_sz, u8[proof_sz] proof
+     u32 nonce
+
+   Proofs are a concatenation of 20-byte merkle nodes (proof_sz must be
+   a multiple of FD_SHRED_MERKLE_NODE_SZ).  Ping responses (tag 2) are
+   not handled here; they are the same sz as legacy repair pings and
+   should be routed to the ping path.  Returns 0 on success and -1 if
+   the response is malformed.
+   Does NOT verify the merkle proofs. */
+int
+ag_repair_response_de( ag_repair_response_t * response,
+                       uchar const *          buf,
+                       ulong                  buf_sz );
+
 /* fd_repair_sz returns the bincode-serialized sz of msg. */
 
 static inline ulong
 fd_repair_sz( fd_repair_msg_t const * msg ) {
    switch( msg->kind ) {
-     case FD_REPAIR_KIND_PONG:          return sizeof(uint) + sizeof(fd_repair_pong_t);
-     case FD_REPAIR_KIND_SHRED:         return sizeof(uint) + sizeof(fd_repair_shred_req_t);
-     case FD_REPAIR_KIND_HIGHEST_SHRED: return sizeof(uint) + sizeof(fd_repair_highest_shred_req_t);
-     case FD_REPAIR_KIND_ORPHAN:        return sizeof(uint) + sizeof(fd_repair_orphan_req_t);
-     default:                           FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind ));
+     case FD_REPAIR_KIND_PONG:               return sizeof(uint) + sizeof(fd_repair_pong_t);
+     case FD_REPAIR_KIND_SHRED:              return sizeof(uint) + sizeof(fd_repair_shred_req_t);
+     case FD_REPAIR_KIND_HIGHEST_SHRED:      return sizeof(uint) + sizeof(fd_repair_highest_shred_req_t);
+     case FD_REPAIR_KIND_ORPHAN:             return sizeof(uint) + sizeof(fd_repair_orphan_req_t);
+     case AG_REPAIR_KIND_PARENT_FEC_COUNT:   return sizeof(uint) + sizeof(ag_repair_parent_fec_count_req_t);
+     case AG_REPAIR_KIND_FEC_ROOT:           return sizeof(uint) + sizeof(ag_repair_fec_root_req_t);
+     case AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID: return sizeof(uint) + sizeof(ag_repair_shred_block_id_req_t);
+     default:                                FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind ));
    }
 }
 

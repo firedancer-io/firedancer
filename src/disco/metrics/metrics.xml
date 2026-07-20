@@ -1298,7 +1298,10 @@ EXAMPLES
     <int value="0" name="NeededWindow" label="Need Window" />
     <int value="1" name="NeededHighestWindow" label="Need Highest Window" />
     <int value="2" name="NeededOrphan" label="Need Orphans" />
-    <int value="4" name="Pong" label="Pong" />
+    <int value="3" name="ParentFecCount" label="Parent Fec Count" />
+    <int value="4" name="FecRoot" label="Fec Root" />
+    <int value="5" name="ShredBlockId" label="Shred Block Id" />
+    <int value="6" name="Pong" label="Pong" />
 </enum>
 
 <enum name="RepairServerPacketType">

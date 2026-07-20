@@ -2316,7 +2316,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_votor_rooted( fd_replay_tile_t * ctx, fd_stem_context_t * stem, fd_votor_rooted_t const * rooted ) {
+process_votor_rooted( fd_replay_tile_t * ctx, fd_stem_context_t * stem, ag_votor_rooted_t const * rooted ) {
 
   FD_TEST( rooted->slot>=ctx->consensus_root_slot );
   FD_BASE58_ENCODE_32_BYTES( rooted->block_id.key, block_id_b58 );
@@ -2562,11 +2562,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_VOTOR: {
       if( sig==FD_VOTOR_SIG_ROOTED ) {
-        fd_votor_rooted_t const * rooted = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        ag_votor_rooted_t const * rooted = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         process_votor_rooted( ctx, stem, rooted );
       } else if( sig==FD_VOTOR_SIG_SLOT_DONE ) {
         /* TODO what is the reset slot fr.... */
-        fd_votor_slot_done_t const * slot_done = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        ag_votor_slot_done_t const * slot_done = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         ctx->reset_slot = slot_done->reset_slot;
         ctx->reset_block_id = slot_done->reset_block_id;
       }

@@ -2,6 +2,7 @@
 #include "fd_sock_tile_private.h"
 #include "../fd_net_common.h"
 #include "../../topo/fd_topo.h"
+#include "../../../discof/repair/fd_repair.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
@@ -424,11 +425,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
     /* When a message arrives on the repair intake port, it is sent
-       to the shred tile, unless it is a ping message (identified by
-       the frame size), then it is sent to the repair tile.
-       The repair tile does not own any sockets, so we look up the
-       net_repair link directly.*/
-    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && frame_sz==REPAIR_PING_SZ ) ) {
+       to the shred tile, unless it is a ping or an alpenglow blockid
+       repair response (identified by the frame size), then it is sent to
+       the repair tile.  The repair tile does not own any sockets, so
+       we look up the net_repair link directly. */
+    if( FD_UNLIKELY( sock_idx==ctx->repair_shred_sock_idx && frame_sz<AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ) ) {
       fd_sock_link_rx_t * repair_link = ctx->link_rx + ctx->repair_rx;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );

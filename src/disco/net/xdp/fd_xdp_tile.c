@@ -25,7 +25,9 @@
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_gre.h"
+#include "../../../util/net/fd_net_headers.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../discof/repair/fd_repair.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -992,8 +994,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
     out = ctx->gossvf_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_client_listen_port ) ) {
     proto = DST_PROTO_REPAIR;
-    if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
-    else                                      out = ctx->shred_out;
+    if( FD_UNLIKELY( sz < AG_REPAIR_RESPONSE_MAX_SZ+sizeof(fd_ip4_udp_hdrs_t) ) ) out = ctx->repair_out; /* ping-pongs, blockid repair responses */
+    else                                                                          out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
     if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
     proto = DST_PROTO_RSERVE;

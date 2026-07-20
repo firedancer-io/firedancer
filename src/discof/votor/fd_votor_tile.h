@@ -24,7 +24,7 @@
 #include "../../alpenglow/ag_alpenglow_base.h"
 #include "../../disco/topo/fd_topo.h"
 
-/* The out link votor_out carries one fd_votor_msg_t per frag, tagged with
+/* The out link votor_out carries one ag_votor_msg_t per frag, tagged with
    one of the FD_VOTOR_SIG_* sigs below.
 
    - FD_VOTOR_SIG_VOTE      : broadcast a single Alpenglow vote (consumed by
@@ -46,46 +46,44 @@
 #define FD_VOTOR_SIG_VOTE      (0UL)
 #define FD_VOTOR_SIG_CERT      (1UL)
 #define FD_VOTOR_SIG_SLOT_DONE (2UL)
-#define FD_VOTOR_SIG_FINALIZED (3UL)
-#define FD_VOTOR_SIG_ROOTED    (4UL)
+#define FD_VOTOR_SIG_NOTARFB   (3UL)
+#define FD_VOTOR_SIG_FINALIZED (4UL)
+#define FD_VOTOR_SIG_ROOTED    (5UL)
 
 /* fd_votor_slot_done_t is published once per completed replay slot.  It
    mirrors the relevant subset of fd_tower_slot_done_t: the replay slot and
    bank_idx to echo back, and the fork (slot + block_id) to reset the leader
    pipeline onto. */
 
-struct fd_votor_slot_done {
+struct ag_votor_slot_done {
   ulong     replay_slot;
   ulong     replay_bank_idx;
   ulong     reset_slot;
   fd_hash_t reset_block_id;
 };
-typedef struct fd_votor_slot_done fd_votor_slot_done_t;
+typedef struct ag_votor_slot_done ag_votor_slot_done_t;
 
-/* fd_votor_finalized_t and fd_votor_rooted_t carry a (slot, block_id)
+struct ag_votor_notar_slot {
+  ulong     slot;
+  fd_hash_t block_id;
+};
+typedef struct ag_votor_notar_slot ag_votor_notar_fallback_t;
+typedef struct ag_votor_notar_slot ag_votor_finalized_t;
+typedef struct ag_votor_notar_slot ag_votor_rooted_t;
+
+/* ag_votor_finalized_t and ag_votor_rooted_t carry a (slot, block_id)
    -- used for both FD_VOTOR_SIG_FINALIZED (consensus finalized the
    slot) and FD_VOTOR_SIG_ROOTED (the bank root advanced to the slot).
    Same shape; the sig distinguishes the meaning. */
-
-struct fd_votor_finalized {
-  ulong     slot;
-  fd_hash_t block_id;
+union ag_votor_msg {
+  ag_vote_t                 vote;      /* FD_VOTOR_SIG_VOTE      */
+  ag_cert_t                 cert;      /* FD_VOTOR_SIG_CERT      */
+  ag_votor_slot_done_t      slot_done; /* FD_VOTOR_SIG_SLOT_DONE */
+  ag_votor_notar_fallback_t notar_fallback; /* FD_VOTOR_SIG_NOTARFB */
+  ag_votor_finalized_t      finalized; /* FD_VOTOR_SIG_FINALIZED */
+  ag_votor_rooted_t         rooted;    /* FD_VOTOR_SIG_ROOTED    */
 };
-typedef struct fd_votor_finalized fd_votor_finalized_t;
-struct fd_votor_rooted {
-  ulong     slot;
-  fd_hash_t block_id;
-};
-typedef struct fd_votor_rooted fd_votor_rooted_t;
-
-union fd_votor_msg {
-  ag_vote_t            vote;      /* FD_VOTOR_SIG_VOTE      */
-  ag_cert_t            cert;      /* FD_VOTOR_SIG_CERT      */
-  fd_votor_slot_done_t slot_done; /* FD_VOTOR_SIG_SLOT_DONE */
-  fd_votor_finalized_t finalized; /* FD_VOTOR_SIG_FINALIZED */
-  fd_votor_rooted_t    rooted;    /* FD_VOTOR_SIG_ROOTED    */
-};
-typedef union fd_votor_msg fd_votor_msg_t;
+typedef union ag_votor_msg ag_votor_msg_t;
 
 /* fd_votor_consensus_msg_t is the staged wire layout for an Alpenglow
    ConsensusMessage carried over the GOSSIP in link.  FD gossip does not yet

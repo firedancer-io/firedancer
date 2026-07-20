@@ -509,6 +509,7 @@ struct fd_topo_tile {
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
+      int     is_alpenglow;
     } repair;
 
     struct {

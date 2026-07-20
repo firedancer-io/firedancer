@@ -627,7 +627,7 @@ fd_topo_initialize( config_t * config ) {
     /* votor_net carries QUIC TX frames (handshake/ack) back to the net tile.
        votor_out has no consumer yet (bring-up: votor only logs the kind). */
     fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
-    fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  1024UL /* >= sizeof(fd_votor_msg_t), asserted in fd_votor_tile.c */, 2UL )->permit_no_consumers = 1;
+    fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  1024UL /* >= sizeof(ag_votor_msg_t), asserted in fd_votor_tile.c */, 2UL )->permit_no_consumers = 1;
     fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
     fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
@@ -1471,7 +1471,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->repair.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->repair.slot_max                  = config->tiles.repair.slot_max;
     tile->repair.repair_sign_cnt           = config->firedancer.layout.sign_tile_count - 1; /* -1 because this excludes the keyguard client */
-
+    tile->repair.is_alpenglow              = config->consensus.alpenglow;
     for( ulong i=0; i<tile->in_cnt; i++ ) {
       if( !strcmp( config->topo.links[ tile->in_link_id[ i ] ].name, "sign_repair" ) ) {
         tile->repair.repair_sign_depth = config->topo.links[ tile->in_link_id[ i ] ].depth;

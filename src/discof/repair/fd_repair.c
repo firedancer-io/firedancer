@@ -139,6 +139,133 @@ fd_repair_orphan( fd_repair_t *     repair,
   return &repair->msg;
 }
 
+fd_repair_msg_t *
+ag_repair_parent_and_fec_set_count( fd_repair_t *       repair,
+                                    fd_pubkey_t const * to,
+                                    ulong               ts,
+                                    uint                nonce,
+                                    ulong               slot,
+                                    fd_hash_t const *   block_id ) {
+  memset(&repair->msg, 0, sizeof(fd_repair_msg_t));
+  repair->msg.kind = AG_REPAIR_KIND_PARENT_FEC_COUNT;
+  repair->msg.parent_fec_set_count.from = repair->identity_key;
+  repair->msg.parent_fec_set_count.to = *to;
+  repair->msg.parent_fec_set_count.ts = ts;
+  repair->msg.parent_fec_set_count.nonce = nonce;
+  repair->msg.parent_fec_set_count.slot = slot;
+  repair->msg.parent_fec_set_count.block_id = *block_id;
+  return &repair->msg;
+}
+
+fd_repair_msg_t *
+ag_repair_fec_set_root( fd_repair_t *       repair,
+                        fd_pubkey_t const * to,
+                        ulong               ts,
+                        uint                nonce,
+                        ulong               slot,
+                        fd_hash_t const *   block_id,
+                        uint                fec_set_idx ) {
+  memset(&repair->msg, 0, sizeof(fd_repair_msg_t));
+  repair->msg.kind = AG_REPAIR_KIND_FEC_ROOT;
+  repair->msg.fec_set_root.from = repair->identity_key;
+  repair->msg.fec_set_root.to = *to;
+  repair->msg.fec_set_root.ts = ts;
+  repair->msg.fec_set_root.nonce = nonce;
+  repair->msg.fec_set_root.slot = slot;
+  repair->msg.fec_set_root.block_id = *block_id;
+  repair->msg.fec_set_root.fec_set_idx = fec_set_idx;
+  return &repair->msg;
+}
+
+fd_repair_msg_t *
+ag_repair_shred_block_id( fd_repair_t *       repair,
+                          fd_pubkey_t const * to,
+                          ulong               ts,
+                          uint                nonce,
+                          ulong               slot,
+                          fd_hash_t const *   block_id,
+                          uint                shred_idx ) {
+  memset(&repair->msg, 0, sizeof(fd_repair_msg_t));
+  repair->msg.kind = AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID;
+  repair->msg.shred_block_id.from = repair->identity_key;
+  repair->msg.shred_block_id.to = *to;
+  repair->msg.shred_block_id.ts = ts;
+  repair->msg.shred_block_id.nonce = nonce;
+  repair->msg.shred_block_id.slot = slot;
+  repair->msg.shred_block_id.shred_idx = shred_idx;
+  repair->msg.shred_block_id.block_id = *block_id;
+  return &repair->msg;
+}
+
+int
+ag_repair_response_de( ag_repair_response_t * response,
+                       uchar const *          buf,
+                       ulong                  buf_sz ) {
+  uchar const * cur = buf;
+  ulong         rem = buf_sz;
+
+  if( FD_UNLIKELY( rem<sizeof(uint) ) ) return -1;
+  response->kind = fd_uint_load_4_fast( cur );
+  cur += sizeof(uint); rem -= sizeof(uint);
+
+  ulong   proof_sz; /* total bytes proof */
+  uchar * proof;
+
+  switch( response->kind ) {
+    case AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT: {
+      ag_parent_fec_count_res_t * res = &response->parent_fec_set_res;
+
+      if( FD_UNLIKELY( rem < sizeof(uint) ) ) return -1;
+      res->fec_set_count = fd_uint_load_4_fast( cur );
+      cur += sizeof(uint); rem -= sizeof(uint);
+      if( FD_UNLIKELY( res->fec_set_count>FD_FEC_BLK_MAX ) ) return -1;
+
+      if( FD_UNLIKELY( rem < sizeof(ulong) ) ) return -1;
+      res->parent_slot = fd_ulong_load_8_fast( cur );
+      cur += sizeof(ulong); rem -= sizeof(ulong);
+
+      if( FD_UNLIKELY( rem < sizeof(fd_hash_t) ) ) return -1;
+      memcpy( res->parent_block_id.uc, cur, sizeof(fd_hash_t) );
+      cur += sizeof(fd_hash_t); rem -= sizeof(fd_hash_t);
+
+      if( FD_UNLIKELY( rem < sizeof(ulong) ) ) return -1;
+      proof_sz = fd_ulong_load_8_fast( cur );
+      cur += sizeof(ulong); rem -= sizeof(ulong);
+
+      res->proof_len = proof_sz / FD_SHRED_MERKLE_NODE_SZ;
+      proof          = res->parent_proof[0];
+      break;
+    }
+
+    case AG_REPAIR_RESPONSE_FEC_SET_ROOT: {
+      ag_fec_root_res_t * res = &response->fec_set_root;
+
+      if( FD_UNLIKELY( rem < sizeof(fd_hash_t) ) ) return -1;
+      memcpy( res->root.uc, cur, sizeof(fd_hash_t) );
+      cur += sizeof(fd_hash_t); rem -= sizeof(fd_hash_t);
+
+      if( FD_UNLIKELY( rem < sizeof(ulong) ) ) return -1;
+      proof_sz = fd_ulong_load_8_fast( cur );
+      cur += sizeof(ulong); rem -= sizeof(ulong);
+
+      res->proof_len = proof_sz / FD_SHRED_MERKLE_NODE_SZ;
+      proof          = res->fec_proof[0];
+      break;
+    }
+    default: return -1;
+  }
+
+  if( FD_UNLIKELY( proof_sz % FD_SHRED_MERKLE_NODE_SZ                           ) ) return -1;
+  if( FD_UNLIKELY( proof_sz > AG_MAX_FEC_PROOF_NODE_CNT*FD_SHRED_MERKLE_NODE_SZ ) ) return -1;
+  if( FD_UNLIKELY( rem != proof_sz+sizeof(uint)                                 ) ) return -1; /* proof + trailing nonce, nothing more */
+
+  memcpy( proof, cur, proof_sz );
+  cur += proof_sz;
+
+  response->nonce = fd_uint_load_4_fast( cur );
+  return 0;
+}
+
 int
 fd_repair_ping_de( fd_repair_ping_t * ping,
                    uchar      const * buf,
@@ -146,9 +273,9 @@ fd_repair_ping_de( fd_repair_ping_t * ping,
   if( FD_UNLIKELY( buf_sz!=sizeof(fd_repair_ping_t) )) return -1;
 
   ping->kind = fd_uint_load_4_fast( buf );
-  buf    += sizeof(uint);
+  buf       += sizeof(uint);
 
-  if( FD_UNLIKELY( ping->kind != FD_REPAIR_KIND_PING )) return -1;
+  if( FD_UNLIKELY( ping->kind != FD_REPAIR_KIND_PING && ping->kind != AG_REPAIR_KIND_PING )) return -1;
 
   /* pong section */
 

@@ -96,7 +96,7 @@
 /* The votor_out link mtu is declared as a literal in topology.c (kept as
    a literal to avoid pulling the alpenglow headers into topology.c); keep
    it in sync. */
-FD_STATIC_ASSERT( sizeof(fd_votor_msg_t)<=1024UL, votor_out_mtu );
+FD_STATIC_ASSERT( sizeof(ag_votor_msg_t)<=1024UL, votor_out_mtu );
 
 /* The Alpenglow VAT caps the voting set of validators to 2000.  Only the top
    2000 voters by stake are counted towards consensus rules.  Module
@@ -111,7 +111,7 @@ FD_STATIC_ASSERT( sizeof(fd_votor_msg_t)<=1024UL, votor_out_mtu );
 
 struct publish {
   ulong          sig;
-  fd_votor_msg_t msg;
+  ag_votor_msg_t msg;
 };
 typedef struct publish publish_t;
 
@@ -421,7 +421,7 @@ publish_slot_done( fd_votor_tile_t *                  ctx,
   publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
   pub->sig = FD_VOTOR_SIG_SLOT_DONE;
 
-  fd_votor_slot_done_t * msg = &pub->msg.slot_done;
+  ag_votor_slot_done_t * msg = &pub->msg.slot_done;
   msg->replay_slot     = slot_completed->slot;
   msg->replay_bank_idx = slot_completed->bank_idx;
 
@@ -1355,6 +1355,24 @@ after_credit( fd_votor_tile_t *   ctx,
     handle_votor_out( ctx );
     did_work = 1;
   }
+
+  /* Drain the pool's repair channel (Pool::repair_sender): block
+     versions that gathered (fallback) notar votes or certs but that we
+     may not have locally.  Published as NOTARFB frags so the repair
+     tile can fetch the missing version.  Must run before
+     ag_pool_drain_channels, which resets the channel; the event loop
+     above may append entries while it runs, hence the in-place
+     iteration. */
+
+  ulong r = 0UL;
+  while( r<ag_pool_repair_cnt( ctx->pool ) ) {
+    ag_block_id_t block_id = ag_pool_repair_channel( ctx->pool )[ r++ ];
+    publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
+    pub->sig                         = FD_VOTOR_SIG_NOTARFB;
+    pub->msg.notar_fallback.slot     = block_id.slot;
+    pub->msg.notar_fallback.block_id = block_id.hash;
+    did_work = 1;
+  }
   ag_pool_drain_channels( ctx->pool );
 
   while( fd_timeout_heap_ele_cnt( ctx->timeouts_heap ) ) {
@@ -1386,9 +1404,9 @@ after_credit( fd_votor_tile_t *   ctx,
       //TODO send
     }
 
-    memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), &pub->msg, sizeof(fd_votor_msg_t) );
-    fd_stem_publish( stem, OUT_IDX, pub->sig, ctx->out_chunk, sizeof(fd_votor_msg_t), 0UL, ts, ts );
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_votor_msg_t), ctx->out_chunk0, ctx->out_wmark );
+    memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), &pub->msg, sizeof(ag_votor_msg_t) );
+    fd_stem_publish( stem, OUT_IDX, pub->sig, ctx->out_chunk, sizeof(ag_votor_msg_t), 0UL, ts, ts );
+    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(ag_votor_msg_t), ctx->out_chunk0, ctx->out_wmark );
     ctx->out_seq   = stem->seqs[ OUT_IDX ];
     *opt_poll_in   = 0; /* drain the publishes */
     *charge_busy   = 1;

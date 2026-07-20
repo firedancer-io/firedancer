@@ -488,10 +488,10 @@ during_frag( fd_shred_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDA ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_votor_rooted_t) ) )
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(ag_votor_rooted_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    fd_votor_rooted_t const * rooteda = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    ag_votor_rooted_t const * rooteda = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     ctx->new_root = rooteda->slot;
     return;
   }
