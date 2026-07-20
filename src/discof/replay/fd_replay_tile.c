@@ -1070,10 +1070,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   FD_TEST( meta->bootstrap && meta->has_lthash );
   FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
 
-  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   FD_TEST( bank );
-  bank->f.slot = 0UL;
-  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
   static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
   bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
@@ -1218,6 +1216,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        from repair. */
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
 
+    fd_features_restore( bank, ctx->accdb );
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
     /* Agave zeroes manifest rent_params; reload from sysvar account */
     FD_TEST( fd_sysvar_rent_read( ctx->accdb, bank->accdb_fork_id, &bank->f.rent ) );
@@ -2708,6 +2707,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
+
+  fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
+  FD_TEST( bank );
+  bank->f.slot = 0UL;
+  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
   ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX );
   FD_TEST( node_info_obj_id!=ULONG_MAX );
