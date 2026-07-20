@@ -229,7 +229,12 @@ select_replay_snapshot() {
     base_snapshot=$(gcloud storage ls "${SOLANA_BUCKET_PATH}/snapshot*.tar.zst" --billing-project=$BILLING_PROJECT | sort -n -t - -k 3)
     hourly_snapshots=$(gcloud storage ls "${hourly_snapshot_dir}" --billing-project=$BILLING_PROJECT | sort -n -t - -k 3)
 
+    # Reset the selection for this ledger: these are globals, and stale
+    # values from a previous ledger must not leak into this one.
     CLOSEST_HOURLY_SLOT=${ROCKSDB_ROOTED_MAX}
+    CLOSEST_HOURLY_URL=
+    CLOSEST_HOURLY_FILENAME=
+
     local snapshot snapshot_slot
     for snapshot in ${base_snapshot} ${hourly_snapshots}; do
         echo "Checking Snapshot: $snapshot"
@@ -242,6 +247,11 @@ select_replay_snapshot() {
             echo "Snapshot $snapshot is rooted and within bounds"
         fi
     done
+
+    if [ -z "$CLOSEST_HOURLY_URL" ]; then
+        send_slack_message "@here No rooted snapshot found within rocksdb bounds for ledger \`$NEWEST_BUCKET_SLOT\`. Exiting."
+        exit 1
+    fi
 }
 
 # Download the selected snapshot into LEDGER_DIR (skipped if already there).
@@ -292,21 +302,17 @@ render_backtest_config() {
     # (eg. the gui identifies the cluster from it).
     tar -xjf $LEDGER_DIR/genesis.tar.bz2 -C $LEDGER_DIR genesis.bin
 
-    export ledger=$LEDGER_DIR
-    echo "ledger: $ledger"
-    export end_slot=$ROCKSDB_ROOTED_MAX
-    export index_max=$INDEX_MAX
-    export log=$TEMP_LOG
-    # Pin [user] to the actual runtime user: without it firedancer guesses
+    # Pin {user} to the actual runtime user: without it firedancer guesses
     # from SUDO_USER/LOGNAME, which is wrong when run via sudo/su and makes
     # firedancer-dev exit immediately with a uid mismatch.
-    export run_user=$(id -un)
+    local run_user
+    run_user=$(id -un)
 
-    sed -i "s#{user}#${run_user}#g" "$LEDGER_DIR/offline_replay.toml"
-    sed -i "s#{ledger}#${ledger}#g" "$LEDGER_DIR/offline_replay.toml"
-    sed -i "s#{end_slot}#${end_slot}#g" "$LEDGER_DIR/offline_replay.toml"
-    sed -i "s#{index_max}#${index_max}#g" "$LEDGER_DIR/offline_replay.toml"
-    sed -i "s#{log}#${log}#g" "$LEDGER_DIR/offline_replay.toml"
+    sed -i "s#{user}#${run_user}#g"            "$LEDGER_DIR/offline_replay.toml"
+    sed -i "s#{ledger}#${LEDGER_DIR}#g"        "$LEDGER_DIR/offline_replay.toml"
+    sed -i "s#{end_slot}#${ROCKSDB_ROOTED_MAX}#g" "$LEDGER_DIR/offline_replay.toml"
+    sed -i "s#{index_max}#${INDEX_MAX}#g"      "$LEDGER_DIR/offline_replay.toml"
+    sed -i "s#{log}#${TEMP_LOG}#g"             "$LEDGER_DIR/offline_replay.toml"
 
     echo "toml at: $LEDGER_DIR/offline_replay.toml"
 }
@@ -357,30 +363,35 @@ run_backtest() {
 # Expects cwd = FIREDANCER_REPO; leaves cwd in LEDGER_DIR.
 handle_replay_failure() {
     log_step "Backtest pass failed; minimizing"
-    DONE=0
-    MISMATCH_SLOT=0
-    # Classify using TEMP_LOG (the current pass only)
-    MISMATCH_LOG=$(grep "mismatch!" "$TEMP_LOG" | tail -n 1)
 
-    if [ -z "$MISMATCH_LOG" ]; then
-        # No mismatch line in the log: the run crashed/failed some other way.
-        # The failing slot is just past the last slot that replayed cleanly.
+    # Classify the failure from TEMP_LOG, which holds only the current pass
+    # (LOG accumulates every pass, so grepping it could misattribute an
+    # earlier pass's mismatch to this one).  BAD_SLOT is the slot the
+    # minimized reproduction is built around.
+    BAD_SLOT=0
+    MISMATCH_LINE=$(grep "mismatch!" "$TEMP_LOG" | tail -n 1)
+
+    if [ -z "$MISMATCH_LINE" ]; then
+        # No mismatch line: the run crashed/failed some other way.  The
+        # crash slot is the next populated slot after the last one that
+        # replayed cleanly; slot numbers can be skipped, so query the ledger
+        # for it rather than assuming last+1.
         CURRENT_FAILURE_COUNT=$((CURRENT_FAILURE_COUNT + 1))
-        MISMATCH_SLOT=$(grep "Bank hash matches! slot=" "$TEMP_LOG" | tail -n 1 | grep -oP 'slot=\K[0-9]+')
-        if [ -n "$MISMATCH_SLOT" ]; then
-            MISMATCH_SLOT=$((MISMATCH_SLOT+1))
+        LAST_CLEAN_SLOT=$(grep "Bank hash matches! slot=" "$TEMP_LOG" | tail -n 1 | grep -oP 'slot=\K[0-9]+')
+        if [ -n "$LAST_CLEAN_SLOT" ]; then
+            BAD_SLOT=$(find_rooted_slot_at_or_above $((LAST_CLEAN_SLOT+1))) || exit 1
         fi
-        send_slack_message "@here Failure occurred on slot: \`$MISMATCH_SLOT\`. Minimizing failure"
+        send_slack_message "@here Failure occurred on slot: \`$BAD_SLOT\`. Minimizing failure"
     else
         CURRENT_MISMATCH_COUNT=$((CURRENT_MISMATCH_COUNT + 1))
-        MISMATCH_SLOT=$(tail -n 100 "$TEMP_LOG" | awk '/Bank hash mismatch/ {match($0, /slot=[0-9]+/, a); if (a[0]) slot=substr(a[0],6)} END {print slot}')
-        send_slack_message "@here Mismatch occurred on slot: \`$MISMATCH_SLOT\`. Minimizing mismatch"
+        BAD_SLOT=$(tail -n 100 "$TEMP_LOG" | awk '/Bank hash mismatch/ {match($0, /slot=[0-9]+/, a); if (a[0]) slot=substr(a[0],6)} END {print slot}')
+        send_slack_message "@here Mismatch occurred on slot: \`$BAD_SLOT\`. Minimizing mismatch"
     fi
 
     # If the slot could not be parsed out of the log, there is nothing to
     # minimize — bail out instead of searching from a garbage slot number.
-    if ! [[ "$MISMATCH_SLOT" =~ ^[0-9]+$ ]] || [ "$MISMATCH_SLOT" -le 0 ]; then
-        send_slack_message "@here Could not determine the failing slot from \`$LOG\` (got \`$MISMATCH_SLOT\`). Exiting; investigate manually."
+    if ! [[ "$BAD_SLOT" =~ ^[0-9]+$ ]] || [ "$BAD_SLOT" -le 0 ]; then
+        send_slack_message "@here Could not determine the failing slot from \`$TEMP_LOG\` (got \`$BAD_SLOT\`). Exiting; investigate manually."
         exit 1
     fi
 
@@ -402,7 +413,7 @@ handle_replay_failure() {
     #                          minified rocksdb range)
     #   NEXT_ROOTED_SLOT     - nearest rooted slot after the bad slot (replay
     #                          resumes from a snapshot created here)
-    MINIMIZED_START_SLOT=$(find_rooted_slot_at_or_below $((MISMATCH_SLOT-1))) || exit 1
+    MINIMIZED_START_SLOT=$(find_rooted_slot_at_or_below $((BAD_SLOT-1))) || exit 1
     echo "Found minimized rooted slot: $MINIMIZED_START_SLOT"
     if [ "$MINIMIZED_START_SLOT" -lt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
         MINIMIZED_START_SLOT=$REPLAY_SNAPSHOT_SLOT_NUMBER
@@ -412,7 +423,7 @@ handle_replay_failure() {
     PREVIOUS_ROOTED_SLOT=$(find_rooted_slot_at_or_below $((MINIMIZED_START_SLOT-1))) || exit 1
     echo "Found previous rooted slot: $PREVIOUS_ROOTED_SLOT"
 
-    NEXT_ROOTED_SLOT=$(find_rooted_slot_at_or_above $((MISMATCH_SLOT+1))) || exit 1
+    NEXT_ROOTED_SLOT=$(find_rooted_slot_at_or_above $((BAD_SLOT+1))) || exit 1
     echo "Found next rooted slot: $NEXT_ROOTED_SLOT"
 
     # Create a full snapshot at PREVIOUS_ROOTED_SLOT (replacing the one we
@@ -428,7 +439,7 @@ handle_replay_failure() {
     if [ "$PREVIOUS_ROOTED_SLOT" -lt "$REPLAY_SNAPSHOT_SLOT_NUMBER" ]; then
         PREVIOUS_ROOTED_SLOT=$REPLAY_SNAPSHOT_SLOT_NUMBER
     fi
-    echo "Minimized start slot: $PREVIOUS_ROOTED_SLOT"
+    echo "Minified rocksdb start slot: $PREVIOUS_ROOTED_SLOT"
 
     # Create a full snapshot at the rooted slot right after the bad slot;
     # replay resumes from this one.
@@ -446,7 +457,7 @@ handle_replay_failure() {
     # Assemble a self-contained minimized ledger: genesis + minified rocksdb
     # + minimized snapshot, covering PREVIOUS_ROOTED_SLOT through
     # NEXT_ROOTED_SLOT+32.
-    MISMATCH_DIR=$LEDGER_DIR/$NETWORK-${MISMATCH_SLOT}
+    MISMATCH_DIR=$LEDGER_DIR/$NETWORK-${BAD_SLOT}
     mkdir -p $MISMATCH_DIR
     cp $LEDGER_DIR/genesis.tar.bz2 $MISMATCH_DIR
 
@@ -524,6 +535,7 @@ replay_until_clean() {
         render_backtest_config
         run_backtest
 
+        # Let the workspace teardown settle before classifying the pass.
         sleep 10
         # LEDGER_REPLAY_SNAPSHOT may hold a glob after a resume; it expands here.
         REPLAY_SNAPSHOT_SLOT_NUMBER=$(basename $LEDGER_REPLAY_SNAPSHOT | grep -oP 'snapshot-\K\d+')
