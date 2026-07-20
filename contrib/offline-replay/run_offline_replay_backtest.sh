@@ -347,20 +347,21 @@ handle_replay_failure() {
     log_step "Backtest pass failed; minimizing"
     DONE=0
     MISMATCH_SLOT=0
-    MISMATCH_LOG=$(grep "mismatch!" "$LOG" | tail -n 1)
+    # Classify using TEMP_LOG (the current pass only)
+    MISMATCH_LOG=$(grep "mismatch!" "$TEMP_LOG" | tail -n 1)
 
     if [ -z "$MISMATCH_LOG" ]; then
         # No mismatch line in the log: the run crashed/failed some other way.
         # The failing slot is just past the last slot that replayed cleanly.
         CURRENT_FAILURE_COUNT=$((CURRENT_FAILURE_COUNT + 1))
-        MISMATCH_SLOT=$(grep "Bank hash matches! slot=" "$LOG" | tail -n 1 | grep -oP 'slot=\K[0-9]+')
+        MISMATCH_SLOT=$(grep "Bank hash matches! slot=" "$TEMP_LOG" | tail -n 1 | grep -oP 'slot=\K[0-9]+')
         if [ -n "$MISMATCH_SLOT" ]; then
             MISMATCH_SLOT=$((MISMATCH_SLOT+1))
         fi
         send_slack_message "@here Failure occurred on slot: \`$MISMATCH_SLOT\`. Minimizing failure"
     else
         CURRENT_MISMATCH_COUNT=$((CURRENT_MISMATCH_COUNT + 1))
-        MISMATCH_SLOT=$(tail -n 100 "$LOG" | awk '/Bank hash mismatch/ {match($0, /slot=[0-9]+/, a); if (a[0]) slot=substr(a[0],6)} END {print slot}')
+        MISMATCH_SLOT=$(tail -n 100 "$TEMP_LOG" | awk '/Bank hash mismatch/ {match($0, /slot=[0-9]+/, a); if (a[0]) slot=substr(a[0],6)} END {print slot}')
         send_slack_message "@here Mismatch occurred on slot: \`$MISMATCH_SLOT\`. Minimizing mismatch"
     fi
 
