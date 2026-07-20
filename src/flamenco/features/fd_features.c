@@ -67,14 +67,12 @@ fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint on
 }
 
 static void
-fd_feature_restore( fd_bank_t *             bank,
-                    fd_accdb_t *            accdb,
-                    fd_feature_id_t const * id,
-                    fd_pubkey_t const *     addr ) {
-
-  fd_features_t *             features       = &bank->f.features;
-  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  ulong                       slot           = bank->f.slot;
+fd_feature_restore( fd_features_t *             features,
+                    fd_accdb_t *                accdb,
+                    fd_accdb_fork_id_t          fork_id,
+                    ulong                       slot,
+                    fd_epoch_schedule_t const * epoch_schedule,
+                    fd_feature_id_t const *     id ) {
 
   if( FD_UNLIKELY( id->cleaned_up ) ) {
     fd_features_set( features, id, 0UL );
@@ -86,7 +84,7 @@ fd_feature_restore( fd_bank_t *             bank,
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
 
-  fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, id->id.uc );
   if( FD_UNLIKELY( !acc.lamports ) ) {
     fd_accdb_unread_one( accdb, &acc );
     return;
@@ -115,7 +113,7 @@ fd_feature_restore( fd_bank_t *             bank,
   }
   fd_accdb_unread_one( accdb, &acc );
 
-  FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
+  FD_BASE58_ENCODE_32_BYTES( id->id.uc, addr_b58 );
   if( feature->is_active ) {
     FD_LOG_DEBUG(( "feature %s activated at slot %lu", addr_b58, feature->activation_slot ));
     fd_features_set( features, id, feature->activation_slot );
@@ -129,12 +127,30 @@ fd_feature_restore( fd_bank_t *             bank,
 }
 
 void
-fd_features_restore( fd_bank_t *  bank,
-                     fd_accdb_t * accdb ) {
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-                                   !fd_feature_iter_done( id );
-                               id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( bank, accdb, id, &id->id );
-    if( FD_UNLIKELY( one_off_forced[ id->index ] ) ) fd_features_set( &bank->f.features, id, 0UL );
+fd_features_restore_chunk( fd_features_t *             features,
+                           fd_accdb_t *                accdb,
+                           fd_accdb_fork_id_t          fork_id,
+                           ulong                       slot,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           ulong                       chunk_idx,
+                           ulong                       chunk_cnt ) {
+  FD_TEST( chunk_cnt>0UL );
+  FD_TEST( chunk_idx<chunk_cnt );
+
+  ulong begin = chunk_idx     * FD_FEATURE_ID_CNT / chunk_cnt;
+  ulong end   = (chunk_idx+1) * FD_FEATURE_ID_CNT / chunk_cnt;
+
+  for( fd_feature_id_t const * id=ids+begin; id<ids+end; id++ ) {
+    fd_feature_restore( features, accdb, fork_id, slot, epoch_schedule, id );
+    if( FD_UNLIKELY( one_off_forced[ id->index ] ) ) fd_features_set( features, id, 0UL );
   }
+}
+
+void
+fd_features_restore( fd_features_t *             features,
+                     fd_accdb_t *                accdb,
+                     fd_accdb_fork_id_t          fork_id,
+                     ulong                       slot,
+                     fd_epoch_schedule_t const * epoch_schedule ) {
+  fd_features_restore_chunk( features, accdb, fork_id, slot, epoch_schedule, 0UL, 1UL );
 }
