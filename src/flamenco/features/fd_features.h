@@ -171,16 +171,32 @@ fd_features_get_activation_slot_from_offset( fd_features_t const * features,
 FD_FN_PURE fd_feature_id_t const *
 fd_feature_id_query( ulong prefix );
 
-/* fd_features_restore loads all known feature accounts from the
-   accounts database and populates the bank's in-memory feature set
-   with their activation slots.  If we're currently at the last slot
-   before an epoch boundary, any pending features (is_active==0) will
-   also be populated with slot+1 as their activation slot.  Features
-   forced on by fd_features_enable_one_offs stay activated. */
+/* fd_features_restore loads all known feature accounts from the given
+   accounts database fork and populates the in-memory feature set with
+   their activation slots.  If slot is the last slot before an epoch
+   boundary, any pending features (is_active==0) will also be populated
+   with slot+1 as their activation slot.  Features forced on by
+   fd_features_enable_one_offs stay activated. */
 
 void
-fd_features_restore( fd_bank_t *  bank,
-                     fd_accdb_t * accdb );
+fd_features_restore( fd_features_t *             features,
+                     fd_accdb_t *                accdb,
+                     fd_accdb_fork_id_t          fork_id,
+                     ulong                       slot,
+                     fd_epoch_schedule_t const * epoch_schedule );
+
+/* fd_features_restore_chunk behaves like fd_features_restore but only
+   restores one balanced, contiguous chunk of the known feature IDs.
+   Assumes chunk_cnt>0 and chunk_idx<chunk_cnt. */
+
+void
+fd_features_restore_chunk( fd_features_t *             features,
+                           fd_accdb_t *                accdb,
+                           fd_accdb_fork_id_t          fork_id,
+                           ulong                       slot,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           ulong                       chunk_idx,
+                           ulong                       chunk_cnt );
 
 FD_PROTOTYPES_END
 
