@@ -16,7 +16,6 @@
 
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/features/fd_feature_snoop.h"
 #include "../../flamenco/stakes/fd_stake_types.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -105,16 +104,6 @@ struct fd_snapin_tile {
   fd_banks_t * banks;
   fd_bank_t *  bank;
 
-  fd_feature_snoop_t feature_snoop[1];
-  struct {
-    int         capturing;
-    fd_pubkey_t pubkey;
-    ulong       lamports;
-    uchar       owner[ 32UL ];
-    ulong       need;
-    ulong       write_pos;
-    uchar       buf[ sizeof(fd_feature_t) ];
-  } feature_reasm;
   struct {
     int         capturing;
     fd_pubkey_t pubkey;
@@ -138,8 +127,6 @@ struct fd_snapin_tile {
   ulong bank_slot;
   ulong epoch;
 
-  fd_epoch_schedule_t epoch_schedule;
-
   ulong full_genesis_creation_time_seconds;
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 
@@ -150,7 +137,6 @@ struct fd_snapin_tile {
   struct {
     ulong                        capitalization;
     fd_accdb_snapshot_recovery_t accdb_metadata;
-    fd_feature_snoop_t           feature_snoop;
   } recovery; /* stores state from the last full snapshot for incremental revert */
 
   ulong               blockhash_groups_len;
@@ -783,8 +769,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
     .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
     .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
   };
-  ctx->epoch          = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
-  ctx->epoch_schedule = epoch_schedule;
+  ctx->epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
 
   if( FD_UNLIKELY( verify_bank_hash( ctx, manifest ) ) ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
@@ -895,8 +880,6 @@ process_account_batch( fd_snapin_tile_t *            ctx,
       ctx->slot_history.captured   = 1;
     }
 
-    fd_feature_snoop_account( ctx->feature_snoop, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ], e+64UL, e+136UL, data_lens[ i ] );
-
     if( FD_UNLIKELY( lamports[ i ] &&
                      !memcmp( e+64UL, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
       snoop_stake_delegation( ctx, (fd_pubkey_t const *)pubkeys[ i ], lamports[ i ],
@@ -970,23 +953,6 @@ process_account_header( fd_snapin_tile_t * ctx,
     ctx->slot_history.write_pos  = 0UL;
     ctx->slot_history.capturing  = 1;
   }
-  ctx->feature_reasm.capturing = 0;
-  if( FD_UNLIKELY( !memcmp( result->account_header.owner, fd_solana_feature_program_id.uc, 32UL ) &&
-                   result->account_header.lamports ) ) {
-    memcpy( ctx->feature_reasm.pubkey.uc, result->account_header.pubkey, 32UL );
-    memcpy( ctx->feature_reasm.owner,     result->account_header.owner,  32UL );
-    ctx->feature_reasm.lamports  = result->account_header.lamports;
-    ctx->feature_reasm.need      = fd_ulong_min( result->account_header.data_len, sizeof(ctx->feature_reasm.buf) );
-    ctx->feature_reasm.write_pos = 0UL;
-    ctx->feature_reasm.capturing = 1;
-    if( FD_UNLIKELY( !ctx->feature_reasm.need ) ) {
-      fd_feature_snoop_account( ctx->feature_snoop, &ctx->feature_reasm.pubkey,
-                                ctx->feature_reasm.lamports, ctx->feature_reasm.owner,
-                                ctx->feature_reasm.buf, 0UL );
-      ctx->feature_reasm.capturing = 0;
-    }
-  }
-
   ctx->stake_reasm.capturing = 0;
   if( FD_UNLIKELY( account!=-1 &&
                    result->account_header.lamports &&
@@ -1013,19 +979,6 @@ process_account_data( fd_snapin_tile_t *            ctx,
     if( ctx->slot_history.write_pos==ctx->slot_history.data_len ) {
       ctx->slot_history.captured  = 1;
       ctx->slot_history.capturing = 0;
-    }
-  }
-
-  if( FD_UNLIKELY( ctx->feature_reasm.capturing ) ) {
-    ulong remaining = ctx->feature_reasm.need - ctx->feature_reasm.write_pos;
-    ulong copy_sz   = fd_ulong_min( result->account_data.data_sz, remaining );
-    memcpy( ctx->feature_reasm.buf + ctx->feature_reasm.write_pos, result->account_data.data, copy_sz );
-    ctx->feature_reasm.write_pos += copy_sz;
-    if( ctx->feature_reasm.write_pos==ctx->feature_reasm.need ) {
-      fd_feature_snoop_account( ctx->feature_snoop, &ctx->feature_reasm.pubkey,
-                                ctx->feature_reasm.lamports, ctx->feature_reasm.owner,
-                                ctx->feature_reasm.buf, ctx->feature_reasm.need );
-      ctx->feature_reasm.capturing = 0;
     }
   }
 
@@ -1355,10 +1308,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         ctx->slot_history.captured  = 0;
         ctx->slot_history.capturing = 0;
-
-        fd_memset( ctx->feature_snoop, 0, sizeof(ctx->feature_snoop) );
-        ctx->feature_reasm.capturing = 0;
-        ctx->stake_reasm.capturing   = 0;
+        ctx->stake_reasm.capturing  = 0;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -1371,8 +1321,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         /* Discard stale capture so the retry's sysvar is snooped fresh */
         ctx->slot_history.captured  = 0;
         ctx->slot_history.capturing = 0;
-        ctx->feature_reasm.capturing = 0;
-        ctx->stake_reasm.capturing   = 0;
+        ctx->stake_reasm.capturing  = 0;
 
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
@@ -1441,7 +1390,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       ctx->recovery.capitalization = ctx->capitalization;
       fd_accdb_snapshot_save_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
-      ctx->recovery.feature_snoop = *ctx->feature_snoop;
 
       /* Backup metric counters */
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
@@ -1480,8 +1428,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_accdb_snapshot_load_end( ctx->accdb );
 
-      fd_feature_snoop_finalize( &ctx->bank->f.features, ctx->bank_slot, &ctx->epoch_schedule, ctx->feature_snoop );
-
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
@@ -1503,7 +1449,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_purge( ctx->accdb, ctx->accdb_incr_fork_id ); /* this fork and subsequent children */
         fd_accdb_snapshot_revert_whead( ctx->accdb, &ctx->recovery.accdb_metadata );
         ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        *ctx->feature_snoop = ctx->recovery.feature_snoop;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;

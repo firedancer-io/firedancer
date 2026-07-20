@@ -21,7 +21,6 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
-#include "../features/fd_feature_snoop.h"
 
 #include "program/fd_precompiles.h"
 #include "program/vote/fd_vote_state_versioned.h"
@@ -1475,9 +1474,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   ulong capitalization = 0UL;
 
-  fd_feature_snoop_t feature_snoop[1];
-  fd_memset( feature_snoop, 0, sizeof(feature_snoop) );
-
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
@@ -1505,14 +1501,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
           account->lamports,
           (uint)account->data_len,
           FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
-
-    } else if( !memcmp( account->owner.uc, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_feature_snoop_account( feature_snoop, &account->pubkey, account->lamports,
-                                 account->owner.uc, acc_data, account->data_len );
     }
   }
 
-  fd_feature_snoop_finalize( &bank->f.features, bank->f.slot, &bank->f.epoch_schedule, feature_snoop );
+  fd_features_restore( bank, accdb );
 
   /* fd_refresh_vote_accounts is responsible for updating the vote
      states with the total amount of active delegated stake.  It does
