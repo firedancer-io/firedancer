@@ -1103,6 +1103,42 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     .activating   = stake_delegations->activating_stake,
     .deactivating = stake_delegations->deactivating_stake,
   };
+
+  /* Agave recomputes each stake history entry from scratch every epoch
+     boundary, whereas Firedancer keeps running totals. Therefore,
+     at the boundary where upgrade_bpf_stake_program_to_v5_1 is
+     activated, we need to recompute the stake history entry for the
+     epoch that has just ended, so that all the delegations for this
+     entry are summed using the new fixed point arithmetic. We only
+     need to do this once, at the feature activation epoch boundary.
+
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/stakes.rs#L444-L477 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ) ) {
+    fd_stake_history_t history[1];
+    if( FD_UNLIKELY( !fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, history ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: StakeHistory sysvar missing or invalid" ));
+    }
+    ulong effective    = 0UL;
+    ulong activating   = 0UL;
+    ulong deactivating = 0UL;
+
+    fd_stake_delegations_iter_t iter_[1];
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+         !fd_stake_delegations_iter_done( iter );
+         fd_stake_delegations_iter_next( iter ) ) {
+      fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+      fd_stake_history_entry_t      acc              = fd_stakes_activating_and_deactivating(
+          stake_delegation, bank->f.epoch, history, new_rate_activation_epoch, 1 );
+      effective    += acc.effective;
+      activating   += acc.activating;
+      deactivating += acc.deactivating;
+    }
+
+    elem.effective    = effective;
+    elem.activating   = activating;
+    elem.deactivating = deactivating;
+  }
+
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
 
   /* Snapshot the stake history sysvar into a local buffer and release
