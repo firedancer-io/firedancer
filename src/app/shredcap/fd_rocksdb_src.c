@@ -21,6 +21,8 @@ struct fd_rocksdb_src {
   rocksdb_column_family_handle_t * root_cf;
   rocksdb_column_family_handle_t * bank_hash_cf;
   rocksdb_column_family_handle_t * dead_slot_cf;
+  rocksdb_column_family_handle_t ** all_cfs; /* every column family in the db */
+  ulong all_cf_cnt;
   rocksdb_iterator_t * code_shred_iter;
   rocksdb_iterator_t * data_shred_iter;
   rocksdb_iterator_t * root_iter;
@@ -64,30 +66,62 @@ fd_rocksdb_src_create( fd_backtest_src_opts_t const * opts ) {
   rocksdb_options_t * options = rocksdb_options_create();
   if( FD_UNLIKELY( !options ) ) FD_LOG_ERR(( "rocksdb_options_create failed" ));
 
-  rocksdb_options_t const * cf_options[ CF_CNT ];
-  for( ulong i=0UL; i<CF_CNT; i++ ) cf_options[ i ] = options;
+  /* Enumerate and open ALL column families, not just the ones this
+     reader uses: a read-only open with a subset of column families
+     makes rocksdb delete the unopened families' SST files at close,
+     corrupting the blockstore for other readers (eg. agave-ledger-tool). */
+  char *  err        = NULL;
+  ulong   all_cf_cnt = 0UL;
+  char ** all_cf_names = rocksdb_list_column_families( options, opts->path, &all_cf_cnt, &err );
+  if( FD_UNLIKELY( !all_cf_names ) ) {
+    FD_LOG_WARNING(( "rocksdb_list_column_families failed: %s", err ));
+    rocksdb_free( err );
+    rocksdb_options_destroy( options );
+    return NULL;
+  }
 
-  rocksdb_column_family_handle_t * cfs[ CF_CNT ] = {0};
+  rocksdb_options_t const **         cf_options = calloc( all_cf_cnt, sizeof(rocksdb_options_t const *)         );
+  rocksdb_column_family_handle_t ** cfs         = calloc( all_cf_cnt, sizeof(rocksdb_column_family_handle_t *) );
+  if( FD_UNLIKELY( !cf_options || !cfs ) ) FD_LOG_ERR(( "out of memory" ));
+  for( ulong i=0UL; i<all_cf_cnt; i++ ) cf_options[ i ] = options;
 
-  char * err = NULL;
   rocksdb_t * db = rocksdb_open_for_read_only_column_families(
     options,
     opts->path,
-    CF_CNT,
-    cf_names,
+    (int)all_cf_cnt,
+    (char const * const *)all_cf_names,
     cf_options,
     cfs,
     0,
     &err
   );
   rocksdb_options_destroy( options );
+  free( cf_options );
   if( FD_UNLIKELY( !db ) ) {
     FD_LOG_WARNING(( "rocksdb_open_for_read_only_column_families failed: %s", err ));
     rocksdb_free( err );
+    rocksdb_list_column_families_destroy( all_cf_names, all_cf_cnt );
+    free( cfs );
     return NULL;
   }
 
-  rocksdb_column_family_handle_destroy( cfs[ CF_IDX_DEFAULT ] );
+  /* Pick out the handles this reader uses. */
+  rocksdb_column_family_handle_t * named[ CF_CNT ] = {0};
+  for( ulong i=0UL; i<all_cf_cnt; i++ ) {
+    for( ulong j=0UL; j<CF_CNT; j++ ) {
+      if( 0==strcmp( all_cf_names[ i ], cf_names[ j ] ) ) named[ j ] = cfs[ i ];
+    }
+  }
+  rocksdb_list_column_families_destroy( all_cf_names, all_cf_cnt );
+  for( ulong j=0UL; j<CF_CNT; j++ ) {
+    if( FD_UNLIKELY( !named[ j ] ) ) {
+      FD_LOG_WARNING(( "column family \"%s\" not found in %s", cf_names[ j ], opts->path ));
+      for( ulong i=0UL; i<all_cf_cnt; i++ ) if( cfs[ i ] ) rocksdb_column_family_handle_destroy( cfs[ i ] );
+      free( cfs );
+      rocksdb_close( db );
+      return NULL;
+    }
+  }
 
   rocksdb_readoptions_t * ro = rocksdb_readoptions_create();
   if( FD_UNLIKELY( !ro ) ) {
@@ -97,9 +131,9 @@ fd_rocksdb_src_create( fd_backtest_src_opts_t const * opts ) {
   fd_rocksdb_src_t * src = calloc( 1UL, sizeof(fd_rocksdb_src_t) );
   if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "out of memory" ));
 
-  rocksdb_iterator_t * code_shred_iter = rocksdb_create_iterator_cf( db, ro, cfs[ CF_IDX_CODE_SHRED ] );
-  rocksdb_iterator_t * data_shred_iter = rocksdb_create_iterator_cf( db, ro, cfs[ CF_IDX_DATA_SHRED ] );
-  rocksdb_iterator_t * root_iter       = rocksdb_create_iterator_cf( db, ro, cfs[ CF_IDX_ROOT       ] );
+  rocksdb_iterator_t * code_shred_iter = rocksdb_create_iterator_cf( db, ro, named[ CF_IDX_CODE_SHRED ] );
+  rocksdb_iterator_t * data_shred_iter = rocksdb_create_iterator_cf( db, ro, named[ CF_IDX_DATA_SHRED ] );
+  rocksdb_iterator_t * root_iter       = rocksdb_create_iterator_cf( db, ro, named[ CF_IDX_ROOT       ] );
   if( FD_UNLIKELY( !code_shred_iter || !data_shred_iter || !root_iter ) ) {
     FD_LOG_ERR(( "rocksdb_create_iterator_cf failed" ));
   }
@@ -115,11 +149,13 @@ fd_rocksdb_src_create( fd_backtest_src_opts_t const * opts ) {
     .db = db,
     .ro = ro,
 
-    .code_shred_cf   = cfs[ CF_IDX_CODE_SHRED ],
-    .data_shred_cf   = cfs[ CF_IDX_DATA_SHRED ],
-    .root_cf         = cfs[ CF_IDX_ROOT       ],
-    .bank_hash_cf    = cfs[ CF_IDX_BANK_HASH  ],
-    .dead_slot_cf    = cfs[ CF_IDX_DEAD_SLOT  ],
+    .code_shred_cf   = named[ CF_IDX_CODE_SHRED ],
+    .data_shred_cf   = named[ CF_IDX_DATA_SHRED ],
+    .root_cf         = named[ CF_IDX_ROOT       ],
+    .bank_hash_cf    = named[ CF_IDX_BANK_HASH  ],
+    .dead_slot_cf    = named[ CF_IDX_DEAD_SLOT  ],
+    .all_cfs         = cfs,
+    .all_cf_cnt      = all_cf_cnt,
     .code_shred_iter = code_shred_iter,
     .data_shred_iter = data_shred_iter,
     .root_iter       = root_iter,
@@ -143,11 +179,8 @@ fd_rocksdb_src_destroy( fd_backt_src_t * this ) {
   rocksdb_iter_destroy( src->code_shred_iter );
   rocksdb_iter_destroy( src->data_shred_iter );
   rocksdb_iter_destroy( src->root_iter );
-  rocksdb_column_family_handle_destroy( src->code_shred_cf );
-  rocksdb_column_family_handle_destroy( src->data_shred_cf );
-  rocksdb_column_family_handle_destroy( src->root_cf );
-  rocksdb_column_family_handle_destroy( src->bank_hash_cf );
-  rocksdb_column_family_handle_destroy( src->dead_slot_cf );
+  for( ulong i=0UL; i<src->all_cf_cnt; i++ ) rocksdb_column_family_handle_destroy( src->all_cfs[ i ] );
+  free( src->all_cfs );
   rocksdb_readoptions_destroy( src->ro );
   rocksdb_close( src->db );
   free( src );

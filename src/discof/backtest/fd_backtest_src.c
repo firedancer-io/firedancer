@@ -10,12 +10,6 @@
 #include "fd_libc_zstd.h"
 #endif
 
-#define FD_BACKT_SRC_INVAL       0x00
-#define FD_BACKT_SRC_FMT_PCAP    0x01
-#define FD_BACKT_SRC_FMT_PCAPNG  0x02
-#define FD_BACKT_SRC_FMT_MASK    0x07
-#define FD_BACKT_SRC_FLAG_ZSTD   0x08
-
 extern fd_backt_src_t *
 fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          format,

@@ -59,11 +59,13 @@ fail_minimization() {
 # Rooted-slot queries (via agave-ledger-tool)
 #---------------------------------------------------------------------------
 
-# True if $1 is a rooted slot in the ledger's rocksdb.
+# True if $1 is in the ledger's rooted chain. (is_full alone would also
+# match fully-shredded slots on abandoned forks, which create-snapshot
+# rejects.)
 slot_is_rooted() {
     local output
     output=$($AGAVE_LEDGER_TOOL slot $1 -l $LEDGER_DIR)
-    [[ "$output" == *"is_full: true"* ]]
+    [[ "$output" == *"(root)"* ]]
 }
 
 # Print the nearest rooted slot at or below $1. Rooted slots are normally at
@@ -259,6 +261,10 @@ select_replay_snapshot() {
 download_replay_snapshot() {
     send_slack_message "Downloading Closest Hourly Snapshot \`$CLOSEST_HOURLY_SLOT\` from \`$SOLANA_BUCKET_PATH\`"
     echo "$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME"
+    # Drop resume snapshots left by an interrupted prior run: the snapshot
+    # loader picks the latest archive in the directory, which would silently
+    # diverge from LEDGER_REPLAY_SNAPSHOT below.
+    find "$LEDGER_DIR" -maxdepth 1 -type f \( -name 'snapshot-*.tar*' -o -name 'incremental-snapshot-*.tar*' \) ! -name "$CLOSEST_HOURLY_FILENAME" -delete
     if [ -e "$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME" ]; then
         send_slack_message "Hourly snapshot already exists at \`$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME\`"
     else
@@ -326,9 +332,9 @@ convert_rocksdb_to_shredcap() {
 render_backtest_config() {
     cp $FIREDANCER_REPO/contrib/offline-replay/offline_replay.toml $LEDGER_DIR
 
-    # `configure fini all` unlinks genesis.bin after every pass (the dev
-    # genesis stage owns that file); re-extract it so each pass can read it
-    # (eg. the gui identifies the cluster from it).
+    # `configure fini all` (end of ledger, or any manual run) unlinks
+    # genesis.bin via the dev genesis stage; cheap re-extract so every pass
+    # is guaranteed to have it (eg. the gui identifies the cluster from it).
     tar -xjf $LEDGER_DIR/genesis.tar.bz2 -C $LEDGER_DIR genesis.bin
 
     # Pin {user} to the actual runtime user: without it firedancer guesses
@@ -377,7 +383,6 @@ run_backtest() {
     cat $TEMP_LOG >> $LOG
 
     { set +x; } &> /dev/null
-    $OBJDIR/bin/firedancer-dev configure fini all --config $LEDGER_DIR/offline_replay.toml
 }
 
 #---------------------------------------------------------------------------
@@ -622,6 +627,10 @@ process_new_ledger() {
     log_step "Replaying ledger"
     replay_until_clean
     log_step "Cleaning up"
+
+    # Tear down configure state once per ledger (not per pass: retry passes
+    # reuse it, and the dev genesis stage's fini unlinks genesis.bin).
+    $OBJDIR/bin/firedancer-dev configure fini all --config $LEDGER_DIR/offline_replay.toml
 
     # Keep rocksdb and minimized ledgers for debugging whenever anything went
     # wrong; only a fully clean run is cleaned up. Replay logs stay in

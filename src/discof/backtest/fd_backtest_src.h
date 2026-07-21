@@ -3,6 +3,15 @@
 
 #include "../../flamenco/fd_flamenco_base.h"
 
+/* Ledger source format IDs, shared between the format auto-detector
+   (fd_backtest_src.c) and the pcap reader (fd_backtest_src_pcap.c). */
+
+#define FD_BACKT_SRC_INVAL       0x00u
+#define FD_BACKT_SRC_FMT_PCAP    0x02u
+#define FD_BACKT_SRC_FMT_PCAPNG  0x03u
+#define FD_BACKT_SRC_FMT_MASK    0x07u
+#define FD_BACKT_SRC_FLAG_ZSTD   0x08u
+
 struct fd_backt_slot_info {
   ulong     slot;
   fd_hash_t bank_hash;

@@ -199,7 +199,13 @@ if [[ "$INGEST_MODE" != "shredcap" ]]; then
 fi
 
 if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-  $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+  rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
+    echo "rocksdb to shredcap conversion failed"
+    rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+    exit 1
+  fi
+  mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
   echo "Converted rocksdb to shredcap"
 fi
 LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
