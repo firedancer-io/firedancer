@@ -1,6 +1,5 @@
 #include "fd_hashes.h"
 #include "fd_bank.h"
-#include "../capture/fd_capture_ctx.h"
 
 void
 fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOTPRINT ],
@@ -60,8 +59,7 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          int                       executable,
                          uchar const *             data,
                          ulong                     data_len,
-                         fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx ) {
+                         fd_bank_t               * bank ) {
   /* Compute the new hash of the account */
   fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
 
@@ -73,33 +71,6 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
   fd_lthash_add( bank_lthash, lthash_post );
 
   fd_bank_lthash_end_locking_modify( bank );
-
-  fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
-}
-
-void
-fd_hashes_capture_account( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
-                           uchar const        owner[ static FD_HASH_FOOTPRINT ],
-                           ulong              lamports,
-                           int                executable,
-                           uchar const *      data,
-                           ulong              data_len,
-                           fd_bank_t *        bank,
-                           fd_capture_ctx_t * capture_ctx ) {
-  if( FD_LIKELY( !capture_ctx ||
-                 !capture_ctx->capture_solcap ||
-                 bank->f.slot<capture_ctx->solcap_start_slot ) ) return;
-
-  fd_solana_account_meta_t solana_meta[1];
-  fd_solana_account_meta_init( solana_meta, lamports, owner, executable );
-  fd_capture_link_write_account_update(
-    capture_ctx,
-    capture_ctx->current_txn_idx,
-    (fd_pubkey_t const *)pubkey,
-    solana_meta,
-    bank->f.slot,
-    data,
-    data_len );
 }
 
 void

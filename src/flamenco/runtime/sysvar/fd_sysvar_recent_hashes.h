@@ -19,17 +19,15 @@ FD_PROTOTYPES_BEGIN
 /* Initialize the recent hashes sysvar account. */
 
 void
-fd_sysvar_recent_hashes_init( fd_bank_t *        bank,
-                              fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx );
+fd_sysvar_recent_hashes_init( fd_bank_t *  bank,
+                              fd_accdb_t * accdb );
 
 /* Update the recent hashes sysvar account. This should be called at the
    start of every slot, before execution commences. */
 
 void
-fd_sysvar_recent_hashes_update( fd_bank_t *        bank,
-                                fd_accdb_t *       accdb,
-                                fd_capture_ctx_t * capture_ctx );
+fd_sysvar_recent_hashes_update( fd_bank_t *  bank,
+                                fd_accdb_t * accdb );
 
 /* Validate recent hashes sysvar account data.  Returns 1 if content is
    valid, 0 if not. */

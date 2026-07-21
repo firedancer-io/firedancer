@@ -67,7 +67,6 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
-                            fd_capture_ctx_t *        capture_ctx,
                             fd_block_footer_t const * footer );
 
 FD_PROTOTYPES_END

@@ -121,7 +121,6 @@ struct fd_runtime {
   struct {
     int                   enable_log_collector;
     fd_log_collector_t *  log_collector; /* Log collector instance */
-    fd_capture_ctx_t *    capture_ctx;
     fd_dump_proto_ctx_t * dump_proto_ctx;
     fd_txn_dump_ctx_t *   txn_dump_ctx;
 
@@ -347,7 +346,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
                                   fd_accdb_t  *        accdb,
                                   fd_runtime_stack_t * runtime_stack,
-                                  fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary );
 
 /* fd_runtime_block_execute_finalize finishes the execution of the block
@@ -359,7 +357,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 int
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
                                    fd_accdb_t *              accdb,
-                                   fd_capture_ctx_t *        capture_ctx,
                                    fd_block_footer_t const * footer,
                                    ushort                    shred_version );
 

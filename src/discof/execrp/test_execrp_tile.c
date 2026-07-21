@@ -359,9 +359,8 @@ test_execrp_run( test_env_t * env,
   ulong in_chunk = env->execrp->replay_in->chunk0;
   fd_execrp_txn_exec_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_exec_msg_t) );
-  in_msg->bank_idx        = env->bank_idx;
-  in_msg->txn_idx         = txn_idx;
-  in_msg->capture_txn_idx = txn_idx;
+  in_msg->bank_idx = env->bank_idx;
+  in_msg->txn_idx  = txn_idx;
   fd_memcpy( in_msg->txn, txn, sizeof(fd_txn_p_t) );
 
   fd_stem_context_t stem[1];

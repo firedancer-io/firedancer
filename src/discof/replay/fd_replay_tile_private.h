@@ -13,7 +13,6 @@
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
-#include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache.h"
@@ -390,12 +389,6 @@ struct fd_replay_tile {
 
   ulong                  ag_block_id_map_seed;
   fd_ag_block_id_map_t * ag_block_id_map;
-
-  /* Capture-related configs */
-  fd_capture_ctx_t *     capture_ctx;
-  FILE *                 capture_file;
-  fd_capture_link_buf_t  cap_repl_out[1];
-
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */
   fd_dump_proto_ctx_t * dump_proto_ctx;

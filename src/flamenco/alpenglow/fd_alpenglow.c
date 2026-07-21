@@ -332,7 +332,6 @@ vote_account_read( fd_bank_t *                 bank,
 static void
 vote_account_write( fd_bank_t *                 bank,
                     fd_accdb_t *                accdb,
-                    fd_capture_ctx_t *          capture_ctx,
                     fd_pubkey_t const *         pk,
                     fd_pubkey_t const *         owner,
                     ulong                       data_len,
@@ -354,20 +353,19 @@ vote_account_write( fd_bank_t *                 bank,
     FD_LOG_WARNING(( "slot %lu: vote account %s failed to serialize; skipping", bank->f.slot, pk_b58 ));
     return;
   }
-  fd_accdb_svm_write( bank, accdb, capture_ctx, pk, owner, buf, data_len, 0UL, 0, 1 );
+  fd_accdb_svm_write( bank, accdb, pk, owner, buf, data_len, 0UL, 0, 1 );
 }
 
 static void
 vote_account_modify( fd_bank_t *           bank,
                      fd_accdb_t *          accdb,
-                     fd_capture_ctx_t *    capture_ctx,
                      fd_pubkey_t const *   pk,
                      vote_update_t const * upd ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
   ulong       data_len;
   fd_pubkey_t owner;
   if( FD_UNLIKELY( !vote_account_read( bank, accdb, pk, vs, &data_len, &owner ) ) ) return;
-  vote_account_write( bank, accdb, capture_ctx, pk, &owner, data_len, vs, upd );
+  vote_account_write( bank, accdb, pk, &owner, data_len, vs, upd );
 }
 
 void
@@ -412,7 +410,6 @@ slot_timestamp( fd_bank_t * bank,
 int
 fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_accdb_t *              accdb,
-                            fd_capture_ctx_t *        capture_ctx,
                             fd_block_footer_t const * footer ) {
 
   ulong bank_slot         = bank->f.slot;
@@ -526,7 +523,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
       leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
-      vote_account_write( bank, accdb, capture_ctx, &vote_key, &owner, data_len, vs, &upd );
+      vote_account_write( bank, accdb, &vote_key, &owner, data_len, vs, &upd );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu", bank_slot, reward_slot ));
@@ -574,7 +571,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
         .update_root  = 1, .root_slot = final_slot,
         .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = ts_ns,
       };
-      vote_account_modify( bank, accdb, capture_ctx, &vote_key, &upd );
+      vote_account_modify( bank, accdb, &vote_key, &upd );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       FD_LOG_WARNING(( "slot %lu: no ranked validators for finalized slot %lu", bank_slot, final_slot ));
@@ -594,7 +591,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
         .migration_epoch = migration_epoch,
         .current_epoch   = current_epoch,
       };
-      vote_account_modify( bank, accdb, capture_ctx, leader_vote_pubkey, &upd );
+      vote_account_modify( bank, accdb, leader_vote_pubkey, &upd );
     }
   }
 
