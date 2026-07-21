@@ -2,6 +2,7 @@
 #include "../../shared/fd_action.h"
 
 #include "../../../disco/topo/fd_topo.h"
+#include "../../../disco/topo/fd_dns_resolve.h"
 #include "../../../discof/ipecho/fd_ipecho_client.h"
 
 #include <stdlib.h>
@@ -21,7 +22,10 @@ shred_version_cmd_fn( args_t *   args,
   FD_TEST( tile_idx!=ULONG_MAX );
 
   fd_topo_tile_t * tile = &config->topo.tiles[ tile_idx ];
-  fd_ipecho_client_init( client, tile->gossip.entrypoints, tile->gossip.entrypoints_cnt );
+
+  fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+  fd_dns_resolve_peers( tile->gossip.entrypoints[ 0 ], sizeof(tile->gossip.entrypoints[ 0 ]), tile->gossip.entrypoints_cnt, "gossip.entrypoints", entrypoints );
+  fd_ipecho_client_init( client, entrypoints, tile->gossip.entrypoints_cnt );
 
   for(;;) {
     ushort shred_version = 0;

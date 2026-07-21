@@ -2,6 +2,7 @@
 #include "fd_genesi_tile.h"
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_dns_resolve.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -52,6 +53,9 @@ struct fd_genesi_tile {
   fd_hash_t genesis_hash[1];
 
   fd_genesis_client_t * client;
+
+  fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+  ulong         entrypoints_cnt;
 
   fd_lthash_value_t lthash[1];
 
@@ -461,7 +465,11 @@ privileged_init( fd_topo_t const *      topo,
           ctx->local_genesis = 0;
           ctx->client = fd_genesis_client_join( fd_genesis_client_new( _client ) );
           FD_TEST( ctx->client );
-          fd_genesis_client_init( ctx->client, tile->genesi.entrypoints, tile->genesi.entrypoints_cnt );
+
+          fd_dns_resolve_peers( tile->genesi.entrypoints[ 0 ], sizeof(tile->genesi.entrypoints[ 0 ]), tile->genesi.entrypoints_cnt, "gossip.entrypoints", ctx->entrypoints );
+          ctx->entrypoints_cnt = tile->genesi.entrypoints_cnt;
+
+          fd_genesis_client_init( ctx->client, ctx->entrypoints, ctx->entrypoints_cnt );
         }
       }
     } else {

@@ -31,7 +31,7 @@ typedef struct {
 /* TODO: this needs to be bumped to 13, but that would break
    fd_gui_handle_gossip_update */
 #define FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS      (12U)
-#define FD_GOSSIP_LINK_MSG_SIZE    (58U + FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS * 6U)
+#define FD_GOSSIP_LINK_MSG_SIZE    (60U + FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS * 6U)
 #define FD_VALIDATOR_INFO_MSG_SIZE (          608U)
 
 #endif /* HEADER_fd_src_discoh_plugin_fd_plugin_h */

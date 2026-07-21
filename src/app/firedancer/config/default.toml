@@ -219,6 +219,20 @@ telemetry = true
     # Firedancer instance.
     shredb = ""
 
+    # File path to the GUI database file.
+    #
+    # The GUI tile maintains an on-disk event database holding past
+    # slot, transaction, and metrics data served to WebSocket clients.
+    #
+    # If no path is provided, it defaults to the `gui.db` path within the
+    # base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    guidb = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -1650,6 +1664,13 @@ telemetry = true
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
+
+        # The maximum size of the on disk event database.  This is an
+        # upper bound on the disk space used.  The GUI tile will start
+        # with an empty database and grow the storage file on disk up to
+        # the limit as needed.  When the database is full, the oldest
+        # values are evicted to make space for new data.
+        db_size_gib = 100
 
     [tiles.rpc]
         # If the RPC server is enabled.

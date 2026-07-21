@@ -91,7 +91,7 @@ typedef struct fd_sspeer_private fd_sspeer_private_t;
    any peer with a measured latency is preferred, low enough that slot
    distance still meaningfully differentiates unpinged peers. */
 #define DEFAULT_PEER_LATENCY         (100UL*1000UL*1000UL)  /* 100ms */
-#define DEFAULT_SLOTS_BEHIND_PENALTY (1000UL)
+#define DEFAULT_SLOTS_BEHIND_PENALTY (200UL)
 
 #define FD_SSPEER_SELECTOR_DEBUG 0
 
@@ -285,7 +285,8 @@ fd_sspeer_selector_score( fd_sspeer_selector_t const * selector,
 
   /* Using saturating arithmetic to avoid overflow and cap at
      FD_SSPEER_SCORE_MAX. */
-  ulong penalty = fd_ulong_sat_mul( DEFAULT_SLOTS_BEHIND_PENALTY, slots_behind );
+  ulong penalty = fd_ulong_sat_mul( DEFAULT_SLOTS_BEHIND_PENALTY,
+                  fd_ulong_sat_mul( slots_behind, slots_behind ) );
   ulong score   = fd_ulong_sat_add( peer_latency, penalty );
   return fd_ulong_min( score, FD_SSPEER_SCORE_MAX );
 }

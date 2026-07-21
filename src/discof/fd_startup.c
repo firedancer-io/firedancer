@@ -4,12 +4,12 @@
 
 __attribute__((weak)) int volatile const fd_startup_skip_checks = 0;
 
-void
-fd_sleep_until_replay_started( fd_topo_t const * topo ) {
-  if( fd_startup_skip_checks ) return;
+/* replay_status_laddr resolves the local address of the replay tile's
+   RUNTIME_STATUS gauge, with defensive boilerplate to prevent
+   segfault. */
 
-  /* Defensive boilerplate to prevent segfault */
-
+static ulong volatile const *
+replay_status_laddr( fd_topo_t const * topo ) {
   ulong metric_wksp_id = fd_topo_find_wksp( topo, "metric_in" );
   if( FD_UNLIKELY( metric_wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "This topology does not have a metric_in workspace" ));
 
@@ -24,7 +24,7 @@ fd_sleep_until_replay_started( fd_topo_t const * topo ) {
   }
 
   ulong replay_tile_id = fd_topo_find_tile( topo, "replay", 0 );
-  if( FD_UNLIKELY( replay_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "This topology does not have a replay tile" ));
+  if( FD_UNLIKELY( replay_tile_id==ULONG_MAX ) ) return NULL; /* dev topologies without replay never gate */
   fd_topo_tile_t const * replay_tile = &topo->tiles[ replay_tile_id ];
 
   fd_topo_obj_t const * metric_obj = fd_topo_find_tile_obj( topo, replay_tile, "metrics" );
@@ -34,18 +34,34 @@ fd_sleep_until_replay_started( fd_topo_t const * topo ) {
   ulong * replay_metrics = fd_topo_obj_laddr( topo, metric_obj->id );
   if( FD_UNLIKELY( !replay_metrics ) ) FD_LOG_ERR(( "Cannot access replay:0 metrics" ));
 
-  /* We have access to metrics, now find 'status' metric */
-
   ulong volatile const * replay_tile_metrics = fd_metrics_tile( replay_metrics );
-  ulong volatile const * replay_status = &replay_tile_metrics[ MIDX( GAUGE, REPLAY, RUNTIME_STATUS ) ];
+  return &replay_tile_metrics[ MIDX( GAUGE, REPLAY, RUNTIME_STATUS ) ];
+}
 
-  /* Wait */
+void
+fd_startup_gate_init( fd_startup_gate_t * gate,
+                      fd_topo_t const *   topo,
+                      ulong               in_cnt ) {
+  gate->status   = fd_startup_skip_checks ? NULL : replay_status_laddr( topo );
+  gate->started  = !gate->status;
+  gate->idle_cnt = 0UL;
+  gate->idle_max = 2UL*in_cnt+1UL;
+}
 
-  FD_LOG_INFO(( "waiting for replay:0 to start runtime" ));
-  while( FD_VOLATILE_CONST( *replay_status )==0 ) {
+int
+fd_startup_gate_idle( fd_startup_gate_t * gate ) {
+  if( FD_LIKELY( gate->started ) ) return 1;
+
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( *gate->status ) ) ) {
+    gate->started = 1;
+    return 1;
+  }
+
+  gate->idle_cnt++;
+  if( FD_LIKELY( gate->idle_cnt>=gate->idle_max ) ) {
+    gate->idle_cnt = 0UL;
     struct timespec ts = { .tv_sec=0, .tv_nsec=(int)1e6 }; /* 1ms */
     (void)clock_nanosleep( CLOCK_REALTIME, 0, &ts, NULL );
   }
-
-  /* No need to log here because stem_run logs on startup */
+  return 0;
 }

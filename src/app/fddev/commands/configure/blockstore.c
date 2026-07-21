@@ -112,7 +112,7 @@ init( config_t const * config ) {
 
     umask( S_IRWXO | S_IRWXG );
 
-    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, FD_FEC_SHRED_CNT, (uchar const *)fec.data_shreds, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
+    fd_ext_blockstore_create_block0( config->frankendancer.paths.ledger, FD_FEC_SHRED_CNT, (uchar const *)fec.data_shreds, FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ );
 
     fd_sys_util_exit_group( 0 );
   } else {

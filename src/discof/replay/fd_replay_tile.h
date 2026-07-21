@@ -111,6 +111,8 @@ struct fd_replay_slot_completed {
   /* Reference to the bank for this completed slot. */
   ulong bank_idx;
   ulong bank_seq;
+  ulong parent_bank_idx;   /* parent bank's pool index (ULONG_MAX if none) */
+  ulong parent_bank_seq;   /* parent bank's app-wide seq    (ULONG_MAX if none) */
   fd_accdb_fork_id_t accdb_fork_id;
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
@@ -154,11 +156,13 @@ typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 struct fd_replay_oc_advanced {
   ulong slot;
   ulong bank_idx;
+  ulong bank_seq;  /* fork discriminator of the optimistically-confirmed bank */
 };
 typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
 
 struct fd_replay_root_advanced {
   ulong     bank_idx;
+  ulong     bank_seq;  /* fork discriminator of the rooted bank */
   ulong     slot;
   fd_hash_t bank_hash;
 };

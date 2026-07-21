@@ -24,7 +24,7 @@ fd_dns_parse(
   ancount = r[6]*256 + r[7];
   while( qdcount-- ) {
     while( p-r < rlen && *p-1U < 127 ) p++;
-    if( p>r+rlen-6 )
+    if( p-r>=rlen || p>r+rlen-5-!!*p )
       return -1;
     p += 5 + !!*p;
   }

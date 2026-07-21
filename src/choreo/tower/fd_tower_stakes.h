@@ -60,6 +60,7 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 
 #define POOL_NAME fd_tower_stakes_vtr_pool
 #define POOL_T    fd_tower_stakes_vtr_t
+#define POOL_LAZY 1
 #include "../../util/tmpl/fd_pool.c"
 
 /* Some really terrible witchcraft to track used vote accounts for

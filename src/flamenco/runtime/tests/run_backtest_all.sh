@@ -92,7 +92,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810-v4.1.0-be
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.1.0-beta.1 -m 2000000 -e 385786452
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-386300256-v4.1.0-beta.1 -m 2000000 -e 386300289
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.1.0-beta.1 -m 2000000 -e 387596373
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.1.0-beta.1 -m 1000 -e 75
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-sha512-2-v4.1.0-beta.1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.1.0-beta.1 -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary-v4.1.0-beta.1 -m 2000000 -e 391824016
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.1.0-beta.1 -m 10000 -e 135
@@ -175,3 +175,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_1322
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696 -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960 -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1 -m 50000 -e 1795
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_1_boundary -m 2000000 -e 1850

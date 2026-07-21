@@ -19,8 +19,8 @@ void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_turbine_slot( fd_gui_t * gui );
 void fd_gui_printf_repair_slot( fd_gui_t * gui );
 void fd_gui_printf_slot_caught_up( fd_gui_t * gui );
-void fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch_idx );
-void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch_idx );
+void fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch );
+void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch );
 void fd_gui_printf_vote_latency_history( fd_gui_t * gui );
 void fd_gui_printf_late_votes_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
@@ -36,7 +36,7 @@ void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
-void fd_gui_printf_shred_updates( fd_gui_t * gui );
+void fd_gui_printf_shred_updates( fd_gui_t * gui, long after_ns, long before_ns );
 void fd_gui_printf_catch_up_history( fd_gui_t * gui );
 void fd_gui_peers_printf_vote_slot( fd_gui_peers_ctx_t * peers );
 void fd_gui_printf_reset_slot( fd_gui_t * gui );
@@ -51,11 +51,11 @@ fd_gui_printf_null_query_response( fd_http_server_t * http,
 
 void
 fd_gui_printf_skip_rate( fd_gui_t * gui,
-                         ulong      epoch_idx );
+                         ulong      epoch );
 
 void
 fd_gui_printf_epoch( fd_gui_t * gui,
-                     ulong      epoch_idx );
+                     ulong      epoch );
 
 void
 fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t *  peers,
@@ -67,20 +67,19 @@ void
 fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t *  peers );
 
 void
-fd_gui_printf_peers_all( fd_gui_t * gui );
-
-void
-fd_gui_printf_slot( fd_gui_t * gui,
-                    ulong      slot );
+fd_gui_printf_slot( fd_gui_t *            gui,
+                    ulong                slot_number,
+                    fd_gui_slot_t const * slot );
 
 void
 fd_gui_printf_summary_ping( fd_gui_t * gui,
                             ulong      id );
 
 void
-fd_gui_printf_slot_request( fd_gui_t * gui,
-                            ulong      slot,
-                            ulong      id );
+fd_gui_printf_slot_request( fd_gui_t *            gui,
+                            ulong                slot_number,
+                            ulong                id,
+                            fd_gui_slot_t const * slot );
 
 void
 fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
@@ -89,22 +88,26 @@ fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
 
 
 void
-fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
-                                     ulong      slot,
-                                     ulong      id );
+fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
+                                     ulong                slot_number,
+                                     ulong                id,
+                                     fd_gui_slot_t const * slot );
 
 void
-fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
-                                         ulong      _slot,
-                                         ulong      id );
+fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
+                                         ulong                _slot,
+                                         ulong                id,
+                                         fd_gui_slot_t const * slot );
 
 void
-fd_gui_printf_slot_query_shreds( fd_gui_t * gui,
-                                 ulong      _slot,
-                                 ulong      id );
+fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
+                                     char const * topic,
+                                     long         start_ns,
+                                     long         end_ns,
+                                     ulong        id );
 
 void
-fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after );
+fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );

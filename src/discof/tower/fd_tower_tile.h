@@ -106,6 +106,7 @@ struct fd_tower_slot_done {
 
   ulong replay_slot;
   ulong replay_bank_idx;
+  ulong replay_bank_seq;
 
   /* The slot being voted on.  There is not always a vote slot (locked
      out, failed switch threshhold, etc.) and will be set to ULONG_MAX
@@ -123,6 +124,7 @@ struct fd_tower_slot_done {
 
   ulong     reset_slot;
   fd_hash_t reset_block_id;
+  ulong     reset_bank_seq;
 
   /* Sometimes, finishing replay of a slot may cause a new slot to be
      rooted.  If this happens, new root will be 1 and both root_slot and

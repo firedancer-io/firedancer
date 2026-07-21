@@ -444,7 +444,12 @@ STEM_(run1)( ulong                        in_cnt,
 
           for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
             ulong out_idx = cons_out[ cons_idx ];
-            ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cons_seq[ cons_idx ] ), 0L ), 0L );
+
+            /* Read the fseq boot value (ULONG_MAX) as sequence 0, not
+               -1, else the producer is one credit short until the
+               consumer boots. */
+            ulong cseq = fd_ulong_if( cons_seq[ cons_idx ]==ULONG_MAX, 0UL, cons_seq[ cons_idx ] );
+            ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cseq ), 0L ), 0L );
 
             /* If a reliable consumer exits, they can set the credit
                return fseq to STEM_SHUTDOWN_SEQ to indicate they are no

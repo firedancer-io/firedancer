@@ -4,7 +4,10 @@
 # gui_socket_fd: The http tile serves a GUI over HTTP, which is over TCP
 #                and does not use our XDP program.  It uses regular
 #                kernel sockets, so this is the socket file descriptor.
-uint logfile_fd, uint gui_socket_fd
+#
+# db_fd: The gui database file is grown lazily as regions are claimed at
+#        runtime with ftruncate(2).
+uint logfile_fd, uint gui_socket_fd, uint db_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -34,11 +37,12 @@ accept4: (and (eq (arg 0) gui_socket_fd)
 # arg 0 is the file descriptor to read from.  It can be any of the
 # connected client sockets returned by accept4(2).  To accomodate this,
 # we allow any file descriptor except those which we know are not these
-# connected clients, which are the log file, STDERR, and the listening
-# socket itself.
+# connected clients, which are the log file, STDERR, the listening
+# socket itself, and the database file.
 read: (not (or (eq (arg 0) 2)
                (eq (arg 0) logfile_fd)
-               (eq (arg 0) gui_socket_fd)))
+               (eq (arg 0) gui_socket_fd)
+               (eq (arg 0) db_fd)))
 
 
 # server: serving pages over HTTP requires writing to connections
@@ -46,22 +50,24 @@ read: (not (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to send to.  It can be any of the
 # connected client sockets returned by accept4(2).  To accomodate this,
 # we allow any file descriptor except those which we know are not these
-# connected clients, which are the log file, STDERR, and the listening
-# socket itself.
+# connected clients, which are the log file, STDERR, the listening
+# socket itself, and the database file.
 sendto: (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)
-                 (eq (arg 0) gui_socket_fd)))
+                 (eq (arg 0) gui_socket_fd)
+                 (eq (arg 0) db_fd)))
 
 # server: serving websockets quickly requires gathered IO writes
 #
 # arg 0 is the file descriptor to send to.  It can be any of the
 # connected client sockets returned by accept4(2).  To accomodate this,
 # we allow any file descriptor except those which we know are not these
-# connected clients, which are the log file, STDERR, and the listening
-# socket itself.
+# connected clients, which are the log file, STDERR, the listening
+# socket itself, and the database file.
 sendmsg: (and (not (or (eq (arg 0) 2)
                        (eq (arg 0) logfile_fd)
-                       (eq (arg 0) gui_socket_fd)))
+                       (eq (arg 0) gui_socket_fd)
+                       (eq (arg 0) db_fd)))
               (eq (arg 2) "MSG_NOSIGNAL"))
 
 # server: serving pages over HTTP requires closing connections
@@ -69,11 +75,23 @@ sendmsg: (and (not (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to close.  It can be any of the connected
 # client sockets returned by accept4(2).  To accomodate this, we allow
 # any file descriptor except those which we know are not these connected
-# clients, which are the log file, STDERR, and the listening socket
-# itself.
+# clients, which are the log file, STDERR, the listening socket itself,
+# and the database file.
 close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
-                (eq (arg 0) gui_socket_fd)))
+                (eq (arg 0) gui_socket_fd)
+                (eq (arg 0) db_fd)))
 
 # server: serving pages over HTTP requires polling connections
 ppoll
+
+
+# storage: growing the gui database requires resizing its backing file
+#
+# The gui database is a single file mapped into the gui tile's address
+# space in privileged_init.  db_fd is kept open (registered in
+# populate_allowed_fds) and can be used to resize the mapped file at
+# runtime with ftruncate(2).
+#
+# arg 0 is the file descriptor to resize.
+ftruncate: (eq (arg 0) db_fd)

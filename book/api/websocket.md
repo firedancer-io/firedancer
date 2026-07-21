@@ -526,6 +526,7 @@ Some interesting transitions are,
     "value": {
         "phase": "waiting_for_supermajority",
         "accounts_database_path": "/path/to/accounts.db",
+        "gui_database_path": "/path/to/gui.db",
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -573,6 +574,7 @@ Some interesting transitions are,
 |-----------------------------------------------------------------------|-----------------|-------------|
 | phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
 | accounts_database_path                                                | `string`        | Absolute path to the on-disk accounts database file that this validator loads accounts into |
+| gui_database_path                                                     | `string`        | Absolute path to the on-disk gui database file that this validator saves historical monitoring info into |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
@@ -2435,6 +2437,59 @@ connect).
 Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
+### timeline
+Historical shred event data recorded by the validator, queryable over a
+UNIX nanosecond timestamp window.
+
+#### `timeline.query_shreds`
+| frequency   | type          | example |
+|-------------|---------------|---------|
+| *Request*   | `SlotShreds`  | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound of the UNIX nanosecond timestamp window to query for shred events |
+| end_ns   | `string` | Inclusive upper bound of the UNIX nanosecond timestamp window to query for shred events |
+
+WebSocket clients may request historical shred metadata over a UNIX
+nanosecond timestamp window.  The requested window must not exceed 10
+seconds.  The response has the same shape as the live `slot.live_shreds`
+topic and covers every shred event recorded in the window across all
+slots.  If no shred events fall in the window, the response arrays will
+be empty.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 32,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 32,
+    "value": {
+        "reference_slot": 289245044,
+        "reference_ts": "1739657041588242791",
+        "slot_delta": [0, 0],
+        "shred_idx": [1234, null],
+        "event": [0, 1],
+        "event_ts_delta": ["1000000", "2000000"]
+    }
+}
+```
+
+:::
+
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be
 in one of five levels, and in typical operation a slot moves through
@@ -2609,57 +2664,12 @@ and is broadcast to all WebSocket clients.
 **`SlotShreds`**
 | Field           | Type               | Description |
 |-----------------|--------------------|-------------|
-| reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
-| reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
-| slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
+| reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
+| reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
+| slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idx       | `(number\|null)[]` | `shred_idx[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
 | event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
 | event_ts_delta  | `string[]`         | `reference_ts + event_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
-
-#### `slot.query_shreds`
-| frequency   | type          | example |
-|-------------|---------------|---------|
-| *Request*   | `SlotShreds\|null` | below   |
-
-| param | type     | description |
-|-------|----------|-------------|
-| slot  | `number` | The requested slot for which the response will provide shred timing data |
-
-WebSocket clients may request historical shred metadata on a per-slot
-basis. For slots that are too old (i.e. they've been expired from an
-in-memory store) or too new (i.e. they haven't been finalized yet), the
-response value will be `null`.
-
-::: details Example
-
-```json
-{
-    "topic": "slot",
-    "key": "query_shreds",
-    "id": 32,
-    "params": {
-        "slot": 289245044
-    }
-}
-```
-
-```json
-{
-    "topic": "slot",
-    "key": "query_shreds",
-    "id": 32,
-    "value": {
-        "reference_slot": 289245044,
-        "reference_ts": "1739657041588242791",
-        "slot_delta": [0, 0],
-        "shred_idx": [1234, null],
-        "event": [0, 1],
-        "event_ts_delta": ["1000000", "2000000"]
-    }
-}
-```
-
-:::
 
 #### `slot.update`
 | frequency   | type          | example |

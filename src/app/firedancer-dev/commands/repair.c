@@ -64,9 +64,6 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
-void
-resolve_gossip_entrypoints( config_t * config );
-
 #define MANIFEST_LOAD_MAX_SZ (2UL * FD_SHMEM_GIGANTIC_PAGE_SZ)
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
@@ -261,8 +258,6 @@ repair_load_manifest( fd_topo_t *  topo,
    the full topology. */
 static void
 repair_topo( config_t * config ) {
-  resolve_gossip_entrypoints( config );
-
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
@@ -353,7 +348,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_fec_complete_t),   1UL );
 
-  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  FD_POH_SHRED_MTU,              1UL );
 
   /**/                 fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,                                    FD_TXN_MTU,                    1UL );
 

@@ -19,7 +19,14 @@ $(call make-fuzz-test,fuzz_hash,fuzz_hash,fd_util)
 endif
 endif
 
-$(file >src/util/fd_version_generated1.h,#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse HEAD)")
+include src/app/firedancer/version.mk
+define FD_VERSION_GENERATED_H
+#define FIREDANCER_COMMIT_REF_CSTR "$(shell git rev-parse HEAD)"
+#define FD_VERSION_MAJOR $(FD_VERSION_MAJOR)
+#define FD_VERSION_MINOR $(FD_VERSION_MINOR)
+#define FD_VERSION_PATCH $(FD_VERSION_PATCH)
+endef
+$(file >src/util/fd_version_generated1.h,$(FD_VERSION_GENERATED_H))
 ifneq ($(shell cmp -s src/util/fd_version_generated.h src/util/fd_version_generated1.h && echo "same"),same)
 src/util/fd_version_generated.h: src/util/fd_version_generated1.h
 	cp -f src/util/fd_version_generated1.h $@

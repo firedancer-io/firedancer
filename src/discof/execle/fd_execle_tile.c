@@ -32,6 +32,8 @@ typedef struct fd_execle_out fd_execle_out_t;
 struct fd_execle_tile {
   ulong kind_id;
 
+  fd_startup_gate_t startup_gate[1];
+
   fd_blake3_t * blake3;
   void * bmtree;
 
@@ -150,12 +152,23 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( EXECLE, fd_accdb_metrics( ctx->accdb ) );
 }
 
+static inline void
+after_credit( fd_execle_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)stem; (void)opt_poll_in; (void)charge_busy;
+  fd_startup_gate_idle( ctx->startup_gate );
+}
+
 static int
 before_frag( fd_execle_tile_t * ctx,
              ulong              in_idx,
              ulong              seq,
              ulong              sig ) {
   (void)in_idx; (void)seq;
+
+  fd_startup_gate_busy( ctx->startup_gate );
 
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
@@ -249,6 +262,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->txn_ns_dt = (fd_txn_ns_dt_t){0};
+  trailer->bank_seq  = bank->bank_seq;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t *   txn     = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -639,6 +653,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx = ctx->_txn_idx + i;
     trailer->tips         = tips[ i ];
+    trailer->bank_seq     = bank->bank_seq;
 
     ulong execle_sig = fd_disco_execle_sig( slot, ctx->_pack_idx+i );
 
@@ -805,7 +820,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->report_transaction_diffs = tile->execle.report_transaction_diffs;
 
-  fd_sleep_until_replay_started( topo );
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 static ulong
@@ -851,6 +870,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_execle_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag

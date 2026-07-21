@@ -78,45 +78,48 @@ typedef struct fd_guih_rate_entry fd_guih_rate_entry_t;
 #define DEQUE_MAX  4096UL
 #include "../../util/tmpl/fd_deque.c"
 
-/* frankendancer only */
-struct fd_guih_gossip_peer {
+struct FD_TYPE_PACKED fd_guih_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
   ushort      shred_version;
 
-  int has_version;
-  struct {
+  uchar has_version;
+  struct FD_TYPE_PACKED {
     ushort major;
     ushort minor;
     ushort patch;
 
-    int    has_commit;
+    uchar  has_commit;
     uint   commit;
 
     uint   feature_set;
+    ushort client_id;
   } version;
 
-  struct {
+  struct FD_TYPE_PACKED {
     uint   ipv4;
     ushort port;
   } sockets[ 12 ];
 };
 
-/* frankendancer only */
-struct fd_guih_vote_account {
-  fd_pubkey_t pubkey[ 1 ];
+typedef struct fd_guih_gossip_peer fd_guih_gossip_peer_t;
+
+struct FD_TYPE_PACKED fd_guih_vote_account {
   fd_pubkey_t vote_account[ 1 ];
+  fd_pubkey_t pubkey[ 1 ];
 
   ulong       activated_stake;
   ulong       last_vote;
   ulong       root_slot;
   ulong       epoch_credits;
   uchar       commission;
-  int         delinquent;
+  uchar       delinquent;
+  uchar       _reserved[ 14 ];
 };
 
-/* frankendancer only */
-struct fd_guih_validator_info {
+typedef struct fd_guih_vote_account fd_guih_vote_account_t;
+
+struct FD_TYPE_PACKED fd_guih_validator_info {
   fd_pubkey_t pubkey[ 1 ];
 
   char name[ 64 ];
@@ -124,6 +127,8 @@ struct fd_guih_validator_info {
   char details[ 256 ];
   char icon_uri[ 128 ];
 };
+
+typedef struct fd_guih_validator_info fd_guih_validator_info_t;
 
 /* frankendancer only */
 #define FD_GUIH_SLOT_LEADER_UNSTARTED (0UL)
@@ -404,7 +409,7 @@ struct fd_guih_slot_staged_shred_event {
 
 typedef struct fd_guih_slot_staged_shred_event fd_guih_slot_staged_shred_event_t;
 
-struct __attribute__((packed)) fd_guih_slot_history_shred_event {
+struct FD_TYPE_PACKED fd_guih_slot_history_shred_event {
   long   timestamp;
   ushort shred_idx;
   uchar  event;
@@ -444,7 +449,7 @@ struct fd_guih_ephemeral_slot {
 };
 typedef struct fd_guih_ephemeral_slot fd_guih_ephemeral_slot_t;
 
-struct __attribute__((packed)) fd_guih_txn {
+struct FD_TYPE_PACKED fd_guih_txn {
   uchar signature[ FD_TXN_SIGNATURE_SZ ];
   ulong transaction_fee;
   ulong priority_fee;

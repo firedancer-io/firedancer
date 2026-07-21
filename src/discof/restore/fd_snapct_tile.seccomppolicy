@@ -1,6 +1,10 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint min_ping_fd, uint max_ping_fd
+#
+# etc_hosts_fd, etc_resolv_conf_fd: Used to resolve DNS records for the
+#                                   snapshot sources and gossip
+#                                   entrypoints.
+uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint min_ping_fd, uint max_ping_fd, uint etc_hosts_fd, uint etc_resolv_conf_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -22,8 +26,13 @@ write: (or (eq (arg 0) 2)
 ftruncate: (or (eq (arg 0) out_full_fd)
                (eq (arg 0) out_inc_fd) )
 
+# resolv: DNS config files are rewound before each read
 lseek: (or (eq (arg 0) out_full_fd)
-           (eq (arg 0) out_inc_fd) )
+           (eq (arg 0) out_inc_fd)
+           (and (or (eq (arg 0) etc_hosts_fd)
+                    (eq (arg 0) etc_resolv_conf_fd))
+                (eq (arg 1) 0)
+                (eq (arg 2) "SEEK_SET")))
 
 
 # openssl: read
@@ -47,9 +56,17 @@ fsync: (eq (arg 0) logfile_fd)
 
 # snapshot: establish connections when initializing client for snapshot
 # download.  Also establish connections to receive snapshot slot info
-socket: (and (eq (arg 0) "AF_INET")
-             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
-             (eq (arg 2) 0))
+#
+# resolv: send DNS queries via UDP
+socket: (or (and (eq (arg 0) "AF_INET")
+                 (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
+                 (eq (arg 2) 0))
+            (and (eq (arg 0) "AF_INET")
+                 (eq (arg 1) "SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK")
+                 (eq (arg 2) 0)))
+
+# resolv: receive DNS responses
+recvmsg: (eq (arg 2) 0)
 
 # snapshot: need to be able to connect to a peer to download a snapshot
 # from and for snapshot slot resolution.  We also call connect on all

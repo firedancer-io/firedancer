@@ -2,6 +2,7 @@
 #include "fd_lookup.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include "../../util/log/fd_log.h"
 #include "../../util/io/fd_io.h"
 
@@ -34,4 +35,16 @@ fd_netdb_open_fds( fd_netdb_fds_t * fds ) {
     };
   }
   return fds;
+}
+
+void
+fd_netdb_close_fds( void ) {
+  if( FD_LIKELY( fd_etc_resolv_conf_fd>=0 ) ) {
+    if( FD_UNLIKELY( -1==close( fd_etc_resolv_conf_fd ) ) ) FD_LOG_ERR(( "close(/etc/resolv.conf) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    fd_etc_resolv_conf_fd = -1;
+  }
+  if( FD_LIKELY( fd_etc_hosts_fd>=0 ) ) {
+    if( FD_UNLIKELY( -1==close( fd_etc_hosts_fd ) ) ) FD_LOG_ERR(( "close(/etc/hosts) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    fd_etc_hosts_fd = -1;
+  }
 }

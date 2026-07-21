@@ -5,8 +5,8 @@
 
 struct mem_obj_entry {
   ulong footprint;
-  char  wksp[ 13 ];
-  char  obj[ 13 ];
+  char  wksp[ 14 ]; /* fd_topo_wksp_t.name */
+  char  obj[ 13 ];  /* fd_topo_obj_t.name */
 };
 typedef struct mem_obj_entry mem_obj_entry_t;
 
@@ -19,10 +19,52 @@ extern action_t * ACTIONS[];
 
 static void
 fmt_size( char * buf, ulong sz ) {
-  if( FD_LIKELY( sz >= (1UL<<30) ) )      FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu GiB", sz / (1UL<<30) ) );
-  else if( FD_LIKELY( sz >= (1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu MiB", sz / (1UL<<20) ) );
-  else if( FD_LIKELY( sz >= (1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu KiB", sz / (1UL<<10) ) );
-  else                                    FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu B",   sz             ) );
+  if( FD_LIKELY( sz >= (1UL<<30) ) )      FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%.1f GiB", (double)sz/(double)(1UL<<30) ) );
+  else if( FD_LIKELY( sz >= (1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%.1f MiB", (double)sz/(double)(1UL<<20) ) );
+  else if( FD_LIKELY( sz >= (1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%.1f KiB", (double)sz/(double)(1UL<<10) ) );
+  else                                    FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu B",    sz                           ) );
+}
+
+/* json_escaped copies src into out as JSON string contents, escaping
+   quotes, backslashes and control characters.  out must hold at
+   least 6*strlen(src)+1 (worst case: every byte becomes \uXXXX). */
+
+static void
+json_escaped( char const * src, char * out, ulong out_sz ) {
+  ulong j = 0UL;
+  for( ulong i=0UL; src[ i ]; i++ ) {
+    uchar c = (uchar)src[ i ];
+    if( FD_UNLIKELY( c=='"' || c=='\\' ) ) { FD_TEST( j+2UL<out_sz ); out[ j++ ] = '\\'; out[ j++ ] = (char)c; }
+    else if( FD_UNLIKELY( c<0x20 ) ) {
+      FD_TEST( j+7UL<=out_sz && fd_cstr_printf_check( out+j, out_sz-j, NULL, "\\u%04x", (uint)c ) );
+      j += 6UL;
+    }
+    else { FD_TEST( j+1UL<out_sz ); out[ j++ ] = (char)c; }
+  }
+  out[ j ] = '\0';
+}
+
+#define BAR_W (24UL)
+
+/* fmt_bar renders val/max as a BAR_W cell wide bar with 1/8th cell
+   resolution, space padded to exactly BAR_W display cells.  buf must
+   hold at least 3*BAR_W+1 bytes. */
+
+static void
+fmt_bar( char * buf, ulong val, ulong max ) {
+  static char const * const eighth[ 8 ] = { "", "▏", "▎", "▍", "▌", "▋", "▊", "▉" };
+
+  ulong eighths = max ? (val*BAR_W*8UL)/max : 0UL;
+  if( val && !eighths ) eighths = 1UL;
+  ulong full = eighths/8UL;
+  ulong rem  = eighths%8UL;
+
+  char * p = fd_cstr_init( buf );
+  ulong cells = 0UL;
+  for( ulong i=0UL; i<full; i++, cells++ ) p = fd_cstr_append_cstr( p, "█" );
+  if( rem ) { p = fd_cstr_append_cstr( p, eighth[ rem ] ); cells++; }
+  for( ulong i=cells; i<BAR_W; i++ ) p = fd_cstr_append_char( p, ' ' );
+  fd_cstr_fini( p );
 }
 
 static void
@@ -31,6 +73,7 @@ mem_cmd_args( int *    pargc,
               args_t * args ) {
   char const * topo_name = fd_env_strip_cmdline_cstr( pargc, pargv, "--topo", NULL, "" );
   args->mem.sort = fd_env_strip_cmdline_contains( pargc, pargv, "--sort" );
+  args->mem.json = fd_env_strip_cmdline_contains( pargc, pargv, "--json" );
 
   ulong topo_name_len = strlen( topo_name );
   if( FD_UNLIKELY( topo_name_len > sizeof(args->mem.topo)-1 ) ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
@@ -121,29 +164,67 @@ mem_cmd_fn( args_t *   args,
 
     ulong total = 0UL;
     for( ulong i=0UL; i<cnt; i++ ) total += entries[ i ].footprint;
+    ulong max = cnt ? entries[ 0 ].footprint : 0UL;
 
-    FD_LOG_STDOUT(( "%7s  %6s  %15s  %10s  %7s  %15s  %12s  %12s\n", "SIZE", "PCT", "BYTES", "CUM SIZE", "CUM PCT", "CUM BYTES", "WORKSPACE", "OBJECT" ));
-    FD_LOG_STDOUT(( "-------  ------  ---------------  ----------  -------  ---------------  ------------  ------------\n" ));
+    if( FD_UNLIKELY( args->mem.json ) ) {
+      FD_LOG_STDOUT(( "{\n  \"total_bytes\": %lu,\n  \"entries\": [\n", total ));
+      ulong cum = 0UL;
+      for( ulong i=0UL; i<cnt; i++ ) {
+        cum += entries[ i ].footprint;
+        /* 6x worst case expansion (\uXXXX) of the 12 char names */
+        char wksp[ 6UL*sizeof(entries[ i ].wksp)+1UL ]; json_escaped( entries[ i ].wksp, wksp, sizeof(wksp) );
+        char obj [ 6UL*sizeof(entries[ i ].obj )+1UL ]; json_escaped( entries[ i ].obj,  obj,  sizeof(obj)  );
+        FD_LOG_STDOUT(( "    { \"workspace\": \"%s\", \"object\": \"%s\", \"bytes\": %lu, \"cum_bytes\": %lu }%s\n",
+                        wksp, obj, entries[ i ].footprint, cum, i==cnt-1UL ? "" : "," ));
+      }
+      FD_LOG_STDOUT(( "  ]\n}\n" ));
+      return;
+    }
+
+    int color = fd_log_colorize() && isatty( STDOUT_FILENO );
+    char const * c_bold   = color ? "\033[1m"  : "";
+    char const * c_dim    = color ? "\033[2m"  : "";
+    char const * c_normal = color ? "\033[0m"  : "";
+    char const * c_blue   = color ? "\033[34m" : "";
+
+    char rule[ 3UL*110UL+1UL ];
+    char * p = fd_cstr_init( rule );
+    for( ulong i=0UL; i<110UL; i++ ) p = fd_cstr_append_cstr( p, "─" );
+    fd_cstr_fini( p );
+
+    FD_LOG_STDOUT(( "%s%10s  %6s  %-*s  %15s  %10s  %7s  %-12s  %-12s%s\n", c_dim, "SIZE", "PCT", (int)BAR_W, "", "BYTES", "CUM SIZE", "CUM PCT", "WORKSPACE", "OBJECT", c_normal ));
     ulong cum = 0UL;
     for( ulong i=0UL; i<cnt; i++ ) {
       ulong sz = entries[ i ].footprint;
       cum += sz;
-      char sz_str[ 24 ], cum_str[ 24 ];
+      char sz_str[ 24 ], cum_str[ 24 ], bar[ 3UL*BAR_W+1UL ];
       fmt_size( sz_str,  sz  );
       fmt_size( cum_str, cum );
+      fmt_bar( bar, sz, max );
       double pct     = total ? 100.0 * (double)sz  / (double)total : 0.0;
       double cum_pct = total ? 100.0 * (double)cum / (double)total : 0.0;
-      FD_LOG_STDOUT(( "%7s  %5.1f%%  %15lu  %10s  %6.1f%%  %15lu  %12s  %12s\n", sz_str, pct, sz, cum_str, cum_pct, cum, entries[ i ].wksp, entries[ i ].obj ));
+      char const * sz_style  = sz>=(1UL<<30) ? c_bold : (sz<(1UL<<20) ? c_dim : "");
+      char const * pct_style = pct>=10.0 ? c_bold : "";
+      FD_LOG_STDOUT(( "%s%10s%s  %s%5.1f%%%s  %s%s%s  %s%15lu%s  %s%10s%s  %s%6.1f%%%s  %-12s  %s\n",
+                      sz_style, sz_str, sz_style[0] ? c_normal : "",
+                      pct_style, pct, pct_style[0] ? c_normal : "",
+                      c_blue, bar, c_normal,
+                      c_dim, sz, c_normal,
+                      c_dim, cum_str, c_normal,
+                      c_dim, cum_pct, c_normal,
+                      entries[ i ].wksp, entries[ i ].obj ));
     }
 
     char total_str[ 24 ];
     fmt_size( total_str, total );
-    FD_LOG_STDOUT(( "-------  ------  ---------------  ----------  -------  ---------------  ------------  ------------\n" ));
-    FD_LOG_STDOUT(( "%7s  %5.1f%%  %15lu  %10s  %6.1f%%  %15lu  %12s  %12s\n", total_str, 100.0, total, total_str, 100.0, total, "TOTAL", "" ));
+    FD_LOG_STDOUT(( "%s%s%s\n", c_dim, rule, c_normal ));
+    FD_LOG_STDOUT(( "%s%10s  %5.1f%%  %-*s  %15lu  %10s  %6.1f%%  %-12s%s\n",
+                    c_bold, total_str, 100.0, (int)BAR_W, "", total, total_str, 100.0, "TOTAL", c_normal ));
     return;
   }
 
-  fd_topo_print_log( 1, &config->topo );
+  if( FD_UNLIKELY( args->mem.json ) ) fd_topo_print_json( &config->topo );
+  else                                fd_topo_print_log( 1, &config->topo );
 }
 
 static void
@@ -153,6 +234,7 @@ mem_args_help( fd_action_help_t * help ) {
                                                    "that builds its own topology" );
   fd_action_help_arg( help, "--sort", NULL,        "List objects largest first, with per object and cumulative memory\n"
                                                    "footprint, instead of the default per memory region layout" );
+  fd_action_help_arg( help, "--json", NULL,        "Print the output as JSON" );
 }
 
 action_t fd_action_mem = {

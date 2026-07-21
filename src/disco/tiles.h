@@ -32,6 +32,11 @@ struct fd_became_leader {
      been refcounted by the replay tile, rather than a bank pointer. */
   ulong bank_idx;
 
+  /* The app-wide bank sequence number of the leader bank (the durable
+     fork discriminator; bank_idx is reused, bank_seq is not).  Used by
+     monitoring (the GUI) to key per-fork transaction history. */
+  ulong bank_seq;
+
   /* The maximum number of microblocks that pack is allowed to put
      into the block. This allows PoH to accurately track and make sure
      microblocks do not need to be dropped. */
@@ -126,6 +131,11 @@ struct fd_microblock_trailer {
      transactions */
   ulong tips;
 
+  /* The app-wide bank sequence number of the bank this microblock was
+     executed against (the durable fork discriminator).  Used by
+     monitoring (the GUI) to key per-fork transaction history. */
+  ulong bank_seq;
+
   fd_txn_ns_dt_t txn_ns_dt;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
@@ -168,6 +178,11 @@ struct fd_microblock_execle_trailer {
      above will be NULL. */
   ulong bank_idx;
 
+  /* The app-wide bank sequence number of the leader bank (the durable
+     fork discriminator; bank_idx is reused, bank_seq is not).  Used by
+     monitoring (the GUI) to key per-fork transaction history. */
+  ulong bank_seq;
+
   /* The sequentially increasing index of the microblock, across all
      execles.  This is used by PoH to ensure microblocks get committed
      in the same order they are executed. */
@@ -186,5 +201,11 @@ struct fd_microblock_execle_trailer {
   int is_bundle;
 };
 typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
+
+/* Exact worst-case frag sizes for the pack_execle and execle_poh
+   links.  execle strips the ALT accounts from each fd_txn_e_t before
+   forwarding to poh, so the poh side is smaller. */
+#define FD_PACK_EXECLE_MTU (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t))
+#define FD_EXECLE_POH_MTU  (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)+sizeof(fd_microblock_trailer_t))
 
 #endif /* HEADER_fd_src_disco_tiles_h */

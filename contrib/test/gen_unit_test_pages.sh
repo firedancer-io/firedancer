@@ -34,6 +34,7 @@ GIB=$((1<<30))
 
 # grep is allowed to find nothing here, so guard each pipeline against
 # `set -e` with `|| true`.
+{
 grep -rln '"--page-cnt"' src/ | while read -r f; do
   # The test's own default --page-cnt (the literal after the NULL env key).
   cnt=$( { grep -oE '"--page-cnt"[^;]*NULL,[[:space:]]*[0-9]+UL' "$f" || true; } \
@@ -53,4 +54,15 @@ grep -rln '"--page-cnt"' src/ | while read -r f; do
   if [[ "$pages" -gt 1 ]]; then
     printf '%s %s\n' "$(basename "$f" .c)" "$pages"
   fi
-done | sort -k2 -rn -k1 | awk '{ printf "  [%s]=%s\n", $1, $2 }'
+done
+# Groove tests size their shmem by --volume-cnt * FD_GROOVE_VOLUME_FOOTPRINT
+# (1 GiB per volume), not --page-cnt.
+grep -rln '"--volume-cnt"' src/ | while read -r f; do
+  cnt=$( { grep -oE '"--volume-cnt"[^;]*NULL,[[:space:]]*[0-9]+UL' "$f" || true; } \
+         | grep -oE '[0-9]+UL' | grep -oE '[0-9]+' | head -1 )
+  cnt=${cnt:-1}
+  if [[ "$cnt" -gt 1 ]]; then
+    printf '%s %s\n' "$(basename "$f" .c)" "$cnt"
+  fi
+done
+} | sort -k2 -rn -k1 | awk '{ printf "  [%s]=%s\n", $1, $2 }'

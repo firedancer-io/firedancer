@@ -929,9 +929,6 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
   ulong acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
   for( ulong i=0UL; i<n; i++ ) {
     FD_TEST( (ulong)buf[ i ]<acc_pool_cap );
-#if FD_TMPL_USE_HANDHOLDING
-    for( ulong j=0UL; j<i; j++ ) FD_TEST( buf[ j ]!=buf[ i ] );
-#endif
     fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
     ulong off = fd_accdb_acc_offset( accmeta );
     if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {

@@ -114,6 +114,11 @@ void
 fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
                                     fd_pubkey_t const *         block_revenue_collector );
 
+/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/handler.rs#L178-L182 */
+void
+fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
+                                        fd_pubkey_t const *         inflation_rewards_collector );
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L724-L729 */
 void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,

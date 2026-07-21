@@ -54,7 +54,7 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
                             fd_acct_addr_t const * const * adtl_writable,
                             ulong                          txn_cnt ) {
   /* See end of function for this equation */
-  if( FD_UNLIKELY( txn_cnt==0UL ) ) return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + 1636) / 1637);
+  if( FD_UNLIKELY( txn_cnt==0UL ) ) return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + (int)FD_PACK_REBATE_MAX_ENTRIES-1) / (int)FD_PACK_REBATE_MAX_ENTRIES);
 
   int is_initializer_bundle = 1;
   int ib_success            = 1;
@@ -127,10 +127,11 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
      hitting FD_PACK_REBATE_SUM_CAPACITY.  Thus, if x is the current
      value of writer_cnt, we need to call report at least y times to
      ensure
-                        x-y*1637 <= HEADROOM
-                               y >= (x-HEADROOM)/1637
-     but y is an integer, so y >= ceiling( (x-HEADROOM)/1637 ) */
-  return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + 1636) / 1637);
+                        x-y*FD_PACK_REBATE_MAX_ENTRIES <= HEADROOM
+                               y >= (x-HEADROOM)/FD_PACK_REBATE_MAX_ENTRIES
+     but y is an integer, so
+     y >= ceiling( (x-HEADROOM)/FD_PACK_REBATE_MAX_ENTRIES ) */
+  return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + (int)FD_PACK_REBATE_MAX_ENTRIES-1) / (int)FD_PACK_REBATE_MAX_ENTRIES);
 }
 
 
@@ -146,7 +147,7 @@ fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
   out->ib_result               = s->ib_result;                  s->ib_result               = 0;
 
   out->writer_cnt = 0U;
-  ulong writer_cnt = fd_ulong_min( s->writer_cnt, 1637UL );
+  ulong writer_cnt = fd_ulong_min( s->writer_cnt, FD_PACK_REBATE_MAX_ENTRIES );
   for( ulong i=0UL; i<writer_cnt; i++ ) {
     fd_pack_rebate_entry_t * e = s->inserted[ --(s->writer_cnt) ];
     out->writer_rebates[ out->writer_cnt++ ] = *e;

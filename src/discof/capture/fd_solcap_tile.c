@@ -7,12 +7,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
-#include <time.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
+#include <time.h>
 #include "generated/fd_solcap_tile_seccomp.h"
 
 
@@ -63,6 +63,8 @@
 
 struct fd_solcap_tile_ctx {
   ulong tile_idx;
+
+  fd_startup_gate_t startup_gate[1];
 
   ulong    msg_idx;
   ushort   msg_set_sig;
@@ -291,6 +293,15 @@ fd_capctx_buf_process_continuation( fd_solcap_tile_ctx_t * ctx,
    messages while maintaining efficient memory usage and cache locality.
 */
 
+static inline void
+after_credit( fd_solcap_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
+  (void)stem; (void)opt_poll_in; (void)charge_busy;
+  fd_startup_gate_idle( ctx->startup_gate );
+}
+
 static inline int
 returnable_frag( fd_solcap_tile_ctx_t * ctx,
                  ulong                  in_idx,
@@ -302,6 +313,7 @@ returnable_frag( fd_solcap_tile_ctx_t * ctx,
                  ulong                  tsorig FD_PARAM_UNUSED,
                  ulong                  tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t *    stem   FD_PARAM_UNUSED ) {
+  fd_startup_gate_busy( ctx->startup_gate );
 
   if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_idx, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -467,6 +479,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_solcap_tile_ctx_t * ctx = (fd_solcap_tile_ctx_t *)scratch;
 
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
+
   ctx->in_cnt = 0UL;
   FD_TEST( tile->in_cnt <= 32UL );
   for( ulong i = 0UL; i < tile->in_cnt; i++ ) {
@@ -479,8 +493,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ctx->in_cnt].mtu    = link->mtu;
     ctx->in_cnt++;
   }
-
-  fd_sleep_until_replay_started( topo );
 }
 
 #define STEM_BURST (1UL)
@@ -489,6 +501,7 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_solcap_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_solcap_tile_ctx_t)
 
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

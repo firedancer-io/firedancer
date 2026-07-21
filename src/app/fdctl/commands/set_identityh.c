@@ -74,7 +74,9 @@
 
      In addition to flushing out any in-flight shreds, this also causes
      the shred tile to switch the identity key it uses internally, for
-     determining where this validator is positioned in the Turbine tree. */
+     determining where this validator is positioned in the Turbine tree.
+     The bundle tile is halted in parallel so it cannot request a
+     signature while the sign tile switches keys. */
 #define FD_SET_IDENTITY_STATE_SHRED_FLUSH_REQUESTED (4UL)
 
 /* State 5: SHRED_FLUSHED
@@ -99,27 +101,26 @@
            and uses the key to determine which blocks are ours for
            highlighting on the frontend.
        (c) Event.  Outgoing events to the event server are signed with
-           the identity key to authenticate the sender.
-       (d) Bundle.  The validator must authenticate to any connected
-           bundle server with the identity key to prove it is on the
-           leader schedule.,
-       (e) Gossip. The gossip tile sends out ContactInfo messages with
-           our identity key, and also uses the identity key to sign
-           outgoing gossip messages. */
+           the identity key to authenticate the sender. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED  (6UL)
 
 /* State 7: ALL_SWITCHED
      All remaining tiles that use the identity key have confirmed that
-     they have switched to the new key.  The validator is now fully
-     switched over. */
+     they have switched to the new key.  The bundle tile has updated
+     its identity key, but signing remains halted. */
 #define FD_SET_IDENTITY_STATE_ALL_SWITCHED          (7UL)
 
-/* State 8: POH_UNHALT_REQUESTED
+/* State 8: BUNDLE_UNHALT_REQUESTED
+     The bundle tile can now safely resume signing with the new key.
+     If the bundle tile doesn't exist, skip this stage. */
+#define FD_SET_IDENTITY_STATE_BUNDLE_UNHALT_REQUESTED (8UL)
+
+/* State 9: POH_UNHALT_REQUESTED
      The final state, now that all tiles have switched, the leader
      pipeline can be unblocked and the validator can resume producing
      blocks.  The next state once the PoH tile confirms the leader
      pipeline is unlocked, is UNLOCKED. */
-#define FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED  (8UL)
+#define FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED  (9UL)
 
 void
 set_identityh_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
@@ -202,17 +203,25 @@ poll_keyswitch( fd_topo_t *   topo,
     case FD_SET_IDENTITY_STATE_POH_HALTED: {
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
-        if( FD_LIKELY( strcmp( tile->name, "shred" ) ) ) continue;
+        if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
+          fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+          FD_TEST( shred );
 
-        fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
-        FD_TEST( shred );
+          shred->param = *halted_seq;
+          memcpy( shred->bytes, keypair+32UL, 32UL );
+          FD_COMPILER_MFENCE();
+          shred->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+          FD_COMPILER_MFENCE();
+          FD_LOG_INFO(( "Flushing in-flight unpublished shreds, must reach seq %lu...", *halted_seq ));
+        } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
+          fd_keyswitch_t * bundle = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+          FD_TEST( bundle );
 
-        shred->param = *halted_seq;
-        memcpy( shred->bytes, keypair+32UL, 32UL );
-        FD_COMPILER_MFENCE();
-        shred->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
-        FD_COMPILER_MFENCE();
-        FD_LOG_INFO(( "Flushing in-flight unpublished shreds, must reach seq %lu...", *halted_seq ));
+          memcpy( bundle->bytes, keypair+32UL, 32UL );
+          FD_COMPILER_MFENCE();
+          bundle->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+          FD_COMPILER_MFENCE();
+        }
       }
 
       *state = FD_SET_IDENTITY_STATE_SHRED_FLUSH_REQUESTED;
@@ -221,19 +230,20 @@ poll_keyswitch( fd_topo_t *   topo,
     case FD_SET_IDENTITY_STATE_SHRED_FLUSH_REQUESTED: {
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
-        if( FD_LIKELY( strcmp( tile->name, "shred" ) ) ) continue;
+        if( FD_LIKELY( strcmp( tile->name, "shred" ) &&
+                       strcmp( tile->name, "bundle" ) ) ) continue;
 
-        fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
-        FD_TEST( shred );
+        fd_keyswitch_t * keyswitch = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+        FD_TEST( keyswitch );
 
-        if( FD_LIKELY( shred->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        if( FD_LIKELY( keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
           continue;
-        } else if( FD_UNLIKELY( shred->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-          /* If any of the shred tiles is still pending, we need to wait. */
+        } else if( FD_UNLIKELY( keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+          /* If any of the shred/bundle tiles is still pending, we need to wait. */
           FD_SPIN_PAUSE();
           return;
         } else {
-          FD_LOG_ERR(( "Unexpected shred:%lu keyswitch state %lu", tile->kind_id, shred->state ));
+          FD_LOG_ERR(( "Unexpected %s:%lu keyswitch state %lu", tile->name, tile->kind_id, keyswitch->state ));
         }
       }
 
@@ -256,7 +266,8 @@ poll_keyswitch( fd_topo_t *   topo,
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ||
                        !strcmp( topo->tiles[ i ].name, "pohh" ) ||
-                       !strcmp( topo->tiles[ i ].name, "shred" ) ) ) continue;
+                       !strcmp( topo->tiles[ i ].name, "shred" ) ||
+                       !strcmp( topo->tiles[ i ].name, "bundle" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
@@ -274,7 +285,8 @@ poll_keyswitch( fd_topo_t *   topo,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "pohh" ) ||
-                       !strcmp( topo->tiles[ i ].name, "shred" ) ) ) continue;
+                       !strcmp( topo->tiles[ i ].name, "shred" ) ||
+                       !strcmp( topo->tiles[ i ].name, "bundle" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -301,10 +313,37 @@ poll_keyswitch( fd_topo_t *   topo,
       break;
     }
     case FD_SET_IDENTITY_STATE_ALL_SWITCHED: {
-      fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
-      poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
-      FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
-      *state = FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED;
+      int bundle_exists = fd_topo_find_tile( topo, "bundle", 0UL )!=ULONG_MAX;
+      if( FD_LIKELY( *has_error || !bundle_exists ) ) {
+        fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
+        FD_COMPILER_MFENCE();
+        poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        FD_COMPILER_MFENCE();
+        FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
+        *state = FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED;
+      } else {
+        fd_keyswitch_t * bundle = find_keyswitch( topo, "bundle" );
+        FD_COMPILER_MFENCE();
+        bundle->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        FD_COMPILER_MFENCE();
+        *state = FD_SET_IDENTITY_STATE_BUNDLE_UNHALT_REQUESTED;
+      }
+      break;
+    }
+    case FD_SET_IDENTITY_STATE_BUNDLE_UNHALT_REQUESTED: {
+      fd_keyswitch_t * bundle = find_keyswitch( topo, "bundle" );
+      if( FD_LIKELY( bundle->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
+        FD_COMPILER_MFENCE();
+        poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        FD_COMPILER_MFENCE();
+        FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
+        *state = FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED;
+      } else if( FD_UNLIKELY( bundle->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+        FD_SPIN_PAUSE();
+      } else {
+        FD_LOG_ERR(( "Unexpected bundle keyswitch state %lu", bundle->state ));
+      }
       break;
     }
     case FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED: {

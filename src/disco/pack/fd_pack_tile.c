@@ -148,6 +148,7 @@ typedef struct {
   ulong  leader_slot;
   void const * leader_bank;
   ulong        leader_bank_idx;
+  ulong        leader_bank_seq;
 
   fd_became_leader_t _became_leader[1];
 
@@ -848,6 +849,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
+      trailer->bank_seq = ctx->leader_bank_seq;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
@@ -1160,6 +1162,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
+    ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
 
     ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
@@ -1438,6 +1441,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
   ctx->leader_bank_idx               = ULONG_MAX;
+  ctx->leader_bank_seq               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;

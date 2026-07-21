@@ -8,9 +8,12 @@
 #include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
+#include "../../waltz/resolv/fd_netdb.h"
+#include "../../waltz/resolv/fd_adns.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -103,6 +106,33 @@ struct fd_snapct_tile {
   struct fd_topo_tile_snapct config;
   int                        gossip_enabled;
   int                        download_enabled;
+
+  fd_netdb_fds_t netdb_fds[1];
+
+  fd_adns_t * adns;
+  struct {
+    char   hostname[ 256UL ];
+    ushort port; /* net order */
+    int    is_https;
+    int    resolved;
+    long   retry_nanos; /* re-queue due time, 0 while in flight */
+  } dns_servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ];
+  struct {
+    char   hostname[ 256UL ];
+    ushort port;
+    int    resolved;
+    long   retry_nanos;
+  } dns_entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+
+  ulong resolved_servers_cnt;
+  struct {
+    fd_ip4_port_t addr;
+    char          hostname[ 256UL ];
+    int           is_https;
+  } resolved_servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED ];
+
+  ulong         resolved_entrypoints_cnt;
+  fd_ip4_port_t resolved_entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
   fd_ssping_t *          ssping;
   fd_http_resolver_t *   ssresolver;
@@ -202,6 +232,8 @@ loose_footprint( fd_topo_tile_t const * tile ) {
   return 1<<26UL; /* 64 MiB */
 }
 
+#define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
+
 static ulong
 scratch_align( void ) {
   return fd_ulong_max( alignof(fd_snapct_tile_t),
@@ -211,7 +243,8 @@ scratch_align( void ) {
          fd_ulong_max( fd_http_resolver_align(),
          fd_ulong_max( fd_sspeer_selector_align(),
          fd_ulong_max( blacklist_pool_align(),
-                       blacklist_map_align() ) ) ) ) ) ) );
+         fd_ulong_max( blacklist_map_align(),
+                       fd_adns_align() ) ) ) ) ) ) ) );
 }
 
 static ulong
@@ -225,6 +258,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
   l = FD_LAYOUT_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX )                               );
   l = FD_LAYOUT_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) )  );
+  l = FD_LAYOUT_APPEND( l, fd_adns_align(),            fd_adns_footprint( ADNS_REQS_MAX )                                         );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()                                                       );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -446,7 +480,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
     max_ping_fd = FD_SSPING_FD_MIN + (int)FD_SSPING_FD_CNT - 1;
   }
 
-  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd );
+  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd, (uint)ctx->netdb_fds->etc_hosts, (uint)ctx->netdb_fds->etc_resolv_conf );
   return sock_filter_policy_fd_snapct_tile_instr_cnt;
 }
 
@@ -455,7 +489,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu is too small", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu is too small", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -470,6 +504,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=ctx->local_out.dir_fd ) )                  out_fds[ out_cnt++ ] = ctx->local_out.dir_fd;
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
+  if( FD_LIKELY( -1!=ctx->netdb_fds->etc_hosts ) )              out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_hosts;
+  if( FD_LIKELY( -1!=ctx->netdb_fds->etc_resolv_conf ) )        out_fds[ out_cnt++ ] = ctx->netdb_fds->etc_resolv_conf;
   if( FD_LIKELY( download_enabled( tile ) ) ) {
     if( FD_UNLIKELY( out_cnt+FD_SSPING_FD_CNT > out_fds_cnt ) ) {
       FD_LOG_ERR(( "out_fds_cnt %lu must be at least %lu", out_fds_cnt, out_cnt + FD_SSPING_FD_CNT ));
@@ -518,10 +554,10 @@ init_load( fd_snapct_tile_t *  ctx,
 
     out->is_https = 0; /* if not found in the config list, it's not https */
     out->hostname[0] = '\0'; /* .. and it doesn't have a hostname either. */
-    for( ulong i=0UL; i<SERVER_PEERS_MAX; i++ ) {
-      if( FD_UNLIKELY( ctx->peer.addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
-        fd_cstr_ncpy( out->hostname, ctx->config.sources.servers[ i ].hostname, sizeof(out->hostname) );
-        out->is_https = ctx->config.sources.servers[ i ].is_https;
+    for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
+      if( FD_UNLIKELY( ctx->peer.addr.l==ctx->resolved_servers[ i ].addr.l ) ) {
+        fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
+        out->is_https = ctx->resolved_servers[ i ].is_https;
         break;
       }
     }
@@ -573,8 +609,8 @@ log_download( fd_snapct_tile_t * ctx,
       FD_TEST( ci_entry->allowed );
 
       int is_entrypoint = 0;
-      for( ulong i=0UL; i<ctx->config.entrypoints_cnt; i++ ) {
-        if( FD_UNLIKELY( ctx->config.entrypoints[ i ].addr==addr.addr ) ) { is_entrypoint = 1; break; }
+      for( ulong i=0UL; i<ctx->resolved_entrypoints_cnt; i++ ) {
+        if( FD_UNLIKELY( ctx->resolved_entrypoints[ i ].addr==addr.addr ) ) { is_entrypoint = 1; break; }
       }
       char const * kind = ctx->config.sources.gossip.allow_any ? "untrusted gossip peer" : "trusted gossip peer";
       if( FD_UNLIKELY( is_entrypoint ) ) kind = "entrypoint gossip peer";
@@ -589,16 +625,16 @@ log_download( fd_snapct_tile_t * ctx,
     }
   }
 
-  for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
-    if( addr.l==ctx->config.sources.servers[ i ].addr.l ) {
-      char const * scheme = ctx->config.sources.servers[ i ].is_https ? "https" : "http";
-      if( ctx->config.sources.servers[ i ].hostname[ 0 ] ) {
+  for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
+    if( addr.l==ctx->resolved_servers[ i ].addr.l ) {
+      char const * scheme = ctx->resolved_servers[ i ].is_https ? "https" : "http";
+      if( ctx->resolved_servers[ i ].hostname[ 0 ] ) {
         FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
                         full ? "full" : "incremental",
-                        fd_log_style_bold(), scheme, ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
+                        fd_log_style_bold(), scheme, ctx->resolved_servers[ i ].hostname, fd_ushort_bswap( addr.port ), fd_log_style_normal() ));
         FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server with index %lu at %s://%s:%hu",
                       full ? "full" : "incremental", slot, i,
-                      scheme, ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
+                      scheme, ctx->resolved_servers[ i ].hostname, fd_ushort_bswap( addr.port ) ));
       } else {
         FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
                         full ? "full" : "incremental",
@@ -647,6 +683,71 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
   }
 }
 
+#define DNS_RETRY_NANOS       (15L*1000L*1000L*1000L)
+#define DNS_REQ_ID_ENTRYPOINT (0x100UL) /* req_id: server idx, or this bit + entrypoint idx */
+
+static void
+dns_queue( fd_snapct_tile_t * ctx,
+           long               now ) {
+  for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
+    if( FD_LIKELY( ctx->dns_servers[ i ].resolved || !ctx->dns_servers[ i ].retry_nanos || ctx->dns_servers[ i ].retry_nanos>now ) ) continue;
+    if( FD_UNLIKELY( fd_adns_resolve( ctx->adns, ctx->dns_servers[ i ].hostname, i ) ) ) break;
+    ctx->dns_servers[ i ].retry_nanos = 0L; /* in flight */
+  }
+  for( ulong i=0UL; i<ctx->config.entrypoints_cnt; i++ ) {
+    if( FD_LIKELY( ctx->dns_entrypoints[ i ].resolved || !ctx->dns_entrypoints[ i ].retry_nanos || ctx->dns_entrypoints[ i ].retry_nanos>now ) ) continue;
+    if( FD_UNLIKELY( fd_adns_resolve( ctx->adns, ctx->dns_entrypoints[ i ].hostname, DNS_REQ_ID_ENTRYPOINT|i ) ) ) break;
+    ctx->dns_entrypoints[ i ].retry_nanos = 0L;
+  }
+}
+
+static void
+dns_advance( fd_snapct_tile_t * ctx,
+             long               now ) {
+  dns_queue( ctx, now );
+
+  fd_adns_result_t res[ 1 ];
+  while( fd_adns_advance( ctx->adns, now, res ) ) {
+    if( FD_UNLIKELY( res->req_id & DNS_REQ_ID_ENTRYPOINT ) ) {
+      ulong i = res->req_id & ~DNS_REQ_ID_ENTRYPOINT;
+      if( FD_UNLIKELY( res->err ) ) {
+        FD_LOG_WARNING(( "could not resolve [gossip.entrypoints] entry \"%s\" (%s), retrying", ctx->config.entrypoints[ i ], fd_gai_strerror( res->err ) ));
+        ctx->dns_entrypoints[ i ].retry_nanos = now+DNS_RETRY_NANOS;
+        continue;
+      }
+      ctx->dns_entrypoints[ i ].resolved = 1;
+      ctx->resolved_entrypoints[ ctx->resolved_entrypoints_cnt++ ] = (fd_ip4_port_t){ .addr=res->addrs[ 0 ], .port=ctx->dns_entrypoints[ i ].port };
+      continue;
+    }
+
+    ulong i = res->req_id;
+    if( FD_UNLIKELY( res->err ) ) {
+      FD_LOG_WARNING(( "could not resolve [snapshots.sources.servers] entry \"%s\" (%s), retrying", ctx->config.sources.servers[ i ], fd_gai_strerror( res->err ) ));
+      ctx->dns_servers[ i ].retry_nanos = now+DNS_RETRY_NANOS;
+      continue;
+    }
+    ctx->dns_servers[ i ].resolved = 1;
+
+    ulong addr_cnt = fd_ulong_min( res->addr_cnt, FD_TOPO_MAX_RESOLVED_ADDRS );
+    for( ulong j=0UL; j<addr_cnt; j++ ) {
+      ulong k = ctx->resolved_servers_cnt++;
+      ctx->resolved_servers[ k ].addr     = (fd_ip4_port_t){ .addr=res->addrs[ j ], .port=ctx->dns_servers[ i ].port };
+      ctx->resolved_servers[ k ].is_https = ctx->dns_servers[ i ].is_https;
+      fd_cstr_ncpy( ctx->resolved_servers[ k ].hostname, ctx->dns_servers[ i ].hostname, sizeof(ctx->resolved_servers[ k ].hostname) );
+
+      /* The peer needs to be added to resolver and to selector.
+         Only if this succeeds, add the peer to ssping list. */
+      if( FD_LIKELY( !fd_http_resolver_add( ctx->ssresolver,
+                                            ctx->resolved_servers[ k ].addr,
+                                            ctx->resolved_servers[ k ].hostname,
+                                            ctx->resolved_servers[ k ].is_https,
+                                            ctx->selector ) ) ) {
+        fd_ssping_add( ctx->ssping, ctx->resolved_servers[ k ].addr );
+      }
+    }
+  }
+}
+
 static void
 after_credit( fd_snapct_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -654,6 +755,7 @@ after_credit( fd_snapct_tile_t *  ctx,
               int *               charge_busy FD_PARAM_UNUSED ) {
   long now = fd_log_wallclock();
 
+  if( FD_LIKELY( ctx->adns ) ) dns_advance( ctx, now );
   if( FD_LIKELY( ctx->ssping ) ) fd_ssping_advance( ctx->ssping, now, ctx->selector );
   if( FD_LIKELY( ctx->ssresolver ) ) fd_http_resolver_advance( ctx->ssresolver, now, ctx->selector );
 
@@ -1770,6 +1872,7 @@ privileged_init( fd_topo_t const *      topo,
                                    FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
                                    FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX ) );
                                    FD_SCRATCH_ALLOC_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) ) );
+                                   FD_SCRATCH_ALLOC_APPEND( l, fd_adns_align(),            fd_adns_footprint( ADNS_REQS_MAX ) );
 
 #if FD_HAS_OPENSSL
   void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
@@ -1781,6 +1884,12 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, 1UL, on_ping, ctx ) );
   if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
+
+  ctx->netdb_fds->etc_hosts       = -1;
+  ctx->netdb_fds->etc_resolv_conf = -1;
+  if( FD_LIKELY( download_enabled( tile ) ) ) FD_TEST( fd_netdb_open_fds( ctx->netdb_fds ) );
+  ctx->resolved_entrypoints_cnt = 0UL;
+  ctx->resolved_servers_cnt     = 0UL;
 
   fd_ssarchive_remove_old_snapshots( tile->snapct.snapshots_path,
                                      tile->snapct.max_full_snapshots_to_keep,
@@ -1918,28 +2027,33 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
   void * _bl_pool         = FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX ) );
   void * _bl_map          = FD_SCRATCH_ALLOC_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) ) );
+  void * _adns            = FD_SCRATCH_ALLOC_APPEND( l, fd_adns_align(),            fd_adns_footprint( ADNS_REQS_MAX ) );
 
   ctx->config = tile->snapct;
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
+  ctx->adns = NULL;
+  if( FD_LIKELY( ctx->download_enabled ) ) {
+    ctx->adns = fd_adns_join( fd_adns_new( _adns, ADNS_REQS_MAX ) );
+    FD_TEST( ctx->adns );
+    for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
+      fd_dns_peer_parse( ctx->config.sources.servers[ i ], "snapshots.sources.servers", ctx->dns_servers[ i ].hostname, &ctx->dns_servers[ i ].port, &ctx->dns_servers[ i ].is_https );
+      ctx->dns_servers[ i ].resolved = 0;
+      FD_TEST( !fd_adns_resolve( ctx->adns, ctx->dns_servers[ i ].hostname, i ) );
+      ctx->dns_servers[ i ].retry_nanos = 0L; /* in flight */
+    }
+    for( ulong i=0UL; i<ctx->config.entrypoints_cnt; i++ ) {
+      fd_dns_peer_parse( ctx->config.entrypoints[ i ], "gossip.entrypoints", ctx->dns_entrypoints[ i ].hostname, &ctx->dns_entrypoints[ i ].port, NULL );
+      ctx->dns_entrypoints[ i ].resolved = 0;
+      FD_TEST( !fd_adns_resolve( ctx->adns, ctx->dns_entrypoints[ i ].hostname, DNS_REQ_ID_ENTRYPOINT|i ) );
+      ctx->dns_entrypoints[ i ].retry_nanos = 0L;
+    }
+  }
+
   ctx->selector       = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->selector_seed ) );
   ctx->blacklist_pool = blacklist_pool_join( blacklist_pool_new( _bl_pool, TOTAL_PEERS_MAX ) );
   ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ), ctx->selector_seed ) );
-
-  if( ctx->config.sources.servers_cnt ) {
-    for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
-      /* The peers needs to be added to resolver and to selector.
-         Only if this succeeds, add the peer to ssping list. */
-      if( FD_LIKELY( !fd_http_resolver_add( ctx->ssresolver,
-                                            tile->snapct.sources.servers[ i ].addr,
-                                            tile->snapct.sources.servers[ i ].hostname,
-                                            tile->snapct.sources.servers[ i ].is_https,
-                                            ctx->selector ) ) ) {
-        fd_ssping_add( ctx->ssping, tile->snapct.sources.servers[ i ].addr );
-      }
-    }
-  }
 
   if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
     FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));

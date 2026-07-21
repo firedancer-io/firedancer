@@ -1,5 +1,8 @@
 #include "../../disco/tiles.h"
 
+#include "../../discof/fd_startup.h"
+
+#include <time.h>
 #include "generated/fd_accdb_tile_seccomp.h"
 
 #include "../../disco/metrics/fd_metrics.h"
@@ -17,6 +20,8 @@
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
+
+  fd_startup_gate_t startup_gate[1];
 
   ulong seed;
 };
@@ -78,7 +83,12 @@ static inline void
 before_credit( fd_accdb_tile_ctx_t * ctx,
                fd_stem_context_t *   stem FD_FN_UNUSED,
                int *                 charge_busy ) {
+  /* Commands are serviced even before replay starts, so a poster can
+     never be delayed by the boot gate; the gate only idles the spin
+     while there is no work. */
   fd_accdb_background( ctx->accdb, charge_busy );
+  if( FD_LIKELY( *charge_busy ) ) fd_startup_gate_busy( ctx->startup_gate );
+  else                            fd_startup_gate_idle( ctx->startup_gate );
 }
 
 static void
@@ -125,6 +135,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
+
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

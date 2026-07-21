@@ -3,7 +3,6 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../util/net/fd_net_headers.h"
 
 #include <net/if.h>
 
@@ -263,6 +262,7 @@ struct fd_config {
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
     char shredb[ PATH_MAX ];
+    char guidb[ PATH_MAX ];
   } paths;
 
   struct {
@@ -291,10 +291,6 @@ struct fd_config {
   struct {
     ulong         entrypoints_cnt;
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
-    fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
-
-    /* The IPv4 addr that [gossip.host] resolves to. */
-    uint          resolved_host;
     ushort        port;
   } gossip;
 
@@ -480,6 +476,7 @@ struct fd_config {
       ulong  max_websocket_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      ulong  db_size_gib;
     } gui;
 
     struct {

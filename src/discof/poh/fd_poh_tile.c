@@ -42,6 +42,8 @@ struct fd_poh_tile {
   ulong in_cnt;
   ulong idle_cnt;
 
+  fd_startup_gate_t startup_gate[1];
+
   int in_kind[ 64 ];
   fd_poh_in_t in[ 64 ];
 
@@ -76,6 +78,8 @@ after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( !fd_startup_gate_idle( ctx->startup_gate ) ) ) return;
+
   ctx->idle_cnt++;
   if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
     /* We would like to fully drain input links to the best of our
@@ -124,6 +128,8 @@ returnable_frag( fd_poh_tile_t *     ctx,
   (void)ctl;
   (void)tsorig;
   (void)tspub;
+
+  fd_startup_gate_busy( ctx->startup_gate );
 
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
@@ -281,7 +287,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_sleep_until_replay_started( topo );
+  fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 }
 
 static ulong

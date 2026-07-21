@@ -30,7 +30,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.1.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.1.0-beta.1 -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810-v4.1.0-beta.1 -m 2000000 -e 384395820
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.1.0-beta.1 -m 2000000 -e 387596373
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.1.0-beta.1 -m 1000 -e 75
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-sha512-2-v4.1.0-beta.1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary-v4.1.0-beta.1 -m 2000000 -e 391824016
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.1.0-beta.1 -m 10000
 # [skipped: fails under v4.1: SIMD-0232 custom_commission_collector fee routing not in firedancer] src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -m 20000 -e 540

@@ -328,7 +328,7 @@ convert_bloom( fd_spad_t *                   spad,
      https://github.com/tov/bv-rs/blob/0.11.1/src/bit_vec/mod.rs#L243-L245 */
   ulong bits_blocks   = (bloom->bits_len + 63UL) / 64UL;
   ulong bits_byte_len = bits_blocks * sizeof(bloom->bits[0]);
-  out->bits = alloc_bytes( spad, (uchar const *)bloom->bits, bits_byte_len );
+  out->bits = bits_byte_len ? alloc_bytes( spad, (uchar const *)bloom->bits, bits_byte_len ) : NULL;
   /* Mask trailing bits beyond bits_len in the last block of the
      protobuf copy.  bv::BitVec::get_block() returns get_masked_block()
      which zeros bits past bit_len() in the last block.
