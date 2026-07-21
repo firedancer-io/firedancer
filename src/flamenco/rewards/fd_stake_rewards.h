@@ -21,10 +21,11 @@
   rewards slots.  There is no limit on the number of stake rewards paid
   out per slot.
 
-  Pubkeys are interned in an epoch-scoped pool shared across forks and
-  reset when the first fork of a new epoch initializes stake rewards.
-  The union of pubkeys seen during an epoch must not exceed the
-  pubkey pool capacity, which is twice the configured
+  Pubkeys are stored and shared across forks.  The pool gets reset when
+  the first fork of a new epoch initializes stake rewards.  If another
+  fork reaches the epoch boundary, the map is populated to allow for
+  sharing of pubkeys across forks.  Each pubkey must be inserted at most
+  once per fork.  The pool capacity is twice the configured
   max_stake_accounts.
 
   As a note, the structure is also only partially fork-aware.  It safely
@@ -96,10 +97,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt );
 
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
-   It hashes the reward into the appropriate partition.  The union of
-   pubkeys inserted during the epoch must not exceed the
-   pubkey pool capacity, which is twice the max_stake_accounts supplied
-   to fd_stake_rewards_new. */
+   It hashes the reward into the appropriate partition.  The caller must
+   not insert the same pubkey more than once per fork.  The union of
+   pubkeys inserted during the epoch must not exceed the pubkey pool
+   capacity, which is twice the max_stake_accounts supplied to
+   fd_stake_rewards_new. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,

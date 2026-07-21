@@ -76,6 +76,7 @@ struct fd_stake_rewards {
   /* Temporary storage for the current stake reward being computed. */
   fd_siphash13_t primed_hasher[ 1 ];
   uint           iter_curr_fork_idx;
+  uint           pubkey_map_valid;
 };
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
@@ -102,6 +103,19 @@ get_partition_ele( fd_stake_rewards_t const * stake_rewards,
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->partitions_offset +
                       (fork_idx * stake_rewards->max_stake_accounts * sizeof(partition_ele_t)) +
                       (ele_cnt * sizeof(partition_ele_t)) );
+}
+
+static void
+populate_pubkey_map( fd_stake_rewards_t * stake_rewards ) {
+  pubkey_ele_t * pubkey_pool = get_pubkey_pool( stake_rewards );
+  pubkey_map_t * pubkey_map  = get_pubkey_map( stake_rewards );
+
+  pubkey_map_reset( pubkey_map );
+  ulong pubkey_cnt = pubkey_pool_used( pubkey_pool );
+  for( ulong pubkey_idx=0UL; pubkey_idx<pubkey_cnt; pubkey_idx++ ) {
+    pubkey_map_idx_insert( pubkey_map, pubkey_idx, pubkey_pool );
+  }
+  stake_rewards->pubkey_map_valid = 1U;
 }
 
 ulong
@@ -178,6 +192,7 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->partitions_offset   = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts  = max_stake_accounts;
   stake_rewards->epoch               = ULONG_MAX;
+  stake_rewards->pubkey_map_valid    = 0U;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_rewards->magic ) = FD_STAKE_REWARDS_MAGIC;
@@ -211,7 +226,8 @@ fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
   pubkey_pool_reset( get_pubkey_pool( stake_rewards ) );
   pubkey_map_reset( get_pubkey_map( stake_rewards ) );
   fork_pool_reset( get_fork_pool( stake_rewards ) );
-  stake_rewards->epoch = ULONG_MAX;
+  stake_rewards->epoch            = ULONG_MAX;
+  stake_rewards->pubkey_map_valid = 0U;
 }
 
 void
@@ -234,13 +250,17 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt ) {
   fork_t * fork_pool = get_fork_pool( stake_rewards );
 
-  /* If this is the first reference to stake rewards for this epoch,
-     reset all state shared by the epoch's reward forks. */
-  if( FD_LIKELY( stake_rewards->epoch!=epoch ) ) {
+  /* The first fork of an epoch appends pubkeys directly to the shared
+     pool.  If another fork reaches the same epoch, populate the map
+     before processing it so that pubkeys can be shared across forks. */
+  int is_new_epoch = stake_rewards->epoch!=epoch;
+  if( FD_LIKELY( is_new_epoch ) ) {
     pubkey_pool_reset( get_pubkey_pool( stake_rewards ) );
-    pubkey_map_reset( get_pubkey_map( stake_rewards ) );
     fork_pool_reset( fork_pool );
-    stake_rewards->epoch = epoch;
+    stake_rewards->epoch            = epoch;
+    stake_rewards->pubkey_map_valid = 0U;
+  } else if( FD_UNLIKELY( !stake_rewards->pubkey_map_valid ) ) {
+    populate_pubkey_map( stake_rewards );
   }
 
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
@@ -279,14 +299,19 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
   pubkey_ele_t * pubkey_pool = get_pubkey_pool( stake_rewards );
   pubkey_map_t * pubkey_map  = get_pubkey_map( stake_rewards );
-  pubkey_ele_t * pubkey_ele  = pubkey_map_ele_query( pubkey_map, pubkey, NULL, pubkey_pool );
+  pubkey_ele_t * pubkey_ele  = NULL;
+  if( FD_UNLIKELY( stake_rewards->pubkey_map_valid ) ) {
+    pubkey_ele = pubkey_map_ele_query( pubkey_map, pubkey, NULL, pubkey_pool );
+  }
   if( FD_UNLIKELY( !pubkey_ele ) ) {
     if( FD_UNLIKELY( !pubkey_pool_free( pubkey_pool ) ) ) {
       FD_LOG_CRIT(( "Too many unique stake reward pubkeys in epoch (max %lu)", pubkey_pool_max( pubkey_pool ) ));
     }
     pubkey_ele         = pubkey_pool_ele_acquire( pubkey_pool );
     pubkey_ele->pubkey = *pubkey;
-    FD_TEST( pubkey_map_ele_insert( pubkey_map, pubkey_ele, pubkey_pool ) );
+    if( FD_UNLIKELY( stake_rewards->pubkey_map_valid ) ) {
+      FD_TEST( pubkey_map_ele_insert( pubkey_map, pubkey_ele, pubkey_pool ) );
+    }
   }
 
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );

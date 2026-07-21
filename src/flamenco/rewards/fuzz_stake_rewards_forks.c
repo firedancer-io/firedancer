@@ -255,6 +255,9 @@ insert_reward( model_t *       m,
 
   reward_entry_t e;
   make_pubkey( &e.pubkey, account_id, 123UL );
+  for( ulong i=0UL; i<f->entry_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( &f->entry[i].pubkey, &e.pubkey, sizeof(fd_pubkey_t) ) ) ) return;
+  }
   e.lamports         = (fuzz_u8( r ) & 7U) ? 1UL + fuzz_bounded( r, FUZZ_REWARD_LAMPORT_BOUND ) : 0UL;
   e.credits_observed = fuzz_bounded( r, FUZZ_CREDITS_OBSERVED_BOUND );
 
