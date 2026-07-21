@@ -2035,16 +2035,15 @@ telemetry = true
         #   "auto" (default)
         #    Attempt to detect input format based on file path.
         #
-        #   "rocksdb"
-        #    Read an Agave-like blockstore RocksDB directory
-        #    The database is opened in "read only secondary" mode.
-        #    Requires a build with './deps.sh +dev'
-        #
         #   "pcap"
         #    Read a PCAP or PCAPNG file and inject all UDP packets as
         #    shreds.  Supports the following link types: ETHERNET, IPv4,
         #    or RAW (interprets first header as IPv4).
         #    Supports Zstandard (.zst) compression.
+        #
+        # rocksdb directories cannot be ingested directly;
+        # convert them to a shredcap capture first with
+        # fd_blockstore2shredcap
         #
         format = "auto"
 

@@ -546,15 +546,6 @@ struct fd_topo_tile {
     } pktgen;
 
     struct {
-      ulong end_slot;
-      char  rocksdb_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
-
-      /* Set internally by the archiver tile */
-      int archive_fd;
-    } archiver;
-
-    struct {
       char  ledger_format[ 16 ];
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;

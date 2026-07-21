@@ -1,16 +1,27 @@
-#include "fd_backtest_src.h"
-#include "fd_shredcap.h"
+#include "../../discof/backtest/fd_backtest_src.h"
+#include "../../discof/backtest/fd_shredcap.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_pcapng.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
-#include "fd_libc_zstd.h"
+#include "../../discof/backtest/fd_libc_zstd.h"
 
 #include <errno.h>
 #include <stdio.h>
 #include <fcntl.h>
+
+/* fd_rocksdb_src_create constructs a ledger shred source reading an
+   Agave RocksDB blockstore directory.  Returns a newly allocated
+   backtest_src object on success, or NULL on failure (logs warning).
+   Defined in fd_rocksdb_src.c.  Deliberately not part of fd_discof or
+   the shared fd_backtest_src dispatcher: this converter is the only
+   tool that links RocksDB; firedancer-dev only ingests pcap/shredcap
+   captures. */
+
+fd_backt_src_t *
+fd_rocksdb_src_create( fd_backtest_src_opts_t const * opts );
 
 /* Hardcoded constants */
 
@@ -171,12 +182,11 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_backtest_src_opts_t src_opts = {
-    .format      = "rocksdb",
     .path        = rocksdb_path,
     .rooted_only = 1,
     .code_shreds = 0,
   };
-  fd_backt_src_t * src = fd_backtest_src_create( &src_opts );
+  fd_backt_src_t * src = fd_rocksdb_src_create( &src_opts );
   if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "failed to open RocksDB at %s", rocksdb_path ));
 
   int out_fd = open( out_path, O_WRONLY|O_CREAT|O_EXCL, 0644 );

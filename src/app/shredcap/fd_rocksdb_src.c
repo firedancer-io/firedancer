@@ -1,8 +1,8 @@
-#include "fd_backtest_src.h"
+#include "../../discof/backtest/fd_backtest_src.h"
 #include <stdlib.h>
 #include <rocksdb/c.h>
 
-extern fd_backt_src_vt_t const fd_backt_src_rocksdb_vt;
+extern fd_backt_src_vt_t const fd_rocksdb_src_vt;
 
 #define CF_IDX_DEFAULT    0
 #define CF_IDX_CODE_SHRED 1
@@ -12,7 +12,7 @@ extern fd_backt_src_vt_t const fd_backt_src_rocksdb_vt;
 #define CF_IDX_DEAD_SLOT  5
 #define CF_CNT            6
 
-struct fd_backt_src_rocksdb {
+struct fd_rocksdb_src {
   fd_backt_src_t src[1];
   rocksdb_t * db;
   rocksdb_readoptions_t * ro;
@@ -35,7 +35,7 @@ struct fd_backt_src_rocksdb {
   ulong current_slot; /* ULONG_MAX if slot not started */
 };
 
-typedef struct fd_backt_src_rocksdb fd_backt_src_rocksdb_t;
+typedef struct fd_rocksdb_src fd_rocksdb_src_t;
 
 static ulong
 iter_cur_slot( rocksdb_iterator_t * iter ) {
@@ -48,7 +48,7 @@ iter_cur_slot( rocksdb_iterator_t * iter ) {
 }
 
 fd_backt_src_t *
-fd_backt_src_rocksdb_create( fd_backtest_src_opts_t const * opts ) {
+fd_rocksdb_src_create( fd_backtest_src_opts_t const * opts ) {
   FD_TEST( opts );
   /* opts->format ignored */
 
@@ -94,7 +94,7 @@ fd_backt_src_rocksdb_create( fd_backtest_src_opts_t const * opts ) {
     FD_LOG_ERR(( "rocksdb_readoptions_create failed" ));
   }
 
-  fd_backt_src_rocksdb_t * src = calloc( 1UL, sizeof(fd_backt_src_rocksdb_t) );
+  fd_rocksdb_src_t * src = calloc( 1UL, sizeof(fd_rocksdb_src_t) );
   if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "out of memory" ));
 
   rocksdb_iterator_t * code_shred_iter = rocksdb_create_iterator_cf( db, ro, cfs[ CF_IDX_CODE_SHRED ] );
@@ -108,9 +108,9 @@ fd_backt_src_rocksdb_create( fd_backtest_src_opts_t const * opts ) {
   rocksdb_iter_seek_to_first( data_shred_iter );
   rocksdb_iter_seek_to_first( root_iter );
 
-  *src = (fd_backt_src_rocksdb_t){
+  *src = (fd_rocksdb_src_t){
     .src = {{
-      .vt = &fd_backt_src_rocksdb_vt
+      .vt = &fd_rocksdb_src_vt
     }},
     .db = db,
     .ro = ro,
@@ -137,9 +137,9 @@ fd_backt_src_rocksdb_create( fd_backtest_src_opts_t const * opts ) {
 }
 
 void
-fd_backt_src_rocksdb_destroy( fd_backt_src_t * this ) {
+fd_rocksdb_src_destroy( fd_backt_src_t * this ) {
   if( FD_UNLIKELY( !this ) ) return;
-  fd_backt_src_rocksdb_t * src = (fd_backt_src_rocksdb_t *)this;
+  fd_rocksdb_src_t * src = (fd_rocksdb_src_t *)this;
   rocksdb_iter_destroy( src->code_shred_iter );
   rocksdb_iter_destroy( src->data_shred_iter );
   rocksdb_iter_destroy( src->root_iter );
@@ -154,10 +154,10 @@ fd_backt_src_rocksdb_destroy( fd_backt_src_t * this ) {
 }
 
 ulong
-fd_backt_src_rocksdb_first_shred( fd_backt_src_t * this,
-                                  uchar *          buf,
-                                  ulong            buf_sz ) {
-  fd_backt_src_rocksdb_t * src = (fd_backt_src_rocksdb_t *)this;
+fd_rocksdb_src_first_shred( fd_backt_src_t * this,
+                            uchar *          buf,
+                            ulong            buf_sz ) {
+  fd_rocksdb_src_t * src = (fd_rocksdb_src_t *)this;
   rocksdb_iterator_t * iter = rocksdb_create_iterator_cf(
       src->db, src->ro, src->data_shred_cf );
   if( FD_UNLIKELY( !iter ) ) {
@@ -183,10 +183,10 @@ fd_backt_src_rocksdb_first_shred( fd_backt_src_t * this,
 }
 
 ulong
-fd_backt_src_rocksdb_shred( fd_backt_src_t * this,
-                            uchar *          buf,
-                            ulong            buf_sz ) {
-  fd_backt_src_rocksdb_t * src = (fd_backt_src_rocksdb_t *)this;
+fd_rocksdb_src_shred( fd_backt_src_t * this,
+                      uchar *          buf,
+                      ulong            buf_sz ) {
+  fd_rocksdb_src_t * src = (fd_rocksdb_src_t *)this;
 
   for(;;) {
 
@@ -262,10 +262,10 @@ fd_backt_src_rocksdb_shred( fd_backt_src_t * this,
 }
 
 fd_backt_slot_info_t *
-fd_backt_src_rocksdb_slot_info( fd_backt_src_t *       this,
-                                fd_backt_slot_info_t * out,
-                                ulong                  slot ) {
-  fd_backt_src_rocksdb_t * src = (fd_backt_src_rocksdb_t *)this;
+fd_rocksdb_src_slot_info( fd_backt_src_t *       this,
+                          fd_backt_slot_info_t * out,
+                          ulong                  slot ) {
+  fd_rocksdb_src_t * src = (fd_rocksdb_src_t *)this;
 
   char key[8]; FD_STORE( ulong, key, fd_ulong_bswap( slot ) );
 
@@ -306,9 +306,9 @@ fd_backt_src_rocksdb_slot_info( fd_backt_src_t *       this,
 }
 
 void
-fd_backt_src_rocksdb_seek( fd_backt_src_t * this,
-                           ulong            slot ) {
-  fd_backt_src_rocksdb_t * src = (fd_backt_src_rocksdb_t *)this;
+fd_rocksdb_src_seek( fd_backt_src_t * this,
+                     ulong            slot ) {
+  fd_rocksdb_src_t * src = (fd_rocksdb_src_t *)this;
 
   char key[8]; FD_STORE( ulong, key, fd_ulong_bswap( slot ) );
   rocksdb_iter_seek( src->root_iter,       key, sizeof(ulong) );
@@ -324,10 +324,10 @@ fd_backt_src_rocksdb_seek( fd_backt_src_t * this,
   src->code_iter_done = !src->code_shreds;
 }
 
-fd_backt_src_vt_t const fd_backt_src_rocksdb_vt = {
-  .destroy      = fd_backt_src_rocksdb_destroy,
-  .first_shred  = fd_backt_src_rocksdb_first_shred,
-  .shred        = fd_backt_src_rocksdb_shred,
-  .slot_info    = fd_backt_src_rocksdb_slot_info,
-  .seek         = fd_backt_src_rocksdb_seek
+fd_backt_src_vt_t const fd_rocksdb_src_vt = {
+  .destroy      = fd_rocksdb_src_destroy,
+  .first_shred  = fd_rocksdb_src_first_shred,
+  .shred        = fd_rocksdb_src_shred,
+  .slot_info    = fd_rocksdb_src_slot_info,
+  .seek         = fd_rocksdb_src_seek
 };

@@ -190,7 +190,7 @@ backtest_topo( config_t * config ) {
   /* The repair tile is replaced by the backtest tile for the repair to
      replay link.  The frag interface is a "slice", ie. entry batch,
      which is provided by the backtest tile, which reads in the entry
-     batches from the CLI-specified source (eg. RocksDB). */
+     batches from the CLI-specified source (eg. pcap/pcapng file). */
 
   fd_topob_wksp( topo, "repair_out" );
   fd_topob_link( topo, "repair_out", "repair_out", 65536UL, sizeof(fd_fec_complete_t), 1UL );

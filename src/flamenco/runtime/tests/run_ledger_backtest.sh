@@ -193,15 +193,16 @@ if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
   exit 0
 fi
 
-if [[ "$INGEST_MODE" == "shredcap" ]]; then
-  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
-    echo "Converted rocksdb to shredcap"
-  fi
-  LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
-else
-  LEDGER_INPUT="$DUMP/$LEDGER/rocksdb"
+if [[ "$INGEST_MODE" != "shredcap" ]]; then
+  echo "ingest mode '$INGEST_MODE' is not supported: firedancer-dev only ingests shredcap captures (RocksDB ingest lives in fd_blockstore2shredcap)"
+  exit 1
 fi
+
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+  $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+  echo "Converted rocksdb to shredcap"
+fi
+LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
 
 chmod -R 0700 $DUMP/$LEDGER
 
