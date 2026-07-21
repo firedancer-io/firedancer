@@ -459,7 +459,9 @@ handle_replay_failure() {
     # NEXT_ROOTED_SLOT+32.
     MISMATCH_DIR=$LEDGER_DIR/$NETWORK-${BAD_SLOT}
     mkdir -p $MISMATCH_DIR
-    cp $LEDGER_DIR/genesis.tar.bz2 $MISMATCH_DIR
+    cp "$LEDGER_DIR/genesis.tar.bz2" "$MISMATCH_DIR"
+    tar -xjf "$MISMATCH_DIR/genesis.tar.bz2" -C "$MISMATCH_DIR" genesis.bin \
+        || fail_minimization "extracting genesis.bin for minimized ledger failed"
 
     MINIMIZED_END_SLOT=$((NEXT_ROOTED_SLOT+32))
     send_slack_message "Minifying rocksdb for mismatch"

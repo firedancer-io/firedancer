@@ -348,9 +348,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
            release the bank reference count on it. */
         ctx->prev_root             = msg->slot;
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-        /* Zero the whole message: consumers (eg. the gui tile) read
-           fields like reset_bank_seq and vote_acct_bal that this mock
-           does not otherwise populate. */
+        /* Zero the fields this mock does not explicitly populate below
+           (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
+           read the whole message. */
         memset( dst, 0, sizeof(fd_tower_slot_done_t) );
         dst->vote_slot             = msg->slot;
         dst->reset_slot            = msg->slot;
@@ -440,9 +440,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       ctx->prev_root             = root_slot;
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-      /* Zero the whole message: consumers (eg. the gui tile) read
-         fields like reset_bank_seq and vote_acct_bal that this mock
-         does not otherwise populate. */
+      /* Zero the fields this mock does not explicitly populate below
+         (eg. has_vote_txn, tower_cnt): consumers such as the gui tile
+         read the whole message. */
       memset( dst, 0, sizeof(fd_tower_slot_done_t) );
       dst->replay_slot           = msg->slot;
       dst->replay_bank_idx       = msg->bank_idx;
