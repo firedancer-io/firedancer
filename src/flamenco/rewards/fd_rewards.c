@@ -33,7 +33,10 @@ static double
 validator( fd_inflation_t const * inflation, double year) {
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/src/inflation.rs#L96-L99 */
   FD_LOG_DEBUG(("Validator Rate: %.16f %.16f %.16f %.16f %.16f", year, total( inflation, year ), foundation( inflation, year ), inflation->taper, inflation->initial));
-  return total( inflation, year ) - foundation( inflation, year );
+  /* We need 2 independent rounded ops like in Agave. Volatile blocks FMA contraction.
+     https://github.com/anza-xyz/solana-sdk/blob/inflation%40v3.1.1/inflation/src/lib.rs#L105-L116 */
+  volatile double foundation_portion = foundation( inflation, year );
+  return total( inflation, year ) - foundation_portion;
 }
 
 /* Calculates the starting slot for inflation from the activation slot. The activation slot is the earliest
