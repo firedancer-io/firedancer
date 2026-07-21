@@ -535,6 +535,10 @@ struct fd_accdb_shmem_private {
      and never decremented. */
   ulong epoch __attribute__((aligned(64)));
 
+  /* Synchronization with snapshot producer to inhibit compaction
+     Holds one of FD_ACCDB_SNAPSHOT_SYNC_* */
+  ulong snapshot_sync __attribute__((aligned(64)));
+
   /* Each joiner epoch is padded to a full cache line to prevent
      false sharing between joiners writing to adjacent slots. */
   struct __attribute__((aligned(64))) { ulong val; } joiner_epochs[ FD_ACCDB_MAX_JOINERS ];

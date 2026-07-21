@@ -4074,6 +4074,30 @@ void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  /* process snapshot requests first */
+  ulong * snap_sync_p = &accdb->shmem->snapshot_sync;
+  ulong   snap_sync   = fd_accdb_snapshot_sync_state( snap_sync_p );
+  if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
+    if( FD_LIKELY( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) {
+      /* while producing a snapshot, limit background tasks to cache
+         pre-eviction, but pause all other tasks (like advance_root,
+         purge, and compaction) */
+      background_preevict( accdb, charge_busy, 0 );
+      return;
+    }
+
+    /* acknowledge the client's snapshot start/stop request */
+    FD_DCHECK_CRIT( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_START ||
+                    snap_sync==FD_ACCDB_SNAPSHOT_SYNC_DONE,
+                    "invalid snapshot sync state" );
+    fd_accdb_snapshot_sync_advance( snap_sync_p );
+    /* state is now RUNNING or IDLE */
+    *charge_busy = 1;
+    return;
+  }
+
+  /* process cnc requests */
   uint op = FD_VOLATILE_CONST( shmem->cmd_op );
   if( FD_UNLIKELY( op!=FD_ACCDB_CMD_IDLE ) ) {
     fd_accdb_fork_id_t fork_id = { .val = FD_VOLATILE_CONST( shmem->cmd_fork_id ) };

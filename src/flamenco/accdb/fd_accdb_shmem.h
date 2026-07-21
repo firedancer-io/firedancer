@@ -137,4 +137,27 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
 
 FD_PROTOTYPES_END
 
+/* Snapshot sync API */
+
+/* fd_accdb_shmem_private_t::snapshot_sync values */
+#define FD_ACCDB_SNAPSHOT_SYNC_IDLE    (0UL) /* accdb: steady state */
+#define FD_ACCDB_SNAPSHOT_SYNC_START   (1UL) /* client: i want to create a snapshot */
+#define FD_ACCDB_SNAPSHOT_SYNC_RUNNING (2UL) /* accdb: ack, snapshot creation active */
+#define FD_ACCDB_SNAPSHOT_SYNC_DONE    (3UL) /* client: i am done snapshotting */
+
+static inline ulong
+fd_accdb_snapshot_sync_state( ulong const * sync ) {
+  return __atomic_load_n( sync, __ATOMIC_ACQUIRE ) & 3UL;
+}
+
+static inline void
+fd_accdb_snapshot_sync_advance( ulong * sync ) {
+  ulong old = __atomic_load_n( sync, __ATOMIC_RELAXED );
+  for(;;) {
+    ulong next = (old & ~3UL) | (((old & 3UL)+1UL) & 3UL);
+    if( FD_LIKELY( __atomic_compare_exchange_n( sync, &old, next, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED ) ) ) return;
+    FD_SPIN_PAUSE();
+  }
+}
+
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h */
