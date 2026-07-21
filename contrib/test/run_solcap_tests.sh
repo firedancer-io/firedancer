@@ -105,8 +105,6 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
-    [tiles.replay]
-        enable_features = [  ]
     [tiles.gui]
         enabled = false
     [tiles.rpc]
@@ -128,12 +126,18 @@ cat > "$DUMP/mainnet-424669000-solcap_current.toml" << EOF
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
 [development.ledger_input]
-    path = "${ledger_dir}/rocksdb"
+    format = "pcap"
+    path = "${ledger_dir}/shreds.pcapng.zst"
     end_slot = 424669025
 EOF
 
 echo "Running firedancer-dev configure fini all ..."
 $OBJDIR/bin/firedancer-dev configure fini all
+
+rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp 
+
+echo "Running fd_blockstore2shredcap ..."
+$OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
 
 echo "Running backtest (full log at ${BACKTEST_LOG}) ..."
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
