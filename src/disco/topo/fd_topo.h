@@ -460,8 +460,6 @@ struct fd_topo_tile {
 
       int   larger_max_cost_per_block;
 
-      ulong capture_start_slot;
-      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
 
@@ -482,7 +480,6 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       ulong capture_start_slot;
-      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       char  dump_syscall_name_filter[ PATH_MAX ];
       char  dump_instr_program_id_filter[ FD_BASE58_ENCODED_32_SZ ];
@@ -688,13 +685,6 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong accdb_obj_id;
     } genesi;
-
-    struct {
-      ulong capture_start_slot;
-      char  solcap_capture[ PATH_MAX ];
-      int   recent_only;
-      ulong recent_slots_per_file;
-    } solcap;
   };
 };
 

@@ -657,7 +657,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( mini->banks, bank, accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( mini->banks, bank, accdb, mini->runtime_stack, &is_epoch_boundary );
 
   return bank_idx;
 }
@@ -670,7 +670,7 @@ fd_svm_mini_freeze( fd_svm_mini_t * mini,
   /* Derive a mock POH hash so each frozen slot registers a unique
      blockhash.  (Real POH is computed by the PoH tile.) */
   fd_sha256_hash( bank->f.poh.hash, 32UL, bank->f.poh.hash );
-  fd_runtime_block_execute_finalize( bank, mini->runtime->accdb, NULL );
+  fd_runtime_block_execute_finalize( bank, mini->runtime->accdb );
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   FD_TEST( block_hash );
   fd_txncache_finalize_fork( mini->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );

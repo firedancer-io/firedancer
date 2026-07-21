@@ -4,22 +4,20 @@
 #include "../fd_accdb_svm.h"
 
 void
-fd_sysvar_slot_hashes_init( fd_bank_t *        bank,
-                            fd_accdb_t *       accdb,
-                            fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_slot_hashes_init( fd_bank_t *  bank,
+                            fd_accdb_t * accdb ) {
   uchar data[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ] = {0};
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_slot_hashes_id, data, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_slot_hashes_id, data, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
 }
 
 void
-fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
-                              fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_slot_hashes_update( fd_bank_t *  bank,
+                              fd_accdb_t * accdb ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
   if( FD_UNLIKELY( !acc.lamports ) ) {
     /* Agave initializes a new empty slot_hashes if it doesn't exist */
-    fd_sysvar_slot_hashes_init( bank, accdb, capture_ctx );
+    fd_sysvar_slot_hashes_init( bank, accdb );
     acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
     if( FD_UNLIKELY( !acc.lamports ) ) {
       FD_LOG_ERR(( "state is missing slot hashes sysvar" ));
@@ -58,7 +56,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
     FD_STORE( ulong, data, keep + 1UL );
   }
 
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &acc, update );
 }
 
 int

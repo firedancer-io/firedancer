@@ -256,7 +256,6 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   runtime->status_cache          = NULL;
   runtime->log.tracing_mem       = tracing_mem;
   runtime->log.dumping_mem       = NULL;
-  runtime->log.capture_ctx       = NULL;
   runtime->log.dump_proto_ctx    = NULL;
   runtime->log.txn_dump_ctx      = NULL;
   runtime->fuzz.enabled          = 1;

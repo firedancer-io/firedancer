@@ -19,10 +19,6 @@ struct fd_execrp_txn_exec_msg {
   ulong      txn_idx;
   fd_txn_p_t txn[ 1 ];
 
-  /* Used currently by solcap to maintain ordering of messages
-     this will change to using txn sigs eventually */
-  ulong      capture_txn_idx;
-
   /* FEC-set merkle root at dispatch time. */
   uchar      fec_merkle_root[ 32 ];
 

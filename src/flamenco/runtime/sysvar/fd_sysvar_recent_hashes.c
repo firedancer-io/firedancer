@@ -28,12 +28,11 @@ encode_rbh_from_blockhash_queue( fd_bank_t * bank,
 }
 
 void
-fd_sysvar_recent_hashes_init( fd_bank_t *        bank,
-                              fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_recent_hashes_init( fd_bank_t *  bank,
+                              fd_accdb_t * accdb ) {
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( bank, enc );
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
@@ -51,14 +50,13 @@ register_blockhash( fd_bank_t *       bank,
    3. Manually serialize the recent blockhashes
    4. Set the sysvar account with the new data */
 void
-fd_sysvar_recent_hashes_update( fd_bank_t *        bank,
-                                fd_accdb_t *       accdb,
-                                fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_recent_hashes_update( fd_bank_t *  bank,
+                                fd_accdb_t * accdb ) {
   register_blockhash( bank, &bank->f.poh );
 
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( bank, enc );
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_recent_block_hashes_id, enc, sizeof(enc) );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_recent_block_hashes_id, enc, sizeof(enc) );
 }
 
 int

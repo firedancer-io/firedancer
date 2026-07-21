@@ -7,9 +7,8 @@
 FD_PROTOTYPES_BEGIN
 
 void
-fd_sysvar_stake_history_init( fd_bank_t *        bank,
-                              fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx );
+fd_sysvar_stake_history_init( fd_bank_t *  bank,
+                              fd_accdb_t * accdb );
 
 /* Known differences:
    - Firedancer checks the account owner, Agave ignores it */
@@ -17,7 +16,6 @@ fd_sysvar_stake_history_init( fd_bank_t *        bank,
 void
 fd_sysvar_stake_history_update( fd_bank_t *                      bank,
                                 fd_accdb_t *                     accdb,
-                                fd_capture_ctx_t *               capture_ctx,
                                 fd_stake_history_entry_t const * entry );
 
 int

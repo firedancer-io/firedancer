@@ -1091,7 +1091,6 @@ void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_t *                   accdb,
-                          fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch ) {
   /* We can update our stake history sysvar based on the bank stake values.
@@ -1139,7 +1138,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     elem.deactivating = deactivating;
   }
 
-  fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
+  fd_sysvar_stake_history_update( bank, accdb, &elem );
 
   /* Snapshot the stake history sysvar into a local buffer and release
      the accdb bracket before calling fd_refresh_vote_accounts, which

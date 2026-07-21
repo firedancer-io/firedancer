@@ -27,7 +27,6 @@
 #include "../../../discof/tower/fd_tower_tile.h"
 #include "../../../discof/replay/fd_execrp.h"
 #include "../../../disco/shred/fd_shred_tile.h"
-#include "../../../flamenco/capture/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
@@ -57,7 +56,6 @@ backtest_topo( config_t * config ) {
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
-  int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int telemetry_enabled        = config->telemetry && strcmp( config->tiles.event.url, "" );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
@@ -110,14 +108,6 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "execrp" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
   FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", cpu_idx++, 0, 0, 0 );
-
-  /**********************************************************************/
-  /* Add the capture tile to topo                                       */
-  /**********************************************************************/
-  if( solcap_enabled ) {
-    fd_topob_wksp( topo, "solcap" );
-    fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0, 0 );
-  }
 
   fd_topob_wksp( topo, "diag" );
   fd_topob_tile( topo, "diag", "diag", "metric_in", ULONG_MAX, 0, 0, 0 );
@@ -289,11 +279,6 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execrp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
-  /**********************************************************************/
-  /* Setup exec->replay links in topo, to send solcap account updates
-     so that they are serialized, and to notify replay tile that a txn
-     has been finalized by the exec tile. */
-  /**********************************************************************/
   fd_topob_wksp( topo, "execrp_replay" );
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL, sizeof(fd_execrp_task_done_msg_t), 1UL );
@@ -304,18 +289,6 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
-
-  if( FD_UNLIKELY( solcap_enabled ) ) {
-    /* 32 sections of SOLCAP_WRITE_ACCOUNT_DATA_MTU bytes each ≈ 4MB.
-       This is done to ideally avoid cache thrashing and allow for all
-       the links to sit on L3 cache. */
-    fd_topob_link( topo, "cap_repl", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
-    fd_topob_tile_out( topo, "replay", 0UL, "cap_repl", 0UL );
-    fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(execrp_tile_cnt) fd_topob_link( topo, "cap_execrp", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
-    FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "cap_execrp", i );
-    FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
 
   fd_topob_wksp( topo, "store" );
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );

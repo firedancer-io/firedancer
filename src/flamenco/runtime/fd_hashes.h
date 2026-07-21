@@ -57,8 +57,7 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    meta is a pointer to the modified account's metadata and data.
    prev_hash contains the lthash of the account before modification (or
    zero for newly created accounts).  bank is the bank whose lthash
-   should be updated.  capture_ctx is an optional capture context for
-   recording account changes (can be NULL).
+   should be updated.
 
    This function:
    - Acquires a write lock on the bank's lthash
@@ -66,10 +65,6 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    - Computes the new account hash
    - Adds the new hash to the bank lthash
    - Releases the lock
-   - If capture_ctx is provided, writes the account state to the capture
-
-   On capture write failure, the function will FD_LOG_ERR and terminate.
-   The function assumes all non-optional pointers are valid.
 
    IMPORTANT: fd_hashes_update_simple must be called whenever an account
    is modified during transaction execution. This includes sysvar
@@ -84,8 +79,7 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          int                       executable,
                          uchar const *             data,
                          ulong                     data_len,
-                         fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx );
+                         fd_bank_t               * bank );
 
 /* fd_hashes_hash_bank computes the bank hash for a completed slot.  The
    bank hash is a deterministic hash of the slot's state including all

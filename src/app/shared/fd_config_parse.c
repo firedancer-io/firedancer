@@ -275,9 +275,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
-  CFG_POP      ( cstr,   capture.solcap_capture                           );
-  CFG_POP      ( bool,   capture.recent_only                              );
-  CFG_POP      ( ulong,  capture.recent_slots_per_file                    );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
   CFG_POP      ( cstr,   capture.dump_syscall_name_filter                 );
   CFG_POP      ( cstr,   capture.dump_instr_program_id_filter             );

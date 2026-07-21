@@ -10,9 +10,8 @@
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
 
 void
-fd_sysvar_slot_history_init( fd_bank_t *        bank,
-                             fd_accdb_t *       accdb,
-                             fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_slot_history_init( fd_bank_t *  bank,
+                             fd_accdb_t * accdb ) {
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
   uchar * p = data;
 
@@ -38,13 +37,12 @@ fd_sysvar_slot_history_init( fd_bank_t *        bank,
 
   FD_STATIC_ASSERT( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ == 1 + sizeof(ulong) + FD_SLOT_HISTORY_BLOCKS_LEN * sizeof(ulong) + sizeof(ulong) + sizeof(ulong), "bin code size mismatch" );
 
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_slot_history_id, data, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_slot_history_id, data, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 }
 
 void
-fd_sysvar_slot_history_update( fd_bank_t *        bank,
-                               fd_accdb_t *       accdb,
-                               fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_slot_history_update( fd_bank_t *  bank,
+                               fd_accdb_t * accdb ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_history_id, 0 );
   FD_TEST( acc.lamports ); /* Slot history account must exist */
@@ -62,7 +60,7 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
 
   ulong bits_bitvec_len = FD_LOAD( ulong, acc.data+1UL );
   if( FD_UNLIKELY( !bits_bitvec_len ) ) {
-    fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+    fd_accdb_svm_close_rw( bank, accdb, &acc, update );
     return;
   }
   ulong min_sz;
@@ -98,7 +96,7 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
 
   FD_STORE( ulong, footer+8UL, cur_slot+1UL );
 
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &acc, update );
 }
 
 int

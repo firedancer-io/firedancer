@@ -139,7 +139,6 @@ init_epoch_rewards_sysvar( fd_bank_t *      bank,
   memset( parent_blockhash.hash, 0xEF, sizeof(parent_blockhash.hash) );
   fd_sysvar_epoch_rewards_init( bank,
                                 mini->runtime->accdb,
-                                NULL,
                                 0UL,
                                 starting_block_height,
                                 num_partitions,
@@ -797,7 +796,7 @@ test_epoch_rewards_sysvar_lifecycle( fd_svm_mini_t * mini ) {
   ulong   num_partitions  = 5UL;
   uint128 total_points    = (uint128)123456789UL;
 
-  fd_sysvar_epoch_rewards_init( bank, mini->runtime->accdb, NULL,
+  fd_sysvar_epoch_rewards_init( bank, mini->runtime->accdb,
                                 0UL, starting_height, num_partitions,
                                 total_rewards, total_points, &parent_blockhash );
 
@@ -811,16 +810,16 @@ test_epoch_rewards_sysvar_lifecycle( fd_svm_mini_t * mini ) {
   FD_TEST( er->total_points.ud                    == total_points   );
   FD_TEST( !memcmp( er->parent_blockhash.hash, parent_blockhash.hash, 32 ) );
 
-  fd_sysvar_epoch_rewards_distribute( bank, mini->runtime->accdb, NULL, 10UL );
+  fd_sysvar_epoch_rewards_distribute( bank, mini->runtime->accdb, 10UL );
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
   FD_TEST( er->distributed_rewards == 10UL );
   FD_TEST( er->active              == 1    );
 
-  fd_sysvar_epoch_rewards_distribute( bank, mini->runtime->accdb, NULL, 10UL );
+  fd_sysvar_epoch_rewards_distribute( bank, mini->runtime->accdb, 10UL );
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
   FD_TEST( er->distributed_rewards == 20UL );
 
-  fd_sysvar_epoch_rewards_set_inactive( bank, mini->runtime->accdb, NULL );
+  fd_sysvar_epoch_rewards_set_inactive( bank, mini->runtime->accdb );
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
   FD_TEST( er->active              == 0             );
   FD_TEST( er->total_rewards       == total_rewards  );
@@ -987,7 +986,7 @@ test_epoch_credit_rewards_and_history_update( fd_svm_mini_t * mini ) {
   ulong stake_lam_before = read_lamports( mini, child_fk, &stake_key );
   ulong cap_before = child_bank->f.capitalization;
 
-  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb );
 
   ulong stake_lam_after = read_lamports( mini, child_fk, &stake_key );
   fd_stake_t s_after = read_stake( mini, child_fk, &stake_key );
@@ -1043,7 +1042,7 @@ test_update_reward_history_in_partition( fd_svm_mini_t * mini ) {
   init_epoch_rewards_sysvar( child_bank, mini, starting_block_height, 1U, total_rewards );
 
   ulong cap_before = child_bank->f.capitalization;
-  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb );
 
   fd_sysvar_epoch_rewards_t er[1];
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
@@ -1084,7 +1083,7 @@ test_build_updated_stake_reward( fd_svm_mini_t * mini ) {
   ulong stake_lam_before = read_lamports( mini, child_fk, &stake_key );
   fd_stake_t s_before = read_stake( mini, child_fk, &stake_key );
 
-  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb );
 
   ulong stake_lam_after = read_lamports( mini, child_fk, &stake_key );
   fd_stake_t s_after = read_stake( mini, child_fk, &stake_key );
@@ -1117,7 +1116,7 @@ test_update_reward_history_in_partition_empty( fd_svm_mini_t * mini ) {
   init_epoch_rewards_sysvar( child_bank, mini, starting_block_height, 1U, 0UL );
 
   ulong cap_before = child_bank->f.capitalization;
-  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( child_bank, mini->runtime->accdb );
 
   fd_sysvar_epoch_rewards_t er[1];
   FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, child_fk, er ) );
@@ -1190,7 +1189,7 @@ test_store_stake_accounts_in_partition( fd_svm_mini_t * mini ) {
   ulong lam_before[4];
   for( uint i=0U; i<4U; i++ ) lam_before[i] = read_lamports( mini, fk0, &pubkeys[i] );
 
-  fd_distribute_partitioned_epoch_rewards( bank0, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( bank0, mini->runtime->accdb );
 
   for( uint i=0U; i<4U; i++ ) {
     uint part = find_reward_partition( stake_rewards, fork_idx, &pubkeys[i], num_partitions );
@@ -1209,7 +1208,7 @@ test_store_stake_accounts_in_partition( fd_svm_mini_t * mini ) {
   fd_bank_t * bank1 = fd_svm_mini_bank( mini, child_idx1 );
   fd_accdb_fork_id_t fk1 = fd_svm_mini_fork_id( mini, child_idx1 );
 
-  fd_distribute_partitioned_epoch_rewards( bank1, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( bank1, mini->runtime->accdb );
 
   for( uint i=0U; i<4U; i++ ) {
     ulong lam_after = read_lamports( mini, fk1, &pubkeys[i] );
@@ -1268,7 +1267,7 @@ test_store_stake_accounts_in_partition_empty( fd_svm_mini_t * mini ) {
 
   ulong lam_before = read_lamports( mini, fk0, &reward_key );
   ulong cap_before = bank0->f.capitalization;
-  fd_distribute_partitioned_epoch_rewards( bank0, mini->runtime->accdb, NULL );
+  fd_distribute_partitioned_epoch_rewards( bank0, mini->runtime->accdb );
 
   ulong lam_after = read_lamports( mini, fk0, &reward_key );
   FD_TEST( lam_after == lam_before );

@@ -124,7 +124,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                        fd_bank_t *          bank,
                                        fd_accdb_t *         accdb FD_PARAM_UNUSED,
                                        fd_runtime_stack_t * runtime_stack FD_PARAM_UNUSED,
-                                       fd_capture_ctx_t *   capture_ctx FD_PARAM_UNUSED,
                                        int *                is_epoch_boundary ) {
   if( FD_UNLIKELY( !mock_epoch_boundary_enabled ) ) {
     *is_epoch_boundary = 0;

@@ -4,20 +4,18 @@
 #include "../fd_system_ids.h"
 
 static void
-fd_sysvar_last_restart_slot_write( fd_bank_t *        bank,
-                                   fd_accdb_t *       accdb,
-                                   fd_capture_ctx_t * capture_ctx,
-                                   ulong              slot ) {
+fd_sysvar_last_restart_slot_write( fd_bank_t *  bank,
+                                   fd_accdb_t * accdb,
+                                   ulong        slot ) {
   uchar enc[ 8 ];
   FD_STORE( ulong, enc, slot );
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_last_restart_slot_id, enc, sizeof(enc) );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_last_restart_slot_id, enc, sizeof(enc) );
 }
 
 void
-fd_sysvar_last_restart_slot_init( fd_bank_t *        bank,
-                                  fd_accdb_t *       accdb,
-                                  fd_capture_ctx_t * capture_ctx ) {
-  fd_sysvar_last_restart_slot_write( bank, accdb, capture_ctx, 0UL );
+fd_sysvar_last_restart_slot_init( fd_bank_t *  bank,
+                                  fd_accdb_t * accdb ) {
+  fd_sysvar_last_restart_slot_write( bank, accdb, 0UL );
 }
 
 ulong
@@ -54,9 +52,8 @@ fd_sysvar_last_restart_slot_derive( fd_bank_t const * bank ) {
 }
 
 void
-fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
-                                    fd_accdb_t *       accdb,
-                                    fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_last_restart_slot_update( fd_bank_t *  bank,
+                                    fd_accdb_t * accdb ) {
 
   ulong last_restart_slot_want = fd_sysvar_last_restart_slot_derive( bank );
 
@@ -65,6 +62,6 @@ fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
   if( last_restart_slot_have!=last_restart_slot_want ) {
-    fd_sysvar_last_restart_slot_write( bank, accdb, capture_ctx, last_restart_slot_want );
+    fd_sysvar_last_restart_slot_write( bank, accdb, last_restart_slot_want );
   }
 }

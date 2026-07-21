@@ -39,17 +39,15 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 void
 fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
                                 fd_accdb_t *                accdb,
-                                fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_epoch_schedule_id, epoch_schedule, sizeof(fd_epoch_schedule_t) );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_epoch_schedule_id, epoch_schedule, sizeof(fd_epoch_schedule_t) );
 }
 
 void
-fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
-                               fd_accdb_t *       accdb,
-                               fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_epoch_schedule_init( fd_bank_t *  bank,
+                               fd_accdb_t * accdb ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  fd_sysvar_epoch_schedule_write( bank, accdb, capture_ctx, epoch_schedule );
+  fd_sysvar_epoch_schedule_write( bank, accdb, epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */
