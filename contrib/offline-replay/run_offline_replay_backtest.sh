@@ -269,7 +269,13 @@ download_replay_snapshot() {
         send_slack_message "Hourly snapshot already exists at \`$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME\`"
     else
         rm -f $LEDGER_DIR/snapshot*.tar.zst
-        gcloud storage cp ${CLOSEST_HOURLY_URL} . --billing-project=$BILLING_PROJECT
+        local snapshot_tmp="$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME.tmp"
+        rm -f "$snapshot_tmp"
+        gcloud storage cp "$CLOSEST_HOURLY_URL" "$snapshot_tmp" --billing-project="$BILLING_PROJECT" || {
+            send_slack_message "@here snapshot download failed for \`$CLOSEST_HOURLY_URL\`. Exiting."
+            exit 1
+        }
+        mv "$snapshot_tmp" "$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME"
         send_slack_message "Downloaded hourly snapshot to \`$LEDGER_DIR/$CLOSEST_HOURLY_FILENAME\`"
     fi
 }
