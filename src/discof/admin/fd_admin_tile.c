@@ -154,7 +154,10 @@ unprivileged_init( fd_topo_t const *      topo,
            vote transactions are then signed downstream by the TxSend
            tile instead of having its own keyguard client.
        (d) Bundle.  The bundle tile uses the identity key to sign an
-           authentication challenge from the bundle server. */
+           authentication challenge from the bundle server.
+       (e) Rserve.  The rserve tile uses the identity key to sign
+           outgoing pings.
+        */
 #define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED   (4UL)
 
 /* State 5: SIGNERS_HALTED
@@ -305,7 +308,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
-            strcmp( tile->name, "bundle" ) ) {
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -328,7 +332,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
-            strcmp( tile->name, "bundle" ) ) {
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -391,7 +396,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
                        !strcmp( tile->name, "tower" ) ||
-                       !strcmp( tile->name, "bundle" ) ) ) continue;
+                       !strcmp( tile->name, "bundle" ) ||
+                       !strcmp( tile->name, "rserve" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( !strcmp( tile->name, "gossvf" ) ) tile_ks->param = identity_outset;
@@ -415,7 +421,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
                        !strcmp( tile->name, "tower" ) ||
-                       !strcmp( tile->name, "bundle" ) ) ) continue;
+                       !strcmp( tile->name, "bundle" ) ||
+                       !strcmp( tile->name, "rserve" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -449,7 +456,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
             strcmp( tile->name, "txsend" ) &&
-            strcmp( tile->name, "bundle" ) ) {
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
@@ -472,7 +480,8 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
             strcmp( tile->name, "gossip" ) &&
             strcmp( tile->name, "tower" ) &&
             strcmp( tile->name, "txsend" ) &&
-            strcmp( tile->name, "bundle" ) ) {
+            strcmp( tile->name, "bundle" ) &&
+            strcmp( tile->name, "rserve" ) ) {
           continue;
         }
 
