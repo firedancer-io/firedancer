@@ -198,15 +198,28 @@ if [[ "$INGEST_MODE" != "shredcap" ]]; then
   exit 1
 fi
 
-if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+convert_rocksdb_to_shredcap() {
   rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
   if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
-    echo "rocksdb to shredcap conversion failed"
     rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
-    exit 1
+    return 1
   fi
   mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
   echo "Converted rocksdb to shredcap"
+}
+
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+  if ! convert_rocksdb_to_shredcap; then
+    # A cached ledger may have a corrupt rocksdb (eg. damaged by a converter
+    # version that deleted unopened column families); re-download once.
+    echo "conversion failed; re-downloading ledger and retrying"
+    rm -rf $DUMP/$LEDGER
+    download_and_extract_ledger
+    if ! convert_rocksdb_to_shredcap; then
+      echo "rocksdb to shredcap conversion failed"
+      exit 1
+    fi
+  fi
 fi
 LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
 
