@@ -64,10 +64,14 @@ GCS access uses the `firedancer-scratch@isol-firedancer` service account.
    within the rocksdb bounds.
 4. Build the latest Firedancer on `$FD_BRANCH` with
    `EXTRAS=offline-replay`.
-5. Replay with `firedancer-dev backtest` up to the rocksdb rooted max. A
+5. Convert the rocksdb into a shredcap capture
+   (`fd_blockstore2shredcap`) covering the replay range; the backtest
+   ingests the capture, while the rocksdb directory is kept for the
+   minimization tooling.
+6. Replay with `firedancer-dev backtest` up to the rocksdb rooted max. A
    pass is clean if the log contains `Backtest playback done.` and no
    `Bank hash mismatch!`.
-6. On a mismatch or failure: build a minimized ledger around the bad slot
+7. On a mismatch or failure: build a minimized ledger around the bad slot
    (`fd_ledger --cmd minify` + `agave-ledger-tool create-snapshot
    --minimized`), upload it and the gzipped log to
    `gs://firedancer-ci-resources/`, then resume from a snapshot just past

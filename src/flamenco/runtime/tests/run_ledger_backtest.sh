@@ -13,7 +13,7 @@ TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-15"
 THREAD_MEM_BOUND="--thread-mem-bound 0"
-INGEST_MODE="rocksdb"
+INGEST_MODE="shredcap"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}

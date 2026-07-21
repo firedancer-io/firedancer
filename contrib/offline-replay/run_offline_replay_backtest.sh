@@ -292,6 +292,35 @@ build_firedancer() {
     EXTRAS=offline-replay make -j
 }
 
+# Convert the downloaded rocksdb into a shredcap capture covering the replay
+# range; the backtest ingests the capture (single streamable file) while the
+# rocksdb directory is kept for agave-ledger-tool and fd_ledger during
+# minimization. Skipped if the capture already exists. Expects
+# build_firedancer to have run (needs fd_blockstore2shredcap) and cwd =
+# FIREDANCER_REPO (OBJDIR is relative).
+convert_rocksdb_to_shredcap() {
+    SHREDCAP_FILE=$LEDGER_DIR/shreds.pcapng.zst
+    if [ -e "$SHREDCAP_FILE" ]; then
+        send_slack_message "Shredcap already exists at \`$SHREDCAP_FILE\`"
+        return
+    fi
+
+    # fd_blockstore2shredcap refuses to overwrite; write to a temp name and
+    # move so an interrupted conversion never leaves a plausible-looking file.
+    rm -f $SHREDCAP_FILE.tmp
+    $OBJDIR/bin/fd_blockstore2shredcap \
+        --rocksdb $LEDGER_DIR/rocksdb \
+        --out $SHREDCAP_FILE.tmp \
+        --start-slot $CLOSEST_HOURLY_SLOT \
+        --end-slot $ROCKSDB_ROOTED_MAX \
+        --zstd || {
+        send_slack_message "@here rocksdb to shredcap conversion failed for \`$LEDGER_DIR\`. Exiting."
+        exit 1
+    }
+    mv $SHREDCAP_FILE.tmp $SHREDCAP_FILE
+    send_slack_message "Converted rocksdb to shredcap at \`$SHREDCAP_FILE\`"
+}
+
 # Copy the offline_replay.toml template into LEDGER_DIR and fill in its
 # {placeholder} values for this run.
 render_backtest_config() {
@@ -588,6 +617,8 @@ process_new_ledger() {
     download_replay_snapshot
     log_step "Building Firedancer ($FD_BRANCH)"
     build_firedancer
+    log_step "Converting rocksdb to shredcap"
+    convert_rocksdb_to_shredcap
     log_step "Replaying ledger"
     replay_until_clean
     log_step "Cleaning up"
