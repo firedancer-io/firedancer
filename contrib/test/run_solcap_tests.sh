@@ -134,10 +134,26 @@ EOF
 echo "Running firedancer-dev configure fini all ..."
 $OBJDIR/bin/firedancer-dev configure fini all
 
-rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp 
+convert_rocksdb_to_shredcap() {
+  rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
+    rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+    return 1
+  fi
+  mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
+}
 
-echo "Running fd_blockstore2shredcap ..."
-$OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+  echo "Running fd_blockstore2shredcap ..."
+  if ! convert_rocksdb_to_shredcap; then
+    # A cached ledger may have a corrupt rocksdb (eg. damaged by a converter
+    # version that deleted unopened column families); re-download once.
+    echo "conversion failed; re-downloading ledger and retrying"
+    rm -rf $DUMP/$LEDGER
+    download_and_extract_ledger
+    convert_rocksdb_to_shredcap
+  fi
+fi
 
 echo "Running backtest (full log at ${BACKTEST_LOG}) ..."
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-424669000-solcap_current.toml
