@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 
-# Re-imports the zstd subset used by Firedancer:
-# lib/{common,compress,decompress,dictBuilder} + public headers.
-# dictBuilder is present only for librocksdb.a's ZDICT_* references
-# (dev-mode); legacy/, deprecated/, and the build/ tree are not
-# imported.  No build-time codegen exists in zstd.
-
 set -euo pipefail
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"

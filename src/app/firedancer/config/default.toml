@@ -2164,8 +2164,7 @@ telemetry = true
         #
         # rocksdb directories cannot be ingested directly;
         # convert them to a shredcap capture first with
-        # fd_blockstore2shredcap
-        #
+        # contrib/blockstore/blockstore2shredcap
         format = "auto"
 
         # Absolute file system path to shred source.
