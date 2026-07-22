@@ -14,12 +14,12 @@ $(call run-unit-test,test_gui_hist_evict)
 src/disco/gui/dist_cmp/%.zst: src/disco/gui/dist/% $(OBJDIR)/bin/fd_zstd_pack
 	mkdir -p $(@D);
 	$(OBJDIR)/bin/fd_zstd_pack 19 $< $@;
-	$(TOUCH) $@;
+	@$(TOUCH) $@;
 
 src/disco/gui/dist_cmp/%.gz: src/disco/gui/dist/% $(OBJDIR)/bin/fd_gzip_pack
 	mkdir -p $(@D);
 	$(OBJDIR)/bin/fd_gzip_pack 9 $< $@;
-	$(TOUCH) $@;
+	@$(TOUCH) $@;
 
 FD_GUI_FRONTEND_FILES := $(shell $(FIND) src/disco/gui/dist -type f)
 FD_GUI_FRONTEND_GZ_FILES := $(patsubst src/disco/gui/dist/%, src/disco/gui/dist_cmp/%.gz, $(FD_GUI_FRONTEND_FILES))
