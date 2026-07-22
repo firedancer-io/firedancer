@@ -33,7 +33,6 @@ fi
 # Install prefix
 PREFIX="$(pwd)/opt"
 
-DEVMODE=0
 MSAN=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
@@ -127,11 +126,7 @@ fetch () {
 
   mkdir -pv "$PREFIX/git"
 
-  checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
-  if [[ $DEVMODE == 1 ]]; then
-    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.1.1"
-    checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
-  fi
+  checkout_repo openssl https://github.com/openssl/openssl "openssl-3.6.2"
 }
 
 check_fedora_pkgs () {
@@ -149,9 +144,6 @@ check_fedora_pkgs () {
     perl               # Agave (OpenSSL)
     protobuf-compiler  # Agave, solfuzz
   )
-  if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel lcov )
-  fi
 
   echo "[~] Checking for required RPM packages"
 
@@ -186,9 +178,6 @@ check_debian_pkgs () {
     libudev-dev        # Agave
     protobuf-compiler  # Agave
   )
-  if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_DEBS+=( autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev perl )
-  fi
 
   echo "[~] Checking for required DEB packages"
 
@@ -220,9 +209,6 @@ check_alpine_pkgs () {
     make             # build system
     perl             # OpenSSL
   )
-  if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )
-  fi
 
   echo "[~] Checking for required APK packages"
 
@@ -275,9 +261,6 @@ check_arch_pkgs () {
     protobuf          # Agave, solfuzz
     systemd-libs      # Agave
   )
-  if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_PKGS+=( gmp lcov )
-  fi
 
   echo "[~] Checking for required Arch Linux packages"
 
@@ -443,55 +426,6 @@ install_openssl () {
   echo "[+] Successfully installed OpenSSL"
 }
 
-install_rocksdb () {
-  cd "$PREFIX/git/rocksdb"
-  local NJOBS
-  NJOBS=$(( $(nproc) / 2 ))
-  NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make clean-ext-libraries-all clean-rocks
-
-  ROCKSDB_DISABLE_NUMA=1 \
-  ROCKSDB_DISABLE_ZLIB=1 \
-  ROCKSDB_DISABLE_BZIP=1 \
-  ROCKSDB_DISABLE_GFLAGS=1 \
-  ROCKSDB_USE_IO_URING=0 \
-  CFLAGS="-isystem $(pwd)/../../include -isystem $(pwd)/../../../src/third_party/lz4/lib -isystem $(pwd)/../../../src/third_party/zstd/lib -g0 -DSNAPPY -DZSTD -DLZ4 -Wno-unknown-warning-option -Wno-uninitialized -Wno-array-bounds -Wno-stringop-overread -fPIC $EXTRA_CXXFLAGS" \
-  make -j $NJOBS \
-    LITE=1 \
-    V=1 \
-    static_lib
-  make install-static DESTDIR="$PREFIX"/ PREFIX= LIBDIR=lib
-}
-
-install_snappy () {
-  cd "$PREFIX/git/snappy"
-
-  echo "[+] Configuring snappy"
-  mkdir -p build
-  cd build
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="" \
-    -DCMAKE_INSTALL_LIBDIR=lib \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DSNAPPY_BUILD_TESTS=OFF \
-    -DSNAPPY_BUILD_BENCHMARKS=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_CXX_FLAGS="$EXTRA_CXXFLAGS" \
-    -DCMAKE_EXE_LINKER_FLAGS="$EXTRA_LDFLAGS" \
-    -DCMAKE_CXX_COMPILER_WORKS=1 # Workaround for CMake bug
-  echo "[+] Configured snappy"
-
-  echo "[+] Building snappy"
-  make -j
-  echo "[+] Successfully built snappy"
-
-  echo "[+] Installing snappy to $PREFIX"
-  make install DESTDIR="$PREFIX"
-  echo "[+] Successfully installed snappy"
-}
-
 install () {
   CC="$(command -v $_CC)"
   cc="$CC"
@@ -505,11 +439,7 @@ install () {
 
   mkdir -p "$PREFIX/include" "$PREFIX/lib"
 
-  ( install_openssl   )
-  if [[ $DEVMODE == 1 ]]; then
-    ( install_snappy    )
-    ( install_rocksdb   )
-  fi
+  ( install_openssl )
 
   # Merge lib64 with lib
   if [[ -d "$PREFIX/lib64" ]]; then
@@ -536,10 +466,6 @@ while [[ $# -gt 0 ]]; do
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
       EXTRA_CFLAGS+=" -fsanitize=memory"
-      ;;
-    "+dev")
-      shift
-      DEVMODE=1
       ;;
     nuke)
       shift

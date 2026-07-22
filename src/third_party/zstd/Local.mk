@@ -1,8 +1,6 @@
 ifdef FD_HAS_ZSTD
 
 # pool/threading compile to stubs without ZSTD_MULTITHREAD.
-# dictBuilder is only needed by librocksdb.a (ZDICT_*); cheap to keep
-# unconditionally, unused members drop at link.
 ZSTD_OBJS:=\
   common/debug \
   common/entropy_common \

@@ -35,8 +35,6 @@ jobs:
       uses: actions/checkout@v7
 
     - uses: ./.github/actions/deps
-      with:
-        extras: +dev
 
     - uses: ./.github/actions/hugepages
       with:

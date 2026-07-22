@@ -51,7 +51,7 @@ When building with different compilers, you should cleanup any existing files.
 Install and compile the dependencies:
 
 ```bash
-FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
+FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh fetch check install
 ```
 
 Compile desired targets:
@@ -74,7 +74,7 @@ Run the container and build with the Ice Lake GCC machine config:
 podman run --rm -v "$PWD:/data/firedancer" firedancer-gcc12:rocky8 bash -lc '
 set -e
 cd /data/firedancer
-FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev fetch check install
+FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh fetch check install
 source "$HOME/.cargo/env"
 MACHINE=linux_gcc_icelake CC=gcc CXX=g++ make -j fddev fdctl
 '

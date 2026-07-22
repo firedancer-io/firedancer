@@ -138,7 +138,6 @@ jobs:
         with:
           compiler: gcc
           compiler-version: 12.4.0
-          extras: +dev
 
       - name: Build command line args
         run: |
@@ -201,7 +200,6 @@ jobs:
         with:
           compiler: clang
           compiler-version: 18.1.6
-          extras: +dev
 
       - name: Build command line args
         run: |

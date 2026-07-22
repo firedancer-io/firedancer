@@ -27,7 +27,6 @@ jobs:
             machine: linux_gcc_x86_64
             label: X64
             extras: "rpath handholding"
-            deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: gcc
             compiler-version: 11.4.0
@@ -36,7 +35,6 @@ jobs:
             machine: linux_clang_icelake
             label: icelake
             extras: "asan ubsan rpath handholding"
-            deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: clang
             compiler-version: 19.1.7
@@ -45,7 +43,6 @@ jobs:
             machine: native
             label: 512G
             extras: "rpath handholding"
-            deps-extras: "+dev"
             targets: "all integration-test fdctl firedancer"
             compiler: gcc
             compiler-version: 12.4.0
@@ -73,7 +70,6 @@ jobs:
         with:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-          extras: ${{ matrix.deps-extras || '' }}
         if: ${{ !contains(matrix.extras, 'no-deps') }}
 
       - uses: ./.github/actions/hugepages
