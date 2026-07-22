@@ -18,8 +18,12 @@
    will be a no-op. ---- */
 
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_runtime_helpers.h" /* IWYU pragma: keep */
+#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/progcache/fd_progcache_admin.h" /* IWYU pragma: keep */
+#include "../../flamenco/rewards/fd_rewards.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/rewards/fd_stake_rewards.h"
 #include "fd_sched.h"
@@ -93,6 +97,7 @@ static int   mock_epoch_boundary_enabled;
 static ulong mock_epoch_boundary_fork_cnt;
 static ulong mock_epoch_boundary_fork_max;
 static int   mock_epoch_boundary_overflow;
+static int   mock_snapshot_boot;
 
 ulong
 mock_multi_epoch_leaders_next_slot_fn( fd_multi_epoch_leaders_t const * mleaders FD_PARAM_UNUSED,
@@ -152,6 +157,20 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
+/* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
+#define fd_sysvar_cache_restore(bank,accdb)  (mock_snapshot_boot ? 1 : (fd_sysvar_cache_restore)(bank,accdb))
+#define fd_sysvar_rent_read(accdb,fork,rent) (mock_snapshot_boot ? (rent) : (fd_sysvar_rent_read)(accdb,fork,rent))
+#define fd_sched_block_add_done(s,b,p,slot)   do { if( !mock_snapshot_boot ) (fd_sched_block_add_done)(s,b,p,slot); } while(0)
+#define fd_runtime_update_next_leaders(b,s)  do { if( !mock_snapshot_boot ) (fd_runtime_update_next_leaders)(b,s); } while(0)
+#define fd_runtime_update_leaders(b,s)       do { if( !mock_snapshot_boot ) (fd_runtime_update_leaders)(b,s); } while(0)
+#define fd_multi_epoch_leaders_epoch_msg_init(m,msg) do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_init)(m,msg); } while(0)
+#define fd_multi_epoch_leaders_epoch_msg_fini(m)     do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_fini)(m); } while(0)
+#define fd_progcache_reset(cache)                    do { if( !mock_snapshot_boot ) (fd_progcache_reset)(cache); } while(0)
+#define fd_sysvar_cache_stake_history_view(cache,view) (mock_snapshot_boot ? NULL : (fd_sysvar_cache_stake_history_view)(cache,view))
+#define fd_stake_delegations_refresh(d,e,h,w,f,a,i) do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,a,i); } while(0)
+#define fd_top_votes_refresh(v,a,i)                  do { if( !mock_snapshot_boot ) (fd_top_votes_refresh)(v,a,i); } while(0)
+#define fd_rewards_recalculate_partitioned_rewards(b,k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(b,k,a,s,c); } while(0)
+#define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
 
 /* ---- Include the tile under test ---- */
@@ -474,12 +493,18 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
   FD_TEST( root );
-  root->f.slot = 0UL;
+  root->f.slot                        = 0UL;
+  root->f.parent_slot                 = 0UL;
+  root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
+  root->f.slot_params.hashes_per_tick = 4UL;
+  root->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
   fd_epoch_schedule_derive( &root->f.epoch_schedule, 128UL, 128UL, 0 );
 
   fd_hash_t root_id  = { .ul = { 100UL } };
   fd_hash_t child_id = { .ul = { 200UL } };
-  root->f.block_id = root_id;
+  root->f.block_id   = root_id;
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
 
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( bank_cnt );
   ctx->block_id_arr = fd_wksp_alloc_laddr( wksp, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t)*bank_cnt, 1UL );
@@ -490,6 +515,39 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( map_mem, chain_cnt, 44UL ) );
   FD_TEST( ctx->block_id_map );
   ctx->block_id_len = bank_cnt;
+
+  void * reasm_mem = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( 2UL ), 1UL );
+  FD_TEST( reasm_mem );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 2UL, 0UL ) );
+  FD_TEST( ctx->reasm );
+
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL ), 1UL );
+  FD_TEST( store_mem );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 1UL, 2UL, 1UL ) );
+  FD_TEST( ctx->store );
+
+  static fd_runtime_stack_t runtime_stack[ 1 ];
+  fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
+  ctx->runtime_stack = runtime_stack;
+  ctx->initial_block_id = root_id;
+  ctx->manifest_block_id = root_id;
+  ctx->has_manifest_block_id = 1;
+
+  root->accdb_fork_id        = (fd_accdb_fork_id_t){ .val=37U };
+  root->parent_accdb_fork_id = root->accdb_fork_id;
+  ctx->has_expected_genesis_timestamp = 1;
+  mock_accdb_fork_id_next = 0U;
+  static ulong test_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  volatile ulong * saved_metrics_tl = fd_metrics_tl;
+  fd_metrics_tl = test_metrics;
+  mock_snapshot_boot = 1;
+  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  mock_snapshot_boot = 0;
+  fd_metrics_tl = saved_metrics_tl;
+  FD_TEST( root->accdb_fork_id.val==37U );
+  FD_TEST( root->parent_accdb_fork_id.val==37U );
+  FD_TEST( mock_accdb_fork_id_next==0U );
+  root->refcnt = 0UL;
 
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
   child = fd_banks_clone_from_parent( ctx->banks, child->idx );

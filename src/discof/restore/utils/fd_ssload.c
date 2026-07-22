@@ -577,7 +577,9 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     *fd_bank_snapshot_commission_t_3_len( bank ) = 0UL;
   }
 
-  bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+  bank->accdb_fork_id        = (fd_accdb_fork_id_t){ .val = manifest->accdb_fork_id };
+  bank->parent_accdb_fork_id = bank->accdb_fork_id;
+  bank->txncache_fork_id     = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 
   return 0;
 }
