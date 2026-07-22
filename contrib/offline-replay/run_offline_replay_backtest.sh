@@ -572,6 +572,7 @@ replay_until_clean() {
         cd $FIREDANCER_REPO
         log_step "Backtest pass starting (replay snapshot: $LEDGER_REPLAY_SNAPSHOT)"
         send_slack_message "Starting ledger replay with commit \`$FD_COMMIT\`"
+        send_slack_message "View progress for ledger replay at http://$(hostname -f) with metrics at http://$(hostname -f):7999/metrics"
         set +e
 
         render_backtest_config
