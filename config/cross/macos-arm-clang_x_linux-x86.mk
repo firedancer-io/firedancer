@@ -34,7 +34,3 @@ LDFLAGS+=-L./opt/cross/$(CROSS)/usr/local/lib
 FD_HAS_ZSTD:=1
 CFLAGS+=-DFD_HAS_ZSTD=1
 LDFLAGS+=-lzstd
-
-FD_HAS_ROCKSDB:=1
-CFLAGS+=-DFD_HAS_ROCKSDB=1
-ROCKSDB_LIBS:=-lrocksdb -lsnappy

@@ -12,9 +12,6 @@ set -e
 # To start, first create the a dependency prefix at ./opt using deps.sh.
 # Then, run this script to create deps-bundle.tar.zst which contains
 # only static libraries and includes.
-#
-# The resulting bundle is in the order of 13 MB compressed (as of June
-# 2023, including OpenSSL and RocksDB).
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"/..
 

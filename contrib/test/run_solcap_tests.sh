@@ -145,16 +145,22 @@ echo "Running firedancer-dev configure fini all ..."
 $OBJDIR/bin/firedancer-dev configure fini all
 
 convert_rocksdb_to_shredcap() {
-  rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
-  if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
-    rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  local zst_tmp=$DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  rm -f "$zst_tmp"
+  if ! contrib/blockstore/blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out "$zst_tmp" --zstd; then
+    rm -f "$zst_tmp"
     return 1
   fi
-  mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
+  mv "$zst_tmp" $DUMP/$LEDGER/shreds.pcapng.zst
 }
 
 if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-  echo "Running fd_blockstore2shredcap ..."
+  if ! make -B -C contrib/blockstore blockstore2shredcap; then
+    echo "failed to build contrib/blockstore/blockstore2shredcap"
+    exit 1
+  fi
+
+  echo "Running blockstore2shredcap ..."
   if ! convert_rocksdb_to_shredcap; then
     # A cached ledger may have a corrupt rocksdb (eg. damaged by a converter
     # version that deleted unopened column families); re-download once.

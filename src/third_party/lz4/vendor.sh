@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 
-# Re-imports the lz4 subset used by Firedancer: the core block API
-# (lz4.c) used by fd_checkpt/fd_wksp/vinyl, plus lz4hc which exists
-# only for librocksdb.a's LZ4_compress_HC* references (dev-mode).
-# Only lib/ is BSD-2-licensed; programs/ is GPL and must never be
-# imported.
-
 set -euo pipefail
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"

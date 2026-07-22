@@ -7,7 +7,7 @@
 # ./run_conformance_tests.sh -i <test_inputs> [-r <run_directory>] [-fdr <firedancer_repo>] [-fdb <firedancer_branch>] [-ar <solfuzz_agave_repo>] [-ab <solfuzz_agave_branch>] [-scr <solana_conformance_repo>] [-scb <solana_conformance_branch>] [-o <output_dir>]
 
 # Required arguments:
-# -i|--test-inputs: the directory containing the test inputs 
+# -i|--test-inputs: the directory containing the test inputs
 # Optional arguments:
 # -r|--run-dir: the directory where the tests will be run (default: /data/conformance_tests)
 # -fdr|--firedancer-repo: the path to the firedancer repository (default: cloned repo)
@@ -116,7 +116,7 @@ git pull
 PATH=/opt/rh/gcc-toolset-12/root/usr/bin:$PATH
 export PATH
 PKG_CONFIG_PATH=/usr/lib64/pkgconfig:$PKG_CONFIG_PATH
-echo "y"|./deps.sh +dev
+echo "y"|./deps.sh
 make -j
 
 # setup solfuzz-agave

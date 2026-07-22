@@ -312,15 +312,15 @@ build_firedancer() {
     make distclean && make clean
     ./deps.sh nuke
     git submodule update --init --recursive --force
-    echo "y" | FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh +dev
+    echo "y" | FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh
     EXTRAS=offline-replay make -j
 }
 
 # Convert the downloaded rocksdb into a shredcap capture covering the replay
 # range; the backtest ingests the capture (single streamable file) while the
-# rocksdb directory is kept for agave-ledger-tool and fd_ledger during
+# rocksdb directory is kept for agave-ledger-tool and blockstore_minify during
 # minimization. Skipped if the capture already exists. Expects
-# build_firedancer to have run (needs fd_blockstore2shredcap) and cwd =
+# build_firedancer to have run (needs blockstore2shredcap) and cwd =
 # FIREDANCER_REPO (OBJDIR is relative).
 convert_rocksdb_to_shredcap() {
     SHREDCAP_FILE=$LEDGER_DIR/shreds.pcapng.zst
@@ -329,15 +329,23 @@ convert_rocksdb_to_shredcap() {
         return
     fi
 
-    # fd_blockstore2shredcap refuses to overwrite; write to a temp name and
+    # Requires RocksDB development headers/libs:
+    # rocksdb-devel (dnf) or librocksdb-dev (apt).
+    make -B -C "$FIREDANCER_REPO/contrib/blockstore" blockstore2shredcap || {
+        send_slack_message "@here building blockstore2shredcap failed (missing RocksDB development package?). Exiting."
+        exit 1
+    }
+
+    # blockstore2shredcap refuses to overwrite; write to a temp name and
     # move so an interrupted conversion never leaves a plausible-looking file.
     rm -f $SHREDCAP_FILE.tmp
-    $OBJDIR/bin/fd_blockstore2shredcap \
+    "$FIREDANCER_REPO"/contrib/blockstore/blockstore2shredcap \
         --rocksdb $LEDGER_DIR/rocksdb \
         --out $SHREDCAP_FILE.tmp \
         --start-slot $CLOSEST_HOURLY_SLOT \
         --end-slot $ROCKSDB_ROOTED_MAX \
         --zstd || {
+        rm -f $SHREDCAP_FILE.tmp
         send_slack_message "@here rocksdb to shredcap conversion failed for \`$LEDGER_DIR\`. Exiting."
         exit 1
     }
@@ -518,13 +526,16 @@ handle_replay_failure() {
 
     MINIMIZED_END_SLOT=$((NEXT_ROOTED_SLOT+32))
     send_slack_message "Minifying rocksdb for mismatch"
-    "$OBJDIR"/bin/fd_ledger \
-        --cmd minify \
+    # Requires RocksDB development headers/libs:
+    # rocksdb-devel (dnf) or librocksdb-dev (apt).
+    make -C "$FIREDANCER_REPO/contrib/blockstore" blockstore_minify \
+        || fail_minimization "building blockstore_minify failed (missing RocksDB development package?)"
+    "$FIREDANCER_REPO"/contrib/blockstore/blockstore_minify \
         --rocksdb $LEDGER_DIR/rocksdb \
         --minified-rocksdb $MISMATCH_DIR/rocksdb \
         --start-slot $PREVIOUS_ROOTED_SLOT \
         --end-slot $MINIMIZED_END_SLOT >> $LOG 2>&1 \
-        || fail_minimization "fd_ledger minify failed (see \`$LOG\`)"
+        || fail_minimization "blockstore_minify failed (see \`$LOG\`)"
     sleep 10
 
     # Park the resume snapshot in old_snapshots so create-snapshot below

@@ -21,5 +21,4 @@ include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
 include config/extra/with-lz4.mk
 include config/extra/with-openssl.mk
-include config/extra/with-rocksdb.mk
 endif

@@ -337,7 +337,7 @@ if [[ $NO_GCC -ne 1 ]]; then
       start=$(date +%s)
       inf "Installing dependencies with $compiler...\n"
       ./deps.sh nuke > /dev/null 2>&1
-      CC=gcc CXX=g++ ./deps.sh +dev fetch install > "$LOG_FILE" 2>&1
+      CC=gcc CXX=g++ ./deps.sh fetch install > "$LOG_FILE" 2>&1
       if [[ $? -ne 0 ]]; then
         err "Failed to install deps with $compiler... exiting.\n"
         FAIL=1
@@ -410,7 +410,7 @@ if [[ $NO_GCC -ne 1 ]]; then
           inf "To reproduce, run:\n"
           echo "  source /opt/gcc/$compiler/activate"
           echo "  ./deps.sh nuke"
-          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=gcc CXX=g++ ./deps.sh +dev fetch check install"
+          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=gcc CXX=g++ ./deps.sh fetch check install"
           echo "  make -j distclean"
           echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=gcc make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then
@@ -455,7 +455,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
       start=$(date +%s)
       inf "Installing dependencies with $compiler...\n"
       ./deps.sh nuke > /dev/null 2>&1
-      CC=clang CXX=clang++ ./deps.sh +dev fetch install > "$LOG_FILE" 2>&1
+      CC=clang CXX=clang++ ./deps.sh fetch install > "$LOG_FILE" 2>&1
       if [[ $? -ne 0 ]]; then
         err "Failed to install deps with $compiler...\n"
         FAIL=1
@@ -527,7 +527,7 @@ if [[ $NO_CLANG -ne 1 ]]; then
           echo "${FAILED[@]}"
           echo "  source /opt/clang/$compiler/activate"
           echo "  ./deps.sh nuke"
-          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=clang CXX=clang++ ./deps.sh +dev fetch check install"
+          echo "  FD_AUTO_INSTALL_PACKAGES=1 CC=clang CXX=clang++ ./deps.sh fetch check install"
           echo "  make -j distclean"
           echo "  $([[ $NO_OPTIMIZATION != "" ]] && echo "FD_DISABLE_OPTIMIZATION=${NO_OPTIMIZATION} " || echo "")MACHINE=${MACHINE} CC=clang make -j ${FAILED[*]}"
           if [[ $VERBOSE -eq 1 ]]; then

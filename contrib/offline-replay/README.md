@@ -37,6 +37,9 @@ webhook URLs filled in) exports the environment below and runs
 | `AGAVE_TAG` (optional) | fallback tag if a ledger's `version.txt` is unreadable |
 | `OBJDIR` (optional) | Firedancer build dir, default `build/native/gcc` |
 
+The blockstore helper tools require RocksDB development headers/libs:
+`rocksdb-devel` on dnf systems or `librocksdb-dev` on apt systems.
+
 ## Deployment
 
 Runs as the `svc_firedancer` service account on the replay machine:
@@ -67,14 +70,14 @@ GCS access uses the `firedancer-scratch@isol-firedancer` service account.
 4. Build the latest Firedancer on `$FD_BRANCH` with
    `EXTRAS=offline-replay`.
 5. Convert the rocksdb into a shredcap capture
-   (`fd_blockstore2shredcap`) covering the replay range; the backtest
+   (`blockstore2shredcap`) covering the replay range; the backtest
    ingests the capture, while the rocksdb directory is kept for the
    minimization tooling.
 6. Replay with `firedancer-dev backtest` up to the rocksdb rooted max. A
    pass is clean if the log contains `Backtest playback done.` and no
    `Bank hash mismatch!`.
 7. On a mismatch or failure: build a minimized ledger around the bad slot
-   (`fd_ledger --cmd minify` + `agave-ledger-tool create-snapshot
+   (`blockstore_minify` + `agave-ledger-tool create-snapshot
    --minimized`), upload it and the gzipped log to
    `gs://firedancer-ci-resources/`, then resume from a snapshot just past
    the bad slot. Gives up after more than 5 mismatches or 5 failures on

@@ -21,7 +21,7 @@ detect_src_type( char const * path ) {
   struct stat st;
   if( 0==stat( path, &st ) && S_ISDIR( st.st_mode ) ) {
     FD_LOG_WARNING(( "\"%s\" is a directory, expected a pcap/pcapng file; if this is a RocksDB blockstore, convert "
-                     "it to a shredcap capture first (fd_blockstore2shredcap --rocksdb %s --out <path>.pcapng.zst --zstd)",
+                     "it to a shredcap capture first (blockstore2shredcap --rocksdb %s --out <path>.pcapng.zst --zstd)",
                      path, path ));
     return FD_BACKT_SRC_INVAL;
   }
