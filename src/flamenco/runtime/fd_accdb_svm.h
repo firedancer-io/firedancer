@@ -28,7 +28,6 @@ fd_accdb_svm_open_rw( fd_bank_t *             bank,
 void
 fd_accdb_svm_close_rw( fd_bank_t *             bank,
                        fd_accdb_t *            accdb,
-                       fd_capture_ctx_t *      capture_ctx,
                        fd_acc_t *              rw,
                        fd_accdb_svm_update_t * update );
 
@@ -39,7 +38,6 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
 void
 fd_accdb_svm_credit( fd_bank_t *         bank,
                      fd_accdb_t *        accdb,
-                     fd_capture_ctx_t *  capture_ctx,
                      fd_pubkey_t const * pubkey,
                      ulong               lamports );
 
@@ -53,7 +51,6 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
 void
 fd_accdb_svm_write( fd_bank_t *         bank,
                     fd_accdb_t *        accdb,
-                    fd_capture_ctx_t *  capture_ctx,
                     fd_pubkey_t const * pubkey,
                     fd_pubkey_t const * owner,
                     void const *        data,
@@ -69,7 +66,6 @@ fd_accdb_svm_write( fd_bank_t *         bank,
 ulong
 fd_accdb_svm_remove( fd_bank_t *         bank,
                      fd_accdb_t *        accdb,
-                     fd_capture_ctx_t *  capture_ctx,
                      fd_pubkey_t const * pubkey );
 
 FD_PROTOTYPES_END

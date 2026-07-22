@@ -26,9 +26,8 @@ typedef struct ts_est_ele ts_est_ele_t;
 FD_PROTOTYPES_BEGIN
 
 void
-fd_sysvar_clock_init( fd_bank_t *        bank,
-                      fd_accdb_t *       accdb,
-                      fd_capture_ctx_t * capture_ctx );
+fd_sysvar_clock_init( fd_bank_t *  bank,
+                      fd_accdb_t * accdb );
 
 /* fd_sysvar_clock_read reads the current value of the clock sysvar at
    fork_id into *clock.  Returns clock on success, NULL if the account
@@ -49,7 +48,6 @@ fd_sysvar_clock_read( fd_accdb_t *            accdb,
 void
 fd_sysvar_clock_update( fd_bank_t *          bank,
                         fd_accdb_t *         accdb,
-                        fd_capture_ctx_t *   capture_ctx,
                         fd_runtime_stack_t * runtime_stack,
                         ulong const *        parent_epoch );
 

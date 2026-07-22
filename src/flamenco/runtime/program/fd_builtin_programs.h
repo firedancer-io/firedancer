@@ -69,17 +69,15 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
 void
-fd_builtin_programs_init( fd_bank_t *        bank,
-                          fd_accdb_t *       accdb,
-                          fd_capture_ctx_t * capture_ctx );
+fd_builtin_programs_init( fd_bank_t *  bank,
+                          fd_accdb_t * accdb );
 
 void
-fd_write_builtin_account( fd_bank_t  *       bank,
-                          fd_accdb_t *       accdb,
-                          fd_capture_ctx_t * capture_ctx,
-                          fd_pubkey_t const  pubkey,
-                          void const *       data,
-                          ulong              sz );
+fd_write_builtin_account( fd_bank_t  *      bank,
+                          fd_accdb_t *      accdb,
+                          fd_pubkey_t const pubkey,
+                          void const *      data,
+                          ulong             sz );
 
 fd_builtin_program_t const *
 fd_builtins( void );
@@ -113,16 +111,14 @@ void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
                                 fd_accdb_t *                           accdb,
                                 fd_runtime_stack_t *                   runtime_stack,
-                                fd_core_bpf_migration_config_t const * config,
-                                fd_capture_ctx_t *                     capture_ctx );
+                                fd_core_bpf_migration_config_t const * config );
 
 void
 fd_upgrade_core_bpf_program( fd_bank_t *          bank,
                              fd_accdb_t *         accdb,
                              fd_runtime_stack_t * runtime_stack,
                              fd_pubkey_t const *  builtin_program_id,
-                             fd_pubkey_t const *  source_buffer_address,
-                             fd_capture_ctx_t *   capture_ctx );
+                             fd_pubkey_t const *  source_buffer_address );
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L402-L408 */
 void
@@ -131,8 +127,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *          bank,
                                                      fd_runtime_stack_t * runtime_stack,
                                                      fd_pubkey_t const *  loader_v2_program_address,
                                                      fd_pubkey_t const *  source_buffer_address,
-                                                     int                  allow_prefunded,
-                                                     fd_capture_ctx_t *   capture_ctx );
+                                                     int                  allow_prefunded );
 
 FD_PROTOTYPES_END
 

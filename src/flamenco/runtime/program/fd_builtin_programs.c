@@ -149,14 +149,13 @@ fd_builtin_is_bpf( fd_accdb_t *         accdb,
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
-fd_write_builtin_account( fd_bank_t  *       bank,
-                          fd_accdb_t *       accdb,
-                          fd_capture_ctx_t * capture_ctx,
-                          fd_pubkey_t const  pubkey,
-                          void const *       data,
-                          ulong              sz ) {
+fd_write_builtin_account( fd_bank_t  *      bank,
+                          fd_accdb_t *      accdb,
+                          fd_pubkey_t const pubkey,
+                          void const *      data,
+                          ulong             sz ) {
   fd_accdb_svm_write(
-      bank, accdb, capture_ctx,
+      bank, accdb,
       &pubkey,
       &fd_solana_native_loader_id, /* owner */
       data, sz,                    /* data */
@@ -166,29 +165,28 @@ fd_write_builtin_account( fd_bank_t  *       bank,
 }
 
 void
-fd_builtin_programs_init( fd_bank_t *        bank,
-                          fd_accdb_t *       accdb,
-                          fd_capture_ctx_t * capture_ctx ) {
+fd_builtin_programs_init( fd_bank_t *  bank,
+                          fd_accdb_t * accdb ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */
   fd_builtin_program_t const * builtins = fd_builtins();
 
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
     if( bank->f.slot==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, bank->accdb_fork_id, builtins[i].pubkey ) ) {
-      fd_write_builtin_account( bank, accdb, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
+      fd_write_builtin_account( bank, accdb, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
     } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
     } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
-      fd_write_builtin_account( bank, accdb, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
+      fd_write_builtin_account( bank, accdb, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
     }
   }
 
   /* Precompiles have empty account data */
-  fd_write_builtin_account( bank, accdb, capture_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
-  fd_write_builtin_account( bank, accdb, capture_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
-  fd_write_builtin_account( bank, accdb, capture_ctx, fd_solana_secp256r1_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, fd_solana_keccak_secp_256k_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, fd_solana_ed25519_sig_verify_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, fd_solana_secp256r1_program_id, "", 0 );
 }
 
 fd_builtin_program_t const *

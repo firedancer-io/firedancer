@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 
 #include "sysvar/fd_sysvar_base.h"
-#include "../capture/fd_capture_ctx.h"
 #include "../accdb/fd_accdb.h"
 #include "sysvar/fd_sysvar_base.h"
 #include "../../ballet/txn/fd_txn.h"
@@ -73,7 +72,6 @@ void
 fd_runtime_read_genesis( fd_banks_t *              banks,
                          fd_bank_t *               bank,
                          fd_accdb_t *              accdb,
-                         fd_capture_ctx_t *        capture_ctx,
                          fd_hash_t const *         genesis_hash,
                          fd_lthash_value_t const * genesis_lthash,
                          fd_genesis_t const *      genesis,

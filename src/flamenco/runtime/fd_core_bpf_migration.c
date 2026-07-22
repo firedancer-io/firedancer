@@ -63,8 +63,7 @@ tmp_account_read( fd_tmp_account_t *        acc,
 void
 tmp_account_store( fd_bank_t *        bank,
                    fd_accdb_t *       accdb,
-                   fd_tmp_account_t * acc,
-                   fd_capture_ctx_t * capture_ctx ) {
+                   fd_tmp_account_t * acc ) {
   if( FD_UNLIKELY( fd_pubkey_eq( &acc->pubkey, &fd_solana_system_program_id ) ) ) FD_LOG_ERR(( "attempted to write to the system program account" ));
 
   fd_accdb_svm_update_t update[1];
@@ -76,7 +75,7 @@ tmp_account_store( fd_bank_t *        bank,
   fd_memcpy( db_acc.data, acc->data, acc->data_sz );
   db_acc.data_len = acc->data_sz;
 
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &db_acc, update );
+  fd_accdb_svm_close_rw( bank, accdb, &db_acc, update );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
@@ -570,8 +569,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_accdb_t *                           accdb,
                               fd_bank_t *                            bank,
                               fd_runtime_stack_t *                   runtime_stack,
-                              fd_pubkey_t const *                    builtin_program_id,
-                              fd_capture_ctx_t *                     capture_ctx ) {
+                              fd_pubkey_t const *                    builtin_program_id ) {
   fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
 
   target_builtin_t target[1];
@@ -633,12 +631,12 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->lamports, new_target_program_data->lamports, &lamports_to_fund ) ) ) return;
 
   /* Write back accounts */
-  tmp_account_store( bank, accdb, new_target_program,      capture_ctx );
-  tmp_account_store( bank, accdb, new_target_program_data, capture_ctx );
+  tmp_account_store( bank, accdb, new_target_program      );
+  tmp_account_store( bank, accdb, new_target_program_data );
   fd_tmp_account_t * empty = &runtime_stack->bpf_migration.empty;
   tmp_account_new( empty, 0UL );
   empty->pubkey = source->pubkey;
-  tmp_account_store( bank, accdb, empty, capture_ctx );
+  tmp_account_store( bank, accdb, empty );
 
   /* FIXME "remove the built-in program from the bank's list of builtins" */
   /* FIXME "update account data size delta" */
@@ -650,9 +648,8 @@ void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
                                 fd_accdb_t *                           accdb,
                                 fd_runtime_stack_t *                   runtime_stack,
-                                fd_core_bpf_migration_config_t const * config,
-                                fd_capture_ctx_t *                     capture_ctx ) {
-  migrate_builtin_to_core_bpf1( config, accdb, bank, runtime_stack, config->builtin_program_id, capture_ctx );
+                                fd_core_bpf_migration_config_t const * config ) {
+  migrate_builtin_to_core_bpf1( config, accdb, bank, runtime_stack, config->builtin_program_id );
 }
 
 /* Mimics upgrade_core_bpf_program().
@@ -662,8 +659,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_accdb_t *                           accdb,
                              fd_runtime_stack_t *                   runtime_stack,
                              fd_pubkey_t const *                    builtin_program_id,
-                             fd_pubkey_t const *                    source_buffer_address,
-                             fd_capture_ctx_t *                     capture_ctx ) {
+                             fd_pubkey_t const *                    source_buffer_address ) {
   fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L327 */
@@ -741,12 +737,12 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L366-L371 */
   fd_pubkey_t source_addr = source->pubkey;
-  tmp_account_store( bank, accdb, new_target_program_data, capture_ctx );
+  tmp_account_store( bank, accdb, new_target_program_data );
 
   fd_tmp_account_t * empty = &runtime_stack->bpf_migration.empty;
   tmp_account_new( empty, 0UL );
   empty->pubkey = source_addr;
-  tmp_account_store( bank, accdb, empty, capture_ctx );
+  tmp_account_store( bank, accdb, empty );
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L374 */
   /* FIXME "update account data size delta" */
@@ -764,8 +760,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
                                                      fd_runtime_stack_t *      runtime_stack,
                                                      fd_pubkey_t const *       loader_v2_program_address,
                                                      fd_pubkey_t const *       source_buffer_address,
-                                                     int                       allow_prefunded,
-                                                     fd_capture_ctx_t *        capture_ctx ) {
+                                                     int                       allow_prefunded ) {
   fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L411-L412 */
@@ -839,13 +834,13 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->lamports, new_target_program_data->lamports, &lamports_to_fund ) ) ) return;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L462-L468 */
-  tmp_account_store( bank, accdb, new_target_program,      capture_ctx );
-  tmp_account_store( bank, accdb, new_target_program_data, capture_ctx );
+  tmp_account_store( bank, accdb, new_target_program      );
+  tmp_account_store( bank, accdb, new_target_program_data );
 
   fd_tmp_account_t * empty = &runtime_stack->bpf_migration.empty;
   tmp_account_new( empty, 0UL );
   empty->pubkey = source->pubkey;
-  tmp_account_store( bank, accdb, empty, capture_ctx );
+  tmp_account_store( bank, accdb, empty );
 
   /* NB: Agave updates "delta_off_chain", using these two fields,
      which is not consensus-critical (only used for Agave stats)

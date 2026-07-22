@@ -17,6 +17,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L36

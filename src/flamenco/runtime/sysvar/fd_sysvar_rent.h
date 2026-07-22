@@ -18,18 +18,16 @@ FD_PROTOTYPES_BEGIN
    NOT initialize global->bank.rent */
 
 void
-fd_sysvar_rent_init( fd_bank_t *        bank,
-                     fd_accdb_t *       accdb,
-                     fd_capture_ctx_t * capture_ctx );
+fd_sysvar_rent_init( fd_bank_t *  bank,
+                     fd_accdb_t * accdb );
 
 /* fd_sysvar_rent_write writes the current value of the rent sysvar to
    the accounts database. */
 
 void
-fd_sysvar_rent_write( fd_bank_t *        bank,
-                      fd_accdb_t *       accdb,
-                      fd_capture_ctx_t * capture_ctx,
-                      fd_rent_t const *  rent );
+fd_sysvar_rent_write( fd_bank_t *       bank,
+                      fd_accdb_t *      accdb,
+                      fd_rent_t const * rent );
 
 /* fd_rent_exempt_minimum_balance returns the minimum balance needed for
    an account with the given data_len to be rent exempt.  rent points to

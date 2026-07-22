@@ -5,12 +5,11 @@
 #include "fd_sysvar_rent.h"
 
 void
-fd_sysvar_stake_history_init( fd_bank_t *        bank,
-                              fd_accdb_t *       accdb,
-                              fd_capture_ctx_t * capture_ctx ) {
+fd_sysvar_stake_history_init( fd_bank_t *  bank,
+                              fd_accdb_t * accdb ) {
   uchar data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_memset( data, 0, sizeof(data) );
-  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_stake_history_id, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, &fd_sysvar_stake_history_id, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L2452-L2463 */
@@ -18,7 +17,6 @@ fd_sysvar_stake_history_init( fd_bank_t *        bank,
 void
 fd_sysvar_stake_history_update( fd_bank_t *                      bank,
                                 fd_accdb_t *                     accdb,
-                                fd_capture_ctx_t *               capture_ctx,
                                 fd_stake_history_entry_t const * entry ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
@@ -100,7 +98,7 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
   fd_memset( rw.data+used_sz, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ-used_sz );
 
   FD_STORE( ulong, rw.data, new_len );
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &rw, update );
+  fd_accdb_svm_close_rw( bank, accdb, &rw, update );
 }
 
 int

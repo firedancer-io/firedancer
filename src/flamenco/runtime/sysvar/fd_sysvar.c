@@ -9,7 +9,6 @@
 void
 fd_sysvar_account_update( fd_bank_t *         bank,
                           fd_accdb_t *        accdb,
-                          fd_capture_ctx_t *  capture_ctx,
                           fd_pubkey_t const * address,
                           void const *        data,
                           ulong               sz ) {
@@ -18,7 +17,7 @@ fd_sysvar_account_update( fd_bank_t *         bank,
      adjust_sysvar_balance_for_rent() does max(rent_exempt_min,
      current_lamports), which in this case would yield 1 instead of 0. */
   ulong min_bal = fd_ulong_max( fd_rent_exempt_minimum_balance( &bank->f.rent, sz ), 1UL );
-  fd_accdb_svm_write( bank, accdb, capture_ctx, address, &fd_sysvar_owner_id, data, sz, min_bal, 0 );
+  fd_accdb_svm_write( bank, accdb, address, &fd_sysvar_owner_id, data, sz, min_bal, 0 );
 }
 
 int

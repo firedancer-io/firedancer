@@ -42,14 +42,10 @@ struct fd_execrp_tile {
 
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
-  link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            execrp_replay_out[ 1 ];
 
   fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
-
-  /* Capture context for debugging runtime execution. */
-  fd_capture_ctx_t *    capture_ctx;
-  fd_capture_link_buf_t cap_execrp_out[1];
 
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */
@@ -110,10 +106,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
-    l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
-  }
 
   if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
@@ -237,12 +229,6 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
         ctx->txn_in.index_in_slot = msg->index_in_slot;
 
-        /* Set the capture txn index from the message so account updates
-           during commit are recorded with the correct transaction index. */
-        if( FD_UNLIKELY( ctx->capture_ctx ) ) {
-          ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
-        }
-
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
@@ -320,11 +306,6 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
 
-  void * _capture_ctx = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
-    _capture_ctx            = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
-  }
-
   void * _dump_proto_ctx = NULL;
   void * _txn_dump_ctx = NULL;
   void * _dumping = NULL;
@@ -384,44 +365,6 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
   }
 
-
-  ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
-    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
-    ctx->capture_ctx->solcap_start_slot = tile->execrp.capture_start_slot;
-
-    ulong tile_idx = tile->kind_id;
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
-    FD_TEST( idx!=ULONG_MAX );
-
-    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ idx ] ];
-    fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
-    cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
-    cap_execrp_out->idx     = idx;
-    cap_execrp_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    cap_execrp_out->chunk0  = fd_dcache_compact_chunk0( cap_execrp_out->mem, link->dcache );
-    cap_execrp_out->wmark   = fd_dcache_compact_wmark( cap_execrp_out->mem, link->dcache, link->mtu );
-    cap_execrp_out->chunk   = cap_execrp_out->chunk0;
-    cap_execrp_out->mcache  = link->mcache;
-    cap_execrp_out->depth   = fd_mcache_depth( link->mcache );
-    cap_execrp_out->seq     = 0UL;
-
-    ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
-    fd_topo_tile_t const * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    cap_execrp_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
-        cap_execrp_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( cap_execrp_out->fseq );
-        break;
-      }
-    }
-
-    ctx->capture_ctx->capture_solcap  = 1;
-    ctx->capture_ctx->capctx_type.buf = cap_execrp_out;
-    ctx->capture_ctx->capture_link    = &cap_execrp_out->base;
-  }
-
   ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
     ctx->dump_proto_ctx = _dump_proto_ctx;
@@ -464,7 +407,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.dumping_mem          = _dumping;
   ctx->runtime->log.tracing_mem          = NULL;
-  ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
   ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;
   ctx->runtime->log.txn_dump_ctx         = ctx->txn_dump_ctx;
   ctx->runtime->fuzz.enabled             = 0;

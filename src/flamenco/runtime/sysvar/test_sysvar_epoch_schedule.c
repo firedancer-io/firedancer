@@ -179,7 +179,7 @@ test_sysvar_epoch_schedule_invalid_warmup( fd_wksp_t * wksp ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, NULL, &schedule );
+  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &schedule );
 
   FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb ) );
   FD_TEST( fd_sysvar_cache_epoch_schedule_is_valid( env->sysvar_cache )==0 );
