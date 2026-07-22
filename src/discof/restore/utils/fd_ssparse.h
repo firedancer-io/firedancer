@@ -36,7 +36,6 @@ struct fd_ssparse {
   } tar;
 
   struct {
-    uchar const * owner;
     uchar header[ 136UL ];
     ulong header_bytes_consumed;
     ulong data_bytes_consumed;
@@ -81,7 +80,6 @@ struct fd_ssparse_advance_result {
     } account_header;
 
     struct {
-      uchar const * owner;
       uchar const * data;
       ulong         data_sz;
     } account_data;
