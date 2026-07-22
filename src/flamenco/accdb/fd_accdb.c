@@ -109,6 +109,13 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      that never gets a second write (and therefore would otherwise
      never be promoted by compaction). */
   int snapshot_loading;
+
+  /* Snapshot-exclusive acc_pool allocator.  [bump,end) is the writer's
+     unused range.  free_top collects holes created when final root
+     advancement removes old account entries. */
+  uint snapshot_acc_free_top;
+  uint snapshot_acc_bump;
+  uint snapshot_acc_end;
 };
 
 static inline fd_accdb_cache_line_t *
@@ -244,9 +251,12 @@ fd_accdb_new( void *              ljoin,
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
-  accdb->fd = fd;
-  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
-  accdb->snapshot_loading = 0;
+  accdb->fd                    = fd;
+  accdb->acquire_state         = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->snapshot_loading      = 0;
+  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
+  accdb->snapshot_acc_bump     = 0U;
+  accdb->snapshot_acc_end      = 0U;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -294,6 +304,128 @@ fd_accdb_new( void *              ljoin,
 static inline void wait_cmd( fd_accdb_t * accdb );
 static inline void submit_cmd( fd_accdb_t * accdb, uint op, ushort fork_id );
 
+/* Lock the shared account pool while snapin loads accounts.  Snapin is
+   the only pool user during this time, so plain stores are safe and CAS
+   is not needed. */
+static void
+snapshot_acc_pool_begin( fd_accdb_t * accdb ) {
+  /* Get the pool. */
+  acc_pool_shmem_t * pool = accdb->acc_pool_join->pool;
+  ulong              max  = accdb->acc_pool_join->ele_max;
+  FD_TEST( max<(ulong)UINT_MAX );
+
+  /* Read current pool versions. */
+  ulong top  = pool->ver_top;
+  ulong lazy = pool->ver_lazy;
+
+  /* Check the pool is empty and unlocked. */
+  FD_TEST( !(acc_pool_private_vidx_ver( top  ) & 1UL) );
+  FD_TEST( !(acc_pool_private_vidx_ver( lazy ) & 1UL) );
+  FD_TEST( acc_pool_private_vidx_idx( top  )==acc_pool_idx_null() );
+  FD_TEST( acc_pool_private_vidx_idx( lazy )==0UL );
+  FD_TEST( !accdb->shmem->deferred_acc_buf_cnt );
+
+  /* Initialize snapshot state. */
+  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
+  accdb->snapshot_acc_bump     = 0U;
+  accdb->snapshot_acc_end      = (uint)max;
+
+  /* Manually lock the shared account pool. */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( pool->ver_top  ) = acc_pool_private_vidx( acc_pool_private_vidx_ver( top  )+1UL, acc_pool_idx_null() );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( pool->ver_lazy ) = acc_pool_private_vidx( acc_pool_private_vidx_ver( lazy )+1UL, 0UL );
+  FD_COMPILER_MFENCE();
+}
+
+/* Reset the shared account pool and clear snapshot state.  The caller
+   must make sure no other tile is using the account pool. */
+static void
+snapshot_acc_pool_reset( fd_accdb_t * accdb ) {
+  acc_pool_reset( accdb->acc_pool_join );
+
+  /* Unlock the shared account pool if needed. */
+  acc_pool_shmem_t * pool = accdb->acc_pool_join->pool;
+  if( FD_UNLIKELY( acc_pool_private_vidx_ver( pool->ver_top )&1UL ) ) {
+    acc_pool_unlock( accdb->acc_pool_join );
+  }
+
+  /* Clear snapshot state. */
+  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
+  accdb->snapshot_acc_bump     = 0U;
+  accdb->snapshot_acc_end      = 0U;
+}
+
+static inline fd_accdb_accmeta_t *
+snapshot_acc_pool_acquire( fd_accdb_t * accdb ) {
+  /* Check snapshot loading is active. */
+  FD_TEST( accdb->snapshot_loading );
+
+  /* Use the next unused entry. */
+  if( FD_UNLIKELY( accdb->snapshot_acc_bump>=accdb->snapshot_acc_end ) ) {
+    return NULL;
+  }
+
+  return &accdb->acc_pool[ accdb->snapshot_acc_bump++ ];
+}
+
+/* Move entries removed by final root advancement into the free stack
+   that will be published to the shared account pool. */
+static void
+snapshot_acc_pool_free_deferred( fd_accdb_t * accdb ) {
+  /* Check snapshot loading is active. */
+  FD_TEST( accdb->snapshot_loading );
+  FD_COMPILER_MFENCE();
+
+  /* Move removed entries into the snapshot free stack. */
+  ulong n = accdb->shmem->deferred_acc_buf_cnt;
+  for( ulong i=0UL; i<n; i++ ) {
+    uint idx = accdb->deferred_acc_buf[ i ];
+    FD_TEST( idx<accdb->snapshot_acc_bump );
+    accdb->acc_pool[ idx ].pool.next = accdb->snapshot_acc_free_top;
+    accdb->snapshot_acc_free_top = idx;
+  }
+
+  /* Clear the shared buffer. */
+  FD_COMPILER_MFENCE();
+  accdb->shmem->deferred_acc_buf_cnt = 0UL;
+}
+
+/* Publish the snapshot free stack and bump to the shared account pool.
+   Write ver_lazy first and ver_top last because ver_top unlocks the
+   pool. */
+static void
+snapshot_acc_pool_publish( fd_accdb_t * accdb ) {
+  /* Get the shared account pool and locked versions. */
+  acc_pool_shmem_t * pool = accdb->acc_pool_join->pool;
+  ulong ver_top  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong ver_lazy = FD_VOLATILE_CONST( pool->ver_lazy );
+  ulong top_ver  = acc_pool_private_vidx_ver( ver_top  );
+  ulong lazy_ver = acc_pool_private_vidx_ver( ver_lazy );
+
+  /* Check the pool is locked and snapshot state is valid. */
+  FD_TEST( top_ver  & 1UL );
+  FD_TEST( lazy_ver & 1UL );
+  FD_TEST( accdb->snapshot_acc_bump<=accdb->snapshot_acc_end );
+
+  /* Find the next unused shared pool index. */
+  ulong lazy_idx = accdb->snapshot_acc_bump<accdb->snapshot_acc_end
+                 ? (ulong)accdb->snapshot_acc_bump
+                 : acc_pool_idx_null();
+
+  /* Publish snapshot state and unlock the shared account pool. */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( pool->ver_lazy ) = acc_pool_private_vidx( lazy_ver+1UL, lazy_idx );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( pool->ver_top  ) = acc_pool_private_vidx( top_ver +1UL, (ulong)accdb->snapshot_acc_free_top );
+  FD_COMPILER_MFENCE();
+
+  /* Clear snapshot state. */
+  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
+  accdb->snapshot_acc_bump     = 0U;
+  accdb->snapshot_acc_end      = 0U;
+}
+
 void
 fd_accdb_reset( fd_accdb_t * accdb ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
@@ -306,7 +438,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
      txn_pool use POOL_LAZY=1 so reset is O(1).  fork_pool and
      partition_pool rebuild their free lists in O(max_live_slots) and
      O(partition_cnt), both small. */
-  acc_pool_reset( accdb->acc_pool_join );
+  snapshot_acc_pool_reset( accdb );
   txn_pool_reset( accdb->txn_pool );
   fork_pool_reset( accdb->fork_shmem_pool );
   partition_pool_reset( accdb->partition_pool );
@@ -406,8 +538,12 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
+  FD_TEST( !accdb->snapshot_loading );
+  wait_cmd( accdb );
+  snapshot_acc_pool_begin( accdb );
   accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
+  FD_COMPILER_MFENCE();
 }
 
 static inline void
@@ -419,6 +555,14 @@ change_partition( fd_accdb_t *           accdb,
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
+  FD_TEST( accdb->snapshot_loading );
+
+  /* Incremental advance_root is asynchronous.  T2 makes every unlinked
+     accmeta safe to reuse before acknowledging the command, after which
+     this join owns and frees the deferred indices. */
+  wait_cmd( accdb );
+  snapshot_acc_pool_free_deferred( accdb );
+
   spin_lock_acquire( &accdb->shmem->partition_lock );
 
   /* Force the next layer-0 write onto a fresh Hot partition so we do
@@ -436,6 +580,7 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
     FD_VOLATILE( newp->layer ) = 0;
   }
 
+  snapshot_acc_pool_publish( accdb );
   accdb->snapshot_loading = 0;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
 
@@ -453,8 +598,10 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
 void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out ) {
+  FD_TEST( accdb->snapshot_loading );
   out->whead_val          = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val );
   out->has_partition      = FD_VOLATILE_CONST( accdb->shmem->has_partition[ 0 ] );
+  out->acc_pool_bump      = accdb->snapshot_acc_bump;
   out->partition_max      = FD_VOLATILE_CONST( accdb->shmem->partition_max );
   out->disk_current_bytes = FD_VOLATILE_CONST( accdb->shmem->shmetrics->disk_current_bytes );
 
@@ -476,6 +623,12 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
   /* Wait for any pending background command (purge) on T2 to finish
      before releasing partitions. */
   wait_cmd( accdb );
+
+  /* Reuse the failed incremental account-pool range. */
+  FD_TEST( accdb->snapshot_loading );
+  FD_TEST( recover->acc_pool_bump<=accdb->snapshot_acc_bump );
+  accdb->shmem->deferred_acc_buf_cnt = 0UL;
+  accdb->snapshot_acc_bump = recover->acc_pool_bump;
 
   ulong cur_partition_max = shmem->partition_max;
 
@@ -596,8 +749,12 @@ fd_accdb_join_readonly( void *             ljoin,
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
-  accdb->fd    = fd_ro;
-  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->fd                    = fd_ro;
+  accdb->acquire_state         = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->snapshot_loading      = 0;
+  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
+  accdb->snapshot_acc_bump     = 0U;
+  accdb->snapshot_acc_end      = 0U;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
@@ -3165,6 +3322,7 @@ release_inner( fd_accdb_t * accdb,
       committed_line->referenced = 1;
     } else {
       accdb->metrics->accounts_committed_new_per_class[ new_size_class ]++;
+      FD_TEST( !FD_VOLATILE_CONST( accdb->shmem->snapshot_loading ) );
       fd_accdb_accmeta_t * accmeta = acc_pool_acquire( accdb->acc_pool_join );
       FD_TEST( accmeta );
       ulong acc_idx = acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -3821,7 +3979,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   int replace = !!accmeta;
 
   if( FD_UNLIKELY( !accmeta ) ) {
-    accmeta = acc_pool_acquire( accdb->acc_pool_join );
+    accmeta = snapshot_acc_pool_acquire( accdb );
     if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
 
     uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -4010,7 +4168,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = acc_pool_acquire( accdb->acc_pool_join );
+      accmeta = snapshot_acc_pool_acquire( accdb );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );

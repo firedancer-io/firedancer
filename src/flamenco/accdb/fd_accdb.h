@@ -178,8 +178,19 @@ fd_accdb_join_readonly( void *             ljoin,
    accounts never get a second write and therefore never get promoted
    by normal compaction-driven tiering.
 
-   Only the snapin tile is expected to use this.  The flag is
-   per-joiner and is not visible across processes. */
+   Only snapin should call these functions.  Begin/end must cover the
+   full snapshot, optional incremental snapshot, and retries.  No other
+   tile may use the account pool during this time.
+
+   Begin requires an empty account pool.  It locks the shared pool and
+   starts a private bump at index 0.  Snapshot writes use this bump
+   without CAS.
+
+   If incremental loading fails, purge finishes and the bump returns to
+   the full-snapshot checkpoint.  End waits for pending advance_root,
+   adds removed entries to the free stack, publishes the bump and free
+   stack, and unlocks the shared pool.  A failed full snapshot uses
+   fd_accdb_reset instead. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
@@ -187,13 +198,15 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
 
-/* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
-   Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
-   accdb state across an incremental snapshot attempt. */
+/* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata and
+   the snapshot acc_pool bump.  Used by
+   fd_accdb_snapshot_{save,revert}_whead to save and restore accdb state
+   across an incremental snapshot attempt. */
 
 struct fd_accdb_snapshot_recovery {
   ulong whead_val;             /* whead[0].val */
   int   has_partition;         /* has_partition[0] */
+  uint  acc_pool_bump;         /* snapshot acc_pool bump */
   ulong partition_max;         /* partition_max */
   ulong disk_current_bytes;    /* disk_current_bytes metric */
   ulong savepoint_bytes_freed; /* bytes_freed of the save-point partition */
@@ -202,9 +215,9 @@ struct fd_accdb_snapshot_recovery {
 typedef struct fd_accdb_snapshot_recovery fd_accdb_snapshot_recovery_t;
 
 /* fd_accdb_snapshot_save_whead captures the current layer-0 write head,
-   partition state, and disk_current_bytes metric into the provided
-   recovery struct.  Also captures the save-point partition's
-   bytes_freed. */
+   partition state, snapshot acc_pool bump, and disk_current_bytes metric
+   into the provided recovery struct.  Also captures the save-point
+   partition's bytes_freed. */
 
 void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
@@ -221,7 +234,9 @@ fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
    [saved_partition_max, current partition_max)) are released back
    to the partition pool.  disk_current_bytes is restored to the saved
    value rather than computed per-partition, and the save-point
-   partition's bytes_freed and write_offset are reset. */
+   partition's bytes_freed and write_offset are reset.  During an active
+   snapshot load, the acc_pool bump is also moved back to the save
+   point after T2 makes the failed incremental entries safe to reuse. */
 
 void
 fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,

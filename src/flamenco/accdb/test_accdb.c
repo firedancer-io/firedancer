@@ -82,6 +82,76 @@ test_setup( int * out_fd,
                         partition_cnt, partition_sz, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
 }
 
+static fd_accdb_t *
+test_join_writer( int fd ) {
+  ulong fp = fd_accdb_footprint( test_shmem_mem->max_live_slots );
+  void * mem = aligned_alloc( fd_accdb_align(), fp );
+  FD_TEST( mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, test_shmem_mem, fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+  return accdb;
+}
+
+static void
+test_acc_pool_integrity( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = test_shmem_mem;
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+                            FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,            sizeof(fd_accdb_shmem_t)                                            );
+                            FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t),  shmem->max_live_slots*sizeof(fd_accdb_fork_shmem_t)                 );
+                            FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            shmem->max_live_slots*descends_set_footprint(shmem->max_live_slots) );
+  uint * acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   shmem->chain_cnt*sizeof(uint)                                      );
+  fd_accdb_accmeta_t * pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),   shmem->max_accounts*sizeof(fd_accdb_accmeta_t)                     );
+
+  acc_pool_t join[1];
+  FD_TEST( acc_pool_join( join, shmem->acc_pool, pool, shmem->max_accounts ) );
+  FD_TEST( acc_pool_verify( join )==FD_POOL_SUCCESS );
+
+  ulong ver_top  = FD_VOLATILE_CONST( shmem->acc_pool->ver_top  );
+  ulong ver_lazy = FD_VOLATILE_CONST( shmem->acc_pool->ver_lazy );
+  FD_TEST( !(acc_pool_private_vidx_ver( ver_top  ) & 1UL) );
+  FD_TEST( !(acc_pool_private_vidx_ver( ver_lazy ) & 1UL) );
+
+  uchar * seen = calloc( shmem->max_accounts, 1UL );
+  FD_TEST( seen );
+
+  ulong live_cnt = 0UL;
+  for( ulong chain_idx=0UL; chain_idx<shmem->chain_cnt; chain_idx++ ) {
+    uint idx = acc_map[ chain_idx ];
+    while( idx!=UINT_MAX ) {
+      FD_TEST( (ulong)idx<shmem->max_accounts );
+      FD_TEST( !seen[ idx ] );
+      seen[ idx ] = 1U;
+      live_cnt++;
+      idx = pool[ idx ].map.next;
+    }
+  }
+
+  ulong free_cnt = 0UL;
+  ulong idx = acc_pool_private_vidx_idx( ver_top );
+  while( idx!=acc_pool_idx_null() ) {
+    FD_TEST( idx<shmem->max_accounts );
+    FD_TEST( !seen[ idx ] );
+    seen[ idx ] = 2U;
+    free_cnt++;
+    idx = acc_pool_private_idx( pool[ idx ].pool.next );
+  }
+
+  idx = acc_pool_private_vidx_idx( ver_lazy );
+  if( idx!=acc_pool_idx_null() ) {
+    FD_TEST( idx<shmem->max_accounts );
+    for( ulong i=idx; i<shmem->max_accounts; i++ ) {
+      FD_TEST( !seen[ i ] );
+      seen[ i ] = 3U;
+      free_cnt++;
+    }
+  }
+
+  for( ulong i=0UL; i<shmem->max_accounts; i++ ) FD_TEST( seen[ i ] );
+  FD_TEST( live_cnt==fd_accdb_shmetrics( accdb )->accounts_total );
+  FD_TEST( live_cnt+free_cnt==shmem->max_accounts );
+  free( seen );
+}
+
 static void
 test_teardown( fd_accdb_t * accdb,
                int          fd ) {
@@ -634,7 +704,7 @@ test_purge( void ) {
 
 /* A completed purge leaves its fork slot deferred until a later drain.
    If the pool is otherwise full, attach_child must request that drain,
-   block for reader quiescence, and retry the allocation. */
+   wait for active readers to finish, and retry the allocation. */
 void
 test_attach_child_drains_deferred_fork( void ) {
   int fd;
@@ -1013,6 +1083,7 @@ test_mainnet_footprint( void ) {
   ulong sz_part_pool      = partition_pool_footprint( partition_cnt );
   ulong sz_compact_dlists = FD_ACCDB_COMPACTION_LAYER_CNT*compaction_dlist_footprint();
   ulong sz_deferred_dlist = deferred_free_dlist_footprint();
+  ulong sz_deferred_acc   = max_accounts*sizeof(uint);
   ulong sz_cache_regions  = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
     sz_cache_regions += cache_class_max[c]*fd_accdb_cache_slot_sz[c];
@@ -1021,7 +1092,7 @@ test_mainnet_footprint( void ) {
             + sz_chain
             + sz_acc_pool
             + sz_txn_pool
-            + sz_part_pool + sz_compact_dlists + sz_deferred_dlist
+            + sz_part_pool + sz_compact_dlists + sz_deferred_dlist + sz_deferred_acc
             + sz_cache_regions;
 
   struct { char const * name; ulong sz; } rows[] = {
@@ -1033,6 +1104,7 @@ test_mainnet_footprint( void ) {
     { "partition_pool",     sz_part_pool      },
     { "fork_shmem",         sz_fork_shmem     },
     { "fd_accdb_shmem_t",   sz_shmem_t       },
+    { "deferred acc buffer",sz_deferred_acc   },
     { "compaction_dlists",  sz_compact_dlists },
     { "deferred_free_dlist",sz_deferred_dlist },
   };
@@ -1239,7 +1311,6 @@ test_revert_whead( void ) {
     fd_accdb_snapshot_write_one( accdb, SENTINEL, snap_pks[ i ],
                                  10UL, (i+1UL)*100UL, 4UL<<20UL, 0, &replaced );
   }
-  fd_accdb_snapshot_load_end( accdb );
 
   /* Capture savepoint. */
   fd_accdb_snapshot_recovery_t recovery;
@@ -1255,7 +1326,6 @@ test_revert_whead( void ) {
 
   /* Incremental snapshot load: write 5 more 4 MiB accounts.
      Forces allocation of additional partitions beyond the savepoint. */
-  fd_accdb_snapshot_load_begin( accdb );
   uchar incr_pks[ 5 ][ 32UL ];
   for( ulong i=0UL; i<5UL; i++ ) {
     fd_memset( incr_pks[ i ], 0, 32UL );
@@ -1263,7 +1333,6 @@ test_revert_whead( void ) {
     fd_accdb_snapshot_write_one( accdb, incr_fork, incr_pks[ i ],
                                  20UL, (i+1UL)*1000UL, 4UL<<20UL, 0, &replaced );
   }
-  fd_accdb_snapshot_load_end( accdb );
 
   /* Verify disk_current_bytes grew from the incremental writes. */
   FD_TEST( shmetrics->disk_current_bytes>saved_disk_current );
@@ -1291,6 +1360,7 @@ test_revert_whead( void ) {
     FD_TEST( lamports==(i+1UL)*100UL );
   }
 
+  fd_accdb_snapshot_load_end( accdb );
   test_teardown( accdb, fd );
 }
 
@@ -1321,7 +1391,6 @@ test_incremental_cross_fork_override( void ) {
   fd_accdb_snapshot_write_one( accdb, SENTINEL, pk0, 10UL, 100UL, 1024UL, 0, &replaced );
   fd_accdb_snapshot_write_one( accdb, SENTINEL, pk1, 10UL, 200UL, 1024UL, 0, &replaced );
   fd_accdb_snapshot_write_one( accdb, SENTINEL, pk2, 10UL, 300UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_load_end( accdb );
 
   /* Save whead. */
   fd_accdb_snapshot_recovery_t recovery;
@@ -1331,10 +1400,8 @@ test_incremental_cross_fork_override( void ) {
   fd_accdb_fork_id_t incr_fork = fd_accdb_attach_child( accdb, root );
 
   /* Incremental snapshot load: override pk0 and pk1 with new lamports. */
-  fd_accdb_snapshot_load_begin( accdb );
   fd_accdb_snapshot_write_one( accdb, incr_fork, pk0, 20UL, 111UL, 1024UL, 0, &replaced );
   fd_accdb_snapshot_write_one( accdb, incr_fork, pk1, 20UL, 222UL, 1024UL, 0, &replaced );
-  fd_accdb_snapshot_load_end( accdb );
 
   /* Verify accounts_total reflects the cross-fork overrides: 3 original
      entries + 2 cross-fork entries = 5. */
@@ -1358,7 +1425,209 @@ test_incremental_cross_fork_override( void ) {
   /* The cross-fork override entries should be removed by purge. */
   FD_TEST( shmetrics->accounts_total==3UL );
 
+  fd_accdb_snapshot_load_end( accdb );
   test_teardown( accdb, fd );
+}
+
+/* Snapshot allocation uses a private free-stack/bump pair while the
+   normal concurrent pool is locked.  The versioned pool headers remain
+   unchanged per account and are published once at load end. */
+static void
+test_snapshot_acc_pool_local( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 16UL, 8UL, 64UL, 64UL, 1UL<<30UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_max==16UL );
+
+  acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
+  ulong top_before  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( !(acc_pool_private_vidx_ver( top_before  ) & 1UL) );
+  FD_TEST( !(acc_pool_private_vidx_ver( lazy_before ) & 1UL) );
+
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong top_locked  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_locked = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_ver( top_locked  )==acc_pool_private_vidx_ver( top_before  )+1UL );
+  FD_TEST( acc_pool_private_vidx_ver( lazy_locked )==acc_pool_private_vidx_ver( lazy_before )+1UL );
+  FD_TEST(  acc_pool_private_vidx_ver( top_locked  ) & 1UL );
+  FD_TEST(  acc_pool_private_vidx_ver( lazy_locked ) & 1UL );
+
+  uchar pubkey[ 32UL ] = { 0xA5 };
+  ulong replaced_lamports;
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 10UL, 1UL, 0UL, 0,
+                                        &replaced_lamports )==1 );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 11UL, 2UL, 0UL, 0,
+                                        &replaced_lamports )==2 );
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 9UL, 3UL, 0UL, 0,
+                                        &replaced_lamports )==-1 );
+
+  uchar batch_pubkeys_mem[ 8UL ][ 32UL ] = {{0}};
+  uchar const * batch_pubkeys[ 8UL ];
+  ulong slots[ 8UL ];
+  ulong lamports[ 8UL ];
+  ulong data_lens[ 8UL ] = {0};
+  int executables[ 8UL ] = {0};
+  batch_pubkeys[ 0 ] = pubkey;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    if( i ) {
+      batch_pubkeys_mem[ i ][ 0 ] = (uchar)(0xB0UL+i);
+      batch_pubkeys[ i ] = batch_pubkeys_mem[ i ];
+    }
+    slots[ i ]    = 12UL;
+    lamports[ i ] = i+10UL;
+  }
+
+  ulong ignored, replaced, loaded, ignored_lamports;
+  FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 8UL, batch_pubkeys,
+                                           slots, lamports, data_lens, executables,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports ) );
+  FD_TEST( ignored==0UL && replaced==1UL && loaded==7UL );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top_locked  );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_locked );
+
+  fd_accdb_snapshot_load_end( accdb );
+  ulong top_after  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_after = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_ver( top_after  )==acc_pool_private_vidx_ver( top_before  )+2UL );
+  FD_TEST( acc_pool_private_vidx_ver( lazy_after )==acc_pool_private_vidx_ver( lazy_before )+2UL );
+  FD_TEST( acc_pool_private_vidx_idx( top_after  )==acc_pool_idx_null() );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_after )==8UL );
+  test_acc_pool_integrity( accdb );
+
+  /* The concurrent allocator must be usable after snapshot publication. */
+  uchar runtime_pubkey[ 32UL ] = { 0xCF };
+  accdb_write( accdb, root, runtime_pubkey, 99UL, NULL, 0UL, owner2 );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==9UL );
+  test_acc_pool_integrity( accdb );
+
+  test_teardown( accdb, fd );
+}
+
+/* Full failure resets an odd/locked snapshot pool back to the ordinary
+   empty, even/unlocked lazy state without publishing stale local state. */
+static void
+test_snapshot_acc_pool_reset( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 8UL, 8UL, 64UL, 64UL, 1UL<<30UL,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * background = test_join_writer( fd );
+  fd_accdb_attach_child( accdb, SENTINEL );
+
+  acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
+  fd_accdb_snapshot_load_begin( accdb );
+  FD_TEST( acc_pool_private_vidx_ver( FD_VOLATILE_CONST( pool->ver_top  ) ) & 1UL );
+  FD_TEST( acc_pool_private_vidx_ver( FD_VOLATILE_CONST( pool->ver_lazy ) ) & 1UL );
+
+  uchar pubkey[ 32UL ] = { 0xD0 };
+  ulong replaced_lamports;
+  FD_TEST( fd_accdb_snapshot_write_one( accdb, SENTINEL, pubkey, 10UL, 1UL, 0UL, 0,
+                                        &replaced_lamports )==1 );
+
+  fd_accdb_reset( accdb );
+  test_background_ctx_t bg_ctx = { .accdb = background, .stop = 0 };
+  pthread_t bg_thread;
+  FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
+  while( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
+  FD_VOLATILE( bg_ctx.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  ulong top  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( !(acc_pool_private_vidx_ver( top  ) & 1UL) );
+  FD_TEST( !(acc_pool_private_vidx_ver( lazy ) & 1UL) );
+  FD_TEST( acc_pool_private_vidx_idx( top  )==acc_pool_idx_null() );
+  FD_TEST( acc_pool_private_vidx_idx( lazy )==0UL );
+  test_acc_pool_integrity( accdb );
+
+  free( background );
+  test_teardown( accdb, fd );
+}
+
+/* T2 makes failed incremental accmetas safe to reuse and leaves them in
+   the shared deferred buffer.  Snapin then moves the bump back to the
+   full-snapshot checkpoint so an immediate retry reuses the same range. */
+static void
+test_snapshot_acc_pool_incremental_retry( void ) {
+  int fd;
+  fd_accdb_t * snapin = test_setup_ex( &fd, 3UL, 8UL, 64UL, 64UL, 1UL<<30UL,
+                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * background = test_join_writer( fd );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( snapin, SENTINEL );
+  acc_pool_shmem_t * pool = test_shmem_mem->acc_pool;
+  ulong top_before  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_before = FD_VOLATILE_CONST( pool->ver_lazy );
+
+  fd_accdb_snapshot_load_begin( snapin );
+  ulong top_locked  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_locked = FD_VOLATILE_CONST( pool->ver_lazy );
+
+  uchar full_pubkey[ 32UL ] = { 0xE0 };
+  uchar failed_pubkeys[ 2UL ][ 32UL ] = {{0}};
+  failed_pubkeys[ 0 ][ 0 ] = 0xE1;
+  failed_pubkeys[ 1 ][ 0 ] = 0xE2;
+  ulong replaced_lamports;
+  FD_TEST( fd_accdb_snapshot_write_one( snapin, SENTINEL, full_pubkey, 10UL, 1UL, 0UL, 0,
+                                        &replaced_lamports )==1 );
+
+  fd_accdb_snapshot_recovery_t recovery;
+  fd_accdb_snapshot_save_whead( snapin, &recovery );
+  FD_TEST( recovery.acc_pool_bump==1U );
+
+  test_background_ctx_t bg_ctx = { .accdb = background, .stop = 0 };
+  pthread_t bg_thread;
+  FD_TEST( !pthread_create( &bg_thread, NULL, run_background, &bg_ctx ) );
+
+  /* First failed attempt exhausts the never-used range. */
+  fd_accdb_fork_id_t failed = fd_accdb_attach_child( snapin, root );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( fd_accdb_snapshot_write_one( snapin, failed, failed_pubkeys[ i ],
+                                          20UL, i+2UL, 0UL, 0, &replaced_lamports )==1 );
+  }
+
+  fd_accdb_purge( snapin, failed );
+  fd_accdb_snapshot_revert_whead( snapin, &recovery );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top_locked  );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_locked );
+
+  /* Retry uses the same two bump entries.  One overrides the full
+     account so final root advancement also frees an ancestor. */
+  fd_accdb_fork_id_t retry = fd_accdb_attach_child( snapin, root );
+  uchar retry_new_pubkey[ 32UL ] = { 0xE3 };
+  FD_TEST( fd_accdb_snapshot_write_one( snapin, retry, full_pubkey, 30UL, 4UL, 0UL, 0,
+                                        &replaced_lamports )==2 );
+  FD_TEST( fd_accdb_snapshot_write_one( snapin, retry, retry_new_pubkey, 30UL, 5UL, 0UL, 0,
+                                        &replaced_lamports )==1 );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top_locked  );
+  FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_locked );
+
+  fd_accdb_advance_root( snapin, retry );
+  fd_accdb_snapshot_load_end( snapin );
+  FD_TEST( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )==FD_ACCDB_CMD_IDLE );
+
+  FD_VOLATILE( bg_ctx.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  ulong top_after  = FD_VOLATILE_CONST( pool->ver_top  );
+  ulong lazy_after = FD_VOLATILE_CONST( pool->ver_lazy );
+  FD_TEST( acc_pool_private_vidx_ver( top_after  )==acc_pool_private_vidx_ver( top_before  )+2UL );
+  FD_TEST( acc_pool_private_vidx_ver( lazy_after )==acc_pool_private_vidx_ver( lazy_before )+2UL );
+  FD_TEST( acc_pool_private_vidx_idx( top_after )<3UL );
+  FD_TEST( acc_pool_private_vidx_idx( lazy_after )==acc_pool_idx_null() );
+  FD_TEST( fd_accdb_shmetrics( snapin )->accounts_total==2UL );
+  test_acc_pool_integrity( snapin );
+
+  /* Concurrent runtime allocation must work after the incremental root
+     handoff, including reuse of the ancestor accmeta freed by T2. */
+  uchar runtime_pubkey[ 32UL ] = { 0xE4 };
+  accdb_write( snapin, retry, runtime_pubkey, 6UL, NULL, 0UL, owner2 );
+  FD_TEST( fd_accdb_shmetrics( snapin )->accounts_total==3UL );
+  test_acc_pool_integrity( snapin );
+
+  free( background );
+  test_teardown( snapin, fd );
 }
 
 /* test_sentinel_index_wrap is a regression for issue #543: at the
@@ -1506,6 +1775,15 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();
+
+  FD_LOG_NOTICE(( "test_snapshot_acc_pool_local ..." ));
+  test_snapshot_acc_pool_local();
+
+  FD_LOG_NOTICE(( "test_snapshot_acc_pool_reset ..." ));
+  test_snapshot_acc_pool_reset();
+
+  FD_LOG_NOTICE(( "test_snapshot_acc_pool_incremental_retry ..." ));
+  test_snapshot_acc_pool_incremental_retry();
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();

@@ -574,11 +574,17 @@ struct fd_accdb_shmem_private {
      union alias.  After wait_for_epoch_drain the list is materialized
      into pool.next links and released via acc_pool_release_chain.
 
+     During snapshot loading, no other tile reads the account pool.  The
+     accdb background tile leaves removed indices in this shared buffer
+     instead of returning them to the shared pool.  After snapin
+     observes command completion, a failed incremental load moves its
+     bump back.  Final root removals are linked into the free stack.
+     Snapin clears cnt before another purge or root command.
+
      T2 is the sole writer (advance_root and purge both run on T2 via
-     the cmd offload above), so cnt is plain.  Capacity is
-     txn_max = max_live_slots * max_account_writes_per_slot, the same
-     bound used to size txn_pool.  Stored as a byte offset from shmem
-     base. */
+     the cmd offload above), so cnt is plain.  Capacity is max_accounts:
+     advance_root can remove both an old account and a new tombstone for
+     one transaction.  Stored as a byte offset from shmem base. */
 
   ulong deferred_acc_buf_off;
   ulong deferred_acc_buf_cnt;
