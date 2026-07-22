@@ -2336,6 +2336,11 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     }
   }
 
+  /* During a cluster restart, the configured shred version is the post-
+     restart value advertised by gossip.  Defer comparing it against the
+     snapshot's hard fork list until wait-for-supermajority completes. */
+  if( FD_UNLIKELY( ctx->wfs_enabled && !ctx->wfs_complete && ctx->expected_shred_version ) ) return;
+
   if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
 
@@ -2575,6 +2580,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE );
       ctx->wfs_complete = 1;
+      maybe_verify_shred_version( ctx );
 
       /* Recalculate next_leader_tickcount relative to now.  The
          original value was computed at boot time (in boot_genesis or
