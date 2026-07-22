@@ -453,7 +453,6 @@ advance_account_header( fd_ssparse_t *                ssparse,
   result->account_header.hash       = hdr+104UL;
   result->account_header.slot       = ssparse->slot;
 
-  ssparse->account.owner               = hdr+64UL;
   ssparse->account.data_len            = result->account_header.data_len;
   ssparse->account.data_bytes_consumed = 0UL;
   ssparse->state = FD_SSPARSE_STATE_ACCOUNT_DATA;
@@ -488,7 +487,6 @@ advance_account_data( fd_ssparse_t *                ssparse,
   ssparse->account.data_bytes_consumed += consume;
   result->bytes_consumed                = consume;
 
-  result->account_data.owner    = ssparse->account.owner;
   result->account_data.data_sz  = consume;
   result->account_data.data     = data;
 
