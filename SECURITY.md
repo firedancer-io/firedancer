@@ -10,12 +10,12 @@ The following document describes various aspects of the Firedancer security prog
 
 # Bug Bounty Program
 
-Security-relevant bugs in Firedancer v0.1 should be submitted to our [Immunefi bug bounty program](https://immunefi.com/bug-bounty/Frankendancer/).
+Security-relevant bugs in Firedancer v0.1 should be submitted to our [bug bounty program](https://bounty.firedancer.io/).
 Under the terms and conditions of the program, you may be eligible for a reward.
 
 Code outside the scope of the bug bounty program is still in development.
 It has yet to go through more rigorous security testing and auditing.
-If you find a bug outside the bug bounty program's scope, submit it as a [GitHub issue](https://github.com/firedancer-io/firedancer/issues).
+If you find a vulnerability outside the bug bounty program's scope, please submit it as a [GitHub security advisory](https://github.com/firedancer-io/firedancer/security/advisories/new).
 
 ## Third Party Security Audits
 
