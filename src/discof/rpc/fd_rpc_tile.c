@@ -1,4 +1,5 @@
 #include "../replay/fd_replay_tile.h"
+#include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 
 #include "../../third_party/cjson/cJSON_alloc.h"
@@ -44,6 +45,7 @@
 #define IN_KIND_REPLAY      (0)
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
+#define IN_KIND_TOWER       (3)
 
 /* From bzip2 docs:
       To guarantee that the compressed data will fit in its buffer,
@@ -68,6 +70,9 @@
 #define FD_RPC_HEALTH_STATUS_OK      (0)
 #define FD_RPC_HEALTH_STATUS_BEHIND  (1)
 #define FD_RPC_HEALTH_STATUS_UNKNOWN (2)
+
+/* Matches Agave's default health_check_slot_distance. */
+#define FD_RPC_HEALTH_CHECK_SLOT_DISTANCE (128UL)
 
 #define FD_RPC_METHOD_GET_ACCOUNT_INFO                       ( 0)
 #define FD_RPC_METHOD_GET_BALANCE                            ( 1)
@@ -701,7 +706,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->confirmed_idx = msg->bank_idx;
-        ctx->cluster_confirmed_slot = msg->slot;
         break;
       }
       case REPLAY_SIG_ROOT_ADVANCED: {
@@ -720,7 +724,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_UNLIKELY( ctx->confirmed_idx==msg->bank_idx ) ) {
           fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
           ctx->confirmed_idx = ULONG_MAX;
-          ctx->cluster_confirmed_slot = ULONG_MAX;
         }
         if( FD_UNLIKELY( ctx->finalized_idx==msg->bank_idx ) ) {
           fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -760,6 +763,14 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         break;
       }
       default: break;
+    }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
+    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      if( FD_LIKELY( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) ) {
+        if( FD_LIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) ctx->cluster_confirmed_slot = msg->slot;
+        else                                                      ctx->cluster_confirmed_slot = fd_ulong_max( ctx->cluster_confirmed_slot, msg->slot );
+      }
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
@@ -1639,8 +1650,8 @@ _getHealth( fd_rpc_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
   ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
-  if( FD_LIKELY( slots_behind<=128UL ) ) return FD_RPC_HEALTH_STATUS_OK;
-  else                                   return FD_RPC_HEALTH_STATUS_BEHIND;
+  if( FD_LIKELY( slots_behind<=FD_RPC_HEALTH_CHECK_SLOT_DISTANCE ) ) return FD_RPC_HEALTH_STATUS_OK;
+  else                                                               return FD_RPC_HEALTH_STATUS_BEHIND;
 }
 
 static fd_http_server_response_t
@@ -2463,6 +2474,7 @@ unprivileged_init( fd_topo_t const *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
