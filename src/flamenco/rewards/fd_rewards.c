@@ -1130,16 +1130,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             vs_fork_idx = bank->vote_stakes_fork_id;
 
-  int vat_active = FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
-  int vat_in_t_2 = 0;
-  if( FD_UNLIKELY( vat_active ) ) {
-    ulong vat_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-    vat_in_t_2 = bank->f.epoch>=vat_epoch+1UL;
-  }
-
-  fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
-  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
-
   ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
   for( ulong i=0UL; i<epoch_credits_len; i++ ) {
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
@@ -1149,16 +1139,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
        valid since the epoch credits are populated from the t-1 stakes
        in the snapshot manfiest. */
     ushort commission_t_1 = 0;
-    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
-    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
+    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
 
     /* Now get the t-2 information (if it exists).  This is not
        guaranteed to be valid since it's possible for a vote account to
        have been created in the last epoch. */
-    int    exists_t_2     = 0;
     ushort commission_t_2 = 0;
-    if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
-    else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
+    int    exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
