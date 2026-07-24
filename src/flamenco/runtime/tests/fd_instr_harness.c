@@ -422,7 +422,8 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   /* Capture error code */
 
   effects->result   = -exec_result;
-  effects->cu_avail = ctx->txn_out->details.compute_budget.compute_meter;
+  effects->cu_avail = fd_solfuzz_pre_burn_cu_avail( ctx->txn_out->details.compute_budget.compute_meter,
+                                                    ctx->txn_out->details.compute_budget.depleted_compute_units );
 
   /* Don't capture custom error codes if the program is a precompile */
   if( FD_LIKELY( effects->result ) ) {

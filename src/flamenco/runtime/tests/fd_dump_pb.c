@@ -1171,7 +1171,8 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   txn_result->has_fee_details                = true;
   txn_result->fee_details.transaction_fee    = txn_out->details.execution_fee;
   txn_result->fee_details.prioritization_fee = txn_out->details.priority_fee;
-  txn_result->executed_units                 = txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter;
+  txn_result->executed_units                 = fd_ulong_sat_sub( txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter,
+                                                                 txn_out->details.compute_budget.depleted_compute_units );
 
   /* Return data */
   if( txn_out->details.return_data.len>0 ) {

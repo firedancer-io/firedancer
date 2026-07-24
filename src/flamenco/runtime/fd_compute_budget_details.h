@@ -29,6 +29,10 @@ struct fd_compute_budget_details {
   ulong num_builtin_instrs;              /* Number of builtin instructions in this transaction. */
   ulong num_non_builtin_instrs;          /* Number of non-builtin instructions in this transaction. */
 
+  /* CUs depleted on VM failure (non-consensus bookkeeping).  Used by
+     fuzzing harnesses to report number of executed CUs by the VM. */
+  ulong depleted_compute_units;
+
   ushort requested_heap_size_instr_index; /* Index of the instruction that requested a heap size. */
 };
 

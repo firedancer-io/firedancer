@@ -550,10 +550,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     }
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.1.13/programs/bpf_loader/src/lib.rs#L1434-L1439 */
-    /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
-    if( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, deplete_cu_meter_on_vm_failure ) &&
-        exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
-      instr_ctx->txn_out->details.compute_budget.compute_meter = 0UL;
+    if( exec_err!=FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
+      instr_ctx->txn_out->details.compute_budget.depleted_compute_units += instr_ctx->txn_out->details.compute_budget.compute_meter;
+      instr_ctx->txn_out->details.compute_budget.compute_meter           = 0UL;
     }
 
     /* Direct mapping access violation case

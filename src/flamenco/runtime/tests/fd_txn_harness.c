@@ -307,7 +307,11 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     );
 
     fd_solfuzz_direct_mapping_handle_cu_exhaustion(
-        runner, txn_out->details.compute_budget.compute_meter, exec_res,
+        runner,
+        fd_solfuzz_pre_burn_cu_avail(
+            txn_out->details.compute_budget.compute_meter,
+            txn_out->details.compute_budget.depleted_compute_units ),
+        exec_res,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;

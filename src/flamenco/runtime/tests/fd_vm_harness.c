@@ -1,4 +1,5 @@
 #include "fd_instr_harness.h"
+#include "fd_solfuzz_private.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
@@ -289,8 +290,9 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       }
     }
   }
-  effects->r0 = instr_end_err ? 0 : vm->reg[0]; // Save only on success
-  effects->cu_avail = (ulong)vm->cu;
+  effects->r0       = instr_end_err ? 0 : vm->reg[0]; // Save only on success
+  effects->cu_avail = fd_solfuzz_pre_burn_cu_avail( (ulong)vm->cu,
+                                                    ctx->txn_out->details.compute_budget.depleted_compute_units );
 
   if( vm->heap_max ) {
     effects->heap = FD_SCRATCH_ALLOC_APPEND(

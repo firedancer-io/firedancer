@@ -60,6 +60,14 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
                                                 fd_exec_test_acct_state_t * accounts,
                                                 pb_size_t                   accounts_cnt );
 
+/* Returns the pre-burn CU count for solfuzz effects reporting.  Allows
+   us to capture the number of CUs the VM executed. */
+static inline ulong
+fd_solfuzz_pre_burn_cu_avail( ulong cu_avail,
+                              ulong depleted_compute_units ) {
+  return fd_ulong_sat_add( cu_avail, depleted_compute_units );
+}
+
 /* Create feature accounts for all active features in the given feature
    set, with an activation slot of 0.  Skip any feature whose pubkey
    already appears in acct_states so the caller-supplied state wins

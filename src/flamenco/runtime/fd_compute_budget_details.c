@@ -17,5 +17,7 @@ fd_compute_budget_details_new( fd_compute_budget_details_t * details ) {
   details->num_builtin_instrs              = 0UL;
   details->num_non_builtin_instrs          = 0UL;
 
+  details->depleted_compute_units          = 0UL;
+
   details->requested_heap_size_instr_index = 0;
 }
