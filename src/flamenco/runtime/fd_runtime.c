@@ -1915,9 +1915,10 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
          counts its current-fork size toward loaded-accounts-data-size
          before the invoke fails.  Record for the binding loop below
          (mirrors the single-txn skipped-key probe). */
-      int   skip_pd  = 0;
-      ulong skip_len = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+      int   skip_pd       = 0;
+      ulong skip_len      = 0UL;
+      ulong skip_lamports = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) && skip_lamports ) {
         int dup = 0;
         for( ulong u=0UL; u<skip_cnt; u++ ) if( FD_UNLIKELY( !memcmp( skip_keys[ u ].uc, programdata_key->uc, 32UL ) ) ) { dup = 1; break; }
         if( !dup ) {
@@ -1953,11 +1954,12 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
   runtime->accounts.executable_cnt = pd_cnt;
 
   for( ulong u=0UL; u<pd_cnt; u++ ) {
-    int   pd  = 0;
-    ulong len = ULONG_MAX;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len );
+    int   pd       = 0;
+    ulong len      = 0UL;
+    ulong lamports = 0UL;
+    int   gen      = fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pd_pubkeys[ u ], &pd, &len, &lamports );
     pd_probe_write[ u ] = pd;
-    pd_probe_len  [ u ] = len;
+    pd_probe_len  [ u ] = !gen ? ULONG_MAX : ( lamports ? len : 0UL );
   }
 
   /* Bind each txn's BPF-upgradeable programdata accounts to the shared

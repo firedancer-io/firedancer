@@ -246,7 +246,7 @@ static int
 pd_write_committed_on_child( test_env_t * env ) {
   int   pd  = 0;
   ulong len = ULONG_MAX;
-  fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len );
+  fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, NULL );
   return pd;
 }
 
@@ -271,6 +271,7 @@ upgrade_sim( test_env_t * env ) {
   FD_TEST( !fd_bpf_state_encode( &pd_state, acc.data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   memcpy( acc.data+PROGRAMDATA_METADATA_SIZE, test_elf, test_elf_sz );
   acc.data_len = env->pd_dlen;
+  acc.lamports = fd_rent_exempt_minimum_balance( &env->bank->f.rent, env->pd_dlen ); /* a real deploy/upgrade funds it */
   acc.commit   = 1;
   acc.pd_write = 1;
   fd_accdb_unwrite_one( accdb, &acc );
@@ -364,6 +365,72 @@ test_close_then_invoke( fd_svm_mini_t * mini ) {
   build_invoke_txn( env, txn );
   assert_invoke_not_deployed( exec_single( env, txn ) );
   FD_LOG_NOTICE(( "close -> invoke rejected (mark fired)... ok" ));
+}
+
+/* build_transfer_ref_p: transfer payer->authority with P added as an
+   unused read-only instruction account, so P (and thus its programdata)
+   is loaded and size-accounted without P being invoked. */
+static void
+build_transfer_ref_p( test_env_t * env, fd_txn_p_t * out ) {
+  fd_hash_t const * rbh = fd_blockhashes_peek_last_hash( &env->bank->f.block_hash_queue );
+  FD_TEST( rbh );
+  struct __attribute__((packed)) { uint discriminant; ulong lamports; } data = { 2U, 1UL };
+  fd_txn_builder_t b[1];
+  FD_TEST( fd_txn_builder_new( b, 4UL ) );
+  FD_TEST( fd_txn_builder_fee_payer_set( b, &env->payer ) );
+  fd_txn_builder_blockhash_set( b, rbh );
+  FD_TEST( fd_txn_builder_instr_open( b, &fd_solana_system_program_id, &data, sizeof(data) ) );
+  FD_TEST( fd_txn_builder_instr_account_push( b, &env->payer,     FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_SIGNER ) );
+  FD_TEST( fd_txn_builder_instr_account_push( b, &env->authority, FD_TXN_ACCT_CAT_WRITABLE ) );
+  FD_TEST( fd_txn_builder_instr_account_push( b, &env->program,   0U ) ); /* unused read-only */
+  fd_txn_builder_instr_close( b );
+  fd_memset( out, 0, sizeof(fd_txn_p_t) );
+  FD_TEST( fd_txn_build_p( b, out ) );
+  out->pack_cu.non_execution_cus                 = 1000U;
+  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+  fd_txn_builder_delete( b );
+}
+
+/* Nicola's divergence (loaded-account-size): Close PD this slot, then a
+   txn that merely references P (not invoked).  Agave loads the
+   current-fork PD, sees lamports==0, treats it as nonexistent and counts
+   NOTHING; FD read the still-funded parent copy and counted base+size,
+   which a SetLoadedAccountsDataSizeLimit could turn into a spurious
+   MaxLoadedAccountsDataSizeExceeded.  Measure the programdata's size
+   contribution by differencing an open-PD run against a closed-PD run;
+   it must vanish entirely after the close. */
+static void
+test_close_then_ref_size( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  fd_txn_p_t txn[1];
+
+  /* Baseline: PD funded -> counted (base + pd_dlen). */
+  setup_env( env, mini );
+  build_transfer_ref_p( env, txn );
+  fd_txn_out_t * o = exec_single( env, txn );
+  FD_TEST( o->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  ulong size_open = o->details.loaded_accounts_data_size;
+
+  /* Close PD this slot, then run the same referencing txn. */
+  setup_env( env, mini );
+  fd_pubkey_t recipient = { .ul = { 0x1ec1b1e47UL } };
+  uint close_instr = FD_BPF_INSTR_CLOSE;
+  fd_pubkey_t const * caccts[4] = { &env->programdata, &recipient, &env->authority, &env->program };
+  uint                ccats [4] = { FD_TXN_ACCT_CAT_WRITABLE, FD_TXN_ACCT_CAT_WRITABLE, FD_TXN_ACCT_CAT_SIGNER, FD_TXN_ACCT_CAT_WRITABLE };
+  build_loader_txn( env, txn, (uchar const *)&close_instr, sizeof(close_instr), caccts, ccats, 4UL );
+  o = exec_single( env, txn );
+  FD_TEST( o->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( pd_write_committed_on_child( env ) );
+
+  build_transfer_ref_p( env, txn );
+  o = exec_single( env, txn );
+  FD_TEST( o->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  ulong size_closed = o->details.loaded_accounts_data_size;
+
+  /* The closed programdata contributed nothing: the whole base+size
+     that the open run counted for it must have disappeared. */
+  FD_TEST( size_open-size_closed == FD_TRANSACTION_ACCOUNT_BASE_SIZE + env->pd_dlen );
+  FD_LOG_NOTICE(( "close -> reference P drops programdata size (Nicola)... ok" ));
 }
 
 /* Case 3 (extend -> invoke): real ExtendProgram txn through
@@ -621,6 +688,7 @@ main( int     argc,
   test_lamport_credit_then_invoke   ( mini );
   test_setauthority_then_invoke     ( mini );
   test_close_then_invoke            ( mini );
+  test_close_then_ref_size          ( mini );
   test_extend_then_invoke           ( mini );
   test_deploy_then_invoke           ( mini );
   test_parent_slot_upgrade_then_invoke( mini );

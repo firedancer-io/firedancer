@@ -464,13 +464,19 @@ fd_accdb_exists( fd_accdb_t *       accdb,
 
 /* fd_accdb_probe_pd_this_fork checks whether the newest version of
    pubkey visible on fork_id was committed on fork_id itself.  If so,
-   returns 1, sets *out_pd_write to that version's pd_write flag, and
-   sets *out_data_len to its data length.  Otherwise returns 0, sets
-   *out_pd_write to 0, and leaves *out_data_len untouched.
+   returns 1, sets *out_pd_write to that version's pd_write flag, sets
+   *out_data_len to its data length, and (if out_lamports!=NULL) sets
+   *out_lamports to its lamports.  Otherwise returns 0, sets
+   *out_pd_write to 0, and leaves *out_data_len / *out_lamports
+   untouched.
 
-   Reads only metadata (never account data) and does not consider
-   lamports: a programdata closed this slot is a lamports==0 tombstone
-   that must still report pd_write=1.
+   The pd_write gate does not consider lamports: a programdata closed
+   this slot is a lamports==0 tombstone that must still report
+   pd_write=1.  out_lamports is provided separately so loaded-account-
+   size accounting can apply Agave's "zero-lamport account is
+   nonexistent" rule to the current-fork version (the parent-fork copy
+   the loader reads may still be funded).  Pass NULL when only the gate
+   is needed.
 
    Safe to call concurrently with writers on fork_id; a racing commit
    may be observed either before or after (see the loader gate comment
@@ -481,7 +487,8 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
                              fd_accdb_fork_id_t fork_id,
                              uchar const *      pubkey,
                              int *              out_pd_write,
-                             ulong *            out_data_len );
+                             ulong *            out_data_len,
+                             ulong *            out_lamports );
 
 /* fd_accdb_read_one_nocache reads one account at fork_id into
    caller-provided output buffers.  Suitable for processes that mmap the

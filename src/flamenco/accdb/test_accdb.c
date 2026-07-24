@@ -202,55 +202,61 @@ test_pd_write_bit_and_probe( void ) {
 
   int   pd;
   ulong len;
+  ulong lam;
 
   /* Write on f1 with pd_write=1 -> probe on f1 sees bit=1, gen-match,
-     returns the committed data_len. */
+     returns the committed data_len + lamports. */
   accdb_write_pd( accdb, f1, pk, 500UL, data, sizeof(data), owner, 1 );
-  pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len )==1 );
+  pd = 0; len = ULONG_MAX; lam = 0UL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len, &lam )==1 );
   FD_TEST( pd==1 );
   FD_TEST( len==sizeof(data) );
+  FD_TEST( lam==500UL );
 
   /* Probe on a child fork of f1: generation mismatch -> returns 0, pd=0,
-     out_data_len untouched. */
+     out_data_len / out_lamports untouched. */
   fd_accdb_fork_id_t c = fd_accdb_attach_child( accdb, f1 );
-  pd = 1; len = 0xdeadUL;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len )==0 );
+  pd = 1; len = 0xdeadUL; lam = 0xcafeUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len, &lam )==0 );
   FD_TEST( pd==0 );
   FD_TEST( len==0xdeadUL ); /* untouched */
+  FD_TEST( lam==0xcafeUL ); /* untouched */
 
   /* OR-sticky: overwrite on f1 with pd_write=0 must NOT clear the bit. */
   accdb_write_pd( accdb, f1, pk, 501UL, data, sizeof(data), owner, 0 );
   pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk, &pd, &len, NULL )==1 );
   FD_TEST( pd==1 ); /* survived the pd_write=0 overwrite */
 
   /* New version on child fork c with pd_write=0 -> probe on c sees bit=0
      (new current-gen version, no deploy-status write this slot). */
   accdb_write_pd( accdb, c, pk, 502UL, data, sizeof(data), owner, 0 );
   pd = 1; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, c, pk, &pd, &len, NULL )==1 );
   FD_TEST( pd==0 );
   FD_TEST( len==sizeof(data) );
 
   /* Closed-this-slot: a lamports==0 current-generation tombstone with
      pd_write=1 must still report pd==1 (the exists()-clone lamports
-     trap; Close is the fails-open case). */
+     trap; Close is the fails-open case), and report lamports==0 so
+     loaded-account-size accounting can treat it as nonexistent. */
   uchar pk2[32]; memset( pk2, 0x33, 32UL );
   fd_accdb_fork_id_t f2 = fd_accdb_attach_child( accdb, root );
   accdb_write_pd( accdb, f2, pk2, 999UL, data, 64UL, owner, 0 ); /* fund it first */
   accdb_write_pd( accdb, f2, pk2, 0UL,   NULL, 4UL,  owner, 1 ); /* close: lamports=0, pd_write=1 */
-  pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len )==1 );
+  pd = 0; len = ULONG_MAX; lam = 0xdeadUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk2, &pd, &len, &lam )==1 );
   FD_TEST( pd==1 );      /* bit reported despite lamports==0 */
   FD_TEST( len==4UL );   /* post-close committed len */
+  FD_TEST( lam==0UL );   /* tombstone lamports surfaced for size accounting */
 
-  /* Not-found -> returns 0, pd=0, out_data_len untouched. */
+  /* Not-found -> returns 0, pd=0, out_data_len / out_lamports untouched. */
   uchar pk3[32]; memset( pk3, 0x44, 32UL );
-  pd = 1; len = 0xbeefUL;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk3, &pd, &len )==0 );
+  pd = 1; len = 0xbeefUL; lam = 0xf00dUL;
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f2, pk3, &pd, &len, &lam )==0 );
   FD_TEST( pd==0 );
   FD_TEST( len==0xbeefUL );
+  FD_TEST( lam==0xf00dUL );
 
   /* Mask discipline: a 1 MiB account with pd_write=1 reads back with the
      correct length (SIZE_DATA excludes bit 28). */
@@ -263,7 +269,7 @@ test_pd_write_bit_and_probe( void ) {
   FD_TEST( accdb_read( accdb, f1, pk4, NULL, NULL, &rlen, NULL )==1 );
   FD_TEST( rlen==big );
   pd = 0; len = ULONG_MAX;
-  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk4, &pd, &len )==1 );
+  FD_TEST( fd_accdb_probe_pd_this_fork( accdb, f1, pk4, &pd, &len, NULL )==1 );
   FD_TEST( pd==1 );
   FD_TEST( len==big );
   free( bigbuf );

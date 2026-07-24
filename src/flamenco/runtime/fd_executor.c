@@ -601,11 +601,16 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
     }
   }
 
-  /* Programdata account size check.  Agave counts the current-fork
-     size, which the parent-fork executable[] copy can lag, so prefer
-     executable_cur_len when the probe reported one.  Programdata
-     deployed this slot has no executable[] copy at all; its size is
-     in the skipped list. */
+  /* Programdata account size + existence check.  Agave loads the
+     current-fork programdata and treats a zero-lamport account as
+     nonexistent (counting nothing).  The executable[] copy is read from
+     the parent fork, so neither its lamports nor its data_len reflect a
+     this-slot mutation.  executable_cur_len carries the current-fork
+     answer (ULONG_MAX implies no this-slot commit, use the parent copy
+     which then equals the current version; 0 => committed this slot but
+     zero-lamport / closed => count nothing; N => committed this slot,
+     size N).  Programdata deployed this slot has no executable[] copy
+     at all, its size is in the skipped list. */
   fd_acc_t const * programdata_ref = NULL;
   ushort           pd_idx          = USHORT_MAX;
   for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
@@ -618,9 +623,15 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
   }
   ulong programdata_sz;
   if( FD_LIKELY( programdata_ref ) ) {
-    if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
     ulong cur = txn_out->accounts.executable_cur_len[ pd_idx ];
-    programdata_sz = ( cur!=ULONG_MAX ) ? cur : programdata_ref->data_len;
+    if( cur==ULONG_MAX ) {
+      if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+      programdata_sz = programdata_ref->data_len;
+    } else if( cur==0UL ) {
+      return FD_RUNTIME_EXECUTE_SUCCESS;
+    } else {
+      programdata_sz = cur;
+    }
   } else {
     programdata_sz = 0UL;
     for( ushort i=0; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
@@ -1371,9 +1382,10 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
-      int   skip_pd  = 0;
-      ulong skip_len = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+      int   skip_pd       = 0;
+      ulong skip_len      = 0UL;
+      ulong skip_lamports = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) && skip_lamports ) {
         ushort s = txn_out->accounts.executable_skipped_cnt++;
         txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
         txn_out->accounts.executable_skipped_len[ s ] = skip_len;
@@ -1402,11 +1414,12 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     ushort exe_idx = executable_acquire_idx[ i ];
     txn_out->accounts.executable[ exe_idx ]             = &acquire_base[ i ];
     txn_out->accounts.executable_from_parent[ exe_idx ] = acquired_from_parent;
-    int   pd  = 0;
-    ulong len = ULONG_MAX;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len );
+    int   pd       = 0;
+    ulong len      = 0UL;
+    ulong lamports = 0UL;
+    int   gen      = fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len, &lamports );
     txn_out->accounts.executable_pd_write[ exe_idx ] = pd;
-    txn_out->accounts.executable_cur_len[ exe_idx ]  = len;
+    txn_out->accounts.executable_cur_len[ exe_idx ]  = !gen ? ULONG_MAX : ( lamports ? len : 0UL );
   }
   runtime->accounts.executable_cnt += executable_acquire_cnt;
 
