@@ -180,16 +180,19 @@ fd_accdb_join_readonly( void *             ljoin,
 
    Only snapin should call these functions.  Begin/end must cover the
    full snapshot, optional incremental snapshot, and retries.  No other
-   tile may use the account pool during this time.
+   foreground tile may read or allocate from the account pool during
+   this time; T2 may process purge and advance_root commands.
 
    Begin requires an empty account pool.  It locks the shared pool and
    starts a private bump at index 0.  Snapshot writes use this bump
    without CAS.
 
    If incremental loading fails, purge finishes and the bump returns to
-   the full-snapshot checkpoint.  End waits for pending advance_root,
-   adds removed entries to the free stack, publishes the bump and free
-   stack, and unlocks the shared pool.  A failed full snapshot uses
+   the full-snapshot checkpoint.  End publishes the bump and unlocks the
+   shared pool without waiting for a pending advance_root.  Accounts
+   removed by that root remain deferred until drain_deferred_frees runs
+   at the next background advance_root or purge.  A later attach_child
+   still waits for the pending root.  A failed full snapshot uses
    fd_accdb_reset instead. */
 
 void

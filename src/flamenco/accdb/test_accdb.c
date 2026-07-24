@@ -9,7 +9,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h> /* IWYU pragma: keep */
 #include <pthread.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -1429,9 +1431,9 @@ test_incremental_cross_fork_override( void ) {
   test_teardown( accdb, fd );
 }
 
-/* Snapshot allocation uses a private free-stack/bump pair while the
-   normal concurrent pool is locked.  The versioned pool headers remain
-   unchanged per account and are published once at load end. */
+/* Snapshot allocation uses a private bump while the normal concurrent
+   pool is locked.  The versioned pool headers remain unchanged per
+   account and are published once at load end. */
 static void
 test_snapshot_acc_pool_local( void ) {
   int fd;
@@ -1545,11 +1547,26 @@ test_snapshot_acc_pool_reset( void ) {
   test_teardown( accdb, fd );
 }
 
+typedef struct {
+  fd_accdb_t * accdb;
+  int          started;
+} test_snapshot_load_end_ctx_t;
+
+static void *
+run_snapshot_load_end( void * _ctx ) {
+  test_snapshot_load_end_ctx_t * ctx = _ctx;
+  FD_VOLATILE( ctx->started ) = 1;
+  fd_accdb_snapshot_load_end( ctx->accdb );
+  return NULL;
+}
+
 /* T2 makes failed incremental accmetas safe to reuse and leaves them in
    the shared deferred buffer.  Snapin then moves the bump back to the
-   full-snapshot checkpoint so an immediate retry reuses the same range. */
+   full-snapshot checkpoint so an immediate retry reuses the same range.
+   Final success publishes without waiting for advance_root; the next
+   root drains and reuses the removed ancestor. */
 static void
-test_snapshot_acc_pool_incremental_retry( void ) {
+test_snapshot_acc_pool_incremental_retry_and_async_root( void ) {
   int fd;
   fd_accdb_t * snapin = test_setup_ex( &fd, 3UL, 8UL, 64UL, 64UL, 1UL<<30UL,
                                        TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
@@ -1603,26 +1620,59 @@ test_snapshot_acc_pool_incremental_retry( void ) {
   FD_TEST( FD_VOLATILE_CONST( pool->ver_top  )==top_locked  );
   FD_TEST( FD_VOLATILE_CONST( pool->ver_lazy )==lazy_locked );
 
-  fd_accdb_advance_root( snapin, retry );
-  fd_accdb_snapshot_load_end( snapin );
-  FD_TEST( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )==FD_ACCDB_CMD_IDLE );
-
   FD_VOLATILE( bg_ctx.stop ) = 1;
   FD_TEST( !pthread_join( bg_thread, NULL ) );
+
+  fd_accdb_advance_root( snapin, retry );
+
+  /* Publishing the snapshot allocator must not wait for the asynchronous
+     final root.  If it does wait, run T2 after observing the stall so
+     this regression test can fail without deadlocking. */
+  test_snapshot_load_end_ctx_t end_ctx = { .accdb = snapin, .started = 0 };
+  pthread_t end_thread;
+  FD_TEST( !pthread_create( &end_thread, NULL, run_snapshot_load_end, &end_ctx ) );
+  while( !FD_VOLATILE_CONST( end_ctx.started ) ) FD_SPIN_PAUSE();
+
+  struct timespec deadline;
+  FD_TEST( !clock_gettime( CLOCK_MONOTONIC, &deadline ) );
+  deadline.tv_sec += 5L;
+  int join_err = pthread_clockjoin_np( end_thread, NULL, CLOCK_MONOTONIC, &deadline );
+  int returned_before_background = !join_err;
+  if( FD_UNLIKELY( join_err ) ) {
+    FD_TEST( join_err==ETIMEDOUT );
+    drain_background( background );
+    FD_TEST( !pthread_join( end_thread, NULL ) );
+  }
+  FD_TEST( returned_before_background );
+
+  /* The pool is published immediately with no explicit free stack.
+     T2 then roots the incremental fork and leaves the removed ancestor
+     in the ordinary deferred buffer. */
+  FD_TEST( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )==FD_ACCDB_CMD_ADVANCE_ROOT );
 
   ulong top_after  = FD_VOLATILE_CONST( pool->ver_top  );
   ulong lazy_after = FD_VOLATILE_CONST( pool->ver_lazy );
   FD_TEST( acc_pool_private_vidx_ver( top_after  )==acc_pool_private_vidx_ver( top_before  )+2UL );
   FD_TEST( acc_pool_private_vidx_ver( lazy_after )==acc_pool_private_vidx_ver( lazy_before )+2UL );
-  FD_TEST( acc_pool_private_vidx_idx( top_after )<3UL );
+  FD_TEST( acc_pool_private_vidx_idx( top_after )==acc_pool_idx_null() );
   FD_TEST( acc_pool_private_vidx_idx( lazy_after )==acc_pool_idx_null() );
+
+  drain_background( background );
+  FD_TEST( FD_VOLATILE_CONST( test_shmem_mem->cmd_op )==FD_ACCDB_CMD_IDLE );
+  FD_TEST( test_shmem_mem->deferred_acc_buf_cnt==1UL );
   FD_TEST( fd_accdb_shmetrics( snapin )->accounts_total==2UL );
+
+  /* The next root drains the prior deferred batch through the ordinary
+     runtime path, making the removed ancestor available for reuse. */
+  fd_accdb_fork_id_t next = fd_accdb_attach_child( snapin, retry );
+  fd_accdb_advance_root( snapin, next );
+  drain_background( background );
+  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
+  FD_TEST( acc_pool_private_vidx_idx( FD_VOLATILE_CONST( pool->ver_top ) )==0UL );
   test_acc_pool_integrity( snapin );
 
-  /* Concurrent runtime allocation must work after the incremental root
-     handoff, including reuse of the ancestor accmeta freed by T2. */
   uchar runtime_pubkey[ 32UL ] = { 0xE4 };
-  accdb_write( snapin, retry, runtime_pubkey, 6UL, NULL, 0UL, owner2 );
+  accdb_write( snapin, next, runtime_pubkey, 6UL, NULL, 0UL, owner2 );
   FD_TEST( fd_accdb_shmetrics( snapin )->accounts_total==3UL );
   test_acc_pool_integrity( snapin );
 
@@ -1782,8 +1832,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_snapshot_acc_pool_reset ..." ));
   test_snapshot_acc_pool_reset();
 
-  FD_LOG_NOTICE(( "test_snapshot_acc_pool_incremental_retry ..." ));
-  test_snapshot_acc_pool_incremental_retry();
+  FD_LOG_NOTICE(( "test_snapshot_acc_pool_incremental_retry_and_async_root ..." ));
+  test_snapshot_acc_pool_incremental_retry_and_async_root();
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();

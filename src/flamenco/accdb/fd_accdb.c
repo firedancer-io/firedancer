@@ -111,9 +111,8 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int snapshot_loading;
 
   /* Snapshot-exclusive acc_pool allocator.  [bump,end) is the writer's
-     unused range.  free_top collects holes created when final root
-     advancement removes old account entries. */
-  uint snapshot_acc_free_top;
+     unused range.  Keeping end local permits future snapin tiles to own
+     disjoint subranges. */
   uint snapshot_acc_bump;
   uint snapshot_acc_end;
 };
@@ -251,12 +250,11 @@ fd_accdb_new( void *              ljoin,
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
-  accdb->fd                    = fd;
-  accdb->acquire_state         = FD_ACCDB_ACQUIRE_STATE_IDLE;
-  accdb->snapshot_loading      = 0;
-  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
-  accdb->snapshot_acc_bump     = 0U;
-  accdb->snapshot_acc_end      = 0U;
+  accdb->fd                = fd;
+  accdb->acquire_state     = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->snapshot_loading  = 0;
+  accdb->snapshot_acc_bump = 0U;
+  accdb->snapshot_acc_end  = 0U;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -326,9 +324,8 @@ snapshot_acc_pool_begin( fd_accdb_t * accdb ) {
   FD_TEST( !accdb->shmem->deferred_acc_buf_cnt );
 
   /* Initialize snapshot state. */
-  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
-  accdb->snapshot_acc_bump     = 0U;
-  accdb->snapshot_acc_end      = (uint)max;
+  accdb->snapshot_acc_bump = 0U;
+  accdb->snapshot_acc_end  = (uint)max;
 
   /* Manually lock the shared account pool. */
   FD_COMPILER_MFENCE();
@@ -351,9 +348,8 @@ snapshot_acc_pool_reset( fd_accdb_t * accdb ) {
   }
 
   /* Clear snapshot state. */
-  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
-  accdb->snapshot_acc_bump     = 0U;
-  accdb->snapshot_acc_end      = 0U;
+  accdb->snapshot_acc_bump = 0U;
+  accdb->snapshot_acc_end  = 0U;
 }
 
 static inline fd_accdb_accmeta_t *
@@ -361,39 +357,18 @@ snapshot_acc_pool_acquire( fd_accdb_t * accdb ) {
   /* Check snapshot loading is active. */
   FD_TEST( accdb->snapshot_loading );
 
-  /* Use the next unused entry. */
-  if( FD_UNLIKELY( accdb->snapshot_acc_bump>=accdb->snapshot_acc_end ) ) {
-    return NULL;
-  }
+  /* Check enough entries remaining in the pool to allocate from. */
+  FD_TEST( accdb->snapshot_acc_bump<accdb->snapshot_acc_end );
 
+  /* Use the next unused entry. */
   return &accdb->acc_pool[ accdb->snapshot_acc_bump++ ];
 }
 
-/* Move entries removed by final root advancement into the free stack
-   that will be published to the shared account pool. */
-static void
-snapshot_acc_pool_free_deferred( fd_accdb_t * accdb ) {
-  /* Check snapshot loading is active. */
-  FD_TEST( accdb->snapshot_loading );
-  FD_COMPILER_MFENCE();
-
-  /* Move removed entries into the snapshot free stack. */
-  ulong n = accdb->shmem->deferred_acc_buf_cnt;
-  for( ulong i=0UL; i<n; i++ ) {
-    uint idx = accdb->deferred_acc_buf[ i ];
-    FD_TEST( idx<accdb->snapshot_acc_bump );
-    accdb->acc_pool[ idx ].pool.next = accdb->snapshot_acc_free_top;
-    accdb->snapshot_acc_free_top = idx;
-  }
-
-  /* Clear the shared buffer. */
-  FD_COMPILER_MFENCE();
-  accdb->shmem->deferred_acc_buf_cnt = 0UL;
-}
-
-/* Publish the snapshot free stack and bump to the shared account pool.
-   Write ver_lazy first and ver_top last because ver_top unlocks the
-   pool. */
+/* Publish the snapshot bump to the shared account pool.  Entries
+   removed by an asynchronous final advance_root remain deferred and
+   are released by drain_deferred_frees at the start of the next
+   background advance_root or purge.  Write ver_lazy first and ver_top
+   last because ver_top unlocks the pool. */
 static void
 snapshot_acc_pool_publish( fd_accdb_t * accdb ) {
   /* Get the shared account pool and locked versions. */
@@ -417,13 +392,12 @@ snapshot_acc_pool_publish( fd_accdb_t * accdb ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pool->ver_lazy ) = acc_pool_private_vidx( lazy_ver+1UL, lazy_idx );
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( pool->ver_top  ) = acc_pool_private_vidx( top_ver +1UL, (ulong)accdb->snapshot_acc_free_top );
+  FD_VOLATILE( pool->ver_top  ) = acc_pool_private_vidx( top_ver +1UL, acc_pool_idx_null() );
   FD_COMPILER_MFENCE();
 
   /* Clear snapshot state. */
-  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
-  accdb->snapshot_acc_bump     = 0U;
-  accdb->snapshot_acc_end      = 0U;
+  accdb->snapshot_acc_bump = 0U;
+  accdb->snapshot_acc_end  = 0U;
 }
 
 void
@@ -539,7 +513,6 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_TEST( !accdb->snapshot_loading );
-  wait_cmd( accdb );
   snapshot_acc_pool_begin( accdb );
   accdb->snapshot_loading = 1;
   FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
@@ -556,12 +529,6 @@ change_partition( fd_accdb_t *           accdb,
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   FD_TEST( accdb->snapshot_loading );
-
-  /* Incremental advance_root is asynchronous.  T2 makes every unlinked
-     accmeta safe to reuse before acknowledging the command, after which
-     this join owns and frees the deferred indices. */
-  wait_cmd( accdb );
-  snapshot_acc_pool_free_deferred( accdb );
 
   spin_lock_acquire( &accdb->shmem->partition_lock );
 
@@ -749,12 +716,11 @@ fd_accdb_join_readonly( void *             ljoin,
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
-  accdb->fd                    = fd_ro;
-  accdb->acquire_state         = FD_ACCDB_ACQUIRE_STATE_IDLE;
-  accdb->snapshot_loading      = 0;
-  accdb->snapshot_acc_free_top = (uint)acc_pool_idx_null();
-  accdb->snapshot_acc_bump     = 0U;
-  accdb->snapshot_acc_end      = 0U;
+  accdb->fd                = fd_ro;
+  accdb->acquire_state     = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->snapshot_loading  = 0;
+  accdb->snapshot_acc_bump = 0U;
+  accdb->snapshot_acc_end  = 0U;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
