@@ -2,6 +2,7 @@
 #include "fd_hashes.h"
 #include "fd_bank.h"
 #include "../capture/fd_capture_ctx.h"
+#include "../events/fd_event_runtime.h"
 
 static void
 log_account_change( fd_bank_t const *  bank,
@@ -36,6 +37,8 @@ fd_accdb_svm_open_rw( fd_bank_t *             bank,
   }
 
   update->lamports_before = acc.lamports;
+  update->data_len_before = acc.data_len;
+  fd_memcpy( update->owner_before, acc.owner, 32UL );
 
   fd_lthash_value_t hash[1];
   fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
@@ -51,7 +54,7 @@ void
 fd_accdb_svm_close_rw( fd_bank_t *             bank,
                        fd_accdb_t *            accdb,
                        fd_capture_ctx_t *      capture_ctx,
-                       fd_acc_t *      acc,
+                       fd_acc_t *              acc,
                        fd_accdb_svm_update_t * update ) {
   if( FD_UNLIKELY( acc->lamports>update->lamports_before ) ) {
     ulong delta = acc->lamports-update->lamports_before;
@@ -69,6 +72,7 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
   fd_bank_lthash_end_locking_modify( bank );
 
   log_account_change( bank, acc, capture_ctx );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc->pubkey, update->owner_before, acc->owner, update->lamports_before, acc->lamports, update->data_len_before, acc->data_len, acc->executable );
   acc->commit = 1;
   fd_accdb_unwrite_one( accdb, acc );
 }
@@ -85,11 +89,13 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
 
   fd_lthash_value_t hash[1];
   fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  ulong lamports_pre = acc.lamports;
   FD_TEST( !__builtin_uaddl_overflow( acc.lamports, lamports_add, &acc.lamports ) );
   FD_TEST( !__builtin_uaddl_overflow( bank->f.capitalization, lamports_add, &bank->f.capitalization ) );
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
 }
@@ -105,6 +111,9 @@ fd_accdb_svm_write( fd_bank_t *         bank,
                     ulong               lamports_min,
                     int                 exec_bit ) {
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
+  ulong lamports_pre = acc.lamports;
+  ulong data_len_pre = acc.data_len;
+  uchar owner_pre[ 32 ]; fd_memcpy( owner_pre, acc.owner, 32UL );
 
   fd_lthash_value_t hash[1];
   fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
@@ -123,6 +132,7 @@ fd_accdb_svm_write( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc.pubkey, owner_pre, acc.owner, lamports_pre, acc.lamports, data_len_pre, acc.data_len, acc.executable );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
 }
@@ -148,6 +158,7 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, burned, acc.lamports, acc.data_len, acc.data_len, acc.executable );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
   return burned;

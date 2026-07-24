@@ -106,7 +106,7 @@ int main( int argc, char * argv[] ) {
   fd_new_votes_insert( nv, fd, &pk_a );
   FD_TEST( fd_new_votes_cnt( nv )==3UL );
 
-  fd_new_votes_apply_delta( nv, fd );
+  fd_new_votes_apply_delta( nv, fd, NULL );
 
   /* Delta elements freed, root map gained 2 distinct pubkeys.
      Pool usage = 2 (root map entries only, delta drained). */
@@ -118,7 +118,7 @@ int main( int argc, char * argv[] ) {
   fd_new_votes_insert( nv, fd2, &pk_c );
   FD_TEST( fd_new_votes_cnt( nv )==4UL );
 
-  fd_new_votes_apply_delta( nv, fd2 );
+  fd_new_votes_apply_delta( nv, fd2, NULL );
 
   /* pk_b already in root (deduped), pk_c newly added.
      Pool usage = 3 root entries, delta drained. */
@@ -132,14 +132,14 @@ int main( int argc, char * argv[] ) {
   {
     ushort f_root = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f_root, &pk_a );
-    fd_new_votes_apply_delta( nv, f_root );
+    fd_new_votes_apply_delta( nv, f_root, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==1UL );
 
     ushort f_tomb = fd_new_votes_new_fork( nv );
     fd_new_votes_remove( nv, f_tomb, &pk_a );
     FD_TEST( fd_new_votes_cnt( nv )==2UL );
 
-    fd_new_votes_apply_delta( nv, f_tomb );
+    fd_new_votes_apply_delta( nv, f_tomb, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==0UL );
     fd_new_votes_reset( nv );
   }
@@ -150,7 +150,7 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_remove( nv, f, &pk_a );
     FD_TEST( fd_new_votes_cnt( nv )==1UL );
 
-    fd_new_votes_apply_delta( nv, f );
+    fd_new_votes_apply_delta( nv, f, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==0UL );
     fd_new_votes_reset( nv );
   }
@@ -162,7 +162,7 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_remove( nv, f, &pk_a );
     FD_TEST( fd_new_votes_cnt( nv )==2UL );
 
-    fd_new_votes_apply_delta( nv, f );
+    fd_new_votes_apply_delta( nv, f, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==0UL );
     fd_new_votes_reset( nv );
   }
@@ -177,7 +177,7 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_insert( nv, f, &pk_a );
     FD_TEST( fd_new_votes_cnt( nv )==3UL );
 
-    fd_new_votes_apply_delta( nv, f );
+    fd_new_votes_apply_delta( nv, f, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==1UL );
 
     uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
@@ -247,7 +247,7 @@ int main( int argc, char * argv[] ) {
   {
     ushort f_root = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f_root, &pk_a );
-    fd_new_votes_apply_delta( nv, f_root );
+    fd_new_votes_apply_delta( nv, f_root, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==1UL );
 
     ushort f_recreate = fd_new_votes_new_fork( nv );
@@ -255,7 +255,7 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_insert( nv, f_recreate, &pk_a );
     FD_TEST( fd_new_votes_cnt( nv )==3UL );
 
-    fd_new_votes_apply_delta( nv, f_recreate );
+    fd_new_votes_apply_delta( nv, f_recreate, NULL );
     FD_TEST( fd_new_votes_cnt( nv )==1UL );
 
     fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
@@ -287,7 +287,7 @@ int main( int argc, char * argv[] ) {
     ushort f = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f, &pk_a );
     fd_new_votes_insert( nv, f, &pk_b );
-    fd_new_votes_apply_delta( nv, f );
+    fd_new_votes_apply_delta( nv, f, NULL );
 
 
     ulong cnt = 0UL;
@@ -356,7 +356,7 @@ int main( int argc, char * argv[] ) {
     ushort f0x = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f0x, &pk_a );
     fd_new_votes_insert( nv, f0x, &pk_b );
-    fd_new_votes_apply_delta( nv, f0x );
+    fd_new_votes_apply_delta( nv, f0x, NULL );
 
     ushort f1x = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f1x, &pk_b );
@@ -384,7 +384,7 @@ int main( int argc, char * argv[] ) {
   {
     ushort f_root = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f_root, &pk_a );
-    fd_new_votes_apply_delta( nv, f_root );
+    fd_new_votes_apply_delta( nv, f_root, NULL );
 
     ushort f_tomb = fd_new_votes_new_fork( nv );
     fd_new_votes_remove( nv, f_tomb, &pk_a );
@@ -412,7 +412,7 @@ int main( int argc, char * argv[] ) {
   {
     ushort f_root = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, f_root, &pk_a );
-    fd_new_votes_apply_delta( nv, f_root );
+    fd_new_votes_apply_delta( nv, f_root, NULL );
 
     ushort f_recreate = fd_new_votes_new_fork( nv );
     fd_new_votes_remove( nv, f_recreate, &pk_a );
@@ -442,7 +442,7 @@ int main( int argc, char * argv[] ) {
   {
     ushort fr = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, fr, &pk_a );
-    fd_new_votes_apply_delta( nv, fr );
+    fd_new_votes_apply_delta( nv, fr, NULL );
 
     ushort fks[2];
     fks[0] = fd_new_votes_new_fork( nv );
@@ -475,7 +475,7 @@ int main( int argc, char * argv[] ) {
     ushort fr = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, fr, &pk_a );
     fd_new_votes_insert( nv, fr, &pk_b );
-    fd_new_votes_apply_delta( nv, fr );
+    fd_new_votes_apply_delta( nv, fr, NULL );
 
     ushort fdup = fd_new_votes_new_fork( nv );
     fd_new_votes_insert( nv, fdup, &pk_a );

@@ -20,16 +20,8 @@
                 "type": "Tuple",
                 "description": "Slot that was voted on",
                 "fields": {
-                    "slot": {
-                        "type": "UInt64",
-                        "compression": "Delta, ZSTD",
-                        "description": "Slot being voted on / locked out for"
-                    },
-                    "confirmation_count": {
-                        "type": "UInt8",
-                        "compression": "Delta, ZSTD",
-                        "description": "Confirmation count (higher = closer to root)"
-                    }
+                    "slot":               { "type": "UInt64", "compression": "Delta, ZSTD", "description": "Slot being voted on / locked out for" },
+                    "confirmation_count": { "type": "UInt8",  "compression": "Delta, ZSTD", "description": "Confirmation count (higher = closer to root)" }
                 }
             }
         }

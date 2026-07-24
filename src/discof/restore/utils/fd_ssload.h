@@ -44,7 +44,8 @@ int
 fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
                          fd_banks_t *             banks,
                          fd_bank_t *              bank,
-                         ulong                    blockhash_seed );
+                         ulong                    blockhash_seed,
+                         int                      report_runtime_diffs );
 
 /* fd_ssload_recover validates the manifest and applies it to bank.
    Equivalent to fd_ssload_recover_validate followed by
@@ -58,7 +59,8 @@ int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   ulong                    blockhash_seed );
+                   ulong                    blockhash_seed,
+                   int                      report_runtime_diffs );
 
 FD_PROTOTYPES_END
 

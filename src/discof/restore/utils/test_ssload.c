@@ -587,7 +587,7 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   /* First apply: simulate initial full snapshot load. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 0 )==0 );
 
   /* Verify entries from first apply are present. */
   fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
@@ -633,7 +633,7 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   /* Second apply: simulate back-to-back retry after a failed first
      attempt.  Stale entries must be cleared. */
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
-  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed )==0 );
+  FD_TEST( fd_ssload_recover_apply( manifest, banks, bank, seed, 0 )==0 );
 
   /* Stake delegations: pubkey_A must have been removed, pubkey_B must
      be present, exactly 1 entry (not 2). */

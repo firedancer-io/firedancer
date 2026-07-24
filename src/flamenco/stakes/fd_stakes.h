@@ -83,7 +83,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 void
 fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                    fd_acc_t const *    acc,
-                                   fd_bank_t *         bank );
+                                   fd_bank_t *         bank,
+                                   fd_txn_in_t const * txn_in );
 
 FD_PROTOTYPES_END
 
