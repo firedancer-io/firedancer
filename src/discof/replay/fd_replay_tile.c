@@ -1113,6 +1113,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->notified_root_bank      = bank;
   ctx->published_root_slot     = 0UL;
   ctx->published_root_bank_idx = 0UL;
+  if( FD_UNLIKELY( ctx->snapmk.full_interval ) ) {
+    ctx->snapmk.next_full_slot = ctx->snapmk.full_interval;
+  }
 
   ctx->reset_slot            = 0UL;
   ctx->reset_block_id        = ctx->initial_block_id;
@@ -1235,6 +1238,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->notified_root_bank      = bank;
     ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->published_root_bank_idx = 0UL;
+    if( FD_UNLIKELY( ctx->snapmk.full_interval ) ) {
+      ctx->snapmk.next_full_slot = ((snapshot_slot/ctx->snapmk.full_interval)+1UL)*ctx->snapmk.full_interval;
+    }
 
     ctx->reset_slot            = snapshot_slot;
     ctx->reset_block_id        = manifest_block_id;
@@ -1806,8 +1812,21 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
 
 static ulong
 snapshot_target_slot( fd_replay_tile_t * ctx ) {
-  if( FD_LIKELY( !ctx->snapmk.supported ) ) return ULONG_MAX;
-  return ctx->snapmk.scheduled_at;
+  if( FD_LIKELY( !ctx->snapmk.supported || ctx->snapmk.active ) ) return ULONG_MAX;
+
+  ulong periodic = ULONG_MAX;
+  ulong interval = ctx->snapmk.full_interval;
+  if( FD_UNLIKELY( interval ) ) {
+    if( FD_UNLIKELY( ctx->snapmk.next_full_slot==ULONG_MAX ) ) {
+      ctx->snapmk.next_full_slot = ((ctx->published_root_slot/interval)+1UL)*interval;
+    }
+
+    /* If snapshot production fell behind by more than one interval,
+       skip ahead to the latest due interval. */
+    periodic = fd_ulong_max( ctx->snapmk.next_full_slot, (ctx->consensus_root_slot/interval)*interval );
+  }
+
+  return fd_ulong_min( periodic, ctx->snapmk.scheduled_at );
 }
 
 static void
@@ -1868,7 +1887,13 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   ulong snap_target_slot = snapshot_target_slot( ctx );
   if( FD_UNLIKELY( advanceable_root_slot>=snap_target_slot ) ) {
     snapmk_start( ctx, stem );
-    ctx->snapmk.scheduled_at = ULONG_MAX;
+    if( FD_UNLIKELY( ctx->snapmk.full_interval &&
+                     advanceable_root_slot>=ctx->snapmk.next_full_slot ) ) {
+      ctx->snapmk.next_full_slot = ((advanceable_root_slot/ctx->snapmk.full_interval)+1UL)*ctx->snapmk.full_interval;
+    }
+    if( FD_UNLIKELY( advanceable_root_slot>=ctx->snapmk.scheduled_at ) ) {
+      ctx->snapmk.scheduled_at = ULONG_MAX;
+    }
   }
 
   return 1;
@@ -2938,6 +2963,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->snapmk.active         = 0;
   ctx->snapmk.supported      = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
   ctx->snapmk.scheduled_at   = ULONG_MAX;
+  ctx->snapmk.full_interval  = tile->replay.full_snapshot_interval_slots;
+  ctx->snapmk.next_full_slot = ULONG_MAX;
+  if( FD_UNLIKELY( !ctx->snapmk.supported ) ) {
+    ctx->snapmk.full_interval = 0UL;
+  }
   ctx->reset_slot            = 0UL;
   ctx->reset_block_id        = ctx->initial_block_id;
   ctx->reset_timestamp_nanos = 0UL;

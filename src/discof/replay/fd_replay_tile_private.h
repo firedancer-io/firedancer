@@ -382,6 +382,8 @@ struct fd_replay_tile {
     uint  active:1;
     ulong bank_idx;
     ulong scheduled_at;
+    ulong full_interval;
+    ulong next_full_slot;
   } snapmk;
 
   struct {

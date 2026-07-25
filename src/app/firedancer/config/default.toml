@@ -356,9 +356,8 @@ telemetry = true
 # to join the network quickly, as they do not need to replay all
 # transactions since genesis, just those since a recent snapshot.
 #
-# Firedancer does not support creating or serving snapshots to other
-# nodes, and all snapshot related configuration is for downloading and
-# using snapshots when booting the validator.
+# Firedancer supports creating, downloading, and unpacking snapshots.
+# It does not yet support serving snapshots to other nodes.
 [snapshots]
     # Whether to enable loading from incremental snapshots.
     #
@@ -425,6 +424,11 @@ telemetry = true
     # before aborting startup.  Applies when waiting for either full or
     # incremental snapshot peers.
     wait_for_peers_timeout_seconds = 30
+
+    # Target interval in slots between full snapshot creations.
+    # 0 disables full snapshot production.  Snapshots may be skipped
+    # if production cannot keep up with the schedule.
+    full_snapshot_interval_slots = 100000
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
@@ -809,7 +813,7 @@ telemetry = true
     #
     # If snapshot production is disabled, the validator will have to
     # download a snapshot on every restart.
-    enable_snapshot_production = false
+    enable_snapshot_production = true
 
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
