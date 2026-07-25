@@ -204,6 +204,10 @@ union fdctl_args {
   struct {
     ulong ready_slot;
   } ready;
+
+  struct {
+    ulong slot;
+  } snapshot_create;
 };
 
 typedef union fdctl_args args_t;
