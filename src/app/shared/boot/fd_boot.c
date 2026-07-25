@@ -240,6 +240,10 @@ fd_main_init( int *                      pargc,
   fd_log_level_stderr_set( config->log.level_stderr1 );
   fd_log_level_flush_set( config->log.level_flush1 );
 
+  /* When auto config info/decisions are collected is before when the
+     log file is setup, so the logging of this info must be done separately. */
+  FD_LOG_INFO(( "%s", config->auto_config_log ));
+
   return config_fd<0;
 }
 

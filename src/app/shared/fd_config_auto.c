@@ -348,17 +348,18 @@ fd_config_auto( fd_config_t * config ) {
   fd_auto_info_t info = fd_auto_scrape_info( config );
   fd_auto_net( config, &info );
 
-  FD_LOG_INFO(( "network auto configure level=%s, provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d (driver=%s kernel=%lu.%lu virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
-                  config->net.auto_level,
-                  config->net.provider,
-                  config->net.xdp.xdp_mode,
-                  config->net.xdp.poll_mode,
-                  config->net.xdp.xdp_zero_copy,
-                  config->net.xdp.native_bond,
-                  info.driver[0] ? info.driver : "unknown",
-                  info.linux_major, info.linux_minor,
-                  info.is_virtual_if,
-                  info.is_bonded_if,
-                  info.bonded_if_slave_count,
-                  config->layout.net_tile_count ));
+  fd_cstr_printf( config->auto_config_log, sizeof(config->auto_config_log), NULL,
+      "network auto configure level=%s, provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d (driver=%s kernel=%lu.%lu virtual_if=%d bonded_if=%d slaves=%u, net_tile_cnt=%u)",
+      config->net.auto_level,
+      config->net.provider,
+      config->net.xdp.xdp_mode,
+      config->net.xdp.poll_mode,
+      config->net.xdp.xdp_zero_copy,
+      config->net.xdp.native_bond,
+      info.driver[0] ? info.driver : "unknown",
+      info.linux_major, info.linux_minor,
+      info.is_virtual_if,
+      info.is_bonded_if,
+      info.bonded_if_slave_count,
+      config->layout.net_tile_count );
 }

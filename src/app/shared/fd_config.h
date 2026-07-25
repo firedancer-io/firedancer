@@ -283,6 +283,10 @@ struct fd_config {
     int  log_fd;
   } log;
 
+  /* Necessary to output auto config's decisions/observed system info
+     to log file, since auto config runs before the log file is setup. */
+  char auto_config_log[ 512 ];
+
   struct {
     ushort expected_shred_version;
     char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
