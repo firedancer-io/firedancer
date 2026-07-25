@@ -7,6 +7,7 @@
 #include "../platform/fd_sys_util.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
+#include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -480,6 +481,15 @@ fd_config_validatef( fd_configf_t const * config ) {
   }
 
   CFG_HAS_NON_ZERO( snapshots.wait_for_peers_timeout_seconds );
+
+  if( FD_UNLIKELY( config->snapshots.max_full_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
+    FD_LOG_ERR(( "`snapshots.max_full_snapshots_to_keep` is %u but must be at most %lu",
+                 config->snapshots.max_full_snapshots_to_keep, FD_SSARCHIVE_MAX_ENTRIES ));
+  }
+  if( FD_UNLIKELY( config->snapshots.max_incremental_snapshots_to_keep>FD_SSARCHIVE_MAX_ENTRIES ) ) {
+    FD_LOG_ERR(( "`snapshots.max_incremental_snapshots_to_keep` is %u but must be at most %lu",
+                 config->snapshots.max_incremental_snapshots_to_keep, FD_SSARCHIVE_MAX_ENTRIES ));
+  }
 
   CFG_HAS_NON_ZERO( accounts.max_accounts   );
   CFG_HAS_NON_ZERO( accounts.cache_size_gib );

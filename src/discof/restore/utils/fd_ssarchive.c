@@ -21,63 +21,18 @@ typedef struct fd_ssarchive_entry fd_ssarchive_entry_t;
 #define SORT_BEFORE(a,b) ( (a).slot>(b).slot )
 #include "../../../util/tmpl/fd_sort.c"
 
-#define FD_SSARCHIVE_MAX_ENTRIES (512UL)
+static fd_ssarchive_entry_t *
+ssarchive_entry_insert( fd_ssarchive_entry_t * entries,
+                        ulong *                cnt,
+                        ulong                  slot ) {
+  if( FD_LIKELY( *cnt<FD_SSARCHIVE_MAX_ENTRIES ) ) return &entries[ (*cnt)++ ];
 
-int
-fd_ssarchive_parse_filename( char const * _name,
-                             ulong *      full_slot,
-                             ulong *      incremental_slot,
-                             uchar        hash[ static FD_HASH_FOOTPRINT ],
-                             int *        is_zstd ) {
-  char name[ PATH_MAX ];
-  fd_cstr_ncpy( name, _name, sizeof(name) );
-
-  char * ptr = name;
-  int is_incremental;
-  if( !strncmp( ptr, "incremental-snapshot-", 21UL ) ) {
-    is_incremental = 1;
-    ptr += 21UL;
-  } else if( !strncmp( ptr, "snapshot-", 9UL ) ) {
-    is_incremental = 0;
-    ptr += 9UL;
-  } else {
-    return -1;
+  ulong oldest = 0UL;
+  for( ulong i=1UL; i<*cnt; i++ ) {
+    if( entries[ i ].slot<entries[ oldest ].slot ) oldest = i;
   }
-
-  char * next = strchr( ptr, '-' );
-  if( FD_UNLIKELY( !next ) ) return -1;
-  *next = '\0';
-  char * endptr;
-  *full_slot = strtoul( ptr, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\0' || endptr==ptr || *full_slot==ULONG_MAX ) ) return -1;
-
-  if( is_incremental ) {
-    ptr = next + 1;
-    next = strchr( ptr, '-' );
-    if( FD_UNLIKELY( !next ) ) return -1;
-    *next = '\0';
-    *incremental_slot = strtoul( ptr, &endptr, 10 );
-    if( FD_UNLIKELY( *endptr!='\0' || endptr==ptr || *incremental_slot==ULONG_MAX ) ) return -1;
-  } else {
-    *incremental_slot = ULONG_MAX;
-  }
-
-  ptr = next + 1;
-  next = strchr( ptr, '.' );
-  if( FD_UNLIKELY( !next ) ) return -1;
-  *next = '\0';
-  ulong sz = (ulong)(next - ptr);
-  if( FD_UNLIKELY( sz>FD_BASE58_ENCODED_32_LEN ) ) return -1;
-  uchar * result = fd_base58_decode_32( ptr, hash );
-  if( FD_UNLIKELY( result!=hash ) ) return -1;
-
-  ptr = next + 1;
-
-  if(       FD_LIKELY( 0==strcmp( ptr, "tar.zst" ) ) ) *is_zstd = 1;
-  else if ( FD_LIKELY( 0==strcmp( ptr, "tar"     ) ) ) *is_zstd = 0;
-  else return -1;
-
-  return 0;
+  if( FD_UNLIKELY( slot<=entries[ oldest ].slot ) ) return NULL;
+  return &entries[ oldest ];
 }
 
 int
@@ -120,33 +75,31 @@ fd_ssarchive_latest_pair( char const * directory,
       continue;
     }
 
+    fd_ssarchive_entry_t * dst;
+    ulong                  dst_slot;
+    ulong                  dst_base_slot;
     if( FD_LIKELY( entry_incremental_slot==ULONG_MAX ) ) {
-      if( FD_UNLIKELY( full_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
-        continue;
-      }
-
-      full_snapshots[ full_snapshots_cnt ].slot      = entry_full_slot;
-      full_snapshots[ full_snapshots_cnt ].base_slot = ULONG_MAX;
-      full_snapshots[ full_snapshots_cnt ].is_zstd   = is_zstd;
-      if( FD_UNLIKELY( !fd_cstr_printf_check( full_snapshots[ full_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
-        FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
-      }
-      fd_memcpy( full_snapshots[ full_snapshots_cnt ].hash, decoded_hash, FD_HASH_FOOTPRINT );
-      full_snapshots_cnt++;
+      dst_slot      = entry_full_slot;
+      dst_base_slot = ULONG_MAX;
+      dst           = ssarchive_entry_insert( full_snapshots, &full_snapshots_cnt, dst_slot );
     } else {
-      if( FD_UNLIKELY( incremental_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
-        continue;
-      }
-
-      incremental_snapshots[ incremental_snapshots_cnt ].slot      = entry_incremental_slot;
-      incremental_snapshots[ incremental_snapshots_cnt ].base_slot = entry_full_slot;
-      incremental_snapshots[ incremental_snapshots_cnt ].is_zstd   = is_zstd;
-      if( FD_UNLIKELY( !fd_cstr_printf_check( incremental_snapshots[ incremental_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
-        FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
-      }
-      fd_memcpy( incremental_snapshots[ incremental_snapshots_cnt ].hash, decoded_hash, FD_HASH_FOOTPRINT );
-      incremental_snapshots_cnt++;
+      dst_slot      = entry_incremental_slot;
+      dst_base_slot = entry_full_slot;
+      dst           = ssarchive_entry_insert( incremental_snapshots, &incremental_snapshots_cnt, dst_slot );
     }
+    if( FD_UNLIKELY( !dst ) ) {
+      FD_LOG_INFO(( "more than %lu snapshots of one kind in `%s`, ignoring `%s`",
+                    FD_SSARCHIVE_MAX_ENTRIES, directory, entry->d_name ));
+      continue;
+    }
+
+    dst->slot      = dst_slot;
+    dst->base_slot = dst_base_slot;
+    dst->is_zstd   = is_zstd;
+    if( FD_UNLIKELY( !fd_cstr_printf_check( dst->path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
+      FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
+    }
+    fd_memcpy( dst->hash, decoded_hash, FD_HASH_FOOTPRINT );
   }
 
   if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
