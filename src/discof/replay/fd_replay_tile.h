@@ -56,7 +56,14 @@
    when memory pressure is high.  An evicted FEC - if valid - will be
    requested by repair and eventually re-delivered to replay, where
    hopefully by then there will be pool capacity to insert and replay
-   the FEC. */
+   the FEC.
+
+   SNAPSHOT PRODUCTION
+
+   Snapshot production is either periodically scheduled (driven by
+   replay tile) or externally requested (through admin tile).  The
+   replay tile stops compaction (via snapshot_sync) and rooting until
+   the snapshot is created. */
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"

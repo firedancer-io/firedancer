@@ -36,14 +36,17 @@
 #define FD_ADMINCTL_CMD_SET_IDENTITY           (2UL)
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
+#define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
 #define FD_ADMINCTL_SLOT_CNT    (4UL)
 
 /* Shared command result codes. */
-#define FD_ADMINCTL_RESULT_SUCCESS         (0UL)
-#define FD_ADMINCTL_RESULT_UNKNOWN_COMMAND (1UL)
+#define FD_ADMINCTL_RESULT_SUCCESS              (0UL)
+#define FD_ADMINCTL_RESULT_UNKNOWN_COMMAND      (1UL)
+#define FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH (2UL)
+#define FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH    (3UL)
 
 /* App-specific command result codes.
    NOTE: It is important these codes start at 2UL. */
@@ -55,12 +58,24 @@ struct fd_adminctl_add_auth_voter_v1 {
 typedef struct fd_adminctl_add_auth_voter_v1 fd_adminctl_add_auth_voter_t;
 #define FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION (1UL)
 
-#define FD_ADD_AUTHORIZED_VOTER_RESULT_PAYLOAD_TOO_SMALL           (2UL)
-#define FD_ADD_AUTHORIZED_VOTER_RESULT_UNSUPPORTED_PAYLOAD_VERSION (3UL)
-#define FD_ADD_AUTHORIZED_VOTER_RESULT_UNEXPECTED_PAYLOAD_SIZE     (4UL)
-#define FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH            (5UL)
-#define FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS             (6UL)
-#define FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER        (7UL)
+#define FD_ADD_AUTHORIZED_VOTER_RESULT_KEYPAIR_MISMATCH            (0x1001UL)
+#define FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS             (0x1002UL)
+#define FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER        (0x1003UL)
+
+#define FD_SNAPSHOT_CREATE_RESULT_BUSY                             (0x2001UL)
+#define FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED                      (0x2002UL)
+#define FD_SNAPSHOT_CREATE_RESULT_NOT_READY                        (0x2003UL)
+#define FD_SNAPSHOT_CREATE_RESULT_UNEXPECTED_RESPONSE              (0x2004UL)
+#define FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST                     (0x2005UL)
+
+struct fd_adminctl_snap_create_v1 {
+  ulong version; /* ==FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION */
+  ulong slot;    /* 0 to create a snapshot of the published root
+                    immediately, else stop rooting at the first rooted
+                    slot >= this slot and snapshot it */
+};
+typedef struct fd_adminctl_snap_create_v1 fd_adminctl_snap_create_t;
+#define FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION (1UL)
 
 struct fd_adminctl_set_identity_v1 {
   ulong version; /* ==FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION */
