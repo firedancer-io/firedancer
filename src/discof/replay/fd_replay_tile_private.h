@@ -357,6 +357,7 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t replay_out[1];
   fd_replay_out_link_t snapmk_out[1];
+  ulong admin_out_idx;
 
   fd_replay_out_link_t epoch_out[1];
 

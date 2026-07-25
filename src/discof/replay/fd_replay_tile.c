@@ -9,6 +9,7 @@
 #include "fd_execrp.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
+#include "../admin/fd_adminctl.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
@@ -95,6 +96,7 @@
 #define IN_KIND_RPC        ( 9)
 #define IN_KIND_GOSSIP_OUT (10)
 #define IN_KIND_SNAPMK     (11)
+#define IN_KIND_ADMIN      (12)
 
 #define DEBUG_LOGGING 0
 
@@ -2591,6 +2593,82 @@ msg_snapmk( fd_replay_tile_t *  ctx,
   }
 }
 
+/* admin command handlers
+   every admin command must trigger one response frag */
+
+static void
+admin_respond( fd_replay_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               ulong               orig,
+               ulong               err ) {
+  ulong ctl   = fd_frag_meta_ctl( orig, 0, 0, !!err );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->admin_out_idx, err, 0UL, 0UL, ctl, 0UL, tspub );
+}
+
+static void
+admin_snap_create( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   ulong               sig ) {
+  ulong target_slot = sig;
+
+  if( FD_UNLIKELY( !ctx->snapmk.supported ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but current config cannot create snapshots. increase [layout.snapzp_tile_count]?" ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_UNSUPPORTED );
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->is_booted ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but client has not yet started" ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_NOT_READY );
+    return;
+  }
+
+  if( FD_UNLIKELY( target_slot ) ) {
+    if( FD_UNLIKELY( target_slot<=ctx->published_root_slot ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation at slot %lu, but rooting is already past it (published root slot %lu)", target_slot, ctx->published_root_slot ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST );
+      return;
+    }
+
+
+    if( FD_UNLIKELY( ctx->snapmk.scheduled_at!=ULONG_MAX &&
+                     ctx->snapmk.scheduled_at!=target_slot ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation at slot %lu, but a snapshot is already scheduled at slot %lu. ignoring ...", target_slot, ctx->snapmk.scheduled_at ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+      return;
+    }
+
+    ctx->snapmk.scheduled_at = target_slot;
+    FD_LOG_NOTICE(( "snapshot creation scheduled at slot %lu", target_slot ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->snapmk.active ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
+  snapmk_start( ctx, stem );
+  admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
+}
+
+static void
+msg_admin( fd_replay_tile_t *  ctx,
+           fd_stem_context_t * stem,
+           ulong               orig,
+           ulong               sig ) {
+  switch( orig ) {
+  case FD_ADMINCTL_CMD_SNAP_CREATE:
+    admin_snap_create( ctx, stem, sig );
+    break;
+  default:
+    FD_LOG_CRIT(( "unknown admin cmd (orig=%lu, sig=%lu)", orig, sig ));
+  }
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2730,6 +2808,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_SNAPMK:
       msg_snapmk( ctx, stem, fd_frag_meta_ctl_orig( ctl ) );
+      break;
+    case IN_KIND_ADMIN:
+      msg_admin( ctx, stem, fd_frag_meta_ctl_orig( ctl ), sig );
       break;
     default:
       FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[ in_idx ] ));
@@ -3012,7 +3093,12 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_replay" ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
+    else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+
+    if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
+      FD_TEST( ( ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_admin", 0UL ) )!=ULONG_MAX );
+    }
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
