@@ -416,7 +416,11 @@ STEM_(run1)( ulong                        in_cnt,
         ulong cons_idx = event_idx;
 
         /* Receive flow control credits from this out. */
-        cons_seq[ cons_idx ] = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+        ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+        cons_seq[ cons_idx ] = this_cons_seq;
+#ifdef STEM_CALLBACK_RECV_CREDIT
+        STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
+#endif
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
         ulong in_idx = event_idx - cons_cnt - 1UL;
@@ -534,6 +538,7 @@ STEM_(run1)( ulong                        in_cnt,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
       .out_reliable        = out_reliable,
+      .cons_seq            = cons_seq
     };
 #endif
 
