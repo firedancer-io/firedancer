@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../discof/backup/fd_backup_visited.h"
 
 #include "../../discof/admin/fd_adminctl.h"
 
@@ -230,6 +231,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {
   .footprint = rnonce_ss_footprint,
   .align     = rnonce_ss_align,
   .new       = rnonce_ss_new,
+};
+
+static ulong
+backup_vis_footprint_cb( fd_topo_t const *     topo,
+                         fd_topo_obj_t const * obj ) {
+  return visited_set_footprint( VAL("max_accounts") );
+}
+
+static ulong
+backup_vis_align_cb( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return visited_set_align();
+}
+
+static void
+backup_vis_new_cb( fd_topo_t const *     topo,
+                   fd_topo_obj_t const * obj ) {
+  FD_TEST( visited_set_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_backup_vis = {
+  .name      = "backup_vis",
+  .footprint = backup_vis_footprint_cb,
+  .align     = backup_vis_align_cb,
+  .new       = backup_vis_new_cb,
 };
 
 #undef VAL
