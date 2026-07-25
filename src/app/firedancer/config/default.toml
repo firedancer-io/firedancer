@@ -798,6 +798,19 @@ telemetry = true
     # are ignored as the tiles are not booted to begin with.
     enable_block_production = true
 
+    # Whether to run tiles involved in snapshot production.
+    #
+    # The following tiles will only run if this option is enabled:
+    #
+    #  snapmk, snaprd, snapsv, snapzp
+    #
+    # These tiles do not use up CPU cycles while idle but increase
+    # memory usage (typically by a few GiB).
+    #
+    # If snapshot production is disabled, the validator will have to
+    # download a snapshot on every restart.
+    enable_snapshot_production = false
+
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
     # run more than 2 net tiles given current `mainnet` conditions.
@@ -896,6 +909,11 @@ telemetry = true
     # done in parallel without blocking.  Multiple execrp tiles exploit
     # this parallelism supported by the accounts database.
     execrp_tile_count = 10
+
+    # How many snapshot compressor tiles to run.  These tiles do not
+    # consume CPU when idle.  If set to 0, snapshot creation and all
+    # associated tiles are disabled.
+    snapzp_tile_count = 6
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

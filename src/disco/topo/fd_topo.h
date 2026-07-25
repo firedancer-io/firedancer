@@ -580,6 +580,8 @@ struct fd_topo_tile {
       ulong rpc_epoch_obj_id;
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
+      ulong snapzp_epoch_obj_ids[ 64 ];
+      ulong snapzp_epoch_obj_cnt;
     } accdb;
 
     struct {
@@ -684,6 +686,32 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong visited_set_obj_id;
+      ulong banks_obj_id;
+      ulong zp_fseq_id;
+      ulong txncache_obj_id;
+      ulong max_accounts;
+      ulong max_live_slots;
+      uint  max_full_snapshots_to_keep;
+      char  snapshots_path[ PATH_MAX ];
+      uint  max_incremental_snapshots_to_keep;
+    } snapmk;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong visited_set_obj_id;
+      ulong zp_fseq_id;
+      ulong max_live_slots;
+      uint  snap_fd_cnt;
+    } snapzp;
+
+    struct {
+      ulong accdb_obj_id;
+    } snaprd;
   };
 };
 

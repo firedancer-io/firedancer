@@ -71,6 +71,11 @@
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
 #define REPLAY_SIG_DROP_BANK_REF  (9)
+#define REPLAY_SIG_SNAP_START    (10)
+
+/* replay_out mcache seq[i] slots */
+#define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
+#define REPLAY_SYNC_SNAP (1UL) /* mcache->seq[1]: last published snap msg (acq-rel) */
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -198,6 +203,16 @@ struct fd_replay_drop_bank_ref {
 };
 typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
 
+/* The replay tile broadcasts fd_replay_snap_start_t
+   (REPLAY_SIG_SNAP_START) just before starting snapshot creation. */
+
+struct fd_replay_snap_start {
+  ulong bank_idx;
+  uint  base_generation;
+  ulong base_slot;
+  ulong slot; /* ==base_slot implies full snapshot, else incremental */
+};
+typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;

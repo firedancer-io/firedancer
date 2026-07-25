@@ -105,11 +105,13 @@ struct fd_configf {
 
   struct {
     int  enable_block_production;
+    int  enable_snapshot_production;
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
+    uint snapzp_tile_count;
   } layout;
 
   struct {
