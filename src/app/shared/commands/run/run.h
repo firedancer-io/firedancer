@@ -26,6 +26,14 @@ initialize_stacks( config_t const * config );
 void
 initialize_accdb_fd( config_t const * config );
 
+/* initialize_snapshot_fds opens the snapshot file pool at
+   [FD_SNAP_FD(0)..FD_SNAP_FD(n-1)] and returns n, the number of snap
+   files (including freshly created placeholders) opened.  Returns 0 if
+   snapshot retention is disabled. */
+
+ulong
+initialize_snapshot_fds( config_t const * config );
+
 void
 run_firedancer_init( config_t * config,
                      int        init_workspaces,

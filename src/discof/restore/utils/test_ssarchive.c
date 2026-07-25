@@ -179,11 +179,40 @@ test_ssarchive_latest_pair_dangling_incr(void) {
   test_ssarchive_fini( &env );
 }
 
+static void
+test_ssarchive_latest_pair_over_capacity( void ) {
+  fd_test_ssarchive_env_t env;
+  test_ssarchive_init( &env );
+
+  ulong const extra    = 17UL;
+  ulong const snap_cnt = FD_SSARCHIVE_MAX_ENTRIES+extra;
+  ulong const base     = 1000UL;
+  for( ulong i=0UL; i<snap_cnt; i++ ) {
+    char name[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL,
+                                   "snapshot-%lu-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", base+i ) );
+    int fd = openat( env.dir_fd, name, O_CREAT|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "openat(%s/%s) failed (%i-%s)", env.tmp_path, name, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  ulong full_snapshot_slot, incr_snapshot_slot;
+  char  full_path[ PATH_MAX ], incr_path[ PATH_MAX ];
+  int   full_is_zstd, incr_is_zstd;
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ], incr_snapshot_hash[ FD_HASH_FOOTPRINT ];
+  FD_TEST( fd_ssarchive_latest_pair( env.tmp_path, 0, &full_snapshot_slot, &incr_snapshot_slot, full_path, incr_path, &full_is_zstd, &incr_is_zstd, full_snapshot_hash, incr_snapshot_hash )==0 );
+  FD_TEST( full_snapshot_slot==base+snap_cnt-1UL );
+  FD_TEST( incr_snapshot_slot==ULONG_MAX );
+
+  test_ssarchive_fini( &env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_ssarchive_latest_pair_basic();
   test_ssarchive_latest_pair_dangling_incr();
+  test_ssarchive_latest_pair_over_capacity();
   return 0;
 }
