@@ -1,3 +1,8 @@
+#define _GNU_SOURCE
+#include <linux/futex.h> /* FUTEX_WAKE */
+#include <sys/syscall.h> /* SYS_futex */
+#include <unistd.h> /* syscall(2) */
+
 #include "fd_replay_tile.h"
 #include "fd_replay_tile_private.h"
 #include "fd_sched.h"
@@ -16,6 +21,7 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../discof/backup/fd_backup.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
@@ -88,6 +94,7 @@
 #define IN_KIND_TXSEND     ( 8)
 #define IN_KIND_RPC        ( 9)
 #define IN_KIND_GOSSIP_OUT (10)
+#define IN_KIND_SNAPMK     (11)
 
 #define DEBUG_LOGGING 0
 
@@ -1796,10 +1803,25 @@ try_notify_consensus_root( fd_replay_tile_t *  ctx,
   return 1;
 }
 
+static ulong
+snapshot_target_slot( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->snapmk.supported ) ) return ULONG_MAX;
+  return ctx->snapmk.scheduled_at;
+}
+
+static void
+snapmk_start( fd_replay_tile_t *  ctx,
+              fd_stem_context_t * stem );
+
 static int
-try_advance_published_root( fd_replay_tile_t * ctx ) {
+try_advance_published_root( fd_replay_tile_t *  ctx,
+                            fd_stem_context_t * stem ) {
 
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
+
+  /* accdb pauses advance_root while producing a snapshot, so submitting
+     one would stall the next wait_cmd until the snapshot completes. */
+  if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
@@ -1841,6 +1863,12 @@ try_advance_published_root( fd_replay_tile_t * ctx ) {
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
+
+  ulong snap_target_slot = snapshot_target_slot( ctx );
+  if( FD_UNLIKELY( advanceable_root_slot>=snap_target_slot ) ) {
+    snapmk_start( ctx, stem );
+    ctx->snapmk.scheduled_at = ULONG_MAX;
+  }
 
   return 1;
 }
@@ -2031,7 +2059,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( try_advance_published_root( ctx ) ) ) {
+  if( FD_UNLIKELY( try_advance_published_root( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2466,6 +2494,78 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
   update_metric_balances( ctx, bank );
 }
 
+/* snapmk_start instructs the snapmk tile to start producing a snapshot. */
+
+static void
+snapmk_start( fd_replay_tile_t *  ctx,
+              fd_stem_context_t * stem ) {
+
+  FD_CHECK_CRIT( !ctx->snapmk.active, "snapshot creation already in progress" );
+
+  /* pin current produced bank */
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_CHECK_CRIT( bank, "invalid published_root_bank_idx" );
+  bank->refcnt++;
+  ctx->snapmk.bank_idx = bank->idx;
+
+  /* Send SNAP_START message to snapmk. */
+  fd_replay_snap_start_t * msg = fd_chunk_to_laddr( ctx->snapmk_out->mem, ctx->snapmk_out->chunk );
+  *msg = (fd_replay_snap_start_t) {
+    .bank_idx        = ctx->published_root_bank_idx,
+    .base_slot       = bank->f.slot,
+    .base_generation = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id )
+  };
+  ulong out_idx = ctx->snapmk_out->idx;
+  ulong sig     = REPLAY_SIG_SNAP_START;
+  ulong chunk   = ctx->snapmk_out->chunk;
+  ulong tspub   = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sz      = sizeof(fd_replay_snap_start_t);
+  ulong seq     = fd_stem_publish( stem, out_idx, sig, chunk, sz, 0UL, 0UL, tspub );
+  ctx->snapmk_out->chunk = fd_dcache_compact_next( ctx->snapmk_out->chunk, sz, ctx->snapmk_out->chunk0, ctx->snapmk_out->wmark );
+
+  /* wake up the snapmk tile */
+  fd_frag_meta_t * replay_snapmk = stem->mcaches[ out_idx ];
+  ulong *          snap_sync     = fd_mcache_seq_laddr( replay_snapmk );
+  fd_mcache_seq_update( snap_sync, fd_seq_inc( seq, 1UL ) );
+  long ret = syscall( SYS_futex, snap_sync, FUTEX_WAKE, 1 );
+  if( FD_UNLIKELY( ret<0 ) ) {
+    FD_LOG_ERR(( "FUTEX_WAKE(snap_sync,seq=%u) failed (%i-%s)", (uint)seq, errno, fd_io_strerror( errno ) ));
+  }
+
+  /* update internal state */
+  ctx->snapmk.active = 1;
+}
+
+/* snapmk_done reacts to the snapmk tile reporting completion. */
+
+static void
+snapmk_done( fd_replay_tile_t *  ctx,
+             fd_stem_context_t * stem ) {
+  (void)stem;
+
+  FD_CHECK_CRIT( ctx->snapmk.active, "spurious snap complete msg (not creating snapshot)" );
+
+  /* release bank */
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
+  FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
+  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
+  bank->refcnt--;
+  ctx->snapmk.active = 0;
+}
+
+static void
+msg_snapmk( fd_replay_tile_t *  ctx,
+            fd_stem_context_t * stem,
+            ulong               orig ) {
+  switch( orig ) {
+  case FD_BACKUP_ORIG_DONE:
+    snapmk_done( ctx, stem );
+    break;
+  default:
+    FD_LOG_ERR(( "unknown snapmk message (orig=%lu)", orig ));
+  }
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2603,6 +2703,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->idx, bank->f.slot, bank->refcnt, ctx->in_kind[ in_idx ]==IN_KIND_RPC ? "rpc" : "gui" ));
       break;
     }
+    case IN_KIND_SNAPMK:
+      msg_snapmk( ctx, stem, fd_frag_meta_ctl_orig( ctl ) );
+      break;
     default:
       FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -2826,6 +2929,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->is_leader             = 0;
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
+  ctx->snapmk.active         = 0;
+  ctx->snapmk.supported      = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
+  ctx->snapmk.scheduled_at   = ULONG_MAX;
   ctx->reset_slot            = 0UL;
   ctx->reset_block_id        = ctx->initial_block_id;
   ctx->reset_timestamp_nanos = 0UL;
@@ -2875,11 +2981,13 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( !strcmp( link->name, "snapmk_replay" ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
 
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
@@ -2978,10 +3086,10 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* counting carefully, after_credit can generate at most 7 frags and
-   returnable_frag boot_genesis can also generate at most 7 frags, so 14
-   is a conservative bound. */
-#define STEM_BURST (14UL)
+/* counting carefully, after_credit can generate at most 8 frags and
+   returnable_frag boot_genesis can generate at most 7 frags, so 15 is a
+   conservative bound. */
+#define STEM_BURST (15UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent

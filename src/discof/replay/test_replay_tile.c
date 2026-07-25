@@ -7,6 +7,7 @@
    Include fd_store.h first to get the type definitions, then override
    the lock macros to no-ops. */
 
+#define _GNU_SOURCE
 #include "../../disco/store/fd_store.h"
 #undef  FD_STORE_SLOCK_BEGIN
 #undef  FD_STORE_SLOCK_END
