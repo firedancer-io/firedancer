@@ -724,7 +724,7 @@ authorize( fd_exec_instr_ctx_t *         ctx,
            int                           target_version,
            fd_pubkey_t const *           authorized,
            fd_vote_authorize_t const *   vote_authorize,
-           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+           fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
            ulong                         signers_cnt,
            fd_sol_sysvar_clock_t const * clock,
            int                           is_vote_authorize_with_bls_enabled ) {
@@ -850,7 +850,7 @@ update_validator_identity( fd_exec_instr_ctx_t *   ctx,
                            int                     target_version,
                            fd_borrowed_account_t * vote_account,
                            fd_pubkey_t const *     node_pubkey,
-                           fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX],
+                           fd_pubkey_t const *     signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                   signers_cnt,
                            int                     custom_commission_collector_enabled ) {
   fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_validator_identity.vote_state;
@@ -904,7 +904,7 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
                    int                           target_version,
                    fd_borrowed_account_t *       vote_account,
                    uchar                         commission,
-                   fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                   fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                    ulong                         signers_cnt,
                    fd_epoch_schedule_t const *   epoch_schedule,
                    fd_sol_sysvar_clock_t const * clock,
@@ -956,7 +956,7 @@ update_commission_bps( fd_exec_instr_ctx_t *                    ctx,
                        fd_borrowed_account_t *                  vote_account,
                        int                                      target_version,
                        fd_update_commission_bps_args_t const *  args,
-                       fd_pubkey_t const *                      signers[static FD_TXN_SIG_MAX],
+                       fd_pubkey_t const *                      signers[static FD_INSTR_SIGNERS_MAX],
                        ulong                                    signers_cnt,
                        int                                      block_revenue_sharing ) {
   fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_commission_bps.vote_state;
@@ -1006,7 +1006,7 @@ update_commission_collector( fd_exec_instr_ctx_t *         ctx,
                              int                           target_version,
                              fd_borrowed_account_t const * collector_account,
                              fd_commission_kind_t const *  kind,
-                             fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                             fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                              ulong                         signers_cnt,
                              fd_rent_t const *             rent ) {
   fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_commission_collector.vote_state;
@@ -1072,7 +1072,7 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
           int                           target_version,
           ulong                         lamports,
           ushort                        to_account_index,
-          fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+          fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
           ulong                         signers_cnt,
           fd_rent_t const *             rent_sysvar,
           fd_sol_sysvar_clock_t const * clock,
@@ -1213,16 +1213,19 @@ process_vote( fd_exec_instr_ctx_t *       ctx,
   }
 
   /* We know that the size of the vote_slots is bounded by the number of
-     slots that can fit inside of an instruction.  A very loose bound is
-     assuming that the entire transaction is just filled with a vote
-     slot deque (1232 bytes per transaction/8 bytes per slot) == 154
-     slots.  The footprint of a deque is as follows:
+     slots that can fit inside of an instruction.  Because the
+     instructions are deserialized with
+     limited_deserialize(data, PACKET_DATA_SIZE), we can use
+     FD_TXN_MTU_V0 as a bound on the size of the instruction. If this
+     instruction is filled only with a vote slot deque, we get
+     (1232/8) == 154 slots.
+     The footprint of a deque is as follows:
      fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(DEQUE_T) ) + sizeof(DEQUE_T)*max, alignof(DEQUE_(private_t)) );
      So, the footprint in our case is:
      fd_ulong_align_up( fd_ulong_align_up( 32UL, alignof(ulong) ) + sizeof(ulong)*154, alignof(DEQUE_(private_t)) );
      Which is equal to
      fd_ulong_align_up( 32UL + 154 * 8UL, 8UL ) = 1264UL; */
-  #define VOTE_SLOTS_MAX             (FD_TXN_MTU/sizeof(ulong))
+  #define VOTE_SLOTS_MAX             (FD_TXN_MTU_V0/sizeof(ulong))
   #define VOTE_SLOTS_DEQUE_FOOTPRINT (1264UL )
   #define VOTE_SLOTS_DEQUE_ALIGN     (8UL)
   FD_TEST( deq_ulong_footprint( VOTE_SLOTS_MAX ) == VOTE_SLOTS_DEQUE_FOOTPRINT );
@@ -1265,7 +1268,7 @@ initialize_account( fd_exec_instr_ctx_t *         ctx,
                     fd_borrowed_account_t *       vote_account,
                     int                           target_version,
                     fd_vote_init_t *              vote_init,
-                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                    fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                     ulong                         signers_cnt,
                     fd_sol_sysvar_clock_t const * clock ) {
   int rc;
@@ -1301,7 +1304,7 @@ initialize_account_v2( fd_exec_instr_ctx_t *         ctx,
                        fd_borrowed_account_t *       vote_account,
                        int                           target_version,
                        fd_vote_init_v2_t *           vote_init_v2,
-                       fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                       fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                        ulong                         signers_cnt,
                        fd_sol_sysvar_clock_t const * clock ) {
   int rc;
@@ -1346,7 +1349,7 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
                            fd_slot_hashes_t const *      slot_hashes,
                            fd_sol_sysvar_clock_t const * clock,
                            fd_vote_t *                   vote,
-                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                           fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.process_vote.vote_state;
 
@@ -1449,7 +1452,7 @@ process_vote_state_update( fd_exec_instr_ctx_t *         ctx,
                            fd_slot_hashes_t const *      slot_hashes,
                            fd_sol_sysvar_clock_t const * clock,
                            fd_vote_state_update_t *      vote_state_update,
-                           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                           fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                            ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.process_vote.vote_state;
 
@@ -1526,7 +1529,7 @@ process_tower_sync( fd_exec_instr_ctx_t *         ctx,
                     fd_slot_hashes_t const *      slot_hashes,
                     fd_sol_sysvar_clock_t const * clock,
                     fd_tower_sync_t *             tower_sync,
-                    fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
+                    fd_pubkey_t const *           signers[static FD_INSTR_SIGNERS_MAX],
                     ulong                         signers_cnt ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.tower_sync.vote_state;
 
@@ -1628,7 +1631,7 @@ process_authorize_with_seed_instruction( /* invoke_context */
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
   if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-  fd_pubkey_t * expected_authority_keys[FD_TXN_SIG_MAX] = { 0 };
+  fd_pubkey_t * expected_authority_keys[FD_INSTR_SIGNERS_MAX] = { 0 };
   ulong         expected_authority_keys_cnt             = 0UL;
   fd_pubkey_t   single_signer                           = { 0 };
 
@@ -1690,8 +1693,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int target_version = VOTE_STATE_TARGET_VERSION_V4;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L69
-  fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
-  ulong               signers_cnt             = 0UL;
+  fd_pubkey_t const * signers[FD_INSTR_SIGNERS_MAX] = { 0 };
+  ulong               signers_cnt                   = 0UL;
   fd_exec_instr_ctx_get_signers( ctx, signers, &signers_cnt );
 
   /* Some of these features are not implemented yet. As such, they are
@@ -1717,7 +1720,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       vote_account_initialize_v2;
 
   fd_vote_instruction_t instruction[1];
-  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( instruction, ctx->instr->data, fd_ulong_min( ctx->instr->data_sz, FD_TXN_MTU ) ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( instruction, ctx->instr->data, ctx->instr->data_sz ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

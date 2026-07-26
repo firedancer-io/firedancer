@@ -698,10 +698,9 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, 150UL );
 
   fd_system_program_instruction_t instruction;
-  ulong limited_sz = fd_ulong_min( ctx->instr->data_sz, FD_TXN_MTU );
   if( FD_UNLIKELY( fd_system_program_instruction_decode( &instruction,
                                                          ctx->instr->data,
-                                                         limited_sz ) ) ) {
+                                                         ctx->instr->data_sz ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 

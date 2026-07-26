@@ -1080,7 +1080,7 @@ test_vote_instruction_footprints( void ) {
   FD_TEST( FD_VOTE_INSTR_LOCKOUT_OFFSET_ALIGN == alignof(fd_lockout_offset_t) );
   FD_TEST( FD_VOTE_INSTR_LOCKOUT_OFFSET_FOOTPRINT == sizeof(fd_lockout_offset_t) * FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN );
 
-  FD_TEST( FD_VOTE_INSTR_SEED_MAX == FD_TXN_MTU );
+  FD_TEST( FD_VOTE_INSTR_SEED_MAX == FD_TXN_MTU_V0 );
 
   FD_TEST( FD_VOTE_INSTR_LANDED_VOTES_ALIGN == deq_fd_landed_vote_t_align() );
   FD_TEST( FD_VOTE_INSTR_LANDED_VOTES_FOOTPRINT == deq_fd_landed_vote_t_footprint( FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN ) );
