@@ -139,7 +139,7 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
   /* Check if signatures exceed txn size limit */
   ulong sig_sz;
   if( __builtin_umull_overflow( sig_cnt, 64UL, &sig_sz ) ) return 0;
-  if( sig_sz > (FD_TXN_MTU-txn_msg_min_sz) ) return 0;
+  if( sig_sz > (FD_TXN_MTU_V0-txn_msg_min_sz) ) return 0;
 
   /* Skip other fields */
   //uint ro_signed_cnt   = *cursor;

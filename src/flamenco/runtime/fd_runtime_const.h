@@ -9,6 +9,15 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_FORK_CNT (4096UL)
 
+/* FD_INSTR_SIGNERS_MAX: The (inclusive) maximum number of distinct
+   signers a single instruction can have.
+
+   This is the runtime bound, which is larger than the transaction
+   parser bound because during CPI calls PDAs can be promoted to
+   signers. Therefore in the runtime, the effective limit is the
+   amount of distinct accounts the transaction can access. */
+#define FD_INSTR_SIGNERS_MAX FD_TXN_ACCT_ADDR_MAX
+
 /* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
    and vote accounts that the system supports: anything larger will
    result in a crash. The bounds were set with the intention of making a

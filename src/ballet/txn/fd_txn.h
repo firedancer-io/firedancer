@@ -53,28 +53,20 @@
 
 
 /* FD_TXN_SIG_MAX: The (inclusive) maximum number of signatures a transaction
-   can have.  Note: for the current MTU size of 1232 B, the maximum that a
-   valid transaction can have is 12 signatures. The most I've seen in practice
-   is about 7.
+   can have.
 
-   FD_TXN_ACTUAL_SIG_MAX: used to allocate arrays of signatures, pubkeys, etc.
+   For V0 transactions, which have an MTU of 1232 B, the maximum signatures
+   that can fit in the MTU is 12.
 
-   From the spec: "The Solana runtime verifies that the number of signatures
-   [stored as a compact-u16] matches the number in the first 8 bits of the
-   message header."
-   Thus this value must live in the range where compact-u16 and uint8
-   representations are identical, hence a max of 127. */
-#define FD_TXN_SIG_MAX               (127UL)
-#define FD_TXN_ACTUAL_SIG_MAX        (12UL)
+   For V1 transactions, the spec explicitly limits the maximum number of
+   signatures to 12. */
+#define FD_TXN_SIG_MAX (12UL)
 
 /* FD_TXN_ACCT_ADDR_MAX: The (inclusive) maximum number of account addresses
-   that a transaction can have.  The spec only guarantees <= 256, but the
-   current MTU of 1232 B restricts this to 35 account addresses.  An artificial
-   limit of 64 is currently in place, but this is being changed to 128 in the
-   near future (https://github.com/solana-labs/solana/issues/27241), so we'll
-   use 128. */
-/* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139 */
-#define FD_TXN_ACCT_ADDR_MAX         (128UL)
+   that a transaction can have.
+
+   The account lock limit currently limits this to 64. */
+#define FD_TXN_ACCT_ADDR_MAX (64UL)
 
 /* FD_TXN_ADDR_TABLE_LOOKUP_MAX: The (inclusive) maximum number of address
    tables that this transaction references.  The spec is pretty sloppy about
@@ -86,7 +78,7 @@
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
 /* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
-   can have.  As of Solana 1.15.0, this is limited to 64. */
+   can have. */
 #define FD_TXN_INSTR_MAX             (64UL)
 
 
@@ -95,13 +87,34 @@
    worst-case transaction is a V0 transaction with only two account
    addresses (a program and a fee payer), and tons of empty instructions (no
    accounts, no data) and as many address table lookups loading a single
-   account as possible. */
-#define FD_TXN_MAX_SZ                (852UL)
+   account as possible.
+
+   Worst-case V0 transaction: only 2 accounts, 64 empty instructions
+   (no accounts, no data), 24 address lookup table lookups loading
+   a single account:
+     sizeof(fd_txn_t)                    =  22
+     64 × sizeof(fd_txn_instr_t)         = 640 +
+     24 × sizeof(fd_txn_acct_addr_lut_t) = 192 +
+                                         = 854
+
+   Worst-case V1 transaction: 64 empty instructions, no ALTs as
+   ALTs are not allowed in V1 transactions:
+     sizeof(fd_txn_t)                    =  22
+     64 × sizeof(fd_txn_instr_t)         = 640 +
+     = 662
+
+   So the worst-case parsed transaction size is the V0 transaction
+   case. */
+#define FD_TXN_MAX_SZ                (854UL)
 
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
-   transaction. */
-#define FD_TXN_MTU                  (1232UL)
+   transaction, across all transaction version formats. */
+#define FD_TXN_MTU                  (4096UL)
+
+/* FD_TXN_MTU_V0: The maximum size (in bytes, inclusive) of a serialized
+   legacy or V0 transaction. */
+#define FD_TXN_MTU_V0               (1232UL)
 
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
    transaction, using fd_txn_parse() verification rules. */
@@ -109,11 +122,9 @@
 
 /* BEGIN Agave limits */
 
-/* "Maximum number of accounts that a transaction may lock.
-    128 was chosen because it is the minimum number of accounts
-    needed for the Neon EVM implementation."
-   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/src/transaction/sanitized.rs#L30 */
-#define MAX_TX_ACCOUNT_LOCKS         (128UL)
+/* Maximum number of accounts that a transaction may lock. */
+#define MAX_TX_ACCOUNT_LOCKS         (64UL)
+
 /* In the FD runtime, we've sized things assuming up to
    MAX_TX_ACCOUNT_LOCKS accounts per transaction. We rely on the txn
    parser to enforce this limit, up till the point of
