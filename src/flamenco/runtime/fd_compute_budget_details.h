@@ -14,12 +14,14 @@ struct fd_compute_budget_details {
   uchar has_compute_units_price_update;
   uchar has_requested_heap_size;
   uchar has_loaded_accounts_data_size_limit_update;
+  uchar is_v1; /* 1 if the transaction is a V1 transaction, 0 otherwise */
 
   ulong compute_unit_limit;              /* Compute unit limit for this transaction. */
   ulong compute_unit_price;              /* Compute unit price for this transaction. */
   ulong compute_meter;                   /* Remaining compute units */
   ulong heap_size;                       /* Heap size for VMs for this transaction. */
   ulong loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
+  ulong priority_fee_lamports;           /* Total priority fee in lamports, only set for V1 transactions. */
 
   /* SIMD-170 introduces a conservative CU limit of 3,000 CUs per
      non-migrated native program, and 200,000 CUs for all other programs

@@ -156,6 +156,7 @@ typedef struct fd_event_block_equivocated fd_event_block_equivocated_t;
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED        (29) /* Durable-nonce txn was rejected because its nonce account has already been advanced */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR      (30) /* Durable-nonce txn failed to advance its nonce account */
 #define FD_EVENT_RUNTIME_TXN_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE              (31) /* Durable-nonce txn's recent_blockhash did not match the stored nonce */
+#define FD_EVENT_RUNTIME_TXN_TXN_ERR_UNSUPPORTED_VERSION                     (32) /* Transaction uses a message version that is not supported */
 
 /* Instruction execution error; success unless txn_err = instruction_error */
 #define FD_EVENT_RUNTIME_TXN_EXEC_ERR_SUCCESS                            (1) /* instruction succeeded */

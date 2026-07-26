@@ -5,6 +5,7 @@
 #include "../fd_runtime_const.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
+#include "../fd_executor.h"
 #include "../program/fd_compute_budget_program.h"
 #include "../program/fd_system_program.h"
 #include "../../features/fd_features.h"
@@ -274,6 +275,72 @@ test_sanitize_compute_unit_limits_heap_size( void ) {
   FD_LOG_NOTICE(( "test_sanitize_compute_unit_limits_heap_size: PASSED" ));
 }
 
+/* 5-config-a: tx-v1 (SIMD-0385) heap-size sanitization. Runs a fabricated
+   v1 transaction through fd_executor_verify_transaction (which routes v1
+   to fd_executor_sanitize_txn_v1_config) and asserts the heap-size accept/
+   reject decision matches agave's try_into_config V1 rule (must be a
+   multiple of 1 KiB in [32 KiB, 256 KiB]; bit-4-unset defaults to 32 KiB).
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L157-L163 */
+static int
+run_v1_heap_case( fd_bank_t * bank, uchar config_mask, uint heap_val ) {
+  /* static: fd_txn_out_t is multi-MB (per-bundle account arrays + the
+     instructions-sysvar scratch buffer), so it must not go on the stack. */
+  static fd_txn_p_t txnp;
+  fd_memset( &txnp, 0, sizeof(txnp) );
+  fd_txn_t * txn = TXN( &txnp );
+  txn->transaction_version      = FD_TXN_V1;
+  txn->instr_cnt                = 0;
+  txn->signature_cnt            = 0;
+  txn->v1_txn_config_mask       = config_mask;
+  txn->v1_txn_config_values_off = 64;
+  /* With only bit 4 (heap) set, the heap word is the first ConfigValues
+     word, i.e. at values_off + 0. */
+  fd_memcpy( txnp.payload + 64UL, &heap_val, sizeof(uint) );
+  txnp.payload_sz = 128UL;
+
+  fd_txn_in_t txn_in = {0};
+  txn_in.txn = &txnp;
+
+  static fd_txn_out_t txn_out;
+  fd_memset( &txn_out, 0, sizeof(txn_out) );
+  fd_compute_budget_details_new( &txn_out.details.compute_budget );
+
+  return fd_executor_verify_transaction( bank, &txn_in, &txn_out );
+}
+
+static void
+test_sanitize_txn_v1_config_heap_size( fd_bank_t * bank ) {
+  /* bit 4 unset -> default 32 KiB -> accepted */
+  FD_TEST( run_v1_heap_case( bank, 0x00, 0U            )==FD_RUNTIME_EXECUTE_SUCCESS );
+  /* explicit valid: min, mid, max (all multiples of 1 KiB) */
+  FD_TEST( run_v1_heap_case( bank, 0x10,  32U*1024U    )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( run_v1_heap_case( bank, 0x10,  64U*1024U    )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( run_v1_heap_case( bank, 0x10, 256U*1024U    )==FD_RUNTIME_EXECUTE_SUCCESS );
+  /* below min, above max, and non-multiple-of-1KiB -> SanitizeFailure */
+  FD_TEST( run_v1_heap_case( bank, 0x10,  16U*1024U    )==FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
+  FD_TEST( run_v1_heap_case( bank, 0x10, 512U*1024U    )==FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
+  FD_TEST( run_v1_heap_case( bank, 0x10,  32U*1024U+1U )==FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
+  FD_LOG_NOTICE(( "test_sanitize_txn_v1_config_heap_size: PASSED" ));
+}
+
+/* Phase 7b (SIMD-0385): a v1 transaction must be rejected with
+   UnsupportedVersion while enable_tx_v1 is inactive. The gate precedes the
+   compute-budget/heap decode, so even an otherwise-valid v1 txn (and an
+   otherwise-SanitizeFailure heap value) is UnsupportedVersion when off.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank.rs#L5467-L5477 */
+static void
+test_v1_feature_gate( void ) {
+  static fd_bank_t bank_off;
+  fd_memset( &bank_off, 0, sizeof(bank_off) );
+  bank_off.f.slot = 1UL;
+  fd_features_enable_all( &bank_off.f.features );
+  bank_off.f.features.enable_tx_v1 = FD_FEATURE_DISABLED;
+
+  FD_TEST( run_v1_heap_case( &bank_off, 0x10, 64U*1024U )==FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION );
+  FD_TEST( run_v1_heap_case( &bank_off, 0x10, 16U*1024U )==FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION );
+  FD_LOG_NOTICE(( "test_v1_feature_gate: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -290,6 +357,8 @@ main( int     argc,
   test_calculate_allocated_accounts_data_size_invalid_ix( &bank );
 
   test_sanitize_compute_unit_limits_heap_size();
+  test_sanitize_txn_v1_config_heap_size( &bank );
+  test_v1_feature_gate();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

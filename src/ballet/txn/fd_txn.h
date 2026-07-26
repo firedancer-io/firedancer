@@ -36,6 +36,13 @@
 /* FD_TXN_V0: The second transaction format.  Includes a version number and
    potentially some address lookup tables */
 #define FD_TXN_V0      ((uchar)0x00)
+/* FD_TXN_V1: The third transaction format ("Transaction V1").
+   See https://github.com/solana-foundation/solana-improvement-documents/pull/385
+
+   This format removes support for address lookup tables and is the
+   only transaction format that supports an MTU greater than 1232
+   bytes. */
+#define FD_TXN_V1      ((uchar)0x01)
 
 /* FD_TXN_SIGNATURE_SZ: The size (in bytes) of an Ed25519 signature. */
 #define FD_TXN_SIGNATURE_SZ (64UL)
@@ -101,7 +108,7 @@
    ALTs are not allowed in V1 transactions:
      sizeof(fd_txn_t)                    =  22
      64 × sizeof(fd_txn_instr_t)         = 640 +
-     = 662
+                                         = 662
 
    So the worst-case parsed transaction size is the V0 transaction
    case. */
@@ -113,7 +120,10 @@
 #define FD_TXN_MTU                  (4096UL)
 
 /* FD_TXN_MTU_V0: The maximum size (in bytes, inclusive) of a serialized
-   legacy or V0 transaction. */
+   legacy or V0 transaction.
+
+   Any transaction that has an MTU larger than this is required to
+   use the transaction V1 format. */
 #define FD_TXN_MTU_V0               (1232UL)
 
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
@@ -196,7 +206,7 @@ typedef struct fd_txn_instr fd_txn_instr_t;
    - potentially (if it's a V2 transaction) some address lookup tables. */
 struct fd_txn {
   /* transaction_version: The version number of this transaction. Currently
-     must be one of { FD_TXN_VLEGACY, FD_TXN_V0 }. */
+     must be one of { FD_TXN_VLEGACY, FD_TXN_V0, FD_TXN_V1 }. */
   uchar       transaction_version;
 
   /* signature_cnt: The number of signatures in this transaction. signature_cnt
@@ -209,16 +219,26 @@ struct fd_txn {
      Specifically, if uchar const * payload is a pointer to the first byte of
      the transaction data in the packet, then signature i starts at
      (payload+signature_off)[ FD_TXN_SIGNATURE_SZ*i ] for i in
-     [0, signature_cnt).
+     [0, signature_cnt). */
 
-     Note that signature_off is always 1 in current transaction versions. */
   ushort      signature_off;
 
-  /* message_off: The offset (relative to the start of the transaction) in
-     bytes where the 'message' starts.
+  /* message_off: The offset (relative to the start of the transaction)
+     in bytes where the 'message' starts.
 
-     The message, which is the part of the packet covered by the signatures,
-     spans from this offset to the end of the packet. */
+     The message is the part of the transaction covered by the
+     signatures.
+
+     For legacy/V0 transactions, the signatures are at the front of the
+     packet and the message is at the end, so the message spans from
+     message_off to the end of the packet.
+
+     For V1 transactions, the message is at the front of the packet and
+     the signatures are at the end, so the message spans from
+     message_off to signature_off.
+
+     Use fd_txn_msg_sz( txn, payload_sz ) to determine the length of
+     the message. */
   ushort      message_off;
 
   /* readonly_signed_cnt: Of the signature_cnt signatures, readonly_signed_cnt
@@ -284,8 +304,32 @@ struct fd_txn {
      [0, FD_TXN_ADDT_ADDR_MAX - acct_addr_cnt]. Since acct_addr_cnt > 0,
      addr_table_adtl_cnt < 256. */
   uchar      addr_table_adtl_cnt;
-  uchar      _padding_reserved_1; /* explicit padding the compiler would have
-                                     inserted anyways */
+
+  /* v1_txn_config_mask: The transaction config mask which together
+     with the v1_txn_config_values_off allows the user to configure the
+     priority fee; compute unit limit; loaded accounts data size limit
+     and the program heap size.
+
+     If a given bit is non-zero, the corresponding config value is
+     included in the config values region (described below):
+     Bit 0+1: priority fee
+     Bit 2:   compute unit limit
+     Bit 3:   loaded accounts data size
+     Bit 4:   program heap size
+
+     For V1 transactions, only bits 0-4 can be non-zero. Compute
+     budget program instructions are silently ignored and the values
+     from the config values region are used instead.
+     For legacy/V0 transactions, all bits are zeroed as these values
+     cannot be specified. */
+  uchar      v1_txn_config_mask;
+
+  /* v1_txn_config_values_off: The offset relative to the start of the
+     transaction of the config values region.  The config values region
+     contains the fields which the config mask above indicated are
+     present, packed together.  Fields which are not present are not
+     included, not set to zero. */
+  ushort     v1_txn_config_values_off;
 
   /* From the address table lookups, we can add the following to the above table
                                                 Index Range                                         |   Signer?    |  Writeable?
@@ -696,7 +740,8 @@ static inline ulong              FD_FN_CONST fd_txn_acct_iter_idx( fd_txn_acct_i
    payload+payload_sz.  payload_sz <= FD_TXN_MTU.
 
    out_buf is the memory where the parsed transaction will be stored.
-   out_buf must have room for at least FD_TXN_MAX_SZ bytes.
+   out_buf must be non-NULL and have room for at least FD_TXN_MAX_SZ
+   bytes.
 
    Returns the total size of the resulting fd_txn struct on success and
    0 on failure.  On failure, the contents of out_buf are undefined,
@@ -723,6 +768,77 @@ fd_txn_parse_core( uchar const             * payload,
 static inline ulong
 fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_parse_counters_t * counters_opt ) {
   return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL );
+}
+
+/* fd_txn_msg_sz returns the size in bytes of the signed message region
+   of a transaction - not including the transaction signatures.
+
+   The message bytes begin at message_off, relative to the start of
+   the payload.
+
+   Where these bytes are located in the transaction payload is
+   dependent on the transaction format: legacy/V0 transactions have
+   signatures at the front and then the message, whereas V1
+   transactions have the message at the front and then the signatures.
+
+   fd_txn_msg_sz and message_off should always be used together. */
+FD_FN_PURE static inline ulong
+fd_txn_msg_sz( fd_txn_t const * txn,
+               ulong            payload_sz ) {
+  ulong msg_end = ( txn->transaction_version==FD_TXN_V1 ) ? (ulong)txn->signature_off
+                                                          : payload_sz;
+  return msg_end - (ulong)txn->message_off;
+}
+
+/* FD_TXN_V1_DEFAULT_HEAP_SZ: V1 transactions that do not explicitly
+   set their requested heap size using the config mask (bit 4 is 0),
+   use a default 32 KiB requested heap size as per SIMD 385. */
+#define FD_TXN_V1_DEFAULT_HEAP_SZ (32UL*1024UL)
+
+/* fd_txn_parse_v1_config decodes the four compute-budget fields
+   V1 transactions specify using the given config mask and config
+   values.
+
+   config_mask is the transaction config mask. Only bits 0-4 will be
+   set.
+
+   config_values is a pointer to the start of the config values
+   region.  This contains only the config values that the config mask
+   indicates are present, packed in little-endian, in ascending bit
+   order.
+
+   The results of the parsing are written to the
+   out_priority_fee_lamports, out_compute_unit_limit,
+   out_loaded_accounts_data_sz_limit and out_heap_size fields.  If a
+   field is not specified by the config mask the defaults as per
+   SIMD 385 are used.
+
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107 */
+static inline void
+fd_txn_parse_v1_config( uchar          config_mask,
+                        uchar const *  config_values,
+                        ulong *        out_priority_fee_lamports,
+                        ulong *        out_compute_unit_limit,
+                        ulong *        out_loaded_accounts_data_sz_limit,
+                        ulong *        out_heap_size ) {
+
+  /* Default values as per SIMD 385 */
+  ulong priority_fee = 0UL;
+  ulong cu_limit     = 0UL;
+  ulong lads_limit   = 0UL;
+  ulong heap         = FD_TXN_V1_DEFAULT_HEAP_SZ;
+
+  uchar const * v = config_values;
+  /* Priority fee is a ulong, the rest are uint */
+  if(  config_mask    & 1U ) { priority_fee = FD_LOAD( ulong, v ); v += 8UL; }
+  if( (config_mask>>2)& 1U ) { cu_limit     = FD_LOAD( uint,  v ); v += 4UL; }
+  if( (config_mask>>3)& 1U ) { lads_limit   = FD_LOAD( uint,  v ); v += 4UL; }
+  if( (config_mask>>4)& 1U ) { heap         = FD_LOAD( uint,  v );           }
+
+  *out_priority_fee_lamports         = priority_fee;
+  *out_compute_unit_limit            = cu_limit;
+  *out_loaded_accounts_data_sz_limit = lads_limit;
+  *out_heap_size                     = heap;
 }
 
 /* fd_txn_is_writable: Is the account at the supplied index writable

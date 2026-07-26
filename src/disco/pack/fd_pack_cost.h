@@ -385,7 +385,9 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     fd_pack_builtin_prog_cost_t const * in_tbl = fd_pack_builtin_query( prog_id, null_row );
     non_builtin_cnt += !in_tbl->cost_per_instr; /* null row has 0 cost */
 
-    if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
+    /* If the transaction is not a V1 transaction, parse the compute budget instruction.
+       Compute budget instructions are silently ignored for V1 transactions. */
+    if( FD_UNLIKELY( txn->transaction_version!=FD_TXN_V1 && in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, data_sz, cbp ) ) )
         return 0UL;
     } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) ) ) {
@@ -525,7 +527,36 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong fee[1];
   uint execution_cost[1];
   ulong loaded_account_data_cost[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
+
+  /* V1 transactions use the config mask, and silently ignore compute
+     budget program instructions. */
+  if( txn->transaction_version==FD_TXN_V1 ) {
+    ulong v1_priority_fee, v1_cu_limit, v1_loaded, v1_heap;
+    fd_txn_parse_v1_config( txn->v1_txn_config_mask, payload+txn->v1_txn_config_values_off,
+                            &v1_priority_fee, &v1_cu_limit, &v1_loaded, &v1_heap );
+    *fee            = v1_priority_fee;
+    *execution_cost = (uint)fd_ulong_min( v1_cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
+    v1_loaded       = fd_ulong_min( v1_loaded, FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ );
+
+    /* V1 transactions which request a loaded accounts data size limit
+       of 0, or do not explicitly set this limit, are thrown out by
+       Firedancer's block packer. Agave reserves 1 page for these,
+       and later adjusts the cost based on what the transaction
+       actually uses.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/core/src/banking_stage/qos_service.rs#L68-L72
+
+       V1 transactions which request a loaded account data
+       size limit which is not a multiple of 32 KiB have the loaded
+       account data cost rounded up to the nearest 32 KiB. This matches
+       Agave's cost tracker behaviour.
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/cost-model/src/cost_model.rs#L188-L203 */
+    *loaded_account_data_cost = FD_COMPUTE_BUDGET_HEAP_COST *
+        ( ( v1_loaded + FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )
+          / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE );
+    if( FD_UNLIKELY( 0UL==*loaded_account_data_cost ) ) return 0UL;
+  } else {
+    fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
+  }
 
   /* As an optimization, for simple votes we can override execution cost
     with a known tighter upper bound. */
