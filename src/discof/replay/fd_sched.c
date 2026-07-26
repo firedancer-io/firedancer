@@ -2214,13 +2214,25 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
-  uchar * payload = block->fec_buf+block->fec_buf_soff;
-  ulong pay_sz = 0UL;
-  ulong txn_sz = fd_txn_parse_core( payload,
-                                    fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
-                                    txn,
-                                    NULL,
-                                    &pay_sz );
+  uchar * payload   = block->fec_buf+block->fec_buf_soff;
+  ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
+  ulong   pay_sz    = 0UL;
+
+  /* payload_sz below is the remaining block window, not a single
+     transaction, so cap it to the transaction's version-specific maximum
+     size before parsing: legacy/V0 transactions are bounded at
+     FD_TXN_MTU_V0, only V1 may use the full FD_TXN_MTU.  The version is
+     the high bit of the first byte, matching fd_txn_parse_core's dispatch
+     (fd_txn_parse.c: high bit set => V1 with the message (and version
+     byte 0x81) at the front, clear => legacy/V0 with the signature count
+     first). */
+  int   is_v1   = remaining && ( payload[ 0 ] & 0x80U );
+  ulong ver_mtu = is_v1 ? FD_TXN_MTU : FD_TXN_MTU_V0;
+  ulong txn_sz  = fd_txn_parse_core( payload,
+                                     fd_ulong_min( ver_mtu, remaining ),
+                                     txn,
+                                     NULL,
+                                     &pay_sz );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */

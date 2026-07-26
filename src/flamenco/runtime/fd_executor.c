@@ -346,7 +346,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
   fd_blake3_append( b3, "solana-tx-message-v1", 20UL );
-  fd_blake3_append( b3, ((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->message_off),(ulong)( txn_in->txn->payload_sz - TXN( txn_in->txn )->message_off ) );
+  fd_blake3_append( b3, ((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->message_off), fd_txn_msg_sz( TXN( txn_in->txn ), (ulong)txn_in->txn->payload_sz ) );
   fd_blake3_fini( b3, &txn_out->details.blake_txn_msg_hash );
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
@@ -418,6 +418,67 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* fd_executor_sanitize_txn_v1_config decodes a tx-v1 (SIMD-0385)
+   transaction's compute budget from its validated ConfigMask +
+   ConfigValues region into txn_out's compute budget details, and
+   validates the heap size.  It is the tx-v1 counterpart of
+   fd_executor_compute_budget_program_execute_instructions(): the budget
+   lives in the mask rather than in ComputeBudget program instructions, so
+   there is no per-instruction state to scan.
+
+   ConfigValues holds one 4-byte word per set mask bit, in ascending bit
+   order, so we read them left to right, advancing past each present field
+   (an absent field uses its default).  Bits 0,1 jointly hold the 8-byte
+   priority-fee TOTAL; bit 2 a u32 CU limit; bit 3 a u32 loaded-data limit;
+   bit 4 a u32 heap size.  Unset defaults mirror agave's tx-v1
+   TransactionConfiguration: priority fee 0, CU limit 0, loaded-data 0,
+   heap HEAP_LENGTH (== FD_MIN_HEAP_FRAME_BYTES, 32 KiB).
+
+   The fields are arranged so fd_sanitize_compute_unit_limits() finalizes
+   them correctly without its v0-specific handling firing:
+     - has_compute_units_limit_update=1 -> sanitize skips the v0
+       instruction-count default and just clamps the CU limit to MAX and
+       sets the compute meter;
+     - the loaded-data limit is pre-clamped to MAX with its has_*_update
+       flag cleared -> sanitize skips the v0 zero-rejection;
+     - the heap size is validated here (an out-of-range value is a
+       transaction-level SanitizeFailure, unlike v0's instruction-indexed
+       InstructionError) and has_requested_heap_size cleared so sanitize
+       does not re-validate it.
+   Returns FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE on a bad heap, else
+   FD_RUNTIME_EXECUTE_SUCCESS.
+
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L176 */
+static inline int
+fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
+                                    fd_txn_out_t *      txn_out ) {
+  fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
+  fd_txn_t const *              txn     = TXN( txn_in->txn );
+
+  ulong priority_fee, cu_limit, loaded, heap;
+  fd_txn_parse_v1_config( txn->v1_txn_config_mask,
+                          (uchar const *)txn_in->txn->payload + txn->v1_txn_config_values_off,
+                          &priority_fee, &cu_limit, &loaded, &heap );
+
+  /* Heap must be a multiple of 1 KiB in [32 KiB, 256 KiB], else reject. */
+  if( FD_UNLIKELY( heap<FD_MIN_HEAP_FRAME_BYTES || heap>FD_MAX_HEAP_FRAME_BYTES ||
+                   (heap%FD_HEAP_FRAME_BYTES_GRANULARITY)!=0UL ) ) {
+    return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
+  }
+
+  details->is_v1                                      = 1;
+  details->priority_fee_lamports                      = priority_fee;
+  details->has_compute_units_limit_update             = 1;
+  details->compute_unit_limit                         = cu_limit;
+  details->loaded_accounts_data_size_limit            = fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, loaded );
+  details->has_loaded_accounts_data_size_limit_update = 0;
+  details->heap_size                                  = heap;
+  details->has_requested_heap_size                    = 0;
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
 /* `verify_transaction()` is the first function called in the
    transaction execution pipeline. It is responsible for deserializing
    the transaction, verifying the message hash (sigverify), verifying
@@ -435,6 +496,16 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_out_t *      txn_out ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
 
+  /* SIMD-0385: reject v1 transactions until the enable_tx_v1 feature gate
+     is active. Agave returns UnsupportedVersion for this. (The version-
+     aware size caps are already enforced by the parser: v1<=4096,
+     legacy/v0<=1232.)
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank.rs#L5467-L5477 */
+  if( FD_UNLIKELY( TXN( txn_in->txn )->transaction_version==FD_TXN_V1 &&
+                   !FD_FEATURE_ACTIVE_BANK( bank, enable_tx_v1 ) ) ) {
+    return FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION;
+  }
+
   /* SIMD-0406: enforce limit on number of instruction accounts.
 
      TODO: when limit_instruction_accounts is activated everywhere,
@@ -450,8 +521,17 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
-  err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
+  /* tx-v1 (SIMD-0385) carries its compute budget in the ConfigMask
+     rather than in ComputeBudget program instructions, so it takes a
+     separate producer. Both paths populate the same compute budget
+     details, which fd_sanitize_compute_unit_limits() later finalizes.
+
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L94-L112 */
+  if( FD_UNLIKELY( TXN( txn_in->txn )->transaction_version==FD_TXN_V1 ) ) {
+    err = fd_executor_sanitize_txn_v1_config( txn_in, txn_out );
+  } else {
+    err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
+  }
   if( FD_UNLIKELY( err ) ) return err;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -773,6 +853,12 @@ fd_executor_validate_account_locks( fd_txn_out_t const * txn_out ) {
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget/src/compute_budget_limits.rs#L62-L70 */
 static ulong
 fd_get_prioritization_fee( fd_compute_budget_details_t const * compute_budget_details ) {
+  /* tx-v1 (SIMD-0385) supplies the priority fee directly as a total in
+     lamports, rather than as a per-CU price to be multiplied by the
+     compute unit limit. */
+  if( FD_UNLIKELY( compute_budget_details->is_v1 ) ) {
+    return compute_budget_details->priority_fee_lamports;
+  }
   uint128 micro_lamport_fee = fd_uint128_sat_mul( compute_budget_details->compute_unit_price, compute_budget_details->compute_unit_limit );
   uint128 fee = fd_uint128_sat_add( micro_lamport_fee, MICRO_LAMPORTS_PER_LAMPORT-1UL ) / MICRO_LAMPORTS_PER_LAMPORT;
   return fee>(uint128)ULONG_MAX ? ULONG_MAX : (ulong)fee;
@@ -1425,7 +1511,7 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
   uchar * signatures = txn_p->payload + txn->signature_off;
   uchar * pubkeys    = txn_p->payload + txn->acct_addr_off;
   uchar * msg        = txn_p->payload + txn->message_off;
-  ulong   msg_sz     = txn_p->payload_sz - txn->message_off;
+  ulong   msg_sz     = fd_txn_msg_sz( txn, txn_p->payload_sz );
 
   int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt );
   if( FD_UNLIKELY( res!=FD_ED25519_SUCCESS ) ) return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;

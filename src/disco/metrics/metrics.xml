@@ -1006,6 +1006,12 @@ EXAMPLES
          but are used by execle as an additional reason transactions
          might fail. -->
     <int value="26" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
+
+    <!-- Version rejection. A v1 (SIMD-0385) transaction seen while the
+         enable_tx_v1 feature is not yet active. Only reachable during
+         replay, since pack does not schedule v1 transactions before the
+         feature activates. -->
+    <int value="27" name="UnsupportedVersion" label="The transaction uses a version that is not supported by the current feature set (v1 before enable_tx_v1 is active)" />
 </enum>
 
 <enum name="TransactionLanded">

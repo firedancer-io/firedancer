@@ -109,7 +109,18 @@ after_frag( fd_verify_ctx_t *   ctx,
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
-    FD_LOG_ERR(( "verify: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
+    /* Oversized payload: larger than the 4096 B max serialized transaction
+       (across all versions) and thus larger than the payload buffer.  Drop
+       it rather than FD_LOG_ERR — a malformed/oversized packet must not
+       crash the tile.  This guard must precede fd_txn_parse: the parser
+       trusts payload_sz as the data length, so calling it with
+       payload_sz>buffer would read out of bounds.  The version-aware size
+       caps (v1<=FD_TXN_MTU=4096, legacy/v0<=FD_TXN_MTU_V0=1232) are enforced
+       inside fd_txn_parse, and a violation there drops via the txn_t_sz==0
+       path below. */
+    if( FD_UNLIKELY( !!txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+    ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_TILE_RESULT_V_PARSE_FAILURE_IDX ]++;
+    return;
   }
   fd_txn_t *  txnt = fd_txn_m_txn_t( txnm );
   txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, NULL );

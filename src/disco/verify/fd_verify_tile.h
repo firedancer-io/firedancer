@@ -72,7 +72,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
   uchar const * signatures = udp_payload + signature_off;
   uchar const * pubkeys = udp_payload + acct_addr_off;
   uchar const * msg = udp_payload + message_off;
-  ulong msg_sz = (ulong)payload_sz - message_off;
+  ulong msg_sz = fd_txn_msg_sz( txn, (ulong)payload_sz );
 
   /* The first signature is the transaction id, i.e. a unique identifier.
      So use this to do a quick dedup of ha traffic. */
