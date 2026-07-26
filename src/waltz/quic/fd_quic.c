@@ -3414,6 +3414,32 @@ fd_quic_gen_ping_frame( fd_quic_conn_t             * conn,
   return frame_sz;
 }
 
+static ulong
+fd_quic_gen_path_response_frame( fd_quic_conn_t * conn,
+                                 uchar          * payload_ptr,
+                                 uchar          * payload_end ) {
+
+  if( ~conn->flags & FD_QUIC_CONN_FLAGS_PATH_RESPONSE ) return 0UL;
+
+  fd_quic_path_response_frame_t response = {
+    .data = conn->path_response_data
+  };
+
+  ulong frame_sz = fd_quic_encode_path_response_frame( payload_ptr,
+      (ulong)( payload_end - payload_ptr ),
+      &response );
+  if( FD_UNLIKELY( frame_sz==FD_QUIC_ENCODE_FAIL ) ) return 0UL;
+
+  conn->flags &= ~FD_QUIC_CONN_FLAGS_PATH_RESPONSE;
+
+  /* PATH_RESPONSE is not retransmitted per RFC 9000 Section 8.2.4:
+     "A PATH_RESPONSE frame MUST NOT be sent more than once in response
+     to a PATH_CHALLENGE frame." The peer will re-send PATH_CHALLENGE
+     if needed. */
+
+  return frame_sz;
+}
+
 uchar *
 fd_quic_gen_stream_frames( fd_quic_conn_t             * conn,
                            uchar                      * payload_ptr,
@@ -3548,9 +3574,10 @@ fd_quic_gen_frames( fd_quic_conn_t           * conn,
     if( pkt_meta_tmpl->enc_level == fd_quic_enc_level_appdata_id ) {
       payload_ptr += fd_quic_gen_handshake_done_frame( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
       if( conn->upd_pkt_number >= pkt_meta_tmpl->key.pkt_num ) {
-        payload_ptr += fd_quic_gen_max_data_frame   ( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
-        payload_ptr += fd_quic_gen_max_streams_frame( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
-        payload_ptr += fd_quic_gen_ping_frame       ( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
+        payload_ptr += fd_quic_gen_max_data_frame      ( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
+        payload_ptr += fd_quic_gen_max_streams_frame   ( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
+        payload_ptr += fd_quic_gen_ping_frame          ( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
+        payload_ptr += fd_quic_gen_path_response_frame ( conn, payload_ptr, payload_end );
       }
       if( FD_LIKELY( !conn->tls_hs ) ) {
         payload_ptr = fd_quic_gen_stream_frames( conn, payload_ptr, payload_end, pkt_meta_tmpl, tracker );
@@ -5249,9 +5276,15 @@ fd_quic_handle_path_challenge_frame(
     fd_quic_path_challenge_frame_t * data,
     uchar const *                    p    FD_PARAM_UNUSED,
     ulong                            p_sz FD_PARAM_UNUSED ) {
-  /* FIXME The recipient of this frame MUST generate a PATH_RESPONSE frame (Section 19.18) containing the same Data value. */
-  FD_DTRACE_PROBE_1( quic_handle_path_challenge_frame, context->conn->our_conn_id );
-  (void)data;
+  fd_quic_conn_t * conn = context->conn;
+
+  FD_DTRACE_PROBE_1( quic_handle_path_challenge_frame, conn->our_conn_id );
+
+  /* RFC 9000 Section 8.2.2: MUST respond with PATH_RESPONSE containing same Data */
+  conn->path_response_data = data->data;
+  conn->flags             |= FD_QUIC_CONN_FLAGS_PATH_RESPONSE;
+  conn->upd_pkt_number     = FD_QUIC_PKT_NUM_PENDING;
+
   return 0UL;
 }
 

@@ -200,6 +200,10 @@ struct fd_quic_conn {
 # define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
 # define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
 # define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
+# define FD_QUIC_CONN_FLAGS_PATH_RESPONSE      (1u<<6u)
+
+  /* PATH_RESPONSE data to echo back (RFC 9000 Section 8.2) */
+  ulong                path_response_data;
 
   /* max stream data per stream type */
   ulong                tx_initial_max_stream_data_uni;
