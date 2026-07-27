@@ -232,8 +232,7 @@ typedef struct {
   ulong    umem_sz; /* Size  of UMEM */
 
   /* UMEM chunk region within workspace */
-  uint     umem_chunk0; /* Lowest allowed chunk number */
-  uint     umem_wmark;  /* Highest allowed chunk number */
+  uint     umem_chunk0; /* Chunk number of the first byte of UMEM */
 
   /* All net tiles are subscribed to the same TX links.  (These are
      incoming links from app tiles asking the net tile to send out packets)
@@ -1249,18 +1248,17 @@ net_rx_event( fd_net_ctx_t * ctx,
      packet was forwarded to a downstream ring, the newly shadowed frame
      is returned.  Otherwise, the frame just received is returned. */
 
-  if( FD_UNLIKELY( ( freed_chunk < ctx->umem_chunk0 ) |
-                    ( freed_chunk > ctx->umem_wmark ) ) ) {
-    FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
-                  freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
+  FD_STATIC_ASSERT( FD_ULONG_IS_POW2( FD_NET_MTU ), "FD_NET_MTU must be a power of two" );
+  ulong frame_mask = FD_NET_MTU - 1UL;
+  ulong freed_off  = ( (ulong)( freed_chunk - ctx->umem_chunk0 )<<FD_CHUNK_LG_SZ ) & (~frame_mask);
+  if( FD_UNLIKELY( freed_off+FD_NET_MTU > ctx->umem_sz ) ) {
+    FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u frame=0x%lx umem_sz=0x%lx",
+                  freed_chunk, ctx->umem_chunk0, freed_off, ctx->umem_sz ));
   }
 
-  FD_STATIC_ASSERT( FD_ULONG_IS_POW2( FD_NET_MTU ), "FD_NET_MTU must be a power of two" );
-  uint  fill_prod  = fill_ring->cached_prod;
-  uint  fill_mask  = (fill_ring->depth)-1U;
-  ulong frame_mask = FD_NET_MTU - 1UL;
-  ulong freed_off  = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
-  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
+  uint fill_prod = fill_ring->cached_prod;
+  uint fill_mask = (fill_ring->depth)-1U;
+  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off;
   fill_ring->cached_prod = fill_prod+1U;
 }
 
@@ -1491,7 +1489,6 @@ privileged_init( fd_topo_t const *      topo,
   ctx->umem        = umem;
   ctx->umem_sz     = umem_sz;
   ctx->umem_chunk0 = (uint)umem_chunk0;
-  ctx->umem_wmark  = (uint)umem_wmark;
 
   ctx->free_tx.queue = free_tx;
   ctx->free_tx.depth = tile->xdp.xdp_tx_queue_size;
