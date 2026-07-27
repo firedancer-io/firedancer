@@ -16,6 +16,7 @@
 #include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../discof/backup/fd_backup.h"
+#include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
 
 #include "../configure/configure.h"
@@ -423,7 +424,7 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RO, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
-        int tile_uses_snap_fd = 0;
+        int tile_uses_snap_fd = !strcmp( tile->name, "snapct" );
         for( ulong j=0UL; j<snap_max; j++ ) {
           if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_fd ? 0 : FD_CLOEXEC ) ) )
             FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -967,8 +968,14 @@ initialize_accdb_fd( config_t const * config ) {
 
 static int
 matches_partial_snap_filename( char const * name ) {
-  if( strncmp( name, "snapshot", 8UL ) ) return 0;
-  char const * p = name+8UL;
+  if( FD_UNLIKELY( !strcmp( name, ".snapshot.tar.bz2-partial" ) ||
+                   !strcmp( name, ".incremental-snapshot.tar.bz2-partial" ) ) ) return 1;
+
+  if( *name=='.' ) name++;
+  char const * p;
+  if( !strncmp( name, "snapshot-x", 10UL ) ) p = name+10UL;
+  else if( !strncmp( name, "snapshot", 8UL ) ) p = name+8UL;
+  else return 0;
   if( *p<'0' || *p>'9' ) return 0;
   while( *p>='0' && *p<='9' ) p++;
   return 0==strcmp( p, ".partial" );
@@ -1044,14 +1051,14 @@ initialize_snapshot_fds( config_t const * config ) {
                          (config->firedancer.snapshots.sources.gossip.allow_any ||
                           config->firedancer.snapshots.sources.gossip.allow_list_cnt ||
                           config->firedancer.snapshots.sources.servers_cnt);
-  ulong snap_full_max = config->firedancer.snapshots.max_full_snapshots_to_keep;
-  ulong snap_incr_max = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
-  ulong scratch_full_cnt = !!download_enabled && !snap_full_max;
-  ulong scratch_incr_cnt = !!download_enabled &&
-                           config->firedancer.snapshots.incremental_snapshots &&
-                           !snap_incr_max;
-  ulong retained_snap_max = snap_full_max + snap_incr_max;
-  ulong snap_max = retained_snap_max + scratch_full_cnt + scratch_incr_cnt;
+  fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
+                                                      config->firedancer.snapshots.max_incremental_snapshots_to_keep,
+                                                      config->firedancer.snapshots.incremental_snapshots,
+                                                      download_enabled );
+  ulong snap_full_max     = layout.full_max;
+  ulong snap_incr_max     = layout.incr_max;
+  ulong retained_snap_max = layout.retained_max;
+  ulong snap_max          = layout.max;
   if( FD_UNLIKELY( !snap_max ) ) return 0UL;
 
   char const * snap_dir = config->paths.snapshots;
@@ -1136,7 +1143,7 @@ initialize_snapshot_fds( config_t const * config ) {
 
     int snap_fd;
     if( FD_UNLIKELY( !inode->name[ 0 ] ) ) {
-      FD_CHECK_CRIT( fd_cstr_printf_check( inode->name, FD_SNAP_NAME_MAX, NULL, "snapshot-x%lu.partial", i ), "printf overflow" );
+      fd_snap_pool_partial_name( inode->name, (uint)i );
       snap_fd = openat( dir_fd, inode->name, O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC|O_NOFOLLOW, S_IRUSR|S_IWUSR );
       if( FD_UNLIKELY( -1==snap_fd ) ) FD_LOG_ERR(( "openat(%s/%s) failed (%i-%s)", snap_dir, inode->name, errno, fd_io_strerror( errno ) ));
     } else {

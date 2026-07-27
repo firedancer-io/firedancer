@@ -156,6 +156,9 @@ setsockopt: (and (not (or (eq (arg 0) 2)
 # in arg 0
 renameat: (and (eq (arg 0) dir_fd)
                (eq (arg 2) dir_fd))
+renameat2: (and (eq (arg 0) dir_fd)
+                (eq (arg 2) dir_fd)
+                (eq (arg 4) 1))
 
 # openssl: RAND_bytes requires getpid
 #

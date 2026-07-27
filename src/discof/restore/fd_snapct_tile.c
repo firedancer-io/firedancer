@@ -6,6 +6,7 @@
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_http_resolver.h"
 #include "utils/fd_ssmsg.h"
+#include "../backup/fd_snap_pool.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_dns_resolve.h"
@@ -20,7 +21,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
@@ -38,9 +38,6 @@
 #define IN_KIND_SNAPLD (1)
 #define IN_KIND_GOSSIP (2)
 #define MAX_IN_LINKS   (4)
-
-#define TEMP_FULL_SNAP_NAME ".snapshot.tar.bz2-partial"
-#define TEMP_INCR_SNAP_NAME ".incremental-snapshot.tar.bz2-partial"
 
 struct fd_snapct_out_link {
   ulong       idx;
@@ -154,6 +151,8 @@ struct fd_snapct_tile {
     int dir_fd;
     int full_snapshot_fd;
     int incremental_snapshot_fd;
+    char full_snapshot_name[ FD_SNAP_NAME_MAX ];
+    char incremental_snapshot_name[ FD_SNAP_NAME_MAX ];
   } local_out;
 
   char http_full_snapshot_name[ PATH_MAX ];
@@ -424,13 +423,71 @@ send_expected_slot( fd_snapct_tile_t *  ctx,
   fd_stem_publish( stem, ctx->out_rp.idx, FD_SSMSG_EXPECTED_SLOT, 0UL, 0UL, 0UL, tsorig, tspub );
 }
 
+/* snapshot_pool_select picks a snapshot file to overwrite with newly
+   downloaded data.  pool[return value] gives the inode to recycle. */
+
+static uint
+snapshot_pool_select( fd_backup_inode_t const * pool,
+                      uint                      slot0,
+                      uint                      slot1 ) {
+  uint  selected = UINT_MAX;
+  ulong oldest   = ULONG_MAX;
+  for( uint i=slot0; i<slot1; i++ ) {
+    if( FD_UNLIKELY( pool[ i ].full_slot==ULONG_MAX ) ) return i;
+    ulong slot = pool[ i ].incr_slot==ULONG_MAX ? pool[ i ].full_slot : pool[ i ].incr_slot;
+    if( slot<oldest ) {
+      selected = i;
+      oldest   = slot;
+    }
+  }
+  return selected;
+}
+
+/* snapshot_output_prepare recycles a 'partial' snapshot file or
+   overwrites an older snapshot. */
+
+static void
+snapshot_output_prepare( fd_snapct_tile_t * ctx,
+                         int                full ) {
+  int    fd   = full ? ctx->local_out.full_snapshot_fd   : ctx->local_out.incremental_snapshot_fd;
+  char * name = full ? ctx->local_out.full_snapshot_name : ctx->local_out.incremental_snapshot_name;
+
+  FD_TEST( ctx->local_out.dir_fd!=-1 && fd!=-1 );
+  FD_TEST( fd>=FD_SNAP_FD( 0U ) && fd<FD_SNAP_FD( FD_SNAP_MAX ) );
+
+  char partial_name[ FD_SNAP_NAME_MAX ];
+  fd_snap_pool_partial_name( partial_name, (uint)(fd-FD_SNAP_FD( 0U )) );
+  if( strcmp( name, partial_name ) ) {
+    char const * local_path = full ? ctx->local_in.full_snapshot_path : ctx->local_in.incremental_snapshot_path;
+    char const * local_name = strrchr( local_path, '/' );
+    local_name = local_name ? local_name+1 : local_path;
+    if( !strcmp( name, local_name ) ) {
+      if( full ) ctx->local_in.full_snapshot_slot        = ULONG_MAX;
+      else       ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
+    }
+
+    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, name, ctx->local_out.dir_fd, partial_name ) ) )
+      FD_LOG_ERR(( "renameat(%s, %s) failed (%i-%s)", name, partial_name, errno, fd_io_strerror( errno ) ));
+    fd_cstr_ncpy( name, partial_name, FD_SNAP_NAME_MAX );
+  }
+
+  if( FD_UNLIKELY( -1==ftruncate( fd, 0UL ) ) )
+    FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==lseek( fd, 0L, SEEK_SET ) ) )
+    FD_LOG_ERR(( "lseek(%s) failed (%i-%s)", name, errno, fd_io_strerror( errno ) ));
+}
+
 static void
 rename_full_snapshot( fd_snapct_tile_t * ctx ) {
   FD_TEST( -1!=ctx->local_out.dir_fd );
 
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd && ctx->http_full_snapshot_name[ 0 ]!='\0' ) ) {
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, TEMP_FULL_SNAP_NAME, ctx->local_out.dir_fd, ctx->http_full_snapshot_name ) ) )
-      FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    int err = renameat2( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,
+                         ctx->local_out.dir_fd, ctx->http_full_snapshot_name, RENAME_NOREPLACE );
+    if( FD_UNLIKELY( err && errno!=EEXIST ) )
+      FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( !err ) )
+      fd_cstr_ncpy( ctx->local_out.full_snapshot_name, ctx->http_full_snapshot_name, FD_SNAP_NAME_MAX );
   }
 }
 
@@ -439,8 +496,12 @@ rename_incr_snapshot( fd_snapct_tile_t * ctx ) {
   FD_TEST( -1!=ctx->local_out.dir_fd );
 
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd && ctx->http_incr_snapshot_name[ 0 ]!='\0' ) ) {
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, ctx->local_out.dir_fd, ctx->http_incr_snapshot_name ) ) )
-      FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    int err = renameat2( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name,
+                         ctx->local_out.dir_fd, ctx->http_incr_snapshot_name, RENAME_NOREPLACE );
+    if( FD_UNLIKELY( err && errno!=EEXIST ) )
+      FD_LOG_ERR(( "renameat2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( !err ) )
+      fd_cstr_ncpy( ctx->local_out.incremental_snapshot_name, ctx->http_incr_snapshot_name, FD_SNAP_NAME_MAX );
   }
 }
 
@@ -452,10 +513,10 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
               1UL;                              /* boot control pipe */
   if( download_enabled( tile ) ) {
     cnt +=    FD_SSPING_FD_CNT +                /* ssping sockets */
-              2UL +                             /* dirfd + full snapshot download temp fd */
+              2UL +                             /* dirfd + full snapshot pool fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer full sockets */
     if( tile->snapct.incremental_snapshots ) {
-      cnt +=  1UL +                             /* incr snapshot download temp fd */
+      cnt +=  1UL +                             /* incremental snapshot pool fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer incr sockets */
     }
   }
@@ -567,26 +628,7 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->flush_ack = 0;
   ctx->load_complete = 0;
 
-  if( !file ) {
-    if( full ) {
-      /* reset any written content in the full output snapshot */
-      if( FD_UNLIKELY( -1==ftruncate( ctx->local_out.full_snapshot_fd, 0UL ) ) ) {
-        FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->http_full_snapshot_name, errno, fd_io_strerror( errno ) ));
-      }
-      if( FD_UNLIKELY( -1==lseek( ctx->local_out.full_snapshot_fd, 0L, SEEK_SET ) ) ) {
-        FD_LOG_ERR(( "lseek(%s) failed (%i-%s)", ctx->http_full_snapshot_name, errno, fd_io_strerror( errno ) ));
-      }
-    } else {
-      /* reset any written content in the incremental snapshot output
-         file */
-      if( FD_UNLIKELY( -1==ftruncate( ctx->local_out.incremental_snapshot_fd, 0UL ) ) ) {
-        FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->http_incr_snapshot_name, errno, fd_io_strerror( errno ) ));
-      }
-      if( FD_UNLIKELY( -1==lseek( ctx->local_out.incremental_snapshot_fd, 0L, SEEK_SET ) ) ) {
-        FD_LOG_ERR(( "lseek(%s) failed (%i-%s)", ctx->http_incr_snapshot_name, errno, fd_io_strerror( errno ) ));
-      }
-    }
-  }
+  if( !file ) snapshot_output_prepare( ctx, full );
 
   /* Clear stale http_*_snapshot_name for file loads before rename
      functions run.  GUI publish is deferred to the META handler. */
@@ -1891,9 +1933,17 @@ privileged_init( fd_topo_t const *      topo,
   ctx->resolved_entrypoints_cnt = 0UL;
   ctx->resolved_servers_cnt     = 0UL;
 
-  fd_ssarchive_remove_old_snapshots( tile->snapct.snapshots_path,
-                                     tile->snapct.max_full_snapshots_to_keep,
-                                     tile->snapct.max_incremental_snapshots_to_keep );
+  fd_snap_pool_layout_t layout = fd_snap_pool_layout(
+      tile->snapct.max_full_snapshots_to_keep,
+      tile->snapct.max_incremental_snapshots_to_keep,
+      tile->snapct.incremental_snapshots,
+      download_enabled( tile ) );
+  uint snap_full_max     = (uint)layout.full_max;
+  uint snap_incr_max     = (uint)layout.incr_max;
+  uint retained_snap_max = (uint)layout.retained_max;
+  uint scratch_full_cnt  = (uint)layout.scratch_full;
+  uint scratch_incr_cnt  = (uint)layout.scratch_incr;
+  uint snap_max          = (uint)layout.max;
 
   ulong full_slot = ULONG_MAX;
   ulong incremental_slot = ULONG_MAX;
@@ -1958,31 +2008,48 @@ privileged_init( fd_topo_t const *      topo,
   ctx->local_out.dir_fd                  = -1;
   ctx->local_out.full_snapshot_fd        = -1;
   ctx->local_out.incremental_snapshot_fd = -1;
+  fd_cstr_fini( ctx->local_out.full_snapshot_name );
+  fd_cstr_fini( ctx->local_out.incremental_snapshot_name );
   if( FD_LIKELY( download_enabled( tile ) ) ) {
-    /* Switch to non-root uid/gid for file creation so snapshot files
-       are owned by the target user, not root. */
-    gid_t gid = getgid();
-    uid_t uid = getuid();
-    if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->snapct.target_gid, -1 ) ) )
-      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->snapct.target_uid, -1 ) ) )
-      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
+    if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) )
+      FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
 
-    ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_DIRECTORY|O_CLOEXEC );
-    if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
-
-    ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_FULL_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-    if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_FULL_SNAP_NAME, errno, fd_io_strerror( errno ) ));
-
-    if( FD_LIKELY( tile->snapct.incremental_snapshots ) ) {
-      ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-      if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
+    FD_TEST( snap_max && snap_max<=FD_SNAP_MAX );
+    fd_backup_inode_t pool[ FD_SNAP_MAX ] = {0};
+    fd_snap_pool_recover( ctx->local_out.dir_fd, tile->snapct.snapshots_path, pool, snap_max );
+    if( FD_LIKELY( snap_full_max ) ) {
+      uint full_idx = snapshot_pool_select( pool, 0U, snap_full_max );
+      FD_TEST( full_idx!=UINT_MAX );
+      ctx->local_out.full_snapshot_fd = FD_SNAP_FD( full_idx );
+      fd_cstr_ncpy( ctx->local_out.full_snapshot_name, pool[ full_idx ].name, FD_SNAP_NAME_MAX );
+    } else {
+      uint full_idx = retained_snap_max; /* scratch full slot */
+      FD_TEST( scratch_full_cnt && full_idx<snap_max );
+      ctx->local_out.full_snapshot_fd = FD_SNAP_FD( full_idx );
+      fd_cstr_ncpy( ctx->local_out.full_snapshot_name, pool[ full_idx ].name, FD_SNAP_NAME_MAX );
     }
 
-    if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) )
-      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) )
-      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( tile->snapct.incremental_snapshots && snap_incr_max ) ) {
+      uint incr_idx = snapshot_pool_select( pool, snap_full_max, retained_snap_max );
+      FD_TEST( incr_idx!=UINT_MAX );
+      ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( incr_idx );
+      fd_cstr_ncpy( ctx->local_out.incremental_snapshot_name, pool[ incr_idx ].name, FD_SNAP_NAME_MAX );
+    } else if( FD_LIKELY( tile->snapct.incremental_snapshots ) ) {
+      uint incr_idx = retained_snap_max + scratch_full_cnt; /* scratch incremental slot */
+      FD_TEST( scratch_incr_cnt && incr_idx<snap_max );
+      ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( incr_idx );
+      fd_cstr_ncpy( ctx->local_out.incremental_snapshot_name, pool[ incr_idx ].name, FD_SNAP_NAME_MAX );
+    }
+
+    FD_TEST( ctx->local_out.full_snapshot_fd!=ctx->local_out.incremental_snapshot_fd );
+  }
+
+  for( uint i=0U; i<snap_max; i++ ) {
+    int fd = FD_SNAP_FD( i );
+    if( fd==ctx->local_out.full_snapshot_fd || fd==ctx->local_out.incremental_snapshot_fd ) continue;
+    if( FD_UNLIKELY( close( fd ) ) )
+      FD_LOG_ERR(( "close(snapshot pool fd %d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
   }
 
   FD_TEST( fd_rng_secure( &ctx->selector_seed, 8UL ) );
