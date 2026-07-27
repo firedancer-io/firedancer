@@ -365,16 +365,17 @@ render_backtest_config() {
 run_backtest() {
     # configure output is small and shows startup problems (permissions, uid
     # mismatches, hugepages) that the backtest itself silently dies on.
-    $OBJDIR/bin/firedancer-dev configure init all --config $LEDGER_DIR/offline_replay.toml
+    # firedancer-dev needs root; it drops to the toml's [user] itself.
+    sudo -E $OBJDIR/bin/firedancer-dev configure init all --config $LEDGER_DIR/offline_replay.toml
 
-    $OBJDIR/bin/firedancer-dev configure fini cpuset --config $LEDGER_DIR/offline_replay.toml
+    sudo -E $OBJDIR/bin/firedancer-dev configure fini cpuset --config $LEDGER_DIR/offline_replay.toml
 
     rm -rf $TEMP_LOG && touch $TEMP_LOG && chmod 777 $TEMP_LOG
 
     chmod -R 0700 $LEDGER_DIR
 
     set -x
-        $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &> /dev/null
+        sudo -E $OBJDIR/bin/firedancer-dev backtest --config $LEDGER_DIR/offline_replay.toml &> /dev/null
 
     rm -rf $LEDGER_DIR/accounts.db
 
@@ -637,7 +638,7 @@ process_new_ledger() {
 
     # Tear down configure state once per ledger (not per pass: retry passes
     # reuse it, and the dev genesis stage's fini unlinks genesis.bin).
-    $OBJDIR/bin/firedancer-dev configure fini all --config $LEDGER_DIR/offline_replay.toml
+    sudo -E $OBJDIR/bin/firedancer-dev configure fini all --config $LEDGER_DIR/offline_replay.toml
 
     # Keep rocksdb and minimized ledgers for debugging whenever anything went
     # wrong; only a fully clean run is cleaned up. Replay logs stay in

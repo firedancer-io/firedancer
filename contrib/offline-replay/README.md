@@ -16,8 +16,9 @@ and resumes replaying past the bad slot.
 | `offline_replay_network_parameters.sh` | Per-network settings (bucket, genesis URL, max account index). |
 | `offline_replay.toml` | Firedancer config template; `{placeholder}` values are filled in per run. |
 
-A small wrapper script (not checked in — it contains Slack webhook URLs)
-exports the environment below and runs `run_offline_replay_backtest.sh`.
+A small wrapper script (`offline_replay_template.sh` with the Slack
+webhook URLs filled in) exports the environment below and runs
+`run_offline_replay_backtest.sh`.
 
 ## Environment variables
 
@@ -42,7 +43,8 @@ Runs as the `svc_firedancer` service account on the replay machine:
 
 | What | Where |
 | --- | --- |
-| Wrapper | `/home/svc_firedancer/offline_replay.sh` |
+| Wrapper | `/usr/local/bin/offline_replay.sh` |
+| Service | `offline-replay.service` (systemd; unit file also in this directory) |
 | GUI (during replay) | `http://tsewr2-ossdev-firedancer34.jumpisolated.com/` |
 | Metrics (during replay) | `http://tsewr2-ossdev-firedancer34.jumpisolated.com:7999/metrics` |
 | Firedancer repo | `/home/svc_firedancer/repos/firedancer` (shared checkout, writable by the whole team) |
@@ -121,13 +123,17 @@ First download and extract
 - Export `AGAVE_TAG` in the wrapper as a fallback for ledgers with an
   unreadable `version.txt`.
 - Ledgers are staged under `$FIREDANCER_REPO/dump/`; a mainnet rocksdb is
-  hundreds of GB. Clean runs delete their ledger dir; mismatch ledgers
-  are kept for debugging and must be cleaned up by hand.
+  hundreds of GB. `dump` must be a symlink onto a large volume (the
+  deployment links it to `/data/ledgers`) or ledgers fill the root
+  filesystem. Clean runs delete their ledger dir; mismatch ledgers are
+  kept for debugging and must be cleaned up by hand.
 - The harness runs `git pull` in both repos each cycle — keep the
   deployed checkouts free of uncommitted changes.
-- Run it detached, e.g. `nohup ./offline_replay.sh &` — the harness
-  redirects all of its own output into the log files above, so nothing
-  depends on how it is launched.
+- It runs under systemd: `systemctl status offline-replay`. Output goes
+  to the log files above, not the journal. The harness exits on purpose
+  when a guard trips (after an `@here` Slack alert) and is not
+  auto-restarted; after investigating, run
+  `sudo systemctl restart offline-replay`.
 
 ## Debugging a hung backtest
 
