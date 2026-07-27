@@ -5,11 +5,8 @@
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
+#include "fd_fec_samp.h"
 
-typedef union {
-  fd_ed25519_sig_t u;
-  ulong            l;
-} wrapped_sig_t;
 
 typedef struct __attribute__((packed)) {
   ulong slot;
@@ -17,12 +14,17 @@ typedef struct __attribute__((packed)) {
 } slot_fec_pair_t;
 
 struct __attribute__((aligned(32UL))) set_ctx {
+  /* The Merkle root.  This is the only unique unforgeable identifier of
+     the FEC set. */
+  fd_bmtree_node_t      root;
+
   /* The leader's signature of the root of the Merkle tree of the shreds
-     in this FEC set. */
-  wrapped_sig_t         sig;
+     in this FEC set.  If the leader has sent multiple signatures, this
+     is the first valid one we received. */
+  fd_ed25519_sig_t         sig;
 
   union {
-    /* When allocated, it's in a map_chain by signature and a treap
+    /* When allocated, it's in a map_chain by the root and a treap
        by (shred, FEC set idx).  When it's not allocated, it is either
        in the free list or the completed list.  Both of those slists use
        free_next. */
@@ -45,11 +47,13 @@ struct __attribute__((aligned(32UL))) set_ctx {
   uchar                 data_variant;
   uchar                 parity_variant;
 
+  /* equivoc is set to 1 if at any moment there is a context in the
+     map/treap with the same (slot, fec_set_idx) as this one */
+  uchar                 equivoc;
+
   ulong                 total_rx_shred_cnt;
 
   fd_fec_set_t *        set;
-
-  fd_bmtree_node_t      root;
 
   union {
     fd_bmtree_commit_t  tree[1];
@@ -59,14 +63,14 @@ struct __attribute__((aligned(32UL))) set_ctx {
 typedef struct set_ctx set_ctx_t;
 
 #define MAP_NAME              ctx_map
-#define MAP_KEY               sig
-#define MAP_KEY_T             wrapped_sig_t
+#define MAP_KEY               root
+#define MAP_KEY_T             fd_bmtree_node_t
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_PREV              map_prev
 #define MAP_ELE_T             set_ctx_t
-#define MAP_KEY_EQ(k0,k1)    (!memcmp( (k0)->u, (k1)->u, FD_ED25519_SIG_SZ ))
-#define MAP_KEY_HASH(key,s)  (fd_ulong_hash( (key)->l ^ (s) ))
+#define MAP_KEY_EQ(k0,k1)    (!memcmp( (k0)->hash, (k1)->hash, 32UL ))
+#define MAP_KEY_HASH(key,s)  (fd_hash( s, key->hash, 32UL ))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -115,18 +119,20 @@ struct done_ele {
   uint            heap_right;
   uint            map_next;
   uint            map_prev;
-  /* In order to save space in the done_map and make this struct 32
-     bytes, we store a 32 bit validator-specific hash of the shred
-     signature.  If a malicious leader equivocates and produces two FEC
-     sets which have the same hash for us, a task which takes a decent
-     but doable amount of effort, the only impact is that we would
-     reject the shreds with SHRED_IGNORED instead of SHRED_EQUIVOC,
-     which is not a big deal.  It's documented that SHRED_EQUIVOC
-     detection is on a best-effort basis.  If we detect an equivocation
-     for this (slot, FEC set idx), sig_hash gets set to
-     SIG_HASH_EQUIVOC, and we start returning SHRED_IGNORED for any
-     non-repair shred for that (slot, FEC set idx). */
-  uint           sig_hash;
+  /* Ideally here we'd store the Merkle root of the one we completed,
+     but there are two problems with that.  First of all, the shreds
+     don't contain the Merkle root, which means we have to derive it
+     with a bunch of mildly expensive hashing (about 1us per shred).
+     Second of all, the Merkle root is relatively large (32 bytes).
+
+     Thankfully, we have a key advantage that we can leverage.
+     Equivocation detection can be probabilistic.  It's not that big of
+     a deal to reject a shred with IGNORED instead of EQUIVOC as long as
+     some firedancer node picks up that it is equivoc and produces the
+     proof.  This suggests some kind of validator-specific sampling
+     solution.  The code is factored nicely to be able to iterate on the
+     sampling in the future. */
+  fd_fec_samp_t   fec_sample[1];
   /* Low 56 bits of fd_tickcount() at which this FEC set completed.
      Elapsed ticks are computed modulo 2^56, retaining full tick
      precision for intervals shorter than 2^56 ticks (about 278 days at
@@ -195,7 +201,7 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      freelists. */
   set_ctx_t * ctx_pool;
 
-  /* ctx_map: A map (using fd_map_chain) from signatures to
+  /* ctx_map: A map (using fd_map_chain) from Merkle roots to
      the context object with its relevant data for in progress FEC sets.
      This map contains at most `depth` elements at any time. */
   ctx_map_t * ctx_map;
@@ -245,10 +251,10 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* done_map: A map (using fd_map_chain) mapping (slot, fec_idx) to an
      element of done_pool.  Even in the presence of equivocation, a
      specific (slot, fec_idx) tuple occurs at most once in the map,
-     and it's arbitrary which version is represented by sig_hash.  In
-     the presence of equivocation, the right shreds are probably being
-     delivered using repair, which will bypass reading the sig_hash
-     field, so it doesn't really matter. */
+     and the FEC sample is likely set to force_match.  In the presence
+     of equivocation, the right shreds are probably being delivered
+     using repair, which will bypass reading the done_map, so it doesn't
+     really matter. */
   done_map_t * done_map;
 
   /* done_heap: A min heap (using fd_heap) based on (slot, fec_idx) used
@@ -262,8 +268,7 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      add_shred with IGNORED.  slot_old can only increase. */
   ulong slot_old;
 
-  /* seed: done_map uses seed to compute a 32-bute hash of the FEC set's
-     signature. */
+  /* seed: done_map uses seed to compute a hash of the FEC set */
   ulong seed;
 
   /* sha512 and reedsol are used for calculations while adding a shred.
@@ -578,80 +583,15 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     }
   }
 
-  if( FD_UNLIKELY( (shred_type==FD_SHRED_TYPE_LEGACY_DATA) | (shred_type==FD_SHRED_TYPE_LEGACY_CODE) ) ) {
-    /* Reject any legacy shreds */
+  if( FD_UNLIKELY( !fd_shred_is_chained( shred_type ) ) ) {
+    /* Reject any legacy and unchained shreds */
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
-
-
-  wrapped_sig_t w_sig[1];
-  fd_memcpy( w_sig->u, shred->signature, FD_ED25519_SIG_SZ );
-
-  /* Is this FEC set in progress? */
-  set_ctx_t * ctx = ctx_map_ele_query( ctx_map, w_sig, NULL, ctx_pool );
-
-  /* If we detect a different signature for the same (slot, FEC set
-     idx), it means either the shred is invalid, or the leader is
-     equivocating.  We can't tell which without verifying the shred
-     though. */
-  int equivoc_or_invalid = 0;
-
-  /* If it's not in progress and it's repair, we will allocate a context
-     for it, assuming all the other checks pass.  If it's from Turbine,
-     we'll be a little more skeptical about it: if we've already seen a
-     FEC set for that same (slot, FEC set idx) pair, then we won't take
-     it, either rejecting it here, or setting equivoc_or_invalid to
-     reject it later. */
-  if( FD_UNLIKELY( (ctx==NULL) & (!is_repair) ) ) {
-    /* Most likely, it's just done. */
-    slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
-    done_ele_t * done_ele = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
-    if( FD_LIKELY( done_ele ) ) {
-      ulong sig_hash = fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
-      /* It's possible (with probability 2^-32, about 1/year at current
-         rates) for fd_hash to return SIG_HASH_EQUIVOC.  In this case,
-         we may miss an equivocation and just always return
-         SHRED_IGNORED for subsequent Turbine shreds for that FEC set.
-         Because the hash is validator specific, it just means we'll
-         rely on another node to produce the equivocation proof, and
-         we'll act as if we hadn't seen the equivocating shreds. */
-      if( FD_LIKELY( ((uint)sig_hash==done_ele->sig_hash) | (done_ele->sig_hash==SIG_HASH_EQUIVOC) ) ) {
-        if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE) & (done_ele->post_done_turbine_rem>0L) ) ) {
-          /* Turbine has now supplied as many shreds for this set as
-             repair contributed, so this is approx. when the set would
-             have completed on turbine alone. */
-          done_ele->post_done_turbine_rem--;
-          if( FD_UNLIKELY( done_ele->post_done_turbine_rem==0 ) ) {
-            ulong lag = ((ulong)fd_tickcount() - (ulong)done_ele->complete_ts) & ((1UL<<56)-1UL);
-            fd_histf_sample( resolver->completion_lag_hist, lag );
-          }
-        }
-        return FD_FEC_RESOLVER_SHRED_IGNORED;
-      }
-      equivoc_or_invalid = 1;
-    }
-
-    /* If it's not done, then check for the unlikely case we have it
-       in progress with a different signature. */
-    if( FD_UNLIKELY( ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool ) ) ) equivoc_or_invalid = 1;
-  }
-
-  /* If we've made it here, then we'll keep this shred as long as
-     it is valid. */
-
-  fd_bmtree_node_t leaf[1];
 
   /* For the purposes of the shred header, tree_depth means the number
      of nodes, counting the leaf but excluding the root.  For bmtree,
      depth means the number of layers, which counts both. */
   ulong tree_depth           = fd_shred_merkle_cnt( variant ); /* In [0, 15] */
-  ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
-                                      - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
-                                      - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
-  ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained( shred_type );
-  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained( shred_type )
-                                                          + FD_SHRED_CODE_HEADER_SZ - FD_ED25519_SIG_SZ;
-  ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
 
   /* in_type_idx is between [0, code.data_cnt) or [0, code.code_cnt),
      where data_cnt <= FD_FEC_SHRED_CNT and code_cnt <= FD_FEC_SHRED_CNT
@@ -669,6 +609,75 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      shred_idx is in [0, 2*FD_FEC_SHRED_CNT). */
 
   if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+  /* Now we're done with all the simple, quick checks */
+
+  set_ctx_t * ctx = NULL;
+
+  /* If we detect a different Merkle root for the same (slot, FEC set
+     idx), it means either the shred is invalid, or the leader is
+     equivocating.  We can't tell which without verifying the shred
+     though. */
+  int equivoc_or_invalid = 0;
+
+  slot_fec_pair_t const slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+
+  /* If it's from Turbine, we'll first check if we've already completed
+     the FEC set (likely case) or another FEC set for the same (slot,
+     FEC set idx) pair (unlikely case).  Either case will lead to
+     rejecting the shred, but possibly later via the equivoc_or_invalid
+     if we need to validate it. */
+  if( FD_LIKELY( !is_repair ) ) {
+    /* Most likely, it's just done. */
+    done_ele_t * done_ele = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
+    if( FD_LIKELY( done_ele ) ) {
+      if( FD_LIKELY( fd_fec_samp_matches( done_ele->fec_sample, resolver->seed, shred ) ) ) {
+        if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE) & (done_ele->post_done_turbine_rem>0L) ) ) {
+          /* Turbine has now supplied as many shreds for this set as
+             repair contributed, so this is approx. when the set would
+             have completed on turbine alone. */
+          done_ele->post_done_turbine_rem--;
+          if( FD_UNLIKELY( done_ele->post_done_turbine_rem==0 ) ) {
+            ulong lag = ((ulong)fd_tickcount() - (ulong)done_ele->complete_ts) & ((1UL<<56)-1UL);
+            fd_histf_sample( resolver->completion_lag_hist, lag );
+          }
+        }
+        return FD_FEC_RESOLVER_SHRED_IGNORED;
+      }
+
+      equivoc_or_invalid = 1;
+    }
+    /* There could be 0, 1, or >1 contexts in the treap with this (slot,
+       FEC set index).  If there are >1, this sets ctx to an arbitrary
+       one, which may or may not have the Merkle root that matches this
+       shred.  Regardless, we'll reject it with equivoc_or_invalid. */
+    ctx = ctx_treap_ele_query( ctx_treap, slot_fec_pair, ctx_pool );
+    if( FD_LIKELY( ctx ) ) equivoc_or_invalid |= ctx->equivoc;
+  }
+
+
+  ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
+                                      - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
+                                      - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
+  ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained( shred_type );
+  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained( shred_type )
+                                                          + FD_SHRED_CODE_HEADER_SZ - FD_ED25519_SIG_SZ;
+  ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
+
+  fd_bmtree_node_t leaf[1];
+
+  fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+
+
+  if( FD_UNLIKELY( is_repair ) ) {
+    /* If it's coming from repair, we're willing to do the work to
+       compute the Merkle root and lookup the ctx by Merkle root. */
+    fd_bmtree_node_t _root[1];
+    fd_bmtree_node_t * root = fd_bmtree_from_proof( leaf, shred_idx, _root, (uchar const *)fd_shred_merkle_nodes( shred ),
+                                                    tree_depth, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ );
+
+    ctx = ctx_map_ele_query( ctx_map, root, NULL, ctx_pool );
+  }
 
   if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
 
@@ -705,23 +714,24 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
     /* Now we need to derive the root of the Merkle tree and verify the
        signature to prevent a DOS attack just by sending lots of invalid
-       shreds. */
+       shreds.  If this shred came from repair, we're redoing
+       computation, but the code is gross otherwise. */
     fd_bmtree_commit_t * tree;
     tree = fd_bmtree_commit_init( ctx->_footprint, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
     FD_TEST( tree==ctx->tree );
 
     fd_bmtree_node_t _root[1] = {0};
-    if( FD_LIKELY( !resolver->bypass_verify ) ) {
-      fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-      fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-      int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
-      if( FD_UNLIKELY( !rv ) ) {
-        ctx_list_ele_push_head( free_list, ctx, ctx_pool );
-        resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, INITIAL_REJECTED, 1UL );
-        return FD_FEC_RESOLVER_SHRED_REJECTED;
-      }
 
+    fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
+    int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
+    if( FD_UNLIKELY( !rv ) ) {
+      ctx_list_ele_push_head( free_list, ctx, ctx_pool );
+      resolver->free_list_cnt++;
+      FD_MCNT_INC( SHRED, INITIAL_REJECTED, 1UL );
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
+
+    if( FD_LIKELY( !resolver->bypass_verify ) ) {
       if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify_cached( _root->hash, 32UL, shred->signature, leader_pubkey, sha512, resolver->ed25519_cache ) ) ) {
         ctx_list_ele_push_head( free_list, ctx, ctx_pool );
         resolver->free_list_cnt++;
@@ -734,26 +744,30 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, _root, sizeof(fd_bmtree_node_t) );
 
     if( FD_UNLIKELY( equivoc_or_invalid ) ) {
-      /* It wasn't invalid, so it must be equivoc */
+      /* It wasn't invalid, so it must be equivoc.  As a reminder, this
+         is the case where is_repair==0, we had the (slot, FEC set idx)
+         in the done_map, and this shred didn't match the FEC sample. */
       ctx_list_ele_push_head( free_list, ctx, ctx_pool );
       resolver->free_list_cnt++;
       /* We want to record that we've sigverified the shred somewhere so
          that if an attacker sends it to us again, we don't have to
          verify it again.  We do that by inserting it into the done_map
-         with SIG_HASH_EQUIVOC. */
-      slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+         with force_match. */
       done_ele_t * done = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
-      if( FD_LIKELY( done ) ) done->sig_hash = SIG_HASH_EQUIVOC;
+      if( FD_LIKELY( done ) ) fd_fec_samp_set_force_match( done->fec_sample );
       else {
+        /* This case can't happen right now, but keep it in case some
+           code gets added that could evict from the done_map between
+           the !is_repair query and here. */
         ensure_done_pool_free( done_pool, done_heap, done_map );
 
         done = done_pool_ele_acquire( done_pool );
 
         done->key.slot              = shred->slot;
         done->key.fec_idx           = shred->fec_set_idx;
-        done->sig_hash              = SIG_HASH_EQUIVOC;
         done->complete_ts           = 0UL;
         done->post_done_turbine_rem = 0U;
+        fd_fec_samp_set_force_match( done->fec_sample );
 
         done_heap_ele_insert( done_heap, done, done_pool );
         done_map_ele_insert ( done_map,  done, done_pool );
@@ -761,14 +775,25 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
       return FD_FEC_RESOLVER_SHRED_EQUIVOC;
     }
+    /* Do we already have something in the treap for the same (slot, FEC
+       idx) of this shred?  If so, mark this one and the old one as
+       equivocating.  If we have multiple, marking the old one will be a
+       no-op, which means we don't care which one query returns. */
+    uchar equivoc = 0;
+    set_ctx_t * equivoc_ctx = ctx_treap_ele_query( ctx_treap, slot_fec_pair, ctx_pool );
+    if( FD_UNLIKELY( equivoc_ctx ) ) {
+      equivoc_ctx->equivoc = 1;
+      equivoc              = 1;
+    }
 
     /* This seems like a legitimate FEC set, so we populate the rest of
        the fields, then add it to the map and treap. */
-    ctx->sig                = *w_sig;
+    memcpy( ctx->sig, shred->signature, 64UL );
     ctx->slot               = shred->slot;
     ctx->fec_set_idx        = shred->fec_set_idx;
     ctx->data_variant       = fd_uchar_if(  is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
     ctx->parity_variant     = fd_uchar_if( !is_data_shred, variant, fd_shred_variant( fd_shred_swap_type( shred_type ), (uchar)tree_depth ) );
+    ctx->equivoc            = equivoc;
     ctx->total_rx_shred_cnt = 0UL;
     ctx->root               = *_root;
 
@@ -797,25 +822,83 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
-    /* A repaired duplicate still takes the walk: repair may have
-       evicted this set and be re-repairing it, and ignoring its shreds
-       would keep the set from ever completing.  Any other arrival at an
-       index the set holds is ignored before the leaf hash. */
-    int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
-    if( FD_UNLIKELY( shred_dup & !is_repair ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
-
+    int matching_root = 1;
+    fd_bmtree_node_t _root[1];
+    int matching_sig  = fd_memeq( ctx->sig, shred->signature, 64UL );
     if( FD_UNLIKELY( resolver->bypass_verify ) ) {
-      if( FD_LIKELY( out_merkle_root ) ) *out_merkle_root = ctx->root;
+      *_root = ctx->root;
+      matching_sig = 1;
     } else {
-      fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
       fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-      int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
-      if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+      int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
+      if( FD_UNLIKELY( !rv ) ) {
+        /* This means we've gotten a shred with a different Merkle root
+           than ctx.  This can only happen in the Turbine case, because
+           otherwise ctx comes from the Merkle-root keyed map.  We need
+           to check the signature before we know if it's EQUIVOC or
+           REJECTED. */
+        fd_bmtree_node_t * root = fd_bmtree_from_proof( leaf, shred_idx, _root, (uchar const *)fd_shred_merkle_nodes( shred ),
+                                                        tree_depth, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ );
+        (void)root; /* it has to be ==_root.  If it were going to fail,
+                       it would have happened earlier. */
+        matching_root = 0;
+      }
     }
+
+    if( FD_UNLIKELY( !(matching_root & matching_sig ) ) ) {
+      /* There are a few things that could be going on here.
+         1. A malicious validator could be producing an alternative
+            signature for the same Merkle root
+         2. A malicious validator could be equivocating (valid
+            signature, different Merkle root)
+         3. Someone could be sending us a shred from a FEC set the
+            leader previously signed, but with a clobbered signature
+         4. Someone could be sending us total junk.
+         Note: if bypass_verify is true, this branch can't be taken. */
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify_cached( _root->hash, 32UL, shred->signature, leader_pubkey, sha512, resolver->ed25519_cache ) ) ) {
+        /* Case 3 or 4, reject it */
+        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      }
+    }
+
+    if( FD_LIKELY( out_merkle_root ) ) *out_merkle_root = *_root;
+
+    if( FD_UNLIKELY( (!matching_root) | equivoc_or_invalid ) ) {
+      /* Case 2, or other equivocation. Store it as equivocating and then reject it. */
+      done_ele_t * done = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
+      if( FD_LIKELY( done ) ) fd_fec_samp_set_force_match( done->fec_sample );
+      else {
+        ensure_done_pool_free( done_pool, done_heap, done_map );
+
+        done = done_pool_ele_acquire( done_pool );
+
+        done->key.slot              = shred->slot;
+        done->key.fec_idx           = shred->fec_set_idx;
+        done->complete_ts           = 0UL;
+        done->post_done_turbine_rem = 0U;
+        fd_fec_samp_set_force_match( done->fec_sample );
+
+        done_heap_ele_insert( done_heap, done, done_pool );
+        done_map_ele_insert ( done_map,  done, done_pool );
+      }
+      return FD_FEC_RESOLVER_SHRED_EQUIVOC;
+    }
+    /* Otherwise, this must be case 1, which is fine */
+
+    /* Check to make sure this is not a duplicate */
+    /* We need to make sure that if repair evicted this set and is
+       re-repairing it, we aren't ignoring its shreds, which would keep
+       the set from ever completing.  In the old days, we would return
+       IGNORED earlier for non-repair shreds, but in order to determine
+       if we already have the shred (and so should IGNORE it), we need
+       to make sure we have the right ctx, and we don't have a way to
+       map shred ctx precisely without deriving the Merkle root, so that
+       doesn't make sense anymore. */
+    int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
 
     if( FD_UNLIKELY( shred_dup ) ) {
       *out_shred = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].s : ctx->set->parity_shreds[ in_type_idx ].s;
-      return FD_FEC_RESOLVER_SHRED_DUPLICATE;
+      return fd_int_if( is_repair, FD_FEC_RESOLVER_SHRED_DUPLICATE, FD_FEC_RESOLVER_SHRED_IGNORED );
     }
   }
 
@@ -850,26 +933,34 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      so we can consider it done either way. */
 
   done_ele_t * done = NULL;
-  ensure_done_pool_free( done_pool, done_heap, done_map );
 
   /* If it's already in the done map, we don't need to re-insert it.
-     It's not very clear what we should do if the sig_hashes differ, but
-     this can only happen the second insert was a repair shred, and in
-     that case, it gets bypassed anyway, so it doesn't really matter.
-     We'll just keep the existing value in that case. */
+     It's not very clear what we should do if it's for a different FEC
+     set, but this can only happen the second insert was a repair shred,
+     and in that case, it gets bypassed anyway, so it doesn't really
+     matter.  We'll just keep the existing value in that case. */
   slot_fec_pair_t done_key[1] = {{ .slot = ctx->slot, .fec_idx = ctx->fec_set_idx }};
   if( FD_LIKELY( !done_map_ele_query( done_map, done_key, NULL, done_pool ) ) ) {
+    ensure_done_pool_free( done_pool, done_heap, done_map );
+
     done = done_pool_ele_acquire( done_pool );
 
     done->key.slot              = ctx->slot;
     done->key.fec_idx           = ctx->fec_set_idx;
-    done->sig_hash              = (uint)fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
     done->complete_ts           = (ulong)fd_tickcount() & ((1UL<<56)-1UL);
     done->post_done_turbine_rem = (uchar)fd_ulong_popcnt( ctx->set->repair_shred_rcvd );
 
     if( FD_LIKELY( !!ctx->set->repair_shred_rcvd ) ) {
       FD_MCNT_INC( SHRED, REPAIR_COMPLETION_ASSISTED, 1UL );
     }
+    /* We need to finish the reedsol_recover and inserting all the
+       missing shreds into the tree before we can properly
+       derive this, so for now, we'll set it as force match.  If we hit
+       one of the FEC_FATAL_REJECTED cases below, which is extremely
+       rare, we'll end up rejecting all Turbine shreds for this (slot,
+       FEC set idx).  That's not ideal, but the block is going to get
+       skipped unless the leader equivocates. */
+    fd_fec_samp_set_force_match( done->fec_sample );
 
     done_heap_ele_insert( done_heap, done, done_pool );
     done_map_ele_insert ( done_map,  done, done_pool );
@@ -991,6 +1082,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
+  /* We now have fully populated the bmtree, so we can derive the
+     fec_sample. */
+  if( FD_LIKELY( done && !resolver->bypass_verify ) ) fd_fec_samp_derive( done->fec_sample, resolver->seed, ctx->slot, ctx->fec_set_idx, ctx->sig, &ctx->root, tree );
+
   /* Check that all the fields that are supposed to be consistent across
      an FEC set actually are. */
   fd_shred_t const * base_data_shred   = fd_shred_parse( set->data_shreds  [ 0 ].b, FD_SHRED_MIN_SZ, max_shred_idx );
@@ -1043,6 +1138,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
+
 
   /* Populate missing Merkle proofs */
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++   ) if( !( set->data_shred_rcvd&(1U<<i) ) )
