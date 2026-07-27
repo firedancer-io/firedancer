@@ -580,12 +580,13 @@ test_shred_reject( void ) {
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
   fd_ed25519_public_from_private( other_key+32UL, other_key, sha );
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, other_key+32UL, out_fec, out_shred, out_merkle_root, NULL ) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY    ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_EQUIVOC ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY    ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
   shred = set->parity_shreds[ 5 ].s;
   signer_ctx_t other_signer[ 1 ];
   signer_ctx_init( other_signer, other_key );
   fake_resign( shred, other_signer );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
   fd_sha512_delete( fd_sha512_leave( sha ) );
 }
 
@@ -636,15 +637,15 @@ test_merkle_root( void ) {
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
-  /* A corrupted copy at an index the set already holds: turbine is
-     ignored before the walk, repair is walked and rejected, and
-     neither writes the merkle root. */
+  /* A corrupted copy at an index the in progress set already holds:
+     rejected from both repair and Turbine, and neither writes the
+     merkle root. */
 
   shred = set->data_shreds[ 0 ].s;
   (*(uchar *)fd_shred_data_payload( shred ))++;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) );
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_IGNORED ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );

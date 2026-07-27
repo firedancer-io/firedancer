@@ -14,9 +14,11 @@ $(call run-unit-test,test_shred_dest_conformance)
 $(call run-unit-test,test_stake_ci)
 endif
 $(call make-unit-test,test_rnonce_ss,test_rnonce_ss,fd_util)
+$(call make-unit-test,test_fec_samp,test_fec_samp,fd_disco fd_reedsol fd_ballet fd_util)
 $(call make-unit-test,test_shred_batch,test_shred_batch,fd_disco fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_rnonce_ss)
 $(call run-unit-test,test_shred_batch)
+$(call run-unit-test,test_fec_samp)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_shredder,test_shredder,fd_disco fd_flamenco fd_ballet fd_util_extra fd_util fd_reedsol)
 $(call run-unit-test,test_shredder)
