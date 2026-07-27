@@ -88,6 +88,7 @@ udpecho_cmd_fn( args_t *   args,
   fd_topo_tile_t * metric_tile = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
 
   net_tile->net.legacy_transaction_listen_port = args->udpecho.listen_port;
+  config->tiles.quic.regular_transaction_listen_port = args->udpecho.listen_port;
 
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));

@@ -197,6 +197,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
 
   ushort const listen_port = 9000;
   net_tile->net.legacy_transaction_listen_port = listen_port;
+  config->tiles.quic.regular_transaction_listen_port = listen_port;
 
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
