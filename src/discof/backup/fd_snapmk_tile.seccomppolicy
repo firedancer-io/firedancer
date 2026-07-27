@@ -36,8 +36,22 @@ fsync: (eq (arg 0) logfile_fd)
 # snapshot file, and seeks past the regions the snapzp tiles pwrite.
 #
 # arg 0 is the file descriptor to seek on.
-lseek: (and (>= (arg 0) pool_min_fd)
+lseek: (or (and (>= (arg 0) pool_min_fd)
+                (<= (arg 0) pool_max_fd))
+           (and (eq (arg 0) dir_fd)
+                (eq (arg 1) 0)
+                (eq (arg 2) "SEEK_SET")))
+
+# snapshot: locate snapshot files
+fstat: (and (>= (arg 0) pool_min_fd)
             (<= (arg 0) pool_max_fd))
+
+# snapshot: locate snapshot files
+getdents64: (eq (arg 0) dir_fd)
+
+# snapshot: locate snapshot files
+newfstatat: (and (eq (arg 0) dir_fd)
+                 (eq (arg 3) "AT_SYMLINK_NOFOLLOW"))
 
 # snapshot: "deleting" a snapshot truncates its pool file to zero
 # (the sandbox forbids unlinking), and starting a snapshot truncates
@@ -48,7 +62,7 @@ ftruncate: (and (>= (arg 0) pool_min_fd)
                 (<= (arg 0) pool_max_fd))
 
 # snapshot: a completed snapshot is renamed from its
-# "snapshot<i>.partial" placeholder name to the final snapshot name,
+# ".snapshot-x<i>.partial" placeholder name to the final snapshot name,
 # and an evicted snapshot is renamed back to its placeholder name.
 #
 # arg 0 is the file descriptor for the directory that the file is

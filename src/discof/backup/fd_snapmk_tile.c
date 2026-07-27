@@ -27,8 +27,7 @@
    eventually get recycled.
 
    The snapmk tile manages these file descriptors (decides which snaps
-   to select for new creations, which ones to recycle, etc).  It also
-   prunes the dir on startup.
+   to select for new creations, which ones to recycle, etc).
 
    ### Zero copy snaprd->mk->zp path
 
@@ -45,17 +44,15 @@
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #include <errno.h>
-#include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <stdatomic.h>
 
 #include "fd_backup.h"
+#include "fd_snap_pool.h"
 #include "fd_backup_cache.h"
 #include "fd_backup_disk.h"
 #include "fd_backup_visited.h"
@@ -236,61 +233,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static void
-snap_pool_recover( char const *        snapshots_path,
-                   uint                snap_max,
-                   fd_backup_inode_t * slot ) {
-  FD_TEST( snap_max && snap_max<=FD_SNAP_MAX );
-
-  struct stat pool_st[ FD_SNAP_MAX ];
-  int         found  [ FD_SNAP_MAX ] = {0};
-  for( uint i=0U; i<snap_max; i++ ) {
-    if( FD_UNLIKELY( -1==fstat( FD_SNAP_FD( i ), &pool_st[ i ] ) ) )
-      FD_LOG_ERR(( "fstat(snapshot pool fd %d) failed (%i-%s), was the snapshot pool initialized on boot?",
-                   FD_SNAP_FD( i ), errno, fd_io_strerror( errno ) ));
-  }
-
-  DIR * dir = opendir( snapshots_path );
-  if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", snapshots_path, errno, fd_io_strerror( errno ) ));
-
-  struct dirent * entry;
-  for(;;) {
-    errno = 0;
-    entry = readdir( dir );
-    if( FD_UNLIKELY( !entry ) ) break;
-    if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
-
-    struct stat st;
-    if( FD_UNLIKELY( -1==fstatat( dirfd( dir ), entry->d_name, &st, 0 ) ) ) continue;
-
-    for( uint i=0U; i<snap_max; i++ ) {
-      if( FD_LIKELY( found[ i ] ) ) continue;
-      if( FD_LIKELY( st.st_dev!=pool_st[ i ].st_dev || st.st_ino!=pool_st[ i ].st_ino ) ) continue;
-
-      if( FD_UNLIKELY( strlen( entry->d_name )>=sizeof(slot[ i ].name) ) )
-        FD_LOG_ERR(( "snapshot pool file name `%s` too long", entry->d_name ));
-      fd_cstr_ncpy( slot[ i ].name, entry->d_name, sizeof(slot[ i ].name) );
-
-      int is_zstd;
-      uchar decoded_hash[ FD_HASH_FOOTPRINT ];
-      if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( entry->d_name, &slot[ i ].full_slot, &slot[ i ].incr_slot, decoded_hash, &is_zstd ) ) ) {
-        slot[ i ].full_slot = ULONG_MAX;
-        slot[ i ].incr_slot = ULONG_MAX;
-      }
-      found[ i ] = 1;
-      break;
-    }
-  }
-
-  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  for( uint i=0U; i<snap_max; i++ ) {
-    if( FD_UNLIKELY( !found[ i ] ) )
-      FD_LOG_ERR(( "snapshot pool fd %d has no directory entry in `%s`", FD_SNAP_FD( i ), snapshots_path ));
-  }
-}
-
-static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
@@ -310,7 +252,6 @@ privileged_init( fd_topo_t const *      topo,
   ctx->snap_max      = tile->snapmk.max_full_snapshots_to_keep+
                        tile->snapmk.max_incremental_snapshots_to_keep;
   ctx->snap_idx      = UINT_MAX;
-  snap_pool_recover( ctx->snap_dir, ctx->snap_max, ctx->pool );
 }
 
 static ulong
@@ -1244,7 +1185,7 @@ snap_pool_acquire( fd_snapmk_t * ctx ) {
   }
 
   char partial_name[ sizeof(inode->name) ];
-  FD_TEST( fd_cstr_printf_check( partial_name, sizeof(partial_name), NULL, ".snapshot-x%u.partial", snap_pool_idx )==1 );
+  fd_snap_pool_partial_name( partial_name, snap_pool_idx );
   if( FD_UNLIKELY( renameat( ctx->snap_dir_fd, inode->name, ctx->snap_dir_fd, partial_name ) ) ) {
     FD_LOG_ERR(( "renameat(%s, %s) failed: %s", inode->name, partial_name, fd_io_strerror( errno ) ));
   }
@@ -1272,6 +1213,10 @@ snap_start( fd_snapmk_t *                  ctx,
   default:
     FD_LOG_ERR(( "invariant violation: snapshot creation requested state is %u", ctx->state ));
   }
+
+  /* The snapshot loading pipeline might have changed available snaps
+     since booting, reconcile. */
+  fd_snap_pool_recover( ctx->snap_dir_fd, ctx->snap_dir, ctx->pool, ctx->snap_max );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
   FD_TEST( bank );
