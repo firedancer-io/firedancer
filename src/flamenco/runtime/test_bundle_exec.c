@@ -5,6 +5,7 @@
 #include "fd_alut.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_stake_types.h"
+#include "../stakes/fd_stakes.h"
 #include "program/fd_system_program.h"
 #include "program/fd_bpf_loader_program.h"
 #include "sysvar/fd_sysvar.h"
@@ -1281,6 +1282,82 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   }
 
   FD_LOG_NOTICE(( "test bundle non-owner stake_update carry... ok" ));
+
+  /* Test: stake metadata not represented in the delegation cache must
+     not create a fork delta.  Lamports may also differ (for example due
+     to dust), but the visible delegation should remain the root entry. */
+  {
+    reset_world();
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454E4F4F50UL };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x564F54454E4F4F50UL };
+    uchar prior_data[ FD_STAKE_STATE_SZ ] = {0};
+    uchar data      [ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, prior_data, ((fd_stake_state_t){
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = { .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+                 .stake = { .delegation = { .voter_pubkey = vote_acct, .stake = 5UL,
+                                            .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
+                                            .warmup_cooldown_rate = 0.25 } } } }) );
+    fd_memcpy( data, prior_data, sizeof(data) );
+    FD_STORE( long, data + offsetof(fd_stake_state_t, stake.meta.unix_timestamp), 1L );
+
+    fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
+    fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegation_t const * root_delegation = fd_stake_delegation_root_query( root, &stake_acct );
+    FD_TEST( root_delegation );
+
+    fd_acc_t acc = {
+      .lamports       = 2000000001UL,
+      .data_len       = FD_STAKE_STATE_SZ,
+      .data           = data,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = FD_STAKE_STATE_SZ,
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
+
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    FD_TEST( find_visible_stake_delegation( frontier, &stake_acct )==root_delegation );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test cache-equivalent stake states skip delta... ok" ));
+
+  /* Test: closing an initialized (never delegated) stake account must
+     not create a removal tombstone. */
+  {
+    reset_world();
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454E4F4445UL };
+    uchar prior_data[ 124UL ] = {0};
+    FD_STORE( uint, prior_data, FD_STAKE_STATE_INITIALIZED );
+
+    fd_acc_t acc = {
+      .lamports       = 0UL,
+      .data_len       = 0UL,
+      .data           = NULL,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = sizeof(prior_data),
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
+
+    fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
+    FD_TEST( !fd_stake_delegation_root_query( root, &stake_acct ) );
+
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    FD_TEST( frontier );
+    FD_TEST( !fd_stake_delegation_root_query( root, &stake_acct ) );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test nondelegated stake close skips tombstone... ok" ));
 
   /* Test: a fully-cancelled bundle must not apply any vote op.  tx0
      queues rm_vote then the bundle is cancelled (not committed); the

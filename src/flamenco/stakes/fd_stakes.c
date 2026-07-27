@@ -1241,26 +1241,40 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
                                    fd_acc_t const *    acc,
                                    fd_bank_t *         bank ) {
 
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-
-  /* fd_stakes_get_state returns NULL for closed/invalid accounts. */
-  fd_stake_state_t const * stake_state = fd_stakes_get_state( acc );
-  if( FD_LIKELY( stake_state != NULL &&
-                 stake_state->stake_type == FD_STAKE_STATE_STAKE &&
-                 stake_state->stake.stake.delegation.stake != 0UL ) ) {
-
-    ulong new_stake = stake_state->stake.stake.delegation.stake;
-    fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
-                                      &stake_state->stake.stake.delegation.voter_pubkey,
-                                      new_stake,
-                                      stake_state->stake.stake.delegation.activation_epoch,
-                                      stake_state->stake.stake.delegation.deactivation_epoch,
-                                      stake_state->stake.stake.credits_observed,
-                                      acc->lamports,
-                                      (uint)acc->data_len,
-                                      fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
-
-  } else {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+  fd_stake_state_t const * stake_state       = fd_stakes_get_state( acc );
+  fd_stake_state_t const * prior_stake_state = NULL;
+  if( FD_LIKELY( acc->prior_lamports && !memcmp( acc->prior_owner, &fd_solana_stake_program_id, 32UL ) ) ) {
+    prior_stake_state = fd_stake_state_view( acc->prior_data, acc->prior_data_len );
   }
+
+  int current_has_delegation = stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE && stake_state->stake.stake.delegation.stake;
+  int prior_has_delegation   = prior_stake_state && prior_stake_state->stake_type==FD_STAKE_STATE_STAKE && prior_stake_state->stake.stake.delegation.stake;
+
+  /* If the current stake state isn't an active delegation and it was an
+     active delegation in the previous stake state, insert a tombstone
+     into the stake delegation's fork. */
+  if( FD_UNLIKELY( !current_has_delegation ) ) {
+    if( FD_LIKELY( !prior_has_delegation ) ) return; /* nothing to remove from */
+    fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+    return;
+  }
+
+  /* If the stake account's stake hasn't changed from the previous
+     account's stake state, don't attempt to update the delegation. */
+  if( FD_LIKELY( prior_has_delegation &&
+                 acc->prior_data_len==acc->data_len &&
+                 !memcmp( &prior_stake_state->stake.stake, &stake_state->stake.stake, sizeof(fd_stake_t) ) ) ) return;
+
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
+  ulong new_stake = stake_state->stake.stake.delegation.stake;
+  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
+                                    &stake_state->stake.stake.delegation.voter_pubkey,
+                                    new_stake,
+                                    stake_state->stake.stake.delegation.activation_epoch,
+                                    stake_state->stake.stake.delegation.deactivation_epoch,
+                                    stake_state->stake.stake.credits_observed,
+                                    acc->lamports,
+                                    (uint)acc->data_len,
+                                    fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
 }
