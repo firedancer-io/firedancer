@@ -429,7 +429,6 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_TEST( rec );
   rec->my_total_slots          = 7UL;
   rec->my_skipped_slots        = 3UL;
-  rec->latency[ 0 ]            = 5;
   rec->latency_exact[ 0 ]      = 2;
   rec->rankings->largest_tips[ 0 ].slot  = RM_NEW_START + 4UL;
   rec->rankings->largest_tips[ 0 ].value = 12345UL;
@@ -439,7 +438,6 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_TEST( rec2==rec ); /* stable map pointer */
   FD_TEST( rec2->my_total_slots==7UL );
   FD_TEST( rec2->my_skipped_slots==3UL );
-  FD_TEST( rec2->latency[ 0 ]==5 );
 
   /* Evict the older epoch; the newer epoch's record and its mutated fields
      must be untouched, and its map pointer must remain valid. */
@@ -453,7 +451,6 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_TEST( rec3->epoch==RM_NEW_EPOCH );
   FD_TEST( rec3->my_total_slots==7UL );
   FD_TEST( rec3->my_skipped_slots==3UL );
-  FD_TEST( rec3->latency[ 0 ]==5 );
   FD_TEST( rec3->latency_exact[ 0 ]==2 );
   FD_TEST( rec3->rankings->largest_tips[ 0 ].slot==RM_NEW_START + 4UL );
   FD_TEST( rec3->rankings->largest_tips[ 0 ].value==12345UL );

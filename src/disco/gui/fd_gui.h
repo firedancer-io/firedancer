@@ -316,8 +316,7 @@ struct __attribute__((packed)) fd_gui_slot {
   uint      vote_failed;      /* failed vote txn count         (UINT_MAX if unknown) */
   uint      nonvote_success;  /* successful nonvote txn count  (UINT_MAX if unknown) */
   uint      nonvote_failed;   /* failed nonvote txn count      (UINT_MAX if unknown) */
-  uchar     vote_latency;     /* our raw vote latency for the slot (UCHAR_MAX if did not vote) */
-  uchar     vote_latency_exact;/* our vote latency minus skipped slots on the landed fork, or FD_GUI_VOTE_LATENCY_NOT_VOTED if no vote landed. */
+  uchar     vote_latency_exact; /* our vote latency minus skipped slots on the landed fork, or FD_GUI_VOTE_LATENCY_NOT_VOTED if no vote landed. */
   uint      max_compute_units;/* block compute unit limit      (UINT_MAX if unknown) */
   uint      compute_units;    /* block compute units consumed  (UINT_MAX if unknown) */
   ulong     transaction_fee;  /* total transaction fee         (ULONG_MAX if unknown) */
@@ -393,10 +392,9 @@ struct fd_gui_epoch {
   fd_gui_slot_rankings_t rankings   [ 1 ]; /* global slot rankings */
   fd_gui_slot_rankings_t my_rankings[ 1 ]; /* my slots only */
 
-  /* Arrays of FD_GUI_VOTE_LATENCY_* */
-  uchar latency      [ MAX_SLOTS_PER_EPOCH ];
-  uchar latency_exact[ MAX_SLOTS_PER_EPOCH ];
+  uchar latency_exact[ MAX_SLOTS_PER_EPOCH ]; /* skip-discounted latency or FD_GUI_VOTE_LATENCY_* */
   uchar is_voter     [ MAX_SLOTS_PER_EPOCH ]; /* 1 if we were structurally a voter when this slot was replayed */
+  uchar skipped      [ MAX_SLOTS_PER_EPOCH ]; /* 1 if the slot was skipped on the rooted fork */
 
   fd_epoch_schedule_t epoch_schedule;    /* slot<->epoch conversion (fd_slot_to_epoch) */
   ulong               pub_cnt;           /* number of deduped leader pubkeys in pub[] */
@@ -1320,6 +1318,14 @@ fd_gui_get_slot_leader( fd_gui_epoch_t const * epoch, ulong _slot ) {
   return &epoch->pub[ idx ];
 }
 
+static inline int
+fd_gui_slot_is_mine( fd_gui_t * gui, ulong _slot ) {
+  fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, _slot );
+  fd_pubkey_t const * slot_leader = fd_gui_get_slot_leader( epoch, _slot );
+  if( FD_UNLIKELY( !slot_leader ) ) return 0;
+  return !memcmp( slot_leader->uc, gui->summary.identity_key->uc, 32UL );
+}
+
 /* fd_gui_slot_get_or_create returns the mutable returns the mutable DB
    SLOT record for (_slot, bank_seq), creating it if none exists yet. */
 
@@ -1346,7 +1352,6 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->parent_bank_seq   = parent_bank_seq;
   meta->parent_slot       = _parent_slot;
   meta->vote_slot          = ULONG_MAX;
-  meta->vote_latency       = UCHAR_MAX;
   meta->vote_latency_exact = FD_GUI_VOTE_LATENCY_NOT_VOTED;
   meta->max_compute_units = UINT_MAX;
   meta->completed_time    = LONG_MAX;

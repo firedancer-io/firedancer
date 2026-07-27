@@ -403,22 +403,38 @@ fd_gui_printf_vote_state( fd_gui_t * gui ) {
   jsonp_close_envelope( gui->http );
 }
 
+/* fd_gui_skipped_history_bounds computes the half open index range
+   [first_known_slot_idx,root_slot_idx) into an epoch's skip arrays. */
+
+static int
+fd_gui_skipped_history_bounds( fd_gui_t const *       gui,
+                               fd_gui_epoch_t const * rec,
+                               ulong *                lo_out,
+                               ulong *                hi_out ) {
+  if( FD_UNLIKELY( !rec ) ) return 0;
+  if( FD_UNLIKELY( gui->summary.slot_rooted==ULONG_MAX ) ) return 0;
+  if( FD_UNLIKELY( gui->summary.slot_rooted<rec->start_slot ) ) return 0;
+
+  ulong first_replay_slot = fd_ulong_if( gui->summary.slot_caught_up!=ULONG_MAX, fd_gui_first_replay_slot( gui ), ULONG_MAX );
+  ulong start_slot        = fd_ulong_max( rec->start_slot, fd_ulong_if( first_replay_slot!=ULONG_MAX, first_replay_slot, 0UL ) );
+  if( FD_UNLIKELY( start_slot>gui->summary.slot_rooted ) ) return 0;
+
+  *lo_out = start_slot - rec->start_slot;
+  *hi_out = fd_ulong_min( rec->slot_cnt, gui->summary.slot_rooted+1UL-rec->start_slot );
+  return *lo_out<*hi_out;
+}
+
 void
 fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history" );
     jsonp_open_array( gui->http, "value" );
-      ulong first_replay_slot = fd_ulong_if( gui->summary.slot_caught_up!=ULONG_MAX, fd_gui_first_replay_slot( gui ), ULONG_MAX );
       fd_gui_epoch_t const * rec = fd_gui_epoch( gui, epoch );
-      ulong epoch_start = FD_LIKELY( rec ) ? rec->start_slot : 0UL;
-      ulong start_slot  = fd_ulong_max( epoch_start, first_replay_slot );
-      ulong end_slot    = FD_LIKELY( rec ) ? rec->start_slot+rec->slot_cnt-1UL : 0UL; /* inclusive */
-      for( ulong s=start_slot; s<=end_slot; s++ ) {
-        if( FD_LIKELY( gui->summary.slot_tower==ULONG_MAX ) ) break;
-        if( FD_UNLIKELY( s>gui->summary.slot_tower ) ) break;
-
-        fd_gui_slot_t * slot = fd_gui_slot_get_canon_safe( gui, s );
-        if( FD_UNLIKELY( !slot->mine ) ) continue;
-        if( FD_UNLIKELY( slot->skip==FD_GUI_SKIP_STATUS_SKIPPED ) ) jsonp_ulong( gui->http, NULL, s );
+      ulong lo, hi;
+      if( FD_LIKELY( fd_gui_skipped_history_bounds( gui, rec, &lo, &hi ) ) ) {
+        for( ulong i=lo; i<hi; i++ ) {
+          ulong slot = rec->start_slot+i;
+          if( FD_UNLIKELY( rec->skipped[ i ] && fd_gui_slot_is_mine( gui, slot ) ) ) jsonp_ulong( gui->http, NULL, slot );
+        }
       }
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -428,15 +444,12 @@ void
 fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history_cluster" );
     jsonp_open_array( gui->http, "value" );
-      ulong first_replay_slot = fd_ulong_if( gui->summary.slot_caught_up!=ULONG_MAX, fd_gui_first_replay_slot( gui ), ULONG_MAX );
       fd_gui_epoch_t const * rec = fd_gui_epoch( gui, epoch );
-      ulong epoch_start = FD_LIKELY( rec ) ? rec->start_slot : 0UL;
-      ulong start_slot  = fd_ulong_max( epoch_start, first_replay_slot );
-      ulong end_slot    = FD_LIKELY( rec ) ? rec->start_slot+rec->slot_cnt-1UL : 0UL; /* inclusive */
-      for( ulong s=start_slot; s<=end_slot; s++ ) {
-        if( FD_LIKELY( gui->summary.slot_tower==ULONG_MAX ) ) break;
-        if( FD_UNLIKELY( s>gui->summary.slot_tower ) ) break;
-        if( FD_UNLIKELY( fd_gui_slot_get_canon_safe( gui, s )->skip==FD_GUI_SKIP_STATUS_SKIPPED ) ) jsonp_ulong( gui->http, NULL, s );
+      ulong lo, hi;
+      if( FD_LIKELY( fd_gui_skipped_history_bounds( gui, rec, &lo, &hi ) ) ) {
+        for( ulong i=lo; i<hi; i++ ) {
+          if( FD_UNLIKELY( rec->skipped[ i ] ) ) jsonp_ulong( gui->http, NULL, rec->start_slot+i );
+        }
       }
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -450,7 +463,7 @@ static inline int
 fd_gui_slot_is_late( fd_gui_epoch_t const * rec, ulong s ) {
   ulong  idx   = s-rec->start_slot;
   uchar  exact = rec->latency_exact[ idx ];
-  return fd_int_if( exact==FD_GUI_VOTE_LATENCY_NOT_VOTED, rec->is_voter[ idx ], exact>=2 );
+  return fd_int_if( !rec->is_voter[ idx ], 0, fd_int_if( rec->skipped[ idx ], 0, fd_int_if( exact==FD_GUI_VOTE_LATENCY_NOT_VOTED, 1, exact>1 ) ) );
 }
 
 void
@@ -473,16 +486,6 @@ fd_gui_printf_late_votes_history( fd_gui_t * gui ) {
               while( s<=end_slot && fd_gui_slot_is_late( rec, s ) && rec->latency_exact[ s-rec->start_slot ]==run_exact ) s++;
               jsonp_ulong( gui->http, NULL, run_start );
               jsonp_ulong( gui->http, NULL, s-1UL );
-            }
-          }
-        jsonp_close_array( gui->http );
-        jsonp_open_array( gui->http, "latency" );
-          if( FD_LIKELY( have_any ) ) {
-            for( ulong s=start_slot; s<=end_slot; s++ ) {
-              if( FD_LIKELY( !fd_gui_slot_is_late( rec, s ) ) ) continue;
-              uchar l = rec->latency[ s-rec->start_slot ];
-              if( FD_LIKELY( l<=FD_GUI_VOTE_LATENCY_MAX ) ) jsonp_ulong( gui->http, NULL, l );
-              else                                          jsonp_null( gui->http, NULL );
             }
           }
         jsonp_close_array( gui->http );
@@ -1831,8 +1834,6 @@ fd_gui_printf_slot( fd_gui_t *            gui,
         jsonp_bool( gui->http, "mine", slot->mine );
         if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
         else                                            jsonp_null( gui->http, "vote_slot" );
-        if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
-        else                                               jsonp_null( gui->http, "vote_latency" );
         if( FD_LIKELY( slot->vote_latency_exact!=FD_GUI_VOTE_LATENCY_NOT_VOTED ) ) jsonp_ulong( gui->http, "vote_latency_exact", slot->vote_latency_exact );
         else                                                                       jsonp_null( gui->http, "vote_latency_exact" );
         jsonp_bool( gui->http, "is_voter", slot->is_voter );
@@ -1959,8 +1960,6 @@ fd_gui_printf_slot_request( fd_gui_t *            gui,
         jsonp_bool( gui->http, "mine", slot->mine );
         if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
         else                                            jsonp_null( gui->http, "vote_slot" );
-        if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
-        else                                               jsonp_null( gui->http, "vote_latency" );
         if( FD_LIKELY( slot->vote_latency_exact!=FD_GUI_VOTE_LATENCY_NOT_VOTED ) ) jsonp_ulong( gui->http, "vote_latency_exact", slot->vote_latency_exact );
         else                                                                       jsonp_null( gui->http, "vote_latency_exact" );
         jsonp_bool( gui->http, "is_voter", slot->is_voter );
@@ -2040,8 +2039,6 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
         jsonp_bool( gui->http, "mine", slot->mine );
         if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
         else                                            jsonp_null( gui->http, "vote_slot" );
-        if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
-        else                                               jsonp_null( gui->http, "vote_latency" );
         if( FD_LIKELY( slot->vote_latency_exact!=FD_GUI_VOTE_LATENCY_NOT_VOTED ) ) jsonp_ulong( gui->http, "vote_latency_exact", slot->vote_latency_exact );
         else                                                                       jsonp_null( gui->http, "vote_latency_exact" );
         jsonp_bool( gui->http, "is_voter", slot->is_voter );
@@ -2373,8 +2370,6 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
         jsonp_bool( gui->http, "mine", slot->mine );
         if( FD_UNLIKELY( slot->vote_slot!=ULONG_MAX ) ) jsonp_ulong( gui->http, "vote_slot", slot->vote_slot );
         else                                            jsonp_null( gui->http, "vote_slot" );
-        if( FD_UNLIKELY( slot->vote_latency!=UCHAR_MAX ) ) jsonp_ulong( gui->http, "vote_latency", slot->vote_latency );
-        else                                               jsonp_null( gui->http, "vote_latency" );
         if( FD_LIKELY( slot->vote_latency_exact!=FD_GUI_VOTE_LATENCY_NOT_VOTED ) ) jsonp_ulong( gui->http, "vote_latency_exact", slot->vote_latency_exact );
         else                                                                       jsonp_null( gui->http, "vote_latency_exact" );
         jsonp_bool( gui->http, "is_voter", slot->is_voter );
