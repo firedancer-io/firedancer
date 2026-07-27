@@ -4,6 +4,9 @@
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
 
+/* Multiplier on the acc_map chain head count.  Must be a power of two. */
+#define FD_ACCDB_CHAIN_SCALE (4UL)
+
 /* Maximum accounts a single acquire may request.
    FD_ACCDB_MAX_TX_ACCOUNT_LOCKS mirrors the mainnet per-transaction
    account-lock limit (Agave get_transaction_account_lock_limit == 64;
