@@ -23,9 +23,9 @@
       representation of the stake delegations.  Each fork will hold its
       own set of deltas.  These are then applied to the root set when
       the fork is finalized.  This is implemented as each bank having
-      its own dlist of deltas which are allocated from a pool which is
-      shared across all stake delegation forks.  The caller is expected
-      to create a new fork index for each bank and add deltas to it.
+      its own map of deltas which are allocated from a pool shared
+      across all stake delegation forks.  The caller is expected to
+      create a new fork index for each bank and add deltas to it.
 
    There are some important invariants wrt fd_stake_delegations_t:
    1. After execution has started, there will be no invalid stake
@@ -69,9 +69,9 @@
    can simultaneously be calling fd_stake_delegations_evict_fork()
    */
 
-#define FD_STAKE_DELEGATIONS_ALIGN (128UL)
-
-#define FD_STAKE_DELEGATIONS_FORK_MAX (4096UL)
+#define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAP_CHAIN_CNT (8192UL)
 
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
    The reason that the double is mapped to an enum is to save space in
@@ -101,16 +101,12 @@ struct fd_stake_delegation {
   ulong       lamports;
   ulong       credits_observed;
   uint        acc_dlen;
-  uint        next_; /* Internal pool/map/dlist usage */
-
-  union {
-    uint      prev_; /* Internal dlist usage for delta  */
-    uint      delta_idx; /* Tracking for stake delegation iteration */
-  };
+  uint        next_;     /* Internal pool/map usage */
+  uint        delta_idx; /* Tracking for stake delegation iteration */
   ushort      activation_epoch;
   ushort      deactivation_epoch;
   union {
-    uchar     is_tombstone; /* Internal dlist/delta usage */
+    uchar     is_tombstone; /* Internal delta usage */
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
@@ -132,10 +128,10 @@ struct fd_stake_delegations {
                           [0, wmk) has been acquired at least once, so its in_use byte is
                           well defined. */
 
-  /* Delta pool + fork  */
+  /* Delta pool + fork and fork map  */
   ulong       delta_pool_offset_;
   ulong       fork_pool_offset_;
-  ulong       dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
+  ulong       fork_map_offset_;
   fd_rwlock_t delta_lock;
 
   /* Stake totals for the current root. */
@@ -268,12 +264,9 @@ fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
 ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations );
 
-/* fd_stake_delegations_fork_update will insert a new stake delegation
-   delta for the fork.  If an entry already exists in the fork, a new
-   one will be inserted without removing the old one.
-
-   TODO: Add a per fork map so multiple entries aren't needed for the
-   same stake account. */
+/* fd_stake_delegations_fork_update upserts a stake delegation delta for
+   the fork.  If an entry already exists for the stake account in this
+   fork, it is overwritten in place. */
 
 void
 fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
@@ -292,10 +285,8 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
    entry for the given fork.  The function will not actually remove or
    free any resources corresponding to the stake account.  The reason a
    tombstone is stored is because each fork corresponds to a set of
-   stake delegation deltas for a given slot.  This function may insert a
-   'duplicate' entry for the same stake account but it will be resolved
-   by the time the delta is applied to a base stake delegations
-   object. */
+   stake delegation deltas for a given slot.  If an entry already exists
+   for the stake account in this fork, it is overwritten in place. */
 
 void
 fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,

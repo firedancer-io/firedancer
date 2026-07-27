@@ -25,6 +25,7 @@ FD_STATIC_ASSERT( sizeof  ( fd_delegation_t                            )==64UL, 
 FD_STATIC_ASSERT( offsetof( fd_stake_t, delegation       )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_stake_t, credits_observed )==64UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_stake_t                   )==72UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_stake_delegation_t        )==112UL, layout );
 
 #define TEST_STAKE_DELEGATION_LAMPORTS (123456789UL)
 #define TEST_STAKE_DELEGATION_ACC_DLEN ((uint)sizeof(fd_stake_state_t))
@@ -492,6 +493,105 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_idx );
     FD_TEST( stake_delegations->effective_stake == eff_before );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 22: Same-fork updates must consume only one delta pool element. */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    for( ulong i=0UL; i<=max_stake_accounts; i++ ) {
+      fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_1, 600UL+i, USHORT_MAX, USHORT_MAX, i, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    }
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_idx );
+    fd_stake_delegation_t const * d = test_stake_delegations_find( stake_delegations, &stake_account_0 );
+    assert_delegation( d, &stake_account_0, &voter_pubkey_1, 600UL+max_stake_accounts, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    FD_TEST( d->credits_observed==max_stake_accounts );
+    FD_TEST( stake_delegations->effective_stake==eff_before-200UL+600UL+max_stake_accounts );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_idx );
+    FD_TEST( stake_delegations->effective_stake==eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 23: The same stake account has independent deltas across forks. */
+  {
+    ushort fork_a = fd_stake_delegations_new_fork( stake_delegations );
+    ushort fork_b = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_a, &stake_account_0, &voter_pubkey_0, 901UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_b, &stake_account_0, &voter_pubkey_1, 902UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_a );
+    assert_delegation( test_stake_delegations_find( stake_delegations, &stake_account_0 ), &stake_account_0, &voter_pubkey_0, 901UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_a );
+
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_b );
+    assert_delegation( test_stake_delegations_find( stake_delegations, &stake_account_0 ), &stake_account_0, &voter_pubkey_1, 902UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_b );
+
+    fd_stake_delegations_evict_fork( stake_delegations, fork_a );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_b );
+  }
+
+  /* Case 24: Same-fork removals must consume only one delta pool element. */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    for( ulong i=0UL; i<=max_stake_accounts; i++ ) {
+      fd_stake_delegations_fork_remove( stake_delegations, fork_idx, &stake_account_0 );
+    }
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_idx );
+    FD_TEST( !test_stake_delegations_find( stake_delegations, &stake_account_0 ) );
+    FD_TEST( stake_delegations->effective_stake==eff_before-200UL );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, fork_idx );
+    FD_TEST( stake_delegations->effective_stake==eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 25: Reused fork indices start with an empty delta map. */
+  {
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 903UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+
+    ushort reused_fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    FD_TEST( reused_fork_idx==fork_idx );
+    fd_stake_delegations_fork_update( stake_delegations, reused_fork_idx, &stake_account_0, &voter_pubkey_1, 904UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, reused_fork_idx );
+    assert_delegation( test_stake_delegations_find( stake_delegations, &stake_account_0 ), &stake_account_0, &voter_pubkey_1, 904UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, reused_fork_idx );
+    fd_stake_delegations_evict_fork( stake_delegations, reused_fork_idx );
+  }
+
+  /* Case 26: Applying a deduplicated delta commits only the latest state. */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 905UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_1, 906UL, USHORT_MAX, USHORT_MAX, 1UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_apply_fork_delta( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_idx );
+    fd_stake_delegation_t const * d = fd_stake_delegation_root_query( stake_delegations, &stake_account_0 );
+    assert_delegation( d, &stake_account_0, &voter_pubkey_1, 906UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    FD_TEST( d->credits_observed==1UL );
+    FD_TEST( stake_delegations->effective_stake==eff_before-200UL+906UL );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+
+    fd_stake_delegations_root_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 200UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    stake_delegations->effective_stake = eff_before;
+  }
+
+  /* Case 27: Reset clears populated fork maps before fork indices are reused. */
+  {
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 907UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_reset( stake_delegations );
+    FD_TEST( fd_stake_delegations_cnt( stake_delegations )==0UL );
+
+    ushort reset_fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, reset_fork_idx, &stake_account_0, &voter_pubkey_1, 908UL, USHORT_MAX, USHORT_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, reset_fork_idx );
+    assert_delegation( test_stake_delegations_find( stake_delegations, &stake_account_0 ), &stake_account_0, &voter_pubkey_1, 908UL, USHORT_MAX, USHORT_MAX, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, reset_fork_idx );
+    FD_TEST( !test_stake_delegations_find( stake_delegations, &stake_account_0 ) );
+    fd_stake_delegations_evict_fork( stake_delegations, reset_fork_idx );
   }
 
   /* Test stake delegations refresh */
