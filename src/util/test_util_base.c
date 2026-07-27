@@ -445,26 +445,24 @@ main( int     argc,
     ulong const workload_iter = 8192UL;
     ulong const warmup        = 1024UL;
 
-    FD_LOG_NOTICE(( "BENCHMARK HASH FUNCTION" ));
-
-    char const * buf = "The quick brown fox jumps over the lazy dog.";
-    ulong        sz  = strlen( buf )+1UL;
+    #define BUF_SZ 32UL
+    char buf[BUF_SZ];
+    for( ulong i = 0UL; i < BUF_SZ; i++ )
+      buf[i] = (char)fd_rng_uchar( rng );
 
     for( ulong i = 0UL; i < warmup; i++ ) {
-      ulong result = fd_hash( i, buf, sz );
+      ulong result = fd_hash( i, buf, BUF_SZ );
       FD_COMPILER_FORGET( result );
     }
     FD_HW_MFENCE();
-    long t0 = fd_tickcount();
+    long dt = fd_log_wallclock();
     for( ulong i = 0UL; i < workload_iter; i++ ) {
-      ulong result = fd_hash( i, buf, sz );
+      ulong result = fd_hash( i, buf, BUF_SZ );
       FD_COMPILER_FORGET( result );
     }
-    long t1 = fd_tickcount();
-    FD_COMPILER_MFENCE();
-    ulong cycles_op = (ulong)(t1 - t0) / workload_iter;
-    FD_LOG_NOTICE(( "%lu cycles/op", cycles_op ));
-    FD_LOG_NOTICE(( "BENCHMARK HASH FUNCTION END" ));
+    dt = fd_log_wallclock() - dt;
+    double ns_byte = ((double)(dt)) / ((double)(workload_iter * BUF_SZ));
+    FD_LOG_NOTICE(( "fd_hash: %.3f ns/byte (sz %lu)", ns_byte, BUF_SZ ));
   }
 
   fd_rng_delete( fd_rng_leave( rng ) );
