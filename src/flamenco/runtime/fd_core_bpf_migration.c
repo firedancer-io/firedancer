@@ -572,7 +572,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_runtime_stack_t *                   runtime_stack,
                               fd_pubkey_t const *                    builtin_program_id,
                               fd_capture_ctx_t *                     capture_ctx ) {
-  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+
+  tmp_account_new( &runtime_stack->bpf_migration.program_account, 0UL );
 
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_builtin_new_checked(
@@ -584,6 +585,12 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       bank->accdb_fork_id,
       runtime_stack ) ) )
     return;
+
+  fd_memset( &runtime_stack->bpf_migration.source,                  0, sizeof(runtime_stack->bpf_migration.source                 ) );
+  fd_memset( &runtime_stack->bpf_migration.new_target_program,      0, sizeof(runtime_stack->bpf_migration.new_target_program     ) );
+  fd_memset( &runtime_stack->bpf_migration.new_target_program_data, 0, sizeof(runtime_stack->bpf_migration.new_target_program_data) );
+  fd_memset( &runtime_stack->bpf_migration.empty,                   0, sizeof(runtime_stack->bpf_migration.empty                  ) );
+  fd_memset( &runtime_stack->bpf_migration.progcache_validate,      0, sizeof(runtime_stack->bpf_migration.progcache_validate     ) );
 
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
