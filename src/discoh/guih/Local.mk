@@ -5,12 +5,12 @@ $(call add-objs,fd_guih fd_guih_printf fd_guih_tile generated/http_import_dist,f
 $(OBJDIR)/obj/discoh/guih/fd_guih_tile.o: book/public/fire.svg
 endif
 
-src/discoh/guih/dist_cmp/%.zst: src/discoh/guih/dist/% $(OBJDIR)/bin/fd_zstd_pack
+src/discoh/guih/dist_cmp/%.zst: src/discoh/guih/dist/% | $(OBJDIR)/bin/fd_zstd_pack
 	mkdir -p $(@D);
 	$(OBJDIR)/bin/fd_zstd_pack 19 $< $@;
 	$(TOUCH) $@;
 
-src/discoh/guih/dist_cmp/%.gz: src/discoh/guih/dist/% $(OBJDIR)/bin/fd_gzip_pack
+src/discoh/guih/dist_cmp/%.gz: src/discoh/guih/dist/% | $(OBJDIR)/bin/fd_gzip_pack
 	mkdir -p $(@D);
 	$(OBJDIR)/bin/fd_gzip_pack 9 $< $@;
 	$(TOUCH) $@;

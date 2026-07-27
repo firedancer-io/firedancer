@@ -556,7 +556,7 @@ frontend: frontend-clean
 
 frontend-clean:
 	rm -rf src/discoh/guih/dist_cmp
-	rm -rf src/discoh/gui/dist_cmp
+	rm -rf src/disco/gui/dist_cmp
 
 env:
 	@echo BUILDDIR=\'$(BUILDDIR)\'
