@@ -121,6 +121,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   /* Test signed integer overflow is wrapping.  Needs to be at run time
@@ -440,6 +441,31 @@ main( int     argc,
   FD_TEST( fd_memeq( quine_binary, quine_cstr, quine_binary_sz ) );
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
+  if( extra_benchmark ) {
+    ulong const workload_iter = 8192UL;
+    ulong const warmup        = 1024UL;
+
+    FD_LOG_NOTICE(( "BENCHMARK HASH FUNCTION" ));
+
+    char const * buf = "The quick brown fox jumps over the lazy dog.";
+    ulong        sz  = strlen( buf )+1UL;
+
+    for( ulong i = 0UL; i < warmup; i++ ) {
+      ulong result = fd_hash( i, buf, sz );
+      FD_COMPILER_FORGET( result );
+    }
+    FD_HW_MFENCE();
+    long t0 = fd_tickcount();
+    for( ulong i = 0UL; i < workload_iter; i++ ) {
+      ulong result = fd_hash( i, buf, sz );
+      FD_COMPILER_FORGET( result );
+    }
+    long t1 = fd_tickcount();
+    FD_COMPILER_MFENCE();
+    ulong cycles_op = (ulong)(t1 - t0) / workload_iter;
+    FD_LOG_NOTICE(( "%lu cycles/op", cycles_op ));
+    FD_LOG_NOTICE(( "BENCHMARK HASH FUNCTION END" ));
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
