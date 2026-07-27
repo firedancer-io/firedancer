@@ -1206,8 +1206,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
     tile->snapct.wait_for_peers_timeout_nanos         = (long)( config->firedancer.snapshots.wait_for_peers_timeout_seconds * (ulong)1e9 );
-    tile->snapct.target_uid                           = config->uid;
-    tile->snapct.target_gid                           = config->gid;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
     tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
     tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;
@@ -1231,8 +1229,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) ) ) {
 
     fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
-    tile->snapld.incremental_snapshots   = config->firedancer.snapshots.incremental_snapshots;
-    tile->snapld.min_download_speed_mibs = config->firedancer.snapshots.min_download_speed_mibs;
+    tile->snapld.incremental_snapshots             = config->firedancer.snapshots.incremental_snapshots;
+    tile->snapld.min_download_speed_mibs           = config->firedancer.snapshots.min_download_speed_mibs;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
 

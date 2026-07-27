@@ -1,3 +1,4 @@
+$(call add-objs,fd_snap_pool,fd_discof)
 $(call add-objs,fd_ssmanifest_writer fd_txncache_writer,fd_discof)
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128

@@ -105,14 +105,6 @@ fd_ssarchive_latest_pair( char const * directory,
                           uchar        full_hash[ static FD_HASH_FOOTPRINT ],
                           uchar        incremental_hash[ static FD_HASH_FOOTPRINT ] );
 
-/* Given a directory on the file system, remove old snapshots by slot
-   age until the number of full snapshots matches the
-   max_full_snapshots_to_keep and the number of incremental snapshots
-   matches the max_incremental_snapshots_to_keep parameter. */
-void
-fd_ssarchive_remove_old_snapshots( char const * directory,
-                                   uint         max_full_snapshots_to_keep,
-                                   uint         max_incremental_snapshots_to_keep );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssarchive_h */
