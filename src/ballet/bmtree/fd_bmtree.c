@@ -319,9 +319,9 @@ fd_bmtree_commit_fini( fd_bmtree_commit_t * state ) {
 }
 
 int
-fd_bmtree_get_proof( fd_bmtree_commit_t * state,
-                     uchar *              dest,
-                     ulong                leaf_idx ) {
+fd_bmtree_get_proof( fd_bmtree_commit_t const * state,
+                     uchar *                    dest,
+                     ulong                      leaf_idx ) {
 
   ulong leaf_cnt = state->leaf_cnt;
   ulong hash_sz  = state->hash_sz;

@@ -134,7 +134,7 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    the shreds they point to are the only values that will be returned in
    the out_shred and out_fec_set output parameters of add_shred. seed
    is an arbitrary ulong used to seed various data structures.  It
-   should be set to a validator independent value.
+   should be set to a different value on each validator.
 
    On success, the FEC resolver will be initialized with an expected
    shred version of 0, which causes it to reject all shreds, and a
@@ -246,25 +246,29 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    be rejected with return value SHRED_EQUIVOC.  In general (other than
    if done_depth is too small), the FEC resolver will return
    SHRED_EQUIVOC for the first equivocating shred with that slot and FEC
-   index and SHRED_IGNORED for any subsequent ones.  Additionally, the
-   FEC resolver has a limited memory and uses a probabilistic scheme
-   with (per-validator independent) probability 2^-31 of returning
-   SHRED_IGNORED instead of SHRED_EQUIVOC, which is why equivocation
-   detection cannot be guaranteed.  Note that these checks are bypassed
-   if is_repair is non-zero.  Similar to SHRED_{OKAY,COMPLETES},
-   out_merkle_root will be populated on SHRED_EQUIVOC if non-NULL.  Note
-   that there are forms of equivocation not covered by this strict
-   check.
+   index and SHRED_IGNORED any subsequent shreds for that slot.
+   Additionally, the FEC resolver has a limited memory and uses a
+   probabilistic scheme for matching shreds with completed FEC sets that
+   has a (per-validator independent) probability of about 2^-14 of
+   returning SHRED_IGNORED instead of SHRED_EQUIVOC, which is why
+   equivocation detection cannot be guaranteed.  Note that these checks
+   are bypassed if is_repair is non-zero.  Similar to
+   SHRED_{OKAY,COMPLETES}, out_merkle_root will be populated on
+   SHRED_EQUIVOC if non-NULL.  Note that there are forms of equivocation
+   not covered by this strict check, and there's one specific type of
+   equivocation detailed in fd_fec_samp.h for which the detection rate
+   is much lower.
 
-   If the shred has the same slot, shred index, and signature as a shred
-   that has already been successfully completed in a FEC by the FEC
-   resolver, or if the shred is for a slot older than slot_old, returns
-   SHRED_IGNORED and does not write to out_{fec_set,shred,merkle_root}.
-   Note that "successfully completed in a FEC by the FEC resolver" above
-   includes shreds that are reconstructed when returning
-   SHRED_COMPLETES, so for example, after returning SHRED_COMPLETES for
-   a FEC set, adding any shred for that FEC set will return
-   SHRED_IGNORED, even if that particular shred hadn't been received.
+   If the shred has the same slot, shred index, and Merkle root as a
+   shred that has already been successfully completed in a FEC by the
+   FEC resolver, or if the shred is for a slot older than slot_old,
+   returns SHRED_IGNORED and does not write to
+   out_{fec_set,shred,merkle_root}.  Note that "successfully completed
+   in a FEC by the FEC resolver" above includes shreds that are
+   reconstructed when returning SHRED_COMPLETES, so for example, after
+   returning SHRED_COMPLETES for a FEC set, adding any shred for that
+   FEC set will return SHRED_IGNORED, even if that particular shred
+   hadn't been received.
 
    However, if the shred is part of an in progress FEC set but has
    already been received, FEC resolver returns SHRED_DUPLICATE and
