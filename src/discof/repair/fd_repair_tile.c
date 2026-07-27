@@ -1183,7 +1183,6 @@ after_frag( ctx_t *             ctx,
           ag_votor_rooted_t const * rooted = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
           if( FD_LIKELY( rooted->slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, rooted->slot );
           if( FD_LIKELY( rooted->slot > ctx->chainer->root ) )                 fd_chainer_publish( ctx->chainer, rooted->slot );
-          //TODO root chainer
           break;
         }
         case FD_VOTOR_SIG_NOTARFB: {
@@ -1289,28 +1288,71 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 
-/* ag_policy_next drives repair from the chainer's slotv treap (as
-   opposed to the forest).  It walks incomplete slotvs min-slot-first
-   and, per slotv, issues a request for each still-missing shred exactly
-   once -- advancing highest_requested only on a shred we already have
-   or a request we actually send, so a budget cutoff never strands an
-   index.  fd_inflights owns all re-drive; a fully-requested slotv is
-   popped from the treap.
+/* ag_policy_next is the full Alpenglow repair pipeline, driven once per
+   after_credit.  In priority order it: (1) redispatches an outstanding
+   metadata request (ParentAndFecSetCount / FecSetRoot) that has aged
+   past its drain timeout, (2) redispatches an outstanding shred request
+   likewise, (3) gates on inflight capacity, then (4) walks the chainer's
+   slotv treaps to issue new requests -- an orphan (ancestry) pass
+   followed by a min-slot-first shred-fill pass.
 
-   Metadata (ParentAndFecSetCount / FecSetRoot) is driven event-driven
-   elsewhere (after_votor_notar_fallback / after_alpen_repair); this walk
-   only fills shreds.
-
-   Not yet wired into after_credit -- see the two TODOs below (turbine
-   defer gate for v0, and the missing ShredForBlockId builder for v>0)
-   plus the decision to retire fd_policy_next. */
+   The shred-fill walk issues a request for each still-missing shred
+   exactly once, advancing highest_requested only on a shred we already
+   have or a request we actually send, so a budget cutoff never strands
+   an index; fd_inflights owns all re-drive and a fully-requested slotv
+   is popped from the treap.  At most one request is sent per call. */
 static void
-ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now ) {
+ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now, int * charge_busy ) {
   fd_chainer_t      * chainer = ctx->chainer;
   fd_slotv_t        * pool    = fd_chainer_slotv_pool ( chainer );
   fd_slotv_repair_t * treap   = fd_chainer_repair_treap( chainer );
 
   long now_ms = now/(long)1e6;
+
+  /* (1) Redispatch an aged-out metadata request under a fresh nonce, so
+     a late response to the old request is simply unmatched. */
+  if( FD_UNLIKELY( ag_inflights_should_drain( ctx->inflights, now ) ) ) {
+    fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+    if( FD_LIKELY( peer ) ) {
+      *charge_busy = 1;
+      ulong nonce; uint kind; ulong slot; fd_hash_t block_id; uint fec_set_idx;
+      ag_inflights_request_pop( ctx->inflights, &nonce, &kind, &slot, &block_id, &fec_set_idx );
+
+      uint              new_nonce = ctx->ag_nonce++;
+      fd_repair_msg_t * msg       = ( kind==AG_REPAIR_KIND_PARENT_FEC_COUNT )
+        ? ag_repair_parent_and_fec_set_count( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id )
+        : ag_repair_fec_set_root            ( ctx->protocol, peer, (ulong)now_ms, new_nonce, slot, &block_id, fec_set_idx );
+      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+      ag_inflights_request_insert( ctx->inflights, new_nonce, kind, slot, &block_id, fec_set_idx );
+      return;
+    }
+  }
+
+  /* (2) Redispatch an aged-out shred request at DEDUP_TIMEOUT intervals. */
+  if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflights, now ) ) ) {
+    ulong nonce; ulong slot; ulong shred_idx;
+    *charge_busy = 1;
+    fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &shred_idx );
+
+    fd_slotv_t * slotv = fd_chainer_slot_query( ctx->chainer, slot );
+    if( FD_UNLIKELY( slotv && !fd_shred_idxs_test( slotv->shred_idxs, shred_idx ) ) ) {
+      fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
+        /* No peers available, park the request in inflights. */
+        defer_inflight_request( ctx, slot, shred_idx );
+      } else {
+        ctx->metrics->rerequest++;
+        nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
+        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, shred_idx );
+        fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+        record_inflight_request( ctx, nonce, peer, slot, shred_idx );
+        return;
+      }
+    }
+  }
+
+  /* (3) No new requests allowed if inflights is near capacity. */
+  if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) return;
 
   /* Orphan (ancestry) pass
      - Parent slot unknown: request our own shred 0 (contents names the
@@ -1343,13 +1385,15 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now ) {
         if( FD_UNLIKELY( !peer ) ) break;
         uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, oslot, 0U, now );
         fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, oslot, 0 );
+        *charge_busy = 1;
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         return;
-      } else if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, oslot, UINT_MAX ), now ) ) {
+      } else if( o->parent_slot!=AG_UNKNOWN_SLOT && !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_ORPHAN, oslot, UINT_MAX ), now ) ) {
         fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
         if( FD_UNLIKELY( !peer ) ) break;
         uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, oslot, 0U, now );
         fd_repair_msg_t * msg = fd_repair_orphan( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, oslot );
+        *charge_busy = 1;
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         return;
       }
@@ -1373,6 +1417,7 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now ) {
       if( !fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, slot, UINT_MAX ), now ) ) {
         uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, slot, 0U, now );
         fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, nonce, slot, 0 );
+        *charge_busy = 1;
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         return;
       }
@@ -1396,6 +1441,7 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now ) {
       if( FD_UNLIKELY( !peer ) ) FD_LOG_CRIT(( "handle no peer "));
       ulong nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, idx, now );
       fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now/(ulong)1e6, (uint)nonce, slot, idx );
+      *charge_busy = 1;
       fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
       record_inflight_request( ctx, nonce, peer, slot, idx );
       e->highest_requested = idx;
@@ -1411,6 +1457,7 @@ ag_policy_next( ctx_t * ctx, out_ctx_t * sign_out, long now ) {
       if( FD_UNLIKELY( !peer ) ) FD_LOG_CRIT(( "handle no peer " ));
       ulong nonce           = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, idx, now );
       fd_repair_msg_t * msg = ag_repair_shred_block_id( ctx->protocol, peer, (ulong)now_ms, (uint)nonce, slot, &e->block_id, idx );
+      *charge_busy = 1;
       fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
       record_inflight_request( ctx, nonce, peer, slot, idx );
     }
@@ -1492,41 +1539,23 @@ after_credit( ctx_t *             ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->is_alpenglow && ag_inflights_should_drain( ctx->inflights, now ) ) ) {
-    fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-    if( FD_LIKELY( peer ) ) {
-      *charge_busy = 1;
-      ulong nonce; uint kind; ulong slot; fd_hash_t block_id; uint fec_set_idx;
-      ag_inflights_request_pop( ctx->inflights, &nonce, &kind, &slot, &block_id, &fec_set_idx );
-
-      /* redispatch the same metadata request under a fresh nonce, so a
-         late response to the old request is simply unmatched */
-      uint              new_nonce = ctx->ag_nonce++;
-      ulong             now_ms    = (ulong)now/(ulong)1e6;
-      fd_repair_msg_t * msg       = ( kind==AG_REPAIR_KIND_PARENT_FEC_COUNT )
-        ? ag_repair_parent_and_fec_set_count( ctx->protocol, peer, now_ms, new_nonce, slot, &block_id )
-        : ag_repair_fec_set_root            ( ctx->protocol, peer, now_ms, new_nonce, slot, &block_id, fec_set_idx );
-      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-      ag_inflights_request_insert( ctx->inflights, new_nonce, kind, slot, &block_id, fec_set_idx );
-      return;
-    }
+  /* Alpenglow drives its entire request pipeline (metadata/shred
+     redispatch, capacity gate, and the orphan + shred-fill walk) from
+     ag_policy_next. */
+  if( ctx->is_alpenglow ) {
+    ag_policy_next( ctx, sign_out, now, charge_busy );
+    return;
   }
+
+  /* non alpenglow (forest-based) repair path */
 
   if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflights, now ) ) ) {
     ulong nonce; ulong slot; ulong shred_idx;
     *charge_busy = 1;
     fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &shred_idx );
 
-    int make_req = 0;
-    if( ctx->is_alpenglow ) {
-      fd_slotv_t * slotv = fd_chainer_slot_query( ctx->chainer, slot );
-      make_req = slotv && !fd_shred_idxs_test( slotv->shred_idxs, shred_idx );
-    } else {
-      fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-      make_req = blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx );
-    }
-
-    if( FD_UNLIKELY( make_req ) ) {
+    fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
+    if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
 
       if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
@@ -1543,30 +1572,25 @@ after_credit( ctx_t *             ctx,
     }
   }
 
-
   if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) return; /* no new requests allowed */
 
-  if( ctx->is_alpenglow ) {
-    ag_policy_next( ctx, sign_out, now );
-  } else {
-    fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->dedup, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
-    if( FD_UNLIKELY( !cout ) ) return;
+  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->dedup, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
+  if( FD_UNLIKELY( !cout ) ) return;
 
-    if( ( cout->kind == FD_REPAIR_KIND_SHRED && fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, cout->shred.slot, (uint)cout->shred.shred_idx ), now ) ) ) {
-      /* Here if policy_next is re-requesting a shred that's already been
-         requested. This could be happen during a race - imagine we make a
-         request for shred 0 in slot Y.  Then eviction causes slot Y to be
-         removed and then readded. policy_next will re-request shred 0,
-         but if we let it get dropped here, it's possible the request
-         could get lost forever. */
-      defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx );
-      return;
-    }
-
-    /* finally, send the request made by policy */
-    fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
-    if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx );
+  if( ( cout->kind == FD_REPAIR_KIND_SHRED && fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, cout->shred.slot, (uint)cout->shred.shred_idx ), now ) ) ) {
+    /* Here if policy_next is re-requesting a shred that's already been
+       requested. This could be happen during a race - imagine we make a
+       request for shred 0 in slot Y.  Then eviction causes slot Y to be
+       removed and then readded. policy_next will re-request shred 0,
+       but if we let it get dropped here, it's possible the request
+       could get lost forever. */
+    defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx );
+    return;
   }
+
+  /* finally, send the request made by policy */
+  fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
+  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx );
 }
 
 static void

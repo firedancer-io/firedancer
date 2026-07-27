@@ -1007,8 +1007,9 @@ test_repair_request_order( fd_wksp_t * wksp ) {
   long  now = fd_log_wallclock();
   ulong k0  = (ulong)ctx->pending_key_next;
 
+  int charge_busy = 0;
   for( int i=0; i<16 && (ulong)ctx->pending_key_next < k0+4UL; i++ )
-    ag_policy_next( ctx, sign_out, now );
+    ag_policy_next( ctx, sign_out, now, &charge_busy );
 
   FD_TEST( (ulong)ctx->pending_key_next == k0 + 4UL );
 
