@@ -397,14 +397,19 @@ telemetry = true
     # will exit with an error.
     genesis_download = true
 
-    # Controls how many downloaded snapshots are allowed to be kept in
-    # the snapshots directory on disk.
+    # Controls how many snapshots are allowed to be kept in the
+    # snapshots directory on disk.
     #
-    # Firedancer does not currently support creating snapshots, and so
-    # these values are only checked once on boot.  Any excess snapshots
-    # will be deleted, oldest snapshot slot first.
-    max_full_snapshots_to_keep = 1
-    max_incremental_snapshots_to_keep = 1
+    # On boot, any excess snapshots are deleted, oldest snapshot slot
+    # first.  The remaining slots form a fixed pool that snapshot
+    # production then recycles, so a newly created snapshot always
+    # replaces the oldest one.
+    #
+    # A minimum of 2 is recommended so one useful snapshot remains if
+    # the validator crashes while another snapshot is still being
+    # created.
+    max_full_snapshots_to_keep = 2
+    max_incremental_snapshots_to_keep = 2
 
     # Controls how many times the validator will retry loading a full or
     # incremental snapshot before aborting.  Reasons for retrying a

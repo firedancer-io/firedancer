@@ -23,9 +23,6 @@ fd_snap_pool_recover( int                 snapshots_fd,
                    FD_SNAP_FD( i ), errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( pool_max<FD_SNAP_MAX && -1!=fcntl( FD_SNAP_FD( pool_max ), F_GETFD ) ) )
-    FD_LOG_ERR(( "inherited snapshot pool is larger than the expected %u slots", pool_max ));
-
   if( FD_UNLIKELY( lseek( snapshots_fd, 0L, SEEK_SET ) ) )
     FD_LOG_ERR(( "lseek(%s) failed (%i-%s)", snapshots_path, errno, fd_io_strerror( errno ) ));
   for(;;) {

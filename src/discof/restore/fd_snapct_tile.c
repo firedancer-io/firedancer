@@ -2017,6 +2017,9 @@ privileged_init( fd_topo_t const *      topo,
 
     FD_TEST( snap_max && snap_max<=FD_SNAP_MAX );
     fd_backup_inode_t pool[ FD_SNAP_MAX ] = {0};
+    if( FD_UNLIKELY( snap_max<FD_SNAP_MAX && -1!=fcntl( FD_SNAP_FD( snap_max ), F_GETFD ) ) ) {
+      FD_LOG_ERR(( "inherited snapshot pool is larger than the expected %u slots", snap_max ));
+    }
     fd_snap_pool_recover( ctx->local_out.dir_fd, tile->snapct.snapshots_path, pool, snap_max );
     if( FD_LIKELY( snap_full_max ) ) {
       uint full_idx = snapshot_pool_select( pool, 0U, snap_full_max );
