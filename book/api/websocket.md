@@ -2573,7 +2573,6 @@ initially replay one but the cluster votes on the other one.
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 | vote_slot                    | `number\|null` | The most recent slot for which this validator had landed a vote as of the time that this slot was replayed.  This is equivalent to the largest voted-for slot in this validator's on-chain vote account after the execution of `slot`. `vote_slot` will typically be one less than `slot`, though `vote_slot` may be arbitrarily small if the last successfully landed vote from this validator was long before `slot`. May be `null` if the vote account for this node does not exist |
-| vote_latency                 | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot.  This field is `null` if we have not yet landed a vote for this slot, and this message will be re-published once our vote lands |
 | vote_latency_exact           | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot, discounting slots that were skipped on the fork our vote landed on.  `null` when we have not landed a vote for this slot |
 | is_voter                     | `boolean` | True if this validator was structurally a voter (held the authorized voter key with a matching identity) at the time this slot was replayed.  This reflects the historical voting configuration and is unaffected by later runtime identity switches |
 
@@ -2585,17 +2584,16 @@ initially replay one but the cluster votes on the other one.
 A list of leader slot of the validator from the current epoch which were
 skipped.
 
-The skipped slots include unrooted and unconfirmed slots of ours which
-are skipped on the currently active fork.
+The skipped slots include only rooted slots of ours which are skipped on
+the currently active fork.
 
 #### `slot.skipped_history_cluster`
 | frequency | type       | example |
 |-----------|------------|---------|
 | *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
-A list of all of the leader slots which were skipped in the current
-epoch.  Recent non-rooted slots may be included, and included skipped
-slots will not become unskipped as a later slot has rooted.
+A list of all of the leader slots which were skipped and rooted in the
+current epoch.
 
 #### `slot.late_votes_history`
 | frequency | type       | example |
@@ -2623,7 +2621,6 @@ latency (`null` for missing vote).
 	"key": "late_votes_history",
 	"value": {
         "slot": [286576808, 286576808, 286576810, 286576810, 286576811, 286576811, 286625025, 286625025],
-        "latency": [2, null, 4, 2],
         "latency_exact": [2, null, 3, 2]
     }
 }
