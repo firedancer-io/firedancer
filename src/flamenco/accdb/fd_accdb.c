@@ -110,9 +110,9 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      never be promoted by compaction). */
   int snapshot_loading;
 
-  /* Snapshot-exclusive acc_pool allocator.  [bump,end) is the writer's
-     unused range.  Keeping end local permits future snapin tiles to own
-     disjoint subranges. */
+  /* Snapshot-exclusive acc_pool bump allocator.  snapshot_acc_bump is
+     the next pool index to allocate, and snapshot_acc_end is the
+     exclusive end of this writer's assigned pool range. */
   uint snapshot_acc_bump;
   uint snapshot_acc_end;
 };
@@ -357,8 +357,9 @@ snapshot_acc_pool_acquire( fd_accdb_t * accdb ) {
   /* Check snapshot loading is active. */
   FD_TEST( accdb->snapshot_loading );
 
-  /* Check enough entries remaining in the pool to allocate from. */
-  FD_TEST( accdb->snapshot_acc_bump<accdb->snapshot_acc_end );
+  /* Return NULL when the assigned range is exhausted. */
+  FD_TEST( accdb->snapshot_acc_bump<=accdb->snapshot_acc_end );
+  if( FD_UNLIKELY( accdb->snapshot_acc_bump==accdb->snapshot_acc_end ) ) return NULL;
 
   /* Use the next unused entry. */
   return &accdb->acc_pool[ accdb->snapshot_acc_bump++ ];
