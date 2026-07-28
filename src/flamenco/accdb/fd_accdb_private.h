@@ -106,7 +106,8 @@ typedef struct fd_accdb_fork_shmem fd_accdb_fork_shmem_t;
 
 static FD_FN_CONST inline ulong
 fd_accdb_chain_cnt( ulong max_accounts ) {
-  return fd_ulong_pow2_up( FD_ACCDB_CHAIN_SCALE*((max_accounts>>1) + (max_accounts&1UL)) );
+  return fd_ulong_min( (ulong)UINT_MAX+1UL,
+                       fd_ulong_pow2_up( FD_ACCDB_CHAIN_SCALE*((max_accounts>>1) + (max_accounts&1UL)) ) );
 }
 
 struct fd_accdb_partition {

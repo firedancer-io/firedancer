@@ -937,6 +937,14 @@ test_many_accounts_hash_chains( void ) {
   test_teardown( accdb, fd );
 }
 
+static void
+test_chain_cnt( void ) {
+  ulong chain_max = (ulong)UINT_MAX + 1UL;
+  FD_TEST( fd_accdb_chain_cnt( 1UL<<31        )==chain_max );
+  FD_TEST( fd_accdb_chain_cnt( (1UL<<31)+1UL )==chain_max );
+  FD_TEST( fd_accdb_chain_cnt( UINT_MAX-1UL   )==chain_max );
+}
+
 void
 test_mainnet_footprint( void ) {
   /* Mainnet-scale parameters:
@@ -1489,6 +1497,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_many_accounts_hash_chains ..." ));
   test_many_accounts_hash_chains();
+
+  FD_LOG_NOTICE(( "test_chain_cnt ..." ));
+  test_chain_cnt();
 
   FD_LOG_NOTICE(( "test_mainnet_footprint ..." ));
   test_mainnet_footprint();
