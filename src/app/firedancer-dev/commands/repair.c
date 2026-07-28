@@ -304,6 +304,7 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "net_quic"     );
 
   fd_topob_wksp( topo, "shred_out"    );
+  fd_topob_wksp( topo, "shred_snap"   );
   fd_topob_wksp( topo, "replay_epoch" );
 
   fd_topob_wksp( topo, "poh_shred"    );
@@ -343,6 +344,7 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_shred_message_t),    2UL /* at most 2 msgs per after_frag */ );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_snap",   "shred_snap",   128UL,                                    0UL,                           1UL )->permit_no_consumers = 1;
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
@@ -419,6 +421,7 @@ repair_topo( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_out",     i                                                    );
+  FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_snap",    i                                                    );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_net",     i                                                    );
   FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",  i,             "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 

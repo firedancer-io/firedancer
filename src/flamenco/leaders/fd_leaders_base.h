@@ -59,6 +59,9 @@ struct fd_epoch_info_msg_t {
 };
 typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 
+#define FD_EPOCH_MSG_SIG       (4UL)  /* Definitive epoch info */
+#define FD_EPOCH_MSG_SIG_EARLY (5UL)  /* Provisional epoch info during snapshot loading */
+
 /* Leader schedule calculation is done based on a weighted sample of
    a sorted list of stake weights (see fd_leaders and fd_wsample).
    Because there are many consumers of the stake weights from the Replay

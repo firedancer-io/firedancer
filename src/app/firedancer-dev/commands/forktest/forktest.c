@@ -113,6 +113,7 @@ forktest_topo( config_t * config ) {
   fd_topob_wksp( topo, "gossip_out"    );
 
   fd_topob_wksp( topo, "shred_out"     );
+  fd_topob_wksp( topo, "shred_snap"    );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
@@ -188,6 +189,7 @@ forktest_topo( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",    "shred_sign",    128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",    "sign_shred",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_snap",    "shred_snap",    128UL,                                    0UL,                           1UL )->permit_no_consumers = 1;
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
@@ -318,6 +320,7 @@ forktest_topo( config_t * config ) {
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_out",     i                                                  );
+  FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_snap",    i                                                  );
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_net",     i                                                  );
 

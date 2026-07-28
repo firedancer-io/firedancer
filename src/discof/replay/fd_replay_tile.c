@@ -190,7 +190,8 @@ static void
 publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     fd_bank_t *         bank,
-                    int                 next_epoch ) {
+                    int                 next_epoch,
+                    ulong               epoch_info_sig ) {
   fd_epoch_schedule_t const * schedule = &bank->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( schedule, bank->f.slot, NULL ) + fd_ulong_if( next_epoch, 1UL, 0UL );
 
@@ -220,7 +221,6 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
 
-  ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
 
@@ -680,7 +680,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL ) )) {
     fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
-    publish_epoch_info( ctx, stem, bank, 1 );
+    publish_epoch_info( ctx, stem, bank, 1, FD_EPOCH_MSG_SIG );
   }
 
   if( ctx->rpc_enabled ) {
@@ -771,8 +771,8 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      epochs worth of stake weights: the previous epoch (which is
      needed for voting on the current epoch), and the current epoch
      (which is needed for voting on the next epoch). */
-  publish_epoch_info( ctx, stem, bank, 0 );
-  publish_epoch_info( ctx, stem, bank, 1 );
+  publish_epoch_info( ctx, stem, bank, 0, FD_EPOCH_MSG_SIG );
+  publish_epoch_info( ctx, stem, bank, 1, FD_EPOCH_MSG_SIG );
 
   fd_progcache_reset( ctx->progcache );
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
@@ -1292,6 +1292,26 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                                           fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
                                           ctx->blockhash_seed ) ) ) {
         FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
+      }
+
+      /* Publish early epoch info so the shred tile can process turbine
+         during account loading.  init_after_snapshot() will recompute
+         and re-publish the definitive epoch info at FD_SSMSG_DONE.
+
+         Features are zero-initialized at this point (account-based
+         feature detection hasn't run yet).  Set them to the conservative
+         default: cleaned-up features active, everything else disabled.
+         Without this, all features appear "activated at slot 0", which
+         causes the shred tile to use a wrong (too small) max_shred_idx
+         and reject valid turbine shreds. */
+      {
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+        fd_features_enable_cleaned_up( &bank->f.features );
+        bank->f.slot_params_default = restore_default_slot_params( bank );
+        fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
+        fd_runtime_update_leaders( bank, ctx->runtime_stack );
+        publish_epoch_info( ctx, stem, bank, 0, FD_EPOCH_MSG_SIG_EARLY );
+        publish_epoch_info( ctx, stem, bank, 1, FD_EPOCH_MSG_SIG_EARLY );
       }
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );

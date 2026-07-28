@@ -620,6 +620,7 @@ struct fd_topo_tile {
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
       long wait_for_peers_timeout_nanos;
+      ulong snapshot_max_slot_gap;
 
       uint target_uid;
       uint target_gid;

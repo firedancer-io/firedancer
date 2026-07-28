@@ -426,6 +426,18 @@ telemetry = true
     # incremental snapshot peers.
     wait_for_peers_timeout_seconds = 30
 
+    # Maximum allowed slot gap between a snapshot and the turbine tip.
+    # Applied in two places:
+    #   (1) Pre-download: peers whose advertised snapshot slot exceeds
+    #       this gap are blacklisted (both full and incremental).
+    #   (2) Full-only fallback: when no incremental peer is found, the
+    #       validator continues with the full snapshot alone if the gap
+    #       is within this limit.
+    # Set to 0 to disable all gap checks.  Requires turbine shreds to
+    # be visible for tip detection; checks are skipped when the turbine
+    # tip is unknown.
+    snapshot_max_slot_gap = 10000
+
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
     # gossip peers that advertise RPC server addresses, or from external

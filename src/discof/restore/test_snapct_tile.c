@@ -438,6 +438,325 @@ test_blacklist_peer_readd_blocked( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* ---- slot gap / turbine tip tests ----------------------------------- */
+
+static void
+test_shred_frag_tracks_turbine_tip( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(*ctx) );
+  ctx->turbine_tip_slot = ULONG_MAX;
+
+  /* sig now carries the slot directly. */
+  shred_frag( ctx, 100UL );
+  FD_TEST( ctx->turbine_tip_slot==100UL );
+
+  shred_frag( ctx, 200UL );
+  FD_TEST( ctx->turbine_tip_slot==200UL );
+
+  /* Lower slot must NOT regress the tip. */
+  shred_frag( ctx, 150UL );
+  FD_TEST( ctx->turbine_tip_slot==200UL );
+
+  /* Equal slot stays unchanged. */
+  shred_frag( ctx, 200UL );
+  FD_TEST( ctx->turbine_tip_slot==200UL );
+}
+
+static void
+test_slot_gap_from_tip_disabled( fd_ssping_t * ssping ) {
+  /* When snapshot_max_slot_gap==0 the feature is disabled; all checks
+     should return ULONG_MAX (= "cannot determine"). */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  ctx->config.snapshot_max_slot_gap = 0;
+  ctx->turbine_tip_slot            = 5000UL;
+  FD_TEST( slot_gap_from_tip( ctx, 1000UL )==ULONG_MAX );
+  FD_TEST( !slot_gap_exceeds( ctx, 1000UL ) );
+
+  free( scratch );
+}
+
+static void
+test_slot_gap_from_tip_unknown_tip( fd_ssping_t * ssping ) {
+  /* When turbine tip is unknown, cannot compute gap. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  ctx->config.snapshot_max_slot_gap = 10000UL;
+  ctx->turbine_tip_slot            = ULONG_MAX;
+  FD_TEST( slot_gap_from_tip( ctx, 1000UL )==ULONG_MAX );
+  FD_TEST( !slot_gap_exceeds( ctx, 1000UL ) );
+
+  free( scratch );
+}
+
+static void
+test_slot_gap_from_tip_unknown_snapshot_slot( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  ctx->config.snapshot_max_slot_gap = 10000UL;
+  ctx->turbine_tip_slot            = 5000UL;
+  FD_TEST( slot_gap_from_tip( ctx, FD_SSPEER_SLOT_UNKNOWN )==ULONG_MAX );
+  FD_TEST( !slot_gap_exceeds( ctx, FD_SSPEER_SLOT_UNKNOWN ) );
+
+  free( scratch );
+}
+
+static void
+test_slot_gap_from_tip_tip_below_cluster( fd_ssping_t * ssping ) {
+  /* The turbine tip is the source of truth (cryptographically grounded
+     via leader-signed FEC completions).  Gossip cluster slots are
+     unauthenticated and must not override the turbine tip.  Even when
+     the tip is below the cluster slot, the gap is computed directly. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  /* Add a peer so the cluster slot is defined. */
+  fd_sspeer_key_t key  = test_key( 0xF1 );
+  fd_ip4_port_t   addr = test_addr( 0x0A0A0A0A, 5555 );
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 3000UL, 8000UL, 9000UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  FD_TEST( fd_sspeer_selector_cluster_slot( ctx->selector ).full==8000UL );
+
+  ctx->config.snapshot_max_slot_gap = 10000UL;
+  ctx->turbine_tip_slot            = 100UL; /* below cluster.full of 8000, gap still computed */
+  FD_TEST( slot_gap_from_tip( ctx, 50UL )==50UL );
+
+  fd_ssping_remove( ctx->ssping, addr );
+  free( scratch );
+}
+
+static void
+test_slot_gap_from_tip_no_cluster_peers( fd_ssping_t * ssping ) {
+  /* When no peers are in the selector the gap is computed directly
+     from the turbine tip. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  /* No peers added — cluster.full defaults to 0. */
+  ctx->config.snapshot_max_slot_gap = 10000UL;
+  ctx->turbine_tip_slot            = 5000UL;
+
+  /* gap = 5000 - 3000 = 2000 */
+  FD_TEST( slot_gap_from_tip( ctx, 3000UL )==2000UL );
+  FD_TEST( !slot_gap_exceeds( ctx, 3000UL ) );
+
+  free( scratch );
+}
+
+static void
+test_slot_gap_from_tip_normal( fd_ssping_t * ssping ) {
+  /* Normal case: tip is above cluster slot, gap is computable. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  /* Add a peer with cluster.full below the tip. */
+  fd_sspeer_key_t key  = test_key( 0xF2 );
+  fd_ip4_port_t   addr = test_addr( 0x0B0B0B0B, 6666 );
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 3000UL, 1000UL, 2000UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  ctx->config.snapshot_max_slot_gap = 10000UL;
+  ctx->turbine_tip_slot            = 5000UL;
+
+  /* snapshot_slot=4000 → gap=1000 */
+  FD_TEST( slot_gap_from_tip( ctx, 4000UL )==1000UL );
+  FD_TEST( !slot_gap_exceeds( ctx, 4000UL ) );
+
+  /* snapshot_slot=100 → gap=4900 (still within 10000) */
+  FD_TEST( slot_gap_from_tip( ctx, 100UL )==4900UL );
+  FD_TEST( !slot_gap_exceeds( ctx, 100UL ) );
+
+  /* snapshot_slot far behind tip: gap exceeds max_gap. */
+  ctx->turbine_tip_slot = 100000UL;
+  /* gap = 100000 - 4000 = 96000 > 10000 */
+  FD_TEST( slot_gap_from_tip( ctx, 4000UL )==96000UL );
+  FD_TEST( slot_gap_exceeds( ctx, 4000UL ) );
+
+  /* Exactly at the boundary: gap == max_gap should NOT exceed. */
+  ctx->turbine_tip_slot = 14000UL;
+  /* gap = 14000 - 4000 = 10000 == max_gap */
+  FD_TEST( slot_gap_from_tip( ctx, 4000UL )==10000UL );
+  FD_TEST( !slot_gap_exceeds( ctx, 4000UL ) );
+
+  /* One beyond: gap = max_gap + 1 should exceed. */
+  ctx->turbine_tip_slot = 14001UL;
+  FD_TEST( slot_gap_from_tip( ctx, 4000UL )==10001UL );
+  FD_TEST( slot_gap_exceeds( ctx, 4000UL ) );
+
+  /* Saturating subtraction: snapshot_slot > tip → gap = 0. */
+  ctx->turbine_tip_slot = 3000UL;
+  FD_TEST( slot_gap_from_tip( ctx, 4000UL )==0UL );
+  FD_TEST( !slot_gap_exceeds( ctx, 4000UL ) );
+
+  fd_ssping_remove( ctx->ssping, addr );
+  free( scratch );
+}
+
+static void
+test_slot_gap_exceeds_blacklists_stale_peer( fd_ssping_t * ssping ) {
+  /* Verify that slot_gap_exceeds correctly identifies a stale peer so
+     the caller can blacklist it. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  fd_sspeer_key_t key  = test_key( 0xF5 );
+  fd_ip4_port_t   addr = test_addr( 0x0E0E0E0E, 9999 );
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 3000UL, 1000UL, 2000UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  ctx->config.snapshot_max_slot_gap = 5000UL;
+  ctx->turbine_tip_slot            = 100000UL;
+
+  /* Peer at slot 1000 is 99000 behind tip — exceeds 5000. */
+  FD_TEST( slot_gap_exceeds( ctx, 1000UL ) );
+
+  /* Simulate what the state machine does: blacklist the peer. */
+  ctx->peer.addr = addr;
+  ctx->peer.key  = key;
+  blacklist_peer( ctx );
+
+  FD_TEST( blacklist_map_ele_query( ctx->blacklist_map, &key, NULL, ctx->blacklist_pool ) );
+
+  fd_ssping_remove( ctx->ssping, addr );
+  free( scratch );
+}
+
+/* ---- fini_decision tests -------------------------------------------- */
+
+static void
+test_fini_decision_local_incr( void ) {
+  /* When incremental_snapshots=1 and a local incremental is available,
+     fini_decision should return FINI_NEXT without touching the
+     selector. */
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(*ctx) );
+  ctx->config.incremental_snapshots = 1;
+
+  FD_TEST( fini_decision( ctx, 0L, 1 )==FINI_NEXT );
+}
+
+static void
+test_fini_decision_download_peer_available( fd_ssping_t * ssping ) {
+  /* When incremental_snapshots=1, no local file, download enabled,
+     and a peer is available, should return FINI_NEXT. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  ctx->config.incremental_snapshots = 1;
+  ctx->download_enabled             = 1;
+  ctx->predicted_incremental.full_slot = 5000UL;
+
+  fd_sspeer_key_t key  = test_key( 0xA1 );
+  fd_ip4_port_t   addr = test_addr( 0x10101010, 7777 );
+  fd_ssping_add( ctx->ssping, addr );
+  fd_sspeer_selector_add( ctx->selector, &key, addr, 3000UL, 5000UL, 6000UL, NULL, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  FD_TEST( fini_decision( ctx, 0L, 0 )==FINI_NEXT );
+
+  fd_ssping_remove( ctx->ssping, addr );
+  free( scratch );
+}
+
+static void
+test_fini_decision_no_peer_waits( fd_ssping_t * ssping ) {
+  /* When incremental_snapshots=1, download enabled, but no peer is
+     available, should return FINI_WAIT and arm the deadline. */
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx;
+  setup_blacklist_snapct( scratch, ssping, TOTAL_PEERS_MAX, &ctx );
+
+  ctx->config.incremental_snapshots         = 1;
+  ctx->download_enabled                     = 1;
+  ctx->config.wait_for_peers_timeout_nanos  = 30L*1000L*1000L*1000L;
+  ctx->predicted_incremental.full_slot      = 5000UL;
+  /* No peers added to selector. */
+
+  long now = 1000L*1000L*1000L;
+  FD_TEST( fini_decision( ctx, now, 0 )==FINI_WAIT );
+  FD_TEST( ctx->waiting_for_incr_peers==1 );
+  FD_TEST( ctx->deadline_nanos==now + ctx->config.wait_for_peers_timeout_nanos );
+
+  /* Second call within deadline should still wait, and not reset the
+     deadline. */
+  long deadline = ctx->deadline_nanos;
+  long now2 = now + 1L*1000L*1000L*1000L;
+  FD_TEST( fini_decision( ctx, now2, 0 )==FINI_WAIT );
+  FD_TEST( ctx->deadline_nanos==deadline );
+
+  free( scratch );
+}
+
+static void
+test_fini_decision_no_download_no_local( void ) {
+  /* When incremental_snapshots=1 but no local file and download is
+     disabled, should fall through to full-only and return FINI_DONE. */
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(*ctx) );
+  ctx->config.incremental_snapshots    = 1;
+  ctx->download_enabled                = 0;
+  ctx->config.snapshot_max_slot_gap    = 0; /* disabled */
+  ctx->predicted_incremental.full_slot = 5000UL;
+
+  FD_TEST( fini_decision( ctx, 0L, 0 )==FINI_DONE );
+}
+
+static void
+test_fini_decision_full_only_gap_ok( void ) {
+  /* When incremental_snapshots=0 and gap is within tolerance, should
+     return FINI_DONE. */
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(*ctx) );
+  ctx->config.incremental_snapshots    = 0;
+  ctx->config.snapshot_max_slot_gap    = 10000UL;
+  ctx->turbine_tip_slot                = 6000UL;
+  ctx->predicted_incremental.full_slot = 5000UL;
+
+  FD_TEST( fini_decision( ctx, 0L, 0 )==FINI_DONE );
+}
+
+static void
+test_fini_decision_full_only_gap_exceeds( void ) {
+  /* When incremental_snapshots=0 and the full snapshot is too far
+     behind the turbine tip, should return FINI_REJECT. */
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(*ctx) );
+  ctx->config.incremental_snapshots    = 0;
+  ctx->config.snapshot_max_slot_gap    = 5000UL;
+  ctx->turbine_tip_slot                = 100000UL;
+  ctx->predicted_incremental.full_slot = 1000UL;
+
+  FD_TEST( fini_decision( ctx, 0L, 0 )==FINI_REJECT );
+}
+
+static void
+test_fini_decision_full_only_tip_unknown( void ) {
+  /* When incremental_snapshots=0 and the turbine tip is unknown,
+     gap check is indeterminate — should return FINI_DONE (fail-open). */
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(*ctx) );
+  ctx->config.incremental_snapshots    = 0;
+  ctx->config.snapshot_max_slot_gap    = 5000UL;
+  ctx->turbine_tip_slot                = ULONG_MAX;
+  ctx->predicted_incremental.full_slot = 1000UL;
+
+  FD_TEST( fini_decision( ctx, 0L, 0 )==FINI_DONE );
+}
+
 static void
 test_blacklist_pool_exhaustion( fd_ssping_t * ssping ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
@@ -528,8 +847,25 @@ main( int     argc,
   test_blacklist_peer_readd_blocked( ssping );
   test_blacklist_pool_exhaustion( ssping );
 
+  test_shred_frag_tracks_turbine_tip();
+  test_slot_gap_from_tip_disabled( ssping );
+  test_slot_gap_from_tip_unknown_tip( ssping );
+  test_slot_gap_from_tip_unknown_snapshot_slot( ssping );
+  test_slot_gap_from_tip_tip_below_cluster( ssping );
+  test_slot_gap_from_tip_no_cluster_peers( ssping );
+  test_slot_gap_from_tip_normal( ssping );
+  test_slot_gap_exceeds_blacklists_stale_peer( ssping );
+  test_fini_decision_download_peer_available( ssping );
+  test_fini_decision_no_peer_waits( ssping );
+
   fd_ssping_delete( fd_ssping_leave( ssping ) );
   free( _ssping_mem );
+
+  test_fini_decision_local_incr();
+  test_fini_decision_no_download_no_local();
+  test_fini_decision_full_only_gap_ok();
+  test_fini_decision_full_only_gap_exceeds();
+  test_fini_decision_full_only_tip_unknown();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -323,6 +323,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_out"    );
 
   fd_topob_wksp( topo, "shred_out"     );
+  fd_topob_wksp( topo, "shred_snap"    );
   fd_topob_wksp( topo, "repair_out" );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
@@ -469,6 +470,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
+  FOR(shred_tile_cnt) { fd_topob_link( topo, "shred_snap",    "shred_snap",    128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; }
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_fec_complete_t),   1UL );
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
@@ -618,6 +620,7 @@ fd_topo_initialize( config_t * config ) {
     /**/              fd_topob_tile_out(    topo, "snapwr",  0UL,                       "snapwr_ct",    0UL                                                 );
     /**/              fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapin_ct",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapwr_ct",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/              fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "shred_snap",   0UL,           FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* tile 0 only; sufficient for tip estimate within snapshot_max_slot_gap tolerance */
     /**/              fd_topob_tile_in (    topo, "snapld",  0UL,          "metric_in", "snapct_ld",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_out(    topo, "snapld",  0UL,                       "snapld_dc",     0UL                                                );
 
@@ -717,6 +720,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_out",     i                                                  );
+  FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_snap",    i                                                  );
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_net",     i                                                  );
@@ -1248,6 +1252,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
     tile->snapct.wait_for_peers_timeout_nanos         = (long)( config->firedancer.snapshots.wait_for_peers_timeout_seconds * (ulong)1e9 );
+    tile->snapct.snapshot_max_slot_gap                = config->firedancer.snapshots.snapshot_max_slot_gap;
     tile->snapct.target_uid                           = config->uid;
     tile->snapct.target_gid                           = config->gid;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;

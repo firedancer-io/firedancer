@@ -9,6 +9,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_dns_resolve.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
@@ -37,7 +38,8 @@
 #define IN_KIND_ACK    (0)
 #define IN_KIND_SNAPLD (1)
 #define IN_KIND_GOSSIP (2)
-#define MAX_IN_LINKS   (4)
+#define IN_KIND_SHRED  (3)
+#define MAX_IN_LINKS   (5)  /* gossip_out, snapld_dc, snapin_ct, snapwr_ct, shred_snap */
 
 #define TEMP_FULL_SNAP_NAME ".snapshot.tar.bz2-partial"
 #define TEMP_INCR_SNAP_NAME ".incremental-snapshot.tar.bz2-partial"
@@ -148,6 +150,7 @@ struct fd_snapct_tile {
   long          deadline_nanos;
   int           flush_ack;
   int           flush_ack_cnt;
+  int           waiting_for_incr_peers; /* 1 while FINI state is waiting for snapshot sources before deciding NEXT vs DONE */
   fd_sspeer_t   peer;
 
   struct {
@@ -161,6 +164,7 @@ struct fd_snapct_tile {
 
   void const * gossip_in_mem;
   void const * snapld_in_mem;
+  ulong        turbine_tip_slot;
   uchar        in_kind[ MAX_IN_LINKS ];
 
   struct {
@@ -652,9 +656,20 @@ log_download( fd_snapct_tile_t * ctx,
 
 static void
 log_completion( fd_snapct_tile_t * ctx,
-                int                full ) {
+                int                full,
+                ulong              loaded_slot ) {
   double elapsed = (double)(fd_log_wallclock() - ctx->snapshot_start_timestamp_ns) / 1e9;
-  FD_LOG_INFO(( "%s snapshot load completed in %.3f seconds", full ? "full" : "incremental", elapsed ));
+  ulong  tip     = ctx->turbine_tip_slot;
+  if( tip!=ULONG_MAX && loaded_slot!=FD_SSPEER_SLOT_UNKNOWN ) {
+    ulong gap = fd_ulong_sat_sub( tip, loaded_slot );
+    FD_LOG_NOTICE(( "%s snapshot load completed in %.3f seconds "
+                    "(slot %lu, turbine tip %lu, gap %lu slots)",
+                    full ? "full" : "incremental", elapsed, loaded_slot, tip, gap ));
+  } else {
+    FD_LOG_NOTICE(( "%s snapshot load completed in %.3f seconds "
+                    "(slot %lu, turbine tip unknown)",
+                    full ? "full" : "incremental", elapsed, loaded_slot ));
+  }
 }
 
 /* Blacklist the current peer: invalidate in ssping, remove from the
@@ -749,6 +764,138 @@ dns_advance( fd_snapct_tile_t * ctx,
 }
 
 static void
+shred_frag( fd_snapct_tile_t * ctx,
+            ulong              sig ) {
+  ulong slot = sig;
+  if( slot>ctx->turbine_tip_slot || ctx->turbine_tip_slot==ULONG_MAX ) {
+    FD_LOG_DEBUG(( "turbine tip advanced: %lu -> %lu", ctx->turbine_tip_slot, slot ));
+    ctx->turbine_tip_slot = slot;
+  }
+}
+
+/* Compute the slot gap between the turbine tip and snapshot_slot.
+   Returns the gap in slots, or ULONG_MAX if the check cannot be
+   performed (feature disabled, tip unknown, or slot unknown).
+
+   Trust hierarchy: the turbine tip is derived from FEC completions
+   whose shreds are merkle-proved and leader-signed, making it
+   cryptographically grounded.  Gossip-advertised snapshot slots are
+   unauthenticated claims.  Therefore the turbine tip is the source
+   of truth and must never be overridden by gossip cluster slots. */
+static ulong
+slot_gap_from_tip( fd_snapct_tile_t * ctx, ulong snapshot_slot ) {
+  ulong max_gap = ctx->config.snapshot_max_slot_gap;
+  if( !max_gap ) return ULONG_MAX;
+  ulong tip = ctx->turbine_tip_slot;
+  if( tip==ULONG_MAX ) return ULONG_MAX;
+  if( snapshot_slot==FD_SSPEER_SLOT_UNKNOWN ) return ULONG_MAX;
+  return fd_ulong_sat_sub( tip, snapshot_slot );
+}
+
+/* Returns 1 if snapshot_slot is more than snapshot_max_slot_gap behind
+   the turbine tip (peer should be rejected).  Returns 0 if the gap is
+   acceptable OR the check cannot be performed. */
+static int
+slot_gap_exceeds( fd_snapct_tile_t * ctx, ulong snapshot_slot ) {
+  ulong gap = slot_gap_from_tip( ctx, snapshot_slot );
+  if( gap==ULONG_MAX ) return 0;
+  return gap > ctx->config.snapshot_max_slot_gap;
+}
+
+/* Return codes for fini_decision. */
+#define FINI_WAIT   0  /* No incremental peer yet, stay in FINI */
+#define FINI_NEXT   1  /* Proceed to incremental loading */
+#define FINI_DONE   2  /* Skip incremental, full-only boot */
+#define FINI_REJECT 3  /* Full snapshot too stale, retry */
+
+/* Pure decision logic for the FINI state.  Does not publish or
+   transition state, so it can be unit-tested without a stem context.
+   May set waiting_for_incr_peers / deadline_nanos on ctx while waiting
+   for peers. */
+static int
+fini_decision( fd_snapct_tile_t * ctx,
+               long               now,
+               int                has_local_incr ) {
+  int want_incr = ctx->config.incremental_snapshots;
+  if( want_incr ) {
+    if( has_local_incr ) {
+      return FINI_NEXT;
+    } else if( ctx->download_enabled ) {
+      fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+      if( FD_LIKELY( best_incr.addr.l ) ) {
+        return FINI_NEXT;
+      } else {
+        /* No peer yet.  Wait for snapshot sources with timeout. */
+        if( !ctx->waiting_for_incr_peers ) {
+          ctx->waiting_for_incr_peers = 1;
+          ctx->deadline_nanos = now + ctx->config.wait_for_peers_timeout_nanos;
+        }
+        if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
+          ctx->waiting_for_incr_peers = 0;
+          FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
+        }
+        return FINI_WAIT;
+      }
+    } else {
+      /* No local incremental and download not enabled. */
+      FD_LOG_INFO(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
+                    "but no incremental snapshot exists on disk and no snapshot peers are configured. "
+                    "skipping incremental snapshot load." ));
+      /* Fall through to full-only path. */
+    }
+  }
+
+  /* Full-only boot: reject if the snapshot is too far behind the
+     turbine tip. */
+  if( FD_UNLIKELY( slot_gap_exceeds( ctx, ctx->predicted_incremental.full_slot ) ) ) {
+    FD_LOG_WARNING(( "full snapshot at slot %lu is more than snapshot_max_slot_gap (%lu) behind turbine tip %lu, retrying",
+                     ctx->predicted_incremental.full_slot, ctx->config.snapshot_max_slot_gap, ctx->turbine_tip_slot ));
+    return FINI_REJECT;
+  }
+
+  return FINI_DONE;
+}
+
+/* Act on fini_decision: publish the appropriate control message,
+   transition state, and optionally blacklist the peer. */
+static int
+fini_decide( fd_snapct_tile_t *  ctx,
+             fd_stem_context_t * stem,
+             long                now,
+             int                 has_local_incr,
+             int                 done_state,
+             int                 reset_state ) {
+  int decision = fini_decision( ctx, now, has_local_incr );
+  switch( decision ) {
+    case FINI_WAIT:
+      return 0;
+    case FINI_NEXT:
+      ctx->waiting_for_incr_peers = 0;
+      ctx->state = done_state;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_NEXT, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      return 1;
+    case FINI_DONE:
+      ctx->config.incremental_snapshots = 0;
+      ctx->waiting_for_incr_peers = 0;
+      ctx->state = done_state;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      return 1;
+    case FINI_REJECT:
+      ctx->waiting_for_incr_peers = 0;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      ctx->state = reset_state;
+      if( reset_state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ) blacklist_peer( ctx );
+      return 1;
+    default:
+      FD_LOG_ERR(( "invalid fini decision" ));
+      return 0; /* unreachable */
+  }
+}
+
+static void
 after_credit( fd_snapct_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
@@ -808,7 +955,9 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL: {
-      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
+      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
+        FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
+      }
 
       FD_TEST( ctx->predicted_incremental.full_slot!=FD_SSPEER_SLOT_UNKNOWN );
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
@@ -935,6 +1084,13 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
+      if( FD_UNLIKELY( slot_gap_exceeds( ctx, best.incr_slot ) ) ) {
+        FD_LOG_WARNING(( "peer incremental snapshot at slot %lu exceeds snapshot_max_slot_gap, blacklisting", best.incr_slot ));
+        ctx->peer = best;
+        blacklist_peer( ctx );
+        break;
+      }
+
       /* decide whether to use the local incremental snapshot if one
          exists and is not too old, otherwise download a new incremental
          snapshot. */
@@ -994,7 +1150,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
-      log_completion( ctx, 0/*incr*/ );
+      log_completion( ctx, 0/*incr*/, ctx->predicted_incremental.slot );
       ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
@@ -1038,16 +1194,17 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
-      log_completion( ctx, 0/*incr*/ );
+      log_completion( ctx, 0/*incr*/, ctx->predicted_incremental.slot );
       ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
       rename_incr_snapshot( ctx );
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI: {
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
+        ctx->waiting_for_incr_peers = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
@@ -1058,20 +1215,10 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
-      ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE;
-      ulong sig = ctx->config.incremental_snapshots &&
-                  (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled) ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
-      if( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->config.incremental_snapshots ) {
-        /* set incremental snapshots to 0 if there is no local
-            incremental snapshot and download is not enabled. */
-        FD_LOG_INFO(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
-                      "but no incremental snapshot exists on disk and no snapshot peers are configured. "
-                      "skipping incremental snapshot load." ));
-        ctx->config.incremental_snapshots = 0;
-      }
-      fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-      ctx->flush_ack = 0;
+      int has_local = ctx->local_in.incremental_snapshot_slot!=ULONG_MAX;
+      fini_decide( ctx, stem, now, has_local, FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE, FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET );
       break;
+    }
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
@@ -1087,7 +1234,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
-      log_completion( ctx, 1/*full*/ );
+      log_completion( ctx, 1/*full*/, ctx->predicted_incremental.full_slot );
       if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1105,9 +1252,10 @@ after_credit( fd_snapct_tile_t *  ctx,
       break;
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI: {
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
+        ctx->waiting_for_incr_peers = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -1121,10 +1269,9 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
-      ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
-      fd_stem_publish( stem, ctx->out_ld.idx, ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
-      ctx->flush_ack = 0;
+      fini_decide( ctx, stem, now, 0, FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE, FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET );
       break;
+    }
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
@@ -1145,7 +1292,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       rename_full_snapshot( ctx );
 
-      log_completion( ctx, 1/*full*/ );
+      log_completion( ctx, 1/*full*/, ctx->predicted_incremental.full_slot );
       if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1155,6 +1302,15 @@ after_credit( fd_snapct_tile_t *  ctx,
       /* Get the best incremental peer to download from */
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
+        ctx->deadline_nanos = now;
+        ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
+        break;
+      }
+
+      if( FD_UNLIKELY( slot_gap_exceeds( ctx, best.incr_slot ) ) ) {
+        FD_LOG_WARNING(( "peer incremental snapshot at slot %lu exceeds snapshot_max_slot_gap, blacklisting", best.incr_slot ));
+        ctx->peer = best;
+        blacklist_peer( ctx );
         ctx->deadline_nanos = now;
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         break;
@@ -1854,6 +2010,8 @@ returnable_frag( fd_snapct_tile_t *  ctx,
     snapld_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
     ctrl_ack_frag( ctx, sig );
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) {
+    shred_frag( ctx, sig );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
 }
@@ -2059,9 +2217,10 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));
   }
 
-  ctx->state          = FD_SNAPCT_STATE_INIT;
-  ctx->malformed      = 0;
-  ctx->load_complete  = 0;
+  ctx->state                  = FD_SNAPCT_STATE_INIT;
+  ctx->malformed              = 0;
+  ctx->load_complete          = 0;
+  ctx->waiting_for_incr_peers = 0;
   FD_CHECK_ERR( ctx->config.wait_for_peers_timeout_nanos>0L, "snapct wait_for_peers_timeout_nanos must be positive" );
   ctx->deadline_nanos = fd_log_wallclock() + ctx->config.wait_for_peers_timeout_nanos;
   ctx->flush_ack      = 0;
@@ -2071,7 +2230,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_memset( ctx->http_full_snapshot_name, 0, PATH_MAX );
   fd_memset( ctx->http_incr_snapshot_name, 0, PATH_MAX );
 
-  ctx->gossip_in_mem = NULL;
+  ctx->gossip_in_mem     = NULL;
+  ctx->turbine_tip_slot  = ULONG_MAX;
   int has_snapld_dc = 0, ack_cnt = 0;
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
@@ -2087,6 +2247,10 @@ unprivileged_init( fd_topo_t const *      topo,
     } else if( 0==strcmp( in_link->name, "snapin_ct" ) || 0==strcmp( in_link->name, "snapwr_ct" ) ){
       ctx->in_kind[ i ] = IN_KIND_ACK;
       ack_cnt++;
+    } else if( 0==strcmp( in_link->name, "shred_snap" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_SHRED;
+    } else {
+      FD_LOG_ERR(( "unexpected input link `%s` on tile `" NAME "`", in_link->name ));
     }
   }
   FD_TEST( has_snapld_dc && ack_cnt>0 );

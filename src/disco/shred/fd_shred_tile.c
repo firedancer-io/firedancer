@@ -100,8 +100,9 @@
 #define IN_KIND_ROOTED  ( 9UL)
 #define IN_KIND_ROOTEDH (10UL)
 
-#define NET_OUT_IDX     1
-#define SIGN_OUT_IDX    2
+#define SNAP_OUT_IDX    1
+#define NET_OUT_IDX     2
+#define SIGN_OUT_IDX    3
 
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL,      poh_shred_mtu   );
 FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
@@ -224,6 +225,11 @@ typedef struct {
   ulong       shred_out_chunk0;
   ulong       shred_out_wmark;
   ulong       shred_out_chunk;
+
+  /* Output link for turbine tip tracking by the snapct tile. */
+  ulong       shred_snap_idx;
+
+  int         shred_out_enabled;
 
   fd_store_t * store;
 
@@ -957,6 +963,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
+    if( FD_LIKELY( sig==FD_EPOCH_MSG_SIG ) ) ctx->shred_out_enabled = 1;
     return;
   }
 
@@ -1050,7 +1057,8 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;
 
-    if( FD_UNLIKELY( ctx->shred_out_idx!=ULONG_MAX &&  /* Only send to repair in full Firedancer */
+    if( FD_UNLIKELY( ctx->shred_out_enabled &&
+                     ctx->shred_out_idx!=ULONG_MAX &&  /* Only send to repair in full Firedancer */
                      spilled_fec.slot!=0 ) ) {
       /* We've spilled an in-progress FEC set in the fec_resolver. We
          need to let repair know to clear out it's cached info for that
@@ -1063,7 +1071,8 @@ after_frag( fd_shred_ctx_t *    ctx,
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
     }
 
-    if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX  /* Only send to repair/replay in full Firedancer */
+    if( FD_LIKELY( ctx->shred_out_enabled
+                   && ctx->shred_out_idx!=ULONG_MAX  /* Only send to repair/replay in full Firedancer */
                    && ( ( rv==FD_FEC_RESOLVER_SHRED_OKAY )
                       | ( rv==FD_FEC_RESOLVER_SHRED_COMPLETES )
                       | ( rv==FD_FEC_RESOLVER_SHRED_DUPLICATE )
@@ -1086,6 +1095,15 @@ after_frag( fd_shred_ctx_t *    ctx,
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+    }
+
+    /* Publish turbine FEC completions to snapct for tip tracking.
+       This is independent of shred_out gating so turbine tip advances
+       continuously during snapshot loading. */
+    if( FD_UNLIKELY( ctx->shred_snap_idx!=ULONG_MAX
+                     && fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR
+                     && rv==FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
+      fd_stem_publish( stem, ctx->shred_snap_idx, shred->slot, 0UL, 0UL, 0UL, 0UL, 0UL );
     }
 
     if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR &&
@@ -1115,6 +1133,13 @@ after_frag( fd_shred_ctx_t *    ctx,
   }
 
   if( FD_UNLIKELY( ctx->send_fec_set_cnt==0UL ) ) return;
+
+  /* Gate store insertion and shred_out publishes until replay has
+     finished snapshot loading and sent a definitive epoch message.
+     During snapshot load, replay's reasm isn't running, so unchecked
+     store inserts would trigger "store full" and shred_out consumers
+     (repair, tower, gui) don't drain, causing backpressure. */
+  if( FD_UNLIKELY( !ctx->shred_out_enabled ) ) return;
 
   /* Try to distribute shredded txn count across the fec sets.
      This is an approximation, but it is acceptable. */
@@ -1344,6 +1369,7 @@ static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
 
+  FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ SNAP_OUT_IDX  ]].name, "shred_snap"  ) );
   FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ NET_OUT_IDX   ]].name, "shred_net"   ) );
   FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ SIGN_OUT_IDX  ]].name, "shred_sign"  ) );
 
@@ -1376,8 +1402,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
-  ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out", ctx->round_robin_id );
-  ctx->store_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_store",  ctx->round_robin_id );
+  ctx->shred_out_idx  = fd_topo_find_tile_out_link( topo, tile, "shred_out",  ctx->round_robin_id );
+  ctx->shred_snap_idx    = fd_topo_find_tile_out_link( topo, tile, "shred_snap", ctx->round_robin_id );
+  ctx->shred_out_enabled = 0;
+  ctx->store_out_idx     = fd_topo_find_tile_out_link( topo, tile, "shred_store",  ctx->round_robin_id );
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
     fd_topo_link_t const * shred_out = &topo->links[ tile->out_link_id[ ctx->shred_out_idx ] ];
     ctx->shred_out_mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
@@ -1552,6 +1580,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->shred_out_chunk       = ctx->shred_out_chunk0;
     FD_TEST( fd_dcache_compact_is_safe( ctx->shred_out_mem, shred_out->dcache, shred_out->mtu, shred_out->depth ) );
   }
+
+  (void)ctx->shred_snap_idx; /* mtu=0 link — no dcache to set up */
 
   if( FD_LIKELY( ctx->store_out_idx!=ULONG_MAX ) ) { /* frankendancer-only */
     fd_topo_link_t const * store_out = &topo->links[ tile->out_link_id[ ctx->store_out_idx ] ];
