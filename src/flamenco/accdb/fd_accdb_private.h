@@ -104,6 +104,11 @@ typedef struct fd_accdb_fork_shmem fd_accdb_fork_shmem_t;
 
 #include "../../util/tmpl/fd_pool_para.c"
 
+static FD_FN_CONST inline ulong
+fd_accdb_chain_cnt( ulong max_accounts ) {
+  return fd_ulong_pow2_up( FD_ACCDB_CHAIN_SCALE*((max_accounts>>1) + (max_accounts&1UL)) );
+}
+
 struct fd_accdb_partition {
   ulong marked_compaction;
   ulong write_offset;

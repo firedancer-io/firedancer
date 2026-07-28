@@ -223,7 +223,7 @@ fd_accdb_new( void *              ljoin,
   ulong max_account_writes_per_slot = shmem->max_account_writes_per_slot;
   ulong partition_cnt = shmem->partition_cnt;
 
-  ulong chain_cnt = fd_ulong_pow2_up( FD_ACCDB_CHAIN_SCALE*((max_accounts>>1) + (max_accounts&1UL)) );
+  ulong chain_cnt = fd_accdb_chain_cnt( max_accounts );
   ulong txn_max = max_live_slots * max_account_writes_per_slot;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -573,7 +573,7 @@ fd_accdb_join_readonly( void *             ljoin,
   ulong max_account_writes_per_slot  = shmem->max_account_writes_per_slot;
   ulong partition_cnt                = shmem->partition_cnt;
 
-  ulong chain_cnt = fd_ulong_pow2_up( FD_ACCDB_CHAIN_SCALE*((max_accounts>>1) + (max_accounts&1UL)) );
+  ulong chain_cnt = fd_accdb_chain_cnt( max_accounts );
   ulong txn_max   = max_live_slots * max_account_writes_per_slot;
 
   /* Recompute the same shmem scratch layout that fd_accdb_shmem_new
