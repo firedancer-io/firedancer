@@ -690,7 +690,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
       continue;
     }
 
-    FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
+    FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, &commission_t_1 ) );
     FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
 
     fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
@@ -1064,7 +1064,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       fd_accdb_unread_one( accdb, &acc );
     } else {
       FD_TEST( !fd_vote_account_node_pubkey( acc.data, acc.data_len, &node_account_t_1 ) );
-      FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
+      FD_TEST( !fd_vote_account_commission_bps( acc.data, acc.data_len, &commission_t_1 ) );
 
       /* Capture SIMD-0232 collector overrides.  Only delegated-to vote
          accounts need capture: collectors of other accounts are never
