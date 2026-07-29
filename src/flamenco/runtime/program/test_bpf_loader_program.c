@@ -90,10 +90,10 @@ deploy_env_init( deploy_env_t * env,
                  fd_wksp_t *    wksp ) {
   ulong tag = 1UL;
 
-  ulong banks_footprint = fd_banks_footprint( 1UL, 1UL, 2048UL, 2048UL );
+  ulong banks_footprint = fd_banks_footprint( 1UL, 1UL, 2048UL, 32768UL, 2048UL );
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, tag++ );
   FD_TEST( banks_mem );
-  env->banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ) );
+  env->banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL, 2048UL, 32768UL, 2048UL, 0, 42UL ) );
   FD_TEST( env->banks );
 
   env->bank = fd_banks_init_bank( env->banks );

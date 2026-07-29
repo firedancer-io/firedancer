@@ -536,18 +536,19 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
 
   ulong max_banks = 16UL;
   ulong max_forks =  4UL;
-  ulong max_stake = 64UL;
-  ulong max_vote  = 64UL;
-  ulong seed      = 42UL;
+  ulong max_stake          = 64UL;
+  ulong max_fallback_stake = 1024UL;
+  ulong max_vote           = 64UL;
+  ulong seed               = 42UL;
 
   ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
-                                              max_stake, max_vote );
+                                              max_stake, max_fallback_stake, max_vote );
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
                                           banks_footprint, 2UL );
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, max_banks, max_forks,
-                                                    max_stake, max_vote,
+                                                    max_stake, max_fallback_stake, max_vote,
                                                     0 /* larger_max_cost_per_block */, seed ) );
   FD_TEST( banks );
 
@@ -597,7 +598,7 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
   /* Verify entries from first apply are present. */
   fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( banks );
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )!=NULL );
-  FD_TEST( fd_stake_delegations_cnt( sd )==1UL );
+  FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
   fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
   ushort root_idx = fd_vote_stakes_get_root_idx( vs );
@@ -649,7 +650,7 @@ test_recover_back_to_back_reset( fd_wksp_t * wksp, fd_snapshot_manifest_t * mani
      be present, exactly 1 entry (not 2). */
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_a )==NULL );
   FD_TEST( fd_stake_delegation_root_query( sd, (fd_pubkey_t *)pubkey_b )!=NULL );
-  FD_TEST( fd_stake_delegations_cnt( sd )==1UL );
+  FD_TEST( fd_stake_delegations_base_cnt( sd )==1UL );
 
   /* Vote stakes: pubkey_X must have been removed, pubkey_Y must be
      present, exactly 1 entry (not 2). */

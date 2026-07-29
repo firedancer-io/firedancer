@@ -107,7 +107,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, 0 );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
-  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
+  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_fallback_stake_accounts, limits->max_vote_accounts );
   ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
@@ -147,7 +147,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot, 0 );
   ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
-                                               limits->max_stake_accounts, limits->max_vote_accounts );
+                                               limits->max_stake_accounts, limits->max_fallback_stake_accounts,
+                                               limits->max_vote_accounts );
   ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
@@ -205,7 +206,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
 
   mini->banks = fd_banks_join( fd_banks_new( banks_mem, txn_max, limits->max_fork_width,
-                               limits->max_stake_accounts, limits->max_vote_accounts, 0, 8888UL ) );
+                               limits->max_stake_accounts, limits->max_fallback_stake_accounts,
+                               limits->max_vote_accounts, 0, 8888UL ) );
   FD_TEST( mini->banks );
 
   mini->runtime = runtime;

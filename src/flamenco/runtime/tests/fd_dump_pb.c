@@ -606,7 +606,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* Dump stake accounts for this epoch */
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, accdb, parent_bank->accdb_fork_id, parent_bank->f.epoch, &parent_bank->f.warmup_cooldown_rate_epoch );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
