@@ -266,7 +266,7 @@ fd_banks_footprint( ulong max_total_banks,
   ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
   ulong expected_stake_accounts = fd_ulong_min( max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
   ulong expected_vote_accounts  = fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
-  ulong max_stake_rewards       = fd_ulong_min( max_stake_accounts, FD_RUNTIME_MAX_STAKE_REWARDS );
+  ulong max_stake_rewards       = fd_ulong_min( max_stake_accounts, FD_RUNTIME_MAX_STAKE_ACCOUNTS );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
@@ -321,7 +321,7 @@ fd_banks_new( void * shmem,
   ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
   ulong expected_stake_accounts = fd_ulong_min( max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
   ulong expected_vote_accounts  = fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
-  ulong max_stake_rewards       = fd_ulong_min( max_stake_accounts, FD_RUNTIME_MAX_STAKE_REWARDS );
+  ulong max_stake_rewards       = fd_ulong_min( max_stake_accounts, FD_RUNTIME_MAX_STAKE_ACCOUNTS );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_banks_t * banks_data              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
@@ -483,7 +483,7 @@ fd_banks_join( void * banks_data_mem ) {
 
   ulong expected_stake_accounts = fd_ulong_min( banks_data->max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
   ulong expected_vote_accounts  = fd_ulong_min( banks_data->max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
-  ulong max_stake_rewards       = fd_ulong_min( banks_data->max_stake_accounts, FD_RUNTIME_MAX_STAKE_REWARDS );
+  ulong max_stake_rewards       = fd_ulong_min( banks_data->max_stake_accounts, FD_RUNTIME_MAX_STAKE_ACCOUNTS );
 
   FD_SCRATCH_ALLOC_INIT( l, banks_data );
   banks_data                   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
