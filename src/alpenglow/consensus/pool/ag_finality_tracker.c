@@ -186,6 +186,40 @@ ft_prune( ag_finality_tracker_t * self ) {
   }
 }
 
+/* hash_is_zero: the all-zeros hash is the placeholder recorded by the
+   C-only mid-chain root seed (ag_finality_tracker_new / seed_root with
+   an unknown root block id at snapshot boot).  Genesis is the only zero
+   hash in Rust, and there the real hash IS zero. */
+
+static inline int
+hash_is_zero( fd_hash_t const * h ) {
+  return 0UL==( h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3] );
+}
+
+/* check_same_hash aborts with full context when a slot is reported with
+   two different hashes -- either real cluster equivocation past quorum
+   (consensus safety violation) or a cert verified against the wrong
+   validator set.  A zero old hash is the seed placeholder, not a
+   conflict: the caller's status_insert has already recorded the real
+   hash, so just adopt it. */
+
+static void
+check_same_hash( char const *      where,
+                 ulong             slot,
+                 int               old_status,
+                 fd_hash_t const * old_hash,
+                 fd_hash_t const * new_hash ) {
+  if( FD_LIKELY( 0==memcmp( old_hash->uc, new_hash->uc, sizeof(fd_hash_t) ) ) ) return;
+  if( FD_UNLIKELY( hash_is_zero( old_hash ) ) ) {
+    FD_LOG_INFO(( "adopting block id for zero-seeded slot %lu (%s)", slot, where ));
+    return;
+  }
+  FD_BASE58_ENCODE_32_BYTES( old_hash->uc, old_b58 );
+  FD_BASE58_ENCODE_32_BYTES( new_hash->uc, new_b58 );
+  FD_LOG_ERR(( "consensus safety violation (%s): slot %lu old_status %d old_hash %s new_hash %s",
+               where, slot, old_status, old_b58, new_b58 ));
+}
+
 static void
 handle_implicitly_finalized( ag_finality_tracker_t *   self,
                              ulong                     source_slot,
@@ -216,7 +250,7 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
           case AG_FIN_STATUS_FINALIZED:
           case AG_FIN_STATUS_IMPLICITLY_FINALIZED:
           default:
-            FD_LOG_ERR(( "consensus safety violation" ));
+            FD_LOG_ERR(( "consensus safety violation (implicit_skip): slot %lu old_status %d", slot, old_status ));
         }
       }
       if( FD_UNLIKELY( returned ) ) return;
@@ -229,18 +263,20 @@ handle_implicitly_finalized( ag_finality_tracker_t *   self,
       switch( old_status ) {
         case AG_FIN_STATUS_FINALIZED:
         case AG_FIN_STATUS_IMPLICITLY_FINALIZED:
-          FD_TEST( 0==memcmp( old_hash.uc, cur.hash.uc, sizeof(fd_hash_t) ) );
+          check_same_hash( "implicit_finalize", cur.slot, old_status, &old_hash, &cur.hash );
 
-          { int s2; fd_hash_t h2; status_insert( self, cur.slot, old_status, &old_hash, &s2, &h2 ); }
+          { int s2; fd_hash_t h2;
+            fd_hash_t const * keep = hash_is_zero( &old_hash ) ? &cur.hash : &old_hash;
+            status_insert( self, cur.slot, old_status, keep, &s2, &h2 ); }
           return;
         case AG_FIN_STATUS_NOTARIZED:
-          FD_TEST( 0==memcmp( old_hash.uc, cur.hash.uc, sizeof(fd_hash_t) ) );
+          check_same_hash( "implicit_finalize", cur.slot, old_status, &old_hash, &cur.hash );
           break;
         case AG_FIN_STATUS_FINAL_PENDING_NOTAR:
           break;
         case AG_FIN_STATUS_IMPLICITLY_SKIPPED:
         default:
-          FD_LOG_ERR(( "consensus safety violation" ));
+          FD_LOG_ERR(( "consensus safety violation (implicit_finalize): slot %lu old_status %d", cur.slot, old_status ));
       }
     }
     event_push_implicitly_finalized( event, &cur );
@@ -458,16 +494,16 @@ ag_finality_tracker_mark_fast_finalized( ag_finality_tracker_t * self,
     switch( old_status ) {
       case AG_FIN_STATUS_FINALIZED:
       case AG_FIN_STATUS_IMPLICITLY_FINALIZED:
-        FD_TEST( 0==memcmp( old_hash.uc, block->hash.uc, sizeof(fd_hash_t) ) );
+        check_same_hash( "fast_finalize", block->slot, old_status, &old_hash, &block->hash );
         return event;
       case AG_FIN_STATUS_NOTARIZED:
-        FD_TEST( 0==memcmp( old_hash.uc, block->hash.uc, sizeof(fd_hash_t) ) );
+        check_same_hash( "fast_finalize", block->slot, old_status, &old_hash, &block->hash );
         break;
       case AG_FIN_STATUS_FINAL_PENDING_NOTAR:
         break;
       case AG_FIN_STATUS_IMPLICITLY_SKIPPED:
       default:
-        FD_LOG_ERR(( "consensus safety violation" ));
+        FD_LOG_ERR(( "consensus safety violation (fast_finalize): slot %lu old_status %d", block->slot, old_status ));
     }
   }
 
@@ -489,7 +525,7 @@ ag_finality_tracker_mark_notarized( ag_finality_tracker_t * self,
     case AG_FIN_STATUS_NOTARIZED:
     case AG_FIN_STATUS_FINALIZED:
     case AG_FIN_STATUS_IMPLICITLY_FINALIZED:
-      FD_TEST( 0==memcmp( old_hash.uc, block->hash.uc, sizeof(fd_hash_t) ) );
+      check_same_hash( "notarize", block->slot, old_status, &old_hash, &block->hash );
       return event;
     case AG_FIN_STATUS_IMPLICITLY_SKIPPED:
       return event;
@@ -521,6 +557,7 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
     case AG_FIN_STATUS_IMPLICITLY_FINALIZED:
       return event;
     case AG_FIN_STATUS_NOTARIZED: {
+      if( FD_UNLIKELY( hash_is_zero( &old_hash ) ) ) return event; /* zero-seeded root: hash unknown, stay FINAL_PENDING_NOTAR until the notar cert supplies it */
       ag_block_id_t block = { .slot=slot, .hash=old_hash };
       int s2; fd_hash_t h2;
       status_insert( self, slot, AG_FIN_STATUS_FINALIZED, &old_hash, &s2, &h2 );
@@ -531,6 +568,23 @@ ag_finality_tracker_mark_finalized( ag_finality_tracker_t * self,
     default:
       FD_LOG_ERR(( "consensus safety violation" ));
   }
+}
+
+void
+ag_finality_tracker_prune_to( ag_finality_tracker_t * self,
+                              ulong                   root_slot,
+                              fd_hash_t const *       root_hash ) {
+  if( FD_UNLIKELY( root_slot<=self->first_unpruned_slot ) ) return;
+
+  /* record the root as finalized (it is certified-final by construction)
+     unless an equal-or-stronger decision is already recorded */
+  ag_ft_status_ele_t * e = status_get( self, root_slot );
+  if( !e || e->status==AG_FIN_STATUS_NOTARIZED || e->status==AG_FIN_STATUS_FINAL_PENDING_NOTAR ) {
+    int s; fd_hash_t h;
+    status_insert( self, root_slot, AG_FIN_STATUS_FINALIZED, root_hash, &s, &h );
+  }
+  self->first_unpruned_slot = root_slot;
+  ft_prune( self );
 }
 
 ulong

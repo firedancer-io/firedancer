@@ -41,6 +41,13 @@ void
 ag_aggsig_sk_to_pk( ag_aggsig_pk_t *       pk,
                     ag_aggsig_sk_t const * sk );
 
+/* ag_aggsig_sk_to_pk_compressed writes the 48-byte compressed G1 pubkey
+   for sk (the wire form registered on-chain and carried by EPOCH msgs). */
+
+void
+ag_aggsig_sk_to_pk_compressed( uchar                  out[ AG_AGGSIG_PUBKEY_COMPRESSED_SZ ],
+                               ag_aggsig_sk_t const * sk );
+
 void
 ag_aggsig_sk_derive( ag_aggsig_sk_t * sk,
                      uchar const *    ikm,

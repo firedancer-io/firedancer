@@ -21,6 +21,18 @@ ag_aggsig_sk_to_pk( ag_aggsig_pk_t *       pk,
 }
 
 void
+ag_aggsig_sk_to_pk_compressed( uchar                  out[ AG_AGGSIG_PUBKEY_COMPRESSED_SZ ],
+                               ag_aggsig_sk_t const * sk ) {
+  blst_scalar    scalar[1];
+  blst_p1        p[1];
+  blst_p1_affine a[1];
+  blst_scalar_from_lendian( scalar, sk->v );
+  blst_sk_to_pk_in_g1( p, scalar );
+  blst_p1_to_affine( a, p );
+  blst_p1_affine_compress( out, a );
+}
+
+void
 ag_aggsig_sign_bytes( ag_aggsig_sig_t *      sig,
                       ag_aggsig_sk_t const * sk,
                       uchar const *          msg,
@@ -77,6 +89,14 @@ ag_aggsig_sk_to_pk( ag_aggsig_pk_t *       pk,
                     ag_aggsig_sk_t const * sk ) {
   fd_memset( pk->v, 0, AG_AGGSIG_PUBKEY_SZ );
   stub_fill( pk->v, sk->v, (uchar const *)"pk", 2UL );
+}
+
+void
+ag_aggsig_sk_to_pk_compressed( uchar                  out[ AG_AGGSIG_PUBKEY_COMPRESSED_SZ ],
+                               ag_aggsig_sk_t const * sk ) {
+  ag_aggsig_pk_t pk[1];
+  ag_aggsig_sk_to_pk( pk, sk );
+  fd_memcpy( out, pk->v, AG_AGGSIG_PUBKEY_COMPRESSED_SZ );
 }
 
 void

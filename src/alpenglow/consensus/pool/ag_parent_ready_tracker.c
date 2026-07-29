@@ -264,7 +264,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
   }
 }
 
-void
+int
 ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,
                                              int                         has_finalized,
                                              ag_block_id_t const *       finalized,
@@ -272,8 +272,7 @@ ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,
                                              ulong                       if_cnt,
                                              ulong const *               implicitly_skipped,
                                              ulong                       is_cnt,
-                                             ag_parent_ready_t *         out,
-                                             ulong *                     out_cnt ) {
+                                             ag_parent_ready_t *         out ) {
 
   ag_parent_ready_t scratch[ AG_PARENT_READY_OUT_MAX ];
   ulong             scratch_cnt;
@@ -303,12 +302,8 @@ ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t * self,
     }
   }
 
-  if( have_max ) {
-    out[0]   = best;
-    *out_cnt = 1UL;
-  } else {
-    *out_cnt = 0UL;
-  }
+  if( have_max ) *out = best;
+  return have_max;
 }
 
 ag_block_id_t const *

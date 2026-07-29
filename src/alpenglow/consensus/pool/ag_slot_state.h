@@ -116,6 +116,13 @@ FD_FN_PURE ag_fast_final_cert_t const * ag_slot_state_fast_finalize_cert( ag_slo
 FD_FN_PURE ag_notar_cert_t      const * ag_slot_state_notar_cert        ( ag_slot_state_t const * self );
 FD_FN_PURE ag_skip_cert_t       const * ag_slot_state_skip_cert         ( ag_slot_state_t const * self );
 
+/* ag_slot_state_cert_voted_stake returns the stake accumulated from
+   individual votes toward building cert's aggregate: notar
+   [+ notar-fallback] stake for the cert's block hash, skip +
+   skip-fallback, or finalize. */
+
+FD_FN_PURE ulong ag_slot_state_cert_voted_stake( ag_slot_state_t const * self, ag_cert_t const * cert );
+
 FD_FN_PURE ulong ag_slot_state_notar_fallback_cert_cnt( ag_slot_state_t const * self );
 
 FD_FN_PURE ag_notar_fallback_cert_t const *

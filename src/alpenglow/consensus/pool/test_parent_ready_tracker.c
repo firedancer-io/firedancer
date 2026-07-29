@@ -305,20 +305,18 @@ test_parent_ready_finalized( fd_wksp_t * wksp ) {
   ulong window5 = 4UL*SLOTS_PER_WINDOW;
   ag_parent_ready_tracker_t * tracker = setup_tracker( wksp, 256 );
 
-  ag_parent_ready_t out[ AG_PARENT_READY_OUT_MAX ];
-  ulong             out_cnt;
+  ag_parent_ready_t out;
 
   {
     ag_block_id_t block  = random_block_id( window2 );
     ag_block_id_t parent = random_block_id( block.slot-1UL );
-    ag_parent_ready_tracker_handle_finalization( tracker,
+    FD_TEST( ag_parent_ready_tracker_handle_finalization( tracker,
         1, &block,
         &parent, 1UL,
         NULL, 0UL,
-        out, &out_cnt );
-    FD_TEST( out_cnt==1UL );
-    FD_TEST( out[0].slot==block.slot );
-    FD_TEST( ag_block_id_eq( &out[0].parent, &parent ) );
+        &out ) );
+    FD_TEST( out.slot==block.slot );
+    FD_TEST( ag_block_id_eq( &out.parent, &parent ) );
   }
 
   {
@@ -326,14 +324,13 @@ test_parent_ready_finalized( fd_wksp_t * wksp ) {
     ag_block_id_t parent = random_block_id( window3-1UL );
     ulong skipped[ SLOTS_PER_WINDOW ];
     for( ulong i=0UL; i<SLOTS_PER_WINDOW; i++ ) skipped[i] = window3+i;
-    ag_parent_ready_tracker_handle_finalization( tracker,
+    FD_TEST( ag_parent_ready_tracker_handle_finalization( tracker,
         1, &block,
         &parent, 1UL,
         skipped, SLOTS_PER_WINDOW,
-        out, &out_cnt );
-    FD_TEST( out_cnt==1UL );
-    FD_TEST( out[0].slot==block.slot );
-    FD_TEST( ag_block_id_eq( &out[0].parent, &parent ) );
+        &out ) );
+    FD_TEST( out.slot==block.slot );
+    FD_TEST( ag_block_id_eq( &out.parent, &parent ) );
   }
 
   {
@@ -341,14 +338,13 @@ test_parent_ready_finalized( fd_wksp_t * wksp ) {
     ag_block_id_t parent       = random_block_id( block.slot-1UL );
     ag_block_id_t parent_parent= random_block_id( parent.slot-1UL );
     ag_block_id_t impl_fin[2]  = { parent, parent_parent };
-    ag_parent_ready_tracker_handle_finalization( tracker,
+    FD_TEST( ag_parent_ready_tracker_handle_finalization( tracker,
         1, &block,
         impl_fin, 2UL,
         NULL, 0UL,
-        out, &out_cnt );
-    FD_TEST( out_cnt==1UL );
-    FD_TEST( out[0].slot==parent.slot );
-    FD_TEST( ag_block_id_eq( &out[0].parent, &parent_parent ) );
+        &out ) );
+    FD_TEST( out.slot==parent.slot );
+    FD_TEST( ag_block_id_eq( &out.parent, &parent_parent ) );
   }
 
   teardown_tracker( tracker );

@@ -1,66 +1,77 @@
 /* test_votor_tile drives the Votor tile's consensus core (ag_votor +
    ag_pool) the same way the alpenglow consensus tests do, but THROUGH the
-   tile's drive functions (handle_replay_message / ag_pool_add_vote +
-   handle_pool_event) rather
-   than against the core directly.
+   tile's drive functions (handle_replay_message / ag_pool_add_vote + the
+   after_credit-style pool event drain) rather than against the core
+   directly.
 
-   Per project convention we set up REAL ag_pool / ag_votor structures via the
-   production init path (init_choreo + a real epoch validator set built by
-   update_epoch_vtrs).  The only seam is UPDATE_EPOCH_VTRS, which we override
-   so the test can install a deterministic validator set (with real BLS-stub
-   secret keys) and recover the secret keys for signing synthetic gossip
-   votes.  Everything else is exercised end-to-end. */
-
-#define UPDATE_EPOCH_VTRS mock_update_epoch_vtrs
+   The epoch validator set is installed exactly the way production does it:
+   by feeding a synthetic EPOCH msg (stake weights + compressed BLS pubkeys)
+   through update_epoch_vtrs -- no mock seam.  The test keeps the BLS secret
+   keys it generated so it can sign votes for any validator; the production
+   ranking is recovered from id_key markers placed in the stake weights. */
 
 #include "fd_votor_tile.c"
 
-/* ---- mock epoch validator set ---- */
+/* ---- synthetic epoch validator set ---- */
 
 #define TEST_NV (4UL)
 
-static ag_aggsig_sk_t test_sk[ TEST_NV ];
+static ag_aggsig_sk_t test_sk   [ TEST_NV ]; /* keyed by msg source index */
+static ag_aggsig_sk_t sk_of_rank[ TEST_NV ]; /* keyed by production rank  */
+static ushort         own_rank;
 
-/* Install a TEST_NV-validator unit-stake set into the tile, rebuilding the
-   pool and votor against it.  Mirrors update_epoch_vtrs but uses the test's
-   own secret keys so the test can sign synthetic votes for any validator.
-   own_id is chosen as 0. */
+/* install_epoch builds a real fd_epoch_info_msg_t for epoch 0 (TEST_NV
+   unit-stake voters; source 0 carries our identity and voting key) and
+   feeds it through the production update_epoch_vtrs.  The pool / votor are
+   rebuilt lazily by handle_replay_message on the first slot completion,
+   as in production. */
 
-void
-mock_update_epoch_vtrs( fd_votor_tile_t *              ctx,
-                        fd_epoch_info_msg_t const *    msg,
-                        fd_vote_stake_weight_t const * stakes FD_PARAM_UNUSED,
-                        ulong                          stake_cnt FD_PARAM_UNUSED ) {
+static void
+install_epoch( fd_votor_tile_t * ctx ) {
+  static uchar buf[ 16384 ] __attribute__((aligned(64UL)));
+  FD_TEST( fd_epoch_info_msg_sz( TEST_NV, 0UL )<=sizeof(buf) );
+  memset( buf, 0, sizeof(buf) );
 
-  ulong cnt = TEST_NV;
-  ctx->validator_cnt = cnt;
-  ctx->epoch         = msg ? msg->epoch : 0UL;
-  ctx->own_id        = 0UL;
+  fd_epoch_info_msg_t * msg = fd_type_pun( buf );
+  msg->epoch           = 0UL;
+  msg->staked_vote_cnt = TEST_NV;
+  msg->staked_id_cnt   = 0UL;
+  msg->start_slot      = 0UL;
+  msg->slot_cnt        = 432000UL;
+  msg->epoch_schedule.slots_per_epoch             = 432000UL;
+  msg->epoch_schedule.leader_schedule_slot_offset = 432000UL;
+  msg->epoch_schedule.warmup                      = 0;
+  msg->epoch_schedule.first_normal_epoch          = 0UL;
+  msg->epoch_schedule.first_normal_slot           = 0UL;
 
-  for( ulong i=0UL; i<cnt; i++ ) {
+  fd_vote_stake_weight_t * stakes = fd_epoch_info_msg_stake_weights( msg );
+  uchar *                  bls    = fd_epoch_info_msg_bls_pubkeys  ( msg );
+  for( ulong i=0UL; i<TEST_NV; i++ ) {
     memset( test_sk[ i ].v, (int)(i*7UL+1UL), AG_AGGSIG_SECKEY_SZ );
-    ag_validator_info_t * vi = &ctx->validators[ i ];
-    memset( vi, 0, sizeof(ag_validator_info_t) );
-    vi->id    = i;
-    vi->stake = 1UL;
-    ag_aggsig_sk_to_pk( &vi->voting_pubkey, &test_sk[ i ] );
+    memset( stakes[ i ].vote_key.uc, 0x40+(int)i, 32UL );
+    memset( stakes[ i ].id_key.uc,   (int)(i+1UL), 32UL ); /* rank->source marker */
+    stakes[ i ].stake = 1UL;
+    ag_aggsig_sk_to_pk_compressed( bls + i*AG_AGGSIG_PUBKEY_COMPRESSED_SZ, &test_sk[ i ] );
   }
+
+  /* source 0 is us: our identity pubkey and our BLS voting key */
+  memcpy( stakes[ 0 ].id_key.uc, ctx->identity_key->uc, 32UL );
   ctx->voting_key[ 0 ] = test_sk[ 0 ];
 
-  /* Reuse the dimensions the scratch regions were allocated for. */
+  update_epoch_vtrs( ctx, msg, stakes, TEST_NV );
 
-  //ag_epoch_info_join( ag_epoch_info_new( ctx->epoch_mem, ctx->validators, cnt ) );
-  //ctx->epoch_info = ag_epoch_info_join( ctx->epoch_mem );
-  //FD_TEST( ctx->epoch_info );
-
-  ctx->pool = ag_pool_join( ag_pool_new( ag_pool_leave( ctx->pool ),
-                                         ctx->slot_max, ctx->validator_max, ctx->blockid_max,
-                                         ctx->own_id, ctx->validators, cnt, ctx->seed, 0UL, NULL ) );
-  FD_TEST( ctx->pool );
-
-  ctx->votor = ag_votor_join( ag_votor_new( ag_votor_leave( ctx->votor ),
-                                            ctx->slot_max, (ushort)ctx->own_id, ctx->voting_key, ctx->seed ) );
-  FD_TEST( ctx->votor );
+  /* Recover the production ranking: update_epoch_vtrs left the ranked set
+     in ctx->validators, and validators[r].pubkey is the id_key of the
+     source validator that ranked r. */
+  vtr_epoch_set_t const * s = epoch_set( ctx, 0UL );
+  FD_TEST( s && s->validator_cnt==TEST_NV && s->have_own_id );
+  own_rank = s->own_id;
+  for( ulong r=0UL; r<TEST_NV; r++ ) {
+    ulong m   = (ulong)ctx->validators[ r ].pubkey.uc[ 0 ];
+    ulong src = m==(ulong)ctx->identity_key->uc[ 0 ] ? 0UL : m-1UL;
+    FD_TEST( src<TEST_NV );
+    sk_of_rank[ r ] = test_sk[ src ];
+  }
 }
 
 /* ---- harness helpers ---- */
@@ -87,11 +98,8 @@ setup_ctx( fd_wksp_t * wksp ) {
 
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
 
-  /* Install the real validator set (epoch ingest). */
-  fd_epoch_info_msg_t msg[1];
-  memset( msg, 0, sizeof(msg) );
-  msg->epoch = 0UL;
-  mock_update_epoch_vtrs( ctx, msg, NULL, 0UL );
+  /* Install the epoch validator set the production way (EPOCH msg ingest). */
+  install_epoch( ctx );
 
   return ctx;
 }
@@ -118,6 +126,22 @@ complete_slot( fd_votor_tile_t * ctx,
   sc.parent_block_id = parent_block_id;
   sc.bank_idx        = slot; /* arbitrary */
   handle_replay_message( ctx, REPLAY_SIG_SLOT_COMPLETED, &sc, 0UL, NULL );
+}
+
+/* drain the pool's votor event channel through the votor, exactly like
+   after_credit (the own-vote loopback in handle_votor_out appends to the
+   channel while we iterate). */
+
+static void
+drain_pool_events( fd_votor_tile_t * ctx ) {
+  ulong i = 0UL;
+  while( i<ag_pool_votor_event_cnt( ctx->pool ) ) {
+    ag_pool_event_t event = ag_pool_votor_event_channel( ctx->pool )[ i++ ];
+    ag_votor_handle_pool_event( ctx->votor, &event );
+    handle_votor_out( ctx );
+  }
+  ag_pool_drain_channels( ctx->pool );
+  maybe_publish_finalized( ctx );
 }
 
 /* count queued publishes of a given sig. */
@@ -201,26 +225,25 @@ test_finalization( fd_wksp_t * wksp ) {
   complete_slot( ctx, slot, h1, 0UL, genesis );
   FD_TEST( count_pubs( ctx, FD_VOTOR_SIG_VOTE )>=1UL );
 
-  /* Gossip notar votes from validators 1..TEST_NV for the same block.  With
-     unit stake this drives notar / fast-final cert thresholds. */
-  for( ulong v=1UL; v<TEST_NV; v++ ) {
+  /* Gossip notar votes from every other rank for the same block.  With unit
+     stake this drives notar / fast-final cert thresholds. */
+  for( ulong r=0UL; r<TEST_NV; r++ ) {
+    if( r==(ulong)own_rank ) continue;
     ag_vote_t vote;
-    ag_vote_new_notar( &vote, slot, &h1, &test_sk[ v ], (ushort)v );
+    ag_vote_new_notar( &vote, slot, &h1, &sk_of_rank[ r ], (ushort)r, ctx->shred_version );
     FD_TEST( ag_pool_add_vote( ctx->pool, &vote )==AG_POOL_SUCCESS );
-    ulong event_cnt = pool_events_snapshot( ctx, 0UL );
-    for( ulong i=0UL; i<event_cnt; i++ ) handle_pool_event( ctx, &ctx->cascade_events[ 0UL ][ i ], 0UL );
-    maybe_publish_finalized( ctx );
+    drain_pool_events( ctx );
   }
 
-  /* Gossip final votes from validators 1..TEST_NV (we already final-voted via
-     the CertCreated cascade when the notar cert appeared). */
-  for( ulong v=1UL; v<TEST_NV; v++ ) {
+  /* Gossip final votes from every other rank (we already final-voted via the
+     CertCreated cascade when the notar cert appeared). */
+  for( ulong r=0UL; r<TEST_NV; r++ ) {
+    if( r==(ulong)own_rank ) continue;
     ag_vote_t vote;
-    ag_vote_new_final( &vote, slot, &test_sk[ v ], (ushort)v );
-    FD_TEST( ag_pool_add_vote( ctx->pool, &vote )==AG_POOL_SUCCESS );
-    ulong event_cnt = pool_events_snapshot( ctx, 0UL );
-    for( ulong i=0UL; i<event_cnt; i++ ) handle_pool_event( ctx, &ctx->cascade_events[ 0UL ][ i ], 0UL );
-    maybe_publish_finalized( ctx );
+    ag_vote_new_final( &vote, slot, &sk_of_rank[ r ], (ushort)r, ctx->shred_version );
+    int err = ag_pool_add_vote( ctx->pool, &vote );
+    FD_TEST( err==AG_POOL_SUCCESS || err==AG_ADD_VOTE_ERR_SLOT_OUT_OF_BOUNDS ); /* fast-final may already have rooted past it */
+    drain_pool_events( ctx );
   }
 
   /* The pool should now have finalized slot 1 (fast-final on unanimous notar,
@@ -266,8 +289,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong       page_cnt = 4;
-  char *      page_sz  = "gigantic";
+  ulong       page_cnt = 1UL<<20; /* 4 GiB of normal pages; keeps the test runnable without free gigantic pages */
+  char *      page_sz  = "normal";
   ulong       numa_idx = fd_shmem_numa_idx( 0 );
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );

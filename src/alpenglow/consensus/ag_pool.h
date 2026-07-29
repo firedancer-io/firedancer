@@ -56,6 +56,7 @@ ag_pool_new( void *                      mem,
              ulong                       own_id,
              ag_validator_info_t const * validators,
              ulong                       validator_cnt,
+             ushort                      shred_version,
              ulong                       seed,
              ulong                       root_slot,
              fd_hash_t const *           root_block_hash );
@@ -65,14 +66,11 @@ void *      ag_pool_leave ( ag_pool_t const * pool );
 void *      ag_pool_delete( void *            mem );
 
 int
-ag_pool_add_cert( ag_pool_t *             self,
-                  ushort                  shred_version,
-                  ag_cert_t const *       cert,
-                  ag_epoch_info_t const * epoch_info );
+ag_pool_add_cert( ag_pool_t *       self,
+                  ag_cert_t const * cert );
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ushort            shred_version,
                   ag_vote_t const * vote );
 
 void
@@ -102,6 +100,14 @@ ag_pool_finalized_slot( ag_pool_t const * self );
 FD_FN_PURE ulong
 ag_pool_first_unpruned_slot( ag_pool_t const * self );
 
+/* ag_pool_prune_to_root (C-only): shed all per-slot state below the
+   certified-final consensus root; see ag_finality_tracker_prune_to. */
+
+void
+ag_pool_prune_to_root( ag_pool_t *       self,
+                       ulong             root_slot,
+                       fd_hash_t const * root_hash );
+
 ag_block_id_t const *
 ag_pool_parents_ready( ag_pool_t * self,
                        ulong       slot,
@@ -128,6 +134,14 @@ int
 ag_pool_get_notarized_block( ag_pool_t const * self,
                              ulong             slot,
                              fd_hash_t *       out_hash );
+
+/* ag_pool_notar_voted_stake returns the stake accumulated from
+   individual notar votes for slot's notarized block, or 0 if the slot
+   has no state / notar cert. */
+
+ulong
+ag_pool_notar_voted_stake( ag_pool_t const * self,
+                           ulong             slot );
 
 /* ag_pool_get_finalized_block returns the certified block hash of slot
    from its notar or fast-final cert (a slow Final cert carries no hash).

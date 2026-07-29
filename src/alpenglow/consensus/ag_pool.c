@@ -3,19 +3,19 @@
 #include "pool/ag_parent_ready_tracker.h"
 #include "pool/ag_slot_state.h"
 
-struct slotent {
-  ulong             slot;
-  ulong             next;
-  ag_slot_state_t * ss;
+struct slot_state_ele {
+  ulong             slot; /* key */
+  ulong             next; /* reserved for fd_pool and fd_map_chain */
+  ag_slot_state_t * slot_state; /* value */
 };
-typedef struct slotent slotent_t;
+typedef struct slot_state_ele slot_state_ele_t;
 
-#define POOL_NAME slotent_pool
-#define POOL_T    slotent_t
+#define POOL_NAME slot_state_pool
+#define POOL_T    slot_state_ele_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME               slotent_map
-#define MAP_ELE_T              slotent_t
+#define MAP_NAME               slot_state_map
+#define MAP_ELE_T              slot_state_ele_t
 #define MAP_KEY                slot
 #define MAP_KEY_T              ulong
 #define MAP_KEY_EQ(k0,k1)      ((*(k0))==(*(k1)))
@@ -23,7 +23,7 @@ typedef struct slotent slotent_t;
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-typedef slotent_t slotent_pool_t;
+typedef slot_state_ele_t slot_state_pool_t;
 
 struct s2n_waiting_parent_cert {
   ag_block_id_t parent;
@@ -56,13 +56,14 @@ struct __attribute__((aligned(128UL))) ag_pool {
   ag_block_id_t   repair_channel     [ AG_POOL_REPAIR_MAX      ];
   ulong validator_max;
   ulong own_id;
+  ushort shred_version;
   ulong seed;
-  ulong ss_footprint;
+  ulong slot_state_footprint;
 
   ag_epoch_info_t *                epoch_info;
-  uchar *                          ss_arena;
-  slotent_pool_t *                 slotent_pool;
-  slotent_map_t *                  slotent_map;
+  uchar *                          slot_state_arena;
+  slot_state_pool_t *                 slot_state_pool;
+  slot_state_map_t *                  slot_state_map;
   s2n_waiting_parent_cert_pool_t * s2n_waiting_parent_cert_pool;
   s2n_waiting_parent_cert_map_t *  s2n_waiting_parent_cert_map;
   ag_finality_tracker_t *          finality_tracker;
@@ -72,7 +73,7 @@ struct __attribute__((aligned(128UL))) ag_pool {
 static inline void *
 slot_state_region( ag_pool_t const * self,
                    ulong             i ) {
-  return self->ss_arena + i*self->ss_footprint;
+  return self->slot_state_arena + i*self->slot_state_footprint;
 }
 
 FD_FN_CONST char const *
@@ -103,11 +104,11 @@ ag_pool_footprint( ulong slot_max,
                    ulong blockid_max ) {
   if( FD_UNLIKELY( slot_max==0UL || validator_max==0UL || blockid_max==0UL ) ) return 0UL;
 
-  ulong ss_fp = ag_slot_state_footprint( validator_max );
-  if( FD_UNLIKELY( !ss_fp ) ) return 0UL;
+  ulong slot_state_fp = ag_slot_state_footprint( validator_max );
+  if( FD_UNLIKELY( !slot_state_fp ) ) return 0UL;
 
   ulong se_max       = fd_ulong_pow2_up( slot_max );
-  ulong se_chain     = slotent_map_chain_cnt_est( se_max );
+  ulong se_chain     = slot_state_map_chain_cnt_est( se_max );
   ulong s2n_max      = fd_ulong_pow2_up( blockid_max );
   ulong s2n_chain    = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
 
@@ -124,9 +125,9 @@ ag_pool_footprint( ulong slot_max,
     FD_LAYOUT_INIT,
       alignof(ag_pool_t),                sizeof(ag_pool_t)                                      ),
       ag_epoch_info_align(),             ag_epoch_info_footprint( validator_max )               ),
-      ag_slot_state_align(),             ss_fp*slot_max                                         ),
-      slotent_pool_align(),                  slotent_pool_footprint( se_max )                       ),
-      slotent_map_align(),                   slotent_map_footprint ( se_chain )                     ),
+      ag_slot_state_align(),             slot_state_fp*slot_max                                         ),
+      slot_state_pool_align(),                  slot_state_pool_footprint( se_max )                       ),
+      slot_state_map_align(),                   slot_state_map_footprint ( se_chain )                     ),
       s2n_waiting_parent_cert_pool_align(),  s2n_waiting_parent_cert_pool_footprint( s2n_max )      ),
       s2n_waiting_parent_cert_map_align(),   s2n_waiting_parent_cert_map_footprint ( s2n_chain )    ),
       ag_finality_tracker_align(),       ag_finality_tracker_footprint( slot_max, blockid_max ) ),
@@ -142,6 +143,7 @@ ag_pool_new( void *                      mem,
              ulong                       own_id,
              ag_validator_info_t const * validators,
              ulong                       validator_cnt,
+             ushort                      shred_version,
              ulong                       seed,
              ulong                       root_slot,
              fd_hash_t const *           root_block_hash ) {
@@ -165,18 +167,18 @@ ag_pool_new( void *                      mem,
   }
   fd_memset( mem, 0, footprint );
 
-  ulong ss_fp     = ag_slot_state_footprint( validator_max );
+  ulong slot_state_fp     = ag_slot_state_footprint( validator_max );
   ulong se_max    = fd_ulong_pow2_up( slot_max );
-  ulong se_chain  = slotent_map_chain_cnt_est( se_max );
+  ulong se_chain  = slot_state_map_chain_cnt_est( se_max );
   ulong s2n_max   = fd_ulong_pow2_up( blockid_max );
   ulong s2n_chain = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   ag_pool_t * pool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_pool_t),              sizeof(ag_pool_t)                                      );
   void *      ei_mem       = FD_SCRATCH_ALLOC_APPEND( l, ag_epoch_info_align(),           ag_epoch_info_footprint( validator_max )               );
-  void *      ss_arena     = FD_SCRATCH_ALLOC_APPEND( l, ag_slot_state_align(),           ss_fp*slot_max                                         );
-  void *      se_pool      = FD_SCRATCH_ALLOC_APPEND( l, slotent_pool_align(),            slotent_pool_footprint( se_max )                       );
-  void *      se_map       = FD_SCRATCH_ALLOC_APPEND( l, slotent_map_align(),             slotent_map_footprint ( se_chain )                     );
+  void *      slot_state_arena     = FD_SCRATCH_ALLOC_APPEND( l, ag_slot_state_align(),           slot_state_fp*slot_max                                         );
+  void *      se_pool      = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),            slot_state_pool_footprint( se_max )                       );
+  void *      se_map       = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),             slot_state_map_footprint ( se_chain )                     );
   void *      s2n_p        = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_pool_align(), s2n_waiting_parent_cert_pool_footprint( s2n_max )   );
   void *      s2n_m        = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_map_align(),  s2n_waiting_parent_cert_map_footprint ( s2n_chain ) );
   void *      fin_mem      = FD_SCRATCH_ALLOC_APPEND( l, ag_finality_tracker_align(),     ag_finality_tracker_footprint( slot_max, blockid_max ) );
@@ -186,14 +188,15 @@ ag_pool_new( void *                      mem,
   pool->slot_max      = slot_max;
   pool->validator_max = validator_max;
   pool->own_id        = own_id;
+  pool->shred_version = shred_version;
   pool->seed          = seed;
-  pool->ss_footprint  = ss_fp;
+  pool->slot_state_footprint  = slot_state_fp;
 
   pool->epoch_info = (ag_epoch_info_t *)ag_epoch_info_new( ei_mem, validators, validator_cnt );
 
-  pool->ss_arena     = (uchar *)ss_arena;
-  pool->slotent_pool = slotent_pool_join( slotent_pool_new( se_pool, se_max          ) );
-  pool->slotent_map  = slotent_map_join ( slotent_map_new ( se_map,  se_chain,  seed ) );
+  pool->slot_state_arena     = (uchar *)slot_state_arena;
+  pool->slot_state_pool = slot_state_pool_join( slot_state_pool_new( se_pool, se_max          ) );
+  pool->slot_state_map  = slot_state_map_join ( slot_state_map_new ( se_map,  se_chain,  seed ) );
   pool->s2n_waiting_parent_cert_pool = s2n_waiting_parent_cert_pool_join( s2n_waiting_parent_cert_pool_new( s2n_p, s2n_max         ) );
   pool->s2n_waiting_parent_cert_map  = s2n_waiting_parent_cert_map_join ( s2n_waiting_parent_cert_map_new ( s2n_m, s2n_chain, seed ) );
   pool->finality_tracker     = ag_finality_tracker_join( ag_finality_tracker_new( fin_mem, slot_max, blockid_max, seed, root_slot, root_block_hash ) );
@@ -242,47 +245,47 @@ ag_pool_delete( void * mem ) {
   return mem;
 }
 
-static slotent_t *
-slotent_query( ag_pool_t * self,
+static slot_state_ele_t *
+slot_state_ele_query( ag_pool_t * self,
                ulong       slot ) {
-  return slotent_map_ele_query( self->slotent_map, &slot, NULL, self->slotent_pool );
+  return slot_state_map_ele_query( self->slot_state_map, &slot, NULL, self->slot_state_pool );
 }
 
-FD_FN_PURE static slotent_t const *
-slotent_query_const( ag_pool_t const * self,
+FD_FN_PURE static slot_state_ele_t const *
+slot_state_ele_query_const( ag_pool_t const * self,
                      ulong             slot ) {
-  return slotent_map_ele_query_const( self->slotent_map, &slot, NULL, self->slotent_pool );
+  return slot_state_map_ele_query_const( self->slot_state_map, &slot, NULL, self->slot_state_pool );
 }
 
 static ag_slot_state_t *
 ag_pool_slot_state( ag_pool_t * self,
                     ulong       slot ) {
-  slotent_t * e = slotent_query( self, slot );
-  if( FD_LIKELY( e ) ) return e->ss;
+  slot_state_ele_t * e = slot_state_ele_query( self, slot );
+  if( FD_LIKELY( e ) ) return e->slot_state;
 
-  FD_TEST( slotent_pool_free( self->slotent_pool ) );
+  FD_TEST( slot_state_pool_free( self->slot_state_pool ) );
 
-  e = slotent_pool_ele_acquire( self->slotent_pool );
-  ulong idx = slotent_pool_idx( self->slotent_pool, e );
+  e = slot_state_pool_ele_acquire( self->slot_state_pool );
+  ulong idx = slot_state_pool_idx( self->slot_state_pool, e );
   e->slot = slot;
 
   void * region = slot_state_region( self, idx );
-  e->ss = ag_slot_state_join( ag_slot_state_new( region, slot, self->own_id, self->validator_max, self->seed, self->epoch_info ) );
-  slotent_map_ele_insert( self->slotent_map, e, self->slotent_pool );
-  return e->ss;
+  e->slot_state = ag_slot_state_join( ag_slot_state_new( region, slot, self->own_id, self->validator_max, self->seed, self->epoch_info ) );
+  slot_state_map_ele_insert( self->slot_state_map, e, self->slot_state_pool );
+  return e->slot_state;
 }
 
 /* send_parent_ready_events (PoolImpl::send_parent_ready_events). */
 
 static void
 send_parent_ready_events( ag_pool_t *               self,
-                          ag_parent_ready_t const * prs,
-                          ulong                     pr_cnt ) {
-  for( ulong i=0UL; i<pr_cnt; i++ ) {
-    FD_TEST( ag_alpenglow_is_start_of_window( prs[i].slot ) );
+                          ag_parent_ready_t const * parents,
+                          ulong                     parents_cnt ) {
+  for( ulong i=0UL; i<parents_cnt; i++ ) {
+    FD_TEST( ag_alpenglow_is_start_of_window( parents[i].slot ) );
     ag_pool_event_t event = { .kind = AG_POOL_EVENT_PARENT_READY };
-    event.inner.parent_ready.slot   = prs[i].slot;
-    event.inner.parent_ready.parent = prs[i].parent;
+    event.inner.parent_ready.slot   = parents[i].slot;
+    event.inner.parent_ready.parent = parents[i].parent;
     self->votor_event_channel[ self->votor_event_cnt++ ] = event;
   }
 }
@@ -296,18 +299,18 @@ prune( ag_pool_t * self ) {
   for(;;) {
     int      found    = 0;
     ulong    drop_slot = 0UL;
-    slotent_map_t  *  map  = self->slotent_map;
-    slotent_pool_t *  spl  = self->slotent_pool;
-    for( slotent_map_iter_t it = slotent_map_iter_init( map, spl );
-         !slotent_map_iter_done( it, map, spl );
-         it = slotent_map_iter_next( it, map, spl ) ) {
-      slotent_t const * e = slotent_map_iter_ele_const( it, map, spl );
+    slot_state_map_t *  map  = self->slot_state_map;
+    slot_state_pool_t * pool = self->slot_state_pool;
+    for( slot_state_map_iter_t it = slot_state_map_iter_init( map, pool );
+         !slot_state_map_iter_done( it, map, pool );
+         it = slot_state_map_iter_next( it, map, pool ) ) {
+      slot_state_ele_t const * e = slot_state_map_iter_ele_const( it, map, pool );
       if( e->slot < first_unpruned ) { drop_slot = e->slot; found = 1; break; }
     }
     if( !found ) break;
-    slotent_t * e = slotent_map_ele_remove( self->slotent_map, &drop_slot, NULL, self->slotent_pool );
+    slot_state_ele_t * e = slot_state_map_ele_remove( self->slot_state_map, &drop_slot, NULL, self->slot_state_pool );
     FD_TEST( e );
-    slotent_pool_ele_release( self->slotent_pool, e );
+    slot_state_pool_ele_release( self->slot_state_pool, e );
   }
 
   ag_parent_ready_tracker_prune( self->parent_ready_tracker, first_unpruned );
@@ -319,14 +322,24 @@ prune( ag_pool_t * self ) {
 static void
 handle_finalization( ag_pool_t *                     self,
                      ag_finalization_event_t const * event ) {
-  ag_parent_ready_t prs[ AG_PARENT_READY_OUT_MAX ];
-  ulong             pr_cnt = 0UL;
-  ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker,
-                                               event->has_finalized, &event->finalized,
-                                               event->implicitly_finalized, event->if_cnt,
-                                               event->implicitly_skipped,   event->is_cnt,
-                                               prs, &pr_cnt );
-  send_parent_ready_events( self, prs, pr_cnt );
+  ag_parent_ready_t new_parents_ready;
+  if( ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker,
+                                                   event->has_finalized, &event->finalized,
+                                                   event->implicitly_finalized, event->if_cnt,
+                                                   event->implicitly_skipped,   event->is_cnt,
+                                                   &new_parents_ready ) )
+    send_parent_ready_events( self, &new_parents_ready, 1UL );
+  prune( self );
+}
+
+/* ag_pool_prune_to_root (C-only): shed all per-slot state below the
+   certified-final consensus root; see ag_finality_tracker_prune_to. */
+
+void
+ag_pool_prune_to_root( ag_pool_t *       self,
+                       ulong             root_slot,
+                       fd_hash_t const * root_hash ) {
+  ag_finality_tracker_prune_to( self->finality_tracker, root_slot, root_hash );
   prune( self );
 }
 
@@ -368,20 +381,20 @@ add_valid_cert( ag_pool_t *       self,
       }
     }
 
-    ag_parent_ready_t prs[ AG_PARENT_READY_OUT_MAX ];
-    ulong             pr_cnt = 0UL;
-    ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, prs, &pr_cnt );
-    send_parent_ready_events( self, prs, pr_cnt );
+    ag_parent_ready_t new_parents_ready[ AG_PARENT_READY_OUT_MAX ];
+    ulong             new_parents_ready_cnt = 0UL;
+    ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, new_parents_ready, &new_parents_ready_cnt );
+    send_parent_ready_events( self, new_parents_ready, new_parents_ready_cnt );
 
     self->repair_channel[ self->repair_cnt++ ] = block_id;
     break;
   }
 
   case AG_CERT_TYPE_SKIP: {
-    ag_parent_ready_t prs[ AG_PARENT_READY_OUT_MAX ];
-    ulong             pr_cnt = 0UL;
-    ag_parent_ready_tracker_mark_skipped( self->parent_ready_tracker, slot, prs, &pr_cnt );
-    send_parent_ready_events( self, prs, pr_cnt );
+    ag_parent_ready_t new_parents_ready[ AG_PARENT_READY_OUT_MAX ];
+    ulong             new_parents_ready_cnt = 0UL;
+    ag_parent_ready_tracker_mark_skipped( self->parent_ready_tracker, slot, new_parents_ready, &new_parents_ready_cnt );
+    send_parent_ready_events( self, new_parents_ready, new_parents_ready_cnt );
     break;
   }
 
@@ -411,31 +424,38 @@ add_valid_cert( ag_pool_t *       self,
 /* add_cert (PoolImpl::add_cert). */
 
 int
-ag_pool_add_cert( ag_pool_t *             self,
-                  ushort                  shred_version,
-                  ag_cert_t       const * cert,
-                  ag_epoch_info_t const * epoch_info ) {
+ag_pool_add_cert( ag_pool_t *       self,
+                  ag_cert_t const * cert ) {
   ulong slot = ag_cert_slot( cert );
 
   ulong slot_far_in_future = ag_pool_finalized_slot( self ) + 2UL*AG_ALPENGLOW_SLOTS_PER_EPOCH;
   if( FD_UNLIKELY( slot < ag_pool_first_unpruned_slot( self ) || slot >= slot_far_in_future ) ) return AG_ADD_CERT_ERR_SLOT_OUT_OF_BOUNDS;
 
-  if( FD_UNLIKELY( !ag_cert_check_threshold( cert, epoch_info ) ) ) return AG_ADD_CERT_ERR_THRESHOLD_NOT_MET;
+  if( FD_UNLIKELY( !ag_cert_check_threshold( cert, self->epoch_info ) ) ) return AG_ADD_CERT_ERR_THRESHOLD_NOT_MET;
 
-  if( FD_UNLIKELY( !ag_cert_check_sig( cert, shred_version, epoch_info ) ) ) return AG_ADD_CERT_ERR_INVALID_SIGNATURE;
+  if( FD_UNLIKELY( !ag_cert_check_sig( cert, self->shred_version, self->epoch_info ) ) ) return AG_ADD_CERT_ERR_INVALID_SIGNATURE;
 
-  ag_slot_state_t * ss = ag_pool_slot_state( self, slot );
+  ag_slot_state_t * slot_state = ag_pool_slot_state( self, slot );
   int duplicate = 0;
   switch( cert->kind ) {
-  case AG_CERT_TYPE_NOTAR:          duplicate = ag_slot_state_has_notar_cert        ( ss );                                          break;
-  case AG_CERT_TYPE_NOTAR_FALLBACK: duplicate = ag_slot_state_is_notar_fallback     ( ss, ag_cert_block_hash( cert ) );             break;
-  case AG_CERT_TYPE_SKIP:           duplicate = ag_slot_state_has_skip_cert         ( ss );                                          break;
-  case AG_CERT_TYPE_FAST_FINAL:     duplicate = ag_slot_state_has_fast_finalize_cert( ss );                                          break;
-  case AG_CERT_TYPE_FINAL:          duplicate = ag_slot_state_has_finalize_cert     ( ss );                                          break;
+  case AG_CERT_TYPE_NOTAR:          duplicate = ag_slot_state_has_notar_cert        ( slot_state );                                          break;
+  case AG_CERT_TYPE_NOTAR_FALLBACK: duplicate = ag_slot_state_is_notar_fallback     ( slot_state, ag_cert_block_hash( cert ) );             break;
+  case AG_CERT_TYPE_SKIP:           duplicate = ag_slot_state_has_skip_cert         ( slot_state );                                          break;
+  case AG_CERT_TYPE_FAST_FINAL:     duplicate = ag_slot_state_has_fast_finalize_cert( slot_state );                                          break;
+  case AG_CERT_TYPE_FINAL:          duplicate = ag_slot_state_has_finalize_cert     ( slot_state );                                          break;
   default:                          FD_LOG_ERR(( "invalid cert kind %u", cert->kind ));
   }
 
   if( duplicate ) return AG_ADD_CERT_ERR_DUPLICATE;
+
+  /* first arrival of this cert: how far our own vote aggregation toward
+     building it had progressed. */
+  ulong own_stake   = ag_slot_state_cert_voted_stake( slot_state, cert );
+  ulong total_stake = self->epoch_info->total_stake;
+  if( FD_LIKELY( total_stake ) ) {
+    FD_LOG_NOTICE(( "cert %s slot=%lu received; own vote aggregation at %lu%%",
+                    ag_cert_type_to_string( cert->kind ), slot, own_stake*100UL/total_stake ));
+  }
 
   add_valid_cert( self, cert );
   return AG_POOL_SUCCESS;
@@ -445,17 +465,7 @@ ag_pool_add_cert( ag_pool_t *             self,
 
 int
 ag_pool_add_vote( ag_pool_t *       self,
-                  ushort            shred_version,
                   ag_vote_t const * vote ) {
-
-  static char const * kind_str[ 5 ] = { "Notar", "Final", "Skip", "NotarFallback", "SkipFallback" };
-  fd_hash_t const * bh = ag_vote_block_hash( vote );
-  if( bh ) {
-    FD_BASE58_ENCODE_32_BYTES( bh->uc, bh_cstr );
-    FD_LOG_NOTICE(( "vote %s slot=%lu signer=%u block_hash=%s", kind_str[ vote->kind ], ag_vote_slot( vote ), (uint)ag_vote_signer( vote ), bh_cstr ));
-  } else {
-    FD_LOG_NOTICE(( "vote %s slot=%lu signer=%u", kind_str[ vote->kind ], ag_vote_slot( vote ), (uint)ag_vote_signer( vote ) ));
-  }
 
   ulong slot = ag_vote_slot( vote );
 
@@ -470,7 +480,7 @@ ag_pool_add_vote( ag_pool_t *       self,
   }
 
   ag_aggsig_pk_t const * pk = &ag_epoch_info_validator( epoch, ag_vote_signer( vote ) )->voting_pubkey;
-  if( !ag_vote_check_sig( vote, pk, shred_version ) ) {
+  if( !ag_vote_check_sig( vote, pk, self->shred_version ) ) {
     return AG_ADD_VOTE_ERR_INVALID_SIGNATURE;
   }
 
@@ -503,24 +513,25 @@ ag_pool_add_block( ag_pool_t *           self,
                    ag_block_id_t const * block_id,
                    ag_block_id_t const * parent_id ) {
   FD_TEST( block_id->slot > parent_id->slot );
+  ulong             slot        = block_id->slot;
+  fd_hash_t const * block_hash  = &block_id->hash;
+  ulong             parent_slot = parent_id->slot;
+  fd_hash_t const * parent_hash = &parent_id->hash;
 
-  /* unlike handle_finalization, add_block does not prune (Rust inlines
-     the tracker call without prune) */
-  ag_finalization_event_t finalization_event = ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id );
-  ag_parent_ready_t prs[ AG_PARENT_READY_OUT_MAX ];
-  ulong             pr_cnt = 0UL;
-  ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker,
-                                               finalization_event.has_finalized, &finalization_event.finalized,
-                                               finalization_event.implicitly_finalized, finalization_event.if_cnt,
-                                               finalization_event.implicitly_skipped,   finalization_event.is_cnt,
-                                               prs, &pr_cnt );
-  send_parent_ready_events( self, prs, pr_cnt );
+  ag_finalization_event_t finalization_event    = ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id );
+  ag_parent_ready_t       new_parents_ready;
+  if( ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker,
+                                                   finalization_event.has_finalized, &finalization_event.finalized,
+                                                   finalization_event.implicitly_finalized, finalization_event.if_cnt,
+                                                   finalization_event.implicitly_skipped,   finalization_event.is_cnt,
+                                                   &new_parents_ready ) )
+    send_parent_ready_events( self, &new_parents_ready, 1UL );
 
-  ag_slot_state_notify_parent_known( ag_pool_slot_state( self, block_id->slot ), &block_id->hash );
+  ag_slot_state_notify_parent_known( ag_pool_slot_state( self, slot ), block_hash );
 
-  slotent_t * parent_ent = slotent_query( self, parent_id->slot );
-  if( parent_ent && ag_slot_state_is_notar_fallback( parent_ent->ss, &parent_id->hash ) ) {
-    int status = ag_slot_state_notify_parent_certified( ag_pool_slot_state( self, block_id->slot ), &block_id->hash );
+  slot_state_ele_t * parent_ent = slot_state_ele_query( self, parent_slot );
+  if( parent_ent && ag_slot_state_is_notar_fallback( parent_ent->slot_state, parent_hash ) ) {
+    int status = ag_slot_state_notify_parent_certified( ag_pool_slot_state( self, slot ), block_hash );
     if( status==AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR ) {
       ag_pool_event_t event = { .kind = AG_POOL_EVENT_SAFE_TO_NOTAR };
       event.inner.safe_to_notar = *block_id;
@@ -577,25 +588,25 @@ get_certs( ag_pool_t * self,
            ag_cert_t * certs,
            ulong *     certs_cnt,
            ulong       certs_max ) {
-  slotent_map_t  * map = self->slotent_map;
-  slotent_pool_t * spl = self->slotent_pool;
-  for( slotent_map_iter_t it = slotent_map_iter_init( map, spl );
-       !slotent_map_iter_done( it, map, spl );
-       it = slotent_map_iter_next( it, map, spl ) ) {
-    slotent_t const * e = slotent_map_iter_ele_const( it, map, spl );
+  slot_state_map_t *  map  = self->slot_state_map;
+  slot_state_pool_t * pool = self->slot_state_pool;
+  for( slot_state_map_iter_t it = slot_state_map_iter_init( map, pool );
+       !slot_state_map_iter_done( it, map, pool );
+       it = slot_state_map_iter_next( it, map, pool ) ) {
+    slot_state_ele_t const * e = slot_state_map_iter_ele_const( it, map, pool );
     if( e->slot < from_slot ) continue;
-    ag_slot_state_t const * ss = e->ss;
+    ag_slot_state_t const * slot_state = e->slot_state;
 
-    ag_final_cert_t      const * fc  = ag_slot_state_finalize_cert     ( ss );
-    ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( ss );
-    ag_notar_cert_t      const * nc  = ag_slot_state_notar_cert        ( ss );
-    ag_skip_cert_t       const * skc = ag_slot_state_skip_cert         ( ss );
+    ag_final_cert_t      const * fc  = ag_slot_state_finalize_cert     ( slot_state );
+    ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( slot_state );
+    ag_notar_cert_t      const * nc  = ag_slot_state_notar_cert        ( slot_state );
+    ag_skip_cert_t       const * skc = ag_slot_state_skip_cert         ( slot_state );
     if( fc  ) push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_FINAL,      fc,  sizeof(*fc)  );
     if( ffc ) push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_FAST_FINAL, ffc, sizeof(*ffc) );
     if( nc  ) push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_NOTAR,      nc,  sizeof(*nc)  );
-    ulong nf_cnt = ag_slot_state_notar_fallback_cert_cnt( ss );
+    ulong nf_cnt = ag_slot_state_notar_fallback_cert_cnt( slot_state );
     for( ulong i=0UL; i<nf_cnt; i++ ) {
-      ag_notar_fallback_cert_t const * nfc = ag_slot_state_notar_fallback_cert( ss, i );
+      ag_notar_fallback_cert_t const * nfc = ag_slot_state_notar_fallback_cert( slot_state, i );
       push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_NOTAR_FALLBACK, nfc, sizeof(*nfc) );
     }
     if( skc ) push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_SKIP, skc, sizeof(*skc) );
@@ -610,17 +621,17 @@ get_final_certs( ag_pool_t * self,
                  ag_cert_t * certs,
                  ulong *     certs_cnt,
                  ulong       certs_max ) {
-  slotent_t const * e = slotent_query_const( self, slot );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
   if( !e ) return;
-  ag_slot_state_t const * ss = e->ss;
+  ag_slot_state_t const * slot_state = e->slot_state;
 
-  ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( ss );
+  ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( slot_state );
   if( ffc ) {
     push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_FAST_FINAL, ffc, sizeof(*ffc) );
     return;
   }
-  ag_final_cert_t const * fc = ag_slot_state_finalize_cert( ss );
-  ag_notar_cert_t const * nc = ag_slot_state_notar_cert   ( ss );
+  ag_final_cert_t const * fc = ag_slot_state_finalize_cert( slot_state );
+  ag_notar_cert_t const * nc = ag_slot_state_notar_cert   ( slot_state );
   if( fc && nc ) {
     push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_FINAL, fc, sizeof(*fc) );
     push_cert( certs, certs_cnt, certs_max, AG_CERT_TYPE_NOTAR, nc, sizeof(*nc) );
@@ -635,23 +646,23 @@ get_own_votes( ag_pool_t * self,
                ag_vote_t * votes,
                ulong *     votes_cnt,
                ulong       votes_max ) {
-  slotent_map_t  * map = self->slotent_map;
-  slotent_pool_t * spl = self->slotent_pool;
-  for( slotent_map_iter_t it = slotent_map_iter_init( map, spl );
-       !slotent_map_iter_done( it, map, spl );
-       it = slotent_map_iter_next( it, map, spl ) ) {
-    slotent_t const * e = slotent_map_iter_ele_const( it, map, spl );
+  slot_state_map_t *  map  = self->slot_state_map;
+  slot_state_pool_t * pool = self->slot_state_pool;
+  for( slot_state_map_iter_t it = slot_state_map_iter_init( map, pool );
+       !slot_state_map_iter_done( it, map, pool );
+       it = slot_state_map_iter_next( it, map, pool ) ) {
+    slot_state_ele_t const * e = slot_state_map_iter_ele_const( it, map, pool );
     if( e->slot < from_slot ) continue;
-    ag_slot_state_t const * ss = e->ss;
+    ag_slot_state_t const * slot_state = e->slot_state;
 
-    ag_final_vote_t         const * fv  = ag_slot_state_own_finalize_vote     ( ss );
-    ag_notar_vote_t         const * nv  = ag_slot_state_own_notar_vote        ( ss );
-    ag_skip_vote_t          const * sv  = ag_slot_state_own_skip_vote         ( ss );
-    ag_skip_fallback_vote_t const * sfv = ag_slot_state_own_skip_fallback_vote( ss );
+    ag_final_vote_t         const * fv  = ag_slot_state_own_finalize_vote     ( slot_state );
+    ag_notar_vote_t         const * nv  = ag_slot_state_own_notar_vote        ( slot_state );
+    ag_skip_vote_t          const * sv  = ag_slot_state_own_skip_vote         ( slot_state );
+    ag_skip_fallback_vote_t const * sfv = ag_slot_state_own_skip_fallback_vote( slot_state );
     if( fv ) push_vote( votes, votes_cnt, votes_max, AG_VOTE_TYPE_FINAL, fv, sizeof(*fv) );
     if( nv ) push_vote( votes, votes_cnt, votes_max, AG_VOTE_TYPE_NOTAR, nv, sizeof(*nv) );
     ag_notar_fallback_vote_t nf_buf[ AG_SLOT_STATE_NF_CERT_MAX ];
-    ulong nf_cnt = ag_slot_state_own_notar_fallback_votes( ss, nf_buf, AG_SLOT_STATE_NF_CERT_MAX );
+    ulong nf_cnt = ag_slot_state_own_notar_fallback_votes( slot_state, nf_buf, AG_SLOT_STATE_NF_CERT_MAX );
     for( ulong i=0UL; i<nf_cnt; i++ ) push_vote( votes, votes_cnt, votes_max, AG_VOTE_TYPE_NOTAR_FALLBACK, &nf_buf[i], sizeof(nf_buf[i]) );
     if( sv  ) push_vote( votes, votes_cnt, votes_max, AG_VOTE_TYPE_SKIP,          sv,  sizeof(*sv)  );
     if( sfv ) push_vote( votes, votes_cnt, votes_max, AG_VOTE_TYPE_SKIP_FALLBACK, sfv, sizeof(*sfv) );
@@ -748,18 +759,18 @@ ag_pool_is_parent_ready( ag_pool_t *           self,
 FD_FN_PURE int
 ag_pool_has_notar_or_fallback_cert( ag_pool_t const * self,
                                     ulong             slot ) {
-  slotent_t const * e = slotent_query_const( self, slot );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
   if( !e ) return 0;
-  return ag_slot_state_has_notar_cert( e->ss ) || ag_slot_state_notar_fallback_cert_cnt( e->ss )>0UL;
+  return ag_slot_state_has_notar_cert( e->slot_state ) || ag_slot_state_notar_fallback_cert_cnt( e->slot_state )>0UL;
 }
 
 int
 ag_pool_get_notarized_block( ag_pool_t const * self,
                              ulong             slot,
                              fd_hash_t *       out_hash ) {
-  slotent_t const * e = slotent_query_const( self, slot );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
   if( !e ) return 0;
-  ag_notar_cert_t const * nc = ag_slot_state_notar_cert( e->ss );
+  ag_notar_cert_t const * nc = ag_slot_state_notar_cert( e->slot_state );
   if( !nc ) return 0;
   if( out_hash ) *out_hash = nc->block_hash;
   return 1;
@@ -769,14 +780,14 @@ int
 ag_pool_get_finalized_block( ag_pool_t const * self,
                              ulong             slot,
                              fd_hash_t *       out_hash ) {
-  slotent_t const * e = slotent_query_const( self, slot );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
   if( !e ) return 0;
-  ag_notar_cert_t const * nc = ag_slot_state_notar_cert( e->ss );
+  ag_notar_cert_t const * nc = ag_slot_state_notar_cert( e->slot_state );
   if( nc ) {
     if( out_hash ) *out_hash = nc->block_hash;
     return 1;
   }
-  ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( e->ss );
+  ag_fast_final_cert_t const * ffc = ag_slot_state_fast_finalize_cert( e->slot_state );
   if( ffc ) {
     if( out_hash ) *out_hash = ffc->block_hash;
     return 1;
@@ -784,30 +795,40 @@ ag_pool_get_finalized_block( ag_pool_t const * self,
   return 0;
 }
 
+ulong
+ag_pool_notar_voted_stake( ag_pool_t const * self,
+                           ulong             slot ) {
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
+  if( !e ) return 0UL;
+  fd_hash_t hash;
+  if( FD_UNLIKELY( !ag_pool_get_finalized_block( self, slot, &hash ) ) ) return 0UL; /* notar or fast-final cert hash */
+  return ag_slot_state_notar_stake( e->slot_state, &hash );
+}
+
 FD_FN_PURE int
 ag_pool_has_final_cert( ag_pool_t const * self,
                         ulong             slot ) {
-  slotent_t const * e = slotent_query_const( self, slot );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
   if( !e ) return 0;
-  return ag_slot_state_has_fast_finalize_cert( e->ss ) || ag_slot_state_has_finalize_cert( e->ss );
+  return ag_slot_state_has_fast_finalize_cert( e->slot_state ) || ag_slot_state_has_finalize_cert( e->slot_state );
 }
 
 FD_FN_PURE int
 ag_pool_has_notar_cert( ag_pool_t const * self,
                         ulong             slot ) {
-  slotent_t const * e = slotent_query_const( self, slot );
-  return e && ag_slot_state_has_notar_cert( e->ss );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
+  return e && ag_slot_state_has_notar_cert( e->slot_state );
 }
 
 FD_FN_PURE int
 ag_pool_has_skip_cert( ag_pool_t const * self,
                        ulong             slot ) {
-  slotent_t const * e = slotent_query_const( self, slot );
-  return e && ag_slot_state_has_skip_cert( e->ss );
+  slot_state_ele_t const * e = slot_state_ele_query_const( self, slot );
+  return e && ag_slot_state_has_skip_cert( e->slot_state );
 }
 
 FD_FN_PURE int
 ag_pool_contains_slot( ag_pool_t const * self,
                        ulong             slot ) {
-  return slotent_query_const( self, slot )!=NULL;
+  return slot_state_ele_query_const( self, slot )!=NULL;
 }

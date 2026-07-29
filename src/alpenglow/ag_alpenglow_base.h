@@ -22,8 +22,8 @@
 #define AG_ALPENGLOW_QUORUM_DENOM         (5UL)
 
 struct ag_block_id {
-  ulong     slot;
-  fd_hash_t hash;
+  ulong     slot; /* slot associated with the block */
+  fd_hash_t hash; /* double merkle root */
 };
 typedef struct ag_block_id ag_block_id_t;
 
