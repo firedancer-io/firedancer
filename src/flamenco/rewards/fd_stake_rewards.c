@@ -50,7 +50,6 @@ typedef struct fork_info fork_info_t;
 struct fd_stake_rewards {
   ulong       magic;
   ulong       max_stake_accounts; /* entries a fork's storage can hold */
-  ulong       window_max;         /* entries a window is allowed to use */
   fork_info_t fork_info[MAX_SUPPORTED_FORKS];
   ulong       fork_pool_offset;
   ulong       partitions_offset;
@@ -94,7 +93,10 @@ window_sz( ulong capacity,
 }
 
 /* window_reset repositions a fork's window to start at win_lo and drops
-   whatever the window used to hold. */
+   whatever the window used to hold.  win_hi is inclusive.  A fork that
+   holds partitions always has win_sz>=1 and win_lo<partition_cnt, so
+   the window is never empty; a purged fork collapses to [0,0] and must
+   not be inspected. */
 
 static void
 window_reset( fd_stake_rewards_t * stake_rewards,
@@ -102,9 +104,12 @@ window_reset( fd_stake_rewards_t * stake_rewards,
               uint                 win_lo ) {
   fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
 
+  ulong win_end = fd_ulong_min( (ulong)win_lo+(ulong)fork_info->win_sz,
+                                (ulong)fork_info->partition_cnt );
+
   fork_info->win_lo              = win_lo;
-  fork_info->win_hi              = (uint)fd_ulong_min( (ulong)win_lo+(ulong)fork_info->win_sz,
-                                                       (ulong)fork_info->partition_cnt );
+  fork_info->win_hi              = (uint)fd_ulong_max( fd_ulong_sat_sub( win_end, 1UL ),
+                                                       (ulong)win_lo );
   fork_info->ele_cnt             = 0U;
   fork_info->total_stake_rewards = 0UL;
   memset( fork_info->partition_idxs_head, 0xFF, sizeof(fork_info->partition_idxs_head) );
@@ -168,7 +173,6 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->fork_pool_offset   = (ulong)fork_pool - (ulong)shmem;
   stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts = max_stake_accounts;
-  stake_rewards->window_max         = max_stake_accounts;
   stake_rewards->epoch              = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
@@ -236,17 +240,10 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
   stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
-  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->window_max, partitions_cnt, rewards_cnt );
+  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->max_stake_accounts, partitions_cnt, rewards_cnt );
   window_reset( stake_rewards, fork_idx, 0U );
 
   return fork_idx;
-}
-
-void
-fd_stake_rewards_window_max_set( fd_stake_rewards_t * stake_rewards,
-                                 ulong                window_max ) {
-  stake_rewards->window_max = fd_ulong_min( fd_ulong_max( window_max, 1UL ),
-                                            stake_rewards->max_stake_accounts );
 }
 
 void
@@ -290,7 +287,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
      does not depend on where the window happens to sit. */
   fork_info->total_stake_rewards += lamports;
 
-  if( FD_UNLIKELY( partition_index<fork_info->win_lo || partition_index>=fork_info->win_hi ) ) return;
+  if( FD_UNLIKELY( partition_index<fork_info->win_lo || partition_index>fork_info->win_hi ) ) return;
 
   uint curr_fork_len = fork_info->ele_cnt;
   if( FD_UNLIKELY( curr_fork_len>=stake_rewards->max_stake_accounts ) ) {
@@ -322,8 +319,8 @@ fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
                             uchar                fork_idx,
                             uint                 partition_idx ) {
   fork_info_t const * fork_info = &stake_rewards->fork_info[fork_idx];
-  if( FD_UNLIKELY( partition_idx<fork_info->win_lo || partition_idx>=fork_info->win_hi ) ) {
-    FD_LOG_CRIT(( "partition %u is outside of the materialized window [%u,%u)",
+  if( FD_UNLIKELY( partition_idx<fork_info->win_lo || partition_idx>fork_info->win_hi ) ) {
+    FD_LOG_CRIT(( "partition %u is outside of the materialized window [%u,%u]",
                   partition_idx, fork_info->win_lo, fork_info->win_hi ));
   }
   stake_rewards->iter_curr_fork_idx = fork_info->partition_idxs_head[partition_idx];

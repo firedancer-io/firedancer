@@ -21,19 +21,11 @@
   rewards slots.  There is no limit on the number of stake rewards paid
   out per slot.
 
-  Storage is windowed.  Each fork reserves room for max_stake_accounts
-  entries, which is not necessarily enough to hold every stake reward of
-  an epoch.  Only the rewards belonging to a contiguous run of
-  partitions, the window, are materialized at any one time.  Partitions
-  are consumed in strict block order, so when distribution reaches a
-  partition past the window the caller re-derives the next window from
-  the boundary state.  Whenever the epoch's rewards do fit, which is the
-  case for any stake account count the validator claims to support, the
-  window spans every partition and no re-derivation ever happens.
-
-  The window is a local caching decision.  Which accounts land in which
-  partition depends only on the pubkey and the parent blockhash, so two
-  validators that pick different windows still distribute identically.
+  Each fork can support a window of entires at a time.  It is sized to
+  support current mainnet load along with some slack, but it can support
+  more.  When the rewards for a specific block are reached, the rewards
+  are recalculated and the window is advanced.  In the non-degenerate
+  case, rewards are only calculated once per fork.
 
   As a note, the structure is also only partially fork-aware.  It safely
   assumes that the epoch boundary of a second epoch will not happen
@@ -94,12 +86,7 @@ fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
 
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
-   calculation or recalculation.  It returns a fork index.
-
-   rewards_cnt is how many rewards the caller is about to insert.  It
-   sizes the window: if the rewards all fit then the window covers every
-   partition, otherwise it covers as many partitions as are expected to
-   fit with room to spare.  The window starts at partition 0. */
+   calculation or recalculation.  It returns a fork index. */
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
@@ -109,21 +96,12 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt,
                        ulong                rewards_cnt );
 
-/* fd_stake_rewards_window_max_set caps how many entries a window may
-   use, trading memory residency for re-derivation.  It defaults to the
-   full per fork capacity and is clamped to it, so it can only narrow
-   the window.  It takes effect at the next fd_stake_rewards_init. */
-
-void
-fd_stake_rewards_window_max_set( fd_stake_rewards_t * stake_rewards,
-                                 ulong                window_max );
-
-/* fd_stake_rewards_window_advance drops the entries of the current
-   window and repositions it to start at win_lo.  The caller is expected
-   to follow this with the same sequence of fd_stake_rewards_insert
-   calls it made at the epoch boundary; only the rewards falling in the
-   new window are retained.  parent_blockhash must match the one that
-   was supplied to fd_stake_rewards_init for this epoch. */
+/* fd_stake_rewards_window_advance removes all of the entries associated
+   with the current window of a specific fork and shifts the starting
+   window to be win_lo.  The caller is expected to insert stake rewards
+   in the same way it does when computing rewards.  parent_blockhash
+   must match the one that was supplied to fd_stake_rewards_init for
+   the initial rewards computation. */
 
 void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
@@ -131,10 +109,10 @@ fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
                                  fd_hash_t const *    parent_blockhash,
                                  uint                 win_lo );
 
-/* fd_stake_rewards_window_{lo,hi} return the half open range of
-   partitions currently materialized for a fork.  A partition outside
-   this range cannot be iterated until the window is advanced onto
-   it. */
+/* fd_stake_rewards_window_{lo,hi} return the inclusive range of
+   partition indices that a stake rewards fork currently holds.  If the
+   requested partition is not in this window, the caller needs to
+   re-derive the set of stake partitions for the next window. */
 
 uint
 fd_stake_rewards_window_lo( fd_stake_rewards_t const * stake_rewards,

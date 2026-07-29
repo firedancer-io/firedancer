@@ -1187,8 +1187,8 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
     /* The rewards of this partition are only in memory if the window
        covers it.  If they are not, re-derive the window that does. */
     uchar fork_id = bank->stake_rewards_fork_id;
-    if( FD_UNLIKELY( partition_idx< (ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
-                     partition_idx>=(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
+    if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
+                     partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
       recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, (uint)partition_idx );
       stake_rewards = fd_bank_stake_rewards_modify( bank );
     }
