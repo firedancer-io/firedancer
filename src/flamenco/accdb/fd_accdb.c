@@ -3821,7 +3821,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *       accdb,
   int replace = !!accmeta;
 
   if( FD_UNLIKELY( !accmeta ) ) {
-    accmeta = acc_pool_acquire( accdb->acc_pool_join );
+    accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
     if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
 
     uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
@@ -4010,7 +4010,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       replaced_lamports += accmeta->lamports;
       replaced++;
     } else {
-      accmeta = acc_pool_acquire( accdb->acc_pool_join );
+      accmeta = acc_pool_acquire_nolock( accdb->acc_pool_join );
       if( FD_UNLIKELY( !accmeta ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
 
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );

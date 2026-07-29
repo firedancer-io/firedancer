@@ -178,8 +178,7 @@ fd_accdb_join_readonly( void *             ljoin,
    accounts never get a second write and therefore never get promoted
    by normal compaction-driven tiering.
 
-   Only the snapin tile is expected to use this.  The flag is
-   per-joiner and is not visible across processes. */
+   The snapshot loader has exclusive write access to acc_pool. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
