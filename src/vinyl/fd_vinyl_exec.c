@@ -694,7 +694,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
   if( FD_UNLIKELY( discard_cnt  ) ) FD_LOG_WARNING(( "halt discarded %lu received requests",   discard_cnt  ));
   if( FD_UNLIKELY( released_cnt ) ) FD_LOG_WARNING(( "halt released %lu outstanding acquires", released_cnt ));
-  if( FD_UNLIKELY( client_cnt   ) ) FD_LOG_WARNING(( "halt disconneced %lu clients",           client_cnt   ));
+  if( FD_UNLIKELY( client_cnt   ) ) FD_LOG_WARNING(( "halt disconnected %lu clients",          client_cnt   ));
 
   /* Return to boot state */
 

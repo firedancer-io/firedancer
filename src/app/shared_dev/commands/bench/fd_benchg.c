@@ -295,7 +295,7 @@ after_credit( fd_benchg_ctx_t *   ctx,
       break;
 
     default:
-      FD_LOG_ERR(( "Unkown transaction mode %i", ctx->transaction_mode ));
+      FD_LOG_ERR(( "Unknown transaction mode %i", ctx->transaction_mode ));
       break;
   }
 
