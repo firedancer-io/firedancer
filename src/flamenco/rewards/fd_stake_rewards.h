@@ -109,6 +109,15 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        uint                 partitions_cnt,
                        ulong                rewards_cnt );
 
+/* fd_stake_rewards_window_max_set caps how many entries a window may
+   use, trading memory residency for re-derivation.  It defaults to the
+   full per fork capacity and is clamped to it, so it can only narrow
+   the window.  It takes effect at the next fd_stake_rewards_init. */
+
+void
+fd_stake_rewards_window_max_set( fd_stake_rewards_t * stake_rewards,
+                                 ulong                window_max );
+
 /* fd_stake_rewards_window_advance drops the entries of the current
    window and repositions it to start at win_lo.  The caller is expected
    to follow this with the same sequence of fd_stake_rewards_insert

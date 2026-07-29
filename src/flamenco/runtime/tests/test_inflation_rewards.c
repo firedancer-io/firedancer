@@ -307,6 +307,139 @@ advance_to_distribution( fd_svm_mini_t * mini, ulong root_idx ) {
   return distrib_idx;
 }
 
+/* Runs an epoch boundary with one stake account per partition and then
+   walks every distribution block, returning what each stake account was
+   paid.  window_max caps how many rewards stay resident: narrow enough
+   and the partitions cannot all be held at once, so each distribution
+   block has to re-derive the partition it is about to pay out. */
+
+#define WINDOW_TEST_VALIDATORS   (4UL)
+#define WINDOW_TEST_SLOTS_PER_EPOCH (64UL)
+
+static void
+run_partitioned_distribution( fd_svm_mini_t * mini,
+                              ulong           window_max,
+                              ulong *         reward_out,
+                              uint *          num_partitions_out,
+                              uint *          win_sz_out ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = WINDOW_TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = WINDOW_TEST_VALIDATORS;
+  params->hash_seed          = 7UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+
+  fd_pubkey_t vote[ WINDOW_TEST_VALIDATORS ], stake[ WINDOW_TEST_VALIDATORS ];
+  {
+    fd_rng_t rng[1];
+    fd_rng_join( fd_rng_new( rng, (uint)params->hash_seed, 0UL ) );
+    for( ulong i=0UL; i<WINDOW_TEST_VALIDATORS; i++ ) {
+      for( ulong j=0UL; j<4UL; j++ ) (void)fd_rng_ulong( rng );
+      for( ulong j=0UL; j<4UL; j++ ) vote [i].ul[j] = fd_rng_ulong( rng );
+      for( ulong j=0UL; j<4UL; j++ ) stake[i].ul[j] = fd_rng_ulong( rng );
+    }
+    fd_rng_delete( fd_rng_leave( rng ) );
+  }
+
+  for( ulong i=0UL; i<WINDOW_TEST_VALIDATORS; i++ ) {
+    patch_vote_account( mini, root_idx, &vote[i], 0, 0UL, 2UL+i, 0UL );
+  }
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  ulong before[ WINDOW_TEST_VALIDATORS ];
+  for( ulong i=0UL; i<WINDOW_TEST_VALIDATORS; i++ ) before[i] = read_lamports( mini, root_fk, &stake[i] );
+
+  ulong idx = fd_svm_mini_attach_child( mini, root_idx, WINDOW_TEST_SLOTS_PER_EPOCH );
+
+  /* The boundary sizes the partitions off stake_account_stores_per_block,
+     which is thousands, so a handful of validators all land in one
+     partition.  Restate the sysvar with one partition per validator,
+     which is what a real validator set produces, and rebuild off it.
+     Everything but num_partitions and the starting height is carried
+     over so the rewards themselves are the ones the boundary computed. */
+  fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, idx );
+  fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, idx );
+
+  fd_sysvar_epoch_rewards_t er[1];
+  FD_TEST( fd_sysvar_epoch_rewards_read( mini->runtime->accdb, epoch_fk, er ) );
+  FD_TEST( er->active );
+
+  uint num_partitions = (uint)WINDOW_TEST_VALIDATORS;
+  fd_sysvar_epoch_rewards_init( epoch_bank,
+                                mini->runtime->accdb,
+                                NULL,
+                                er->distributed_rewards,
+                                epoch_bank->f.block_height+1UL,
+                                num_partitions,
+                                er->total_rewards,
+                                er->total_points.ud,
+                                &er->parent_blockhash );
+
+  fd_stake_rewards_t * sr = fd_bank_stake_rewards_modify( epoch_bank );
+  fd_stake_rewards_window_max_set( sr, window_max );
+  fd_stake_rewards_clear( sr );
+  epoch_bank->stake_rewards_fork_id = UCHAR_MAX;
+  fd_rewards_recalculate_partitioned_rewards( mini->banks, epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+  FD_TEST( epoch_bank->stake_rewards_fork_id!=UCHAR_MAX );
+
+  uchar fork_id = epoch_bank->stake_rewards_fork_id;
+  FD_TEST( fd_stake_rewards_num_partitions( sr, fork_id )==num_partitions );
+  *num_partitions_out = num_partitions;
+  *win_sz_out         = fd_stake_rewards_window_hi( sr, fork_id ) - fd_stake_rewards_window_lo( sr, fork_id );
+
+  fd_svm_mini_freeze( mini, idx );
+
+  for( ulong p=0UL; p<num_partitions; p++ ) {
+    idx = fd_svm_mini_attach_child( mini, idx, WINDOW_TEST_SLOTS_PER_EPOCH+1UL+p );
+    fd_svm_mini_freeze( mini, idx );
+  }
+
+  fd_accdb_fork_id_t fk = fd_svm_mini_fork_id( mini, idx );
+  for( ulong i=0UL; i<WINDOW_TEST_VALIDATORS; i++ ) {
+    reward_out[i] = read_lamports( mini, fk, &stake[i] ) - before[i];
+  }
+}
+
+static void
+test_rewards_window_refill( fd_svm_mini_t * mini ) {
+  ulong resident[ WINDOW_TEST_VALIDATORS ];
+  ulong windowed[ WINDOW_TEST_VALIDATORS ];
+  uint  resident_partitions, windowed_partitions;
+  uint  resident_win_sz,     windowed_win_sz;
+
+  run_partitioned_distribution( mini, ULONG_MAX, resident, &resident_partitions, &resident_win_sz );
+  run_partitioned_distribution( mini, 1UL,       windowed, &windowed_partitions, &windowed_win_sz );
+
+  FD_TEST( resident_partitions==windowed_partitions );
+
+  /* The first run holds every partition and never re-derives.  The
+     second cannot, so every block past the first has to.  Without both
+     of these the comparison below would be vacuous. */
+  FD_TEST( resident_partitions>1U );
+  FD_TEST( resident_win_sz==resident_partitions );
+  FD_TEST( windowed_win_sz<windowed_partitions );
+
+  ulong total = 0UL;
+  for( ulong i=0UL; i<WINDOW_TEST_VALIDATORS; i++ ) {
+    FD_TEST( resident[i]>0UL );
+    FD_TEST( resident[i]==windowed[i] );
+    total += windowed[i];
+  }
+
+  FD_LOG_NOTICE(( "test_rewards_window_refill: PASSED (%u partitions, %lu lamports)",
+                  windowed_partitions, total ));
+}
+
 static void
 test_no_credits_no_reward( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
@@ -2281,6 +2414,7 @@ main( int     argc,
 
   test_commission_split();
   test_no_credits_no_reward( mini );
+  test_rewards_window_refill( mini );
   test_credits_staker_reward( mini );
   test_activation_epoch_skips_reward( mini );
   test_zero_inflation_credits_advance( mini );

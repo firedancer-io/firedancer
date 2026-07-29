@@ -39,6 +39,21 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2150000UL)
 
+/* FD_RUNTIME_MAX_STAKE_REWARDS bounds how many stake rewards are held in
+   memory at once during partitioned reward distribution.  It is
+   deliberately not tied to FD_RUNTIME_MAX_STAKE_ACCOUNTS: the reward
+   partitions are consumed one per block in a fixed order, so only a
+   window of them needs to be resident, and the rest are re-derived from
+   the epoch rewards sysvar and the delegation state when distribution
+   reaches them.  Raising the stake account limit therefore costs
+   recomputation during the reward interval rather than memory.  See
+   fd_stake_rewards.h.
+
+   Every stake reward fits in one window at the current stake account
+   limit, so no re-derivation happens today. */
+
+#define FD_RUNTIME_MAX_STAKE_REWARDS (2150000UL)
+
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are
    chosen to size various caches and maps: they are not intended to be

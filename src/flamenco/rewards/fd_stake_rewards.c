@@ -49,7 +49,8 @@ typedef struct fork_info fork_info_t;
 
 struct fd_stake_rewards {
   ulong       magic;
-  ulong       max_stake_accounts;
+  ulong       max_stake_accounts; /* entries a fork's storage can hold */
+  ulong       window_max;         /* entries a window is allowed to use */
   fork_info_t fork_info[MAX_SUPPORTED_FORKS];
   ulong       fork_pool_offset;
   ulong       partitions_offset;
@@ -167,6 +168,7 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->fork_pool_offset   = (ulong)fork_pool - (ulong)shmem;
   stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts = max_stake_accounts;
+  stake_rewards->window_max         = max_stake_accounts;
   stake_rewards->epoch              = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
@@ -234,10 +236,17 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
   stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
-  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->max_stake_accounts, partitions_cnt, rewards_cnt );
+  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->window_max, partitions_cnt, rewards_cnt );
   window_reset( stake_rewards, fork_idx, 0U );
 
   return fork_idx;
+}
+
+void
+fd_stake_rewards_window_max_set( fd_stake_rewards_t * stake_rewards,
+                                 ulong                window_max ) {
+  stake_rewards->window_max = fd_ulong_min( fd_ulong_max( window_max, 1UL ),
+                                            stake_rewards->max_stake_accounts );
 }
 
 void
