@@ -6,15 +6,6 @@
 
 #define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
 
-/* Fraction of the window capacity left unused when the epoch's rewards
-   do not all fit.  Rewards are scattered uniformly over the partitions,
-   so the entry count of a window of W partitions is binomial with mean
-   W*rewards_cnt/partitions_cnt and a standard deviation of at most the
-   square root of that mean.  Reserving a hundredth of the capacity puts
-   the overflow threshold sqrt(capacity)/100 deviations above the mean,
-   which is over thirteen deviations at the production capacity. */
-#define WINDOW_SLACK_DEN (100UL)
-
 struct fork {
   int next;
 };
@@ -76,40 +67,39 @@ get_partition_ele( fd_stake_rewards_t const * stake_rewards,
                       (ele_cnt * sizeof(partition_ele_t)) );
 }
 
-/* window_sz returns how many consecutive partitions are expected to fit
-   in a single fork's storage.  See WINDOW_SLACK_DEN for why the slack is
-   enough to make an overflow unreachable in practice. */
-
 static uint
 window_sz( ulong capacity,
            uint  partitions_cnt,
            ulong rewards_cnt ) {
+
+  /* Percentage of the window capacity left unused when the epoch's
+     rewards do not all fit.  Rewards are scattered uniformly over the
+     partitions, so the entry count of a window of W partitions has a
+     mean of W*rewards_cnt/partitions_cnt and a sd of the square root of
+     that mean.  Reserving a hundredth of the capacity puts the overflow
+     threshold at sqrt(capacity)/100 deviations above the mean, which is
+     over thirteen deviations at the production capacity of 2150000
+     stake accounts. */
   if( FD_LIKELY( rewards_cnt<=capacity ) ) return partitions_cnt;
 
-  ulong slack  = fd_ulong_max( capacity/WINDOW_SLACK_DEN, 1UL );
-  ulong usable = fd_ulong_max( fd_ulong_sat_sub( capacity, slack ), 1UL );
+  ulong usable = fd_ulong_max( fd_ulong_sat_sub( capacity, fd_ulong_max( capacity*1UL/100UL, 1UL ) ), 1UL );
   ulong sz     = fd_ulong_max( usable*(ulong)partitions_cnt/rewards_cnt, 1UL );
   return (uint)fd_ulong_min( sz, (ulong)partitions_cnt );
 }
-
-/* window_reset repositions a fork's window to start at win_lo and drops
-   whatever the window used to hold.  win_hi is inclusive.  A fork that
-   holds partitions always has win_sz>=1 and win_lo<partition_cnt, so
-   the window is never empty; a purged fork collapses to [0,0] and must
-   not be inspected. */
 
 static void
 window_reset( fd_stake_rewards_t * stake_rewards,
               uchar                fork_idx,
               uint                 win_lo ) {
+  /* reset the window to start at win_lo and drop whatever the window
+     used to hold.  The win_hi will either be the end of rewards or the
+     end of the partition window, whichever is smaller. */
+
   fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
 
-  ulong win_end = fd_ulong_min( (ulong)win_lo+(ulong)fork_info->win_sz,
-                                (ulong)fork_info->partition_cnt );
-
+  uint win_end                   = fd_uint_min( win_lo+fork_info->win_sz, fork_info->partition_cnt );
   fork_info->win_lo              = win_lo;
-  fork_info->win_hi              = (uint)fd_ulong_max( fd_ulong_sat_sub( win_end, 1UL ),
-                                                       (ulong)win_lo );
+  fork_info->win_hi              = fd_uint_max( fd_uint_sat_sub( win_end, 1UL ), win_lo );
   fork_info->ele_cnt             = 0U;
   fork_info->total_stake_rewards = 0UL;
   memset( fork_info->partition_idxs_head, 0xFF, sizeof(fork_info->partition_idxs_head) );
@@ -279,9 +269,8 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   fd_siphash13_append( sip, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
   ulong hash64 = fd_siphash13_fini( sip );
 
-  fork_info_t * fork_info = &stake_rewards->fork_info[fork_idx];
-
-  ulong partition_index = (ulong)((uint128)fork_info->partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
+  fork_info_t * fork_info       = &stake_rewards->fork_info[fork_idx];
+  ulong         partition_index = (ulong)((uint128)fork_info->partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
   /* The total covers the whole epoch, not just the window, so that it
      does not depend on where the window happens to sit. */
@@ -320,8 +309,7 @@ fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
                             uint                 partition_idx ) {
   fork_info_t const * fork_info = &stake_rewards->fork_info[fork_idx];
   if( FD_UNLIKELY( partition_idx<fork_info->win_lo || partition_idx>fork_info->win_hi ) ) {
-    FD_LOG_CRIT(( "partition %u is outside of the materialized window [%u,%u]",
-                  partition_idx, fork_info->win_lo, fork_info->win_hi ));
+    FD_LOG_CRIT(( "partition %u is outside of the valid window [%u,%u]", partition_idx, fork_info->win_lo, fork_info->win_hi ));
   }
   stake_rewards->iter_curr_fork_idx = fork_info->partition_idxs_head[partition_idx];
 }

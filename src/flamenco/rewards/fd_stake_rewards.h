@@ -149,7 +149,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
      ulong       credits_observed;
      fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &pubkey, &lamports, &credits_observed );
    }
-   */
+*/
 
 void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
