@@ -393,15 +393,16 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 #include "../../util/tmpl/fd_deque.c"
 
 struct fd_banks {
-  ulong magic;              /* ==FD_BANKS_MAGIC */
-  ulong max_total_banks;    /* Maximum number of banks */
-  ulong max_fork_width;     /* Maximum fork width executing through any given slot. */
-  ulong max_stake_accounts; /* Maximum number of stake accounts */
-  ulong max_vote_accounts;  /* Maximum number of vote accounts */
-  ulong root_idx;           /* root idx */
-  ulong bank_seq;           /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
-  ulong evict_rr_idx;       /* internal index for round-robin banks eviction */
-  ulong prunable_idx;       /* index of pending prunable bank, ULONG_MAX if none */
+  ulong magic;                       /* ==FD_BANKS_MAGIC */
+  ulong max_total_banks;             /* Maximum number of banks */
+  ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
+  ulong max_stake_accounts;          /* Maximum number of stake accounts */
+  ulong max_vote_accounts;           /* Maximum number of vote accounts */
+  ulong root_idx;                    /* root idx */
+  ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
+  ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
+  ulong prunable_idx;                /* index of pending prunable bank, ULONG_MAX if none */
+  ulong max_fallback_stake_accounts; /* Maximum number of stake accounts nameable by the pubkey fallback tier */
 
   ulong curr_fork_width;
 
@@ -503,9 +504,9 @@ void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
-   the full stake delegations for the current frontier. The caller is
-   responsible that there are no concurrent readers or writers to
-   the stake delegations returned by this function.
+   the full stake delegations for the current frontier.  It takes the
+   stake delegations write lock, excluding mutators in other tiles until
+   fd_bank_stake_delegations_end_frontier_query() releases it.
 
    Under the hood, the function applies all of the stake delegation
    deltas from all banks starting from the root down to the current bank
@@ -601,6 +602,7 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width,
                     ulong max_stake_accounts,
+                    ulong max_fallback_stake_accounts,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
@@ -613,6 +615,7 @@ fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
               ulong  max_stake_accounts,
+              ulong  max_fallback_stake_accounts,
               ulong  max_vote_accounts,
               int    larger_max_cost_per_block,
               ulong  seed );

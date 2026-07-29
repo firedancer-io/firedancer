@@ -21,6 +21,11 @@
 #define TEST_PARENT_SLOT             (9UL)
 #define TEST_CHILD_SLOT              (10UL)
 
+/* These tests never drive stake delegations into pubkey fallback mode, so
+   the iterator never needs to resolve anything out of an accounts
+   database. */
+#define NO_RESOLVE NULL, ((fd_accdb_fork_id_t){ .val = USHORT_MAX }), 0UL, NULL
+
 struct test_env {
   fd_svm_mini_t *    mini;
   fd_bank_t *        bank;
@@ -54,7 +59,7 @@ static fd_stake_delegation_t const *
 find_visible_stake_delegation( fd_stake_delegations_t const * stake_delegations,
                                fd_pubkey_t const *            stake_account ) {
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, NO_RESOLVE );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
@@ -1283,9 +1288,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   FD_LOG_NOTICE(( "test bundle non-owner stake_update carry... ok" ));
 
-  /* Test: stake metadata not represented in the delegation cache must
-     not create a fork delta.  Lamports may also differ (for example due
-     to dust), but the visible delegation should remain the root entry. */
+  /* Test: a lamport-only stake account change must create a fork delta
+     so the delegation cache tracks the balance used by epoch rewards. */
   {
     reset_world();
     fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454E4F4F50UL };
@@ -1299,7 +1303,6 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                                             .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
                                             .warmup_cooldown_rate = 0.25 } } } }) );
     fd_memcpy( data, prior_data, sizeof(data) );
-    FD_STORE( long, data + offsetof(fd_stake_state_t, stake.meta.unix_timestamp), 1L );
 
     fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
     fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
@@ -1322,11 +1325,60 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
 
     fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
-    FD_TEST( find_visible_stake_delegation( frontier, &stake_acct )==root_delegation );
+    fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
+    FD_TEST( updated_delegation );
+    FD_TEST( updated_delegation!=root_delegation );
+    FD_TEST( updated_delegation->lamports==2000000001UL );
     fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
   }
 
-  FD_LOG_NOTICE(( "test cache-equivalent stake states skip delta... ok" ));
+  FD_LOG_NOTICE(( "test lamport-only stake change creates delta... ok" ));
+
+  /* Test: a change outside the cached delegation fields must still
+     create a fork delta. */
+  {
+    reset_world();
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B454D455441UL };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x564F54454D455441UL };
+    uchar prior_data[ FD_STAKE_STATE_SZ ] = {0};
+    uchar data      [ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, prior_data, ((fd_stake_state_t){
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = { .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+                 .stake = { .delegation = { .voter_pubkey = vote_acct, .stake = 5UL,
+                                            .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
+                                            .warmup_cooldown_rate = 0.25 } } } }) );
+    fd_memcpy( data, prior_data, sizeof(data) );
+    FD_STORE( long, data + offsetof(fd_stake_state_t, stake.meta.unix_timestamp), 1L );
+
+    fd_stake_delegations_t * root = fd_banks_stake_delegations_root_query( env->mini->banks );
+    fd_stake_delegations_root_update( root, &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      2000000000UL, (uint)FD_STAKE_STATE_SZ,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+    fd_stake_delegation_t const * root_delegation = fd_stake_delegation_root_query( root, &stake_acct );
+    FD_TEST( root_delegation );
+
+    fd_acc_t acc = {
+      .lamports       = 2000000000UL,
+      .data_len       = FD_STAKE_STATE_SZ,
+      .data           = data,
+      .prior_lamports = 2000000000UL,
+      .prior_data_len = FD_STAKE_STATE_SZ,
+      .prior_data     = prior_data,
+    };
+    fd_memcpy( acc.owner,       fd_solana_stake_program_id.uc, 32UL );
+    fd_memcpy( acc.prior_owner, fd_solana_stake_program_id.uc, 32UL );
+
+    fd_stakes_update_stake_delegation( &stake_acct, &acc, env->bank );
+
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    fd_stake_delegation_t const * updated_delegation = find_visible_stake_delegation( frontier, &stake_acct );
+    FD_TEST( updated_delegation );
+    FD_TEST( updated_delegation!=root_delegation );
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test stake metadata change creates delta... ok" ));
 
   /* Test: closing an initialized (never delegated) stake account must
      not create a removal tombstone. */

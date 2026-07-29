@@ -1537,12 +1537,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
     if( !memcmp( account->owner.uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
-         stake delegations cache. We should only add stake accounts that
-         have a valid non-zero stake. */
+         stake delegations cache.  Like Agave, membership is decided by
+         the variant alone: a delegation of zero is still a delegation. */
       fd_stake_state_t const * stake_state = fd_stake_state_view( acc_data, account->data_len );
       if( FD_UNLIKELY( !stake_state ) ) { FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 ); FD_LOG_ERR(( "invalid stake account %s", stake_b58 )); }
       if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
-      if( !stake_state->stake.stake.delegation.stake ) continue;
 
       fd_stake_delegations_root_update(
           stake_delegations,
