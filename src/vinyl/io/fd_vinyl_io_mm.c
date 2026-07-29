@@ -423,7 +423,7 @@ fd_vinyl_io_mm_fini( fd_vinyl_io_t * io ) {
   ulong seq_future  = mm->base->seq_future;
 
   if( FD_UNLIKELY( mm->rd_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
-  if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommited blocks" ));
+  if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommitted blocks" ));
 
   return io;
 }
