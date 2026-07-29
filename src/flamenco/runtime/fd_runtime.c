@@ -754,7 +754,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *         banks,
       *is_epoch_boundary = 0;
     }
 
-    fd_distribute_partitioned_epoch_rewards( bank, accdb, capture_ctx );
+    fd_distribute_partitioned_epoch_rewards( banks, bank, accdb, runtime_stack, capture_ctx );
   } else {
     *is_epoch_boundary = 0;
   }

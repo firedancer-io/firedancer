@@ -21,12 +21,19 @@
   rewards slots.  There is no limit on the number of stake rewards paid
   out per slot.
 
-  Pubkeys are stored and shared across forks.  The pool gets reset when
-  the first fork of a new epoch initializes stake rewards.  If another
-  fork reaches the epoch boundary, the map is populated to allow for
-  sharing of pubkeys across forks.  Each pubkey must be inserted at most
-  once per fork.  The pool capacity is twice the configured
-  max_stake_accounts.
+  Storage is windowed.  Each fork reserves room for max_stake_accounts
+  entries, which is not necessarily enough to hold every stake reward of
+  an epoch.  Only the rewards belonging to a contiguous run of
+  partitions, the window, are materialized at any one time.  Partitions
+  are consumed in strict block order, so when distribution reaches a
+  partition past the window the caller re-derives the next window from
+  the boundary state.  Whenever the epoch's rewards do fit, which is the
+  case for any stake account count the validator claims to support, the
+  window spans every partition and no re-derivation ever happens.
+
+  The window is a local caching decision.  Which accounts land in which
+  partition depends only on the pubkey and the parent blockhash, so two
+  validators that pick different windows still distribute identically.
 
   As a note, the structure is also only partially fork-aware.  It safely
   assumes that the epoch boundary of a second epoch will not happen
@@ -53,7 +60,8 @@ fd_stake_rewards_align( void );
 
 /* fd_stake_rewards_footprint is used to get the footprint for the stake
    rewards structure given the max number of stake accounts and the max
-   number of forks. */
+   number of forks.  max_stake_accounts is the per fork window capacity
+   in entries, not a bound on the number of rewards in an epoch. */
 
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
@@ -64,8 +72,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  max_fork_width,
-                      ulong  seed );
+                      ulong  max_fork_width );
 
 /* fd_stake_rewards_join joins the caller to the stake rewards
    structure. */
@@ -87,21 +94,52 @@ fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
 
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
-   calculation or recalculation.  It returns a fork index. */
+   calculation or recalculation.  It returns a fork index.
+
+   rewards_cnt is how many rewards the caller is about to insert.  It
+   sizes the window: if the rewards all fit then the window covers every
+   partition, otherwise it covers as many partitions as are expected to
+   fit with room to spare.  The window starts at partition 0. */
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
-                       uint                 partitions_cnt );
+                       uint                 partitions_cnt,
+                       ulong                rewards_cnt );
+
+/* fd_stake_rewards_window_advance drops the entries of the current
+   window and repositions it to start at win_lo.  The caller is expected
+   to follow this with the same sequence of fd_stake_rewards_insert
+   calls it made at the epoch boundary; only the rewards falling in the
+   new window are retained.  parent_blockhash must match the one that
+   was supplied to fd_stake_rewards_init for this epoch. */
+
+void
+fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
+                                 uchar                fork_idx,
+                                 fd_hash_t const *    parent_blockhash,
+                                 uint                 win_lo );
+
+/* fd_stake_rewards_window_{lo,hi} return the half open range of
+   partitions currently materialized for a fork.  A partition outside
+   this range cannot be iterated until the window is advanced onto
+   it. */
+
+uint
+fd_stake_rewards_window_lo( fd_stake_rewards_t const * stake_rewards,
+                            uchar                      fork_idx );
+
+uint
+fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
+                            uchar                      fork_idx );
 
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
-   It hashes the reward into the appropriate partition.  The caller must
-   not insert the same pubkey more than once per fork.  The union of
-   pubkeys inserted during the epoch must not exceed the pubkey pool
-   capacity, which is twice the max_stake_accounts supplied to
-   fd_stake_rewards_new. */
+   It hashes the reward into the appropriate partition.  The reward is
+   only stored if its partition falls inside the fork's window, but it
+   always counts towards fd_stake_rewards_total_rewards.  The caller
+   must not insert the same pubkey more than once per fork. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -111,8 +149,9 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                credits_observed );
 
 /* Iterator for iterating over the stake rewards for a given fork and
-   partition.  The caller should not interleave any other iteration or
-   modification of the stake rewards structure while iterating.
+   partition.  partition_idx must lie inside the fork's window.  The
+   caller should not interleave any other iteration or modification of
+   the stake rewards structure while iterating.
 
    Example use:
    for( fd_stake_rewards_iter_init( stake_rewards, fork_idx, partition_idx );

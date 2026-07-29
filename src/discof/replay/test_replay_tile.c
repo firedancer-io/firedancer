@@ -150,7 +150,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
                                                        bank->f.epoch,
                                                        &bank->f.prev_bank_hash,
                                                        bank->f.block_height,
-                                                       1U );
+                                                       1U,
+                                                       0UL );
 }
 
 #define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn

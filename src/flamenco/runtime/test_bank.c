@@ -908,7 +908,8 @@ test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
                                           fd_slot_to_epoch( &bank_A->f.epoch_schedule, bank_A->f.slot, NULL ),
                                           &parent_blockhash,
                                           starting_block_height,
-                                          partition_cnt );
+                                          partition_cnt,
+                                          0UL );
   bank_A->stake_rewards_fork_id = fork_idx;
 
   fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_A->idx, 0L, 0 );

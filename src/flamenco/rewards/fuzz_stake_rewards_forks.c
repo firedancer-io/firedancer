@@ -235,7 +235,8 @@ init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
                                                     m->epoch,
                                                     &parent_blockhash,
                                                     starting_block_height,
-                                                    partition_cnt );
+                                                    partition_cnt,
+                                                    0UL );
   return f;
 }
 
@@ -324,7 +325,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .salt = 0xa5c31f27d4e6b890UL ^ data_sz
   };
 
-  void * _stake_rewards = fd_stake_rewards_new( fuzz_mem, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_MAX_FORKS, 0x1234UL );
+  void * _stake_rewards = fd_stake_rewards_new( fuzz_mem, FUZZ_MAX_STAKE_ACCOUNTS, FUZZ_MAX_FORKS );
   fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( _stake_rewards);
   if( FD_UNLIKELY( !stake_rewards ) ) FD_LOG_ERR(( "failed to initialize stake rewards" ));
 

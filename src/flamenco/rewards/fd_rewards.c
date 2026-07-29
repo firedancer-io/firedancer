@@ -626,21 +626,22 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   }
 }
 
+/* setup_stake_partitions hashes every stake reward of the epoch into
+   its partition.  Only the rewards landing inside the fork's current
+   window are retained; see fd_stake_rewards.h.  The fork must already
+   have been initialized and its window positioned by the caller. */
+
 static void
 setup_stake_partitions( fd_bank_t *                    bank,
                         fd_stake_history_t const *     stake_history,
                         fd_stake_delegations_t const * stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
-                        fd_hash_t const *              parent_blockhash,
-                        ulong                          starting_block_height,
-                        uint                           num_partitions,
+                        uchar                          fork_idx,
                         ulong                          rewarded_epoch,
                         ulong                          total_rewards,
                         uint128                        total_points ) {
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->f.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
-  bank->stake_rewards_fork_id = fork_idx;
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -798,14 +799,21 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 runtime_stack->stakes.stake_rewards_cnt,
                                                                                 bank->f.slot_params.stake_account_stores_per_block );
 
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar                fork_idx      = fd_stake_rewards_init( stake_rewards,
+                                                              bank->f.epoch,
+                                                              parent_blockhash,
+                                                              starting_block_height,
+                                                              num_partitions,
+                                                              runtime_stack->stakes.stake_rewards_cnt );
+  bank->stake_rewards_fork_id = fork_idx;
+
   setup_stake_partitions(
       bank,
       stake_history,
       stake_delegations,
       runtime_stack,
-      parent_blockhash,
-      starting_block_height,
-      num_partitions,
+      fork_idx,
       rewarded_epoch,
       *rewards_out,
       total_points );
@@ -1127,13 +1135,24 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   bank->f.capitalization = bank->f.capitalization + lamports_distributed;
 }
 
+static void
+recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                 fd_bank_t *          bank,
+                                 fd_accdb_t *         accdb,
+                                 fd_runtime_stack_t * runtime_stack,
+                                 fd_capture_ctx_t *   capture_ctx,
+                                 int                  reuse_fork,
+                                 uint                 win_lo );
+
 /* Process reward distribution for the block if it is inside reward interval.
 
    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L45-L136 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
-                                         fd_accdb_t *       accdb,
-                                         fd_capture_ctx_t * capture_ctx ) {
+fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
+                                         fd_bank_t *          bank,
+                                         fd_accdb_t *         accdb,
+                                         fd_runtime_stack_t * runtime_stack,
+                                         fd_capture_ctx_t *   capture_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L46-L48 */
   if( FD_LIKELY( bank->stake_rewards_fork_id==UCHAR_MAX ) ) return;
 
@@ -1164,6 +1183,16 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *        bank,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L110-L114 */
   if( FD_LIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
     ulong partition_idx = block_height-distribution_starting_block_height;
+
+    /* The rewards of this partition are only in memory if the window
+       covers it.  If they are not, re-derive the window that does. */
+    uchar fork_id = bank->stake_rewards_fork_id;
+    if( FD_UNLIKELY( partition_idx< (ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
+                     partition_idx>=(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
+      recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, (uint)partition_idx );
+      stake_rewards = fd_bank_stake_rewards_modify( bank );
+    }
+
     distribute_epoch_rewards_in_partition( stake_rewards, partition_idx, bank, accdb, capture_ctx );
   }
 
@@ -1226,13 +1255,22 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
     Re-calculates partitioned stake rewards.
     This updates the slot context's epoch reward status with the recalculated partitioned rewards.
 
+    Everything the calculation needs survives in the epoch rewards
+    sysvar and in the bank, so the partitions can be rebuilt at any
+    point during the distribution interval.  If reuse_fork is set the
+    fork already holds partitions and is only being repositioned onto
+    the window starting at win_lo, otherwise a fresh fork is acquired
+    and the window starts at partition 0.
+
     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L521 */
-void
-fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
-                                            fd_bank_t *               bank,
-                                            fd_accdb_t *              accdb,
-                                            fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx ) {
+static void
+recalculate_partitioned_rewards( fd_banks_t *              banks,
+                                 fd_bank_t *               bank,
+                                 fd_accdb_t *              accdb,
+                                 fd_runtime_stack_t *      runtime_stack,
+                                 fd_capture_ctx_t *        capture_ctx,
+                                 int                       reuse_fork,
+                                 uint                      win_lo ) {
 
   /* If the snapshot was loaded while partitioned epoch rewards is
      active, then the vote rewards map must be populated with the state
@@ -1345,18 +1383,40 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       runtime_stack,
       1 );
 
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar                fork_idx;
+  if( FD_UNLIKELY( reuse_fork ) ) {
+    fork_idx = bank->stake_rewards_fork_id;
+    fd_stake_rewards_window_advance( stake_rewards, fork_idx, &epoch_rewards_sysvar->parent_blockhash, win_lo );
+  } else {
+    fork_idx = fd_stake_rewards_init( stake_rewards,
+                                      bank->f.epoch,
+                                      &epoch_rewards_sysvar->parent_blockhash,
+                                      epoch_rewards_sysvar->distribution_starting_block_height,
+                                      (uint)epoch_rewards_sysvar->num_partitions,
+                                      runtime_stack->stakes.stake_rewards_cnt );
+    bank->stake_rewards_fork_id = fork_idx;
+  }
+
   setup_stake_partitions(
       bank,
       stake_history,
       stake_delegations,
       runtime_stack,
-      &epoch_rewards_sysvar->parent_blockhash,
-      epoch_rewards_sysvar->distribution_starting_block_height,
-      (uint)epoch_rewards_sysvar->num_partitions,
+      fork_idx,
       rewarded_epoch,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
   fd_accdb_unread_one( accdb, &ro );
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
+}
+
+void
+fd_rewards_recalculate_partitioned_rewards( fd_banks_t *         banks,
+                                            fd_bank_t *          bank,
+                                            fd_accdb_t *         accdb,
+                                            fd_runtime_stack_t * runtime_stack,
+                                            fd_capture_ctx_t *   capture_ctx ) {
+  recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 0, 0U );
 }
