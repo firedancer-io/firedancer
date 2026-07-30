@@ -51,7 +51,7 @@ before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1 ); /* 1ms */
+  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1, ULONG_MAX ); /* 1ms */
 }
 
 static fd_http_server_response_t
