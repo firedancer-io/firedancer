@@ -279,7 +279,6 @@ struct fd_bank {
   ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
   uchar                  epoch_credits_fork_id;
-  uchar                  stake_rewards_reserved; /* holds a reservation on an unacquired stake rewards fork */
   ushort                 stake_delegations_fork_id;
   ushort                 new_votes_fork_id;
   ulong                  cost_tracker_pool_idx;
@@ -406,12 +405,6 @@ struct fd_banks {
   ulong prunable_idx;       /* index of pending prunable bank, ULONG_MAX if none */
 
   ulong curr_fork_width;
-
-  /* Banks that will have to acquire a stake rewards fork once they run,
-     but have not yet.  Their forks are accounted for before the bank is
-     started, because a bank that runs out mid-block cannot recover. */
-
-  ulong stake_rewards_reserved_cnt;
 
   ulong pool_offset;        /* offset of pool from banks */
 
@@ -824,25 +817,6 @@ int
 fd_banks_can_start_bank( fd_banks_t *      banks,
                          fd_bank_t const * parent_bank,
                          ulong             child_slot );
-
-/* fd_banks_reserve_stake_rewards claims a stake rewards fork for a bank
-   that will have to compute epoch rewards, so that concurrently prepared
-   banks are not all promised the same fork.  It must be called once the
-   bank's slot is known and before the bank runs, and is a no-op for the
-   banks that will not need one.  fd_banks_can_start_bank must have
-   returned 1 for the bank, which guarantees the reservation can be
-   honoured.  The reservation is dropped when the bank acquires its fork,
-   or when it is frozen without having needed one. */
-
-void
-fd_banks_reserve_stake_rewards( fd_banks_t * banks,
-                                fd_bank_t *  bank );
-
-/* fd_bank_stake_rewards_reservation_release drops a bank's reservation if
-   it holds one. */
-
-void
-fd_bank_stake_rewards_reservation_release( fd_bank_t * bank );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in

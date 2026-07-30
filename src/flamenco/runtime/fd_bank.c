@@ -321,30 +321,9 @@ fd_banks_can_start_bank( fd_banks_t *      banks,
                          ulong             child_slot ) {
   if( FD_UNLIKELY( fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL ) ) return 0;
   if( FD_UNLIKELY( banks->curr_fork_width>=banks->max_fork_width ) ) return 0;
-  if( FD_UNLIKELY( fd_stake_rewards_free_cnt( fd_banks_get_stake_rewards( banks ) )<=banks->stake_rewards_reserved_cnt &&
+  if( FD_UNLIKELY( !fd_stake_rewards_free_cnt( fd_banks_get_stake_rewards( banks ) ) &&
                    fd_banks_needs_stake_rewards_fork( banks, parent_bank, child_slot ) ) ) return 0;
   return 1;
-}
-
-void
-fd_banks_reserve_stake_rewards( fd_banks_t * banks,
-                                fd_bank_t *  bank ) {
-  fd_bank_t const * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
-  if( FD_LIKELY( !fd_banks_needs_stake_rewards_fork( banks, parent_bank, bank->f.slot ) ) ) return;
-
-  FD_CHECK_CRIT( fd_stake_rewards_free_cnt( fd_banks_get_stake_rewards( banks ) )>banks->stake_rewards_reserved_cnt,
-                 "invariant violation: no stake rewards fork left to reserve" );
-  bank->stake_rewards_reserved = 1;
-  banks->stake_rewards_reserved_cnt++;
-}
-
-void
-fd_bank_stake_rewards_reservation_release( fd_bank_t * bank ) {
-  if( FD_LIKELY( !bank->stake_rewards_reserved ) ) return;
-  fd_banks_t * banks = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  FD_CHECK_CRIT( banks->stake_rewards_reserved_cnt, "invariant violation: stake rewards reservation underflow" );
-  banks->stake_rewards_reserved_cnt--;
-  bank->stake_rewards_reserved = 0;
 }
 
 ulong
@@ -567,7 +546,6 @@ fd_banks_new( void * shmem,
   banks_data->max_fork_width     = max_fork_width;
   banks_data->max_stake_accounts = max_stake_accounts;
   banks_data->max_vote_accounts  = max_vote_accounts;
-  banks_data->stake_rewards_reserved_cnt = 0UL;
   banks_data->root_idx           = ULONG_MAX;
   banks_data->evict_rr_idx       = seed;
   banks_data->prunable_idx       = ULONG_MAX;
@@ -696,7 +674,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
   bank->stake_rewards_fork_id             = UCHAR_MAX;
-  bank->stake_rewards_reserved            = 0;
   bank->epoch_credits_fork_id             = 0;
   fd_banks_epoch_credits_acquire( banks, bank->epoch_credits_fork_id );
   bank->stake_delegations_fork_id         = USHORT_MAX;
@@ -1027,7 +1004,6 @@ fd_banks_advance_root( fd_banks_t * banks,
     if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX ) ) {
       fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
     }
-    fd_bank_stake_rewards_reservation_release( head );
     if( FD_LIKELY( head->epoch_credits_fork_id!=UCHAR_MAX ) ) {
       fd_banks_epoch_credits_release( banks, head->epoch_credits_fork_id );
       head->epoch_credits_fork_id = UCHAR_MAX;
@@ -1186,7 +1162,6 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->vote_stakes_fork_id        = USHORT_MAX;
   child_bank->collector_overrides_fork_id = USHORT_MAX;
   child_bank->stake_rewards_fork_id      = UCHAR_MAX;
-  child_bank->stake_rewards_reserved    = 0;
   child_bank->epoch_credits_fork_id     = UCHAR_MAX;
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
@@ -1319,7 +1294,6 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
   if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
     fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
   }
-  fd_bank_stake_rewards_reservation_release( bank );
   if( FD_LIKELY( bank->epoch_credits_fork_id!=UCHAR_MAX ) ) {
     fd_banks_epoch_credits_release( banks, bank->epoch_credits_fork_id );
     bank->epoch_credits_fork_id = UCHAR_MAX;
@@ -1387,10 +1361,6 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
 
   FD_CHECK_CRIT( bank->state==FD_BANK_STATE_REPLAYABLE, "invariant violation: bank is not replayable" );
   bank->state = FD_BANK_STATE_FROZEN;
-
-  /* The bank has run: either it acquired the fork it reserved, or it
-     turned out not to need one. */
-  fd_bank_stake_rewards_reservation_release( bank );
 
   FD_CHECK_CRIT( bank->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );
   fd_bank_cost_tracker_pool_idx_release( fd_banks_get_cost_tracker_pool( banks ), bank->cost_tracker_pool_idx );
@@ -1537,6 +1507,5 @@ fd_banks_clear( fd_banks_t * banks ) {
 
   banks->root_idx = ULONG_MAX;
   banks->curr_fork_width = 0UL;
-  banks->stake_rewards_reserved_cnt = 0UL;
   banks->bank_seq = 1UL; /* start at 1 so 0 is reserved as an invalid bank_seq sentinel */
 }

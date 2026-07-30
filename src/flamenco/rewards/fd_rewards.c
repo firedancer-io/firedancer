@@ -810,7 +810,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
     fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
   }
   bank->stake_rewards_fork_id = fork_idx;
-  fd_bank_stake_rewards_reservation_release( bank );
 
   setup_stake_partitions( bank,
                           stake_history,
@@ -1439,7 +1438,6 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_stake_rewards_release( stake_rewards, bank->stake_rewards_fork_id );
   }
   bank->stake_rewards_fork_id = fork_idx;
-  fd_bank_stake_rewards_reservation_release( bank );
 
   setup_stake_partitions(
       bank,

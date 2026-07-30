@@ -258,7 +258,6 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
-  fd_banks_reserve_stake_rewards( ctx->banks, bank );
   bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
@@ -556,7 +555,6 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   ctx->leader_bank->preparation_begin_nanos = before;
 
   ctx->leader_bank->f.slot = slot;
-  fd_banks_reserve_stake_rewards( ctx->banks, ctx->leader_bank );
 
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
