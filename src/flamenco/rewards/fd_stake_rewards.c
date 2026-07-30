@@ -70,20 +70,20 @@ get_partition_ele( fd_stake_rewards_t const * stake_rewards,
 static uint
 window_sz( ulong capacity,
            uint  partitions_cnt,
-           ulong rewards_cnt ) {
+           ulong max_rewards_cnt ) {
 
   /* Percentage of the window capacity left unused when the epoch's
      rewards do not all fit.  Rewards are scattered uniformly over the
      partitions, so the entry count of a window of W partitions has a
-     mean of W*rewards_cnt/partitions_cnt and a sd of the square root of
-     that mean.  Reserving a hundredth of the capacity puts the overflow
-     threshold at sqrt(capacity)/100 deviations above the mean, which is
-     over thirteen deviations at the production capacity of 2150000
-     stake accounts. */
-  if( FD_LIKELY( rewards_cnt<=capacity ) ) return partitions_cnt;
+     mean of at most W*max_rewards_cnt/partitions_cnt and a sd of the
+     square root of that mean.  Reserving a hundredth of the capacity
+     puts the overflow threshold at sqrt(capacity)/100 deviations above
+     the mean, which is over thirteen deviations at the production
+     capacity of 2150000 stake accounts. */
+  if( FD_LIKELY( max_rewards_cnt<=capacity ) ) return partitions_cnt;
 
   ulong usable = fd_ulong_max( fd_ulong_sat_sub( capacity, fd_ulong_max( capacity*1UL/100UL, 1UL ) ), 1UL );
-  ulong sz     = fd_ulong_max( usable*(ulong)partitions_cnt/rewards_cnt, 1UL );
+  ulong sz     = fd_ulong_max( usable*(ulong)partitions_cnt/max_rewards_cnt, 1UL );
   return (uint)fd_ulong_min( sz, (ulong)partitions_cnt );
 }
 
@@ -214,7 +214,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt,
-                       ulong                rewards_cnt ) {
+                       ulong                max_rewards_cnt ) {
   fork_t * fork_pool = get_fork_pool( stake_rewards );
 
   int is_new_epoch = stake_rewards->epoch!=epoch;
@@ -230,7 +230,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
   stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
-  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->max_stake_accounts, partitions_cnt, rewards_cnt );
+  stake_rewards->fork_info[fork_idx].win_sz                = window_sz( stake_rewards->max_stake_accounts, partitions_cnt, max_rewards_cnt );
   window_reset( stake_rewards, fork_idx, 0U );
 
   return fork_idx;

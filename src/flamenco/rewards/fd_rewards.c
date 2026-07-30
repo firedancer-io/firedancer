@@ -805,7 +805,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                               parent_blockhash,
                                                               starting_block_height,
                                                               num_partitions,
-                                                              runtime_stack->stakes.stake_rewards_cnt );
+                                                              fd_stake_delegations_cnt( stake_delegations ) );
   bank->stake_rewards_fork_id = fork_idx;
 
   setup_stake_partitions( bank,
@@ -1394,7 +1394,7 @@ recalculate_partitioned_rewards( fd_banks_t *              banks,
                                       &epoch_rewards_sysvar->parent_blockhash,
                                       epoch_rewards_sysvar->distribution_starting_block_height,
                                       (uint)epoch_rewards_sysvar->num_partitions,
-                                      runtime_stack->stakes.stake_rewards_cnt );
+                                      fd_stake_delegations_cnt( stake_delegations ) );
     bank->stake_rewards_fork_id = fork_idx;
   }
 

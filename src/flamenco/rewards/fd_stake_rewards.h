@@ -86,7 +86,14 @@ fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
 
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
-   calculation or recalculation.  It returns a fork index. */
+   calculation or recalculation.  It returns a fork index.
+
+   max_rewards_cnt is an upper bound on how many rewards the caller may
+   insert for the epoch, and it is used to size the window.  It must
+   bound the rewards of the whole epoch rather than the ones that remain
+   to be paid: rewards hash uniformly over all partitions, so a bound on
+   the remainder would understate how many entries a partition holds
+   once earlier partitions have been paid out. */
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
@@ -94,7 +101,7 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt,
-                       ulong                rewards_cnt );
+                       ulong                max_rewards_cnt );
 
 /* fd_stake_rewards_window_advance removes all of the entries associated
    with the current window of a specific fork and shifts the starting
