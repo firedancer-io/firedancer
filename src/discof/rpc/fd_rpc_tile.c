@@ -847,7 +847,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) {
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
     ctx->epoch_schedule     = msg->epoch_schedule;
     ctx->has_epoch_schedule = 1;
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
@@ -1940,7 +1940,7 @@ getLeaderSchedule( fd_rpc_tile_t * ctx,
   ulong pub_cnt   = lsched->pub_cnt;
   ulong sched_cnt = lsched->sched_cnt;
   ulong slot_cnt  = lsched->slot_cnt;
-  FD_TEST( pub_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+  FD_TEST( pub_cnt<=MAX_STAKE_WEIGHTS );
   FD_TEST( sched_cnt<=(sizeof(ctx->scratch.gls_pairs)/sizeof(ctx->scratch.gls_pairs[0])) );
 
   fd_rpc_gls_pair_t * pairs    = ctx->scratch.gls_pairs;
