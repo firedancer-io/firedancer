@@ -539,10 +539,16 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     v1_loaded       = fd_ulong_min( v1_loaded, FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ );
 
     /* V1 transactions which request a loaded accounts data size limit
-       of 0, or do not explicitly set this limit, are thrown out by
-       Firedancer's block packer. Agave reserves 1 page for these,
-       and later adjusts the cost based on what the transaction
-       actually uses.
+       of 0, or do not explicitly set this limit, are not thrown out.
+
+       As of define_ltds_fee_only_semantics, which is activated on
+       all networks, the loaded accounts data size for fee-only
+       transactions that fail due to exceeding the requested loaded
+       accounts data size limit is the requested loaded accounts data
+       size limit.
+       This means that advance nonce transactions that request a loaded
+       accounts data size limit of 0 are still packed and the nonce
+       still advances.
        https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/core/src/banking_stage/qos_service.rs#L68-L72
 
        V1 transactions which request a loaded account data
@@ -553,7 +559,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     *loaded_account_data_cost = FD_COMPUTE_BUDGET_HEAP_COST *
         ( ( v1_loaded + FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )
           / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE );
-    if( FD_UNLIKELY( 0UL==*loaded_account_data_cost ) ) return 0UL;
   } else {
     fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
   }
