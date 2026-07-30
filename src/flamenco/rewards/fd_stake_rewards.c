@@ -258,6 +258,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
   }
 
   FD_CHECK_CRIT( fork_pool_free( fork_pool ), "no free forks in the stake rewards pool" );
+
+  if( FD_UNLIKELY( !fork_pool_free( fork_pool ) ) ) {
+    FD_LOG_ERR(( "No free forks in the stake rewards pool.  This likely occurred due to extremely degenerate network conditions. "
+                 "Please report this crash to the Firedancer team." ));
+  }
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
   stake_rewards->fork_info[fork_idx].refcnt = 1UL;
 

@@ -285,44 +285,10 @@ fd_banks_get_parent( fd_banks_t * banks,
   return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
 }
 
-/* A bank acquires a stake rewards fork when it computes rewards it does
-   not already hold: at an epoch boundary, or when the partition it has to
-   distribute falls outside the window its parent handed down.  Both are
-   known before the bank runs, which lets the caller avoid starting a bank
-   that would run out of forks mid-block.  A parent that is not known is
-   assumed to need one. */
-
-static int
-fd_banks_needs_stake_rewards_fork( fd_banks_t *      banks,
-                                   fd_bank_t const * parent_bank,
-                                   ulong             child_slot ) {
-  if( FD_UNLIKELY( !parent_bank ) ) return 1;
-
-  if( FD_UNLIKELY( fd_slot_to_epoch( &parent_bank->f.epoch_schedule, child_slot, NULL )!=parent_bank->f.epoch ) ) return 1;
-
-  uchar fork_id = parent_bank->stake_rewards_fork_id;
-  if( FD_LIKELY( fork_id==UCHAR_MAX ) ) return 0; /* rewards are not being distributed */
-
-  fd_stake_rewards_t * stake_rewards = fd_banks_get_stake_rewards( banks );
-
-  ulong block_height = parent_bank->f.block_height + 1UL;
-  ulong start        = fd_stake_rewards_starting_block_height( stake_rewards, fork_id );
-  ulong end          = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, fork_id );
-  if( FD_UNLIKELY( block_height<start || block_height>=end ) ) return 0; /* distributes nothing */
-
-  ulong partition_idx = block_height-start;
-  return partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
-         partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id );
-}
-
 int
-fd_banks_can_start_bank( fd_banks_t *      banks,
-                         fd_bank_t const * parent_bank,
-                         ulong             child_slot ) {
+fd_banks_can_start_bank( fd_banks_t * banks ) {
   if( FD_UNLIKELY( fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL ) ) return 0;
   if( FD_UNLIKELY( banks->curr_fork_width>=banks->max_fork_width ) ) return 0;
-  if( FD_UNLIKELY( !fd_stake_rewards_free_cnt( fd_banks_get_stake_rewards( banks ) ) &&
-                   fd_banks_needs_stake_rewards_fork( banks, parent_bank, child_slot ) ) ) return 0;
   return 1;
 }
 

@@ -805,18 +805,14 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
                              fd_bank_t const * protected_bank );
 
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
-   preparing the child of parent_bank for child_slot.  This check is
-   currently conservative, if the max fork width is reached, it will
-   return 0 even if the new bank doesn't exceed the max fork width.
-
-   parent_bank and child_slot are used to tell whether the new bank would
-   have to compute epoch rewards, which needs a stake rewards fork.  A
-   NULL parent_bank is assumed to need one. */
+   preparing another child bank.  This check is currently conservative,
+   if the max fork width is reached, it will return 0 even if the new
+   bank doesn't exceed the max fork width.  The same applies to the stake
+   rewards forks: a bank is not started while they are all in use, even
+   though most banks never need to acquire one. */
 
 int
-fd_banks_can_start_bank( fd_banks_t *      banks,
-                         fd_bank_t const * parent_bank,
-                         ulong             child_slot );
+fd_banks_can_start_bank( fd_banks_t * banks );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in
