@@ -10,9 +10,7 @@
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "../../../flamenco/accdb/fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 
 #include <fcntl.h> /* open */
 #include <sys/resource.h>

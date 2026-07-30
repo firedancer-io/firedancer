@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_private_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_private_h
 
+#include "fd_accdb_base.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
 
@@ -26,12 +27,6 @@ spin_lock_release( int * lock ) {
   *lock = 0;
 # endif
 }
-
-#ifndef FD_ACCDB_NO_FORK_ID
-struct fd_accdb_fork_id { ushort val; };
-typedef struct fd_accdb_fork_id fd_accdb_fork_id_t;
-#endif
-
 struct __attribute__((packed)) fd_accdb_disk_meta {
   uchar pubkey[ 32UL ];
   uint  size;

@@ -1,9 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_accdb.h"
 #include "fd_accdb_shmem.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 
 #if FD_TMPL_USE_HANDHOLDING
 #include "../../ballet/txn/fd_txn.h"

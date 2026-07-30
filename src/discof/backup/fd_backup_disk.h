@@ -6,8 +6,6 @@
 
 #include "fd_backup.h"
 #include "fd_backup_visited.h"
-#include "../../flamenco/accdb/fd_accdb.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "../../flamenco/accdb/fd_accdb_private.h"
 #include "../../tango/fd_tango_base.h"
 
