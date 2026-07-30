@@ -11,6 +11,7 @@
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_accdb_svm.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 #include "fd_rewards_base.h"
 
 #include <math.h>
@@ -1289,6 +1290,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     } else {
       vote_ele->commission = commission_t_1;
     }
+    vote_ele->commission = fd_vote_reward_commission_bps( vote_ele->commission,
+                                                          FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ) );
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
 
@@ -1299,7 +1302,10 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     for( ulong i=0UL; i<commission_t_3_len; i++ ) {
       fd_stashed_commission_t const * ele = &commission_t_3[i];
       fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
+      if( FD_LIKELY( vote_ele ) ) {
+        vote_ele->commission = fd_vote_reward_commission_bps( ele->commission,
+                                                              FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ) );
+      }
     }
   }
 

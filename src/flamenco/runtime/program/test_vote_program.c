@@ -6,6 +6,7 @@
 #include "../../features/fd_features.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include "vote/fd_vote_codec.h"
+#include "../../rewards/fd_rewards.h"
 #include "vote/fd_vote_state_versioned.h"
 #include "../../../disco/fd_txn_p.h"
 
@@ -1088,6 +1089,72 @@ test_vote_instruction_footprints( void ) {
   FD_LOG_NOTICE(( "test_vote_instruction_footprints... ok" ));
 }
 
+/* A v4 vote account stores the inflation commission in basis points.
+   Until SIMD-0291 activates only whole percentages can be expressed, so
+   the reward split reads the stored rate as a percentage.  That
+   narrowing belongs at the point the rate is used, because the feature
+   can activate at the same epoch boundary that pays the rewards: a rate
+   captured into the epoch stakes under the old feature set must still
+   be readable at full precision when the boundary runs.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L624-L632 */
+
+#define COMMISSION_WIRE_SZ (256UL)
+
+static ushort
+commission_bps_of( uint   version,
+                   ulong  off,
+                   ushort raw ) {
+  uchar data[ COMMISSION_WIRE_SZ ];
+  fd_memset( data, 0, COMMISSION_WIRE_SZ );
+  FD_STORE( uint, data, version );
+  if( version==(uint)fd_vote_state_versioned_enum_v4 ) FD_STORE( ushort, data+off, raw     );
+  else                                                 data[ off ] = (uchar)raw;
+
+  ushort bps = 0;
+  FD_TEST( !fd_vote_account_commission_bps( data, COMMISSION_WIRE_SZ, &bps ) );
+  return bps;
+}
+
+static void
+test_commission_bps_reward_rate( void ) {
+  /* Reading an account never loses the sub-percent digits: the rate is
+     stored, not interpreted. */
+  FD_TEST( commission_bps_of( (uint)fd_vote_state_versioned_enum_v4, 132UL, 150 )==150 );
+  FD_TEST( commission_bps_of( (uint)fd_vote_state_versioned_enum_v3,  68UL,   7 )==700 );
+
+  /* The reward rate narrows to whole percentages until SIMD-0291. */
+  FD_TEST( fd_vote_reward_commission_bps( 150, 0 )==100 );
+  FD_TEST( fd_vote_reward_commission_bps( 150, 1 )==150 );
+
+  /* A rate that is already a whole percentage is unaffected either way,
+     which is why only sub-percent rates can diverge. */
+  FD_TEST( fd_vote_reward_commission_bps( 700, 0 )==700 );
+  FD_TEST( fd_vote_reward_commission_bps( 700, 1 )==700 );
+
+  /* The percentage is a byte, so rates above 255% saturate. */
+  FD_TEST( fd_vote_reward_commission_bps( 25700, 0 )==25500 );
+  FD_TEST( fd_vote_reward_commission_bps( 25700, 1 )==25700 );
+
+  /* On the split: 1.5% of 10000 is 150 lamports to the voter once
+     SIMD-0291 is active, 100 before it. */
+  fd_commission_split_t split[1];
+
+  fd_vote_commission_split( fd_vote_reward_commission_bps( 150, 0 ), 10000UL, split );
+  FD_TEST( split->voter_portion ==  100UL );
+  FD_TEST( split->staker_portion== 9900UL );
+
+  fd_vote_commission_split( fd_vote_reward_commission_bps( 150, 1 ), 10000UL, split );
+  FD_TEST( split->voter_portion ==  150UL );
+  FD_TEST( split->staker_portion== 9850UL );
+
+  /* Rates over 100% are clamped by the split itself. */
+  fd_vote_commission_split( fd_vote_reward_commission_bps( 25700, 0 ), 10000UL, split );
+  FD_TEST( split->voter_portion ==10000UL );
+  FD_TEST( split->staker_portion==    0UL );
+
+  FD_LOG_NOTICE(( "test_commission_bps_reward_rate... ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1114,6 +1181,7 @@ main( int     argc,
   test_landed_votes_footprint();
   test_epoch_credits_footprint();
   test_vote_instruction_footprints();
+  test_commission_bps_reward_rate();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

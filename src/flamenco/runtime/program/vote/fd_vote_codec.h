@@ -647,18 +647,26 @@ fd_vote_account_node_pubkey( uchar const *  data,
                              ulong          data_sz,
                              fd_pubkey_t *  out );
 
-/* Returns the commission in basis points.  If commission_rate_in_bps is
-   set, returns the v4 commission rate as a raw basis points value.
-   Otherwise, returns the v4 commission rate in basis points, rounded
-   down to the nearest whole percentage.  For v1_14_11/v3, returns the
-   raw commission byte * 100.
+/* Returns the commission in basis points: the raw v4 field, or the
+   commission byte * 100 for v1_14_11/v3.
 
    Returns 0 on success, 1 on error. */
 int
 fd_vote_account_commission_bps( uchar const * data,
                                 ulong         data_sz,
-                                int           commission_rate_in_bps,
                                 ushort *      out );
+
+/* Returns the commission in basis points to charge on inflation
+   rewards.  Until SIMD-0291 activates only whole percentages can be
+   expressed, so the stored rate is read as a percentage and scaled back
+   up.
+   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L624-L632 */
+static inline ushort
+fd_vote_reward_commission_bps( ushort commission_bps,
+                               int    commission_rate_in_bps ) {
+  if( commission_rate_in_bps ) return commission_bps;
+  return (ushort)( fd_ushort_min( (ushort)( commission_bps/100 ), 255 )*100 );
+}
 
 /* Reads the SIMD-0232 commission collectors directly from raw
    bincode-encoded vote account data.  Pre-v4 states have no collector
