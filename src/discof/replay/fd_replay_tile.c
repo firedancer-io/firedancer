@@ -678,7 +678,10 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
 
-  if( FD_UNLIKELY( bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL ) )) {
+  /* If the new consensus root is in the next epoch from the one the
+     replay tile currently holds, send the next epoch's leader schedule.
+     We can't use the new root's parent slot safely here. */
+  if( FD_UNLIKELY( bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->notified_root_slot, NULL ) ) ) {
     fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     publish_epoch_info( ctx, stem, bank, 1 );
   }
