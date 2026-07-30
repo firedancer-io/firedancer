@@ -551,6 +551,10 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
       }
     }
 
+    if( FD_UNLIKELY( epoch_credits_len>=FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: more vote accounts than the epoch credits store holds (%lu)", FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ));
+      return -1;
+    }
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
     ec->cnt          = (ushort)elem->epoch_credits_history_len;

@@ -812,6 +812,9 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
     FD_TEST( acc.lamports );
 
+    if( FD_UNLIKELY( vote_reward_cnt>=FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) ) {
+      FD_LOG_ERR(( "invariant violation: vote_reward_cnt >= epoch credits max" ));
+    }
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
     fd_memcpy( epoch_credits->pubkey, &pubkey, sizeof(fd_pubkey_t) );
     get_vote_credits( acc.data, acc.data_len, vote_ele->commission, epoch_credits );
@@ -1094,6 +1097,9 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       ushort      commission_t_3   = 0;
       int         exists_t_3       = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_3, &node_account_t_3, &commission_t_3 );
 
+      if( FD_UNLIKELY( vote_reward_cnt>=FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) ) {
+        FD_LOG_ERR(( "invariant violation: vote_reward_cnt >= epoch credits max" ));
+      }
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
       fd_memcpy( epoch_credits->pubkey, &stake_accum->pubkey, sizeof(fd_pubkey_t) );
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
