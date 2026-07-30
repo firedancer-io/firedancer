@@ -2348,10 +2348,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   uchar * payload   = block->fec_buf+block->fec_buf_soff;
   ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
   ulong   pay_sz    = 0UL;
-  int   is_v1       = remaining && ( payload[ 0 ] & 0x80U );
-  ulong ver_mtu     = is_v1 ? FD_TXN_MTU : FD_TXN_MTU_V0;
-  ulong txn_sz      = fd_txn_parse_core( payload,
-                                         fd_ulong_min( ver_mtu, remaining ),
+  ulong   txn_sz    = fd_txn_parse_core( payload,
+                                         remaining,
                                          txn,
                                          NULL,
                                          &pay_sz );

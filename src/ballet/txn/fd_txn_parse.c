@@ -5,7 +5,7 @@
 
 ulong
 fd_txn_parse_core( uchar const             * payload,
-                   ulong                     payload_sz,
+                   ulong                     original_payload_sz,
                    void                    * out_buf,
                    fd_txn_parse_counters_t * counters_opt,
                    ulong *                   payload_sz_opt ) {
@@ -77,11 +77,6 @@ fd_txn_parse_core( uchar const             * payload,
      containing no accounts, 1B for length-0 instruction data */
   #define MIN_INSTR_SZ (3UL)
 
-  /* Use the larger 4096 transaction size limit for all transactions.
-     Legacy/V0 transactions actually have a tighter bound, but that is
-     checked later on. */
-  CHECK( payload_sz<=FD_TXN_MTU );
-
   /* Determine the transaction version.
 
      For V1 transactions, the message is moved to the front of the payload,
@@ -95,8 +90,16 @@ fd_txn_parse_core( uchar const             * payload,
 
      High bit 1 = V1
      High bit 0 = Legacy/V0 */
-  CHECK_LEFT( 1UL ); ulong payload_msb = payload[ i ];
-  if( FD_UNLIKELY( payload_msb&0x80 ) ) {
+  CHECK( original_payload_sz ); ulong payload_msb = payload[ 0UL ];
+  int is_v1 = payload_msb&0x80;
+
+  /* For V1 transactions, the payload size can be up to FD_TXN_MTU.
+     For V0/legacy transactions, the maximum payload size is limited
+     to FD_TXN_MTU_V0. */
+  ulong maximum_payload_sz = is_v1 ? FD_TXN_MTU : FD_TXN_MTU_V0;
+  ulong payload_sz         = fd_ulong_min( original_payload_sz, maximum_payload_sz );
+
+  if( FD_UNLIKELY( is_v1 ) ) {
     /* ------------------------------ V1 transaction parser ------------------------------ */
 
     /* Check that the version byte is correct
@@ -198,7 +201,7 @@ fd_txn_parse_core( uchar const             * payload,
     parsed->instr_cnt                    = (ushort)instr_cnt;
 
     /* Check for leftover bytes if payload_sz_opt not specified. */
-    CHECK( (payload_sz_opt!=NULL) | (i==payload_sz) );
+    CHECK( (payload_sz_opt!=NULL) | (i==original_payload_sz) );
 
     if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
     if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
@@ -206,9 +209,6 @@ fd_txn_parse_core( uchar const             * payload,
   }
 
   /* ------------------------------ Legacy/V0 transaction parser ------------------------------ */
-
-  /* Legacy/V0 transactions are bounded by the pre-V1 maximum transaction size. */
-  CHECK( payload_sz<=FD_TXN_MTU_V0 );
 
   /* The documentation sometimes calls signature_cnt a compact-u16 and
      sometimes a u8.  Because of transaction size limits, even allowing
@@ -345,7 +345,7 @@ fd_txn_parse_core( uchar const             * payload,
   }
   #undef MIN_ADDR_LUT_SIZE
   /* Check for leftover bytes if out_sz_opt not specified. */
-  CHECK( (payload_sz_opt!=NULL) | (i==payload_sz) );
+  CHECK( (payload_sz_opt!=NULL) | (i==original_payload_sz) );
 
   CHECK( acct_addr_cnt+addr_table_adtl_cnt<=FD_TXN_ACCT_ADDR_MAX ); /* implies addr_table_adtl_cnt<256 */
 

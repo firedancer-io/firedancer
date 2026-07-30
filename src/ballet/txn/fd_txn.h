@@ -729,7 +729,7 @@ static inline ulong              FD_FN_CONST fd_txn_acct_iter_idx( fd_txn_acct_i
    payload+payload_sz), i.e. this method will read no more than
    payload_sz bytes from payload, but it will reject the transaction if
    it contains extra padding at the end or continues past
-   payload+payload_sz.  payload_sz <= FD_TXN_MTU.
+   payload+payload_sz.
 
    out_buf is the memory where the parsed transaction will be stored.
    out_buf must be non-NULL and have room for at least FD_TXN_MAX_SZ
