@@ -8,8 +8,6 @@
 
 #include "fd_backup.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
-#include "../../flamenco/accdb/fd_accdb.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "../../flamenco/accdb/fd_accdb_private.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 

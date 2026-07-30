@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
-#include "../../util/fd_util_base.h"
 #include "fd_accdb_cache.h"
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)

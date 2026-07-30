@@ -33,9 +33,7 @@
 
 #include "fd_accdb.h"
 #include "fd_accdb_cache.h"
-#define FD_ACCDB_NO_FORK_ID
 #include "fd_accdb_private.h"
-#undef FD_ACCDB_NO_FORK_ID
 #include "../../util/fd_util.h"
 #include "../../util/racesan/fd_racesan_async.h"
 #include "../../util/racesan/fd_racesan_weave.h"
