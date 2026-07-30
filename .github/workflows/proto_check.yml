@@ -33,9 +33,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install buf
-        uses: bufbuild/buf-setup-action@v1
+        uses: bufbuild/buf-action@v1
         with:
-          version: '1.28.1'
+          version: '1.71.0'
+          setup_only: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Regenerate proto file
