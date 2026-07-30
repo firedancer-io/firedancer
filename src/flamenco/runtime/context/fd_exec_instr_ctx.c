@@ -113,8 +113,7 @@ fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
         continue;
       }
 
-      /* This should never be possible: distinct signers are bounded by the
-         transaction account count (FD_INSTR_SIGNERS_MAX). */
+      /* This should never be possible */
       if( FD_UNLIKELY( j>=FD_INSTR_SIGNERS_MAX ) ) {
         FD_LOG_CRIT(( "invariant violation: too many signers (cnt=%lu, FD_INSTR_SIGNERS_MAX=%lu)", j, (ulong)FD_INSTR_SIGNERS_MAX ));
       }
