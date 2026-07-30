@@ -808,15 +808,14 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                               runtime_stack->stakes.stake_rewards_cnt );
   bank->stake_rewards_fork_id = fork_idx;
 
-  setup_stake_partitions(
-      bank,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      fork_idx,
-      rewarded_epoch,
-      *rewards_out,
-      total_points );
+  setup_stake_partitions( bank,
+                          stake_history,
+                          stake_delegations,
+                          runtime_stack,
+                          fork_idx,
+                          rewarded_epoch,
+                          *rewards_out,
+                          total_points );
 
   fd_accdb_unread_one( accdb, &ro );
   return total_points;
@@ -1189,6 +1188,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
     uchar fork_id = bank->stake_rewards_fork_id;
     if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
                      partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
+      FD_LOG_WARNING(( "reward parition is not in the window, recalculating" ));
       recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, (uint)partition_idx );
       stake_rewards = fd_bank_stake_rewards_modify( bank );
     }
