@@ -35,7 +35,15 @@
 
   It is assumed that there will not be concurrent users of the stake
   rewards structure.  The caller is expected to manage synchronization
-  between threads. */
+  between threads.
+
+  TODO: nothing reserves a fork for a bank before the bank runs, so
+  this capacity is not checked when the bank is started: banks are
+  admitted by fd_banks_can_start_bank, which only accounts for the bank
+  pool and the fork width, and acquire their fork later while executing
+  the block.  This means that under really adverse staking conditions
+  and forking conditions, the pool capacity can exceed which would
+  cause the validator to crash.  These conditions don't exist today. */
 
 #define FD_STAKE_REWARDS_ALIGN (128UL)
 
