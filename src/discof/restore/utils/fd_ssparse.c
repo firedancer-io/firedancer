@@ -338,6 +338,11 @@ advance_account_batch( fd_ssparse_t *                ssparse,
   ulong avail = fd_ulong_min( data_sz, ssparse->acc_vec_bytes - ssparse->tar.file_bytes_consumed );
   if( FD_UNLIKELY( avail<(4*136UL) ) ) return FD_SSPARSE_ADVANCE_AGAIN;
 
+  /* Prefetch data to reduce cache misses in hot path. */
+  for( ulong i=0UL; i<fd_ulong_min( avail, 4096UL ); i+=64UL ) {
+    __builtin_prefetch( (uchar *)data+i, 0, 0 );
+  }
+
   /* Skip over accounts until we reached EOF or batch is full */
   result->account_batch.batch_cnt = 0;
   ulong off = 0UL;
