@@ -140,6 +140,12 @@ typedef struct {
   /* One of the FD_PACK_STRATEGY_* values defined above */
   int      strategy;
 
+  /* Whether the block we are packing only admits vote transactions,
+     which is the case throughout the alpenglow migration.  Replaying
+     peers reject the entire block if it carries anything else, so
+     scheduling is restricted to votes for its duration. */
+  int      vote_only;
+
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
 
@@ -846,6 +852,10 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
     }
 
+    /* A vote only block may contain nothing else, whatever the strategy
+       would otherwise allow. */
+    if( FD_UNLIKELY( ctx->vote_only ) ) flags &= FD_PACK_SCHEDULE_VOTE;
+
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
@@ -1204,6 +1214,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->leader_bank_seq      = ctx->_became_leader->bank_seq;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
+    ctx->vote_only            = ctx->_became_leader->vote_only;
 
     ulong base_max_data = ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK;
     if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
@@ -1218,11 +1229,27 @@ after_frag( fd_pack_ctx_t *     ctx,
       FD_TEST( shred_safe );
       base_max_data = shred_safe;
     }
-    /* Reserve some space in the block for ticks */
-    ctx->slot_max_data        = base_max_data
+    if( FD_UNLIKELY( ctx->_became_leader->alpenglow ) ) {
+      /* An alpenglow block ends with a single tick rather than
+         ticks_per_slot of them, but it also opens with a block header
+         marker and carries a footer just before that tick.  The footer
+         is the variable part: it holds the finalization certificate and
+         the notarize and skip reward certificates. */
+      ctx->slot_max_data      = base_max_data - 48UL - FD_PACK_ALPENGLOW_MARKER_RESERVED;
+    } else {
+      /* Reserve some space in the block for ticks */
+      ctx->slot_max_data      = base_max_data
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
+    }
 
     ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
+    /* Left alone under alpenglow.  Although alpenglow carries votes as
+       BLS certificates in the footer rather than as transactions, this
+       is only a cap on how much vote cost may be scheduled, not a
+       reservation taken out of the block, so with no vote transactions
+       arriving it never binds.  Zeroing it trips
+       FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND in
+       fd_pack_set_block_limits. */
     ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
     ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
     ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
@@ -1479,6 +1506,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
   ctx->strategy                      = tile->pack.schedule_strategy;
+  ctx->vote_only                     = 0;
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;

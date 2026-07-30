@@ -72,6 +72,40 @@ default_enable_features( fd_features_t * features ) {
   features->disable_fees_sysvar = 0UL;
 }
 
+/* alpenglow_enable_features enables the alpenglow feature gate and the
+   two gates it hard depends on.
+
+   bls_pubkey_management_in_vote_account must be on, otherwise
+   epoch_stakes skips every vote account carrying a BLS pubkey and it
+   gets no weight in the rank map, so nobody can vote.
+   validator_admission_ticket must be on, otherwise Agave asserts in
+   epoch rewards ("Alpenglow should not be activated before the VAT").
+   vote_state_v4 is already on, it is a cleaned up feature.
+
+   alpenglow_fast_leader_handover is deliberately left off.  It is not
+   needed for a first cut of the leader path, and without it block
+   creation just waits for ParentReady. */
+
+static void
+alpenglow_enable_features( fd_features_t * features ) {
+  features->bls_pubkey_management_in_vote_account = 0UL;
+  features->validator_admission_ticket            = 0UL;
+  features->alpenglow                             = 0UL;
+}
+
+/* fd_ext_bls_derive_pubkey derives the compressed alpenglow BLS pubkey
+   for a 64 byte ed25519 keypair, writing 48 bytes to out_pubkey.
+   Returns 0 on success.
+
+   This lives in the embedded Agave validator because Firedancer's C BLS
+   code can only verify, it has no key derivation.  It is therefore only
+   linked into Frankendancer (fdctl, fddev), not the pure Firedancer
+   binaries, which link fddev_shared without agave_validator.  Hence the
+   weak declaration and the null check at the call site. */
+
+extern int fd_ext_bls_derive_pubkey( uchar const * keypair_bytes,
+                                     uchar *       out_pubkey ) __attribute__((weak));
+
 /* estimate_hashes_per_tick approximates the PoH hashrate of the current
    tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
    the hashes per tick achieved, where tick_dur_us is the target tick
@@ -112,12 +146,30 @@ create_genesis( config_t const * config,
 
   fd_genesis_options_t options[1];
 
-  /* Read in keys */
+  int const alpenglow = !!config->development.genesis.alpenglow;
+  options->alpenglow  = alpenglow;
 
-  uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
-  if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
-  memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
-  fd_keyload_unload( identity_pubkey_, 1 );
+  /* Read in keys.  An alpenglow genesis needs the whole identity
+     keypair rather than just its public part, because the BLS key the
+     validator votes with is derived from it.  The identity is the
+     authorized voter of the vote account created below, and Agave
+     derives from the authorized voter key, so the two agree. */
+
+  int const identity_public_key_only = !alpenglow;
+
+  uchar const * identity_key_ = fd_keyload_load( config->paths.identity_key, identity_public_key_only );
+  if( FD_UNLIKELY( !identity_key_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
+  memcpy( options->identity_pubkey.key, identity_key_ + ( alpenglow ? 32UL : 0UL ), 32 );
+
+  if( FD_UNLIKELY( alpenglow ) ) {
+    if( FD_UNLIKELY( !fd_ext_bls_derive_pubkey ) )
+      FD_LOG_ERR(( "[development.genesis.alpenglow] is enabled but this binary cannot derive BLS "
+                   "keys.  An alpenglow genesis is only supported by Frankendancer (fdctl, fddev)." ));
+    if( FD_UNLIKELY( fd_ext_bls_derive_pubkey( identity_key_, options->identity_bls_pubkey ) ) )
+      FD_LOG_ERR(( "Failed to derive an alpenglow BLS pubkey from identity key `%s`", config->paths.identity_key ));
+  }
+
+  fd_keyload_unload( identity_key_, identity_public_key_only );
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
@@ -149,7 +201,16 @@ create_genesis( config_t const * config,
 
   /* Set up PoH config */
 
-  if( 0UL==config->development.genesis.hashes_per_tick ) {
+  if( alpenglow ) {
+
+    /* Alpenglow blocks carry exactly one tick and every entry must have
+       num_hashes==1, so proof of history always runs in low power mode
+       and hashes_per_tick is left unset in the genesis regardless of
+       what is configured.  Matches agave's
+       genesis_utils::configure_alpenglow_at_genesis. */
+    options->hashes_per_tick = 0UL;
+
+  } else if( 0UL==config->development.genesis.hashes_per_tick ) {
 
     /* set hashes_per_tick to whatever machine is capable of */
     ulong hashes_per_tick =
@@ -188,6 +249,7 @@ create_genesis( config_t const * config,
   fd_features_disable_all( features );
   fd_features_enable_cleaned_up( features );
   default_enable_features( features );
+  if( FD_UNLIKELY( alpenglow ) ) alpenglow_enable_features( features );
 
   options->features = features;
 

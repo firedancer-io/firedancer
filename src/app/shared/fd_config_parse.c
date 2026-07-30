@@ -323,6 +323,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  development.genesis.fund_initial_amount_lamports );
   CFG_POP      ( ulong,  development.genesis.vote_account_stake_lamports  );
   CFG_POP      ( bool,   development.genesis.warmup_epochs                );
+  CFG_POP      ( bool,   development.genesis.alpenglow                    );
 
   CFG_POP      ( uint,   development.bench.benchg_tile_count              );
   CFG_POP      ( uint,   development.bench.benchs_tile_count              );

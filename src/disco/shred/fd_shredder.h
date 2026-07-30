@@ -51,6 +51,19 @@ typedef struct fd_shred_slot_limits fd_shred_slot_limits_t;
 struct fd_shred_epoch_msg {
    fd_shred_features_activation_t features_activation;
    fd_shred_slot_limits_t         slot_limits;
+
+   /* alpenglow is 1 once the cluster is running alpenglow consensus.
+      Under alpenglow a block's id is the double merkle root rather
+      than the last FEC set's chained merkle root, and the shred tile
+      has to track both.
+
+      Deliberately not a feature activation slot.  A bank is alpenglow
+      once it carries the genesis certificate, which the cluster agrees
+      on at runtime rather than at an epoch boundary, so the "first slot
+      of the epoch after activation" rule the fields above use does not
+      apply.  Rides along on this message because the transport already
+      exists and poh reset runs often enough to propagate it promptly. */
+   ulong                          alpenglow;
 };
 typedef struct fd_shred_epoch_msg fd_shred_epoch_msg_t;
 

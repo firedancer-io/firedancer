@@ -364,6 +364,7 @@ struct fd_config {
       ulong fund_initial_amount_lamports;
       ulong vote_account_stake_lamports;
       int   warmup_epochs;
+      int   alpenglow;
     } genesis;
 
     struct {
