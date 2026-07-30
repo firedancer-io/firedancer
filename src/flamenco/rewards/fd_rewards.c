@@ -1188,7 +1188,7 @@ fd_distribute_partitioned_epoch_rewards( fd_banks_t *         banks,
     uchar fork_id = bank->stake_rewards_fork_id;
     if( FD_UNLIKELY( partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
                      partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id ) ) ) {
-      FD_LOG_WARNING(( "reward parition is not in the window, recalculating" ));
+      FD_LOG_INFO(( "reward partition is not in the window, recalculating" ));
       recalculate_partitioned_rewards( banks, bank, accdb, runtime_stack, capture_ctx, 1, (uint)partition_idx );
       stake_rewards = fd_bank_stake_rewards_modify( bank );
     }
