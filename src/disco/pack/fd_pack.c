@@ -2098,50 +2098,9 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
       /* For V1 transactions, the payload can be up to 4096 bytes so we copy an additional 2816 bytes. */
       if( FD_UNLIKELY( txn->transaction_version==FD_TXN_V1 ) ) {
-        _mm512_stream_si512( (void*)(out_txnp->payload+1280UL), _mm512_load_epi64( cur->txn->payload+1280UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1344UL), _mm512_load_epi64( cur->txn->payload+1344UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1408UL), _mm512_load_epi64( cur->txn->payload+1408UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1472UL), _mm512_load_epi64( cur->txn->payload+1472UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1536UL), _mm512_load_epi64( cur->txn->payload+1536UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1600UL), _mm512_load_epi64( cur->txn->payload+1600UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1664UL), _mm512_load_epi64( cur->txn->payload+1664UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1728UL), _mm512_load_epi64( cur->txn->payload+1728UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1792UL), _mm512_load_epi64( cur->txn->payload+1792UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1856UL), _mm512_load_epi64( cur->txn->payload+1856UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1920UL), _mm512_load_epi64( cur->txn->payload+1920UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+1984UL), _mm512_load_epi64( cur->txn->payload+1984UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2048UL), _mm512_load_epi64( cur->txn->payload+2048UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2112UL), _mm512_load_epi64( cur->txn->payload+2112UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2176UL), _mm512_load_epi64( cur->txn->payload+2176UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2240UL), _mm512_load_epi64( cur->txn->payload+2240UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2304UL), _mm512_load_epi64( cur->txn->payload+2304UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2368UL), _mm512_load_epi64( cur->txn->payload+2368UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2432UL), _mm512_load_epi64( cur->txn->payload+2432UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2496UL), _mm512_load_epi64( cur->txn->payload+2496UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2560UL), _mm512_load_epi64( cur->txn->payload+2560UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2624UL), _mm512_load_epi64( cur->txn->payload+2624UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2688UL), _mm512_load_epi64( cur->txn->payload+2688UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2752UL), _mm512_load_epi64( cur->txn->payload+2752UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2816UL), _mm512_load_epi64( cur->txn->payload+2816UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2880UL), _mm512_load_epi64( cur->txn->payload+2880UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+2944UL), _mm512_load_epi64( cur->txn->payload+2944UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3008UL), _mm512_load_epi64( cur->txn->payload+3008UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3072UL), _mm512_load_epi64( cur->txn->payload+3072UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3136UL), _mm512_load_epi64( cur->txn->payload+3136UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3200UL), _mm512_load_epi64( cur->txn->payload+3200UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3264UL), _mm512_load_epi64( cur->txn->payload+3264UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3328UL), _mm512_load_epi64( cur->txn->payload+3328UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3392UL), _mm512_load_epi64( cur->txn->payload+3392UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3456UL), _mm512_load_epi64( cur->txn->payload+3456UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3520UL), _mm512_load_epi64( cur->txn->payload+3520UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3584UL), _mm512_load_epi64( cur->txn->payload+3584UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3648UL), _mm512_load_epi64( cur->txn->payload+3648UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3712UL), _mm512_load_epi64( cur->txn->payload+3712UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3776UL), _mm512_load_epi64( cur->txn->payload+3776UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3840UL), _mm512_load_epi64( cur->txn->payload+3840UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3904UL), _mm512_load_epi64( cur->txn->payload+3904UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+3968UL), _mm512_load_epi64( cur->txn->payload+3968UL ) );
-        _mm512_stream_si512( (void*)(out_txnp->payload+4032UL), _mm512_load_epi64( cur->txn->payload+4032UL ) );
+        for( ulong off=1280UL; off<FD_TPU_MTU; off+=64UL ) {
+          _mm512_stream_si512( (void*)(out_txnp->payload+off), _mm512_load_epi64( cur->txn->payload+off ) );
+        }
       }
 #endif
     } else {
