@@ -140,7 +140,8 @@ typedef struct fd_top_votes fd_top_votes_t;
 #define FD_EPOCH_CREDITS_MAX (64UL)
 struct fd_epoch_credits {
   uchar  pubkey[32];
-  ulong  cnt;
+  ushort cnt;
+  ushort commission;
   ulong  base_credits;
   ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
   uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];

@@ -35,6 +35,7 @@ struct fork_info {
   uint  partition_idxs_tail[MAX_PARTITIONS_PER_EPOCH];
   ulong starting_block_height;
   ulong total_stake_rewards;
+  ulong refcnt;
 };
 typedef struct fork_info fork_info_t;
 
@@ -192,9 +193,15 @@ fd_stake_rewards_join( void * shmem ) {
   return stake_rewards;
 }
 
+static void
+reset_forks( fd_stake_rewards_t * stake_rewards ) {
+  fork_pool_reset( get_fork_pool( stake_rewards ) );
+  for( ulong i=0UL; i<MAX_SUPPORTED_FORKS; i++ ) stake_rewards->fork_info[i].refcnt = 0UL;
+}
+
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
-  fork_pool_reset( get_fork_pool( stake_rewards ) );
+  reset_forks( stake_rewards );
   stake_rewards->epoch = ULONG_MAX;
 }
 
@@ -205,7 +212,34 @@ fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
   stake_rewards->fork_info[fork_idx].partition_cnt         = 0U;
   stake_rewards->fork_info[fork_idx].starting_block_height = 0UL;
   stake_rewards->fork_info[fork_idx].win_sz                = 0U;
+  stake_rewards->fork_info[fork_idx].refcnt                = 0UL;
   window_reset( stake_rewards, fork_idx, 0U );
+}
+
+void
+fd_stake_rewards_acquire( fd_stake_rewards_t * stake_rewards,
+                          uchar                fork_idx ) {
+  stake_rewards->fork_info[fork_idx].refcnt++;
+}
+
+void
+fd_stake_rewards_release( fd_stake_rewards_t * stake_rewards,
+                          uchar                fork_idx ) {
+  ulong refcnt = stake_rewards->fork_info[fork_idx].refcnt;
+  if( FD_UNLIKELY( !refcnt ) ) return;
+  if( FD_UNLIKELY( refcnt==1UL ) ) fd_stake_rewards_purge( stake_rewards, fork_idx );
+  else                             stake_rewards->fork_info[fork_idx].refcnt = refcnt-1UL;
+}
+
+ulong
+fd_stake_rewards_refcnt( fd_stake_rewards_t const * stake_rewards,
+                         uchar                      fork_idx ) {
+  return stake_rewards->fork_info[fork_idx].refcnt;
+}
+
+ulong
+fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards ) {
+  return (ulong)fork_pool_free( get_fork_pool( stake_rewards ) );
 }
 
 uchar
@@ -219,12 +253,13 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   int is_new_epoch = stake_rewards->epoch!=epoch;
   if( FD_LIKELY( is_new_epoch ) ) {
-    fork_pool_reset( fork_pool );
+    reset_forks( stake_rewards );
     stake_rewards->epoch = epoch;
   }
 
   FD_CHECK_CRIT( fork_pool_free( fork_pool ), "no free forks in the stake rewards pool" );
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
+  stake_rewards->fork_info[fork_idx].refcnt = 1UL;
 
   prime_hasher( stake_rewards, parent_blockhash );
 

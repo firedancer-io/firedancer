@@ -278,6 +278,8 @@ struct fd_bank {
   ushort                 vote_stakes_fork_id;
   ushort                 collector_overrides_fork_id;
   uchar                  stake_rewards_fork_id;
+  uchar                  epoch_credits_fork_id;
+  uchar                  stake_rewards_reserved; /* holds a reservation on an unacquired stake rewards fork */
   ushort                 stake_delegations_fork_id;
   ushort                 new_votes_fork_id;
   ulong                  cost_tracker_pool_idx;
@@ -405,6 +407,12 @@ struct fd_banks {
 
   ulong curr_fork_width;
 
+  /* Banks that will have to acquire a stake rewards fork once they run,
+     but have not yet.  Their forks are accounted for before the bank is
+     started, because a bank that runs out mid-block cannot recover. */
+
+  ulong stake_rewards_reserved_cnt;
+
   ulong pool_offset;        /* offset of pool from banks */
 
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
@@ -418,8 +426,20 @@ struct fd_banks {
 
   ulong dead_banks_deque_offset;
 
+  /* The epoch credits of every rewarded vote account are captured when a
+     bank crosses an epoch boundary, and are read again for the rest of
+     the epoch: by a recalculation that repositions a stake rewards
+     window, and by snapshot creation.  Sibling banks crossing the same
+     boundary capture different sets, so the store holds one set per
+     boundary-crossing fork, inherited by descendants and reference
+     counted so that a set lives exactly as long as the banks reading it.
+     There is one more set than max_fork_width because a bank sitting
+     behind a boundary still holds the previous epoch's set while every
+     fork crosses. */
+
   ulong epoch_credits_offset;
-  ulong epoch_credits_len;
+  ulong epoch_credits_len_offset;
+  ulong epoch_credits_refcnt_offset;
 
   ulong snapshot_commission_t_3_offset;
   ulong snapshot_commission_t_3_len;
@@ -443,11 +463,20 @@ typedef struct fd_banks fd_banks_t;
 /* Bank accesssors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
+/* fd_bank_epoch_credits{,_len} return the epoch credits of the fork the
+   bank belongs to.  fd_bank_epoch_credits_new_fork acquires a fresh set
+   for the bank and must be called before the bank captures new epoch
+   credits, i.e. when it crosses an epoch boundary or restores a
+   snapshot. */
+
 fd_epoch_credits_t *
 fd_bank_epoch_credits( fd_bank_t * bank );
 
 ulong *
 fd_bank_epoch_credits_len( fd_bank_t * bank );
+
+void
+fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
 
 fd_stashed_commission_t *
 fd_bank_snapshot_commission_t_3( fd_bank_t * bank );
@@ -783,12 +812,37 @@ fd_banks_get_evictable_bank( fd_banks_t *      banks,
                              fd_bank_t const * protected_bank );
 
 /* fd_banks_can_start_bank returns 1 if banks has capacity to start
-   preparing another child bank.  This check is currently conservative,
-   if the max fork width is reached, it will return 0 even if the new
-   bank doesn't exceed the max fork width. */
+   preparing the child of parent_bank for child_slot.  This check is
+   currently conservative, if the max fork width is reached, it will
+   return 0 even if the new bank doesn't exceed the max fork width.
+
+   parent_bank and child_slot are used to tell whether the new bank would
+   have to compute epoch rewards, which needs a stake rewards fork.  A
+   NULL parent_bank is assumed to need one. */
 
 int
-fd_banks_can_start_bank( fd_banks_t * banks );
+fd_banks_can_start_bank( fd_banks_t *      banks,
+                         fd_bank_t const * parent_bank,
+                         ulong             child_slot );
+
+/* fd_banks_reserve_stake_rewards claims a stake rewards fork for a bank
+   that will have to compute epoch rewards, so that concurrently prepared
+   banks are not all promised the same fork.  It must be called once the
+   bank's slot is known and before the bank runs, and is a no-op for the
+   banks that will not need one.  fd_banks_can_start_bank must have
+   returned 1 for the bank, which guarantees the reservation can be
+   honoured.  The reservation is dropped when the bank acquires its fork,
+   or when it is frozen without having needed one. */
+
+void
+fd_banks_reserve_stake_rewards( fd_banks_t * banks,
+                                fd_bank_t *  bank );
+
+/* fd_bank_stake_rewards_reservation_release drops a bank's reservation if
+   it holds one. */
+
+void
+fd_bank_stake_rewards_reservation_release( fd_bank_t * bank );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children and should only be used in

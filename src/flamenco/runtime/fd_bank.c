@@ -89,6 +89,38 @@ fd_banks_get_epoch_credits( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->epoch_credits_offset );
 }
 
+static ulong *
+fd_banks_get_epoch_credits_len( fd_banks_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_credits_len_offset );
+}
+
+static ulong *
+fd_banks_get_epoch_credits_refcnt( fd_banks_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_credits_refcnt_offset );
+}
+
+/* One set per boundary-crossing fork, plus one for a bank left behind a
+   boundary. */
+
+static inline ulong
+fd_banks_epoch_credits_set_cnt( fd_banks_t const * banks_data ) {
+  return banks_data->max_fork_width + 1UL;
+}
+
+static void
+fd_banks_epoch_credits_acquire( fd_banks_t * banks_data,
+                                uchar        fork_id ) {
+  fd_banks_get_epoch_credits_refcnt( banks_data )[ fork_id ]++;
+}
+
+static void
+fd_banks_epoch_credits_release( fd_banks_t * banks_data,
+                                uchar        fork_id ) {
+  ulong * refcnt = fd_banks_get_epoch_credits_refcnt( banks_data ) + fork_id;
+  FD_CHECK_CRIT( *refcnt, "invariant violation: releasing an unreferenced epoch credits set" );
+  (*refcnt)--;
+}
+
 static fd_stashed_commission_t *
 fd_banks_get_snapshot_commission_t_3( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->snapshot_commission_t_3_offset );
@@ -97,13 +129,38 @@ fd_banks_get_snapshot_commission_t_3( fd_banks_t * banks_data ) {
 fd_epoch_credits_t *
 fd_bank_epoch_credits( fd_bank_t * bank ) {
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_banks_get_epoch_credits( banks_data );
+  return fd_banks_get_epoch_credits( banks_data ) + (ulong)bank->epoch_credits_fork_id * banks_data->max_vote_accounts;
 }
 
 ulong *
 fd_bank_epoch_credits_len( fd_bank_t * bank ) {
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return &banks_data->epoch_credits_len;
+  return fd_banks_get_epoch_credits_len( banks_data ) + (ulong)bank->epoch_credits_fork_id;
+}
+
+void
+fd_bank_epoch_credits_new_fork( fd_bank_t * bank ) {
+  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+
+  ulong   set_cnt = fd_banks_epoch_credits_set_cnt( banks_data );
+  ulong * refcnt  = fd_banks_get_epoch_credits_refcnt( banks_data );
+
+  ulong free_id = ULONG_MAX;
+  for( ulong i=0UL; i<set_cnt; i++ ) {
+    if( FD_UNLIKELY( !refcnt[ i ] ) ) {
+      free_id = i;
+      break;
+    }
+  }
+  FD_CHECK_CRIT( free_id!=ULONG_MAX, "invariant violation: no free epoch credits sets" );
+
+  if( FD_LIKELY( bank->epoch_credits_fork_id!=UCHAR_MAX ) ) {
+    fd_banks_epoch_credits_release( banks_data, bank->epoch_credits_fork_id );
+  }
+  bank->epoch_credits_fork_id = (uchar)free_id;
+  fd_banks_epoch_credits_acquire( banks_data, bank->epoch_credits_fork_id );
+
+  *fd_bank_epoch_credits_len( bank ) = 0UL;
 }
 
 fd_stashed_commission_t *
@@ -228,11 +285,66 @@ fd_banks_get_parent( fd_banks_t * banks,
   return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
 }
 
+/* A bank acquires a stake rewards fork when it computes rewards it does
+   not already hold: at an epoch boundary, or when the partition it has to
+   distribute falls outside the window its parent handed down.  Both are
+   known before the bank runs, which lets the caller avoid starting a bank
+   that would run out of forks mid-block.  A parent that is not known is
+   assumed to need one. */
+
+static int
+fd_banks_needs_stake_rewards_fork( fd_banks_t *      banks,
+                                   fd_bank_t const * parent_bank,
+                                   ulong             child_slot ) {
+  if( FD_UNLIKELY( !parent_bank ) ) return 1;
+
+  if( FD_UNLIKELY( fd_slot_to_epoch( &parent_bank->f.epoch_schedule, child_slot, NULL )!=parent_bank->f.epoch ) ) return 1;
+
+  uchar fork_id = parent_bank->stake_rewards_fork_id;
+  if( FD_LIKELY( fork_id==UCHAR_MAX ) ) return 0; /* rewards are not being distributed */
+
+  fd_stake_rewards_t * stake_rewards = fd_banks_get_stake_rewards( banks );
+
+  ulong block_height = parent_bank->f.block_height + 1UL;
+  ulong start        = fd_stake_rewards_starting_block_height( stake_rewards, fork_id );
+  ulong end          = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, fork_id );
+  if( FD_UNLIKELY( block_height<start || block_height>=end ) ) return 0; /* distributes nothing */
+
+  ulong partition_idx = block_height-start;
+  return partition_idx<(ulong)fd_stake_rewards_window_lo( stake_rewards, fork_id ) ||
+         partition_idx>(ulong)fd_stake_rewards_window_hi( stake_rewards, fork_id );
+}
+
 int
-fd_banks_can_start_bank( fd_banks_t * banks ) {
+fd_banks_can_start_bank( fd_banks_t *      banks,
+                         fd_bank_t const * parent_bank,
+                         ulong             child_slot ) {
   if( FD_UNLIKELY( fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL ) ) return 0;
   if( FD_UNLIKELY( banks->curr_fork_width>=banks->max_fork_width ) ) return 0;
+  if( FD_UNLIKELY( fd_stake_rewards_free_cnt( fd_banks_get_stake_rewards( banks ) )<=banks->stake_rewards_reserved_cnt &&
+                   fd_banks_needs_stake_rewards_fork( banks, parent_bank, child_slot ) ) ) return 0;
   return 1;
+}
+
+void
+fd_banks_reserve_stake_rewards( fd_banks_t * banks,
+                                fd_bank_t *  bank ) {
+  fd_bank_t const * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
+  if( FD_LIKELY( !fd_banks_needs_stake_rewards_fork( banks, parent_bank, bank->f.slot ) ) ) return;
+
+  FD_CHECK_CRIT( fd_stake_rewards_free_cnt( fd_banks_get_stake_rewards( banks ) )>banks->stake_rewards_reserved_cnt,
+                 "invariant violation: no stake rewards fork left to reserve" );
+  bank->stake_rewards_reserved = 1;
+  banks->stake_rewards_reserved_cnt++;
+}
+
+void
+fd_bank_stake_rewards_reservation_release( fd_bank_t * bank ) {
+  if( FD_LIKELY( !bank->stake_rewards_reserved ) ) return;
+  fd_banks_t * banks = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  FD_CHECK_CRIT( banks->stake_rewards_reserved_cnt, "invariant violation: stake rewards reservation underflow" );
+  banks->stake_rewards_reserved_cnt--;
+  bank->stake_rewards_reserved = 0;
 }
 
 ulong
@@ -277,7 +389,9 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( max_vote_accounts, fd_ulong_min( max_vote_accounts, expected_vote_accounts ), max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_new_votes_align(),              fd_new_votes_footprint( max_vote_accounts, expected_vote_accounts, max_total_banks ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),       sizeof(fd_epoch_credits_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * max_vote_accounts, max_fork_width+1UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
@@ -331,7 +445,9 @@ fd_banks_new( void * shmem,
   void *       stake_rewards_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_fork_width ) );
   void *       vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( max_vote_accounts, expected_vote_accounts, max_fork_width ) );
   void *       new_votes_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_new_votes_align(),              fd_new_votes_footprint( max_vote_accounts, expected_vote_accounts, max_total_banks ) );
-  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       sizeof(fd_epoch_credits_t) * max_vote_accounts );
+  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * max_vote_accounts, max_fork_width+1UL ) );
+  void *       epoch_credits_len_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
+  void *       epoch_credits_rc_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (max_fork_width+1UL) );
   void *       snapshot_commission_t_3 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * max_vote_accounts );
   void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
 
@@ -363,7 +479,11 @@ fd_banks_new( void * shmem,
   banks_data->epoch_leaders_footprint        = epoch_leaders_footprint;
   banks_data->pool_offset                    = (ulong)bank_pool - (ulong)banks_data;
   banks_data->epoch_credits_offset           = (ulong)epoch_credits_mem - (ulong)banks_data;
+  banks_data->epoch_credits_len_offset       = (ulong)epoch_credits_len_mem - (ulong)banks_data;
+  banks_data->epoch_credits_refcnt_offset    = (ulong)epoch_credits_rc_mem - (ulong)banks_data;
   banks_data->snapshot_commission_t_3_offset = (ulong)snapshot_commission_t_3 - (ulong)banks_data;
+  fd_memset( epoch_credits_len_mem, 0, sizeof(ulong) * (max_fork_width+1UL) );
+  fd_memset( epoch_credits_rc_mem,  0, sizeof(ulong) * (max_fork_width+1UL) );
 
   /* Create the pools for the non-inlined fields.  Also new() and join()
      each of the elements in the pool as well as set up the lock for
@@ -447,6 +567,7 @@ fd_banks_new( void * shmem,
   banks_data->max_fork_width     = max_fork_width;
   banks_data->max_stake_accounts = max_stake_accounts;
   banks_data->max_vote_accounts  = max_vote_accounts;
+  banks_data->stake_rewards_reserved_cnt = 0UL;
   banks_data->root_idx           = ULONG_MAX;
   banks_data->evict_rr_idx       = seed;
   banks_data->prunable_idx       = ULONG_MAX;
@@ -492,11 +613,15 @@ fd_banks_join( void * banks_data_mem ) {
   void * stake_rewards_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_fork_width ) );
   void * vote_stakes_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),            fd_vote_stakes_footprint( banks_data->max_vote_accounts, expected_vote_accounts, banks_data->max_fork_width ) );
   void * new_votes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_new_votes_align(),              fd_new_votes_footprint( banks_data->max_vote_accounts, expected_vote_accounts, banks_data->max_total_banks ) );
-  void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       sizeof(fd_epoch_credits_t) * banks_data->max_vote_accounts );
+  void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),       fd_ulong_sat_mul( sizeof(fd_epoch_credits_t) * banks_data->max_vote_accounts, banks_data->max_fork_width+1UL ) );
+  void * epoch_credits_len_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
+  void * epoch_credits_rc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                    sizeof(ulong) * (banks_data->max_fork_width+1UL) );
   void * snapshot_commission   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),  sizeof(fd_stashed_commission_t) * banks_data->max_vote_accounts );
   void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
   (void)new_votes_mem;
   (void)epoch_credits_mem;
+  (void)epoch_credits_len_mem;
+  (void)epoch_credits_rc_mem;
   (void)snapshot_commission;
   (void)collector_overrides_mem;
 
@@ -571,6 +696,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   fd_memset( &bank->f, 0, sizeof(bank->f) );
   bank->stake_rewards_fork_id             = UCHAR_MAX;
+  bank->stake_rewards_reserved            = 0;
+  bank->epoch_credits_fork_id             = 0;
+  fd_banks_epoch_credits_acquire( banks, bank->epoch_credits_fork_id );
   bank->stake_delegations_fork_id         = USHORT_MAX;
   bank->new_votes_fork_id                 = USHORT_MAX;
   bank->parent_accdb_fork_id.val          = USHORT_MAX;
@@ -625,6 +753,11 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->vote_stakes_fork_id        = parent_bank->vote_stakes_fork_id;
   child_bank->collector_overrides_fork_id = parent_bank->collector_overrides_fork_id;
   child_bank->stake_rewards_fork_id      = parent_bank->stake_rewards_fork_id;
+  child_bank->epoch_credits_fork_id      = parent_bank->epoch_credits_fork_id;
+  if( FD_UNLIKELY( child_bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_acquire( fd_banks_get_stake_rewards( banks ), child_bank->stake_rewards_fork_id );
+  }
+  fd_banks_epoch_credits_acquire( banks, child_bank->epoch_credits_fork_id );
   child_bank->stake_delegations_fork_id  = fd_stake_delegations_new_fork( fd_banks_get_stake_delegations( banks ) );
   child_bank->new_votes_fork_id          = fd_new_votes_new_fork( fd_banks_get_new_votes( banks ) );
   child_bank->f.block_height             = parent_bank->f.block_height + 1UL;
@@ -877,9 +1010,10 @@ fd_banks_advance_root( fd_banks_t * banks,
     if( FD_LIKELY( head->vote_stakes_fork_id!=USHORT_MAX ) ) {
       ulong prev_epoch = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.parent_slot, NULL );
       ulong new_epoch  = fd_slot_to_epoch( &head->f.epoch_schedule, head->f.slot, NULL );
-      /* vote_stakes and stake_rewards are allocated only at epoch
-         boundaries.  Non-boundary banks inherit their parent's fork ids
-         but don't own them. */
+      /* vote_stakes and the collector overrides are allocated only at
+         epoch boundaries.  Non-boundary banks inherit their parent's
+         fork ids but don't own them.  Stake rewards forks are reference
+         counted instead, so every bank releases its own below. */
       if( FD_UNLIKELY( prev_epoch!=new_epoch ) ) {
         if( FD_LIKELY( head->vote_stakes_fork_id!=new_root->vote_stakes_fork_id ) ) {
           fd_vote_stakes_purge_child( fd_banks_get_vote_stakes( banks ), head->vote_stakes_fork_id );
@@ -888,10 +1022,15 @@ fd_banks_advance_root( fd_banks_t * banks,
                        head->collector_overrides_fork_id!=new_root->collector_overrides_fork_id ) ) {
           fd_collector_overrides_purge_child( fd_banks_get_collector_overrides( banks ), head->collector_overrides_fork_id );
         }
-        if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX && head->stake_rewards_fork_id!=new_root->stake_rewards_fork_id ) ) {
-          fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
-        }
       }
+    }
+    if( FD_LIKELY( head->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+      fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), head->stake_rewards_fork_id );
+    }
+    fd_bank_stake_rewards_reservation_release( head );
+    if( FD_LIKELY( head->epoch_credits_fork_id!=UCHAR_MAX ) ) {
+      fd_banks_epoch_credits_release( banks, head->epoch_credits_fork_id );
+      head->epoch_credits_fork_id = UCHAR_MAX;
     }
     head->stake_rewards_fork_id       = UCHAR_MAX;
     head->vote_stakes_fork_id         = USHORT_MAX;
@@ -1047,6 +1186,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->vote_stakes_fork_id        = USHORT_MAX;
   child_bank->collector_overrides_fork_id = USHORT_MAX;
   child_bank->stake_rewards_fork_id      = UCHAR_MAX;
+  child_bank->stake_rewards_reserved    = 0;
+  child_bank->epoch_credits_fork_id     = UCHAR_MAX;
   child_bank->stake_delegations_fork_id = USHORT_MAX;
   child_bank->new_votes_fork_id         = USHORT_MAX;
   child_bank->parent_accdb_fork_id.val  = USHORT_MAX;
@@ -1173,8 +1314,15 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
       if( FD_LIKELY( bank->collector_overrides_fork_id!=USHORT_MAX ) ) {
         fd_collector_overrides_purge_child( fd_banks_get_collector_overrides( banks ), bank->collector_overrides_fork_id );
       }
-      if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) fd_stake_rewards_purge( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
     }
+  }
+  if( FD_LIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
+  }
+  fd_bank_stake_rewards_reservation_release( bank );
+  if( FD_LIKELY( bank->epoch_credits_fork_id!=UCHAR_MAX ) ) {
+    fd_banks_epoch_credits_release( banks, bank->epoch_credits_fork_id );
+    bank->epoch_credits_fork_id = UCHAR_MAX;
   }
   bank->vote_stakes_fork_id         = USHORT_MAX;
   bank->collector_overrides_fork_id = USHORT_MAX;
@@ -1239,6 +1387,10 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
 
   FD_CHECK_CRIT( bank->state==FD_BANK_STATE_REPLAYABLE, "invariant violation: bank is not replayable" );
   bank->state = FD_BANK_STATE_FROZEN;
+
+  /* The bank has run: either it acquired the fork it reserved, or it
+     turned out not to need one. */
+  fd_bank_stake_rewards_reservation_release( bank );
 
   FD_CHECK_CRIT( bank->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );
   fd_bank_cost_tracker_pool_idx_release( fd_banks_get_cost_tracker_pool( banks ), bank->cost_tracker_pool_idx );
@@ -1336,6 +1488,11 @@ fd_banks_clear_bank( fd_banks_t * banks,
     bank->new_votes_fork_id = USHORT_MAX;
   }
 
+  if( FD_UNLIKELY( bank->stake_rewards_fork_id!=UCHAR_MAX ) ) {
+    fd_stake_rewards_release( fd_banks_get_stake_rewards( banks ), bank->stake_rewards_fork_id );
+    bank->stake_rewards_fork_id = UCHAR_MAX;
+  }
+
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   ulong expected_vote_accounts  = fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   fd_vote_stakes_new( vote_stakes, max_vote_accounts, expected_vote_accounts, banks->max_fork_width, 999UL );
@@ -1345,6 +1502,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_collector_overrides_t * collector_overrides = fd_banks_get_collector_overrides( banks );
   fd_collector_overrides_reset( collector_overrides );
   bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( collector_overrides );
+
+  *fd_bank_epoch_credits_len( bank ) = 0UL;
 }
 
 void
@@ -1372,7 +1531,12 @@ fd_banks_clear( fd_banks_t * banks ) {
 
   fd_stake_rewards_clear( fd_banks_get_stake_rewards( banks ) );
 
+  ulong epoch_credits_set_cnt = fd_banks_epoch_credits_set_cnt( banks );
+  fd_memset( fd_banks_get_epoch_credits_len( banks ),    0, sizeof(ulong) * epoch_credits_set_cnt );
+  fd_memset( fd_banks_get_epoch_credits_refcnt( banks ), 0, sizeof(ulong) * epoch_credits_set_cnt );
+
   banks->root_idx = ULONG_MAX;
   banks->curr_fork_width = 0UL;
+  banks->stake_rewards_reserved_cnt = 0UL;
   banks->bank_seq = 1UL; /* start at 1 so 0 is reserved as an invalid bank_seq sentinel */
 }

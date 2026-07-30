@@ -258,6 +258,7 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
+  fd_banks_reserve_stake_rewards( ctx->banks, bank );
   bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
@@ -555,6 +556,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   ctx->leader_bank->preparation_begin_nanos = before;
 
   ctx->leader_bank->f.slot = slot;
+  fd_banks_reserve_stake_rewards( ctx->banks, ctx->leader_bank );
 
   ctx->leader_bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
   ctx->leader_bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
@@ -826,7 +828,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
 
-  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks, reset_bank, ctx->next_leader_slot ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
@@ -1523,10 +1525,10 @@ can_process_fec( fd_replay_tile_t * ctx,
         - backfill: the parent FEC's bank was never created or has been
           evicted and must be reconstructed. */
 
-  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
+  int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
+  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks, invalid_parent ? NULL : parent_fec_bank, fec->slot ) ) ) {
     int is_new_block   = fec->fec_set_idx==0U;
     int is_eqvoc       = fec->eqvoc && !parent->eqvoc;
-    int invalid_parent = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
     if( FD_UNLIKELY( is_new_block || is_eqvoc || invalid_parent ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;

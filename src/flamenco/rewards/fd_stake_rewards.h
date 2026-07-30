@@ -78,11 +78,41 @@ fd_stake_rewards_join( void * shmem );
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
 
-/* fd_stake_rewards_purge frees all per-fork state for a given fork. */
+/* fd_stake_rewards_purge frees all per-fork state for a given fork,
+   regardless of how many references it has. */
 
 void
 fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
                         uchar                fork_idx );
+
+/* A fork's storage is reference counted because banks share it: the bank
+   that computes the rewards holds the reference returned by
+   fd_stake_rewards_init, and every bank that inherits the fork index
+   takes another one with fd_stake_rewards_acquire.
+   fd_stake_rewards_release drops a reference and purges the fork once
+   the last one is gone.  Releasing a fork that holds no references is a
+   no-op: a new epoch reclaims every fork at once, so a bank left over
+   from a previous epoch may release a fork that is already gone. */
+
+void
+fd_stake_rewards_acquire( fd_stake_rewards_t * stake_rewards,
+                          uchar                fork_idx );
+
+void
+fd_stake_rewards_release( fd_stake_rewards_t * stake_rewards,
+                          uchar                fork_idx );
+
+ulong
+fd_stake_rewards_refcnt( fd_stake_rewards_t const * stake_rewards,
+                         uchar                      fork_idx );
+
+/* fd_stake_rewards_free_cnt returns how many forks can still be
+   acquired.  A bank needs one whenever it computes rewards it does not
+   already hold: at an epoch boundary, or when the partition it has to
+   distribute falls outside its window. */
+
+ulong
+fd_stake_rewards_free_cnt( fd_stake_rewards_t const * stake_rewards );
 
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
@@ -101,7 +131,12 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
    window to be win_lo.  The caller is expected to insert stake rewards
    in the same way it does when computing rewards.  parent_blockhash
    must match the one that was supplied to fd_stake_rewards_init for
-   the initial rewards computation. */
+   the initial rewards computation.
+
+   A fork's window is only ever positioned before its entries are
+   computed: a bank that needs a window other than the one it holds
+   acquires a fork of its own, because the fork it holds is shared with
+   the banks that branched off it. */
 
 void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,

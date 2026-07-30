@@ -560,14 +560,18 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
 static void
 get_vote_credits( uchar const *        account_data,
                   ulong                account_data_len,
+                  ushort               commission,
                   fd_epoch_credits_t * epoch_credits ) {
 
-  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &epoch_credits->cnt );
+  ulong                           cnt                = 0UL;
+  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &cnt );
   FD_TEST( vote_epoch_credits );
-  FD_TEST( epoch_credits->cnt<=FD_EPOCH_CREDITS_MAX );
+  FD_TEST( cnt<=FD_EPOCH_CREDITS_MAX );
+  epoch_credits->cnt        = (ushort)cnt;
+  epoch_credits->commission = commission;
 
-  ulong base = epoch_credits->cnt ? vote_epoch_credits[0].prev_credits : 0UL;
-  for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
+  ulong base = cnt ? vote_epoch_credits[0].prev_credits : 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
     fd_vote_epoch_credits_t const * ele        = &vote_epoch_credits[ i ];
     epoch_credits->epoch[ i ]              = (ushort)ele->epoch;
     epoch_credits->credits_delta[ i ]      = (uint)( ele->credits      - base );
@@ -810,7 +814,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
     fd_memcpy( epoch_credits->pubkey, &pubkey, sizeof(fd_pubkey_t) );
-    get_vote_credits( acc.data, acc.data_len, epoch_credits );
+    get_vote_credits( acc.data, acc.data_len, vote_ele->commission, epoch_credits );
     fd_accdb_unread_one( accdb, &acc );
 
     fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
@@ -1092,7 +1096,6 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
 
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
       fd_memcpy( epoch_credits->pubkey, &stake_accum->pubkey, sizeof(fd_pubkey_t) );
-      get_vote_credits( acc.data, acc.data_len, epoch_credits );
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
       vote_ele->pubkey             = stake_accum->pubkey;
       vote_ele->vote_rewards       = 0UL;
@@ -1101,6 +1104,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       } else {
         vote_ele->commission = commission_t_1;
       }
+      get_vote_credits( acc.data, acc.data_len, vote_ele->commission, epoch_credits );
       fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_reward_cnt++;
 
@@ -1142,6 +1146,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      tracked for historical stake/node_account/commission lookups.
      The non vat code path uses the vote stakes data structure as it
      considers all vote/stake accounts. */
+  fd_bank_epoch_credits_new_fork( bank );
+
   if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
     fd_refresh_vote_accounts_vat( bank, accdb, runtime_stack, stake_delegations, history, new_rate_activation_epoch );
   } else {

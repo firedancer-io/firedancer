@@ -521,6 +521,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
+  fd_bank_epoch_credits_new_fork( bank );
   ulong epoch_credits_len = 0UL;
 
   /* Populate the vote stakes for the end of the T-1 epoch if the
@@ -552,7 +553,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
-    ec->cnt          = elem->epoch_credits_history_len;
+    ec->cnt          = (ushort)elem->epoch_credits_history_len;
     ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
       ec->epoch[ j ]              = (ushort)elem->epoch_credits[ j ].epoch;

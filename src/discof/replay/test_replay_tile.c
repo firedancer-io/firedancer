@@ -1390,7 +1390,7 @@ test_banks_full_prune_leaf( fd_wksp_t * wksp ) {
     leaf_bank->refcnt = 0UL;
   }
 
-  FD_TEST( !fd_banks_can_start_bank( ctx->banks ) );
+  FD_TEST( !fd_banks_can_start_bank( ctx->banks, NULL, 0UL ) );
   FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==TEST_BANKS_MAX );
   FD_TEST( leaf_cnt>1UL );
 
@@ -1442,7 +1442,7 @@ test_banks_full_prune_leaf( fd_wksp_t * wksp ) {
   leader_bank = fd_banks_bank_query( ctx->banks, leader_leaf_idx );
   FD_TEST( leader_bank );
   FD_TEST( leader_bank->is_leader );
-  FD_TEST( !fd_banks_can_start_bank( ctx->banks ) );
+  FD_TEST( !fd_banks_can_start_bank( ctx->banks, NULL, 0UL ) );
 
   FD_LOG_NOTICE(( "pass: test_banks_full_prune_leaf" ));
 }
