@@ -85,14 +85,10 @@ void
 fd_stake_rewards_purge( fd_stake_rewards_t * stake_rewards,
                         uchar                fork_idx );
 
-/* A fork's storage is reference counted because banks share it: the bank
-   that computes the rewards holds the reference returned by
-   fd_stake_rewards_init, and every bank that inherits the fork index
-   takes another one with fd_stake_rewards_acquire.
-   fd_stake_rewards_release drops a reference and purges the fork once
-   the last one is gone.  Releasing a fork that holds no references is a
-   no-op: a new epoch reclaims every fork at once, so a bank left over
-   from a previous epoch may release a fork that is already gone. */
+/* Each stake rewards fork idx must be refcnt'd since they are shared
+   across banks.  fd_stake_rewards_acquire increments the reference
+   count and fd_stake_rewards_release decrements it.  Once the count
+   reaches zero, the fork is purged via a call to _release(). */
 
 void
 fd_stake_rewards_acquire( fd_stake_rewards_t * stake_rewards,
@@ -136,7 +132,8 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
    A fork's window is only ever positioned before its entries are
    computed: a bank that needs a window other than the one it holds
    acquires a fork of its own, because the fork it holds is shared with
-   the banks that branched off it. */
+   the banks that branched off it.  When the window is advance, it must
+   belong to a new fork_idx. */
 
 void
 fd_stake_rewards_window_advance( fd_stake_rewards_t * stake_rewards,
