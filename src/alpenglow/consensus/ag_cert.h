@@ -70,7 +70,7 @@ struct ag_cert {
     ag_notar_fallback_cert_t notar_fallback;
     ag_skip_cert_t           skip;
     ag_fast_final_cert_t     fast_final;
-    ag_final_cert_t          final_;
+    ag_final_cert_t          final;
   } inner;
 };
 typedef struct ag_cert ag_cert_t;
@@ -219,6 +219,20 @@ int ag_block_final_cert_de( ag_cert_t out[ 2 ], ulong * out_cert_cnt, uchar cons
    point (certs are then partially decompressed and must be discarded). */
 
 int ag_block_final_cert_decompress( ag_cert_t * certs, ulong cert_cnt );
+
+/* ag_cert_serialize writes self as a VersionedWireConsensusMessage::V1
+   (the inverse of ag_cert_de plus the version / kind envelope, cf.
+   ag_vote_serialize), binding shred_version.  Returns the byte count, or
+   0 if out_max is too small or the cert kind has no wire form (Genesis). */
+
+#define AG_CERT_SERIALIZED_MAX (2UL + 8UL + sizeof(fd_hash_t) + AG_AGGSIG_SIG_SZ + 8UL + 3UL + \
+                                (AG_AGGSIG_MAX_SIGNERS+4UL)/5UL + 2UL)
+
+ulong
+ag_cert_serialize( ag_cert_t const * self,
+                   uchar *           out,
+                   ulong             out_max,
+                   ushort            shred_version );
 
 static inline const char * ag_cert_type_to_string( uint type ) {
   switch( type ) {

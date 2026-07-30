@@ -1,5 +1,7 @@
 #include "fd_chainer.h"
 #include "../../disco/shred/fd_fec_set.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 #include <stdio.h>
 
@@ -284,7 +286,8 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
                          uint              shred_idx,
                          int               slot_complete,
                          fd_hash_t const * mr,
-                         ulong             parent_slot ) {
+                         ulong             parent_slot,
+                         fd_hash_t const * parent_block_id ) {
 
   uint fec_set_idx = shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
   ulong version = 0UL;
@@ -316,11 +319,19 @@ fd_chainer_shred_insert( fd_chainer_t    * chainer,
   /* If equivocating, buffered_idx needs to be clamped to complete_idx */
   if( FD_UNLIKELY( slotv->buffered_idx != UINT_MAX && slotv->complete_idx != UINT_MAX && slotv->buffered_idx > slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
 
-  /* parent / UpdateParent handling -- TODO (parse_parent_marker is a
-     stub).  Will move to the repair-tile level; chain by the declared
-     parent (header/marker), never parent_off. */
-  if( parent_slot != AG_UNKNOWN_SLOT ) {
-    slotv->parent_slot = parent_slot;
+  /* Parent chaining off the block's DECLARED parent (BlockHeaderV1 at
+     shred 0, or a later UpdateParentV1), parsed by the repair tile --
+     never parent_off.  The declared parent_block_id is what the double
+     merkle block_id binds, and what children are matched against, so
+     record it alongside the slot.  parent_slot_batch tracks which batch
+     the information came from so a later UpdateParent supersedes the
+     header (it may only move forward).  UINT_MAX means "nothing known
+     yet", so it is not a batch index to compare against. */
+  if( parent_slot != AG_UNKNOWN_SLOT &&
+      ( slotv->parent_slot_batch==UINT_MAX || shred_idx>slotv->parent_slot_batch ) ) {
+    slotv->parent_slot       = parent_slot;
+    slotv->parent_slot_batch = shred_idx;
+    if( parent_block_id ) slotv->parent_block_id = *parent_block_id;
     if( slotv_query( chainer, parent_slot, 0 ) ) {
       fd_chainer_orphan_remove( chainer, slotv ); /* no longer unknown */
     }
@@ -337,15 +348,56 @@ chainer_deliver( fd_chainer_t    * chainer,
   (void)chainer; (void)slot; (void)version; (void)fec_set_idx; (void)block_id;
 }
 
-/* finalize_block_id computes the slotv's double-merkle block_id.  TODO
-   the repair tile computes it over the slotv's per-FEC merkle roots +
-   final leaf hashv(parent_slot, parent_block_id, fec_set_count) and
-   writes it to slotv->block_id.  Until then block_id stays zero and
-   connect_children below matches nothing. */
+/* finalize_block_id computes the slotv's double-merkle block_id: the
+   root of the merkle tree whose leaves are this version's per-FEC-set
+   merkle roots in fec_set_idx order, followed by one final parent-info
+   leaf sha256(parent_slot LE u64 | parent_block_id | fec_set_count LE
+   u32) -- fec_set_count+1 leaves in all.  Same 20-byte-node shred merkle
+   hashing as the FEC trees; the leaves are already hashes so they go in
+   as nodes and only the internal joins carry a prefix.
+
+   Mirrors agave's DoubleMerkleMeta (blockstore_meta.rs) and
+   standard_broadcast_run.rs parent_info_leaf.
+
+   Leaves block_id zero -- and so matches no child in chainer_advance --
+   if the slot's extent or declared parent is not known yet, or if any
+   FEC root in the range is still missing. */
 
 static void
 finalize_block_id( fd_chainer_t * chainer, fd_slotv_t * slotv ) {
-  (void)chainer; (void)slotv;
+  if( FD_UNLIKELY( slotv->complete_idx==UINT_MAX          ) ) return; /* extent unknown */
+  if( FD_UNLIKELY( slotv->parent_slot ==AG_UNKNOWN_SLOT   ) ) return; /* declared parent unknown */
+
+  ulong slot    = slotv_slot   ( slotv->key );
+  ulong version = slotv_version( slotv->key );
+
+  ulong fec_set_count = ( (ulong)slotv->complete_idx + 1UL ) / FD_FEC_SHRED_CNT;
+  if( FD_UNLIKELY( !fec_set_count || fec_set_count>FD_FEC_BLK_MAX ) ) return;
+
+  /* root-only calc: no inclusion proofs are retained, so the commit
+     state is small enough to live on the stack. */
+  uchar mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
+
+  for( ulong i=0UL; i<fec_set_count; i++ ) {
+    fd_fec_t * fec = fec_query_ver( chainer, slot, (uint)( i*FD_FEC_SHRED_CNT ), version );
+    if( FD_UNLIKELY( !fec ) ) return; /* hole: cannot compute the block_id yet */
+    fd_bmtree_node_t leaf[1];
+    memcpy( leaf->hash, fec->merkle_root.uc, sizeof(fd_hash_t) );
+    fd_bmtree_commit_append( tree, leaf, 1UL );
+  }
+
+  {
+    uchar buf[ sizeof(ulong)+sizeof(fd_hash_t)+sizeof(uint) ];
+    FD_STORE( ulong, buf,                                 slotv->parent_slot     );
+    memcpy( buf+sizeof(ulong), slotv->parent_block_id.uc, sizeof(fd_hash_t)       );
+    FD_STORE( uint,  buf+sizeof(ulong)+sizeof(fd_hash_t), (uint)fec_set_count    );
+    fd_bmtree_node_t leaf[1];
+    fd_sha256_hash( buf, sizeof(buf), leaf->hash );
+    fd_bmtree_commit_append( tree, leaf, 1UL );
+  }
+
+  memcpy( slotv->block_id.uc, fd_bmtree_commit_fini( tree ), sizeof(fd_hash_t) );
 }
 
 /* chainer_advance delivers as many contiguous completed FEC sets as
@@ -424,7 +476,7 @@ fd_chainer_fec_insert( fd_chainer_t * chainer,
   uint fec_set_idx = (uint)fec_set_idx_;
 
   for( uint i = 0; i < FD_FEC_SHRED_CNT; i++ ) {
-    fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && (i == FD_FEC_SHRED_CNT - 1), mr, AG_UNKNOWN_SLOT );
+    fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && (i == FD_FEC_SHRED_CNT - 1), mr, AG_UNKNOWN_SLOT, NULL );
   }
 
   /* Case 2: a FEC with this exact root already exists.  Fill every
@@ -535,15 +587,27 @@ fec_remove( fd_chainer_t * chainer,
 }
 
 void
-fd_chainer_publish( fd_chainer_t * chainer,
-                    ulong          new_root ) {
-  /* TODO should take the block_id of the new root */
+fd_chainer_publish( fd_chainer_t *    chainer,
+                    ulong             new_root,
+                    fd_hash_t const * new_root_block_id ) {
   fd_slotv_map_t * slotv_map  = fd_chainer_slotv_map( chainer );
   fd_slotv_t     * slotv_pool = fd_chainer_slotv_pool( chainer );
   ulong root = chainer->root;
   if( FD_UNLIKELY( root==ULONG_MAX ) ) return;
   FD_TEST( root < new_root );
   FD_TEST( slotv_query( chainer, new_root, 0 ) );
+
+  /* The new root is one specific block, so every equivocating sibling
+     version of that slot is now dead and must go with the pre-root
+     slots below.  If we cannot identify the canonical version -- the
+     caller passed no block_id, or none of our versions has computed a
+     matching one yet (finalize_block_id needs the full FEC set plus the
+     declared parent) -- keep them all rather than guess wrong and prune
+     the version we are actually rooted on. */
+  fd_slotv_t * canonical = new_root_block_id ? fd_chainer_slot_version_query( chainer, new_root, new_root_block_id ) : NULL;
+  if( FD_UNLIKELY( !canonical ) ) {
+    FD_LOG_WARNING(( "chainer publish %lu: no version matches the rooted block_id; keeping all versions", new_root ));
+  }
 
   for( ulong slot=root; slot<new_root; slot++ ) {
     for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
@@ -562,11 +626,24 @@ fd_chainer_publish( fd_chainer_t * chainer,
     }
   }
 
-  /* TODO prune away all other root versions when we wire through block_id*/
   chainer->root = new_root;
   for( ulong v=0UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
     fd_slotv_t * root_slotv = slotv_query( chainer, new_root, v );
     if( FD_UNLIKELY( !root_slotv ) ) break;
+
+    /* Non-canonical version of the rooted slot -> drop it, same as a
+       pre-root slot. */
+    if( FD_UNLIKELY( canonical && root_slotv!=canonical ) ) {
+      fd_chainer_orphan_remove( chainer, root_slotv );
+      fd_chainer_repair_remove( chainer, root_slotv );
+      for( uint f=0U; f<fd_ulong_min( root_slotv->complete_idx, 1024 ); f+=FD_FEC_SHRED_CNT ) {
+        fec_remove( chainer, FD_CHAINER_FEC_KEY( new_root, f, v ) );
+      }
+      fd_slotv_map_ele_remove( slotv_map, &root_slotv->key, NULL, slotv_pool );
+      fd_slotv_pool_ele_release( slotv_pool, root_slotv );
+      continue;
+    }
+
     if( FD_UNLIKELY( root_slotv->parent_slot==AG_UNKNOWN_SLOT ) ) {
       root_slotv->parent_slot = new_root;
     }

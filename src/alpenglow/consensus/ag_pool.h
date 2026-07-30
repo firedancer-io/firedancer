@@ -30,6 +30,14 @@
 #define AG_POOL_VOTOR_EVENT_MAX (256UL)
 #define AG_POOL_REPAIR_MAX      (256UL)
 
+/* Caller-buffer caps for ag_pool_recover_from_standstill's recovery
+   bundle.  Only slots above the finalized one are unpruned and the loop
+   re-runs every DELTA_STANDSTILL, so these are headroom rather than a
+   functional limit; a bundle that hits them is truncated and logged. */
+
+#define AG_POOL_STANDSTILL_CERT_MAX (4096UL)
+#define AG_POOL_STANDSTILL_VOTE_MAX (4096UL)
+
 typedef struct ag_pool ag_pool_t;
 
 FD_PROTOTYPES_BEGIN

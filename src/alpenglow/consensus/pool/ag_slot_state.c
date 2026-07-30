@@ -689,7 +689,7 @@ count_finalize_stake( ag_slot_state_t * slot_state,
   if( ag_epoch_info_is_quorum( epoch_info, slot_state->voted_stakes.finalize ) ) {
     if( !slot_state->certificates.has_finalize ) {
       ag_cert_t cert; cert.kind = AG_CERT_TYPE_FINAL;
-      ag_final_cert_from_agg( &cert.inner.final_, slot_state->slot,
+      ag_final_cert_from_agg( &cert.inner.final, slot_state->slot,
                               &slot_state->votes.finalize,
                               ag_epoch_info_validators( epoch_info ),
                               epoch_info->validator_cnt );
@@ -735,7 +735,7 @@ ag_slot_state_add_cert( ag_slot_state_t * slot_state,
     break;
   }
   case AG_CERT_TYPE_FINAL: {
-    ag_final_cert_t const * f = &cert->inner.final_;
+    ag_final_cert_t const * f = &cert->inner.final;
     slot_state->certificates.has_finalize = 1;
     slot_state->certificates.finalize     = *f;
     break;
@@ -793,7 +793,7 @@ ag_slot_state_add_vote( ag_slot_state_t * slot_state,
     break;
   }
   case AG_VOTE_TYPE_FINAL: {
-    ag_final_vote_t const * final_vote = &vote->inner.final_;
+    ag_final_vote_t const * final_vote = &vote->inner.final;
     ag_aggsig_add( &v->finalize, voter, &final_vote->sig );
     if( voter==slot_state->own_id ) v->own.finalize = *final_vote;
     outputs = count_finalize_stake( slot_state, voter_stake );

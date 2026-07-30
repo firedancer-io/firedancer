@@ -124,11 +124,18 @@ ag_votor_align( void );
 FD_FN_CONST ulong
 ag_votor_footprint( ulong slot_max );
 
+/* sign / sign_ctx are how the votor signs its votes.  The Rust reference
+   stores the voting key in Votor; here the votor stores a signer so the
+   votor tile can route signing to the sign tile and hold no BLS key
+   material.  Pass ag_aggsig_sign_local with an ag_aggsig_sk_t const * as
+   sign_ctx to sign in process (tests).  sign must be non-NULL. */
+
 void *
 ag_votor_new( void *                 shmem,
               ulong                  slot_max,
               ushort                 validator_index,
-              ag_aggsig_sk_t const * voting_key,
+              ag_aggsig_sign_fn      sign,
+              void *                 sign_ctx,
               ushort                 shred_version,
               ulong                  seed );
 

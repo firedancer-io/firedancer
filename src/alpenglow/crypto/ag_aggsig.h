@@ -35,7 +35,28 @@ typedef struct ag_aggsig ag_aggsig_t;
 
 #define AG_AGGSIG_SERIALIZED_MAX        (AG_AGGSIG_SERIALIZED_SZ(AG_AGGSIG_MAX_SIGNERS))
 
+/* ag_aggsig_sign_fn signs payload under the caller's BLS voting key.
+   It exists so a component can produce votes without holding the key:
+   the votor tile delegates to the sign tile over the keyguard, while
+   tests (and anything that legitimately holds the key in-process) use
+   ag_aggsig_sign_local with the sk as ctx. */
+
+typedef void
+(* ag_aggsig_sign_fn)( void *            ctx,
+                       ag_aggsig_sig_t * sig,
+                       uchar const *     payload,
+                       ulong             payload_sz );
+
 FD_PROTOTYPES_BEGIN
+
+/* ag_aggsig_sign_local is an ag_aggsig_sign_fn whose ctx is an
+   ag_aggsig_sk_t const *. */
+
+void
+ag_aggsig_sign_local( void *            ctx,
+                      ag_aggsig_sig_t * sig,
+                      uchar const *     payload,
+                      ulong             payload_sz );
 
 void
 ag_aggsig_sk_to_pk( ag_aggsig_pk_t *       pk,

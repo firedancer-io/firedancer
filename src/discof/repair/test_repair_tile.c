@@ -808,17 +808,75 @@ static uchar shred_buf[FD_SHRED_MAX_SZ];
 static inline fd_shred_t *
 make_shred( ulong slot, uint shred_idx, int slot_complete, int make_parent_marker ) {
   fd_shred_t * shred = (fd_shred_t *)fd_type_pun(shred_buf);
+  memset( shred_buf, 0, sizeof(shred_buf) );
   shred->variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
   shred->slot = slot;
   shred->idx = shred_idx;
   shred->fec_set_idx = (shred_idx / 32) * 32;
-  shred->data.parent_off = 1; /* parent = slot - 1 (only read for idx 0) */
+  shred->data.parent_off = 1; /* Alpenglow never reads this -- the declared marker is authoritative */
   shred->data.flags = slot_complete ? FD_SHRED_DATA_FLAG_SLOT_COMPLETE : 0;
+  shred->data.size = (ushort)FD_SHRED_DATA_HEADER_SZ;
+
   if( make_parent_marker ) {
-    /* populate payload */
-    FD_LOG_WARNING(( "make_shred: parent marker not implemented" ));
+    /* A BlockComponent whose entry count is zero is a BlockMarker; emit
+       the BlockHeaderV1 that opens an Alpenglow block, declaring the
+       parent the chainer chains on. */
+    fd_block_marker_t * m = (fd_block_marker_t *)fd_type_pun( shred_buf + FD_SHRED_DATA_HEADER_SZ );
+    m->marker_flag = 0UL;
+    m->version     = 1;
+    m->variant     = HEADER;
+    m->length      = (ushort)sizeof(fd_block_header_t);
+    m->data.header.header_version = 1;
+    m->data.header.v1.parent_slot = slot - 1UL;
+    shred->data.size = (ushort)( FD_SHRED_DATA_HEADER_SZ + offsetof( fd_block_marker_t, data ) + sizeof(fd_block_header_t) );
   }
-  return (fd_shred_t *)shred_buf;
+  return shred;
+}
+
+/* dmr_t is the double-merkle tree over a block: the per-FEC-set merkle
+   roots followed by the parent-info leaf, exactly as a leader builds it.
+   The repair tile verifies every block-id repair response against this
+   tree, so the fixtures below have to produce real proofs. */
+
+#define DMR_LAYER_CNT (12UL) /* >= depth of FD_FEC_BLK_MAX+1 leaves */
+
+typedef struct {
+  uchar     mem[ FD_BMTREE_COMMIT_FOOTPRINT( DMR_LAYER_CNT ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  fd_bmtree_commit_t * tree;
+  fd_hash_t root;
+  ulong     proof_len;
+} dmr_t;
+
+static void
+dmr_build( dmr_t *           dmr,
+           fd_hash_t const * fec_roots,
+           ulong             fec_set_count,
+           ulong             parent_slot,
+           fd_hash_t const * parent_block_id ) {
+  dmr->tree = fd_bmtree_commit_init( dmr->mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, DMR_LAYER_CNT );
+  for( ulong i=0UL; i<fec_set_count; i++ ) {
+    fd_bmtree_node_t leaf[1];
+    memcpy( leaf->hash, fec_roots[i].uc, sizeof(fd_hash_t) );
+    fd_bmtree_commit_append( dmr->tree, leaf, 1UL );
+  }
+  uchar buf[ sizeof(ulong)+sizeof(fd_hash_t)+sizeof(uint) ];
+  FD_STORE( ulong, buf,                                 parent_slot           );
+  memcpy( buf+sizeof(ulong), parent_block_id->uc,        sizeof(fd_hash_t)     );
+  FD_STORE( uint,  buf+sizeof(ulong)+sizeof(fd_hash_t),  (uint)fec_set_count  );
+  fd_bmtree_node_t pleaf[1];
+  fd_sha256_hash( buf, sizeof(buf), pleaf->hash );
+  fd_bmtree_commit_append( dmr->tree, pleaf, 1UL );
+
+  memcpy( dmr->root.uc, fd_bmtree_commit_fini( dmr->tree ), sizeof(fd_hash_t) );
+  dmr->proof_len = fd_bmtree_depth( fec_set_count+1UL ) - 1UL;
+}
+
+static void
+dmr_proof( dmr_t * dmr,
+           ulong   leaf_idx,
+           uchar * dest ) {
+  int n = fd_bmtree_get_proof( dmr->tree, dest, leaf_idx );
+  FD_TEST( n>=0 && (ulong)n==dmr->proof_len );
 }
 
 static void
@@ -846,10 +904,20 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
   fd_hash_t mr_bad[3] = { mr0, mr1_bad, mr2_bad };
   fd_hash_t mr_good[3] = { mr0, mr1_good, mr2_good };
 
-  fd_hash_t bid_v0, bid_v1; /* double-merkle block ids */
-  bid_v0 = (fd_hash_t){ .ul = { 6 } };
-  bid_v1 = (fd_hash_t){ .ul = { 7 } }; /* certified alternate's double-merkle root, must be non-zero and != bid_v0
-                                          ({0} collides with the unknown/not-yet-finalized block_id sentinel) */
+  /* Both versions declare the same parent; they differ only in their FEC
+     roots, so their double-merkle block ids differ. */
+  ulong     const PARENT_SLOT = SLOT - 1UL;
+  fd_hash_t const PARENT_BID  = (fd_hash_t){ .ul = { 5 } };
+
+  /* Real double-merkle roots, so the repair responses below can carry
+     proofs that verify (and so the ids cannot collide with the all-zero
+     unknown/not-yet-finalized block_id sentinel). */
+  static dmr_t dmr_v0, dmr_v1;
+  dmr_build( &dmr_v0, mr_bad,  3UL, PARENT_SLOT, &PARENT_BID );
+  dmr_build( &dmr_v1, mr_good, 3UL, PARENT_SLOT, &PARENT_BID );
+  fd_hash_t bid_v0 = dmr_v0.root;
+  fd_hash_t bid_v1 = dmr_v1.root;
+  FD_TEST( !fd_hash_eq( &bid_v0, &bid_v1 ) );
   fd_shred_t * shred = NULL;
 
   /* -------- Phase 1: ingest turbine version 0 (+ dups) -------- */
@@ -893,17 +961,19 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
   ag_repair_parent_fec_count_req_t * req = &sign.msg.parent_fec_set_count;
   FD_TEST( req->slot==SLOT && fd_hash_eq( &req->block_id, &bid_v1 ) );
 
-  /* simulate return response for parent fec count */
+  /* simulate return response for parent fec count.  The parent info is
+     the tree's FINAL leaf, at index fec_set_count. */
   ag_parent_fec_count_res_t res = {
     .fec_set_count = TOTAL_SHREDS / 32,
-    .parent_slot = SLOT,
-    .parent_block_id = bid_v0,
-    .proof_len = 0,
-    .parent_proof = {{0}},
+    .parent_slot = PARENT_SLOT,
+    .parent_block_id = PARENT_BID,
+    .proof_len = dmr_v1.proof_len,
   };
+  dmr_proof( &dmr_v1, TOTAL_SHREDS / 32, res.parent_proof[0] );
   ag_repair_response_t resp = (ag_repair_response_t){
     .kind = AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT,
-    .parent_fec_set_res = res
+    .parent_fec_set_res = res,
+    .nonce = req->nonce
   };
 
   after_alpen_repair( ctx, &resp );
@@ -918,8 +988,10 @@ test_alpenglow_repair_full_path( fd_wksp_t * wksp ) {
 
     /* simulate return response for fec root */
     ag_fec_root_res_t res = {
-      .root = mr_good[f]
+      .root      = mr_good[f],
+      .proof_len = dmr_v1.proof_len,
     };
+    dmr_proof( &dmr_v1, f, res.fec_proof[0] );
     ag_repair_response_t resp = (ag_repair_response_t){
       .kind = AG_REPAIR_RESPONSE_FEC_SET_ROOT,
       .fec_set_root = res,
@@ -982,14 +1054,16 @@ test_repair_request_order( fd_wksp_t * wksp ) {
 
   fd_shred_t * shred;
 
-  /* slot 1 v0: one shred, no slot-complete -> complete_idx unknown */
-  shred = make_shred( 1, 0, /*slot_complete*/0, 0 );
+  /* slot 1 v0: one shred, no slot-complete -> complete_idx unknown.  Its
+     shred 0 carries the block header declaring parent slot 0 (the root),
+     which is what takes it out of the orphan treap. */
+  shred = make_shred( 1, 0, /*slot_complete*/0, /*parent marker*/1 );
   after_alpen_shred( ctx, 0, shred, 0, &mr );
 
   /* slot 2 v0: shreds 0,2..31 then fec-complete (32..63) -> complete_idx=63, gap at idx 1 */
   for( uint i = 0; i < 32; i++ ) {
     if( i == 1 ) continue;
-    shred = make_shred( 2, i, 0, 0 );
+    shred = make_shred( 2, i, 0, /*parent marker*/i==0 );
     after_alpen_shred( ctx, 0, shred, 0, &mr );
   }
   shred = make_shred( 2, 63, /*slot_complete*/1, 0 );

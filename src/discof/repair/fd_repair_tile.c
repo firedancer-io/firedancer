@@ -129,6 +129,7 @@
 #include "../../disco/shred/fd_shred_tile.h"
 #include "fd_repair_tile.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../replay/fd_block_marker.h"
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../votor/fd_votor_tile.h"
@@ -144,6 +145,8 @@
 #include "fd_policy.h"
 
 #include "../../discof/chainer/fd_chainer.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 #define DEBUG_LOGGING 0
 
@@ -964,10 +967,53 @@ after_ping( ctx_t *              ctx,
    responses for parent_and_fec_set_count and fec_set_root are routed
    directly to repair tile, as they do not contain a shred. */
 
+/* An Alpenglow block_id is the root of a "double merkle" tree whose
+   leaves are, in order, the per-FEC-set merkle roots followed by one
+   final parent-info leaf -- fec_set_count+1 leaves in all.  Both
+   block-id repair responses therefore prove a leaf of that tree against
+   the block_id we asked about, using the same 20-byte-node shred merkle
+   hashing (fd_bmtree_from_proof is agave's merkle_tree::get_merkle_root).
+
+   Leaves are inserted as nodes, NOT re-hashed with the leaf prefix: the
+   FEC set root is already a merkle root and the parent-info leaf is
+   already a sha256, so only the internal joins apply a prefix.
+   https://github.com/anza-xyz/agave/blob/master/core/src/repair/serve_repair.rs
+   (RepairProtocol::verify_response) */
+
+/* ag_parent_info_leaf is hashv(parent_slot LE u64, parent_block_id,
+   fec_set_count LE u32) -- standard_broadcast_run.rs parent_info_leaf. */
+
+static void
+ag_parent_info_leaf( fd_bmtree_node_t * out,
+                     ulong              parent_slot,
+                     fd_hash_t const *  parent_block_id,
+                     uint               fec_set_count ) {
+  uchar buf[ sizeof(ulong)+sizeof(fd_hash_t)+sizeof(uint) ];
+  FD_STORE( ulong, buf,                                    parent_slot   );
+  memcpy( buf+sizeof(ulong), parent_block_id->uc, sizeof(fd_hash_t) );
+  FD_STORE( uint,  buf+sizeof(ulong)+sizeof(fd_hash_t),    fec_set_count );
+
+  fd_sha256_hash( buf, sizeof(buf), out->hash );
+}
+
+/* ag_verify_block_id_proof returns 1 if leaf really is the leaf_idx'th
+   leaf of the double merkle tree rooted at block_id. */
+
+FD_WARN_UNUSED static int
+ag_verify_block_id_proof( fd_bmtree_node_t const * leaf,
+                          ulong                    leaf_idx,
+                          uchar const *            proof,
+                          ulong                    proof_len,
+                          fd_hash_t const *        block_id ) {
+  fd_bmtree_node_t root[1];
+  if( FD_UNLIKELY( !fd_bmtree_from_proof( leaf, leaf_idx, root, proof, proof_len,
+                                          FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ ) ) ) return 0;
+  return !memcmp( root->hash, block_id->uc, sizeof(fd_hash_t) );
+}
+
 static inline void
 after_alpen_repair( ctx_t * ctx,
                     ag_repair_response_t * response ) {
-  /* TODO verify merkle proofs */
   uint nonce = response->nonce;
   ag_inflight_t * request = ag_inflights_request_match( ctx->inflights, nonce );
   if( FD_UNLIKELY( !request ) ) {
@@ -993,6 +1039,22 @@ after_alpen_repair( ctx_t * ctx,
   switch( response->kind ) {
     case AG_REPAIR_RESPONSE_PARENT_FEC_SET_COUNT: {
       ag_parent_fec_count_res_t * parent_fec_set_res = &response->parent_fec_set_res;
+
+      /* The parent info is the FINAL leaf of the tree, at index
+         fec_set_count (so the tree has fec_set_count+1 leaves). */
+      fd_bmtree_node_t leaf[1];
+      ag_parent_info_leaf( leaf, parent_fec_set_res->parent_slot,
+                                 &parent_fec_set_res->parent_block_id,
+                                 parent_fec_set_res->fec_set_count );
+      if( FD_UNLIKELY( !ag_verify_block_id_proof( leaf, parent_fec_set_res->fec_set_count,
+                                                  parent_fec_set_res->parent_proof[0],
+                                                  parent_fec_set_res->proof_len,
+                                                  &request->block_id ) ) ) {
+        FD_LOG_WARNING(( "dropping parent/fec-count response for slot %lu: merkle proof does not verify against block_id", request->slot ));
+        ag_inflight_pool_ele_release( ctx->inflights->ag_pool, request );
+        return;
+      }
+
       fd_chainer_verified_parent_fec_count( ctx->chainer, request->slot, &request->block_id, parent_fec_set_res->fec_set_count, &parent_fec_set_res->parent_block_id );
 
       ulong now_ms = (ulong)(fd_log_wallclock()/(long)1e6);
@@ -1014,6 +1076,20 @@ after_alpen_repair( ctx_t * ctx,
     }
     case AG_REPAIR_RESPONSE_FEC_SET_ROOT: {
       ag_fec_root_res_t * fec_set_root = &response->fec_set_root;
+
+      /* fec_set_idx is in shred space; the leaf index is its FEC ordinal. */
+      fd_bmtree_node_t leaf[1];
+      memcpy( leaf->hash, fec_set_root->root.uc, sizeof(fd_hash_t) );
+      if( FD_UNLIKELY( !ag_verify_block_id_proof( leaf, request->fec_set_idx/FD_FEC_SHRED_CNT,
+                                                  fec_set_root->fec_proof[0],
+                                                  fec_set_root->proof_len,
+                                                  &request->block_id ) ) ) {
+        FD_LOG_WARNING(( "dropping fec-set-root response for slot %lu fec_set_idx %u: merkle proof does not verify against block_id",
+                         request->slot, request->fec_set_idx ));
+        ag_inflight_pool_ele_release( ctx->inflights->ag_pool, request );
+        return;
+      }
+
       fd_chainer_verified_hash_insert( ctx->chainer, request->slot, &request->block_id, request->fec_set_idx, &fec_set_root->root );
       break;
     }
@@ -1021,6 +1097,49 @@ after_alpen_repair( ctx_t * ctx,
 
   /* request was removed from the outstanding set by the match; release it */
   ag_inflight_pool_ele_release( ctx->inflights->ag_pool, request );
+}
+
+/* ag_parse_parent_marker pulls the block's DECLARED parent out of the
+   BlockMarker that a batch-opening data shred carries: a BlockComponent
+   whose entry count is 0 is a marker, and the BlockHeaderV1 (shred 0) /
+   UpdateParentV1 (a later batch) variants both carry (parent_slot,
+   parent_block_id).  Alpenglow chains on this, never on parent_off,
+   because the block_id double merkle binds exactly these bytes.
+
+   Both variants are ~54 bytes, so they always fit in the opening shred
+   and never need cross-shred reassembly.  Returns 1 and fills the out
+   params on a well formed marker, 0 otherwise.
+   https://github.com/anza-xyz/agave/blob/master/entry/src/block_component.rs */
+
+static int
+ag_parse_parent_marker( fd_shred_t const * shred,
+                        ulong *            out_parent_slot,
+                        fd_hash_t *        out_parent_block_id ) {
+  uchar const * payload = fd_shred_data_payload( shred );
+  ulong         sz      = fd_shred_payload_sz( shred );
+  if( FD_UNLIKELY( sz < offsetof( fd_block_marker_t, data ) ) ) return 0;
+
+  fd_block_marker_t const * m = (fd_block_marker_t const *)fd_type_pun_const( payload );
+  if( FD_UNLIKELY( m->marker_flag!=0UL ) ) return 0; /* entry batch, not a marker */
+  if( FD_UNLIKELY( m->version!=1       ) ) return 0;
+
+  if( m->variant==HEADER ) {
+    if( FD_UNLIKELY( sz < offsetof( fd_block_marker_t, data )+sizeof(fd_block_header_t) ) ) return 0;
+    if( FD_UNLIKELY( m->data.header.header_version!=1 ) ) return 0;
+    *out_parent_slot     = m->data.header.v1.parent_slot;
+    *out_parent_block_id = m->data.header.v1.parent_block_id;
+    return 1;
+  }
+
+  if( m->variant==UPDATE_PARENT ) {
+    if( FD_UNLIKELY( sz < offsetof( fd_block_marker_t, data )+sizeof(fd_update_parent_t) ) ) return 0;
+    if( FD_UNLIKELY( m->data.update_parent.update_parent_version!=1 ) ) return 0;
+    *out_parent_slot     = m->data.update_parent.new_parent_slot;
+    *out_parent_block_id = m->data.update_parent.new_parent_block_id;
+    return 1;
+  }
+
+  return 0; /* FOOTER / GENESIS_CERTIFICATE carry no parent */
 }
 
 static inline void
@@ -1032,15 +1151,24 @@ after_alpen_shred( ctx_t      * ctx,
   /* TODO after forest is removed, do inflight matching here. */
   if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) return;
 
-  ulong parent_slot = AG_UNKNOWN_SLOT;
-  if( shred->idx == 0 && !fd_shred_is_code( fd_shred_type( shred->variant ) ) ) {
-    /* parse out parent header.  With FLH, may need to give repair tile
-       a read handle to store in order to query forwards/backwards. */
-    parent_slot = shred->slot - shred->data.parent_off;
+  ulong     parent_slot = AG_UNKNOWN_SLOT;
+  fd_hash_t parent_block_id;
+  int       have_parent = 0;
+
+  /* Markers only ever open a batch, and a batch only ever starts at a
+     shred flagged DATA_COMPLETE-of-previous -- shred 0 for the header.
+     With FLH an UpdateParent can open a later batch, so check any
+     batch-opening data shred, not just idx 0. */
+  if( FD_LIKELY( !fd_shred_is_code( fd_shred_type( shred->variant ) ) ) ) {
+    if( shred->idx==0U || (shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) ) {
+      have_parent = ag_parse_parent_marker( shred, &parent_slot, &parent_block_id );
+    }
   }
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-  fd_chainer_shred_insert( ctx->chainer, shred->slot, shred->idx, slot_complete, mr, parent_slot );
+  fd_chainer_shred_insert( ctx->chainer, shred->slot, shred->idx, slot_complete, mr,
+                           have_parent ? parent_slot : AG_UNKNOWN_SLOT,
+                           have_parent ? &parent_block_id : NULL );
 }
 
 /* fec_completes */
@@ -1182,7 +1310,7 @@ after_frag( ctx_t *             ctx,
         case FD_VOTOR_SIG_ROOTED: {
           ag_votor_rooted_t const * rooted = fd_chunk_to_laddr_const( in_ctx->mem, ctx->chunk );
           if( FD_LIKELY( rooted->slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, rooted->slot );
-          if( FD_LIKELY( rooted->slot > ctx->chainer->root ) )                 fd_chainer_publish( ctx->chainer, rooted->slot );
+          if( FD_LIKELY( rooted->slot > ctx->chainer->root ) )                 fd_chainer_publish( ctx->chainer, rooted->slot, &rooted->block_id );
           break;
         }
         case FD_VOTOR_SIG_NOTARFB: {

@@ -133,6 +133,14 @@ ag_aggsig_individual_verify_bytes( ag_aggsig_sig_t const * self,
 #endif
 
 void
+ag_aggsig_sign_local( void *            ctx,
+                      ag_aggsig_sig_t * sig,
+                      uchar const *     payload,
+                      ulong             payload_sz ) {
+  ag_aggsig_sign_bytes( sig, (ag_aggsig_sk_t const *)ctx, payload, payload_sz );
+}
+
+void
 ag_aggsig_init( ag_aggsig_t * agg,
                 ulong         nbits ) {
   FD_TEST( nbits<=AG_AGGSIG_MAX_SIGNERS );

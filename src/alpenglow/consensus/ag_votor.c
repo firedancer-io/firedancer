@@ -55,7 +55,11 @@ struct __attribute__((aligned(128UL))) ag_votor {
 
   ushort         validator_index;
   ushort         shred_version;
-  ag_aggsig_sk_t voting_key;
+  /* Votor holds the voting key in the Rust reference; here it holds a
+     signer instead, so the votor tile can delegate to the sign tile and
+     never hold BLS key material itself. */
+  ag_aggsig_sign_fn sign;
+  void *            sign_ctx;
   ulong          highest_final_cert_slot;
 
   ag_votor_out_t out;
@@ -222,7 +226,7 @@ try_final( ag_votor_t *      self,
   int not_bad     = !( s && s->bad_window );
   if( notarized && voted_notar && not_bad ) {
     ag_vote_t vote;
-    ag_vote_new_final( &vote, slot, &self->voting_key, self->validator_index, self->shred_version );
+    ag_vote_new_signed( &vote, AG_VOTE_TYPE_FINAL, slot, NULL, self->sign, self->sign_ctx, self->validator_index, self->shred_version );
     out_push_vote( self, &vote );
     slot_state_mut( self, slot )->retired = 1;
   }
@@ -248,7 +252,7 @@ try_notar( ag_votor_t *            self,
   }
 
   ag_vote_t vote;
-  ag_vote_new_notar( &vote, slot, hash, &self->voting_key, self->validator_index, self->shred_version );
+  ag_vote_new_signed( &vote, AG_VOTE_TYPE_NOTAR, slot, hash, self->sign, self->sign_ctx, self->validator_index, self->shred_version );
   FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_cstr );
   FD_LOG_NOTICE(( "try_notar slot=%lu hash=%s", slot, hash_cstr ));
   out_push_vote( self, &vote );
@@ -274,7 +278,7 @@ try_skip_window( ag_votor_t * self,
     state->voted      = 1;
     state->bad_window = 1;
     ag_vote_t vote;
-    ag_vote_new_skip( &vote, s, &self->voting_key, self->validator_index, self->shred_version );
+    ag_vote_new_signed( &vote, AG_VOTE_TYPE_SKIP, s, NULL, self->sign, self->sign_ctx, self->validator_index, self->shred_version );
 
     out_push_vote( self, &vote );
   }
@@ -412,7 +416,7 @@ ag_votor_handle_pool_event( ag_votor_t *            votor,
   case AG_POOL_EVENT_SAFE_TO_NOTAR: {
     ag_block_id_t const blk = event->inner.safe_to_notar;
     ag_vote_t vote;
-    ag_vote_new_notar_fallback( &vote, blk.slot, &blk.hash, &votor->voting_key, votor->validator_index, votor->shred_version );
+    ag_vote_new_signed( &vote, AG_VOTE_TYPE_NOTAR_FALLBACK, blk.slot, &blk.hash, votor->sign, votor->sign_ctx, votor->validator_index, votor->shred_version );
     out_push_vote( votor, &vote );
     try_skip_window( votor, blk.slot );
     slot_state_mut( votor, blk.slot )->bad_window = 1;
@@ -422,7 +426,7 @@ ag_votor_handle_pool_event( ag_votor_t *            votor,
   case AG_POOL_EVENT_SAFE_TO_SKIP: {
     ulong slot = event->inner.safe_to_skip;
     ag_vote_t vote;
-    ag_vote_new_skip_fallback( &vote, slot, &votor->voting_key, votor->validator_index, votor->shred_version );
+    ag_vote_new_signed( &vote, AG_VOTE_TYPE_SKIP_FALLBACK, slot, NULL, votor->sign, votor->sign_ctx, votor->validator_index, votor->shred_version );
     out_push_vote( votor, &vote );
     try_skip_window( votor, slot );
     slot_state_mut( votor, slot )->bad_window = 1;
@@ -512,7 +516,8 @@ void *
 ag_votor_new( void *                 shmem,
               ulong                  slot_max,
               ushort                 validator_index,
-              ag_aggsig_sk_t const * voting_key,
+              ag_aggsig_sign_fn      sign,
+              void *                 sign_ctx,
               ushort                 shred_version,
               ulong                  seed ) {
 
@@ -553,7 +558,9 @@ ag_votor_new( void *                 shmem,
   votor->parent_ready_map        = parent_ready_map_join ( parent_ready_map_new ( pr_map,  pr_chain_cnt, seed ) );
   votor->validator_index         = validator_index;
   votor->shred_version           = shred_version;
-  votor->voting_key              = *voting_key;
+  FD_TEST( sign ); /* a votor with no signer cannot vote */
+  votor->sign                    = sign;
+  votor->sign_ctx                = sign_ctx;
   votor->highest_final_cert_slot = 0UL;
 
   {

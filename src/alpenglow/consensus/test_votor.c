@@ -51,7 +51,9 @@ make_votor( fd_wksp_t *      wksp,
   void * mem = fd_wksp_alloc_laddr( wksp, ag_votor_align(), ag_votor_footprint( 64UL ), 1UL );
   FD_TEST( mem );
   *out_mem = mem;
-  void * sh = ag_votor_new( mem, 64UL, validator_index, &g_sk[ validator_index ], TEST_SHRED_VERSION, 1234UL );
+  void * sh = ag_votor_new( mem, 64UL, validator_index,
+                            ag_aggsig_sign_local, &g_sk[ validator_index ],
+                            TEST_SHRED_VERSION, 1234UL );
   FD_TEST( sh );
   ag_votor_t * v = ag_votor_join( sh );
   FD_TEST( v );
@@ -305,7 +307,7 @@ test_prunes_to_finalized_window( fd_wksp_t * wksp ) {
 
   ag_cert_t cert; cert.kind = AG_CERT_TYPE_FINAL;
   ag_final_vote_t fvote; ag_final_vote_new( &fvote, finalized, &g_sk[1], 1UL , TEST_SHRED_VERSION );
-  FD_TEST( ag_final_cert_try_new( &cert.inner.final_, &fvote, 1UL, g_info, 2UL )==AG_CERT_SUCCESS );
+  FD_TEST( ag_final_cert_try_new( &cert.inner.final, &fvote, 1UL, g_info, 2UL )==AG_CERT_SUCCESS );
   ag_pool_event_t cc = { .kind = AG_POOL_EVENT_CERT_CREATED };
   cc.inner.cert_created = cert;
   out = fresh_out();

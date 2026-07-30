@@ -561,7 +561,12 @@ push_cert( ag_cert_t *  certs,
            int          kind,
            void const * inner,
            ulong        inner_sz ) {
-  FD_TEST( *cnt < max );
+  /* The Rust reference collects the recovery bundle into unbounded Vecs.
+     Here the caller supplies a fixed buffer, so a full buffer truncates
+     the bundle (reported by ag_pool_recover_from_standstill) rather than
+     aborting: recovery re-runs every DELTA_STANDSTILL, so truncation
+     costs latency, not correctness. */
+  if( FD_UNLIKELY( *cnt >= max ) ) return;
   ag_cert_t * c = &certs[ (*cnt)++ ];
   c->kind = (uint)kind;
   memcpy( &c->inner, inner, inner_sz );
@@ -574,7 +579,7 @@ push_vote( ag_vote_t *  votes,
            int          kind,
            void const * inner,
            ulong        inner_sz ) {
-  FD_TEST( *cnt < max );
+  if( FD_UNLIKELY( *cnt >= max ) ) return; /* truncate; see push_cert */
   ag_vote_t * v = &votes[ (*cnt)++ ];
   v->kind = (uint)kind;
   memcpy( &v->inner, inner, inner_sz );
@@ -684,11 +689,26 @@ ag_pool_recover_from_standstill( ag_pool_t * self,
   *votes_cnt = 0UL;
 
   get_final_certs( self, slot, certs, certs_cnt, certs_max );
-  FD_TEST( *certs_cnt > 0UL );
+
+  /* The reference asserts a final cert exists.  It cannot here: a pool
+     built rooted at a snapshot slot has that slot as its finalized slot
+     with no cert behind it, so bail instead of aborting -- there is
+     nothing to recover with until the first real finalization lands. */
+  if( FD_UNLIKELY( !*certs_cnt ) ) {
+    FD_LOG_WARNING(( "standstill recovery skipped: no final cert for finalized slot %lu", slot ));
+    return;
+  }
 
   get_certs    ( self, slot + 1UL, certs, certs_cnt, certs_max );
   get_own_votes( self, slot + 1UL, votes, votes_cnt, votes_max );
 
+  if( FD_UNLIKELY( *certs_cnt==certs_max || *votes_cnt==votes_max ) ) {
+    FD_LOG_WARNING(( "standstill recovery bundle at capacity (certs %lu/%lu, votes %lu/%lu); "
+                     "bundle may be truncated, recovery re-runs after DELTA_STANDSTILL",
+                     *certs_cnt, certs_max, *votes_cnt, votes_max ));
+  }
+
+  FD_TEST( self->votor_event_cnt < AG_POOL_VOTOR_EVENT_MAX );
   ag_pool_event_t event = { .kind = AG_POOL_EVENT_STANDSTILL };
   event.inner.standstill = slot + 1UL;
   self->votor_event_channel[ self->votor_event_cnt++ ] = event;

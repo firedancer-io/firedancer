@@ -54,9 +54,12 @@ install_epoch( fd_votor_tile_t * ctx ) {
     ag_aggsig_sk_to_pk_compressed( bls + i*AG_AGGSIG_PUBKEY_COMPRESSED_SZ, &test_sk[ i ] );
   }
 
-  /* source 0 is us: our identity pubkey and our BLS voting key */
+  /* source 0 is us: our identity pubkey and our BLS voting key.  The
+     tile normally delegates signing to the sign tile; here it signs in
+     process with the same key, so the pubkey it advertises has to
+     match. */
   memcpy( stakes[ 0 ].id_key.uc, ctx->identity_key->uc, 32UL );
-  ctx->voting_key[ 0 ] = test_sk[ 0 ];
+  ag_aggsig_sk_to_pk( ctx->voting_pubkey, &test_sk[ 0 ] );
 
   update_epoch_vtrs( ctx, msg, stakes, TEST_NV );
 
@@ -89,9 +92,12 @@ setup_ctx( fd_wksp_t * wksp ) {
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), footprint, 1UL );
   FD_TEST( scratch );
 
-  /* seed must be set before init_choreo (privileged_init does this in prod). */
-  ((fd_votor_tile_t *)scratch)->seed = 42UL;
-  memset( ((fd_votor_tile_t *)scratch)->voting_key, 0, sizeof(ag_aggsig_sk_t) );
+  /* seed and signer must be set before init_choreo (privileged_init does
+     this in prod).  This tile has no sign tile, so it signs in process
+     with test_sk[0] instead of over the keyguard. */
+  ((fd_votor_tile_t *)scratch)->seed     = 42UL;
+  ((fd_votor_tile_t *)scratch)->sign_fn  = ag_aggsig_sign_local;
+  ((fd_votor_tile_t *)scratch)->sign_ctx = &test_sk[ 0 ];
 
   fd_votor_tile_t * ctx = init_choreo( scratch, tile );
   FD_TEST( ctx );

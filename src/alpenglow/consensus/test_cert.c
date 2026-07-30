@@ -116,7 +116,7 @@ test_create( void ) {
 
   mk_final( ev, 0UL, 0UL, n );
   c.kind = AG_CERT_TYPE_FINAL;
-  FD_TEST( ag_final_cert_try_new( &c.inner.final_, ev, n, g_info, n )==AG_CERT_SUCCESS );
+  FD_TEST( ag_final_cert_try_new( &c.inner.final, ev, n, g_info, n )==AG_CERT_SUCCESS );
   check_full_cert( &c, n );
   FD_TEST( ag_cert_block_hash( &c )==NULL );
 }
@@ -211,10 +211,10 @@ test_thresholds( void ) {
   FD_TEST( !ag_cert_check_threshold( &c, e ) );
 
   mk_final( ev, 1UL, 0UL, 7UL );
-  c.kind = AG_CERT_TYPE_FINAL; FD_TEST( ag_final_cert_try_new( &c.inner.final_, ev, 7UL, g_info, n )==AG_CERT_SUCCESS );
+  c.kind = AG_CERT_TYPE_FINAL; FD_TEST( ag_final_cert_try_new( &c.inner.final, ev, 7UL, g_info, n )==AG_CERT_SUCCESS );
   FD_TEST( ag_cert_check_threshold( &c, e ) );
   mk_final( ev, 1UL, 0UL, 6UL );
-  FD_TEST( ag_final_cert_try_new( &c.inner.final_, ev, 6UL, g_info, n )==AG_CERT_SUCCESS );
+  FD_TEST( ag_final_cert_try_new( &c.inner.final, ev, 6UL, g_info, n )==AG_CERT_SUCCESS );
   FD_TEST( !ag_cert_check_threshold( &c, e ) );
 
   mk_notar( nv, 1UL, &h, 0UL, 9UL );
@@ -268,7 +268,7 @@ test_footer_de( void ) {
   FD_TEST( ag_block_final_cert_de( certs, &cert_cnt, buf, off )==AG_CERT_DE_SUCCESS );
   FD_TEST( ag_block_final_cert_decompress( certs, cert_cnt )==AG_CERT_DE_SUCCESS );
   FD_TEST( cert_cnt==2UL );
-  FD_TEST( certs[0].kind==AG_CERT_TYPE_FINAL && certs[0].inner.final_.slot==7UL );
+  FD_TEST( certs[0].kind==AG_CERT_TYPE_FINAL && certs[0].inner.final.slot==7UL );
   FD_TEST( certs[1].kind==AG_CERT_TYPE_NOTAR && certs[1].inner.notar.slot==7UL );
   FD_TEST( !memcmp( certs[1].inner.notar.block_hash.uc, h.uc, sizeof(fd_hash_t) ) );
   for( ulong i=0UL; i<7UL; i++ ) { FD_TEST( ag_cert_is_signer( &certs[0], i ) ); FD_TEST( ag_cert_is_signer( &certs[1], i ) ); }

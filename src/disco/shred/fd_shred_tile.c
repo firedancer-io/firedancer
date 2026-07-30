@@ -1396,7 +1396,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                             sign_out->dcache,
                                                             sign_in->mcache,
                                                             sign_in->dcache,
-                                                            sign_out->mtu ) ) );
+                                                            sign_out->mtu,
+                                                            sign_in->mtu ) ) );
 
   ulong shred_limit = fd_ulong_if( tile->shred.larger_shred_limits_per_block, 32UL*32UL*1024UL, 32UL*1024UL );
   ctx->shred_limit  = shred_limit;

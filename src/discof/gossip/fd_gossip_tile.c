@@ -583,7 +583,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                        sign_out->dcache,
                                                        sign_in->mcache,
                                                        sign_in->dcache,
-                                                       sign_out->mtu ) )==NULL ) {
+                                                       sign_out->mtu,
+                                                       sign_in->mtu ) )==NULL ) {
     FD_LOG_ERR(( "failed to join keyguard client" ));
   }
 

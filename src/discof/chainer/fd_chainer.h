@@ -291,13 +291,19 @@ fd_chainer_bfs( fd_chainer_t * chainer ) {
 void
 fd_chainer_init( fd_chainer_t * chainer,
                  ulong          slot );
+
+/* parent_slot / parent_block_id come from the block's declared parent
+   (the BlockHeaderV1 / UpdateParentV1 marker), never from parent_off.
+   Pass AG_UNKNOWN_SLOT / NULL when the shred carries no marker. */
+
 void
 fd_chainer_shred_insert( fd_chainer_t * chainer,
                          ulong          slot,
                          uint           shred_idx,
                          int            slot_complete,
                          fd_hash_t const * mr,
-                         ulong          parent_slot );
+                         ulong          parent_slot,
+                         fd_hash_t const * parent_block_id );
 
 /* 0 if the FEC was accepted, 1 if rejected */
 int
@@ -327,9 +333,15 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
                                  uint           fec_set_idx,
                                  fd_hash_t    * mr );
 
+/* fd_chainer_publish advances the root to slot.  block_id identifies
+   which version of slot is being rooted; every other version of it is
+   pruned along with the slots below.  Pass NULL (or a block_id no
+   version matches) to keep all versions of slot. */
+
 void
-fd_chainer_publish( fd_chainer_t * chainer,
-                    ulong          slot );
+fd_chainer_publish( fd_chainer_t *    chainer,
+                    ulong             slot,
+                    fd_hash_t const * block_id );
 
 static inline fd_slotv_t *
 fd_chainer_slot_version_query( fd_chainer_t *    chainer,

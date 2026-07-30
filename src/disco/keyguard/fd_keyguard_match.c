@@ -3,6 +3,7 @@
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
 #include "../../discof/repair/fd_repair.h"
+#include "../../alpenglow/consensus/ag_vote.h"
 
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
@@ -315,6 +316,37 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+/* Alpenglow VotePayloadToSign (votor-messages/src/wire.rs), as built by
+   ag_vote_payload_bytes_to_sign: u8 tag (Vote variant + 1), slot u64 LE,
+   block_id (32 bytes, (fallback) notar only), shred_version u16 LE.
+   Signed with the BLS voting key rather than the identity key, so it
+   cannot be confused with any Ed25519 payload above; the check just
+   pins it to the two well formed shapes so a compromised votor tile
+   cannot get arbitrary bytes signed.
+
+   The shape is derived from the AG_VOTE_TYPE_* constants rather than a
+   hand-written tag table -- their numeric order is NOT notar, notar
+   fallback, skip, skip fallback, final. */
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_ag_vote( uchar const * data,
+                                     ulong         sz,
+                                     int           sign_type ) {
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_BLS12_381 ) return 0;
+  if( sz < 1UL ) return 0;
+
+  uint kind = (uint)data[ 0 ] - 1U; /* wraps for tag 0; caught below */
+  if( (kind!=AG_VOTE_TYPE_NOTAR         ) &
+      (kind!=AG_VOTE_TYPE_FINAL         ) &
+      (kind!=AG_VOTE_TYPE_SKIP          ) &
+      (kind!=AG_VOTE_TYPE_NOTAR_FALLBACK) &
+      (kind!=AG_VOTE_TYPE_SKIP_FALLBACK ) ) return 0;
+
+  int   has_block_id = (kind==AG_VOTE_TYPE_NOTAR) | (kind==AG_VOTE_TYPE_NOTAR_FALLBACK);
+  ulong expected     = 1UL + 8UL + ( has_block_id ? sizeof(fd_hash_t) : 0UL ) + 2UL;
+  return sz==expected;
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -330,5 +362,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE, 0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,  0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE, 0 );
   return res;
 }

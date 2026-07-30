@@ -31,6 +31,20 @@ sign_payload( ag_aggsig_sig_t *      sig,
   ag_aggsig_sign_bytes( sig, sk, buf, sz );
 }
 
+/* IndividualSignature::verify over the vote's VotePayload. */
+
+static int
+verify_payload( ag_aggsig_sig_t const * sig,
+                uint                    kind,
+                ulong                   slot,
+                fd_hash_t const *       h,
+                ag_aggsig_pk_t const *  pk,
+                ushort                  shred_version ) {
+  uchar buf[ AG_VOTE_PAYLOAD_MAX ];
+  ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
+  return ag_aggsig_individual_verify_bytes( sig, pk, buf, sz );
+}
+
 void
 ag_notar_vote_new( ag_notar_vote_t *      out,
                    ulong                  slot,
@@ -40,6 +54,13 @@ ag_notar_vote_new( ag_notar_vote_t *      out,
                    ushort                 shred_version ) {
   out->slot = slot; out->block_hash = *h; out->signer = signer;
   sign_payload( &out->sig, AG_VOTE_TYPE_NOTAR, slot, h, sk, shred_version );
+}
+
+int
+ag_notar_vote_check_sig( ag_notar_vote_t const * self,
+                         ag_aggsig_pk_t const *  pk,
+                         ushort                  shred_version ) {
+  return verify_payload( &self->sig, AG_VOTE_TYPE_NOTAR, self->slot, &self->block_hash, pk, shred_version );
 }
 
 void
@@ -53,6 +74,13 @@ ag_notar_fallback_vote_new( ag_notar_fallback_vote_t * out,
   sign_payload( &out->sig, AG_VOTE_TYPE_NOTAR_FALLBACK, slot, h, sk, shred_version );
 }
 
+int
+ag_notar_fallback_vote_check_sig( ag_notar_fallback_vote_t const * self,
+                                  ag_aggsig_pk_t const *           pk,
+                                  ushort                           shred_version ) {
+  return verify_payload( &self->sig, AG_VOTE_TYPE_NOTAR_FALLBACK, self->slot, &self->block_hash, pk, shred_version );
+}
+
 void
 ag_skip_vote_new( ag_skip_vote_t *       out,
                   ulong                  slot,
@@ -61,6 +89,13 @@ ag_skip_vote_new( ag_skip_vote_t *       out,
                   ushort                 shred_version ) {
   out->slot = slot; out->signer = signer;
   sign_payload( &out->sig, AG_VOTE_TYPE_SKIP, slot, NULL, sk, shred_version );
+}
+
+int
+ag_skip_vote_check_sig( ag_skip_vote_t const * self,
+                        ag_aggsig_pk_t const * pk,
+                        ushort                 shred_version ) {
+  return verify_payload( &self->sig, AG_VOTE_TYPE_SKIP, self->slot, NULL, pk, shred_version );
 }
 
 void
@@ -73,6 +108,13 @@ ag_skip_fallback_vote_new( ag_skip_fallback_vote_t * out,
   sign_payload( &out->sig, AG_VOTE_TYPE_SKIP_FALLBACK, slot, NULL, sk, shred_version );
 }
 
+int
+ag_skip_fallback_vote_check_sig( ag_skip_fallback_vote_t const * self,
+                                 ag_aggsig_pk_t const *          pk,
+                                 ushort                          shred_version ) {
+  return verify_payload( &self->sig, AG_VOTE_TYPE_SKIP_FALLBACK, self->slot, NULL, pk, shred_version );
+}
+
 void
 ag_final_vote_new( ag_final_vote_t *      out,
                    ulong                  slot,
@@ -81,6 +123,13 @@ ag_final_vote_new( ag_final_vote_t *      out,
                    ushort                 shred_version ) {
   out->slot = slot; out->signer = signer;
   sign_payload( &out->sig, AG_VOTE_TYPE_FINAL, slot, NULL, sk, shred_version );
+}
+
+int
+ag_final_vote_check_sig( ag_final_vote_t const * self,
+                         ag_aggsig_pk_t const *  pk,
+                         ushort                  shred_version ) {
+  return verify_payload( &self->sig, AG_VOTE_TYPE_FINAL, self->slot, NULL, pk, shred_version );
 }
 
 void
@@ -132,34 +181,58 @@ ag_vote_new_final( ag_vote_t *            out,
                    ushort                 signer,
                    ushort                 shred_version ) {
   out->kind = AG_VOTE_TYPE_FINAL;
-  ag_final_vote_new( &out->inner.final_, slot, sk, signer, shred_version );
+  ag_final_vote_new( &out->inner.final, slot, sk, signer, shred_version );
+}
+
+void
+ag_vote_new_signed( ag_vote_t *       out,
+                    uint              kind,
+                    ulong             slot,
+                    fd_hash_t const * h,
+                    ag_aggsig_sign_fn sign,
+                    void *            sign_ctx,
+                    ushort            signer,
+                    ushort            shred_version ) {
+  uchar buf[ AG_VOTE_PAYLOAD_MAX ];
+  ulong sz = ag_vote_payload_bytes_to_sign( buf, kind, slot, h, shred_version );
+
+  out->kind = kind;
+  switch( kind ) {
+  case AG_VOTE_TYPE_NOTAR:
+    out->inner.notar.slot = slot; out->inner.notar.block_hash = *h; out->inner.notar.signer = signer;
+    sign( sign_ctx, &out->inner.notar.sig, buf, sz );
+    break;
+  case AG_VOTE_TYPE_NOTAR_FALLBACK:
+    out->inner.notar_fallback.slot = slot; out->inner.notar_fallback.block_hash = *h; out->inner.notar_fallback.signer = signer;
+    sign( sign_ctx, &out->inner.notar_fallback.sig, buf, sz );
+    break;
+  case AG_VOTE_TYPE_SKIP:
+    out->inner.skip.slot = slot; out->inner.skip.signer = signer;
+    sign( sign_ctx, &out->inner.skip.sig, buf, sz );
+    break;
+  case AG_VOTE_TYPE_SKIP_FALLBACK:
+    out->inner.skip_fallback.slot = slot; out->inner.skip_fallback.signer = signer;
+    sign( sign_ctx, &out->inner.skip_fallback.sig, buf, sz );
+    break;
+  default:
+    out->kind = AG_VOTE_TYPE_FINAL;
+    out->inner.final.slot = slot; out->inner.final.signer = signer;
+    sign( sign_ctx, &out->inner.final.sig, buf, sz );
+    break;
+  }
 }
 
 int
 ag_vote_check_sig( ag_vote_t const *      self,
                    ag_aggsig_pk_t const * pk,
                    ushort                 shred_version ) {
-  uchar buf[ AG_VOTE_PAYLOAD_MAX ];
-  ulong sz;
-  ag_aggsig_sig_t const * sig;
   switch( self->kind ) {
-  case AG_VOTE_TYPE_NOTAR:
-    sz  = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR, self->inner.notar.slot, &self->inner.notar.block_hash, shred_version );
-    sig = &self->inner.notar.sig; break;
-  case AG_VOTE_TYPE_NOTAR_FALLBACK:
-    sz  = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_NOTAR_FALLBACK, self->inner.notar_fallback.slot, &self->inner.notar_fallback.block_hash, shred_version );
-    sig = &self->inner.notar_fallback.sig; break;
-  case AG_VOTE_TYPE_SKIP:
-    sz  = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_SKIP, self->inner.skip.slot, NULL, shred_version );
-    sig = &self->inner.skip.sig; break;
-  case AG_VOTE_TYPE_SKIP_FALLBACK:
-    sz  = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_SKIP_FALLBACK, self->inner.skip_fallback.slot, NULL, shred_version );
-    sig = &self->inner.skip_fallback.sig; break;
-  default:
-    sz  = ag_vote_payload_bytes_to_sign( buf, AG_VOTE_TYPE_FINAL, self->inner.final_.slot, NULL, shred_version );
-    sig = &self->inner.final_.sig; break;
+  case AG_VOTE_TYPE_NOTAR:          return ag_notar_vote_check_sig         ( &self->inner.notar,          pk, shred_version );
+  case AG_VOTE_TYPE_NOTAR_FALLBACK: return ag_notar_fallback_vote_check_sig( &self->inner.notar_fallback, pk, shred_version );
+  case AG_VOTE_TYPE_SKIP:           return ag_skip_vote_check_sig          ( &self->inner.skip,           pk, shred_version );
+  case AG_VOTE_TYPE_SKIP_FALLBACK:  return ag_skip_fallback_vote_check_sig ( &self->inner.skip_fallback,  pk, shred_version );
+  default:                          return ag_final_vote_check_sig         ( &self->inner.final,          pk, shred_version );
   }
-  return ag_aggsig_individual_verify_bytes( sig, pk, buf, sz );
 }
 
 ulong

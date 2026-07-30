@@ -7,6 +7,7 @@
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../alpenglow/crypto/ag_aggsig.h"
 #include "../metrics/fd_metrics.h"
 
 #include "../../util/hist/fd_histf.h"
@@ -59,6 +60,11 @@ typedef struct {
   uchar             authorized_voter_pubkeys[ 16UL ][ 32UL ];
   uchar             authorized_voter_private_keys[ 16UL ][ 32UL ];
 
+  /* Alpenglow BLS voting key, derived from the identity keypair
+     (BLSKeypair::derive_from_signer).  The votor tile holds only the
+     public half; consensus votes are signed here. */
+  ag_aggsig_sk_t    bls_voting_key[ 1 ];
+
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
 
@@ -85,6 +91,16 @@ derive_fields( fd_sign_ctx_t * ctx ) {
 
   fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
   ctx->concat[ ctx->public_key_base58_sz ] = '-';
+
+  /* BLSKeypair::derive_from_signer with BLS_KEYPAIR_DERIVE_SEED
+     https://github.com/anza-xyz/alpenglow/blob/9f284c913f/votor-messages/src/consensus_message.rs#L18
+     Re-derived on keyswitch so the voting key follows the identity. */
+  static char const derive_msg[] = "bls-key-derive-alpenglow"; /* "bls-key-derive-" || BLS_KEYPAIR_DERIVE_SEED */
+  uchar ikm[ 64 ];
+  fd_ed25519_sign( ikm, (uchar const *)derive_msg, sizeof(derive_msg)-1UL,
+                   ctx->public_key, ctx->private_key, ctx->sha512 );
+  ag_aggsig_sk_derive( ctx->bls_voting_key, ikm, sizeof(ikm) );
+  fd_memzero_explicit( ikm, sizeof(ikm) );
 }
 
 static void FD_FN_SENSITIVE
@@ -242,6 +258,12 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
+  case FD_KEYGUARD_SIGN_TYPE_BLS12_381: {
+    /* Alpenglow consensus vote, signed with the BLS voting key rather
+       than the identity key. */
+    ag_aggsig_sign_bytes( (ag_aggsig_sig_t *)fd_type_pun( dst ), ctx->bls_voting_key, ctx->_data, sz );
+    break;
+  }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
@@ -249,7 +271,9 @@ after_frag_sensitive( void *              _ctx,
   sign_duration += fd_tickcount();
   fd_histf_sample( ctx->sign_duration, (ulong)sign_duration );
 
-  ulong out_sz = fd_ulong_if( (sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519) && needs_second_sign, 128UL, 64UL );
+  ulong out_sz = 64UL;
+  if(      sign_type==FD_KEYGUARD_SIGN_TYPE_BLS12_381                    ) out_sz = AG_AGGSIG_SIG_SZ;
+  else if( sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 && needs_second_sign ) out_sz = 128UL;
   fd_stem_publish( stem, in_idx, sig, ctx->out[ in_idx ].out_chunk, out_sz, 0UL, tsorig, 0UL );
   ctx->out[ in_idx ].out_chunk = fd_dcache_compact_next( ctx->out[ in_idx ].out_chunk, out_sz, ctx->out[ in_idx ].out_chunk0, ctx->out[ in_idx ].out_wmark );
 }
@@ -347,7 +371,9 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
 
     ctx->out[ i ].out_mem    = fd_wksp_containing( out_link->dcache );
     ctx->out[ i ].out_chunk0 = fd_dcache_compact_chunk0( ctx->out[ i ].out_mem, out_link->dcache );
-    ctx->out[ i ].out_wmark  = fd_dcache_compact_wmark( ctx->out[ i ].out_mem, out_link->dcache, 64UL );
+    /* sized from the link, not a hardcoded 64: a BLS vote signature is
+       AG_AGGSIG_SIG_SZ bytes */
+    ctx->out[ i ].out_wmark  = fd_dcache_compact_wmark( ctx->out[ i ].out_mem, out_link->dcache, out_link->mtu );
     ctx->out[ i ].out_chunk  = ctx->out[ i ].out_chunk0;
 
     if( !strcmp( in_link->name, "shred_sign" ) ) {
@@ -374,7 +400,9 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_VOTOR;
       FD_TEST( !strcmp( out_link->name, "sign_votor" ) );
       FD_TEST( in_link->mtu==FD_KEYGUARD_SIGN_REQ_MTU );
-      FD_TEST( out_link->mtu==64UL );
+      /* carries both the 64B QUIC TLS CertificateVerify signature and
+         the AG_AGGSIG_SIG_SZ BLS vote signature */
+      FD_TEST( out_link->mtu==AG_AGGSIG_SIG_SZ );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );

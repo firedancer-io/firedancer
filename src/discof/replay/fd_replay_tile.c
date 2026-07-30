@@ -536,7 +536,14 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
    the sched parsed out of the block's footer, if any.  Returns 1 and
    fills out_certs / out_cert_cnt (1 for a FastFinal cert, 2 for Final +
    Notar) if the footer carried a cert that verified; returns 0 if the
-   footer carried none. */
+   footer carried none; returns -1 if the footer carried a cert that did
+   not decode or verify -- the block is invalid, and the caller must mark
+   its bank dead rather than trust it.
+
+   A cert we cannot check at all because OUR OWN state is missing (no
+   validator set for the cert's epoch, unknown shred version) stays a
+   CRIT: the block may well be valid, so neither trusting nor killing it
+   is right, and silently marking it dead would fork us off the cluster. */
 
 FD_WARN_UNUSED static int
 verify_footer_final_cert( fd_replay_tile_t * ctx,
@@ -548,10 +555,16 @@ verify_footer_final_cert( fd_replay_tile_t * ctx,
   if( FD_LIKELY( !cert_bytes ) ) return 0;
 
   int err = ag_block_final_cert_de( out_certs, out_cert_cnt, cert_bytes, cert_sz );
-  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to deserialize footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
+  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "slot %lu: failed to deserialize footer cert (%i); marking bank dead", bank->f.slot, err ));
+    return -1;
+  }
 
   err = ag_block_final_cert_decompress( out_certs, *out_cert_cnt );
-  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) FD_LOG_CRIT(( "slot %lu: failed to decompress footer cert. TODO: mark bank dead here instead of crit", bank->f.slot ));
+  if( FD_UNLIKELY( err!=AG_CERT_DE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "slot %lu: failed to decompress footer cert (%i); marking bank dead", bank->f.slot, err ));
+    return -1;
+  }
 
   ulong cert_slot  = ag_cert_slot( &out_certs[0] );
   ulong cert_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, cert_slot, NULL );
@@ -566,14 +579,25 @@ verify_footer_final_cert( fd_replay_tile_t * ctx,
 
   for( ulong i=0UL; i<*out_cert_cnt; i++ ) {
     ag_cert_t const * cert = &out_certs[ i ];
-    if( FD_UNLIKELY( !ag_cert_check_threshold( cert, s->info ) ) )               FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed the stake threshold. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
-    if( FD_UNLIKELY( !ag_cert_check_sig( cert, shred_version, s->info ) ) )      FD_LOG_CRIT(( "slot %lu: footer %s cert for slot %lu failed signature verification. TODO: mark bank dead here instead of crit", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+    if( FD_UNLIKELY( !ag_cert_check_threshold( cert, s->info ) ) ) {
+      FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed the stake threshold; marking bank dead", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+      return -1;
+    }
+    if( FD_UNLIKELY( !ag_cert_check_sig( cert, shred_version, s->info ) ) ) {
+      FD_LOG_WARNING(( "slot %lu: footer %s cert for slot %lu failed signature verification; marking bank dead", bank->f.slot, ag_cert_type_to_string( cert->kind ), cert_slot ));
+      return -1;
+    }
   }
   FD_LOG_INFO(( "slot %lu: footer cert verified (%s finalization of slot %lu)", bank->f.slot, *out_cert_cnt==2UL ? "slow" : "fast", cert_slot ));
   return 1;
 }
 
-static void
+/* replay_block_finalize completes bank's block.  Returns 1 if the block
+   turned out to be invalid -- its footer carried a finalization cert that
+   did not verify -- in which case the bank has NOT been frozen or
+   published and the caller must mark it dead; 0 on success. */
+
+FD_WARN_UNUSED static int
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
@@ -590,7 +614,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      and forward it to the votor tile's consensus pool. */
   if( FD_UNLIKELY( ctx->is_alpenglow ) ) {
     fd_replay_final_cert_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    if( FD_UNLIKELY( verify_footer_final_cert( ctx, bank, msg->certs, &msg->cert_cnt ) ) ) {
+    int cert_err = verify_footer_final_cert( ctx, bank, msg->certs, &msg->cert_cnt );
+    if( FD_UNLIKELY( cert_err<0 ) ) return 1; /* invalid block; caller marks the bank dead */
+    if( FD_UNLIKELY( cert_err>0 ) ) {
       msg->slot = bank->f.slot;
       fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_FINAL_CERT, ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_final_cert_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -632,6 +658,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx, ctx->runtime_stack );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
+
+  return 0;
 }
 
 /**********************************************************************/
@@ -1466,7 +1494,11 @@ replay( fd_replay_tile_t *  ctx,
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
-      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) replay_block_finalize( ctx, stem, bank );
+      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) {
+        /* An unverifiable footer finalization cert makes the block invalid;
+           kill the bank (and its descendants) instead of trusting it. */
+        if( FD_UNLIKELY( replay_block_finalize( ctx, stem, bank ) ) ) mark_bank_dead( ctx, stem, task->block_end->bank_idx );
+      }
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }

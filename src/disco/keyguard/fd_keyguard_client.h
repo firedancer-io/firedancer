@@ -45,6 +45,7 @@ struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_wksp_t *      response_mem;
   ulong            response_chunk0;
   ulong            response_wmark;
+  ulong            response_mtu;
 };
 typedef struct fd_keyguard_client fd_keyguard_client_t;
 
@@ -56,7 +57,8 @@ fd_keyguard_client_new( void *           shmem,
                         uchar *          request_dcache,
                         fd_frag_meta_t * response_mcache,
                         uchar *          response_dcache,
-                        ulong            request_mtu );
+                        ulong            request_mtu,
+                        ulong            response_mtu );
 
 static inline fd_keyguard_client_t *
 fd_keyguard_client_join( void * shclient ) { return (fd_keyguard_client_t*)shclient; }
@@ -93,6 +95,21 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar const *          sign_data,
                          ulong                  sign_data_len,
                          int                    sign_type );
+
+/* fd_keyguard_client_sign_sz is fd_keyguard_client_sign for signature
+   schemes whose signatures are not 64 bytes -- notably
+   FD_KEYGUARD_SIGN_TYPE_BLS12_381, whose signatures are
+   AG_AGGSIG_SIG_SZ (192) bytes.  signature_sz bytes are copied out of
+   the response, and must not exceed the response_mtu the client was
+   constructed with. */
+
+void
+fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
+                            uchar *                signature,
+                            ulong                  signature_sz,
+                            uchar const *          sign_data,
+                            ulong                  sign_data_len,
+                            int                    sign_type );
 
 /* fd_keyguard_client_vote_txn_sign sends a remote signing request to
    the signing server, and blocks (spins) until the response is

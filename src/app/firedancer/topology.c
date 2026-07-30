@@ -629,7 +629,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_link( topo, "votor_net",     "net_votor",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
     fd_topob_link( topo, "votor_out",     "votor_out",     16384UL,                                  1024UL /* >= sizeof(ag_votor_msg_t), asserted in fd_votor_tile.c */, 2UL )->permit_no_consumers = 1;
     fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
-    fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+    /* 192B: carries either the 64B QUIC TLS CertificateVerify signature
+       or a BLS12-381 Alpenglow vote signature (AG_AGGSIG_SIG_SZ) */
+    fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    192UL,                         1UL );
 
   } else {
     fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
