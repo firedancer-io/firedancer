@@ -193,15 +193,10 @@ fd_stake_rewards_join( void * shmem ) {
   return stake_rewards;
 }
 
-static void
-reset_forks( fd_stake_rewards_t * stake_rewards ) {
-  fork_pool_reset( get_fork_pool( stake_rewards ) );
-  for( ulong i=0UL; i<MAX_SUPPORTED_FORKS; i++ ) stake_rewards->fork_info[i].refcnt = 0UL;
-}
-
 void
 fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
-  reset_forks( stake_rewards );
+  fork_pool_reset( get_fork_pool( stake_rewards ) );
+  for( ulong i=0UL; i<MAX_SUPPORTED_FORKS; i++ ) stake_rewards->fork_info[i].refcnt = 0UL;
   stake_rewards->epoch = ULONG_MAX;
 }
 
@@ -251,17 +246,14 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        ulong                max_rewards_cnt ) {
   fork_t * fork_pool = get_fork_pool( stake_rewards );
 
-  int is_new_epoch = stake_rewards->epoch!=epoch;
-  if( FD_LIKELY( is_new_epoch ) ) {
-    reset_forks( stake_rewards );
-    stake_rewards->epoch = epoch;
-  }
-
-  FD_CHECK_CRIT( fork_pool_free( fork_pool ), "no free forks in the stake rewards pool" );
+  /* Forks are not reclaimed wholesale when the epoch changes.  Every fork
+     is returned by the banks referencing it, so a new epoch has nothing
+     left over to clean up. */
+  stake_rewards->epoch = epoch;
 
   if( FD_UNLIKELY( !fork_pool_free( fork_pool ) ) ) {
-    FD_LOG_ERR(( "No free forks in the stake rewards pool.  This likely occurred due to extremely degenerate network conditions. "
-                 "Please report this crash to the Firedancer team." ));
+    FD_LOG_ERR(( "No free forks in the stake rewards pool.  This likely occurred due to extremely degenerate "
+                 "network conditions. Please report this crash to the Firedancer team." ));
   }
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
   stake_rewards->fork_info[fork_idx].refcnt = 1UL;
