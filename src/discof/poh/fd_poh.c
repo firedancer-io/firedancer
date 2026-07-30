@@ -324,6 +324,8 @@ publish_tick( fd_poh_t *          poh,
     meta->reference_tick = hashcnt/poh->hashcnt_per_tick;
     meta->block_complete = hashcnt==poh->hashcnt_per_slot;
   }
+  meta->block_marker = 0;
+  meta->batch_flush  = 0;
 
   meta->parent_block_id_valid = 1;
   fd_memcpy( meta->parent_block_id, poh->completed_block_id, 32UL );
@@ -658,6 +660,8 @@ publish_microblock( fd_poh_t *          poh,
   meta->parent_offset = 1UL+slot-poh->reset_slot;
   meta->reference_tick = (poh->hashcnt/poh->hashcnt_per_tick) % poh->ticks_per_slot;
   meta->block_complete = !poh->hashcnt;
+  meta->block_marker   = 0;
+  meta->batch_flush    = 0;
 
   meta->parent_block_id_valid = 1;
   fd_memcpy( meta->parent_block_id, poh->completed_block_id, 32UL );

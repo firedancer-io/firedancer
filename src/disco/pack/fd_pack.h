@@ -28,6 +28,15 @@
 /* Optionally allow up to 1M shreds per block for benchmarking. */
 #define LARGER_MAX_DATA_PER_BLOCK  (32UL*FD_SHRED_BATCH_BLOCK_DATA_SZ_MAX)
 
+/* Space an alpenglow block reserves for the components that are not
+   transactions: the block header marker that opens it, and the footer
+   that precedes its single closing tick.  The footer dominates, since
+   it carries the finalization certificate plus the notarize and skip
+   reward certificates; this must stay at or above the poh tile's
+   FD_POHH_AG_FOOTER_MAX, which is the hard limit on what it will
+   accept. */
+#define FD_PACK_ALPENGLOW_MARKER_RESERVED (16384UL)
+
 /* Optionally allow a larger limit for benchmarking */
 #define LARGER_MAX_COST_PER_BLOCK (18UL*FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND)
 

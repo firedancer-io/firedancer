@@ -289,5 +289,7 @@
   {"name":"relax_post_exec_min_balance_check","pubkey":"DEJmsCntuYqbXtL5z5TxbaxJXFUJAFjf7TqWSF7YWjQg"},
   {"name":"upgrade_bpf_stake_program_to_v5_1","pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr"},
   {"name":"custom_commission_collector","pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
-  {"name":"enable_tx_v1","pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"}
+  {"name":"enable_tx_v1","pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"},
+  {"name":"alpenglow","pubkey":"a1p3RiCfMmzm5jgCva97UUNwUiVLq5EJhtusRWHDBsp"},
+  {"name":"alpenglow_fast_leader_handover","pubkey":"FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH"}
 ]

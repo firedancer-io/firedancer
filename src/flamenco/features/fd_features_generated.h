@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (291UL)
+#define FD_FEATURE_ID_CNT (293UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (140009291U)
+#define FD_FEATURE_SET_ID (1631535240U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -307,5 +307,7 @@ union fd_features {
     /* 0xe8f8dc2ca192d30c */ ulong upgrade_bpf_stake_program_to_v5_1;
     /* 0x1dd8741ccebef821 */ ulong custom_commission_collector;
     /* 0x9c92e629e8d74f0d */ ulong enable_tx_v1;
+    /* 0x3995c54272157508 */ ulong alpenglow;
+    /* 0x77d57539c0a4f4d4 */ ulong alpenglow_fast_leader_handover;
   };
 };

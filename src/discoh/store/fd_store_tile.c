@@ -13,6 +13,12 @@ typedef struct {
   ulong disable_blockstore_from_slot;
 
   fd_store_in_ctx_t in[ 32 ];
+
+  /* Highest slot we have told votor we have shreds for.  Votor needs to
+     know a leader is alive, or it skips their whole window at the early
+     deadline; see fd_ext_votor_first_shred.  Only used to report each
+     slot once, the rest of the filtering is on the Rust side. */
+  ulong votor_first_shred_slot;
 } fd_store_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -64,6 +70,14 @@ fd_ext_blockstore_insert_shreds( void const *  blockstore,
                                  ulong         stride,
                                  int           is_trusted );
 
+extern int
+fd_ext_blockstore_set_alpenglow_block_id( void const * blockstore,
+                                          void const * bank,
+                                          ulong        slot );
+
+extern void
+fd_ext_votor_first_shred( ulong slot );
+
 static inline void
 after_frag( fd_store_ctx_t *    ctx,
             ulong               in_idx,
@@ -87,6 +101,19 @@ after_frag( fd_store_ctx_t *    ctx,
   int trusted = !!(sig & 0xFFFFFFFFUL);
   ulong est_txn_cnt = sig>>32UL;
 
+  /* Shreds from the network mean the leader for this slot is alive.
+     Tell votor, or it will skip their window at the early deadline.
+     Leader shreds of our own are excluded, matching upstream, where the
+     event only comes from retransmit and so only covers received
+     blocks; for our own blocks having voted covers us instead. */
+  if( FD_UNLIKELY( !trusted ) ) {
+    ulong shred_slot = set->data_shreds->s->slot;
+    if( FD_UNLIKELY( shred_slot>ctx->votor_first_shred_slot ) ) {
+      ctx->votor_first_shred_slot = shred_slot;
+      fd_ext_votor_first_shred( shred_slot );
+    }
+  }
+
   /* No error code because this cannot fail. */
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MIN_SZ, trusted );
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted );
@@ -99,7 +126,22 @@ after_frag( fd_store_ctx_t *    ctx,
      FEC sets pass through this branch as a no-op. */
   if( FD_UNLIKELY( trusted && ( set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) ) {
     FD_TEST( set->leader_bank );
-    fd_ext_bank_set_block_id( set->leader_bank, set->merkle_root );
+
+    /* Pre-alpenglow a block's id is the last FEC set's merkle root,
+       which is the value we just shredded with.  Under alpenglow the
+       two diverge: chaining still uses that merkle root, but the block
+       id is the double merkle root over all of the slot's FEC set
+       roots.  Inserting the shreds above completed the slot, so the
+       blockstore has already computed it and we read it back rather
+       than tracking a second tree here. */
+    if( FD_UNLIKELY( set->alpenglow ) ) {
+      ulong slot = set->data_shreds->s->slot;
+      if( FD_UNLIKELY( fd_ext_blockstore_set_alpenglow_block_id( fd_ext_blockstore, set->leader_bank, slot ) ) )
+        FD_LOG_ERR(( "could not set the alpenglow block id for slot %lu", slot ));
+    } else {
+      fd_ext_bank_set_block_id( set->leader_bank, set->merkle_root );
+    }
+
     fd_ext_bank_release( set->leader_bank );
   }
 }
@@ -121,6 +163,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_LOG_INFO(( "Got blockstore" ));
 
   ctx->disable_blockstore_from_slot = tile->store.disable_blockstore_from_slot;
+  ctx->votor_first_shred_slot       = 0UL;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

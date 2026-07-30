@@ -1707,6 +1707,19 @@ dynamic_port_range = "8900-9000"
         # cluster.
         warmup_epochs = false
 
+        # Create an Alpenglow genesis rather than a TowerBFT one.  This
+        # activates the Alpenglow feature gates and its prerequisites at
+        # slot zero, writes the validator's vote account as a
+        # VoteStateV4 carrying its derived BLS pubkey, seeds the
+        # Alpenglow genesis certificate and epoch inflation accounts,
+        # and forces the proof of history component into low power mode
+        # by leaving hashes_per_tick unset, overriding the value above.
+        #
+        # The cluster will not produce Alpenglow blocks correctly until
+        # the leader path supports them, so this is only useful for
+        # inspecting the genesis blob for now.
+        alpenglow = false
+
     [development.bench]
         # How many benchg tiles to run when benchmarking.  benchg tiles
         # are responsible for generating and signing outgoing

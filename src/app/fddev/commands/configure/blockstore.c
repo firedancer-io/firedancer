@@ -38,6 +38,14 @@ init( config_t const * config ) {
   ulong ticks_per_slot  = config->development.genesis.ticks_per_slot;
   ulong hashes_per_tick = config->development.genesis.hashes_per_tick;
 
+  /* An alpenglow genesis leaves hashes_per_tick unset whatever is
+     configured, and both Agave and the poh tile read that as one hash
+     per tick.  Slot 0 is not itself an alpenglow block, so it still
+     gets a full slot of ticks, but they are single hash ticks so that
+     block 0 matches the genesis it ships with. */
+
+  if( FD_UNLIKELY( config->development.genesis.alpenglow ) ) hashes_per_tick = 1UL;
+
   char genesis_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
   uchar genesis_hash[ 32 ] = { 0 };

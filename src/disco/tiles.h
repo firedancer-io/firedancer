@@ -59,6 +59,19 @@ struct fd_became_leader {
      changed. */
   ulong hashcnt_per_tick;
 
+  /* Whether this is an alpenglow block.  Alpenglow blocks carry one
+     tick rather than ticks_per_slot of them, plus a block header and a
+     footer, so pack reserves space for those instead.  They also carry
+     no vote transactions at all. */
+  int alpenglow;
+
+  /* Whether this bank only admits vote transactions, which is the case
+     for every bank produced during the alpenglow migration.  A block
+     that carries anything else is rejected outright by the validators
+     replaying it, so pack must not schedule non vote transactions into
+     it. */
+  int vote_only;
+
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
 

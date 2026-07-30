@@ -6,6 +6,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../features/fd_features.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 
 
 /* fd_genesis_options_t exists as a convenient way to specify options
@@ -16,6 +17,21 @@ struct fd_genesis_options {
   fd_pubkey_t faucet_pubkey;
   fd_pubkey_t stake_pubkey;
   fd_pubkey_t vote_pubkey;
+
+  /* alpenglow creates a genesis for a cluster running alpenglow
+     consensus from slot 0 rather than TowerBFT.  The vote account is
+     written as a VoteStateV4 carrying identity_bls_pubkey, and the
+     alpenglow genesis certificate and epoch inflation accounts are
+     added.  The caller is responsible for enabling the alpenglow
+     feature gates in features and for leaving hashes_per_tick unset. */
+
+  int   alpenglow;
+
+  /* identity_bls_pubkey is the compressed BLS12-381 pubkey that the
+     validator will sign alpenglow votes with, derived from the
+     authorized voter key.  Only read when alpenglow is set. */
+
+  uchar identity_bls_pubkey[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
   ulong creation_time;      /* unix time, i.e. seconds since the unix epoch */
   ulong faucet_balance;     /* in lamports */

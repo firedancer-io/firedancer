@@ -342,8 +342,21 @@ after_frag( fd_resolh_tile_t *  ctx,
         memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, frag->hash, 32UL );
         ctx->blockhash_ring_idx++;
 
+        /* map_insert returns NULL when the key is already present, not
+           when the map is out of room; it has twice as many slots as
+           the ring so it never fills.  A repeat used to be impossible
+           because every slot hashed a full 64 ticks, so consecutive
+           blockhashes always differed.  An Alpenglow block hardly
+           advances poh, so two empty blocks off one parent share a
+           blockhash, and the store below was then a write through NULL.
+           Overwrite rather than keep the first, which is what agave
+           does: BlockhashQueue::register_hash inserts into a HashMap,
+           so a repeat replaces hash_index with the newer one and the
+           blockhash ages from its latest occurrence.  slot here plays
+           the same role, it is what the +151 expiry check measures. */
         blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)frag->hash );
-        blockhash->slot = frag->slot;
+        if( FD_UNLIKELY( !blockhash ) ) blockhash = map_query( ctx->blockhash_map, *(blockhash_t *)frag->hash, NULL );
+        if( FD_LIKELY( blockhash ) ) blockhash->slot = frag->slot;
 
         blockhash_t * hash = (blockhash_t *)frag->hash;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );

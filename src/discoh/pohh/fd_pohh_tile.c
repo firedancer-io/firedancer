@@ -350,6 +350,65 @@
    569,424 or more prior slots. */
 #define MAX_SKIPPED_TICKS (1UL+(FD_PACK_MAX_DATA_PER_BLOCK/48UL))
 
+/* Upper bound on a serialized alpenglow block footer.  A footer carries
+   a finalization certificate, the notarize and skip reward
+   certificates, and a user agent string.  Each certificate is an
+   aggregate signature plus a signer bitmap bounded by
+   GenesisCertBlockMarker::MAX_BITMAP_SIZE (512 bytes), so a few
+   kilobytes is a generous bound.  It has to fit in one frag on the
+   pohh_shred link, whose mtu is USHORT_MAX, and the Rust side refuses
+   to hand over a footer larger than this rather than truncating it. */
+#define FD_POHH_AG_FOOTER_MAX (8192UL)
+
+/* Block markers other than the footer.  A block header and an update
+   parent are both just a slot and a block id plus framing, but the
+   genesis certificate marker that opens the first alpenglow block of a
+   migration is far larger: a slot, a block id, a 192 byte aggregate
+   signature and a signer bitmap bounded by
+   GenesisCertBlockMarker::MAX_BITMAP_SIZE (512), so around 750 bytes.
+   Sized above that rather than for the common case, because the tile
+   rejects an oversized marker outright and the block then fails.
+
+   They are queued rather than published inline because they arrive on
+   BlockCreationLoop's thread, and only the tile may touch the shred
+   link.  A depth of four is far more than the one header per block that
+   is actually expected. */
+#define FD_POHH_AG_MARKER_MAX   (1024UL)
+#define FD_POHH_AG_MARKER_DEPTH (4UL)
+
+/* Agave's TIME_TO_COMPLETE_BLOCK_BROADCAST: how far before the end of the
+   slot BlockCreationLoop finishes the block, leaving time to broadcast it.
+   See block_timeout() in block_creation_loop.rs.  BCL has already taken
+   this off the deadline it hands us, so it is only used on the legacy
+   path that derives a deadline locally. */
+#define FD_POHH_AG_BROADCAST_NS (6UL*1000UL*1000UL)
+
+/* How much of BlockCreationLoop's deadline to hold back from pack, to
+   cover the only part of block completion that has to happen before BCL
+   can tick: draining the microblocks pack already handed to the bank
+   tiles.
+
+   Zero.  Measured under load the drain is 0.2ms median and 1.2ms at
+   worst, so the strict requirement is close to nothing, and holding time
+   back here does not make the block close any earlier: BlockCreationLoop
+   waits out its full deadline before it starts completing the block
+   whether or not pack has already stopped.  A reserve therefore leaves
+   the slot idle for the difference and produces a smaller block for the
+   same slot length -- measured, TOTAL was 231ms with a 50ms reserve and
+   229ms with none.
+
+   The lever that genuinely ends a block early is
+   TIME_TO_COMPLETE_BLOCK_BROADCAST on the agave side, which moves BCL's
+   deadline itself.  It is left at agave's own 6ms: after the
+   notify_replay_wakeup fix the whole completion tail is 0.8ms median, so
+   6ms already covers it. */
+#define FD_POHH_AG_COMPLETE_NS  (0UL)
+
+/* Never hand pack a deadline in the past, even when BCL is already past
+   its own.  Falling behind should shrink the block, not stop it dead:
+   an empty block still has to be produced and shredded. */
+#define FD_POHH_AG_MIN_PACK_NS  (5UL*1000UL*1000UL)
+
 #define IN_KIND_BANK  (0)
 #define IN_KIND_PACK  (1)
 #define IN_KIND_EPOCH (2)
@@ -586,6 +645,68 @@ struct fd_pohh_tile {
 
   ulong                shred_epoch_msg_avail;
   fd_shred_epoch_msg_t shred_epoch_msg[1];
+
+  /* alpenglow is 1 once the cluster is running alpenglow consensus,
+     pushed down from the bank on every poh reset.  It selects the
+     block shape this tile produces: entries with one hash each, no
+     tick per hashcnt boundary, and a single terminal tick at the end
+     of the block rather than 64 ticks spread through it.
+
+     Also set directly by fd_ext_poh_alpenglow_enable at the TowerBFT to
+     alpenglow migration, because the banks around the switch are still
+     TowerBFT banks and would not carry it. */
+  int   alpenglow;
+
+  /* vote_only is 1 when the leader bank we were handed only admits vote
+     transactions, which is every bank produced during the alpenglow
+     migration.  Forwarded to pack, which is the only tile that can act
+     on it; a block that carries anything else is rejected wholesale by
+     replaying peers. */
+  int   vote_only;
+
+  /* Alpenglow block completion.  BlockCreationLoop owns the deadline
+     and the footer, and drives this from its own thread in three
+     steps (see fd_ext_poh_alpenglow_begin_tick and
+     fd_ext_poh_alpenglow_publish_footer):
+
+       1. ag_completing is set once BlockCreationLoop asks to end the
+          block.  The tile computes the final tick hash as soon as the
+          in flight microblocks have drained and sets ag_tick_ready;
+          nothing else is produced into the block while completing.
+       2. BlockCreationLoop registers the tick with the bank, waits for
+          it to freeze and builds the footer.  That wait happens on its
+          own thread, never here.
+       3. Handing the footer over publishes the footer marker, then the
+          tick, and ends the block, all inside that call.  It has to be
+          synchronous: BlockCreationLoop asserts that poh holds no bank
+          the instant it returns (block_creation_loop.rs:607), which
+          upstream satisfies because flush_cache clears the bank before
+          returning (old_poh_recorder.rs:694). */
+  int   ag_completing;
+  int   ag_tick_ready;
+  uchar ag_tick_hash[ 32 ];
+
+  /* Nanoseconds left until BlockCreationLoop ends the block, as BCL
+     measured it at the instant it handed us the bank.  ULONG_MAX means
+     it did not say, which is every non alpenglow caller; the legacy
+     slot grid is used then. */
+  ulong ag_block_deadline_ns;
+
+  /* Queue of block markers waiting to be published, filled by
+     fd_ext_poh_alpenglow_publish_marker and drained by the tile.  Holds
+     the block header that has to open every alpenglow block, and any
+     update parent marker from a sad handover.  Drained ahead of the
+     footer so that ordering is preserved. */
+  /* Leader slot currently open towards the gui, or ULONG_MAX if none.
+     Maintained for both consensus modes so that every start is closed
+     exactly once, including across the switch to alpenglow and when a
+     window is abandoned part way through a block. */
+  ulong plugin_leader_slot;
+
+  ulong ag_marker_head;
+  ulong ag_marker_tail;
+  ulong ag_marker_sz  [ FD_POHH_AG_MARKER_DEPTH ];
+  uchar ag_marker     [ FD_POHH_AG_MARKER_DEPTH ][ FD_POHH_AG_MARKER_MAX ];
 
   ulong parent_slot;
   uchar parent_block_id[ 32 ];
@@ -834,7 +955,14 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
   ctx->hashcnt_duration_ns = (double)tick_duration_ns/(double)hashcnt_per_tick;
   ctx->hashcnt_per_slot    = ticks_per_slot*hashcnt_per_tick;
 
-  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    /* Alpenglow does not tie microblocks to ticks at all: the block
+       carries as many as fit before the deadline and exactly one tick
+       at the end.  The low power cap below would hold the block to
+       ticks_per_slot microblocks, which is around three orders of
+       magnitude too few. */
+    ctx->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
+  } else if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
   } else {
@@ -994,11 +1122,30 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
   return 1;
 }
 
-CALLED_FROM_RUST static inline void
-publish_plugin_slot_start( fd_pohh_tile_t * ctx,
-                           ulong            slot,
-                           ulong            parent_slot ) {
+/* plugin_slot_start and plugin_slot_end do the actual publishing.  The
+   gui pairs these strictly: it asserts no slot is open when a start
+   arrives, and that an end names the slot that was opened
+   (fd_guih_handle_slot_start / fd_guih_handle_slot_end), so every start
+   must be followed by exactly one end for the same slot.
+
+   Both consensus modes drive them, from different places, which is why
+   the pairing lives in the callers rather than here:
+
+     TowerBFT   the leader transitions in fd_ext_poh_reset and
+                after_credit, via the publish_plugin_slot_* wrappers
+                below.  Unchanged.
+
+     alpenglow  ag_plugin_slot_start on adopting a leader slot in
+                fd_ext_poh_begin_leader, and ag_plugin_slot_end when the
+                block finishes or the window is abandoned. */
+
+static inline void
+plugin_slot_start( fd_pohh_tile_t * ctx,
+                   ulong            slot,
+                   ulong            parent_slot ) {
   if( FD_UNLIKELY( !ctx->plugin_out->mem ) ) return;
+
+  ctx->plugin_leader_slot = slot;
 
   fd_plugin_msg_slot_start_t * slot_start = (fd_plugin_msg_slot_start_t *)fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
   *slot_start = (fd_plugin_msg_slot_start_t){ .slot = slot, .parent_slot = parent_slot };
@@ -1006,16 +1153,64 @@ publish_plugin_slot_start( fd_pohh_tile_t * ctx,
   ctx->plugin_out->chunk = fd_dcache_compact_next( ctx->plugin_out->chunk, sizeof(fd_plugin_msg_slot_start_t), ctx->plugin_out->chunk0, ctx->plugin_out->wmark );
 }
 
-CALLED_FROM_RUST static inline void
-publish_plugin_slot_end( fd_pohh_tile_t * ctx,
-                         ulong            slot,
-                         ulong          cus_used ) {
+static inline void
+plugin_slot_end( fd_pohh_tile_t * ctx,
+                 ulong            slot,
+                 ulong            cus_used ) {
   if( FD_UNLIKELY( !ctx->plugin_out->mem ) ) return;
+
+  ctx->plugin_leader_slot = ULONG_MAX;
 
   fd_plugin_msg_slot_end_t * slot_end = (fd_plugin_msg_slot_end_t *)fd_chunk_to_laddr( ctx->plugin_out->mem, ctx->plugin_out->chunk );
   *slot_end = (fd_plugin_msg_slot_end_t){ .slot = slot, .cus_used = cus_used };
   fd_stem_publish( ctx->stem, ctx->plugin_out->idx, FD_PLUGIN_MSG_SLOT_END, ctx->plugin_out->chunk, sizeof(fd_plugin_msg_slot_end_t), 0UL, 0UL, 0UL );
   ctx->plugin_out->chunk = fd_dcache_compact_next( ctx->plugin_out->chunk, sizeof(fd_plugin_msg_slot_end_t), ctx->plugin_out->chunk0, ctx->plugin_out->wmark );
+}
+
+/* ag_plugin_slot_start opens a leader slot for the gui, closing any slot
+   left open first so the gui never sees two starts in a row.  Two cases
+   need that: a window BlockCreationLoop abandons mid-block, and the
+   handover at startup, where the TowerBFT path may already have opened a
+   slot before the first poh reset learns alpenglow is active.  That is
+   why plugin_leader_slot is maintained by the two functions above for
+   both consensus modes, rather than only for the slots opened here. */
+
+static inline void
+ag_plugin_slot_end( fd_pohh_tile_t * ctx ) {
+  if( FD_LIKELY( ctx->plugin_leader_slot==ULONG_MAX ) ) return;
+  plugin_slot_end( ctx, ctx->plugin_leader_slot, ctx->cus_used );
+}
+
+static inline void
+ag_plugin_slot_start( fd_pohh_tile_t * ctx,
+                      ulong            slot,
+                      ulong            parent_slot ) {
+  ag_plugin_slot_end( ctx );
+  plugin_slot_start( ctx, slot, parent_slot );
+}
+
+/* The TowerBFT leader transitions call these.  They assume PoH's own
+   schedule picks the leader slot and that slots advance one at a time,
+   neither of which holds once consensus drives block production:
+   BlockCreationLoop can abandon a window and jump ahead, which would
+   produce a start for one slot and an end for another and the gui
+   treats that as fatal.  Under alpenglow the pairing above is used
+   instead. */
+
+CALLED_FROM_RUST static inline void
+publish_plugin_slot_start( fd_pohh_tile_t * ctx,
+                           ulong            slot,
+                           ulong            parent_slot ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) return;
+  plugin_slot_start( ctx, slot, parent_slot );
+}
+
+CALLED_FROM_RUST static inline void
+publish_plugin_slot_end( fd_pohh_tile_t * ctx,
+                         ulong            slot,
+                         ulong          cus_used ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) return;
+  plugin_slot_end( ctx, slot, cus_used );
 }
 
 extern int
@@ -1083,13 +1278,40 @@ publish_became_leader( fd_pohh_tile_t * ctx,
 
   fd_became_leader_t * leader = (fd_became_leader_t *)dst;
   leader->slot_start_ns           = slot_start_ns;
-  leader->slot_end_ns             = (long)((double)slot_start_ns + ctx->slot_duration_ns);
+  /* Under alpenglow BlockCreationLoop decides when the block ends, and
+     pack has to stop before that or it is still handing microblocks to
+     the bank tiles when the tick freezes the bank, which panics in
+     Bank::commit_transactions.
+
+     Take BCL's own remaining time rather than deriving one here.  The
+     local slot grid is anchored at the last poh reset and does not
+     track BCL's window: nothing self clocks under alpenglow, so the two
+     agree only by accident, and the accident can go either way.  BCL's
+     deadlines are cumulative across the 4 slot window, so using them
+     also makes an overrun in one slot shrink the next instead of
+     compounding.  The 6ms is already subtracted on their side; what we
+     take off here is the cost of actually finishing the block. */
+  if( FD_UNLIKELY( ctx->alpenglow && ctx->ag_block_deadline_ns!=ULONG_MAX ) ) {
+    ulong pack_ns = fd_ulong_if( ctx->ag_block_deadline_ns>FD_POHH_AG_COMPLETE_NS,
+                                 ctx->ag_block_deadline_ns-FD_POHH_AG_COMPLETE_NS,
+                                 0UL );
+    pack_ns = fd_ulong_max( pack_ns, FD_POHH_AG_MIN_PACK_NS );
+    leader->slot_end_ns           = fd_log_wallclock() + (long)pack_ns;
+  } else {
+    leader->slot_end_ns           = (long)((double)slot_start_ns + ctx->slot_duration_ns)
+                                  - (long)fd_ulong_if( !!ctx->alpenglow, FD_POHH_AG_BROADCAST_NS, 0UL );
+  }
   leader->bank                    = ctx->current_leader_bank;
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
   leader->tick_duration_ns        = ctx->tick_duration_ns;
   leader->hashcnt_per_tick        = ctx->hashcnt_per_tick;
-  leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-ctx->reset_slot);
+  /* Alpenglow answers a skipped slot with a skip certificate rather
+     than with backfilled ticks, so there are never any to publish and
+     nothing for pack to reserve space for. */
+  leader->total_skipped_ticks     = ctx->alpenglow ? 0UL : ctx->ticks_per_slot*(slot-ctx->reset_slot);
+  leader->alpenglow               = ctx->alpenglow;
+  leader->vote_only               = ctx->vote_only;
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
   leader->slot                    = slot;
@@ -1134,6 +1356,57 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sizeof(void const *), ctx->shred_out->chunk0, ctx->shred_out->wmark );
 }
 
+/* ag_queue_block_header queues the block header that opens the
+   alpenglow block for slot.  Caller must hold the write lock.
+
+   Upstream nothing in poh produces this component: the broadcast stage
+   prepends it to the first batch of every leader block, in agave
+   turbine/src/broadcast_stage/standard_broadcast_run.rs.  Frankendancer
+   replaces broadcast with the shred tile, which does not, so without
+   this every block we produce is missing its first component and no
+   receiver can complete it.
+
+   It is built here rather than in the shred tile because a marker
+   needs a batch to itself, and the shred tile closes at most one batch
+   per frag it receives, so the header has to arrive as a frag of its
+   own.  Only the tile may publish, hence the queue.
+
+   The parent block id is filled in best effort here and corrected by
+   the shred tile.  For a parent another validator led, poh_reset
+   handed us its block id and this is already right.  For a parent we
+   led ourselves it cannot be: that block id is the double merkle root
+   over the block's FEC set roots, which does not exist until the block
+   has finished shredding, and this slot opens before that.  The shred
+   tile overwrites the field in that case. */
+
+static void
+ag_queue_block_header( fd_pohh_tile_t * ctx,
+                       ulong            slot ) {
+  ulong parent_offset = 1UL+slot-ctx->reset_slot;
+  ulong parent_slot   = slot-parent_offset;
+
+  if( FD_UNLIKELY( (ctx->ag_marker_tail-ctx->ag_marker_head)>=FD_POHH_AG_MARKER_DEPTH ) ) {
+    FD_LOG_WARNING(( "alpenglow block marker queue full, dropping the block header for slot %lu", slot ));
+    return;
+  }
+
+  ulong idx = ctx->ag_marker_tail % FD_POHH_AG_MARKER_DEPTH;
+  fd_alpenglow_block_header_t * hdr = (fd_alpenglow_block_header_t *)ctx->ag_marker[ idx ];
+  hdr->entry_cnt      = 0UL;
+  hdr->marker_version = (ushort)1;
+  hdr->marker_variant = FD_ALPENGLOW_MARKER_BLOCK_HEADER;
+  /* The length prefix covers the versioned block header alone: its
+     version tag, the parent slot and the parent block id. */
+  hdr->header_sz      = (ushort)( sizeof(hdr->header_version)+sizeof(hdr->parent_slot)+sizeof(hdr->parent_block_id) );
+  hdr->header_version = (uchar)1;
+  hdr->parent_slot    = parent_slot;
+  if( FD_LIKELY( ctx->parent_slot==parent_slot ) ) fd_memcpy( hdr->parent_block_id, ctx->parent_block_id, 32UL );
+  else                                             fd_memset( hdr->parent_block_id, 0, 32UL );
+
+  ctx->ag_marker_sz[ idx ] = sizeof(fd_alpenglow_block_header_t);
+  ctx->ag_marker_tail++;
+}
+
 /* The PoH tile knows when it should become leader by waiting for its
    leader slot (with the operating system clock).  This function is so
    that when it becomes the leader, it can be told what the leader bank
@@ -1150,13 +1423,49 @@ fd_ext_poh_begin_leader( void const * bank,
                          ulong        cus_vote_cost_limit,
                          ulong        cus_account_cost_limit,
                          ulong        cus_allocated_data_size_limit,
-                         ulong        max_data_shreds ) {
+                         ulong        max_data_shreds,
+                         int          vote_only,
+                         ulong        block_deadline_ns ) {
   fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
 
   FD_TEST( !ctx->current_leader_bank );
 
-  if( FD_UNLIKELY( slot!=ctx->slot ) )             FD_LOG_ERR(( "Trying to begin leader slot %lu but we are now on slot %lu", slot, ctx->slot ));
-  if( FD_UNLIKELY( slot!=ctx->next_leader_slot ) ) FD_LOG_ERR(( "Trying to begin leader slot %lu but next leader slot is %lu", slot, ctx->next_leader_slot ));
+  ctx->ag_block_deadline_ns = block_deadline_ns;
+  ctx->vote_only            = !!vote_only;
+
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    /* Both checks below encode the TowerBFT arrangement where PoH is the
+       slot clock: replay may only hand us the slot PoH has already
+       ticked into, and it must match the leader slot we derived from
+       the schedule ourselves.  Neither holds under alpenglow.  Nothing
+       self clocks here any more, so ctx->slot only moves on a poh
+       reset, and which slot to lead is decided by consensus: votor
+       picks the window from ParentReady, and BlockCreationLoop will
+       abandon a window and jump ahead if the cluster has already
+       certified blocks past it.  That is exactly what happens when a
+       window is skipped, leaving ctx->slot behind the slot we are being
+       asked to produce.
+
+       So adopt the slot rather than validate it.  The hash chain does
+       not need winding forward across the gap: an alpenglow block
+       chains to its parent, skipped slots produce skip certificates
+       rather than ticks, and ctx->hash already holds the parent's last
+       hash from the reset.  reset_slot is likewise left alone, so the
+       parent_offset the shred tile sees stays correct. */
+    if( FD_UNLIKELY( slot<ctx->slot ) )
+      FD_LOG_ERR(( "Trying to begin leader slot %lu but we are already past it on slot %lu", slot, ctx->slot ));
+
+    ctx->slot             = slot;
+    ctx->hashcnt          = 0UL;
+    ctx->last_slot        = slot;
+    ctx->last_hashcnt     = 0UL;
+    ctx->next_leader_slot = slot;
+
+    ag_plugin_slot_start( ctx, slot, ctx->reset_slot ? ctx->reset_slot-1UL : 0UL );
+  } else {
+    if( FD_UNLIKELY( slot!=ctx->slot ) )             FD_LOG_ERR(( "Trying to begin leader slot %lu but we are now on slot %lu", slot, ctx->slot ));
+    if( FD_UNLIKELY( slot!=ctx->next_leader_slot ) ) FD_LOG_ERR(( "Trying to begin leader slot %lu but next leader slot is %lu", slot, ctx->next_leader_slot ));
+  }
 
   if( FD_UNLIKELY( ctx->tick_duration_ns!=tick_duration_ns ) ) {
     FD_LOG_WARNING(( "tick duration changed from %lu to %lu", ctx->tick_duration_ns, tick_duration_ns ));
@@ -1190,15 +1499,34 @@ fd_ext_poh_begin_leader( void const * bank,
        activated in slot 1000, and we are publishing empty ticks for
        slots 998, 999, 1000, and 1001, they should all have the new
        hashes_per_tick number of hashes, rather than the older one, or
-       some combination. */
+       some combination.
 
-    FD_TEST( ctx->last_slot==ctx->reset_slot );
-    FD_TEST( !ctx->last_hashcnt );
-    ctx->slot = ctx->reset_slot;
-    ctx->hashcnt = 0UL;
+       None of that applies under alpenglow.  Nothing self clocks, so no
+       ticks were produced for the intervening slots and there is
+       nothing to discard, and ctx->slot was just adopted from the slot
+       BlockCreationLoop asked for, which is only reset_slot when the
+       window was not abandoned.  Rewinding to reset_slot would produce
+       the wrong slot, and the two assertions below fail outright the
+       first time a window is skipped.  This is reached on the first
+       alpenglow block of a migration, where the bank drops
+       hashes_per_tick from the TowerBFT value to one. */
+
+    if( FD_LIKELY( !ctx->alpenglow ) ) {
+      FD_TEST( ctx->last_slot==ctx->reset_slot );
+      FD_TEST( !ctx->last_hashcnt );
+      ctx->slot = ctx->reset_slot;
+      ctx->hashcnt = 0UL;
+    }
   }
 
-  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    /* Alpenglow does not tie microblocks to ticks at all: the block
+       carries as many as fit before the deadline and exactly one tick
+       at the end.  The low power cap below would hold the block to
+       ticks_per_slot microblocks, which is around three orders of
+       magnitude too few. */
+    ctx->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
+  } else if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
   } else {
@@ -1237,6 +1565,10 @@ fd_ext_poh_begin_leader( void const * bank,
 
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || slot>=ctx->highwater_leader_slot );
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
+
+  /* Queue the block header before pack is told to start packing, so it
+     is ahead of any microblock pack sends us in the marker queue. */
+  if( FD_UNLIKELY( ctx->alpenglow ) ) ag_queue_block_header( ctx, slot );
 
   publish_became_leader( ctx, slot, epoch );
 
@@ -1359,8 +1691,13 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
                   ulong         tick_duration_ns,    /* The target tick duration of the bank that completed */
                   uchar const * parent_block_id,     /* The block id of the parent block */
                   ulong const * features_activation, /* The activation slot of shred-tile features */
-                  ulong const * shred_slot_limits    /* The shred slot limits for the epoch */ ) {
+                  ulong const * shred_slot_limits,   /* The shred slot limits for the epoch */
+                  int           alpenglow            /* Whether the bank that completed is an alpenglow bank */ ) {
   fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  /* Set before anything below reads it: the microblock cap is
+     recomputed further down and depends on it. */
+  ctx->alpenglow = !!alpenglow;
 
   ulong slot_before_reset = ctx->slot;
   int leader_before_reset = ctx->slot>=ctx->next_leader_slot;
@@ -1419,7 +1756,14 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     ctx->hashcnt_per_tick = hashcnt_per_tick;
   }
 
-  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    /* Alpenglow does not tie microblocks to ticks at all: the block
+       carries as many as fit before the deadline and exactly one tick
+       at the end.  The low power cap below would hold the block to
+       ticks_per_slot microblocks, which is around three orders of
+       magnitude too few. */
+    ctx->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
+  } else if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
   } else {
@@ -1481,6 +1825,274 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     ctx->shred_epoch_msg_avail = 1UL;
   }
 
+  /* The shred tile needs to know about alpenglow too, to tell a block's
+     double merkle root apart from the chained merkle root it shreds
+     with.  Forwarded down the same link. */
+  if( FD_UNLIKELY( ctx->shred_epoch_msg->alpenglow!=(ulong)ctx->alpenglow ) ) {
+    ctx->shred_epoch_msg->alpenglow = (ulong)ctx->alpenglow;
+    ctx->shred_epoch_msg_avail      = 1UL;
+  }
+
+  fd_ext_poh_write_unlock();
+}
+
+/* fd_ext_poh_alpenglow_enable switches this tile into alpenglow mode at
+   the TowerBFT to alpenglow migration.  It is the counterpart of
+   upstream's PohRecorder::enable_alpenglow, which drops PoH into low
+   power mode and stops PohService ticking.
+
+   The flag cannot come from fd_ext_poh_reset here the way it does on a
+   cluster that was running alpenglow from genesis.  A slot is only an
+   alpenglow block once it is strictly after the block named by the
+   genesis certificate, so every bank up to and including that one --
+   which is what replay and then BlockCreationLoop reset us onto -- is
+   still a TowerBFT bank.  Without this the first block produced after
+   the migration would carry 64 ticks and no markers.
+
+   Safe to call more than once, and safe to call before the tile is up:
+   the caller may be running before this tile has joined its ctx, so
+   spin for it exactly as fd_ext_poh_initialize does.  There is no
+   leader bank in flight at this point; replay_stage resets poh and
+   waits for the working bank to clear before enabling alpenglow. */
+
+CALLED_FROM_RUST void
+fd_ext_poh_alpenglow_enable( void ) {
+  FD_COMPILER_MFENCE();
+  for(;;) {
+    if( FD_LIKELY( FD_VOLATILE_CONST( fd_pohh_global_ctx ) ) ) break;
+    FD_SPIN_PAUSE();
+  }
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    fd_ext_poh_write_unlock();
+    return;
+  }
+
+  ctx->alpenglow = 1;
+
+  /* Alpenglow does not tie microblocks to ticks at all: the block
+     carries as many as fit before the deadline and exactly one tick
+     at the end.  The low power cap would hold the block to
+     ticks_per_slot microblocks, which is around three orders of
+     magnitude too few. */
+  ctx->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
+  ctx->microblocks_lower_bound  = ctx->max_microblocks_per_slot;
+
+  if( FD_UNLIKELY( ctx->shred_epoch_msg->alpenglow!=(ulong)ctx->alpenglow ) ) {
+    ctx->shred_epoch_msg->alpenglow = (ulong)ctx->alpenglow;
+    ctx->shred_epoch_msg_avail      = 1UL;
+  }
+
+  FD_LOG_NOTICE(( "fd_ext_poh_alpenglow_enable(slot=%lu,reset_slot=%lu)", ctx->slot, ctx->reset_slot ));
+
+  fd_ext_poh_write_unlock();
+}
+
+/* fd_ext_poh_alpenglow_tick is the first half of ending an alpenglow
+   block.  BlockCreationLoop calls it once its block timer has fired.
+
+   It advances PoH by the single hash that forms the block's only tick,
+   returns that hash so the caller can register it with the bank, and
+   puts the tile into its completing state so that nothing else is
+   produced into this block.  The tick is not published here: it has to
+   follow the footer, and the footer cannot be built until registering
+   this tick has caused the bank to freeze. */
+
+CALLED_FROM_RUST void
+fd_ext_poh_alpenglow_begin_tick( void ) {
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  FD_TEST( ctx->alpenglow );
+
+  ctx->ag_completing   = 1;
+  ctx->ag_tick_ready   = 0;
+
+  fd_ext_poh_write_unlock();
+}
+
+/* fd_ext_poh_alpenglow_try_get_tick returns 1 once the tick hash exists,
+   which is only after every microblock pack sent for this slot has been
+   mixed in.  Registering the tick freezes the bank, so a microblock still
+   in flight at that point would be committed into a frozen bank and panic
+   (bank.rs commit_transactions).  The caller polls rather than the tile
+   waiting, because the draining is the tile's own work. */
+
+CALLED_FROM_RUST int
+fd_ext_poh_alpenglow_try_get_tick( uchar out_tick_hash[ static 32 ] ) {
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  int ready = ctx->ag_tick_ready;
+  if( FD_LIKELY( ready ) ) fd_memcpy( out_tick_hash, ctx->ag_tick_hash, 32UL );
+
+  fd_ext_poh_write_unlock();
+  return ready;
+}
+
+/* Defined below with the rest of the publishing helpers, declared here
+   because ending an alpenglow block happens on BlockCreationLoop's
+   thread rather than in after_credit. */
+
+static void
+ag_drain_markers( fd_pohh_tile_t *    ctx,
+                  fd_stem_context_t * stem );
+
+static void
+publish_marker( fd_pohh_tile_t *    ctx,
+                fd_stem_context_t * stem,
+                uchar const *       marker,
+                ulong               marker_sz,
+                int                 block_complete );
+
+static void
+publish_alpenglow_tick( fd_pohh_tile_t *    ctx,
+                        fd_stem_context_t * stem );
+
+/* fd_ext_poh_alpenglow_publish_footer is the second half.  By the time
+   it is called the bank has frozen and the footer carries its bank
+   hash, so the block can be closed out: footer marker, then tick, then
+   release the leader bank.
+
+   All of that happens here rather than being handed to after_credit,
+   because BlockCreationLoop requires it to be done by the time this
+   returns.  record_and_complete_block calls this last and returns Ok,
+   and produce_window then asserts poh holds no bank
+   (block_creation_loop.rs:607) before opening the next slot of the
+   window.  Upstream satisfies that assert synchronously: flush_cache
+   calls clear_bank once tick_height reaches max_tick_height
+   (old_poh_recorder.rs:694).  Deferring to after_credit satisfies
+   nothing at all -- worse, the lock handshake actively works against
+   it, since after_credit grants the lock at its top and returns
+   without reaching any publishing.  Both this call and the has_bank
+   read that follows it therefore cost the tile a pass, and the assert
+   fires whenever the tile does not get a free one in between.
+
+   Publishing from this thread is the same thing fd_ext_poh_begin_leader
+   already does for the became leader and leader bank frags: the caller
+   holds the write lock, so the tile is parked in that handshake and is
+   not touching stem.  publish_marker and publish_alpenglow_tick use no
+   metrics and no thread local state, which CALLED_FROM_RUST forbids. */
+
+CALLED_FROM_RUST int
+fd_ext_poh_alpenglow_publish_footer( uchar const * footer,
+                                     ulong         footer_sz ) {
+  if( FD_UNLIKELY( footer_sz>FD_POHH_AG_FOOTER_MAX ) ) {
+    FD_LOG_WARNING(( "alpenglow block footer of %lu bytes exceeds the %lu byte limit", footer_sz, FD_POHH_AG_FOOTER_MAX ));
+    return -1;
+  }
+
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  FD_TEST( ctx->alpenglow );
+  FD_TEST( ctx->ag_completing );
+  FD_TEST( ctx->ag_tick_ready );
+
+  /* Nothing may come between the footer and the tick, and the block
+     header must already be out, so flush anything still queued first.
+     Normally a no-op, after_credit drains the header long before the
+     block ends. */
+  ag_drain_markers( ctx, ctx->stem );
+
+  /* Order on the wire is microblocks, then the footer, then the tick,
+     so that the footer can carry the bank hash of the very block it
+     terminates. */
+  publish_marker( ctx, ctx->stem, footer, footer_sz, 0 );
+  publish_alpenglow_tick( ctx, ctx->stem );
+
+  ctx->ag_completing = 0;
+  ctx->ag_tick_ready = 0;
+
+  /* The block is finished, so release the leader bank.  Safe straight
+     after publishing the tick: that already cleared store_leader_bank,
+     because the store tile drops that refcount itself when the FEC set
+     carrying SLOT_COMPLETE arrives, so nothing is released twice. */
+  ag_plugin_slot_end( ctx );
+
+  /* We just produced this slot, so we can never lead it again, and the
+     mark has to say so before no_longer_leader recomputes the next
+     leader slot off it.  Upstream gets this for free: poh ticks past
+     the slot on its own, so by the time it stops being leader ctx->slot
+     has already moved.  Nothing self clocks under alpenglow, ctx->slot
+     sits on the slot just finished, and no_longer_leader would only
+     raise the mark to ctx->slot, so the schedule lookup returns the
+     same slot straight back and next_leader_slot stays pointing at a
+     block already built.  The validator then dies on the first stake
+     update that finds no leader slot at that floor.  fd_ext_poh_reset
+     uses the same +1 for the same reason. */
+  ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+ctx->slot );
+
+  no_longer_leader( ctx );
+
+  fd_ext_poh_write_unlock();
+  return 0;
+}
+
+/* fd_ext_poh_alpenglow_publish_marker queues an already serialized
+   block component for publication by the tile.  Used for the update
+   parent marker on a sad handover, and for the genesis certificate
+   that opens the first alpenglow block of a migration.  The block
+   header does not come through here; the tile builds its own. */
+
+CALLED_FROM_RUST int
+fd_ext_poh_alpenglow_publish_marker( uchar const * marker,
+                                     ulong         marker_sz ) {
+  if( FD_UNLIKELY( marker_sz>FD_POHH_AG_MARKER_MAX ) ) {
+    FD_LOG_WARNING(( "alpenglow block marker of %lu bytes exceeds the %lu byte limit", marker_sz, FD_POHH_AG_MARKER_MAX ));
+    return -1;
+  }
+
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  if( FD_UNLIKELY( (ctx->ag_marker_tail-ctx->ag_marker_head)>=FD_POHH_AG_MARKER_DEPTH ) ) {
+    fd_ext_poh_write_unlock();
+    FD_LOG_WARNING(( "alpenglow block marker queue full, dropping marker" ));
+    return -1;
+  }
+
+  ulong idx = ctx->ag_marker_tail % FD_POHH_AG_MARKER_DEPTH;
+  fd_memcpy( ctx->ag_marker[ idx ], marker, marker_sz );
+  ctx->ag_marker_sz[ idx ] = marker_sz;
+  ctx->ag_marker_tail++;
+
+  fd_ext_poh_write_unlock();
+  return 0;
+}
+
+/* fd_ext_poh_alpenglow_clear_bank abandons the block in progress.
+   BlockCreationLoop calls this when a window is aborted, for example
+   because the cluster moved on to a later parent. */
+
+CALLED_FROM_RUST void
+fd_ext_poh_alpenglow_clear_bank( void ) {
+  fd_pohh_tile_t * ctx = fd_ext_poh_write_lock();
+
+  /* Anything queued belongs to the block being abandoned. */
+  ctx->ag_marker_head  = ctx->ag_marker_tail;
+  ctx->ag_completing   = 0;
+  ctx->ag_tick_ready   = 0;
+
+  ag_plugin_slot_end( ctx );
+
+  if( FD_LIKELY( ctx->current_leader_bank ) ) {
+    /* Drop anything pack still has in flight for the slot being
+       abandoned.  A frag is discarded when its slot is strictly below
+       highwater_leader_slot, so the mark has to be one past the slot we
+       are giving up on; no_longer_leader below only raises it to
+       ctx->slot, which is correct at its other call sites because poh
+       has already ticked past by then, but not here.  fd_ext_poh_reset
+       does the same thing for the same reason.
+
+       Only when there is still a bank, which is what says we are giving
+       up on a slot rather than tidying up after one that finished.
+       Raising it unconditionally desynchronizes it from
+       next_leader_slot, which only no_longer_leader recomputes, and the
+       next stake update then sees itself leaving a slot it still
+       believes it is leading. */
+    ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), 1UL+ctx->slot );
+
+    no_longer_leader( ctx );
+  }
+
   fd_ext_poh_write_unlock();
 }
 
@@ -1536,6 +2148,8 @@ publish_tick( fd_pohh_tile_t *      ctx,
     meta->reference_tick = hashcnt/ctx->hashcnt_per_tick;
     meta->block_complete = hashcnt==ctx->hashcnt_per_slot;
   }
+  meta->block_marker = 0;
+  meta->batch_flush  = 0;
 
   ulong slot = fd_ulong_if( meta->block_complete, ctx->slot-1UL, ctx->slot );
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
@@ -1582,6 +2196,177 @@ publish_tick( fd_pohh_tile_t *      ctx,
   }
 }
 
+/* publish_alpenglow_tick publishes the single tick that ends an
+   alpenglow block.
+
+   It is kept separate from publish_tick rather than folded into it
+   because almost none of that function's arithmetic survives: there is
+   one tick instead of ticks_per_slot of them, it always completes the
+   block, it advances the hash by exactly one, and the slot has not been
+   incremented behind our back because nothing self clocks under
+   alpenglow. */
+
+static void
+publish_alpenglow_tick( fd_pohh_tile_t *    ctx,
+                        fd_stem_context_t * stem ) {
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+
+  FD_TEST( ctx->slot>=ctx->reset_slot );
+  fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
+  meta->reference_tick = 0UL;
+  meta->block_complete = 1;
+  meta->block_marker   = 0;
+  meta->batch_flush    = 0;
+
+  ulong slot = ctx->slot;
+  meta->parent_offset = 1UL+slot-ctx->reset_slot;
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  }
+
+  dst += sizeof(fd_entry_batch_meta_t);
+  fd_entry_batch_header_t * tick = (fd_entry_batch_header_t *)dst;
+  tick->hashcnt_delta = 1UL;
+  fd_memcpy( tick->hash, ctx->ag_tick_hash, 32UL );
+  tick->txn_cnt = 0UL;
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sz    = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
+  ulong sig   = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+
+  ctx->last_slot    = ctx->slot;
+  ctx->last_hashcnt = ctx->hashcnt;
+
+  /* As in publish_tick: the store tile releases the bank refcount when
+     the FEC set carrying SLOT_COMPLETE arrives, so drop our tracking
+     and suppress the END frag in no_longer_leader. */
+  if( FD_UNLIKELY( ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    FD_TEST( ctx->store_leader_bank_slot==slot );
+    ctx->store_leader_bank      = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
+  }
+}
+
+/* publish_batch_flush publishes a frag that carries no entries and
+   exists only to make the shred tile close whatever it still has
+   buffered.
+
+   A marker has to have a batch to itself, but poh cannot see the shred
+   tile's pending batch, and the shred tile closes at most one batch per
+   frag -- so in a marker's own frag it can either flush the pending
+   entries or open the marker's batch, not both.  Splitting the two
+   across two frags is what this is for.  The shred tile ignores one
+   that finds nothing buffered, so it is always safe to send.
+
+   The frag is the entry batch metadata and nothing else, which makes it
+   the only frag on this link shorter than an entry batch header. */
+
+static void
+publish_batch_flush( fd_pohh_tile_t *    ctx,
+                     fd_stem_context_t * stem ) {
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+
+  FD_TEST( ctx->slot>=ctx->reset_slot );
+  fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
+  meta->reference_tick = 0UL;
+  meta->block_complete = 0;
+  meta->block_marker   = 0;
+  meta->batch_flush    = 1;
+
+  ulong slot = ctx->slot;
+  meta->parent_offset = 1UL+slot-ctx->reset_slot;
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  }
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sz    = sizeof(fd_entry_batch_meta_t);
+  ulong sig   = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+}
+
+/* publish_marker publishes an alpenglow block marker (a block header,
+   footer, genesis certificate or update parent) to the shred tile.
+
+   A marker rides in the entry stream rather than in a shred of its own.
+   agave discriminates the two by the leading entry count: a batch whose
+   first eight bytes are zero is a marker rather than a run of entries
+   (entry/src/block_component.rs infer_is_block_marker).  Since the
+   shred tile treats payloads as opaque, nothing below here needs to
+   know the difference.
+
+   marker already contains that leading zero count: it is a whole
+   serialized BlockComponent, so this only prepends the batch metadata
+   the shred tile needs. */
+
+static void
+publish_marker( fd_pohh_tile_t *    ctx,
+                fd_stem_context_t * stem,
+                uchar const *       marker,
+                ulong               marker_sz,
+                int                 block_complete ) {
+  /* The marker needs an empty batch and only the shred tile knows
+     whether it has one, so always precede it with a flush.  One that
+     arrives with nothing buffered is ignored, which is the usual case
+     for the block header: it is queued in begin_leader before pack is
+     told to start, so no entry can be pending yet.  The footer is the
+     one that needs this -- under load pack emits thousands of small
+     microblocks and the shred tile only seals a batch at its
+     watermark, so at slot close there is almost always something
+     pending and the footer was being dropped. */
+  publish_batch_flush( ctx, stem );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+
+  FD_TEST( ctx->last_slot>=ctx->reset_slot );
+  fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
+  meta->reference_tick   = 0UL;
+  meta->block_complete   = block_complete;
+  meta->block_marker     = 1;
+  meta->batch_flush      = 0;
+
+  ulong slot = ctx->slot;
+  meta->parent_offset = 1UL+slot-ctx->reset_slot;
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  }
+
+  dst += sizeof(fd_entry_batch_meta_t);
+  fd_memcpy( dst, marker, marker_sz );
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sz    = sizeof(fd_entry_batch_meta_t)+marker_sz;
+  ulong sig   = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
+  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+}
+
+/* ag_drain_markers publishes every queued alpenglow block marker, in
+   the order they were queued.  Ordering matters: the block header has
+   to be the first component of the block, and nothing may get between
+   the footer and the tick that follows it, so this is called both from
+   after_credit and before a microblock is published rather than being
+   left to after_credit alone. */
+
+static void
+ag_drain_markers( fd_pohh_tile_t *    ctx,
+                  fd_stem_context_t * stem ) {
+  while( FD_UNLIKELY( ctx->ag_marker_head!=ctx->ag_marker_tail ) ) {
+    ulong idx = ctx->ag_marker_head % FD_POHH_AG_MARKER_DEPTH;
+    publish_marker( ctx, stem, ctx->ag_marker[ idx ], ctx->ag_marker_sz[ idx ], 0 );
+    ctx->ag_marker_head++;
+  }
+}
+
 static inline void
 publish_shred_epoch_msg( fd_pohh_tile_t *    ctx,
                          fd_stem_context_t * stem ) {
@@ -1625,6 +2410,53 @@ after_credit( fd_pohh_tile_t *    ctx,
        happens at most once per slot. */
     publish_shred_epoch_msg( ctx, stem );
     ctx->shred_epoch_msg_avail = 0UL;
+  }
+
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    /* Under alpenglow this tile does no free running hashing at all.
+       Every entry carries exactly one hash: a microblock is
+       hash(hash, mixin) published from after_frag, and the single tick
+       that ends the block is hash(hash), computed when
+       BlockCreationLoop tells us the block is over.  There is no tick
+       per hashcnt boundary to hit, so none of the interleaving rules
+       or the restricted_hashcnt arithmetic below applies, and the slot
+       clock comes from consensus by way of fd_ext_poh_reset rather
+       than from PoH running ahead on its own.
+
+       That leaves two things to do here: computing the final tick hash
+       once the in flight microblocks have drained, and getting queued
+       markers out.  Everything after the footer arrives is done on
+       BlockCreationLoop's thread, as is waiting for the bank to
+       freeze. */
+    /* Once BlockCreationLoop has asked for the tick, hold it until every
+       microblock pack sent for this slot has arrived and been mixed in.
+       microblocks_lower_bound only reaches max_microblocks_per_slot after
+       pack's done_packing has been received and every microblock it
+       accounted for has landed, which is exactly the drained condition. */
+    if( FD_UNLIKELY( ctx->ag_completing && !ctx->ag_tick_ready ) ) {
+      if( FD_LIKELY( ctx->microblocks_lower_bound>=ctx->max_microblocks_per_slot ) ) {
+        *charge_busy = 1;
+
+        /* A tick is hash(hash): no mixin, one hash, its own entry. */
+        fd_sha256_hash_32_repeated( ctx->hash, ctx->hash, 1UL );
+        ctx->hashcnt++;
+        fd_memcpy( ctx->ag_tick_hash, ctx->hash, 32UL );
+        ctx->ag_tick_ready = 1;
+      }
+    }
+
+    /* Drain queued markers first.  The block header has to be the first
+       component of the block, and must not end up behind the footer. */
+    if( FD_UNLIKELY( ctx->ag_marker_head!=ctx->ag_marker_tail ) ) {
+      *charge_busy = 1;
+      ag_drain_markers( ctx, stem );
+    }
+
+    /* The footer and the tick are not published here.  Ending the
+       block has to be finished by the time
+       fd_ext_poh_alpenglow_publish_footer returns, so it does all of
+       it on BlockCreationLoop's thread; see the comment there. */
+    return;
   }
 
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
@@ -2013,10 +2845,15 @@ during_frag( fd_pohh_tile_t * ctx,
 
     FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
     FD_TEST( done_packing->microblocks_in_slot<=ctx->max_microblocks_per_slot-1UL );
-    FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
+    /* The reason distinguishes pack running out of its deadline from
+       pack running out of room, which look identical from the outside
+       and want opposite fixes.  1=TIME 2=MICROBLOCK 3=LEADER_SWITCH,
+       fd_disco/tiles.h. */
+    FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu,reason=%i)",
                   ctx->slot,
                   ctx->microblocks_lower_bound,
-                  done_packing->microblocks_in_slot ));
+                  done_packing->microblocks_in_slot,
+                  done_packing->end_slot_reason ));
 
     ctx->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
                                   + (ctx->max_microblocks_per_slot-1UL) /* the canonical microblock limit */
@@ -2046,6 +2883,8 @@ publish_microblock( fd_pohh_tile_t *    ctx,
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
   meta->reference_tick = (ctx->hashcnt/ctx->hashcnt_per_tick) % ctx->ticks_per_slot;
+  meta->block_marker   = 0;
+  meta->batch_flush    = 0;
   meta->block_complete = !ctx->hashcnt;
 
   /* Refer to publish_tick() for details on meta->parent_block_id_valid. */
@@ -2198,9 +3037,18 @@ after_frag( fd_pohh_tile_t *    ctx,
      for development, in which case we do need to register the tick
      with the leader bank.  We don't need to publish the tick since
      sending the microblock below is the publishing action. */
-  if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_slot ) ) ) {
-    ctx->slot++;
-    ctx->hashcnt = 0UL;
+  /* Neither of the two checks below applies under alpenglow, and both
+     would misfire.  hashcnt_per_tick is 1, so the tick check would
+     register a tick with the bank on every single microblock, and
+     hashcnt_per_slot is only ticks_per_slot, so the slot check would
+     roll the slot over after that many microblocks.  Under alpenglow
+     there is exactly one tick, published when the block ends, and the
+     slot only ever moves on a poh reset. */
+  if( FD_LIKELY( !ctx->alpenglow ) ) {
+    if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_slot ) ) ) {
+      ctx->slot++;
+      ctx->hashcnt = 0UL;
+    }
   }
 
   ctx->last_slot    = ctx->slot;
@@ -2208,9 +3056,14 @@ after_frag( fd_pohh_tile_t *    ctx,
 
   ctx->cus_used += cus_used;
 
-  if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
+  if( FD_UNLIKELY( !ctx->alpenglow && !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
   }
+
+  /* The block header is queued when the block opens, but the queue is
+     drained from after_credit, so a microblock arriving first would
+     otherwise get ahead of it and leave the block headerless. */
+  if( FD_UNLIKELY( ctx->alpenglow ) ) ag_drain_markers( ctx, stem );
 
   publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
 
@@ -2531,6 +3384,16 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ )
     ctx->shred_epoch_msg->features_activation.slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
 
+  ctx->alpenglow                       = 0;
+  ctx->vote_only                       = 0;
+  ctx->shred_epoch_msg->alpenglow      = 0UL;
+  ctx->ag_completing                   = 0;
+  ctx->ag_tick_ready                   = 0;
+  ctx->ag_block_deadline_ns            = ULONG_MAX;
+  ctx->ag_marker_head                  = 0UL;
+  ctx->ag_marker_tail                  = 0UL;
+  ctx->plugin_leader_slot              = ULONG_MAX;
+
   ctx->shred_epoch_msg->slot_limits.prev_max_shred_idx    = FD_SHRED_BLK_MAX;
   ctx->shred_epoch_msg->slot_limits.current_max_shred_idx = FD_SHRED_BLK_MAX;
   ctx->shred_epoch_msg->slot_limits.next_max_shred_idx    = FD_SHRED_BLK_MAX;
@@ -2544,8 +3407,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* One tick, one microblock, one plugin slot end, one plugin slot start,
    one leader update, one features activation, and one leader bank
-   handoff. */
-#define STEM_BURST (7UL)
+   handoff.
+
+   Alpenglow needs more, and its worst case is the wider one: ending a
+   block drains the marker queue (FD_POHH_AG_MARKER_DEPTH markers, each
+   preceded by its own batch flush) and then publishes the footer, its
+   flush, and the tick.  That is 2*4+2+1 = 11, all of it inside the one
+   handshake fd_ext_poh_alpenglow_publish_footer holds the lock for. */
+#define STEM_BURST (12UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
