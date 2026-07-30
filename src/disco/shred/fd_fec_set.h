@@ -37,6 +37,12 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_fec_set {
      is undefined. */
   void const * leader_bank;
   uchar        merkle_root[ 32 ];
+
+  /* Set when the block this FEC set belongs to is an alpenglow block,
+     in which case merkle_root is only the chaining value and the store
+     tile has to take the block id from the blockstore's double merkle
+     root instead. */
+  int          alpenglow;
 };
 typedef struct fd_fec_set fd_fec_set_t;
 

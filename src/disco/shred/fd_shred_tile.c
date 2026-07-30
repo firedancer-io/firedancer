@@ -7,6 +7,7 @@
 #include "generated/fd_shred_tile_seccomp.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_shredder.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "fd_shred_batch.h"
 #include "fd_shred_dest.h"
 #include "fd_fec_resolver.h"
@@ -117,6 +118,21 @@ FD_STATIC_ASSERT( sizeof(fd_fec_set_t)==FD_SHRED_STORE_MTU, shred_store_mtu );
    making the total table 2MiB.
    See also comment on chained_merkle_root. */
 #define BLOCK_IDS_TABLE_CNT USHORT_MAX
+
+/* Under alpenglow a block's id is the double merkle root over the
+   merkle roots of all its FEC sets, so producing one means holding
+   every root of the slot until the block completes.  A slot is capped
+   at 32k data shreds and a FEC set is 32 of them, so a thousand roots
+   is the worst case.
+
+   The ids themselves only need to outlive the gap between finishing a
+   block and opening the next one that builds on it, which for our own
+   leader window is the very next slot, so a short ring keyed by slot
+   is plenty.  This is deliberately separate from block_ids above:
+   that holds the last FEC set's merkle root, which is what shred
+   chaining uses, and alpenglow does not change that. */
+#define FD_SHRED_AG_FEC_SETS_MAX  (1024UL)
+#define FD_SHRED_AG_BLOCK_IDS_CNT (256UL)
 
 /* See note on parallelization above. Currently we process all batches in tile 0. */
 #if 1
@@ -262,6 +278,14 @@ typedef struct {
   fd_epoch_schedule_t            epoch_schedule[1];
   fd_shred_features_activation_t features_activation[1];
 
+  /* alpenglow is 1 once the cluster is running alpenglow consensus,
+     pushed down from the bank by the Frankendancer poh tile.  Under
+     alpenglow a block's id is its double merkle root rather than the
+     last FEC set's chained merkle root, so this tile has to track both
+     (see out_merkle_roots and block_ids below).  Always 0 for
+     Firedancer, which never sends the message that sets it. */
+  int                            alpenglow;
+
   /* max_shred_idx is the exclusive upper bound for shred
      indices. We need to reject any shred with an
      index >= current_max_shred_idx, but we also want to reject anything
@@ -291,6 +315,21 @@ typedef struct {
   uchar * chained_merkle_root;
   fd_bmtree_node_t out_merkle_roots[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
+
+  /* Alpenglow block ids.  ag_fec_roots accumulates the merkle root of
+     every FEC set of the slot being produced, in order, and is folded
+     into a block id when the block completes.  ag_overflow suppresses
+     the id rather than publishing a wrong one if a slot somehow has
+     more FEC sets than fit. */
+  /* One past the FEC set cap: the parent leaf is appended after them. */
+  fd_hash_t ag_fec_roots[ FD_SHRED_AG_FEC_SETS_MAX+1UL ];
+  ulong     ag_fec_root_cnt;
+  ulong     ag_fec_root_slot;
+  int       ag_overflow;
+  struct {
+    ulong slot;
+    uchar block_id[ FD_SHRED_MERKLE_ROOT_SZ ];
+  } ag_block_ids[ FD_SHRED_AG_BLOCK_IDS_CNT ];
 
   /* Bank object that we receive from the PoH tile and pass on to
      the store tile for setting the block_id of a slot. */
@@ -408,6 +447,71 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
 static inline void
 finalize_new_cluster_contact_info( fd_shred_ctx_t * ctx ) {
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
+}
+
+/* fd_shred_ag_merkle_root folds cnt leaves into the root of the tree
+   agave builds over a block's FEC set roots, and returns it in out.
+   nodes holds the leaves on entry and is clobbered.
+
+   This is the SHRED merkle tree, ledger/src/shred/merkle_tree.rs, the
+   same one the FEC sets themselves use -- NOT the generic
+   solana_merkle_tree crate, which has one byte prefixes, hashes its
+   leaves and does not truncate.  build_double_merkle_tree imports
+   MerkleTree from crate::shred::merkle_tree
+   (ledger/src/blockstore.rs:23), so this is the one that applies.
+   Three things follow from that:
+
+     - an interior node is sha256("\x01SOLANA_MERKLE_SHREDS_NODE",
+       left, right), the 26 byte prefix, not a bare 0x01;
+     - join_nodes truncates each child to the 20 byte proof entry
+       width before hashing, while the node it produces, and so the
+       root, stays a full 32 bytes;
+     - try_new_with_len pushes the leaves verbatim.  There is no leaf
+       hashing step: the FEC set roots are already merkle roots and
+       the parent leaf is already a hashv.
+
+   A layer with an odd number of nodes hashes its last node with
+   itself, which fd_bmtree_commit_fini also does, so this could be
+   fd_bmtree at hash_sz=20 and prefix_sz=FD_BMTREE_LONG_PREFIX_SZ.  It
+   is kept open coded only because the leaves arrive already hashed. */
+
+static void
+fd_shred_ag_merkle_root( fd_hash_t * nodes,
+                         ulong       cnt,
+                         uchar *     out ) {
+  fd_sha256_t sha[ 1 ];
+
+  while( cnt>1UL ) {
+    ulong out_cnt = 0UL;
+    for( ulong i=0UL; i<cnt; i+=2UL ) {
+      /* The right sibling of a lone node is the node itself.  Both are
+         consumed into the hash state before the result is written back
+         over nodes[ out_cnt ], which trails i, so this is safe. */
+      uchar const * l = nodes[ i ].hash;
+      uchar const * r = nodes[ fd_ulong_if( i+1UL<cnt, i+1UL, i ) ].hash;
+      fd_sha256_init  ( sha );
+      fd_sha256_append( sha, fd_bmtree_node_prefix, FD_BMTREE_LONG_PREFIX_SZ );
+      fd_sha256_append( sha, l,                     FD_SHRED_MERKLE_NODE_SZ  );
+      fd_sha256_append( sha, r,                     FD_SHRED_MERKLE_NODE_SZ  );
+      fd_sha256_fini  ( sha, nodes[ out_cnt ].hash );
+      out_cnt++;
+    }
+    cnt = out_cnt;
+  }
+
+  fd_memcpy( out, nodes[ 0 ].hash, 32UL );
+}
+
+/* fd_shred_ag_parent_block_id returns the alpenglow block id of
+   parent_slot, or NULL when this validator did not produce that block
+   and so never computed one. */
+
+static uchar const *
+fd_shred_ag_parent_block_id( fd_shred_ctx_t * ctx,
+                             ulong            parent_slot ) {
+  ulong idx = parent_slot % FD_SHRED_AG_BLOCK_IDS_CNT;
+  if( FD_LIKELY( ctx->ag_block_ids[ idx ].slot==parent_slot ) ) return ctx->ag_block_ids[ idx ].block_id;
+  return NULL;
 }
 
 static inline int
@@ -599,6 +703,12 @@ during_frag( fd_shred_ctx_t * ctx,
 
       *ctx->features_activation = msg->features_activation;
 
+      /* Under alpenglow a block's id is its double merkle root, which
+         is not the chained merkle root we shred with, so both have to
+         be tracked.  Only the Frankendancer poh tile ever sets this;
+         for Firedancer it stays zero and nothing below changes. */
+      ctx->alpenglow = !!msg->alpenglow;
+
       if( FD_LIKELY( !ctx->larger_shred_limits_per_block ) ) {
         fd_shred_slot_limits_t const * lim    = &msg->slot_limits;
         ctx->prev_max_shred_idx               = lim->prev_max_shred_idx;
@@ -620,20 +730,41 @@ during_frag( fd_shred_ctx_t * ctx,
 
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
-          sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
+          sz<sizeof(fd_entry_batch_meta_t) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
               ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
       fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
-      uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
-      ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
-      fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
+      /* A batch flush is the metadata and nothing else.  Everything else
+         on this link carries at least an entry batch header, so the
+         length floor is only relaxed for the flush. */
+      if( FD_UNLIKELY( !entry_meta->batch_flush &&
+                       sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
+        FD_LOG_ERR(( "chunk %lu %lu too small for an entry batch", chunk, sz ));
 
-      /* It should never be possible for this to fail, but we check it
-        anyway. */
-      FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
-
+      /* A batch flush carries no entries.  It exists only to close what
+         is still buffered, so that the marker behind it meets an empty
+         batch -- which the marker's own frag cannot arrange, because at
+         most one batch is closed per frag.  With nothing buffered there
+         is nothing to close, and it must not fall through: emitting a
+         batch anyway would put a spurious empty entry batch in the
+         block, and the flush ahead of the block header arrives before
+         any entry of its slot, so it must not touch slot state either.
+         Poh sends one before every marker precisely so that neither
+         side has to reason about which case it is in. */
+      /* Discard a pending batch left over from a different slot BEFORE
+         the batch-flush check below.  A leader window that is aborted
+         mid block leaves entries buffered here for a slot that will
+         never complete, and the flush that precedes the next window's
+         block header would otherwise find microblock_cnt still set from
+         that dead slot, decide there is something to close, and emit the
+         spurious empty entry batch the comment below forbids.  That
+         batch takes FEC set 0, so the block header lands at shred index
+         32, and agave only parses a block header at index 0
+         (ParentInfo::maybe_parse_block_header) -- so SlotMeta keeps a
+         default parent_block_id, child_bank_replay_start defers forever,
+         and every receiver drops the whole window without a word. */
       ulong target_slot = fd_disco_poh_sig_slot( sig );
       if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
         /* TODO: The Agave client sends a dummy entry batch with only 1
@@ -651,6 +782,34 @@ during_frag( fd_shred_ctx_t * ctx,
 
         FD_MCNT_INC( SHRED, MICROBLOCK_ABANDONED, 1UL );
       }
+
+      /* A batch flush carries no entries.  It exists only to close what
+         is still buffered, so that the marker behind it meets an empty
+         batch -- which the marker's own frag cannot arrange, because at
+         most one batch is closed per frag.  With nothing buffered there
+         is nothing to close, and it must not fall through: emitting a
+         batch anyway would put a spurious empty entry batch in the
+         block, and the flush ahead of the block header arrives before
+         any entry of its slot, so it must not touch slot state either.
+         Poh sends one before every marker precisely so that neither
+         side has to reason about which case it is in.
+
+         This has to be tested AFTER the stale-slot discard above, or a
+         leftover count from an aborted slot reads as "something to
+         close" for a slot that has nothing. */
+      if( FD_UNLIKELY( entry_meta->batch_flush && !ctx->pending_batch.microblock_cnt ) ) {
+        ctx->skip_frag = 1;
+        return;
+      }
+
+      uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
+      ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+
+      fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
+
+      /* It should never be possible for this to fail, but we check it
+        anyway. */
+      FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
 
       ctx->pending_batch.slot = target_slot;
       /* We want to send out some shreds immediately when we start a new
@@ -731,20 +890,62 @@ during_frag( fd_shred_ctx_t * ctx,
          place, and the microblock is added to the current batch.
          Pack limits entry bytes so this batching cannot exceed
          max_shred_idx. */
-      int forced_end_batch         = entry_meta->block_complete | new_slot;
+      /* An alpenglow marker is a whole block component rather than an
+         entry, so it needs a batch to itself, and the batch's leading
+         ulong is the component's own entry count, which is zero.  The
+         payload poh sent already starts with that zero, so skip it and
+         let the count field supply it instead of writing it twice.
+
+         A marker cannot share a batch with entries.  Poh precedes every
+         marker with a batch flush so that it does not have to, and the
+         warning below is the backstop for that ever failing rather than
+         an expected path. */
+
+      int is_flush  = !!entry_meta->batch_flush;
+      int is_marker = !!entry_meta->block_marker;
+      if( FD_UNLIKELY( is_marker & (ctx->pending_batch.microblock_cnt>0UL) ) ) {
+        FD_LOG_WARNING(( "dropping an alpenglow marker for slot %lu that arrived behind %lu pending entries",
+              target_slot, ctx->pending_batch.microblock_cnt ));
+        FD_MCNT_INC( SHRED, MICROBLOCK_ABANDONED, 1UL );
+        ctx->skip_frag = 1;
+        return;
+      }
+      if( FD_UNLIKELY( is_marker ) ) {
+        entry    += sizeof(ulong);
+        entry_sz -= sizeof(ulong);
+      }
+
+      /* A flush contributes nothing to a batch and starts none of its
+         own; it only forces the pending one out. */
+      int forced_end_batch         = entry_meta->block_complete | new_slot | is_marker | is_flush;
       int batch_would_exceed_wmark = ( ctx->pending_batch.pos + entry_sz ) > pending_batch_wmark;
-      int include_in_current_batch = forced_end_batch | ( !batch_would_exceed_wmark );
+      int include_in_current_batch = (!is_flush) & ( forced_end_batch | ( !batch_would_exceed_wmark ) );
       int process_current_batch    = forced_end_batch | batch_would_exceed_wmark;
-      int init_new_batch           = !include_in_current_batch;
+      int init_new_batch           = (!is_flush) & (!include_in_current_batch);
 
       if( FD_LIKELY( include_in_current_batch ) ) {
         if( FD_UNLIKELY( SHOULD_PROCESS_THESE_SHREDS ) ) {
           /* Ugh, yet another memcpy */
           fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
+
+          /* Poh cannot know the block id of a parent we led ourselves:
+             it is the double merkle root of that block, which does not
+             exist until the block finished shredding, after the slot
+             building on it opened.  Fill it in here, where it does
+             exist.  Offsets are less the leading entry count, which was
+             stripped above. */
+          uchar * comp = ctx->pending_batch.payload + ctx->pending_batch.pos;
+          if( FD_UNLIKELY( is_marker &&
+                           comp[ offsetof(fd_alpenglow_block_header_t, marker_variant)-sizeof(ulong) ]==FD_ALPENGLOW_MARKER_BLOCK_HEADER ) ) {
+            ulong hdr_parent_slot;
+            fd_memcpy( &hdr_parent_slot, comp+offsetof(fd_alpenglow_block_header_t, parent_slot)-sizeof(ulong), sizeof(ulong) );
+            uchar const * pbid = fd_shred_ag_parent_block_id( ctx, hdr_parent_slot );
+            if( FD_LIKELY( pbid ) ) fd_memcpy( comp+offsetof(fd_alpenglow_block_header_t, parent_block_id)-sizeof(ulong), pbid, FD_SHRED_MERKLE_ROOT_SZ );
+          }
         }
         ctx->pending_batch.pos            += entry_sz;
-        ctx->pending_batch.microblock_cnt += 1UL;
-        ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
+        ctx->pending_batch.microblock_cnt += fd_ulong_if( is_marker, 0UL, 1UL );
+        ctx->pending_batch.txn_cnt        += fd_ulong_if( is_marker, 0UL, microblock->txn_cnt );
       }
 
       if( FD_LIKELY( process_current_batch )) {
@@ -775,6 +976,19 @@ during_frag( fd_shred_ctx_t * ctx,
             FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
             memcpy( ctx->out_merkle_roots[pend_idx].hash, chained_merkle_root, 32UL );
 
+            /* Every FEC set root of the slot is a leaf of the alpenglow
+               block id, so keep them until the block completes. */
+            if( FD_UNLIKELY( ctx->ag_fec_root_slot!=target_slot ) ) {
+              ctx->ag_fec_root_slot = target_slot;
+              ctx->ag_fec_root_cnt  = 0UL;
+              ctx->ag_overflow      = 0;
+            }
+            if( FD_LIKELY( ctx->ag_fec_root_cnt<FD_SHRED_AG_FEC_SETS_MAX ) ) {
+              memcpy( ctx->ag_fec_roots[ ctx->ag_fec_root_cnt++ ].hash, chained_merkle_root, 32UL );
+            } else {
+              ctx->ag_overflow = 1;
+            }
+
             out->data_shred_rcvd   = 0U;
             out->parity_shred_rcvd = 0U;
 
@@ -804,6 +1018,43 @@ during_frag( fd_shred_ctx_t * ctx,
         ctx->pending_batch.microblock_cnt = 0UL;
         ctx->pending_batch.txn_cnt        = 0UL;
         ctx->batch_cnt++;
+
+        /* That was the last batch of the block, so the alpenglow block
+           id can be folded now: the FEC set roots of the slot, then one
+           more leaf binding the parent and the set count, which stops
+           an adversary passing off an off by one count when an even
+           number of sets makes the last leaf hash with itself.  See
+           build_double_merkle_tree in agave ledger/src/blockstore.rs.
+
+           The store tile still reads the id back from the blockstore
+           rather than using this, so for now a disagreement shows up as
+           a rejected block rather than silently becoming the truth. */
+        if( FD_UNLIKELY( entry_meta->block_complete && SHOULD_PROCESS_THESE_SHREDS ) ) {
+          ulong         parent_slot = target_slot - entry_meta->parent_offset;
+          uchar const * parent_bid  = fd_shred_ag_parent_block_id( ctx, parent_slot );
+          if( FD_UNLIKELY( !parent_bid && entry_meta->parent_block_id_valid ) ) parent_bid = entry_meta->parent_block_id;
+
+          if( FD_UNLIKELY( ctx->ag_overflow || ctx->ag_fec_root_slot!=target_slot || !parent_bid ) ) {
+            FD_LOG_WARNING(( "cannot compute the alpenglow block id for slot %lu (fec_sets=%lu overflow=%d parent=%lu known=%d)",
+                  target_slot, ctx->ag_fec_root_cnt, ctx->ag_overflow, parent_slot, !!parent_bid ));
+          } else {
+            uint  fec_set_cnt = (uint)ctx->ag_fec_root_cnt;
+            uchar leaf[ 32 ];
+            fd_sha256_t sha[ 1 ];
+            fd_sha256_init  ( sha );
+            fd_sha256_append( sha, &parent_slot, sizeof(ulong) );
+            fd_sha256_append( sha, parent_bid,   32UL          );
+            fd_sha256_append( sha, &fec_set_cnt, sizeof(uint)  );
+            fd_sha256_fini  ( sha, leaf );
+
+            memcpy( ctx->ag_fec_roots[ ctx->ag_fec_root_cnt ].hash, leaf, 32UL );
+
+            ulong idx = target_slot % FD_SHRED_AG_BLOCK_IDS_CNT;
+            fd_shred_ag_merkle_root( ctx->ag_fec_roots, ctx->ag_fec_root_cnt+1UL, ctx->ag_block_ids[ idx ].block_id );
+            ctx->ag_block_ids[ idx ].slot = target_slot;
+          }
+          ctx->ag_fec_root_slot = ULONG_MAX;
+        }
       }
 
       if( FD_UNLIKELY( init_new_batch ) ) {
@@ -1134,6 +1385,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
 
       set->leader_bank = NULL; /* un-used by firedancer */
+      set->alpenglow   = 0;
 
       /* Insert shreds into the store. We do this regardless of whether
          we are leader. */
@@ -1243,9 +1495,11 @@ after_frag( fd_shred_ctx_t *    ctx,
          FEC sets have no leader bank. */
       if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
         set->leader_bank = ctx->leader_bank;
+        set->alpenglow   = ctx->alpenglow;
         memcpy( set->merkle_root, ctx->out_merkle_roots[fset_k].hash, 32UL );
       } else {
         set->leader_bank = NULL;
+        set->alpenglow   = 0;
       }
 
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -1272,9 +1526,13 @@ after_frag( fd_shred_ctx_t *    ctx,
     for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ )
       if( !(set->parity_shred_rcvd & (1U<<i)) ) new_shreds[ k++ ] = set->parity_shreds[ i ].s;
 
-    if( FD_UNLIKELY( !k ) ) return;
+    if( FD_UNLIKELY( !k ) ) {
+      return;
+    }
     fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, new_shreds[ 0 ]->slot );
-    if( FD_UNLIKELY( !sdest ) ) return;
+    if( FD_UNLIKELY( !sdest ) ) {
+      return;
+    }
 
     ulong out_stride;
     ulong max_dest_cnt[1];
@@ -1290,17 +1548,24 @@ after_frag( fd_shred_ctx_t *    ctx,
       dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
     } else {
       for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
+        for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) {
+          send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
+        }
       }
       out_stride = 1UL;
       *max_dest_cnt = 1UL;
       dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
     }
-    if( FD_UNLIKELY( !dests ) ) return;
+    if( FD_UNLIKELY( !dests ) ) {
+      return;
+    }
 
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
-      for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]), ctx->tsorig );
+      for( ulong j=0UL; j<*max_dest_cnt; j++ ) {
+        fd_shred_dest_weighted_t const * dest = fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ] );
+        send_shred( ctx, stem, new_shreds[ i ], dest, ctx->tsorig );
+      }
     }
   }
 }
@@ -1568,6 +1833,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->chained_merkle_root = NULL;
   memset( ctx->out_merkle_roots, 0, sizeof(ctx->out_merkle_roots) );
+  memset( ctx->ag_block_ids, 0, sizeof(ctx->ag_block_ids) );
+  for( ulong i=0UL; i<FD_SHRED_AG_BLOCK_IDS_CNT; i++ ) ctx->ag_block_ids[ i ].slot = ULONG_MAX;
+  ctx->ag_fec_root_slot = ULONG_MAX;
+  ctx->ag_fec_root_cnt  = 0UL;
+  ctx->ag_overflow      = 0;
 
   for( ulong i=0UL; i<FD_SHRED_BATCH_FEC_SETS_MAX; i++ ) { ctx->send_fec_set_idx[ i ] = ULONG_MAX; }
   ctx->send_fec_set_cnt = 0UL;
@@ -1606,6 +1876,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
     ctx->features_activation->slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
   }
+  ctx->alpenglow = 0;
   ctx->prev_max_shred_idx               = ctx->shred_limit;
   ctx->current_max_shred_idx            = ctx->shred_limit;
   ctx->next_max_shred_idx               = ctx->shred_limit;

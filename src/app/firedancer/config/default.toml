@@ -2007,6 +2007,18 @@ telemetry = true
         # of the cluster.
         warmup_epochs = false
 
+        # Create an Alpenglow genesis rather than a TowerBFT one.  This
+        # activates the Alpenglow feature gates and its prerequisites at
+        # slot zero, writes the validator's vote account as a
+        # VoteStateV4 carrying its derived BLS pubkey, seeds the
+        # Alpenglow genesis certificate and epoch inflation accounts,
+        # and forces the proof of history component into low power mode
+        # by leaving hashes_per_tick unset, overriding the value above.
+        #
+        # Alpenglow consensus is only implemented for Frankendancer, so
+        # this is not useful for Firedancer yet.
+        alpenglow = false
+
     [development.bench]
         # How many benchg tiles to run when benchmarking.  benchg tiles
         # are responsible for generating and signing outgoing

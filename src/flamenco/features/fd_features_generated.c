@@ -2001,6 +2001,18 @@ fd_feature_id_t const ids[] = {
     .name                      = "double_disinflation_rate",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, alpenglow)>>3,
+    .id                        = {"\x85\xef\x0f\xe4\x19\x36\x51\xb2\xce\x05\xd0\x3e\x6a\xc1\x16\x80\x53\x9b\x0a\x2e\xf6\xba\xa0\xe8\x3a\x98\x02\x13\x0b\xdf\x14\x73"},
+                                 /* A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS */
+    .name                      = "alpenglow",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, alpenglow_fast_leader_handover)>>3,
+    .id                        = {"\xd4\xf4\xa4\xc0\x39\x75\xd5\x77\xdd\xb8\x3a\x01\x0c\x3b\xa2\xd6\x22\xb5\x09\x29\xa3\x03\xa3\xad\xc1\xcc\x96\x94\xfa\xf1\x74\xa8"},
+                                 /* FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH */
+    .name                      = "alpenglow_fast_leader_handover",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2309,6 +2321,8 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_289 0x1dd8741ccebef821UL, .val = &ids[289]
 #define MAP_PERFECT_290 0x9c92e629e8d74f0dUL, .val = &ids[290]
 #define MAP_PERFECT_291 0x8ea2469cb4e5a93cUL, .val = &ids[291]
+#define MAP_PERFECT_292 0xb2513619e40fef85UL, .val = &ids[292]
+#define MAP_PERFECT_293 0x77d57539c0a4f4d4UL, .val = &ids[293]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2611,4 +2625,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5_1    
 FD_STATIC_ASSERT( offsetof( fd_features_t, custom_commission_collector                             )>>3==289UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_tx_v1                                            )>>3==290UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, double_disinflation_rate                                )>>3==291UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow                                               )>>3==292UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, alpenglow_fast_leader_handover                          )>>3==293UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
