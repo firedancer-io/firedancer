@@ -532,7 +532,8 @@ fd_pack_compute_cost( fd_txn_t const * txn,
      budget program instructions. */
   if( txn->transaction_version==FD_TXN_V1 ) {
     ulong v1_priority_fee, v1_cu_limit, v1_loaded, v1_heap;
-    fd_txn_parse_v1_config( txn->v1_txn_config_mask, payload+txn->v1_txn_config_values_off,
+    uint v1_config_mask = fd_uint_load_4( payload+4 );
+    fd_txn_parse_v1_config( v1_config_mask, payload+txn->v1_txn_config_values_off,
                             &v1_priority_fee, &v1_cu_limit, &v1_loaded, &v1_heap );
     *fee            = v1_priority_fee;
     *execution_cost = (uint)fd_ulong_min( v1_cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );

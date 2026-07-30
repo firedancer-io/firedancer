@@ -283,7 +283,7 @@ test_sanitize_compute_unit_limits_heap_size( void ) {
    multiple of 1 KiB in [32 KiB, 256 KiB]; bit-4-unset defaults to 32 KiB).
    https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L157-L163 */
 static int
-run_v1_heap_case( fd_bank_t * bank, uchar config_mask, uint heap_val ) {
+run_v1_heap_case( fd_bank_t * bank, uint config_mask, uint heap_val ) {
   /* static: fd_txn_out_t is multi-MB (per-bundle account arrays + the
      instructions-sysvar scratch buffer), so it must not go on the stack. */
   static fd_txn_p_t txnp;
@@ -292,8 +292,8 @@ run_v1_heap_case( fd_bank_t * bank, uchar config_mask, uint heap_val ) {
   txn->transaction_version      = FD_TXN_V1;
   txn->instr_cnt                = 0;
   txn->signature_cnt            = 0;
-  txn->v1_txn_config_mask       = config_mask;
   txn->v1_txn_config_values_off = 64;
+  fd_memcpy( txnp.payload + 4UL, &config_mask, sizeof(uint) );
   /* With only bit 4 (heap) set, the heap word is the first ConfigValues
      word, i.e. at values_off + 0. */
   fd_memcpy( txnp.payload + 64UL, &heap_val, sizeof(uint) );

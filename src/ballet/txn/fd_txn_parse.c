@@ -194,7 +194,6 @@ fd_txn_parse_core( uchar const             * payload,
     parsed->addr_table_lookup_cnt        = (uchar)0;
     parsed->addr_table_adtl_writable_cnt = (uchar)0;
     parsed->addr_table_adtl_cnt          = (uchar)0;
-    parsed->v1_txn_config_mask           = (uchar)config_mask;
     parsed->v1_txn_config_values_off     = (ushort)config_values_off;
     parsed->instr_cnt                    = (ushort)instr_cnt;
 
@@ -270,8 +269,7 @@ fd_txn_parse_core( uchar const             * payload,
   parsed->acct_addr_cnt                 = acct_addr_cnt;
   parsed->acct_addr_off                 = (ushort)acct_addr_off;
   parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
-  /* v1_txn_config_mask and v1_txn_config_values_off are V1-specific fields */
-  parsed->v1_txn_config_mask            = (uchar)0;
+  /* v1_txn_config_values_off is a V1-specific field */
   parsed->v1_txn_config_values_off      = (ushort)0;
   /* Need to assign addr_table_lookup_cnt,
      addr_table_adtl_writable_cnt, addr_table_adtl_cnt later */

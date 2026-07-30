@@ -310,30 +310,17 @@ struct fd_txn {
      addr_table_adtl_cnt < 256. */
   uchar      addr_table_adtl_cnt;
 
-  /* v1_txn_config_mask: The transaction config mask which together
-     with the v1_txn_config_values_off allows the user to configure the
-     priority fee; compute unit limit; loaded accounts data size limit
-     and the program heap size.
-
-     If a given bit is non-zero, the corresponding config value is
-     included in the config values region (described below):
-     Bit 0+1: priority fee
-     Bit 2:   compute unit limit
-     Bit 3:   loaded accounts data size
-     Bit 4:   program heap size
-
-     For V1 transactions, only bits 0-4 can be non-zero. Compute
-     budget program instructions are silently ignored and the values
-     from the config values region are used instead.
-     For legacy/V0 transactions, all bits are zeroed as these values
-     cannot be specified. */
-  uchar      v1_txn_config_mask;
+  uchar      _padding_reserved_1; /* explicit padding the compiler would have
+                                     inserted anyways */
 
   /* v1_txn_config_values_off: The offset relative to the start of the
      transaction of the config values region.  The config values region
-     contains the fields which the config mask above indicated are
+     contains the fields which the V1 config mask indicates are
      present, packed together.  Fields which are not present are not
-     included, not set to zero. */
+     included, not set to zero.
+
+     Legacy/V0 transactions have no config mask, so this field is 0
+     for legacy/v0 transactions. */
   ushort     v1_txn_config_values_off;
 
   /* From the address table lookups, we can add the following to the above table
@@ -820,7 +807,7 @@ fd_txn_msg_sz( fd_txn_t const * txn,
 
    https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107 */
 static inline void
-fd_txn_parse_v1_config( uchar          config_mask,
+fd_txn_parse_v1_config( uint           config_mask,
                         uchar const *  config_values,
                         ulong *        out_priority_fee_lamports,
                         ulong *        out_compute_unit_limit,

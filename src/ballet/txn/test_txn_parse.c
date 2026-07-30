@@ -352,7 +352,6 @@ void txn_v1_correctness( void ) {
     FD_TEST( parsed->acct_addr_cnt                == 2 );
     FD_TEST( parsed->addr_table_lookup_cnt        == 0 ); /* no ALTs in V1 */
     FD_TEST( parsed->addr_table_adtl_cnt          == 0 );
-    FD_TEST( parsed->v1_txn_config_mask           == 0 );
     FD_TEST( parsed->instr_cnt                    == 1 );
     FD_TEST( parsed->instr[0].program_id          == 1 );
     FD_TEST( parsed->instr[0].acct_cnt            == 1 );
@@ -371,7 +370,6 @@ void txn_v1_correctness( void ) {
     counters = (fd_txn_parse_counters_t){0};
     ulong out_sz = fd_txn_parse( v1_buf, sz, out_buf, &counters );
     FD_TEST( out_sz );
-    FD_TEST( parsed->v1_txn_config_mask == 0x1F );
     /* config values region = 5 words * 4 bytes, located after the addresses */
     FD_TEST( parsed->v1_txn_config_values_off == 8UL+32UL+1UL+1UL+2UL*32UL );
   }

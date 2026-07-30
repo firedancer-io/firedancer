@@ -427,7 +427,8 @@ fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
   fd_txn_t const *              txn     = TXN( txn_in->txn );
 
   ulong priority_fee, cu_limit, loaded, heap;
-  fd_txn_parse_v1_config( txn->v1_txn_config_mask,
+  uint config_mask = fd_uint_load_4( (uchar const *)txn_in->txn->payload + 4 );
+  fd_txn_parse_v1_config( config_mask,
                           (uchar const *)txn_in->txn->payload + txn->v1_txn_config_values_off,
                           &priority_fee, &cu_limit, &loaded, &heap );
 
