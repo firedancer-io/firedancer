@@ -4127,10 +4127,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   /* Phase 3: commit.  For each account either update the existing
      entry in-place (replace), allocate and insert at the chain head
      (new), or skip entirely (ignore).  This matches the
-     insert/replace/ignore semantics of write_one.
-
-     Write counters are added up over all accounts and written once
-     below to avoid multiple expensive atomic operations per account. */
+     insert/replace/ignore semantics of write_one. */
 
   ulong used_bytes_added   = 0UL;
   ulong used_bytes_removed = 0UL;
