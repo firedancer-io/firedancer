@@ -109,58 +109,60 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
    fd_txn_t size.  There are various things a transaction can include
    that consume CUs, and they also consume some bytes of payload.  It
    then becomes an integer linear programming problem.  First, the best
-   use of bytes is to include a compute budget program instruction that
-   requests 1.4M CUs.  That also requires the invocation of another
-   non-builtin program, consuming 3 bytes of payload.  In total to do
-   this, we need 2 pubkey and 11 bytes of instruction payload.  This is
-   >18,000 CUs per byte, which is obviously the best move.
+   use of bytes is to request 1.4M CUs. For a V1 transaction this is
+   done using the config value, consuming 4 bytes of payload.
 
-   From there, we can also invoke built-in programs with no accounts and
-   no instruction data, which also consumes 3 bytes of payload.  The
-   most expensive built-in is the BPF upgradeable loader.  We're limited
-   to 64 instructions, so we can only consume it at most 62 times.  This
-   is about 675 CUs per byte.  This is more efficient than precompiles,
-   which consume <609 CUs per byte in the worst case.
+   Execution cost is capped at 1.4M and built-in instructions do not
+   add to it.  The best use of bytes is precompiles, which consume
+   <609 CUs per byte in the worst case: each secp256k1 signature
+   consumes 6690 CUs and 11 bytes.  Writable signers consume 96 bytes
+   use 1020 CUs.  Writable non-signers consume 32 bytes and use 300
+   CUs.  That's 10.6 CUs/byte and 9.4 CUs/byte, respectively.  The best
+   strategy is therefore to have as many secp256k1 signatures as
+   possible.
 
-   We've maxed out the instruction limit, so we can only continue to
-   increase the cost by adding writable accounts or writable signer
-   accounts.  Writable signers consume 96 bytes use 1020 CUs.  Writable
-   non-signers consume 32 bytes and use 300 CUs.  That's 10.6 CUs/byte
-   and 9.4 CUs/byte, respectively, so in general, writable signers are
-   more efficient and we want to add as many as we can.  We also need at
-   least one writable signer to be the fee payer, and, although it's
-   unusual, there's actually no reason the non-builtin program can't be
-   a writable signer too.
+   How many secp256k1 signatures can we fit?  The maximum transaction
+   payload is 4096 bytes.  There is a fixed overhead of 146
+   bytes for a transaction that requests a 1.4M CU limit and the
+   highest loaded account data size cost, has one fee payer and no
+   instructions.  This leaves 3950 bytes.
 
-   Finally, with any bytes that remain, we can add them to one of the
-   instruction datas for 0.25 CUs/byte.
+   To invoke the precompiles, we then need to use 32 bytes for the
+   secp256k1 program pubkey.  Then we can fill the remaining 3918 bytes
+   with as many secp256k1 precompile signatures as possible.
+
+   Each secp256k1 precompile instruction has a 4 byte header, and at
+   most 255 signatures.  A 255-signature secp256k1 precompile
+   instruction uses 2810 bytes.  This leaves us with 1108 bytes.  We
+   then max out the remaining bytes with a second 100-signature
+   secp256k1 precompile instruction, using 1105 bytes.  This leaves
+   3 bytes leftover.
 
    Note that by default, 64MiB of data are assumed for the loaded
    accounts data size cost. This corresponds (currently) to 16384 CUs.
 
    This gives a transaction that looks like
-     Field                   bytes consumed               CUs used
-     sig cnt                      1                             0
-     fee payer sig               64                           720
-     8 other signatures         512                         5,670
-     fixed header (no ALTs)       3                             0
-     acct addr cnt                1                             0
-     fee payer pubkey            32                           300
-     8 writable pubkeys         256                         2,400
-     2 writable non-signers      64                           600
-     CBP, BPF upg loader         64                             0
-     Recent blockhash            32                             0
-     Instruction count            1                             0
-     Compute budget program ix    8                           151.25
-     62 dummy BPF upg ixs       186                       146,940
-     1 dummy non-builtin ix       8                     1,400,001.25
-     loaded accts data cost       0                         16384
+     Field                             bytes consumed     CUs used
+     version byte                            1                    0
+     sig cnt                                 1                    0
+     ro signed + ro unsigned                 2                    0
+     config mask                             4                    0
+     recent blockhash                       32                    0
+     instr cnt + acct addr cnt               2                    0
+     fee payer pubkey                       32                  300
+     secp256k1 program pubkey               32                  300
+     cu limit config value                   4            1,400,000
+     loaded data config value                4               16,384
+     2 secp256k1 precompile ix headers       8                    0
+     355 secp256k1 sigs                  3,907            2,374,950
+     instr data cost (3,907 / 4)             0                  976
+     fee payer signature                    64                  720
    + ---------------------------------------------------------------
-                              1,232                     1,573,166
+                                        4,093            3,793,630
 
    One of the main take-aways from this is that the cost of a
    transaction easily fits in a uint. */
-#define FD_PACK_MAX_TXN_COST (1573166UL)
+#define FD_PACK_MAX_TXN_COST (3793630UL)
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 /* Every transaction has at least a fee payer, a writable signer. */
