@@ -13,7 +13,7 @@ build_txn_v1( uchar * buf,
   ulong o = 0UL;
   buf[ o++ ] = (uchar)0x81;            /* version byte: MESSAGE_VERSION_PREFIX | 1 */
   buf[ o++ ] = (uchar)sig_cnt;
-  buf[ o++ ] = (uchar)fd_ulong_max( sig_cnt, 1UL )-1UL;          /* ro signed cnt */
+  buf[ o++ ] = (uchar)( fd_ulong_max( sig_cnt, 1UL )-1UL );      /* ro signed cnt */
   buf[ o++ ] = (uchar)0;               /* ro unsigned cnt */
   for( ulong j=0UL; j< 4UL; j++ ) buf[ o++ ] = (uchar)0;         /* config mask */
   for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(0xB0+j);  /* blockhash */
