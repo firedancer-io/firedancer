@@ -623,9 +623,10 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
 static void
 snapshot_sync_transition( fd_snapmk_t * ctx,
                           ulong         state_from,
+                          ulong         state_req,
                           ulong         state_to ) {
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
-  fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync );
+  fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_to ) ) FD_YIELD();
 }
 
@@ -1119,7 +1120,7 @@ after_credit( fd_snapmk_t *       ctx,
        tiles, and notify accdb/replay to resume */
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
     if( broadcast( ctx, stem, ctl, charge_busy ) ) {
-      snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
       fd_stem_publish( stem, ctx->out.out_idx, ctx->bank->idx, 0UL, 0UL, ctl, 0UL, 0UL );
       ctx->state = SNAPMK_STATE_SLEEP;
       ctx->snap_idx = UINT_MAX;
@@ -1231,7 +1232,7 @@ snap_start( fd_snapmk_t *                  ctx,
   ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
 
   /* wait for accdb to disable compaction */
-  snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_IDLE, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+  snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_IDLE, FD_ACCDB_SNAPSHOT_SYNC_START_FULL, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
 
   /* final name of snap (during compression has a "partial" name) */
   uchar snap_hash[ 32 ];

@@ -347,7 +347,7 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( accdb_max_accounts, accdb_max_live_slots,
                                                    accdb_writes_per_slot, accdb_partition_cnt,
                                                    accdb_cache_footprint, accdb_cache_min_reserved,
-                                                   accdb_joiner_cnt );
+                                                   accdb_joiner_cnt, 0UL );
   ulong accdb_join_sz  = fd_accdb_footprint( accdb_max_live_slots );
 
   env->accdb_shmem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_sz, env->tag );
@@ -361,7 +361,7 @@ test_env_create_vat( test_env_t * env, fd_wksp_t * wksp, ulong vat_activation_sl
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( env->accdb_shmem, accdb_max_accounts, accdb_max_live_slots,
                           accdb_writes_per_slot, accdb_partition_cnt, accdb_partition_sz,
-                          accdb_cache_footprint, accdb_cache_min_reserved, 0, 42UL, accdb_joiner_cnt ) );
+                          accdb_cache_footprint, accdb_cache_min_reserved, 0, 42UL, accdb_joiner_cnt, 0UL ) );
   FD_TEST( shmem );
   env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL ) );
   FD_TEST( env->accdb );

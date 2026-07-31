@@ -49,14 +49,14 @@ test_setup_ex( int * out_fd,
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
 
@@ -973,7 +973,7 @@ test_mainnet_footprint( void ) {
 
   FD_TEST( max_account_writes_per_slot==321280UL );
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
@@ -1528,7 +1528,7 @@ test_sentinel_index_wrap( void ) {
      default), so the wrap above is a reachable configuration, not a
      rejected one. */
   ulong fp = fd_accdb_shmem_footprint( 1024UL, 64UL, 8192UL, max_cnt,
-                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL );
+                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 1UL, 0UL );
   FD_TEST( fp ); /* 0 would mean partition_cnt==8192 was rejected */
 }
 

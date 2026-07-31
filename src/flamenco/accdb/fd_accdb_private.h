@@ -577,6 +577,29 @@ struct fd_accdb_shmem_private {
   fork_pool_shmem_t fork_pool[1];
   txn_pool_shmem_t  txn_pool [1];
 
+  /* Track accounts modified since full snapshot.
+
+       ------------++++++++.......                       - pruned blocks
+       ^           ^      ^      ^                       + active blocks
+       full snap   root   head   incremental (future)    . future blocks
+
+     The validator thus needs to track the addresses of all accounts
+     that have changed since the last full snapshot.  accdb forks cannot
+     be used for this as fork information at the full snapshot slot is
+     discarded.
+
+     accdb deltas track this missing information. */
+
+  struct {
+    ulong seed;
+    ulong chain_off;
+    uint  chain_cnt;  /* power of 2 */
+    uint  chain_mask; /* chain_cnt-1, contiguous runs of one bits */
+    ulong ele_off;
+    ulong ele_max;
+    ulong head; /* bump alloc head */
+  } delta;
+
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
 

@@ -1301,6 +1301,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       if( !ctx->full ) {
+        fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->accdb_incr_fork_id );
+        /* ensure that snapin tile sees all delta changes before rooting */
+        __atomic_thread_fence( __ATOMIC_SEQ_CST );
         fd_accdb_advance_root( ctx->accdb, ctx->accdb_incr_fork_id );
         ctx->accdb_root_fork_id = ctx->accdb_incr_fork_id;
         ctx->accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };

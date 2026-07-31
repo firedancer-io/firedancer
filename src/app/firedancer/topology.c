@@ -184,7 +184,8 @@ setup_topo_accdb( fd_topo_t *  topo,
                   ulong        partition_sz,
                   ulong        cache_footprint,
                   int          bundle_enabled,
-                  ulong        joiner_cnt ) {
+                  ulong        joiner_cnt,
+                  ulong        max_incremental_accounts ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "accdb", wksp_name );
 
   ulong seed;
@@ -201,6 +202,7 @@ setup_topo_accdb( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, cache_min_reserved, "obj.%lu.cache_min_reserved", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, (ulong)!!bundle_enabled, "obj.%lu.bundle_enabled", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, joiner_cnt,         "obj.%lu.joiner_cnt",         obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_incremental_accounts, "obj.%lu.max_incremental_accounts", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,               "obj.%lu.seed",               obj->id ) );
 
   return obj;
@@ -1076,7 +1078,8 @@ fd_topo_initialize( config_t * config ) {
       partition_sz,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
-      accdb_joiners );
+      accdb_joiners,
+      snapmk_enabled ? config->firedancer.snapshots.max_incremental_snapshot_accounts : 0UL );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

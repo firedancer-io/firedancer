@@ -60,7 +60,8 @@ fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong partition_cnt,
                           ulong cache_footprint,
                           ulong cache_min_reserved,
-                          ulong joiner_cnt ) {
+                          ulong joiner_cnt,
+                          ulong max_incremental_accounts ) {
   if( FD_UNLIKELY( !max_accounts    ) ) return 0UL;
   if( FD_UNLIKELY( !max_live_slots  ) ) return 0UL;
   if( FD_UNLIKELY( !max_account_writes_per_slot) ) return 0UL;
@@ -95,6 +96,9 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
   if( FD_UNLIKELY( !fd_accdb_cache_class_cnt( cache_footprint, cache_min_reserved, cache_class_max ) ) ) return 0UL;
 
+  if( FD_UNLIKELY( max_incremental_accounts>UINT_MAX ) ) return 0UL;
+  ulong delta_chain_cnt = fd_ulong_pow2_up( (max_incremental_accounts>>1) + (max_incremental_accounts&1UL) );
+
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
@@ -112,6 +116,8 @@ fd_accdb_shmem_footprint( ulong max_accounts,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     l = FD_LAYOUT_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]            );
   }
+  l = FD_LAYOUT_APPEND( l, alignof(uint),            delta_chain_cnt*sizeof(uint)                            );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_delta_t),max_incremental_accounts*sizeof(fd_accdb_delta_t)       );
   return FD_LAYOUT_FINI( l, FD_ACCDB_SHMEM_ALIGN );
 }
 
@@ -126,7 +132,8 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  cache_min_reserved,
                     int    bundle_enabled,
                     ulong  seed,
-                    ulong  joiner_cnt ) {
+                    ulong  joiner_cnt,
+                    ulong  max_incremental_accounts ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -266,6 +273,17 @@ fd_accdb_shmem_new( void * shmem,
      rather than as silent cache corruption at runtime. */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( cache_class_max[ c ]<=FD_ACCDB_CACHE_LINE_MAX );
 
+  if( FD_UNLIKELY( max_incremental_accounts>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "max_incremental_accounts must be at most %u", UINT_MAX ));
+    return NULL;
+  }
+
+  ulong delta_chain_cnt = fd_ulong_pow2_up( (max_incremental_accounts>>1) + (max_incremental_accounts&1UL) );
+  if( FD_UNLIKELY( delta_chain_cnt>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "max_incremental_accounts must be at most %u", UINT_MAX ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_accdb_shmem_t * accdb = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
   void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)      );
@@ -284,6 +302,8 @@ fd_accdb_shmem_new( void * shmem,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     _cache_regions[ c ] = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]                 );
   }
+  void * _delta_map  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),             delta_chain_cnt*sizeof(uint)                      );
+  void * _delta_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_delta_t), max_incremental_accounts*sizeof(fd_accdb_delta_t) );
 
   fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );
 
@@ -321,6 +341,8 @@ fd_accdb_shmem_new( void * shmem,
 
   deferred_free_dlist_t * deferred_free = deferred_free_dlist_join( deferred_free_dlist_new( _deferred_free_dlist ) );
   FD_TEST( deferred_free );
+
+  fd_memset( _delta_map, 0xFF, delta_chain_cnt*sizeof(uint) );
 
   accdb->seed = seed;
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -416,6 +438,14 @@ fd_accdb_shmem_new( void * shmem,
     if( cache_class_max[ c ]>=cache_min_reserved*joiner_cnt ) accdb->cache_class_used[ c ].val = ULONG_MAX;
     else                                                      accdb->cache_class_used[ c ].val = 0UL;
   }
+
+  accdb->delta.seed       = seed+1UL;
+  accdb->delta.chain_off  = (ulong)_delta_map - (ulong)shmem;
+  accdb->delta.chain_cnt  = (uint)delta_chain_cnt;
+  accdb->delta.chain_mask = (uint)delta_chain_cnt - 1U;
+  accdb->delta.ele_off    = (ulong)_delta_pool - (ulong)shmem;
+  accdb->delta.ele_max    = max_incremental_accounts;
+  accdb->delta.head       = 0UL;
 
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
   accdb->shmetrics->accounts_capacity = max_accounts;

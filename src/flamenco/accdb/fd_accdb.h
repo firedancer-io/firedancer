@@ -130,6 +130,19 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
 
+/* fd_accdb_snapshot_recover_delta appends into the accdb delta set the
+   accounts modified at fork_id.
+
+   This is intended to be used after booting off an incremental snapshot
+   and allows the validator to create additional incremental snaps.
+
+   Not thread safe: assumes no one but the calling thread is accessing
+   accdb deltas.  Returns 0 on success, -1 if the delta map is too small. */
+
+int
+fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
+                                 fd_accdb_fork_id_t fork_id );
+
 /* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
    Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
    accdb state across an incremental snapshot attempt. */
