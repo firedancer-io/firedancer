@@ -99,7 +99,7 @@ fd_txn_parse_core( uchar const             * payload,
   ulong maximum_payload_sz = is_v1 ? FD_TXN_MTU : FD_TXN_MTU_V0;
   ulong payload_sz         = fd_ulong_min( original_payload_sz, maximum_payload_sz );
 
-  if( FD_UNLIKELY( is_v1 ) ) {
+  if( is_v1 ) {
     /* ------------------------------ V1 transaction parser ------------------------------ */
 
     /* Check that the version byte is correct
@@ -164,21 +164,18 @@ fd_txn_parse_core( uchar const             * payload,
     }
 
     /* Pass 2: instruction payloads */
-    uchar max_acct = 0;
     for( ulong j=0UL; j<instr_cnt; j++ ) {
       ushort acct_cnt = parsed->instr[ j ].acct_cnt;
       ushort data_sz  = parsed->instr[ j ].data_sz;
 
       CHECK_LEFT( acct_cnt                      );   ulong acct_off       =          i  ;
-      for( ulong end=i+acct_cnt; i<end; i++ ) max_acct = fd_uchar_max( max_acct, payload[ i ] );
+      ulong end = i+acct_cnt;
+      for( ; i<end; i++ ) CHECK( payload[ i ]<acct_addr_cnt );
       CHECK_LEFT( data_sz                       );   ulong data_off       =          i  ;     i+=data_sz;
 
       parsed->instr[ j ].acct_off            = (ushort)acct_off;
       parsed->instr[ j ].data_off            = (ushort)data_off;
     }
-
-    /* Check that we did not see an instruction account that was out of bounds */
-    CHECK( max_acct < acct_addr_cnt );
 
     CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt ); ulong signature_off  =          i  ;     i+=FD_TXN_SIGNATURE_SZ*signature_cnt;
 
@@ -205,7 +202,7 @@ fd_txn_parse_core( uchar const             * payload,
 
     if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
     if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
-    return fd_txn_footprint( instr_cnt, parsed->addr_table_lookup_cnt );
+    return fd_txn_footprint( instr_cnt, 0 );
   }
 
   /* ------------------------------ Legacy/V0 transaction parser ------------------------------ */
