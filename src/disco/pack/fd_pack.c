@@ -60,10 +60,6 @@ fd_hash_32( ulong        seed,
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
 typedef struct {
-  fd_ed25519_sig_t sig;
-} wrapped_sig_t;
-
-typedef struct {
   fd_acct_addr_t key;
 } wrapped_acct_t;
 
@@ -77,7 +73,6 @@ struct fd_pack_private_ord_txn {
     fd_txn_p_t   txn[1];  /* txn is an alias for txn_e->txnp */
     fd_txn_e_t   txn_e[1];
     fd_txn_e_t   _txn_e;  /* Non-array type needed for map_chain */
-    struct{ uchar _sig_cnt; wrapped_sig_t sig; };
   };
 
   /* Since this struct can be in one of several trees, it's helpful to
@@ -139,12 +134,11 @@ struct fd_pack_private_ord_txn {
 };
 typedef struct fd_pack_private_ord_txn fd_pack_ord_txn_t;
 
-/* What we want is that the payload starts at byte 0 of
-   fd_pack_ord_txn_t so that the trick with the signature map works
-   properly.  GCC and Clang seem to disagree on the rules of offsetof.
-   */
+/* We require that the payload starts at byte 0 of fd_pack_ord_txn_t,
+   because we cast back and forth between fd_txn_p_t* and
+   fd_pack_ord_txn_t*.
+   GCC and Clang seem to disagree on the rules of offsetof. */
 FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn          )==0UL, fd_pack_ord_txn_t );
-FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, sig          )==1UL, fd_pack_ord_txn_t );
 #if FD_USING_CLANG
 FD_STATIC_ASSERT( offsetof( fd_txn_p_t,             payload )==0UL, fd_pack_ord_txn_t );
 #else
@@ -281,10 +275,12 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_PREV               sigmap_prev
 #define MAP_NEXT               sigmap_next
 #define MAP_IDX_T              ushort
-#define MAP_KEY_T              wrapped_sig_t
-#define MAP_KEY                sig
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0),(k1), FD_TXN_SIGNATURE_SZ) )
-#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), 64UL )
+
+#define MAP_KEY_T              fd_txn_e_t
+#define MAP_KEY                _txn_e
+#define TXNE_TO_SIG(ptr)       (__extension__({ fd_txn_p_t const * __p = (ptr)->txnp; __p->payload + TXN(__p)->signature_off;  }))
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( TXNE_TO_SIG(k0), TXNE_TO_SIG(k1), FD_TXN_SIGNATURE_SZ) )
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), TXNE_TO_SIG(key), 64UL )
 #include "../../util/tmpl/fd_map_chain.c"
 
 
@@ -3132,7 +3128,9 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * sig0 ) {
   ulong cnt = 0;
   ulong next = ULONG_MAX;
-  for( ulong idx = sig2txn_idx_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, ULONG_MAX, pack->pool );
+  static fd_txn_e_t query_e = {0};
+  fd_memcpy( query_e.txnp[0].payload, sig0, FD_TXN_SIGNATURE_SZ );
+  for( ulong idx = sig2txn_idx_query_const( pack->signature_map, &query_e, ULONG_MAX, pack->pool );
       idx!=ULONG_MAX; idx=next ) {
     /* Iterating while deleting, not just this element, but perhaps the
        whole bundle, feels a bit dangerous, but is actually fine because
@@ -3241,9 +3239,7 @@ fd_pack_verify( fd_pack_t * pack,
       fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
       fd_acct_addr_t const * alt_adj = cur->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
-      fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
-
-      fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, NULL, pool );
+      fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
 
       VERIFY_TEST( (ulong)(cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==fd_ulong_min( k, 3UL )+1UL, "treap element had bad root" );
@@ -3327,8 +3323,7 @@ fd_pack_verify( fd_pack_t * pack,
     /* Although pack allows multiple transactions with the same
        signature in sig2txn (MAP_MULTI==1), the noncemap checks prevent
        multiple nonce transactions with the same signature. */
-    wrapped_sig_t sig = FD_LOAD( wrapped_sig_t, fd_txn_get_signatures( TXN( ord->txn ), ord->txn->payload ) );
-    VERIFY_TEST( ord==sig2txn_ele_query_const( pack->signature_map, &sig, NULL, pool ), "noncemap and sig2txn desynced" );
+    VERIFY_TEST( ord==sig2txn_ele_query_const( pack->signature_map, &ord->_txn_e, NULL, pool ), "noncemap and sig2txn desynced" );
   }
   VERIFY_TEST( txn_cnt>=noncemap_key_cnt, "phantom txns in noncemap" );
   VERIFY_TEST( !noncemap_verify( pack->noncemap, trp_pool_max( pool ), pool ), "noncemap corrupt" );
