@@ -120,6 +120,15 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
       uint          chain;
     } scratch[ FD_ACCDB_MAX_ACQUIRE_CNT ];
   } delta;
+
+  /* Write counters that are not published yet.  Metrics are aggregated
+     in batches to avoid expensive atomic operations on each write.
+     64-byte aligned to fit in a single cache line. */
+  struct {
+    ulong bytes;         /* bytes reserved on partition_idx */
+    ulong num_ops;       /* reservations behind those bytes */
+    ulong partition_idx; /* set while num_ops>0 */
+  } write_stats __attribute__((aligned(64)));
 };
 
 static inline fd_accdb_cache_line_t *
@@ -134,7 +143,7 @@ cache_line( fd_accdb_t * accdb,
    allocate time (see fd_accdb_partition_write_bump) so that they reflect
    bytes committed to a partition rather than syscalls — the snapshot
    loader bypasses pwritev2 entirely, but every write still goes through
-   allocate_next_write. */
+   reserve_next_write. */
 static inline void
 fd_accdb_partition_read_bump( fd_accdb_t * accdb,
                               ulong        file_offset,
@@ -152,10 +161,8 @@ fd_accdb_partition_read_bump( fd_accdb_t * accdb,
   FD_ATOMIC_FETCH_AND_ADD( &p->read_ops,   1UL   );
 }
 
-/* Bump the per-partition write counters at allocate time.  bytes is the
-   reserved size, which equals the bytes that will land on this
-   partition.  Called from allocate_next_write and
-   allocate_next_compaction_write. */
+/* Bump the per-partition write counters.  bytes is how much landed on
+   this partition, over num_ops reservations. */
 static inline void
 fd_accdb_partition_write_bump( fd_accdb_t * accdb,
                                ulong        partition_idx,
@@ -168,35 +175,21 @@ fd_accdb_partition_write_bump( fd_accdb_t * accdb,
   FD_ATOMIC_FETCH_AND_ADD( &p->write_ops,     num_ops );
 }
 
-/* accdb_write_stats_t adds up the write counters for a whole batch, so
-   they can be written out once instead of once per account.  Each of
-   those counters is bumped with a locked add, which is slow and also
-   stops the CPU from reordering work around it.  Per account that
-   costs more than the counting itself.
+/* Kept out of line: the snapshot batch loop calls this on partition
+   rollover, and inlining it there just bloats the hot loop. */
 
-   Deferring is safe because the counters it stands in for are only
-   read by metrics reporting. */
+void
+fd_accdb_flush_metrics( fd_accdb_t * accdb ) {
+  ulong bytes    = accdb->write_stats.bytes;
+  ulong num_ops  = accdb->write_stats.num_ops;
+  ulong part_idx = accdb->write_stats.partition_idx;
 
-struct accdb_write_stats {
-  ulong bytes;         /* reserved bytes, feeds both
-                          shmetrics->disk_current_bytes and the
-                          partition's bytes_written */
-  ulong num_ops;       /* reservations those bytes came from */
-  ulong partition_idx; /* where they landed, set while num_ops>0 */
-};
+  if( !num_ops ) return;
 
-typedef struct accdb_write_stats accdb_write_stats_t;
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 
-/* Publish the accumulated counters and reset. */
-
-static inline void
-accdb_write_stats_flush( fd_accdb_t *          accdb,
-                         accdb_write_stats_t * stats ) {
-  if( FD_UNLIKELY( !stats->num_ops ) ) return;
-  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, stats->bytes );
-  fd_accdb_partition_write_bump( accdb, stats->partition_idx, stats->bytes, stats->num_ops );
-  stats->bytes   = 0UL;
-  stats->num_ops = 0UL;
+  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, bytes );
+  fd_accdb_partition_write_bump( accdb, part_idx, bytes, num_ops );
 }
 
 static inline ulong
@@ -331,7 +324,8 @@ fd_accdb_new( void *              ljoin,
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
 
-  memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
+  memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 
   return accdb;
 }
@@ -447,6 +441,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   accdb->deferred_fork_epoch = 0UL;
   accdb->snapshot_loading    = 0;
   accdb->acquire_state       = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 }
 
 void
@@ -464,6 +459,7 @@ change_partition( fd_accdb_t *           accdb,
 
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
+  fd_accdb_flush_metrics( accdb );
   spin_lock_acquire( &accdb->shmem->partition_lock );
 
   /* Force the next layer-0 write onto a fresh Hot partition so we do
@@ -547,6 +543,9 @@ fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
 void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out ) {
+  /* Flush metrics to update disk_current_bytes. */
+  fd_accdb_flush_metrics( accdb );
+
   out->whead_val          = FD_VOLATILE_CONST( accdb->shmem->whead[ 0 ].val );
   out->has_partition      = FD_VOLATILE_CONST( accdb->shmem->has_partition[ 0 ] );
   out->partition_max      = FD_VOLATILE_CONST( accdb->shmem->partition_max );
@@ -566,6 +565,9 @@ void
 fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
                                 fd_accdb_snapshot_recovery_t const * recover ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  /* Partitions are about to be released, so flush metrics first. */
+  fd_accdb_flush_metrics( accdb );
 
   /* Wait for any pending background command (purge) on T2 to finish
      before releasing partitions. */
@@ -593,7 +595,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
 
      Release in descending index order so that the LIFO free list
      re-acquires them in ascending order (P, P+1, P+2, ...).  This
-     keeps allocate_next_write in sync with snapwr, which advances
+     keeps reserve_next_write in sync with snapwr, which advances
      its flat file offset sequentially. */
   spin_lock_acquire( &shmem->partition_lock );
   for( ulong p=cur_partition_max; p>recover->partition_max; p-- ) {
@@ -735,7 +737,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
 
-  memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
+  memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
+  memset( &accdb->write_stats, 0, sizeof(accdb->write_stats) );
 
   return accdb;
 }
@@ -1714,9 +1717,8 @@ change_partition( fd_accdb_t *           accdb,
   }
 }
 
-/* Reserve sz bytes in the layer-0 write head.  Does not bump metrics
-   counters, unlike allocate_next_write and allocate_next_write_batched.
-   Sets out_partition_idx to the partition index of the reserved bytes. */
+/* Reserve sz bytes in the layer-0 write head and set
+   out_partition_idx to where they landed.  Bumps no counters. */
 
 static inline ulong
 reserve_next_write( fd_accdb_t * accdb,
@@ -1769,26 +1771,26 @@ allocate_next_write( fd_accdb_t * accdb,
   return file_offset;
 }
 
-/* Reserve sz bytes and fold the counters into stats, to be published
-   later by accdb_write_stats_flush. */
+/* Reserve sz bytes and hold the counters in accdb->write_stats, to be
+   published later by fd_accdb_flush_metrics. */
 
 static inline ulong
-allocate_next_write_batched( fd_accdb_t *          accdb,
-                             ulong                 sz,
-                             accdb_write_stats_t * stats ) {
+allocate_next_write_batched( fd_accdb_t * accdb,
+                             ulong        sz ) {
   ulong partition_idx;
   ulong file_offset = reserve_next_write( accdb, sz, &partition_idx );
 
   /* Very rarely the reservation crosses into a new partition.  Since
      stats are aggregated per-partition, any accumulated stats are
      flushed and reset to accommodate the new partition. */
-  if( FD_UNLIKELY( stats->num_ops && stats->partition_idx!=partition_idx ) ) {
-    accdb_write_stats_flush( accdb, stats );
+  if( FD_LIKELY( accdb->write_stats.num_ops ) &&
+      FD_UNLIKELY( accdb->write_stats.partition_idx!=partition_idx ) ) {
+    fd_accdb_flush_metrics( accdb );
   }
 
-  stats->partition_idx  = partition_idx;
-  stats->bytes         += sz;
-  stats->num_ops       += 1UL;
+  accdb->write_stats.partition_idx  = partition_idx;
+  accdb->write_stats.bytes         += sz;
+  accdb->write_stats.num_ops++;
   return file_offset;
 }
 
@@ -4130,7 +4132,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
      Write counters are added up over all accounts and written once
      below to avoid multiple expensive atomic operations per account. */
 
-  accdb_write_stats_t write_stats = {0};
   ulong used_bytes_added   = 0UL;
   ulong used_bytes_removed = 0UL;
 
@@ -4141,7 +4142,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
          Mark the space as immediately freed since it is dead on
          arrival. */
       ulong dead_sz  = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-      ulong dead_off = allocate_next_write_batched( accdb, dead_sz, &write_stats );
+      ulong dead_off = allocate_next_write_batched( accdb, dead_sz );
       fd_accdb_shmem_bytes_freed( accdb->shmem, dead_off, dead_sz );
       ignored_lamports += lamports[ i ];
       ignored++;
@@ -4192,12 +4193,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     accmeta->lamports        = lamports[ i ];
     accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
     ulong entry_sz       = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-    ulong file_off       = allocate_next_write_batched( accdb, entry_sz, &write_stats );
+    ulong file_off       = allocate_next_write_batched( accdb, entry_sz );
     accmeta->offset_fork = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
     used_bytes_added    += entry_sz;
   }
 
-  accdb_write_stats_flush( accdb, &write_stats );
   accdb->shmem->shmetrics->disk_used_bytes += used_bytes_added;
   accdb->shmem->shmetrics->disk_used_bytes -= used_bytes_removed;
 

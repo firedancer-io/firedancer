@@ -241,6 +241,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+/* Flush any accumulated metrics from snapshot loading into the
+   accdb. */
+
+static void
+during_housekeeping( fd_snapin_tile_t * ctx ) {
+  fd_accdb_flush_metrics( ctx->accdb );
+}
+
 static void
 metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
@@ -1535,9 +1543,10 @@ unprivileged_init( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapin_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapin_tile_t)
 
-#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_SHOULD_SHUTDOWN     should_shutdown
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

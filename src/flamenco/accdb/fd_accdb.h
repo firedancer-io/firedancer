@@ -621,6 +621,13 @@ fd_accdb_shmetrics( fd_accdb_t * accdb );
 fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
 
+/* fd_accdb_flush_metrics publishes the disk-space counters that the
+   snapshot loader holds back.  Called from both snapin housekeeping
+   and accdb functions that require updated metrics. */
+
+void
+fd_accdb_flush_metrics( fd_accdb_t * accdb );
+
 /* fd_accdb_cache_class_occupancy snapshots the current per-size-class
    cache occupancy and capacity into the caller-provided arrays, each
    of which must have FD_ACCDB_CACHE_CLASS_CNT entries.  used[c] is the
