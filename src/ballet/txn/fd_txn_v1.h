@@ -8,6 +8,12 @@
    use a default 32 KiB requested heap size as per SIMD 385. */
 #define FD_TXN_V1_DEFAULT_HEAP_SZ (32UL*1024UL)
 
+/* Max/min bounds and the allowed granularity for the requested heap
+   size as per SIMD 385. */
+#define FD_TXN_V1_MIN_HEAP_SZ      (32UL *1024UL)
+#define FD_TXN_V1_MAX_HEAP_SZ      (256UL*1024UL)
+#define FD_TXN_V1_HEAP_GRANULARITY (1024UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_txn_parse_v1_config decodes the four compute-budget fields

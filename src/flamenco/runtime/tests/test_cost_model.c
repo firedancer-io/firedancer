@@ -276,12 +276,6 @@ test_sanitize_compute_unit_limits_heap_size( void ) {
   FD_LOG_NOTICE(( "test_sanitize_compute_unit_limits_heap_size: PASSED" ));
 }
 
-/* 5-config-a: tx-v1 (SIMD-0385) heap-size sanitization. Runs a fabricated
-   v1 transaction through fd_executor_verify_transaction (which routes v1
-   to fd_executor_sanitize_txn_v1_config) and asserts the heap-size accept/
-   reject decision matches agave's try_into_config V1 rule (must be a
-   multiple of 1 KiB in [32 KiB, 256 KiB]; bit-4-unset defaults to 32 KiB).
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L157-L163 */
 static int
 run_v1_heap_case( fd_bank_t * bank, uint config_mask, uint heap_val ) {
   /* static: fd_txn_out_t is multi-MB (per-bundle account arrays + the
@@ -311,24 +305,15 @@ run_v1_heap_case( fd_bank_t * bank, uint config_mask, uint heap_val ) {
 
 static void
 test_sanitize_txn_v1_config_heap_size( fd_bank_t * bank ) {
-  /* bit 4 unset -> default 32 KiB -> accepted */
-  FD_TEST( run_v1_heap_case( bank, 0x00, 0U            )==FD_RUNTIME_EXECUTE_SUCCESS );
-  /* explicit valid: min, mid, max (all multiples of 1 KiB) */
-  FD_TEST( run_v1_heap_case( bank, 0x10,  32U*1024U    )==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( run_v1_heap_case( bank, 0x10,  64U*1024U    )==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( run_v1_heap_case( bank, 0x10, 256U*1024U    )==FD_RUNTIME_EXECUTE_SUCCESS );
-  /* below min, above max, and non-multiple-of-1KiB -> SanitizeFailure */
-  FD_TEST( run_v1_heap_case( bank, 0x10,  16U*1024U    )==FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
-  FD_TEST( run_v1_heap_case( bank, 0x10, 512U*1024U    )==FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
-  FD_TEST( run_v1_heap_case( bank, 0x10,  32U*1024U+1U )==FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
+  /* bit 4 unset -> default 32 KiB */
+  FD_TEST( run_v1_heap_case( bank, 0x00, 0U         )==FD_RUNTIME_EXECUTE_SUCCESS );
+  /* explicit valid heap sizes: min, mid, max */
+  FD_TEST( run_v1_heap_case( bank, 0x10,  32U*1024U )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( run_v1_heap_case( bank, 0x10,  64U*1024U )==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( run_v1_heap_case( bank, 0x10, 256U*1024U )==FD_RUNTIME_EXECUTE_SUCCESS );
   FD_LOG_NOTICE(( "test_sanitize_txn_v1_config_heap_size: PASSED" ));
 }
 
-/* Phase 7b (SIMD-0385): a v1 transaction must be rejected with
-   UnsupportedVersion while enable_tx_v1 is inactive. The gate precedes the
-   compute-budget/heap decode, so even an otherwise-valid v1 txn (and an
-   otherwise-SanitizeFailure heap value) is UnsupportedVersion when off.
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank.rs#L5467-L5477 */
 static void
 test_v1_feature_gate( void ) {
   static fd_bank_t bank_off;

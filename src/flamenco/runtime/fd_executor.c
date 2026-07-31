@@ -433,10 +433,6 @@ fd_executor_sanitize_txn_v1_config( fd_txn_in_t const * txn_in,
                           (uchar const *)txn_in->txn->payload + txn->v1_txn_config_values_off,
                           &priority_fee, &cu_limit, &loaded, &heap );
 
-  if( FD_UNLIKELY( heap<FD_MIN_HEAP_FRAME_BYTES || heap>FD_MAX_HEAP_FRAME_BYTES ||
-                   (heap%FD_HEAP_FRAME_BYTES_GRANULARITY)!=0UL ) ) {
-    return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
-  }
 
   details->is_v1                                      = 1;
   details->priority_fee_lamports                      = priority_fee;

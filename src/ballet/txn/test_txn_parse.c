@@ -308,9 +308,17 @@ build_v1( uchar       * buf,
   /* addresses */
   for( ulong a=0UL; a<num_addr; a++ )
     for( ulong j=0UL; j<32UL; j++ ) buf[ o++ ] = (uchar)(a*32UL+j);
-  /* config values: one 4-byte word per set bit */
+  /* config values: one 4-byte word per set bit.  When the heap-size bit
+     (bit 4, the highest bit) is set its word is last and must hold a valid
+     heap size, so use 64 KiB; the other words are arbitrary. */
   ulong nvals = (ulong)fd_uint_popcnt( config_mask );
-  for( ulong v=0UL; v<nvals; v++ ) { buf[o++]=0; buf[o++]=0x04; buf[o++]=0; buf[o++]=0; } /* arbitrary */
+  for( ulong v=0UL; v<nvals; v++ ) {
+    uint word = ( ((config_mask>>4)&1U) && (v==nvals-1UL) ) ? 64U*1024U : 0x0400U;
+    buf[o++]=(uchar)( word        & 0xFF );
+    buf[o++]=(uchar)((word >>  8) & 0xFF );
+    buf[o++]=(uchar)((word >> 16) & 0xFF );
+    buf[o++]=(uchar)((word >> 24) & 0xFF );
+  }
   /* instruction headers */
   for( ulong j=0UL; j<instr_cnt; j++ ) {
     buf[ o++ ] = instrs[j].program_id;
@@ -372,6 +380,29 @@ void txn_v1_correctness( void ) {
     FD_TEST( out_sz );
     /* config values region = 5 words * 4 bytes, located after the addresses */
     FD_TEST( parsed->v1_txn_config_values_off == 8UL+32UL+1UL+1UL+2UL*32UL );
+  }
+
+  /* --- V1 heap size (bit 4) sanitization: the value must be a multiple of
+     1 KiB in [32 KiB, 256 KiB], else the transaction is rejected --- */
+  {
+    v1_instr_t ix[1] = { { .program_id=1, .acct_cnt=0, .data_sz=0, .accts={0} } };
+    ulong sz = build_v1( v1_buf, 1, 0, 1, /*mask*/0x10u, 2, ix, 1 );
+    counters = (fd_txn_parse_counters_t){0};
+    FD_TEST( fd_txn_parse( v1_buf, sz, out_buf, &counters ) ); /* build_v1 wrote a valid 64 KiB heap */
+    ulong heap_off = parsed->v1_txn_config_values_off; /* the only config word is the heap */
+
+    uint accept[] = { 32U*1024U, 64U*1024U, 256U*1024U };
+    for( ulong t=0UL; t<sizeof(accept)/sizeof(accept[0]); t++ ) {
+      fd_memcpy( v1_buf + heap_off, &accept[t], sizeof(uint) );
+      counters = (fd_txn_parse_counters_t){0};
+      FD_TEST( fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+    }
+    uint reject[] = { 16U*1024U, 512U*1024U, 32U*1024U+1U }; /* <min, >max, non-multiple */
+    for( ulong t=0UL; t<sizeof(reject)/sizeof(reject[0]); t++ ) {
+      fd_memcpy( v1_buf + heap_off, &reject[t], sizeof(uint) );
+      counters = (fd_txn_parse_counters_t){0};
+      FD_TEST( 0UL == fd_txn_parse( v1_buf, sz, out_buf, &counters ) );
+    }
   }
 
   /* --- Rejection cases --- */

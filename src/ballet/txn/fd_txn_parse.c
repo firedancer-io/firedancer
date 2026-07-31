@@ -1,6 +1,7 @@
 /* https://docs.solana.com/developing/programming-model/transactions#anatomy-of-a-transaction */
 
 #include "fd_txn.h"
+#include "fd_txn_v1.h"
 #include "fd_compact_u16.h"
 
 ulong
@@ -140,6 +141,16 @@ fd_txn_parse_core( uchar const             * payload,
     ulong config_values_off = i;
     ulong num_config_values = (ulong)fd_uint_popcnt( config_mask );
     CHECK_LEFT( 4UL*num_config_values           );                                            i+=4UL*num_config_values;
+
+    /* If the requested heap size (bit 4) is set, it must be a multiple
+       of 1 KiB in the range [32 KiB, 256 KiB].
+       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L164 */
+    if( (config_mask>>4)&1U ) {
+      uint requested_heap = fd_uint_load_4( payload + config_values_off + 4UL*(num_config_values-1UL) );
+      CHECK( (requested_heap>=FD_TXN_V1_MIN_HEAP_SZ          ) &
+             (requested_heap<=FD_TXN_V1_MAX_HEAP_SZ          ) &
+             ((requested_heap%FD_TXN_V1_HEAP_GRANULARITY)==0U) );
+    }
 
     fd_txn_t * parsed = (fd_txn_t *)out_buf;
 
