@@ -618,9 +618,19 @@ fd_collect_loaded_account( fd_txn_out_t *   txn_out,
   }
   ulong programdata_sz;
   if( FD_LIKELY( programdata_ref ) ) {
-    if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+    /* Agave charges 64+len iff on the current fork the account is
+       lamports!=0.  The length used is also from the current fork.  So
+       liveness and length must come from the current fork.
+       executable[] holds the parent fork, so prefer the current fork
+       values from the probe whenever available. */
     ulong cur = txn_out->accounts.executable_cur_len[ pd_idx ];
-    programdata_sz = ( cur!=ULONG_MAX ) ? cur : programdata_ref->data_len;
+    if( cur!=ULONG_MAX ) {
+      if( FD_UNLIKELY( !txn_out->accounts.executable_cur_lamports[ pd_idx ] ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+      programdata_sz = cur;
+    } else {
+      if( FD_UNLIKELY( !programdata_ref->lamports ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+      programdata_sz = programdata_ref->data_len;
+    }
   } else {
     programdata_sz = 0UL;
     for( ushort i=0; i<txn_out->accounts.executable_skipped_cnt; i++ ) {
@@ -1373,7 +1383,8 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
       int   skip_pd  = 0;
       ulong skip_len = 0UL;
-      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len ) ) {
+      ulong skip_lamports = 0UL;
+      if( fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, programdata_key->uc, &skip_pd, &skip_len, &skip_lamports ) ) {
         ushort s = txn_out->accounts.executable_skipped_cnt++;
         txn_out->accounts.executable_skipped_key[ s ] = *programdata_key;
         txn_out->accounts.executable_skipped_len[ s ] = skip_len;
@@ -1404,9 +1415,11 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     txn_out->accounts.executable_from_parent[ exe_idx ] = acquired_from_parent;
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len );
-    txn_out->accounts.executable_pd_write[ exe_idx ] = pd;
-    txn_out->accounts.executable_cur_len[ exe_idx ]  = len;
+    ulong lamports = 0UL;
+    fd_accdb_probe_pd_this_fork( runtime->accdb, bank->accdb_fork_id, pubkeys[ i ], &pd, &len, &lamports );
+    txn_out->accounts.executable_pd_write[ exe_idx ]     = pd;
+    txn_out->accounts.executable_cur_len[ exe_idx ]      = len;
+    txn_out->accounts.executable_cur_lamports[ exe_idx ] = lamports;
   }
   runtime->accounts.executable_cnt += executable_acquire_cnt;
 
