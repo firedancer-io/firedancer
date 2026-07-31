@@ -198,7 +198,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
                    encoded pairs is raw and/or encoding the pair will
                    not make it any smaller in the bstream.  Copy the
                    pair as is from seq to seq_future.  The reason we
-                   don't reencode the pair in the second case is that
+                   don't re-encode the pair in the second case is that
                    this pair has likely not been touched since it last
                    got to the bstream's seq_past.  It would be waste to
                    compute and bstream storage to uncompress it as we

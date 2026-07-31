@@ -121,7 +121,7 @@ typedef struct fd_bundle_crank_tip_payment_config fd_bundle_crank_tip_payment_co
    This function determines what cranks are necessary.  If any, it
    writes the transaction payload to the region pointed to by
    out_payload and the corresponding fd_txn_t to the region pointed to
-   by out_txn.  If no cranks are neccessary, the contents of these
+   by out_txn.  If no cranks are necessary, the contents of these
    regions are unmodified.
 
    If cranks are necessary, returns the size of the transaction payload

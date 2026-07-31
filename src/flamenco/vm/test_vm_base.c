@@ -167,7 +167,7 @@ main( int     argc,
     text[1] = fd_rng_ulong( rng );
 
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[0] );
-    instr.imm = fd_pchash( fd_rng_uint( rng )>>11 ); /* Use the pchash of a 21-bit random number to execise some esoteric code paths */
+    instr.imm = fd_pchash( fd_rng_uint( rng )>>11 ); /* Use the pchash of a 21-bit random number to exercise some esoteric code paths */
     text[0] = fd_sbpf_ulong( instr );
 
     int   mw  = (instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD);

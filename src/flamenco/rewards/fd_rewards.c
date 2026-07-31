@@ -122,7 +122,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   }
 
   /* If the Vote account has the same amount of credits observed as the Stake account,
-      then the Vote account hasn't earnt any credits and so there is nothing to update.
+      then the Vote account hasn't earned any credits and so there is nothing to update.
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
@@ -1268,7 +1268,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
 
     /* Get the t-1 stake account information.  This is guaranteed to be
        valid since the epoch credits are populated from the t-1 stakes
-       in the snapshot manfiest. */
+       in the snapshot manifest. */
     ushort commission_t_1 = 0;
     if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
     else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
@@ -1317,7 +1317,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   }
 
   /* If partitioned rewards are active, the rewarded epoch is always the immediately
-      preceeding epoch.
+      preceding epoch.
 
       https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
   FD_LOG_DEBUG(( "epoch rewards is active" ));

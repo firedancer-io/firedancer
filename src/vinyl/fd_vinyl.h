@@ -116,7 +116,7 @@ FD_FN_CONST ulong fd_vinyl_footprint( void );
    to recover the vinyl instance to the bstream's seq_present.  The
    recovery level is given by level (see fd_vinyl_recover below).
    Assumes tpool threads (t0,t1) are available for dispatch.  These
-   threads will be avaialble for dispatch on return.  Retain no interest
+   threads will be available for dispatch on return.  Retain no interest
    in tpool.  If tpool is NULL and/or the set [t0,t1) is empty/invalid,
    uses a serial algorithm for initialization. */
 
@@ -225,7 +225,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
    Returns the bstream sequence number of how far recovery got (if this
    is not seq_present, the recovery was partial and it is theoretically
    moves in the recovery were not processed atomically).  Logs details
-   of any issues encoutered.
+   of any issues encountered.
 
    Assumes the tpool threads (t0,t1) are available for dispatch.
    Retains no interest in tpool and threads (t0,t1) will be available

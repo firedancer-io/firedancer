@@ -1153,7 +1153,7 @@ maybe_verify_cluster_type( fd_replay_tile_t * ctx ) {
 
   FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, hash_cstr );
   ulong cluster = fd_genesis_cluster_identify( hash_cstr );
-  /* Map pyth-related clusters to unkwown. */
+  /* Map pyth-related clusters to unknown. */
   switch( cluster ) {
     case FD_CLUSTER_PYTHNET:
     case FD_CLUSTER_PYTHTEST:

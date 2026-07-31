@@ -1137,7 +1137,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      accounts for every epoch (the agave epoch stakes), are stored in
      the top votes set.  If the feature is not active, there is no
      stake-based filtering on the vote accounts that are eligible for
-     receving rewards/being included in the leader schedule computation.
+     receiving rewards/being included in the leader schedule computation.
      Once the feature is active, only the top vote accounts will be
      tracked for historical stake/node_account/commission lookups.
      The non vat code path uses the vote stakes data structure as it

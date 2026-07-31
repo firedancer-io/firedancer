@@ -23,7 +23,7 @@ FD_STATIC_ASSERT( sizeof(fd_rnonce_ss_t)==64, rnonce_ss );
 FD_PROTOTYPES_BEGIN
 
 /* fd_rnonce_ss_{compute,verify} compute and verify, respectively, the
-   nonce for the specifed repair request issued or received at time_ns.
+   nonce for the specified repair request issued or received at time_ns.
    slot and shred_idx specify the slot and shred index of the
    requested/received shred.  slot_complete must be non-zero if the
    received shred is the last in the slot.  normal_repair must be

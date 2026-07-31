@@ -77,7 +77,7 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
    If we have macros with names ENABLE vs DISABLE, we have the advantage that
    the condition is always pretty clear: sbpf_version <= activation_version,
    but the disadvantage of inconsistent names.
-   Viceversa, calling everything ENABLE has the risk to invert a <= with a >=
+   Vice versa, calling everything ENABLE has the risk to invert a <= with a >=
    and create a huge mess.
    We define both, so hopefully it's foolproof. */
 
@@ -199,7 +199,7 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 /* fd_vm_mem APIs support the fast mapping of virtual address ranges to
    host address ranges.  The SBPF virtual address space consists of
    5 consecutive 4 GiB regions (see fd_vm_base.h for layout).  The
-   mapable size of each region is less than 4 GiB (as implied by
+   mappable size of each region is less than 4 GiB (as implied by
    FD_VM_MEM_MAP_REGION_SZ==2^32-1 and that Solana protocol limits are
    much smaller still), so a valid virtual address range cannot span
    multiple regions. */

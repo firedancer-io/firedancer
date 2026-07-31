@@ -59,13 +59,13 @@ static inline fd_solana_account_meta_t* fd_solana_account_meta_init(
       - Account Updates
       - Bank Preimages
 
-      The dumping of the exectuion can be done in multiple ways:
+      The dumping of the execution can be done in multiple ways:
          1. To a 'capture link' which is read by a solcap tile and then
          subsequently written to a file. This is the default when running
          firedancer live or a subcommand that uses a topo (backtest).
 
          2. To a file directly. This is currently used for block harnesses.
-         The neccessity of this path is for the single threaded execution
+         The necessity of this path is for the single threaded execution
          mode of the harness.
 */
 

@@ -82,7 +82,7 @@ struct fd_txn_builder {
     uchar               map_mem[ FD_TXN_B_ADDR_MAP_SZ ];
   };
 
-  /* Bump allocator for instruction datas */
+  /* Bump allocator for instruction data */
 #define FD_TXN_B_DATA_BUMP_MAX FD_TXN_MTU
   uchar  data_bump[ FD_TXN_B_DATA_BUMP_MAX ];
   ushort data_bump_sz;

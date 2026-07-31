@@ -48,7 +48,7 @@ fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
                char const * name );
 
-/* Add an object with the given type to the toplogy.  An object is
+/* Add an object with the given type to the topology.  An object is
    something that takes up space in memory, in a workspace.
 
    The workspace must exist and have been added to the topology.
@@ -83,7 +83,7 @@ fd_topob_tile_uses( fd_topo_t *           topo,
                     fd_topo_obj_t const * obj,
                     int                   mode );
 
-/* Add a link to the toplogy.  The link will not have any producer or
+/* Add a link to the topology.  The link will not have any producer or
    consumer(s) by default, and those need to be added after.  The link
    can have no backing data buffer, a dcache, or a reassembly buffer
    behind it. */

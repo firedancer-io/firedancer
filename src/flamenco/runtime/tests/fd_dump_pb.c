@@ -894,7 +894,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_memcpy( lookup_addrs, acc.data + FD_LOOKUP_TABLE_META_SIZE, lookup_addrs_cnt*sizeof(fd_pubkey_t) );
     fd_accdb_unread_one( runtime->accdb, &acc );
 
-    /* Dump any account state refererenced in ALUTs */
+    /* Dump any account state referenced in ALUTs */
     uchar const * writable_lut_idxs = txn_payload + addr_lut->writable_off;
     for( ulong j=0; j<addr_lut->writable_cnt; j++ ) {
       if( writable_lut_idxs[j] >= lookup_addrs_cnt ) {

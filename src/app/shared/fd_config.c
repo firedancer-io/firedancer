@@ -397,7 +397,7 @@ fd_config_fill( fd_config_t * config,
     if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
 
-  /* When running a local cluster, some options are overriden by default
+  /* When running a local cluster, some options are overridden by default
      to make starting and running in development environments a little
      easier and less strict. */
   if( FD_UNLIKELY( is_local_cluster ) ) {

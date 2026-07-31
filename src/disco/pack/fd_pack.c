@@ -2720,7 +2720,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
     /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
        normal. */
     /* We have the early returns here because try_schedule_bundle does
-       the bookeeping internally, since the calculations are a bit
+       the bookkeeping internally, since the calculations are a bit
        different in that case. */
   }
 

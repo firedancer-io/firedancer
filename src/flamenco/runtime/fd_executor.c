@@ -488,7 +488,7 @@ load_transaction_account( fd_bank_t *         bank,
                           uchar               unknown_acc,
                           ulong               txn_idx ) {
 
-  /* Handling the sysvar instructions account explictly.
+  /* Handling the sysvar instructions account explicitly.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L817-L824 */
   if( FD_UNLIKELY( !memcmp( pubkey, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
     /* The sysvar instructions account cannot be "loaded" since it's

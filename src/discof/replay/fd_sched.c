@@ -1266,7 +1266,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
       /* Tick verification can't be done at parse time (except for
          TRAILING_ENTRY), because we may not know the expected number of
          hashes yet.  It can't be driven by transaction dispatch or
-         completion, because the block may be empty.  Similary, it can't
+         completion, because the block may be empty.  Similarly, it can't
          be driven by PoH hashing, because a bad block may simply not
          have any microblocks. */
       handle_bad_block( sched, block );
@@ -1935,7 +1935,7 @@ add_block( fd_sched_t * sched,
 }
 
 /* Agave invokes verify_ticks() anywhere between once per slot and once
-   per entry batch, before tranactions are parsed or dispatched for
+   per entry batch, before transactions are parsed or dispatched for
    execution.  We can't do quite the same thing due to out-of-order
    scheduling and the fact that we allow parsing to run well ahead of
    block boundaries.  Out-of-order scheduling is good, so is overlapping
@@ -2742,7 +2742,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
       //FIXME when demote supports non-empty blocks, we should demote
       //the block from the lane unconditionally and immediately,
-      //regardles of whether it's safe to abandon or not.  So a block
+      //regardless of whether it's safe to abandon or not.  So a block
       //would go immediately from staged to unstaged and eventually to
       //abandoned.
       if( FD_LIKELY( block->staged ) ) {

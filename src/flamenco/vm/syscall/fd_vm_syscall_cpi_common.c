@@ -120,7 +120,7 @@ to the account before the CPI instruction is executed.
 The callee's view of the account is the borrowed accounts cache, so to update the
 callee account we look up the account in the borrowed accounts cache and update it.
 
-Paramaters:
+Parameters:
 - vm: pointer to the virtual machine handle
 - account_info: account info object
 - callee_acc_pubkey: pubkey of the account. this is used to look up the account in the borrowed accounts cache
@@ -283,7 +283,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
        Instead, we should borrow the account before entering this function. */
     fd_borrowed_account_drop( &callee_acct );
 
-    /* Find the indicies of the account in the caller and callee instructions */
+    /* Find the indices of the account in the caller and callee instructions */
     uint found = 0;
     for( ushort j=0; j<account_infos_length && !found; j++ ) {
       fd_pubkey_t const * acct_addr = account_info_keys[ j ];
@@ -510,7 +510,7 @@ reflected in the rest of the caller's execution.
 
 Those changes will be in the instructions borrowed accounts cache.
 
-Paramaters:
+Parameters:
 - vm: handle to the vm
 - caller_acc_info: caller account info object, which should be updated
 - borrowed_callee_acc: already-borrowed callee account
@@ -643,7 +643,7 @@ The only differences should be in the order of the error checks, which does not 
 - Dispatch the instruction to the FD runtime (actually making the CPI call)
 - Update the caller accounts with any changes made by the callee during CPI execution
 
-Paramaters:
+Parameters:
 - vm: pointer to the virtual machine handle
 - instruction_va: vm address of the instruction to execute, which will be in the language-specific ABI format.
 - acct_infos_va: vm address of the account infos, which will be in the language-specific ABI format.

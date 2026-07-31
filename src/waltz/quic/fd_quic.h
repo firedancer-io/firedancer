@@ -434,7 +434,7 @@ fd_quic_leave( fd_quic_t * quic );
    Assumes nobody is joined to the region.  Returns the given quic
    pointer on success and NULL if used obviously in error (e.g. quic is
    obviously not an fd_quic_t ... logs details).  The ownership of the
-   memory region is transferred ot the caller. */
+   memory region is transferred to the caller. */
 
 FD_QUIC_API void *
 fd_quic_delete( fd_quic_t * quic );

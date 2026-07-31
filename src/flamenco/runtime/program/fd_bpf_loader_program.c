@@ -149,7 +149,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
 
   /* SIMD-0500: when active, restrict program deployment to SBPF v3+.
      Older SBPF versions remain executable.
-     TODO: fix link when 4.1 is releaed
+     TODO: fix link when 4.1 is released
      https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/program-runtime/src/deploy.rs#L30-L32 */
   if( disable_sbpf_v0_v1_v2_deployment ) {
     versions.min_sbpf_version = FD_SBPF_V3;
@@ -567,7 +567,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
       /* If the vaddr of the access violation falls within the bounds of a
          serialized account vaddr range, then try to retrieve a more specific
-         vm error based on the account's accesss permissions. */
+         vm error based on the account's access permissions. */
       for( ushort i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1455 */
 
@@ -2077,7 +2077,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           /* The Agave client updates the account state upon closing an account
              in their loaded program cache. Checking for a program can be
              checked by checking to see if the programdata account's loader state
-             is unitialized. The firedancer implementation also removes closed
+             is uninitialized. The firedancer implementation also removes closed
              accounts from the loaded program cache at the end of a slot. Closed
              accounts are not checked from the cache, instead the account state
              is looked up. */

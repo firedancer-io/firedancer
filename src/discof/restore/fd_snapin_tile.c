@@ -476,7 +476,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
      transactions into it.
 
      Constructing the chain of blockhashes is easy.  It is just the
-     BLOCKHASH_QUEUE array in the manifest.  This array is unfortuantely
+     BLOCKHASH_QUEUE array in the manifest.  This array is unfortunately
      not sorted and appears in random order, but it has a hash_index
      field which is a gapless index, starting at some arbitrary offset,
      so we can back out the 151 blockhashes we need from this, by first
@@ -515,7 +515,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     have preserved that.  It is not true "per slot" technically, but
     it's true across all slots, and the memory is aggregated.  It will
     also always be true, even as slots are garbage collected, because
-    entries are collected by referece blockhash, not executed slot.
+    entries are collected by reference blockhash, not executed slot.
 
     ... actually we can't do this.  There's more broken things here.
     The Agave status decided to only store 20 bytes for 32 byte
@@ -1073,7 +1073,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
            FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this is the
            size that the Solana CLI allocates for them. Although the
            ConfigProgram itself does not enforce these invariants, the
-           vast majority of accounts (with a tiny number of excpetions
+           vast majority of accounts (with a tiny number of exceptions
            on devnet) are maintained with the Solana CLI. */
         if( FD_UNLIKELY( ctx->gui_config_acct_sz ) ) {
           uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );

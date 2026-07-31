@@ -101,7 +101,7 @@ fd_rangeproofs_verify(
       but their value is the same. The order has no particular meaning,
       it just seemed more convenient.
 
-    - Range proof depends interally on innerproduct proof (ipp).
+    - Range proof depends internally on innerproduct proof (ipp).
       ipp needs to invert logn elements (called u_i).
       range proof, in addition, needs to invert y.
       Rust uses batch inversion to invert all u_i more efficiently.

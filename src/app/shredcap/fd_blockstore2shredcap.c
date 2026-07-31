@@ -139,7 +139,7 @@ write_shred( FILE *       pcap,
     ushort magic;
     ushort gossip_tag;
   } option = {
-    .option_type = 2989,   /* Custom Option containing binary octects, copyable */
+    .option_type = 2989,   /* Custom Option containing binary octets, copyable */
     .option_sz   = 8,
     .pen         = 31592,  /* Jump Trading, LLC */
     .magic       = 0x4071, /* SOL! */

@@ -433,7 +433,7 @@ privileged_init( fd_topo_t const *      topo,
         if( FD_UNLIKELY( !tile->genesi.allow_download ) ) {
           FD_LOG_ERR(( "There is no genesis.bin file at `%s` and automatic downloading is disabled as "
                        "genesis_download is false in your configuration file.  Please either provide a valid "
-                       "genesis.bin file locally, or allow donwloading from a gossip entrypoint.",
+                       "genesis.bin file locally, or allow downloading from a gossip entrypoint.",
                        tile->genesi.genesis_path ));
         } else {
           char basename[ PATH_MAX ];

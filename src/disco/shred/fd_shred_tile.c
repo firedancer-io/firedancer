@@ -262,7 +262,7 @@ typedef struct {
   fd_shred_features_activation_t features_activation[1];
 
   /* max_shred_idx is the exclusive upper bound for shred
-     indicies. We need to reject any shred with an
+     indices. We need to reject any shred with an
      index >= current_max_shred_idx, but we also want to reject anything
      that is part of an FEC set whose highest shred index would reach
      the bound.

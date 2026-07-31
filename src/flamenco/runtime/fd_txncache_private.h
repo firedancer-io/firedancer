@@ -61,7 +61,7 @@ struct fd_txncache_blockcache_shmem {
                             might expect, but instead the first 20 starting at some random offset into the transaction
                             hash (starting between 0 and len(hash)-20, a/k/a 44 for signatures, and 12 for hashes).
 
-                            In an unfortunate turn, the offset is also propogated to peers via. snapshot responses,
+                            In an unfortunate turn, the offset is also propagated to peers via. snapshot responses,
                             which only communicate the offset and the respective 20 bytes.  To make sure we are
                             deduplicating incoming transactions correctly, we must replicate this system even though
                             it would be easier to just always take the first 20 bytes.  For transactions that we

@@ -130,10 +130,10 @@
              Lane 1: 13.
    or any of the various combinations that consume more staging lanes.
    Note that the concept of staging lanes is a performance optimization,
-   not a safety feature.  With the first arrangment, the caller cannot
+   not a safety feature.  With the first arrangement, the caller cannot
    call get_next_ready on slot 13 in between slots 10 and 11, but
    there's no issue with calling it on slot 14 then, which would
-   obiously result in an incorrect replay.  It's ultimately the callers
+   obviously result in an incorrect replay.  It's ultimately the caller's
    responsibility to ensure correct replay. */
 
 #define FD_RDISP_MAX_DEPTH       0x7FFFFFUL /* 23 bit numbers, approx 8M */

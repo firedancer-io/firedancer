@@ -1169,7 +1169,7 @@ telemetry = true
         # 'bond' type network device, install XDP config at bond slave
         # devices instead of the bond device itself.
         #
-        # Requires net_tile_count to be divisble by the number of slave
+        # Requires net_tile_count to be divisible by the number of slave
         # devices.  This causes outgoing traffic to be load balanced
         # with an arbitrary/opaque hash policy.  Supports up to 16 slave
         # devices.

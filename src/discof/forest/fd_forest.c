@@ -669,7 +669,7 @@ latest_confirmed_slot( fd_forest_t * forest, ulong root_idx ) {
 
   /* BFS through the tree.  Since there can only be one confirmed fork,
      the last confirmed node we find must be the latest confirmed slot.
-     We could be more effecient by limiting the search when we find a
+     We could be more efficient by limiting the search when we find a
      confirmed node, but left like this for now. */
 
   while( FD_LIKELY( !fd_forest_deque_empty( queue ) ) ) {
@@ -925,7 +925,7 @@ evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot ) {
   } else {
     /* Should never be evicting a confirmed leaf. This is only non-NULL
        if:
-         (1) we have no orphans, and theres only two forks in the main
+         (1) we have no orphans, and there's only two forks in the main
        tree, and the parent of the non confirmed fork is is our parent.
        in this case we should just ignore this insert. TODO: optionally
        we could evict the non confirmed fork if its a separate fork.
@@ -1746,7 +1746,7 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
           requests_insert( forest, reqsmap, reqslist, fd_forest_pool_idx( pool, child ) );
           child = fd_forest_pool_ele_const( pool, child->sibling );
         }
-        /* so annoying. cant call requests_remove because itll invalidate the current iter->ele_idx,
+        /* so annoying. can't call requests_remove because itll invalidate the current iter->ele_idx,
            so we explicitly pop the head and free the ele here. */
         fd_forest_ref_t * head = fd_forest_reqslist_ele_pop_head( reqslist, reqspool );
         fd_forest_requests_ele_remove ( reqsmap, &head->idx, NULL, reqspool );
@@ -1922,7 +1922,7 @@ ancestry_print( fd_forest_t const * forest, fd_forest_blk_t const * ele, int spa
     printf( "%lu", ele->slot );
   }
 
-  if( !child && !elide ) { /* double check these cases arent the same...*/
+  if( !child && !elide ) { /* double check these cases aren't the same...*/
     printf( "]" );
     return;
   } /* no children, close bracket */
