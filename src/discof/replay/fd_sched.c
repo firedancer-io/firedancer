@@ -18,6 +18,7 @@
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
 #define FD_SCHED_MAX_EXEC_TILE_CNT         (64UL)
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
+#define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
 
 #define FD_SCHED_MAX_MBLK_PER_SLOT             (MAX_SKIPPED_TICKS)
 #define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
@@ -139,6 +140,35 @@ struct fd_sched_block {
   uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
   uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
   uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
+  uint                poison_cnt;   /* [0, FD_SCHED_POISON_MAX_ACCT_PER_SLOT) */
+  fd_acct_addr_t      poison[ FD_SCHED_POISON_MAX_ACCT_PER_SLOT ]; /* Poison set to handle loader v3 implied programdata accounts.
+
+                                                                      A transaction that lists a loader v3 program account P is charged
+                                                                      for, and gated on, P's implicit programdata account PD, which the
+                                                                      transaction does not have to declare.  The dispatcher therefore
+                                                                      establishes no dependency for said transaction against a
+                                                                      transaction that writes PD without also touching P, for example a
+                                                                      simple lamports transfer into PD, or a Close on an Unintialized PD.
+                                                                      Every loader v3 instruction that changes a live PD's size or
+                                                                      liveness (from alive to dead) does write lock P (except for the
+                                                                      aforementioned Close on Unintialized PD).  Simple transfers cannot
+                                                                      debit PD since it's a PDA.
+
+                                                                      So, when a loader v3 instruction that could modify PD is inserted,
+                                                                      its writable accounts are added to a poison set, and any later
+                                                                      transaction that writes a set member is inserted serializing.  That
+                                                                      sequences the unordered writer of PD against any implied use of PD
+                                                                      for the rest of the block.  This allows the runtime to treat the
+                                                                      current fork's view of PD as stable.
+
+                                                                      Note that this does not cover the case where the poisoning
+                                                                      transaction (with the PD-modifying loader v3 instruction) and the
+                                                                      PD-only transactions do not land in the same block.  Non-determinism
+                                                                      between the PD-only transaction and an implied PD transaction in
+                                                                      that case is a protocol bug. */
+  uint                poison_serialize:1; /* Serialize everything in the rest of the block.  Set when the poison
+                                             set overflows or we couldn't maintain the poison property for any
+                                             other reason. */
   uint                fec_eob:1;    /* FEC end-of-batch: set if the last FEC set in the batch is being
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be parsing out a
@@ -193,6 +223,9 @@ struct fd_sched_metrics {
   uint  fork_observed_cnt;
   uint  alut_success_cnt;
   uint  alut_serializing_cnt;
+  uint  poison_serializing_cnt;
+  uint  txn_poison_serializing_cnt;
+  uint  txn_poisoned_cnt;
   uint  txn_abandoned_parsed_cnt;
   uint  txn_abandoned_exec_done_cnt;
   uint  txn_abandoned_done_cnt;
@@ -529,9 +562,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
-
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_serializing_cnt %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_serializing_cnt, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
 }
 
 FD_FN_UNUSED static void
@@ -1886,6 +1918,8 @@ add_block( fd_sched_t * sched,
   block->fec_buf_sz       = 0U;
   block->fec_buf_boff     = 0U;
   block->fec_buf_soff     = 0U;
+  block->poison_cnt       = 0U;
+  block->poison_serialize = 0;
   block->fec_eob          = 0;
   block->fec_sob          = 1;
 
@@ -2210,6 +2244,103 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
   return FD_SCHED_OK;
 }
 
+static inline fd_acct_addr_t const *
+get_acct( fd_txn_t const * txn, fd_acct_addr_t const * imms, fd_acct_addr_t const * alts, ushort idx ) {
+  if( FD_LIKELY( idx<txn->acct_addr_cnt ) ) return imms+idx;
+  if( FD_UNLIKELY( !alts )                ) return NULL;
+  return alts+(idx-txn->acct_addr_cnt);
+}
+
+/* Returns 1 if the transaction write locks any account in the block's
+   poison set. */
+static int
+block_poison_hit( fd_sched_block_t const * block, fd_txn_t const * txn, fd_acct_addr_t const * imms, fd_acct_addr_t const * alts ) {
+  if( FD_LIKELY( !block->poison_cnt ) ) return 0;
+
+  for( fd_txn_acct_iter_t iter = fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE ); iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)fd_txn_acct_iter_idx( iter ) );
+    /* Shouldn't really happen, since ALT-serializing transactions don't
+       enter this function, so all account pubkeys are available. */
+    if( FD_UNLIKELY( !acct ) ) return 1;
+    for( uint j=0U; j<block->poison_cnt; j++ ) {
+      if( FD_UNLIKELY( !memcmp( block->poison[ j ].b, acct->b, 32UL ) ) ) return 1;
+    }
+  }
+
+  return 0;
+}
+
+/* Returns 0 on success, 1 if the poison set overflowed. */
+static int
+block_poison_insert( fd_sched_t * sched, fd_sched_block_t * block, fd_acct_addr_t const * acct ) {
+  for( uint j=0U; j<block->poison_cnt; j++ ) {
+    if( FD_UNLIKELY( !memcmp( block->poison[ j ].b, acct->b, 32UL ) ) ) return 0; /* Dedup. */
+  }
+
+  if( FD_UNLIKELY( block->poison_cnt>=FD_SCHED_POISON_MAX_ACCT_PER_SLOT ) ) {
+    block->poison_serialize = 1;
+    sched->metrics->poison_serializing_cnt++;
+    return 1;
+  }
+
+  block->poison[ block->poison_cnt++ ] = *acct;
+  return 0;
+}
+
+/* Adds relevant accounts to the poison set.  This function is
+   conservative and stateless.  Account data is not necessarily
+   available at insertion time, so we cannot tell which writable account
+   is the programdata PDA.  So the rule is simply: if loader v3 appears
+   anywhere in the transaction account list, poison every writable
+   account of the transaction.
+
+   That is sound because instruction level writability can never exceed
+   transaction level writability thanks to CPI rejecting writability
+   escalations.  So any account a loader v3 instruction could modify, at
+   the top-level or in a CPI, must be transaction level writable.
+   Additionally, the loader being in the account keys is necessary for
+   any invocation of it. */
+static void
+block_poison_add( fd_sched_t *           sched,
+                  fd_sched_block_t *     block,
+                  fd_txn_t const *       txn,
+                  fd_acct_addr_t const * imms,
+                  fd_acct_addr_t const * alts,
+                  ulong                  alt_cnt ) {
+  /* If we can't expand an ALT, we'd have to conservatively assume
+     there's loader v3 listed in it.  And if there also happens to be a
+     writable account in an unresolvable ALT, we can't add it and we no
+     longer maintain poison list integrity, so we conservatively
+     serialize the rest of the block. */
+  int alt_unresolvable = alt_cnt && !alts;
+  int loader_present = 0;
+  for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( imms[ i ].b, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) {
+      loader_present = 1;
+      break;
+    }
+  }
+  if( !loader_present && !alt_unresolvable ) {
+    for( ulong i=0UL; i<alt_cnt; i++ ) {
+      if( FD_UNLIKELY( !memcmp( alts[ i ].b, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) {
+        loader_present = 1;
+        break;
+      }
+    }
+  }
+  if( FD_LIKELY( !loader_present && !alt_unresolvable ) ) return;
+
+  for( fd_txn_acct_iter_t iter = fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE ); iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)fd_txn_acct_iter_idx( iter ) );
+    if( FD_UNLIKELY( !acct ) ) {
+      block->poison_serialize = 1;
+      sched->metrics->poison_serializing_cnt++;
+      break;
+    }
+    if( FD_UNLIKELY( block_poison_insert( sched, block, acct ) ) ) break;
+  }
+}
+
 FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
@@ -2273,6 +2404,12 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     }
   }
 
+  /* Capture alt_cnt before it's clamped below.  Poisoning needs to
+     distinguish between "no ALT keys" from "ALT keys failed to
+     resolve". */
+  ulong                  poison_alt_cnt = alt_cnt;
+  fd_acct_addr_t const * poison_alts    = (alt_cnt && !serializing) ? sched->aluts : NULL;
+
   /* Transactions should not have duplicate accounts.
      https://github.com/anza-xyz/agave/blob/v3.1.11/ledger/src/blockstore_processor.rs#L778-L790 */
   fd_acct_addr_t const * imms = fd_txn_get_acct_addrs( txn, payload );
@@ -2282,6 +2419,19 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     FD_LOG_INFO(( "bad block: duplicate accounts in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
     return FD_SCHED_BAD_BLOCK;
   }
+
+  /* At this point, we've decided whether the transaction is
+     ALT-serializing or not.  If it didn't get serialized by ALT
+     expansion failure, check if it should be serialized by poisoning.
+     Add to the poison set after checking, so a poisoning transaction
+     doesn't get serialized against its own entries.  Adding to the
+     poison set is unconditional. */
+  if( FD_UNLIKELY( !serializing && ( block->poison_serialize||block_poison_hit( block, txn, imms, poison_alts ) ) ) ) {
+    serializing = 1;
+    sched->metrics->txn_poisoned_cnt           += block->poison_serialize ? 0U : 1U;
+    sched->metrics->txn_poison_serializing_cnt += block->poison_serialize ? 1U : 0U;
+  }
+  block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );

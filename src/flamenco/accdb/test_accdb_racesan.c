@@ -641,7 +641,8 @@ fiber_probe_exec( void * _ctx ) {
   fiber_t * f = _ctx;
   int   pd  = 7;          /* poison: probe must overwrite */
   ulong len = 0xdeadUL;
-  int   r   = fd_accdb_probe_pd_this_fork( f->accdb, f->probe.fork_id, f->probe.pubkey, &pd, &len );
+  ulong lamports = 0xdeadUL;
+  int   r   = fd_accdb_probe_pd_this_fork( f->accdb, f->probe.fork_id, f->probe.pubkey, &pd, &len, &lamports );
   FD_TEST( pd==0 || pd==1 );
   FD_TEST( r==0 || r==1 );
   if( !r ) FD_TEST( len==0xdeadUL ); /* no gen-match => out_data_len untouched */
@@ -2548,7 +2549,8 @@ test_probe_vs_pd_commit( void ) {
     /* Post-commit: the pd_write=1 overwrite is durable on A. */
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, a, key, &pd, &len )==1 );
+    ulong lamports = 0UL;
+    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, a, key, &pd, &len, &lamports )==1 );
     FD_TEST( pd==1 );
 
     fd_accdb_advance_root( ctl, a );
@@ -2657,7 +2659,8 @@ test_pd_parent_read_vs_child_write( void ) {
     /* writer's commits landed on C, parent copy intact */
     int   pd  = 0;
     ulong len = ULONG_MAX;
-    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, c, key_d, &pd, &len )==1 );
+    ulong lamports = 0UL;
+    FD_TEST( fd_accdb_probe_pd_this_fork( ctl, c, key_d, &pd, &len, &lamports )==1 );
     FD_TEST( pd==0 ); /* plain lamport writes: no pd_write */
 
     fd_accdb_advance_root( ctl, p );

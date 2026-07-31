@@ -37,3 +37,5 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.1.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry-v4.1.0-beta.1 -m 10000 -e 135
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary-v4.1.0-beta.1 -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot-v4.1.0-beta.1 -m 10000 -e 950
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
