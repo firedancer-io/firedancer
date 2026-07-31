@@ -132,7 +132,11 @@
 #define FD_TXN_MTU_V0               (1232UL)
 
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
-   transaction, using fd_txn_parse() verification rules. */
+   transaction, using fd_txn_parse() verification rules.
+
+   Minimum legacy transaction size: 134
+   Minimum v0 transaction size:     136
+   Minimum v1 transaction size:     138 */
 #define FD_TXN_MIN_SERIALIZED_SZ     (134UL)
 
 /* BEGIN Agave limits */
