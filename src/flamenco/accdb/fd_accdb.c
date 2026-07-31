@@ -107,6 +107,19 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      that never gets a second write (and therefore would otherwise
      never be promoted by compaction). */
   int snapshot_loading;
+
+  /* Track account addresses changed since a full snap.
+     Used to determine which accounts should be packed into a full
+     snapshot (including tombstones for accounts no longer present in
+     accdb, but present in the full snapshot). */
+  struct {
+    uint *             chains;
+    fd_accdb_delta_t * pool;
+    struct {
+      uchar const * pubkey;
+      uint          chain;
+    } scratch[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  } delta;
 };
 
 static inline fd_accdb_cache_line_t *
@@ -280,6 +293,9 @@ fd_accdb_new( void *              ljoin,
 
   accdb->deferred_acc_buf = (uint *)( (uchar *)shmem + shmem->deferred_acc_buf_off );
 
+  accdb->delta.chains = (uint *)             ( (uchar *)shmem + shmem->delta.chain_off );
+  accdb->delta.pool   = (fd_accdb_delta_t *) ( (uchar *)shmem + shmem->delta.ele_off   );
+
   accdb->deferred_fork_head  = NULL;
   accdb->deferred_fork_tail  = NULL;
   accdb->deferred_fork_epoch = 0UL;
@@ -448,6 +464,55 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   spin_lock_release( &accdb->shmem->partition_lock );
 }
 
+static inline uint
+delta_chain( fd_accdb_shmem_t const * accdb,
+             uchar const              pubkey[ 32 ] ) {
+  uint hash = (uint)fd_accdb_hash( pubkey, accdb->delta.seed );
+  return hash & accdb->delta.chain_mask;
+}
+
+static int
+delta_insert( fd_accdb_t * accdb,
+              uchar const  pubkey[ 32 ] ) {
+  /* FIXME consider batch inserting */
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_UNLIKELY( shmem->delta.head >= shmem->delta.ele_max ) ) return 0;
+
+  uint *             chains = accdb->delta.chains;
+  uint *             chain  = &chains[ delta_chain( shmem, pubkey ) ];
+  fd_accdb_delta_t * pool   = accdb->delta.pool;
+
+  uint head = *chain;
+  for( uint cur=head; cur!=UINT_MAX; cur=pool[ cur ].next ) {
+    if( FD_UNLIKELY( !memcmp( pool[ cur ].pubkey, pubkey, 32UL ) ) ) return 1;
+  }
+
+  ulong idx = shmem->delta.head++;
+  fd_accdb_delta_t * delta = &pool[ idx ];
+  delta->next = head;
+  memcpy( delta->pubkey, pubkey, 32UL );
+  *chain = (uint)idx;
+  return 1;
+}
+
+int
+fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
+                                 fd_accdb_fork_id_t fork_id ) {
+  if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_snapshot_populate_delta: invalid fork id %u (capacity %lu)",
+                  (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
+  }
+
+  uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
+  while( txn_idx!=UINT_MAX ) {
+    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
+    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ txn->acc_pool_idx ];
+    if( FD_UNLIKELY( !delta_insert( accdb, acc->key.pubkey ) ) ) return -1;
+    txn_idx = txn->fork.next;
+  }
+  return 0;
+}
+
 void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out ) {
@@ -608,6 +673,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->partition_pool      = NULL;
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) accdb->compaction_dlist[ k ] = NULL;
   accdb->deferred_free_dlist = NULL;
+  accdb->delta.chains        = NULL;
+  accdb->delta.pool          = NULL;
 
   FD_TEST( fork_pool_join( accdb->fork_shmem_pool, shmem->fork_pool, _fork_pool_ele, max_live_slots ) );
   accdb->fork_pool = _local_fork_pool;
@@ -1279,6 +1346,8 @@ background_advance_root( fd_accdb_t *       accdb,
       fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
 
       fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+
+      delta_insert( accdb, new_acc->key.pubkey );
 
       uint prev          = UINT_MAX;
       uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
@@ -4078,6 +4147,20 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   return 0;
 }
 
+static void
+delta_reset( fd_accdb_t * accdb ) {
+  if( !accdb->shmem->delta.head ) return; /* clean */
+  uint * chains    = accdb->delta.chains;
+  ulong  chain_cnt = accdb->shmem->delta.chain_cnt;
+  for( ulong i=0UL; i<chain_cnt; i++ ) chains[ i ] = UINT_MAX;
+  accdb->shmem->delta.head = 0UL;
+}
+
+static int
+delta_is_valid( fd_accdb_shmem_t const * accdb ) {
+  return accdb->delta.head < accdb->delta.ele_max;
+}
+
 void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy ) {
@@ -4087,22 +4170,37 @@ fd_accdb_background( fd_accdb_t * accdb,
   ulong * snap_sync_p = &accdb->shmem->snapshot_sync;
   ulong   snap_sync   = fd_accdb_snapshot_sync_state( snap_sync_p );
   if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
-    if( FD_LIKELY( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) {
+    switch( snap_sync ) {
+    case FD_ACCDB_SNAPSHOT_SYNC_RUNNING:
       /* while producing a snapshot, limit background tasks to cache
          pre-eviction, but pause all other tasks (like advance_root,
          purge, and compaction) */
       background_preevict( accdb, charge_busy, 0 );
       return;
+    case FD_ACCDB_SNAPSHOT_SYNC_DONE:
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      break;
+    case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
+      delta_reset( accdb );
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+      *charge_busy = 1;
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_START_INCR:
+      if( delta_is_valid( accdb->shmem ) ) {
+        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+      } else {
+        /* cannot produce incrementals because delta ran out of space,
+           therefore don't know which accounts changed */
+        fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_FAIL );
+      }
+      *charge_busy = 1;
+      return;
+    case FD_ACCDB_SNAPSHOT_SYNC_FAIL:
+      /* wait for client to acknowledge */
+      break;
+    default:
+      FD_LOG_CRIT(( "corrupt snapshot_sync state %lu", snap_sync ));
     }
-
-    /* acknowledge the client's snapshot start/stop request */
-    FD_DCHECK_CRIT( snap_sync==FD_ACCDB_SNAPSHOT_SYNC_START ||
-                    snap_sync==FD_ACCDB_SNAPSHOT_SYNC_DONE,
-                    "invalid snapshot sync state" );
-    fd_accdb_snapshot_sync_advance( snap_sync_p );
-    /* state is now RUNNING or IDLE */
-    *charge_busy = 1;
-    return;
   }
 
   /* process cnc requests */

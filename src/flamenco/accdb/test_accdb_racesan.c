@@ -82,14 +82,14 @@ test_shmem_new_cfg2( ulong cache_fp,
   g_fd = memfd_create( "accdb_racesan", 0 );
   if( FD_UNLIKELY( g_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT );
+  ulong shmem_fp = fd_accdb_shmem_footprint( T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS, T_WRITES_PER_SLOT, T_PARTITION_CNT, cache_fp, cache_min_reserved, T_JOINER_CNT, 0UL );
   FD_TEST( shmem_fp );
   g_shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( g_shmem_mem );
   g_shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( g_shmem_mem, T_MAX_ACCOUNTS, T_MAX_LIVE_SLOTS,
                           T_WRITES_PER_SLOT, T_PARTITION_CNT,
-                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, T_JOINER_CNT ) );
+                          partition_sz, cache_fp, cache_min_reserved, 0, 42UL, T_JOINER_CNT, 0UL ) );
   FD_TEST( g_shmem );
   return g_shmem;
 }
@@ -1908,14 +1908,14 @@ test_setup( int * out_fd,
      drives the other), so the shmem must admit a second joiner with its
      own epoch slot. */
   ulong cache_fp = HEAD_TEST_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 2UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 2UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 640UL, 0, 42UL, 2UL ) );
+                          partition_sz, cache_fp, 640UL, 0, 42UL, 2UL, 0UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
   test_shmem     = shmem;

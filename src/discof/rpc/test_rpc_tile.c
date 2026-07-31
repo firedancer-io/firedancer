@@ -210,10 +210,10 @@ main( int     argc,
   ulong const joiner_cnt                  = 2UL; /* writer + readonly rpc */
 
   fd_topo_obj_t * accdb_shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
-  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   void * accdb_shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_fp, 1UL );
   FD_TEST( accdb_shmem_mem );
-  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
+  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt, 0UL ) );
   accdb_shmem_obj->wksp_id = topo_wksp->id;
   accdb_shmem_obj->offset  = fd_wksp_gaddr_fast( wksp, accdb_shmem_mem );
   fd_pod_insert_ulong( topo->props, "accdb", accdb_shmem_obj->id );

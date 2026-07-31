@@ -42,7 +42,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                                              TEST_SYSVAR_WRITES_PER_SLOT,
                                              TEST_SYSVAR_PARTITION_CNT,
                                              TEST_SYSVAR_CACHE_FOOTPRINT,
-                                             TEST_SYSVAR_CACHE_MIN_RESERVED, 1UL );
+                                             TEST_SYSVAR_CACHE_MIN_RESERVED, 1UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
@@ -53,7 +53,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                           TEST_SYSVAR_PARTITION_CNT,
                           TEST_SYSVAR_PARTITION_SZ,
                           TEST_SYSVAR_CACHE_FOOTPRINT,
-                          TEST_SYSVAR_CACHE_MIN_RESERVED, 0, 42UL, 1UL ) );
+                          TEST_SYSVAR_CACHE_MIN_RESERVED, 0, 42UL, 1UL, 0UL ) );
   FD_TEST( shmem );
 
   ulong join_fp = fd_accdb_footprint( TEST_SYSVAR_MAX_LIVE_SLOTS );

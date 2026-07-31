@@ -86,14 +86,14 @@ setup_accdb( void ) {
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
 
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot,
-                                             partition_cnt, cache_footprint, cache_min_reserved, joiner_cnt );
+                                             partition_cnt, cache_footprint, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, max_account_writes_per_slot,
                           partition_cnt, partition_sz, cache_footprint, cache_min_reserved,
-                          0, 42UL, joiner_cnt ) );
+                          0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );

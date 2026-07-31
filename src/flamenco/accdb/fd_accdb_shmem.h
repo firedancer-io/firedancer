@@ -64,7 +64,8 @@ fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong partition_cnt,
                           ulong cache_footprint,
                           ulong cache_min_reserved,
-                          ulong joiner_cnt );
+                          ulong joiner_cnt,
+                          ulong max_incremental_accounts );
 
 void *
 fd_accdb_shmem_new( void * shmem,
@@ -77,7 +78,8 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  cache_min_reserved,
                     int    bundle_enabled,
                     ulong  seed,
-                    ulong  joiner_cnt );
+                    ulong  joiner_cnt,
+                    ulong  max_incremental_accounts );
 
 fd_accdb_shmem_t *
 fd_accdb_shmem_join( void * shtc );
@@ -136,24 +138,47 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
 
 FD_PROTOTYPES_END
 
+/* fd_accdb_delta tracks account addresses changed since a full snap.
+   This is used to determine which accounts should be packed into a full
+   snapshot (including tombstones for accounts no longer present in
+   accdb, but present in the full snapshot). */
+
+struct fd_accdb_delta {
+  uchar pubkey[ 32UL ];
+  uint  next;
+};
+typedef struct fd_accdb_delta fd_accdb_delta_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_delta_t)==36UL, delta_ele_sz );
+FD_STATIC_ASSERT( __builtin_offsetof(fd_accdb_delta_t, next)==32UL, delta_ele_next_off );
+
 /* Snapshot sync API */
 
-/* fd_accdb_shmem_private_t::snapshot_sync values */
-#define FD_ACCDB_SNAPSHOT_SYNC_IDLE    (0UL) /* accdb: steady state */
-#define FD_ACCDB_SNAPSHOT_SYNC_START   (1UL) /* client: i want to create a snapshot */
-#define FD_ACCDB_SNAPSHOT_SYNC_RUNNING (2UL) /* accdb: ack, snapshot creation active */
-#define FD_ACCDB_SNAPSHOT_SYNC_DONE    (3UL) /* client: i am done snapshotting */
+/* fd_accdb_shmem_private_t::snapshot_sync values
+   Legal transitions:
+   - IDLE -> {START_FULL,START_INCR}
+   - START_FULL -> RUNNING
+   - START_INCR -> {RUNNING,FAIL}
+   - RUNNING -> DONE
+   - FAIL -> DONE
+   - DONE -> IDLE */
+#define FD_ACCDB_SNAPSHOT_SYNC_IDLE       (0UL) /* accdb: steady state */
+#define FD_ACCDB_SNAPSHOT_SYNC_START_FULL (1UL) /* client: i want to create a full snapshot */
+#define FD_ACCDB_SNAPSHOT_SYNC_START_INCR (2UL) /* client: i want to create an incremental snapshot */
+#define FD_ACCDB_SNAPSHOT_SYNC_RUNNING    (3UL) /* accdb: ack, snapshot creation active */
+#define FD_ACCDB_SNAPSHOT_SYNC_DONE       (4UL) /* client: i am done snapshotting */
+#define FD_ACCDB_SNAPSHOT_SYNC_FAIL       (5UL) /* accdb: error during incremental creation */
 
 static inline ulong
 fd_accdb_snapshot_sync_state( ulong const * sync ) {
-  return __atomic_load_n( sync, __ATOMIC_ACQUIRE ) & 3UL;
+  return __atomic_load_n( sync, __ATOMIC_ACQUIRE );
 }
 
 static inline void
-fd_accdb_snapshot_sync_advance( ulong * sync ) {
+fd_accdb_snapshot_sync_advance( ulong * sync,
+                                ulong   next ) {
   ulong old = __atomic_load_n( sync, __ATOMIC_RELAXED );
   for(;;) {
-    ulong next = (old & ~3UL) | (((old & 3UL)+1UL) & 3UL);
     if( FD_LIKELY( __atomic_compare_exchange_n( sync, &old, next, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED ) ) ) return;
     FD_SPIN_PAUSE();
   }

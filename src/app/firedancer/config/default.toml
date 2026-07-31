@@ -435,6 +435,12 @@ telemetry = true
     # if production cannot keep up with the schedule.
     full_snapshot_interval_slots = 100000
 
+    # Maximum number of changed-account pubkeys retained between full
+    # snapshots for incremental snapshot creation.  Each entry uses 36
+    # bytes, plus the hash-chain index.  If this fills, incremental
+    # production pauses until the next full snapshot resets it.
+    max_incremental_snapshot_accounts = 20_000_000
+
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
     # gossip peers that advertise RPC server addresses, or from external
