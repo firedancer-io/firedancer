@@ -15,6 +15,7 @@
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6  /* mk->zp: batch of cold accounts within one rd frag */
 #define FD_BACKUP_ORIG_DISK_START     7  /* mk->rd: start reading from disk */
 #define FD_BACKUP_ORIG_DISK_FRAG      8  /* rd->mk: accdb file frag */
+#define FD_BACKUP_ORIG_ACC_DELTA      9  /* mk->zp: address of account */
 
 /* FD_BACKUP_CACHE_PARA controls the batch size of ultra-sparse random
    index lookups from acc_map.  Tunes memory-level parallelism settings
@@ -103,6 +104,16 @@ struct fd_backup_disk_batch_msg {
 };
 typedef struct fd_backup_disk_batch_msg fd_backup_disk_batch_msg_t;
 
+/* fd_backup_delta_msg_t is a batch of incremental snapshot accounts by
+   address. */
+
+struct fd_backup_delta_msg {
+  uint        cnt;
+  fd_pubkey_t pubkey[ FD_BACKUP_CACHE_PARA ];
+};
+
+typedef struct fd_backup_delta_msg fd_backup_delta_msg_t;
+
 /* fd_backup_frag_t is only used to determine MTU of link */
 
 union fd_backup_frag {
@@ -110,6 +121,7 @@ union fd_backup_frag {
   fd_backup_cache_msg_t      cache;
   fd_backup_disk_msg_t       disk;
   fd_backup_disk_batch_msg_t disk_batch;
+  fd_backup_delta_msg_t      delta;
 };
 typedef union fd_backup_frag fd_backup_frag_t;
 

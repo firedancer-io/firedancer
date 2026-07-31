@@ -2546,7 +2546,8 @@ snapmk_start( fd_replay_tile_t *  ctx,
   *msg = (fd_replay_snap_start_t) {
     .bank_idx        = ctx->published_root_bank_idx,
     .base_slot       = bank->f.slot,
-    .base_generation = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id )
+    .base_generation = fd_accdb_fork_generation( ctx->accdb, bank->accdb_fork_id ),
+    .slot            = bank->f.slot
   };
   ulong out_idx = ctx->snapmk_out->idx;
   ulong sig     = REPLAY_SIG_SNAP_START;

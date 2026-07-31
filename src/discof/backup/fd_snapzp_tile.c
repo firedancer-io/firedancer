@@ -422,6 +422,41 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
   }
 }
 
+static void
+msg_acc_delta( fd_snapzp_t *                 ctx,
+               fd_backup_delta_msg_t const * batch ) {
+  FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
+  FD_CHECK_CRIT( !ctx->disk.active, "received account delta while already processing a disk account" );
+  FD_CHECK_CRIT( batch->cnt<=FD_BACKUP_CACHE_PARA, "invalid delta account batch" );
+
+  ulong const rec_max = sizeof(snap_acc_hdr_t) + FD_RUNTIME_ACC_SZ_MAX;
+  FD_STATIC_ASSERT( sizeof(snap_acc_hdr_t)+FD_RUNTIME_ACC_SZ_MAX<=RAW_BUF_SZ, raw_buf_too_small );
+
+  for( ulong i=0UL; i<(ulong)batch->cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->raw_buf.size + rec_max > RAW_BUF_SZ ) ) zip_flush( ctx );
+
+    ulong            start = ctx->raw_buf.size;
+    snap_acc_hdr_t * hdr   = (snap_acc_hdr_t *)( ctx->raw + start );
+    memset( hdr, 0, sizeof(snap_acc_hdr_t) );
+    hdr->pubkey = batch->pubkey[ i ];
+
+    ulong lamports   = 0UL;
+    ulong data_len   = 0UL;
+    int   executable = 0;
+    fd_accdb_read_one_nocache( ctx->accdb, ctx->fork_id, batch->pubkey[ i ].uc,
+                               &lamports, &executable, hdr->owner.uc,
+                               ctx->raw + start + sizeof(snap_acc_hdr_t), &data_len );
+    FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned oversized account" );
+    hdr->lamports   = lamports;
+    hdr->executable = (uchar)!!executable;
+    hdr->data_len   = data_len;
+
+    ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
+    if( data_pad ) fd_memset( ctx->raw + start + sizeof(snap_acc_hdr_t) + data_len, 0, data_pad );
+    ctx->raw_buf.size = start + sizeof(snap_acc_hdr_t) + data_len + data_pad;
+  }
+}
+
 /* accmeta_disk validates that an index entry (at acc_idx with given
    pubkey) is an on-disk rooted account.
    (Safe while compaction and rooting are disabled, as on-disk rooted
@@ -680,6 +715,10 @@ returnable_frag( fd_snapzp_t *       ctx,
     break;
   case FD_BACKUP_ORIG_ACC_CACHE:
     msg_acc_cache( ctx, MSG_TRANSLATE( fd_backup_cache_msg_t ) );
+    zip_work( ctx );
+    break;
+  case FD_BACKUP_ORIG_ACC_DELTA:
+    msg_acc_delta( ctx, MSG_TRANSLATE( fd_backup_delta_msg_t ) );
     zip_work( ctx );
     break;
   case FD_BACKUP_ORIG_ACC_DISK:
