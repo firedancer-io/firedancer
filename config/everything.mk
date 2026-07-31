@@ -236,10 +236,10 @@ define _run-integration-test
 RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
 endef
 $(OBJDIR)/integration-test/automatic.txt: $(LOCAL_MKS)
-	$(MKDIR) "$(OBJDIR)/integration-test"
-	$(RM) $@
+	@$(MKDIR) "$(OBJDIR)/integration-test"
+	@$(RM) $@
 	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
-	$(TOUCH) "$@"
+	@$(TOUCH) "$@"
 
 ifndef FD_HAS_FUZZ
 FUZZ_EXTRA:=$(OBJDIR)/lib/libfd_fuzz_stub.a

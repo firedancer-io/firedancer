@@ -194,17 +194,22 @@ if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
 fi
 
 if [[ "$INGEST_MODE" != "shredcap" ]]; then
-  echo "ingest mode '$INGEST_MODE' is not supported: firedancer-dev only ingests shredcap captures (RocksDB ingest lives in fd_blockstore2shredcap)"
+  echo "ingest mode '$INGEST_MODE' is not supported: firedancer-dev only ingests shredcap captures (RocksDB ingest lives in blockstore2shredcap)"
   exit 1
 fi
 
 convert_rocksdb_to_shredcap() {
-  rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
-  if ! $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst.tmp --zstd; then
-    rm -f $DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  # Requires RocksDB development headers/libs:
+  # rocksdb-devel (dnf) or librocksdb-dev (apt).
+  make -B -C contrib/blockstore blockstore2shredcap
+
+  local zst_tmp=$DUMP/$LEDGER/shreds.pcapng.zst.tmp
+  rm -f "$zst_tmp"
+  if ! contrib/blockstore/blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out "$zst_tmp" --zstd; then
+    rm -f "$zst_tmp"
     return 1
   fi
-  mv $DUMP/$LEDGER/shreds.pcapng.zst.tmp $DUMP/$LEDGER/shreds.pcapng.zst
+  mv "$zst_tmp" $DUMP/$LEDGER/shreds.pcapng.zst
   echo "Converted rocksdb to shredcap"
 }
 

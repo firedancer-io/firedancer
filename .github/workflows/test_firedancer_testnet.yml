@@ -18,8 +18,6 @@ jobs:
       - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
-        with:
-          extras: +dev
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
         with:

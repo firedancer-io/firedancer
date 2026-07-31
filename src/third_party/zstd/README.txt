@@ -6,9 +6,7 @@ specific modifications.  Do not edit vendored files locally; update
 by re-running `vendor.sh` against a new pinned tag.
 
 Compiled single-threaded (no ZSTD_MULTITHREAD; pool/threading reduce
-to stubs, zstdmt_compress.c is not imported).  dictBuilder is
-present only to satisfy librocksdb.a's ZDICT_* references in
-dev-mode builds; first-party code uses no ZDICT API.  Consumers use
+to stubs, zstdmt_compress.c is not imported).  Consumers use
 ZSTD_STATIC_LINKING_ONLY static-allocation APIs, which upstream
 marks unstable -- version bumps must re-audit those call sites
 (fd_zstd.c, snapdc).

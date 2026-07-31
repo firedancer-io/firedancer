@@ -55,7 +55,6 @@ sysroot () {
     kernel-headers
     libzstd-devel libzstd-static
     snappy-devel snappy
-    rocksdb-devel rocksdb
   )
 
   # Resolve packages

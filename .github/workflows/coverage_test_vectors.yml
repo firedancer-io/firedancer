@@ -51,7 +51,6 @@ jobs:
         with:
           compiler: clang
           compiler-version: 15.0.6
-          extras: +dev
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
 
