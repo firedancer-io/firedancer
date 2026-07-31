@@ -8,9 +8,9 @@
 #include <unistd.h>
 #include <sys/utsname.h>
 
-#define PROVIDER_CNT       (1UL)
-#define FEAT_CNT_MAX       (8UL)
-#define NET_DRIVER_CNT_MAX (8UL)
+#define PROVIDER_CNT       ( 1UL)
+#define FEAT_CNT_MAX       ( 8UL)
+#define NET_DRIVER_CNT_MAX (16UL)
 
 struct fd_auto_info {
   /* System */
@@ -29,6 +29,10 @@ struct fd_auto_driver_rq {
   char const * name;
   ulong        min_linux_major;
   ulong        min_linux_minor;
+
+  /* 0 = no max linux version */
+  ulong        max_linux_major;
+  ulong        max_linux_minor;
 };
 typedef struct fd_auto_driver_rq fd_auto_driver_rq_t;
 
@@ -150,6 +154,8 @@ xdp_zc_apply( fd_config_t * config ) {
   config->net.xdp.xdp_zero_copy = 1;
 }
 
+/* Each feature's supported Linux version matrix per driver decided
+   based on fd-linux-version-testbed test results. */
 static const fd_auto_provider_t NET_PROVIDERS[] = {
   {
     .name  = "XDP",
@@ -157,28 +163,31 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
     .feats = {
       {
         .name              = "Native Bond",
-        .supported_drivers = { { "mlx5_core", 5, 15 } },
+        .supported_drivers = { { "mlx5_core", 5, 15, 0, 0} },
         .is_feat_auto      = is_xdp_native_bond_auto,
         .check             = xdp_native_bond_check,
         .apply             = xdp_native_bond_apply
       },
       {
         .name              = "DRV",
-        .supported_drivers = { { "mlx5_core", 5, 15 } },
+        .supported_drivers = {
+          { "mlx5_core", 5, 15, 6, 3 },
+          { "mlx5_core", 6,  5, 0, 0 },
+        },
         .is_feat_auto      = is_xdp_mode_auto,
         .check             = xdp_drv_check,
         .apply             = xdp_drv_apply,
       },
       {
         .name              = "Prefbusy",
-        .supported_drivers = { { "mlx5_core", 5, 15 } },
+        .supported_drivers = { { "mlx5_core", 5, 15, 0, 0 } },
         .is_feat_auto      = is_xdp_prefbusy_auto,
         .check             = xdp_prefbusy_check,
         .apply             = xdp_prefbusy_apply
       },
       {
         .name              = "Zero Copy",
-        .supported_drivers = { { "mlx5_core", 5, 15  } },
+        .supported_drivers = { { "mlx5_core", 6, 1, 0, 0  } },
         .is_feat_auto      = is_xdp_zc_auto,
         .check             = xdp_zc_check,
         .apply             = xdp_zc_apply
@@ -292,10 +301,18 @@ fd_auto_check_driver( fd_auto_info_t      const * info,
     if( !req->name ) return 0;
 
     if( 0==strcmp( info->driver, req->name ) ) {
-      /* Correct driver */
-      if( info->linux_major>req->min_linux_major
-     || ( info->linux_major==req->min_linux_major
-       && info->linux_minor>=req->min_linux_minor ) ) return 1;
+      /* Check system linux version is within bounds of min and max
+         of what this driver req requires. */
+      if( req->max_linux_major > 0UL ) {
+        if( info->linux_major>req->max_linux_major ||
+          ( info->linux_major==req->max_linux_major &&
+            info->linux_minor>req->max_linux_minor ) ) continue;
+      }
+
+
+      if( info->linux_major>req->min_linux_major ||
+        ( info->linux_major==req->min_linux_major &&
+          info->linux_minor>=req->min_linux_minor ) ) return 1;
     }
   }
 
