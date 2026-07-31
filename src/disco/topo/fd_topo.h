@@ -450,6 +450,7 @@ struct fd_topo_tile {
       ulong sched_depth;
       ulong max_live_slots;
       ulong full_snapshot_interval_slots;
+      ulong incremental_snapshot_interval_slots;
 
       /* not specified in TOML */
 

@@ -157,6 +157,7 @@ struct fd_configf {
     uint min_download_speed_mibs;
     ulong wait_for_peers_timeout_seconds;
     ulong full_snapshot_interval_slots;
+    ulong incremental_snapshot_interval_slots;
     ulong max_incremental_snapshot_accounts;
   } snapshots;
 

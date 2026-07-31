@@ -215,7 +215,6 @@ typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
 
 struct fd_replay_snap_start {
   ulong bank_idx;
-  uint  base_generation;
   ulong base_slot;
   ulong slot; /* ==base_slot implies full snapshot, else incremental */
 };
