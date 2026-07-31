@@ -256,7 +256,7 @@ before_credit( fd_gui_ctx_t *      ctx,
   int charge_busy_server = 0;
   long now = fd_tickcount();
   if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
-    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
+    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0, 1UL );
     ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
   }
 
