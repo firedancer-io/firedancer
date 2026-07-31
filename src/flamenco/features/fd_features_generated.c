@@ -1754,7 +1754,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xb8\x30\xab\xeb\x2f\x79\xf4\x53\xf9\xb1\x27\x15\xb8\x75\x56\xc4\x82\x1a\x67\xe0\x03\xa8\x07\x5e\x13\xa7\x58\xdd\xf7\xa2\x1d"},
                                  /* rent6iVy6PDoViPBeJ6k5EJQrkj62h7DPyLbWGHwjrC */
     .name                      = "deprecate_rent_exemption_threshold",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, static_instruction_limit)>>3,
     .id                        = {"\x4b\x3e\xa0\x91\xa9\xb6\xb5\xda\x05\x3a\x32\x6f\x7c\x18\xd9\x0d\x60\x87\x99\x76\xfb\xc6\x6f\x18\xc1\xfa\x37\x38\x94\x41\xc1\xf9"},
@@ -1851,7 +1852,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x5a\x97\x0f\x6d\x79\x4d\x43\xf5\x93\x88\x4b\xb9\xe2\xf1\x18\x5f\xa3\x02\x70\xbe\x4c\xce\x7e\x21\x52\xc1\xb0\xad\x2f\xf6\xcc\xd0"},
                                  /* 76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B */
     .name                      = "delay_commission_updates",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validate_chained_block_id)>>3,
     .id                        = {"\x0d\xbc\x3b\x61\x39\xea\x5b\x7f\xaf\xf2\x76\x43\x0d\x88\xc7\xa7\xb1\x87\x26\x38\x0f\xf1\x91\xe7\xf6\x4a\xdb\xbf\x52\xf2\x1b\x26"},
@@ -1882,7 +1884,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xcb\x2d\x5e\xc6\xdb\xd8\x88\xd3\xda\xf5\x45\x1b\x70\x19\x53\x07\xdd\x79\xf6\xd3\x71\x9c\x8b\xe1\x53\x8d\x09\xaf\x98\x5e\x6e\x14"},
                                  /* Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj */
     .name                      = "commission_rate_in_basis_points",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, loader_v3_minimum_extend_program_size)>>3,
     .id                        = {"\x08\x18\x1e\xb9\x12\xa0\x56\xbe\x46\xe6\x2f\x6c\xd5\xe7\x97\xde\x2a\xd0\x2b\xe0\x09\xa9\x01\x36\x6a\x7f\x33\x74\x31\x4f\x47\xf6"},
