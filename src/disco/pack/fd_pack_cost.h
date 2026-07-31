@@ -109,60 +109,51 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
    fd_txn_t size.  There are various things a transaction can include
    that consume CUs, and they also consume some bytes of payload.  It
    then becomes an integer linear programming problem.  First, the best
-   use of bytes is to request 1.4M CUs. For a V1 transaction this is
-   done using the config value, consuming 4 bytes of payload.
+   use of bytes is to request 1.4M CUs, which for a V1 transaction is
+   done using the config value, consuming 4 bytes of payload.  This is
+   350,000 CUs per byte, which is obviously the best move.
 
-   Execution cost is capped at 1.4M and built-in instructions do not
-   add to it.  The best use of bytes is precompiles, which consume
-   <609 CUs per byte in the worst case: each secp256k1 signature
-   consumes 6690 CUs and 11 bytes.  Writable signers consume 96 bytes
-   use 1020 CUs.  Writable non-signers consume 32 bytes and use 300
-   CUs.  That's 10.6 CUs/byte and 9.4 CUs/byte, respectively.  The best
-   strategy is therefore to have as many secp256k1 signatures as
-   possible.
+   Precompile signatures are not counted against CU limit, so the best
+   use of bytes is precompiles, which consume <609 CUs per byte in the
+   worst case: each secp256k1 signature consumes 6690 CUs and 11 bytes.
+   Firedancer limits the number of precompile signatures to 16.
 
-   How many secp256k1 signatures can we fit?  The maximum transaction
-   payload is 4096 bytes.  There is a fixed overhead of 146
-   bytes for a transaction that requests a 1.4M CU limit and the
-   highest loaded account data size cost, has one fee payer and no
-   instructions.  This leaves 3950 bytes.
+   With the 16 precompile signatures used, we can only continue to
+   increase the cost by adding writable accounts or writable signer
+   accounts.  Writable signers consume 96 bytes use 1020 CUs.  Writable
+   non-signers consume 32 bytes and use 300 CUs.  That's 10.6 CUs/byte
+   and 9.4 CUs/byte, respectively, so in general, writable signers are
+   more efficient and we want to add as many as we can, up to the
+   limits of 12 signatures and 64 accounts.
 
-   To invoke the precompiles, we then need to use 32 bytes for the
-   secp256k1 program pubkey.  Then we can fill the remaining 3918 bytes
-   with as many secp256k1 precompile signatures as possible.
-
-   Each secp256k1 precompile instruction has a 4 byte header, and at
-   most 255 signatures.  A 255-signature secp256k1 precompile
-   instruction uses 2810 bytes.  This leaves us with 1108 bytes.  We
-   then max out the remaining bytes with a second 100-signature
-   secp256k1 precompile instruction, using 1105 bytes.  This leaves
-   3 bytes leftover.
+   Finally, with any bytes that remain, we can add them to one of the
+   instruction datas for 0.25 CUs/byte.
 
    Note that by default, 64MiB of data are assumed for the loaded
    accounts data size cost. This corresponds (currently) to 16384 CUs.
 
    This gives a transaction that looks like
-     Field                             bytes consumed     CUs used
-     version byte                            1                    0
-     sig cnt                                 1                    0
-     ro signed + ro unsigned                 2                    0
-     config mask                             4                    0
-     recent blockhash                       32                    0
-     instr cnt + acct addr cnt               2                    0
-     fee payer pubkey                       32                  300
-     secp256k1 program pubkey               32                  300
-     cu limit config value                   4            1,400,000
-     loaded data config value                4               16,384
-     2 secp256k1 precompile ix headers       8                    0
-     355 secp256k1 sigs                  3,907            2,374,950
-     instr data cost (3,907 / 4)             0                  976
-     fee payer signature                    64                  720
+     Field                       bytes consumed          CUs used
+     version byte                     1                        0
+     sig cnt                          1                        0
+     ro signed + ro unsigned          2                        0
+     config mask                      4                        0
+     Recent blockhash                32                        0
+     instr cnt + acct addr cnt        2                        0
+     12 signatures                  768                    8,640
+     64 writable pubkeys          2,048                   19,200
+     cu limit config value            4                1,400,000
+     loaded data config value         4                   16,384
+     secp256k1 precompile header      4                        0
+     16 secp256k1 sigs              177                  107,040
+     remaining bytes              1,049                        0
+     instr data cost                  0                      306
    + ---------------------------------------------------------------
-                                        4,093            3,793,630
+                                  4,096                1,551,570
 
    One of the main take-aways from this is that the cost of a
    transaction easily fits in a uint. */
-#define FD_PACK_MAX_TXN_COST (3793630UL)
+#define FD_PACK_MAX_TXN_COST (1551570UL)
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 /* Every transaction has at least a fee payer, a writable signer. */
@@ -516,6 +507,12 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
     }
   }
+
+  /* Firedancer's block packer limits the total amount of precompile
+     signatures in a transaction to 16. Anything beyond this is likely
+     spam. */
+  if( FD_UNLIKELY( precompile_sig_cnt>16UL ) ) return 0UL;
+
   /* E.g. a transaction can alloc a 10MB account, close it, and repeat
      many times.  According to the spec, this would count as a 20MB
      allocation. See
