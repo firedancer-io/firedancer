@@ -169,7 +169,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
 
 /* Operators */
 
-/* fd_borrowed_account_checked_add_lamports mirros Agave function
+/* fd_borrowed_account_checked_add_lamports mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::checked_add_lamports.
 
    Does not update global capitalization. Returns 0 on

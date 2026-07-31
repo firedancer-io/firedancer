@@ -131,7 +131,7 @@ typedef struct {
    delayed or dropped.  sendto() calls make almost no guarantees how
    much packets are sent out, nor do they indicate when the kernel
    finishes a wakeup call (asynchronously dispatched).  The net tile
-   thus uses a myraid of flush triggers that were tested for best
+   thus uses a myriad of flush triggers that were tested for best
    performance. */
 
 struct fd_net_flusher {
@@ -254,7 +254,7 @@ typedef struct {
     uint   gre_outer_dst_ip;  /* For GRE: Outer iphdr's dst_ip in net order */
   } tx_op;
 
-  /* Round-robin cycle serivce operations */
+  /* Round-robin cycle service operations */
   uint rr_idx;
 
   /* Ring tracking free packet buffers */

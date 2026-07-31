@@ -586,7 +586,7 @@ switch_check( fd_tower_t * tower,
 /* threshold_check checks if we pass the threshold required to vote for
    `slot`.  Returns 1 if we pass the threshold check, 0 otherwise.
 
-   The following psuedocode describes the algorithm:
+   The following pseudocode describes the algorithm:
 
    ```
    simulate that we have voted for `slot`
@@ -990,7 +990,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
    A typical validator setup involves two nodes, a primary and a backup.
    The primary is a valid fee payer, and the one landing votes recording
    the latest state of its tower on-chain.  The two nodes' towers will
-   usually be identical but occassionally diverge when one node votes
+   usually be identical but occasionally diverge when one node votes
    for slots that the other one doesn't.  This usually happens when
    there are multiple forks.
 

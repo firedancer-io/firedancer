@@ -122,7 +122,7 @@ struct fd_snapshot_manifest_vote_stakes {
   /* The total amount of active stake for the vote account */
   ulong stake;
 
-  /* The latest slot and timestmap that the vote account voted on in
+  /* The latest slot and timestamp that the vote account voted on in
      the given epoch. */
   ulong slot;
   long  timestamp;
@@ -285,7 +285,7 @@ struct fd_snapshot_manifest {
   /* At genesis, certain parameters can be set which control the
      epoch schedule going forward.  This includes how many slots
      there are per epoch, and certain development settings like if
-     epochs start short and grow longer as the chain progreses.
+     epochs start short and grow longer as the chain progresses.
 
      Currently, these parameters can never change and are fixed from
      genesis onwards, although in future they may change with new
@@ -388,7 +388,7 @@ struct fd_snapshot_manifest {
   fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
   /* The proof of history component "proves" the passage of time (see
-     extended discussion in PoH tile for what that acutally means) by
+     extended discussion in PoH tile for what that actually means) by
      continually doing sha256 hashes.  A certain number of hashes are
      required to be in each slot, to prove the leader spent some amount
      of time on the slot and didn't end it too early.

@@ -14,7 +14,7 @@
 #define FD_SSPARSE_ADVANCE_DONE           ( 7)
 
 /* fd_ssparse_t is a solana snapshot parser.  It is designed to parse a
-   snapshot in streaming fasion, chunk by chunk. */
+   snapshot in streaming fashion, chunk by chunk. */
 struct fd_ssparse {
   int state;
   uint batch_enabled : 1;

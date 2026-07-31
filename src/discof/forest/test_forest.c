@@ -117,7 +117,7 @@ test_publish_incremental( fd_wksp_t * wksp ){
   fd_forest_ref_t *      conspool = fd_forest_conspool( forest );
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
 
-  /* 1. Try publishing to a slot that doesnt exist
+  /* 1. Try publishing to a slot that doesn't exist
 
       0          10? -> 11
 
@@ -1082,7 +1082,7 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
   /* orphans verify */
 
-  /* Now chain 1 to 0, and this should trigger a verifcation of the chain from 2 to 0 */
+  /* Now chain 1 to 0, and this should trigger a verification of the chain from 2 to 0 */
   fd_forest_blk_insert( forest, 1, 0, NULL );
   ele = fd_forest_fec_insert( forest, 1,   0,     31,   0,       0,         0,  &mr_1_0,  &mr_0 );
   FD_TEST( ele->lowest_verified_fec == UINT_MAX );
@@ -1187,9 +1187,9 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
 
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 18 ), &mr_17 ) );
   /* now 18 is verified. don't want to evict it */
-  FD_TEST(  !fd_forest_blk_insert( forest, 16, 14, &evicted ) ); /* fails becase we add to a bad fork */
+  FD_TEST(  !fd_forest_blk_insert( forest, 16, 14, &evicted ) ); /* fails because we add to a bad fork */
 
-  fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. (thats confirmed) */
+  fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. (that's confirmed) */
 
   // lets say we get a slot in the future, 24.
   // We start repairing orphans backwards
@@ -1362,11 +1362,11 @@ test_eviction_deep( fd_wksp_t * wksp ) {
           start allocating a bunch of new pool elements because of diff
           versions of the same slot.
       (2) first REAL attack:
-          they send us a lot of future slots, becuase they have a lot of
+          they send us a lot of future slots, because they have a lot of
           stake.  So imagine that they have slots 4000->8096 . 4000 connects
           to slot 29
       (3) variation on the first attack:
-          they send us a lot of future slots, becuase they have a lot of
+          they send us a lot of future slots, because they have a lot of
           stake.  So imagine that they have slots 4000->8096 . 4000 connects
           to slot 3000, which is some slot that needs to be built by a
           thenselves in the future.
@@ -1509,7 +1509,7 @@ test_parent_update( fd_wksp_t * wksp ) {
   FD_TEST( fd_forest_orphaned_ele_query( fd_forest_orphaned( forest ), &_7, NULL, fd_forest_pool( forest ) ) );
   FD_TEST( !fd_forest_verify( forest ) );
 
-  /* now get something thats an orphan, real parent keeps it an orphan */
+  /* now get something that's an orphan, real parent keeps it an orphan */
   ulong _9 = 9;
   fd_hash_t mr_9_0 = (fd_hash_t){ .ul = { 9, 0 } };
   fd_forest_blk_insert( forest, 9, 8, NULL );
@@ -1934,7 +1934,7 @@ test_buffered_idx_oob( fd_wksp_t * wksp ) {
   fd_forest_blk_t * blk = fd_forest_query( forest, slot );
   FD_TEST( blk );
   FD_TEST( blk->complete_idx == FD_SHRED_BLK_MAX - 1 );
-  FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 ); /* orginally merkle root[0] causes buffered_idx to increment to FD_SHRED_BLK_MAX */
+  FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 ); /* originally merkle root[0] causes buffered_idx to increment to FD_SHRED_BLK_MAX */
 
   /* Now insert an equivocating data shred at index 0 with a DIFFERENT
      merkle root.  This triggers:

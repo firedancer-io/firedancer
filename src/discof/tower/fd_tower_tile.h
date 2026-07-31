@@ -109,7 +109,7 @@ struct fd_tower_slot_done {
   ulong replay_bank_seq;
 
   /* The slot being voted on.  There is not always a vote slot (locked
-     out, failed switch threshhold, etc.) and will be set to ULONG_MAX
+     out, failed switch threshold, etc.) and will be set to ULONG_MAX
      when there is no slot to vote on.  When set, the vote slot is used
      by the vote sending tile to do some internal book-keeping related
      to leader targeting. */

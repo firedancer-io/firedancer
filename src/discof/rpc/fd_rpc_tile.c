@@ -1627,7 +1627,7 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
     - Finally, once the cluster confirmed slot is known, which is the
       highest optimistically confirmed slot observed from both gossip,
-      and votes procesed in blocks, it is compared to our own
+      and votes processed in blocks, it is compared to our own
       optimistically confirmed slot, which is just the highest slot down
       the cluster confirmed fork that we have finished replaying
       locally.  The difference between these two slots is compared, and

@@ -164,7 +164,7 @@ compute_height( ulong   leaf_cnt,
                 ulong * out_internal_cnt ) {
   /* If we made the sentinel values larger, we could take larger
      leaf_cnt, but at INT_MAX this would still use an astronomical
-     amount of memory, so we retain ths max for the moment. */
+     amount of memory, so we retain this max for the moment. */
   if( FD_UNLIKELY( leaf_cnt >= (ulong)INT_MAX ) ) return -1;
 
   ulong height   = 0;

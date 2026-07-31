@@ -187,7 +187,7 @@ fd_http_resolver_new( void *                           shmem,
     FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
   }
 
-  /* transfering ownership of ssl_ctx by assignment */
+  /* transferring ownership of ssl_ctx by assignment */
   resolver->ssl_ctx = ssl_ctx;
 
   fd_ossl_load_certs( resolver->ssl_ctx );

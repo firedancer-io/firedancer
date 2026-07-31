@@ -244,7 +244,7 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
 
   /* slot_old: slot_old is the lowest slot for which shreds will be
      accepted.  That is any shred with slot<slot_old is rejected by
-     add_shred with INGORED.  slot_old can only increase. */
+     add_shred with IGNORED.  slot_old can only increase. */
   ulong slot_old;
 
   /* seed: done_map uses seed to compute a 32-bute hash of the FEC set's

@@ -265,7 +265,7 @@ typedef struct fd_guih_validator_info fd_guih_validator_info_t;
    we won't record any additional shred updates for these slots.
 
    All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indicies are stored in the
+   chunk in the array, and the bounding indices are stored in the
    fd_guih_slot_t slot history.  Within a slot chunk, shred events are
    ordered in the ordered they were recorded by the gui tile.
 

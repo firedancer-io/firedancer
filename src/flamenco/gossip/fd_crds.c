@@ -153,7 +153,7 @@ struct fd_crds_entry_private {
 
   /* In order to load balance pull request messages across peers, each
      message has a mask value that is mask_bits long.  The pull request
-     is only concerned with CRDS entires with a hash where the first
+     is only concerned with CRDS entries with a hash where the first
      mask_bits of the hash match the mask value.
 
      We need to be able to quickly iterate over all CRDS table entries

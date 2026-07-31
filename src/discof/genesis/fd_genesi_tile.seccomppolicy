@@ -85,7 +85,7 @@ sendto: (and (not (or (eq (arg 0) logfile_fd)
 
 # client: need to read from connections established by the client
 #
-# arg 0 is the file descriptor that we recieve messages from.  We will
+# arg 0 is the file descriptor that we receive messages from.  We will
 # allow receiving to any of the descriptors opened in the client.  Only
 # restrict from receiving to the logfile and STDERR
 recvfrom: (and (not (or (eq (arg 0) logfile_fd)

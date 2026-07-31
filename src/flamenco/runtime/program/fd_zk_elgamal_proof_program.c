@@ -98,7 +98,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     uint proof_data_offset = fd_uint_load_4( &instr_data[1] );
 
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L65-L68
-       Note: explcit cast to ulong just to call out that there can't be overflow */
+       Note: explicit cast to ulong just to call out that there can't be overflow */
     if( (ulong)proof_data_offset+proof_data_sz > fd_borrowed_account_get_data_len( &proof_data_acc ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }

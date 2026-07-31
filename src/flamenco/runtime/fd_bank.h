@@ -440,7 +440,7 @@ struct fd_banks {
 };
 typedef struct fd_banks fd_banks_t;
 
-/* Bank accesssors and mutators.  Different accessors are emitted for
+/* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
 fd_epoch_credits_t *

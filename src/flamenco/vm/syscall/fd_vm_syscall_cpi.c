@@ -23,7 +23,7 @@ TODO: should we move this out of the CPI section?
 
 The bulk of the logic is concerned with unifying the privileges for each duplicated account,
 ensuring that each duplicate account referenced has the same privileges. It also performs some
-priviledge checks, for example ensuring the necessary signatures are present.
+privilege checks, for example ensuring the necessary signatures are present.
 
 TODO: instruction calling convention: const parameters after non-const.
 
@@ -126,7 +126,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
-      /* Add the instruction account to the duplicate indicies array */
+      /* Add the instruction account to the duplicate indices array */
       duplicate_indices[duplicate_indicies_cnt++] = deduplicated_instruction_accounts_cnt;
 
       /* Initialize the instruction account in the deduplicated_instruction_accounts array */

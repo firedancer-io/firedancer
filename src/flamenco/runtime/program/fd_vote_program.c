@@ -361,7 +361,7 @@ check_and_filter_proposed_vote_state( fd_exec_instr_ctx_t *       ctx,
   ulong filter_votes_index = deq_fd_vote_lockout_t_cnt( proposed_lockouts );
 
   /* We need to iterate backwards here because proposed_lockouts_indexes_to_filter[ i ] is a
-     strictly increasing value. Forward iterating can lead to the proposed lockout indicies to get
+     strictly increasing value. Forward iterating can lead to the proposed lockout indices to get
      shifted leading to popping the wrong proposed lockouts or out of bounds accessing. We need
      to be sure of handling underflow in this case. */
 

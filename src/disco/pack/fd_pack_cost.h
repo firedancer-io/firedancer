@@ -12,7 +12,7 @@
    The cost model consists of several components:
      * per-signature cost: The costs associated with transaction
        signatures + signatures from precompiles (ED25519 + SECP256*)
-     * per-write-lock cost: cost assiciated with aquiring write locks
+     * per-write-lock cost: cost associated with acquiring write locks
        for writable accounts listed in the transaction.
      * instruction data length cost: The fixed cost for each instruction
        data byte in the transaction payload.
@@ -20,7 +20,7 @@
        instructions. "What are builtins" is defined here:
        https://github.com/anza-xyz/agave/blob/1baa4033e0d2d4175373f07b73ddda2f3cc0a8d6/builtins-default-costs/src/lib.rs#L120-L200
        After SIMD 170, all builtins have a fixed cost of 3000 cus.
-     * BPF execution cost: The costs assosiated with any instruction
+     * BPF execution cost: The costs associated with any instruction
        that is not a builtin.  This value comes from the VM after
        transaction execution.
      * loaded accounts data cost: Costs associated with all the account

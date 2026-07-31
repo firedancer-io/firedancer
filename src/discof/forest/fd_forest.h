@@ -13,7 +13,7 @@
    sets from forest to be re-requested.  It's okay if shreds are evicted
    from reasm and we re-request for them and they pass through
    fec_resolver again. Although we could be creating duplicate ctxs,
-   thats fine!  We might later on get an evict notice for the second
+   that's fine!  We might later on get an evict notice for the second
    incomplete ctx but that's okay too!!! just have a bunch of useless
    messages that eventually will get ignored when we publish past it!!!!
 
@@ -844,7 +844,7 @@ fd_forest_highest_repaired_slot( fd_forest_t const * forest );
 
    Invariants for requests map and requests deque:
 
-   There can only be one occurence of the slot in the requests deque at
+   There can only be one occurrence of the slot in the requests deque at
    any time. Any slot in the requests deque must exist in the requests
    map, and vice versa. Any slot in the requests map must also exist in
    the forest.  During publish the requests map must also be pruned.

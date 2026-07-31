@@ -118,7 +118,7 @@ static inline void fd_shredder_set_shred_version( fd_shredder_t * shredder, usho
    Let C=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ and
    R=FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ.  Then when
 
-   sz_bytes <= R:     a signle resigned FEC set, possibly with padding
+   sz_bytes <= R:     a single resigned FEC set, possibly with padding
 
    sz_bytes >  R:     ceiling( (sz_bytes-R)/C ) chained FEC sets, with
                       the last one possibly having padding, followed by

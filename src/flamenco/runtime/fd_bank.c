@@ -682,7 +682,7 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   /* Naively what we want to do is iterate from the old root to the new
      root and apply the delta to the full state iteratively. */
 
-  /* First, gather all of the pool indicies that we want to apply deltas
+  /* First, gather all of the pool indices that we want to apply deltas
      for in reverse order starting from the new root. We want to exclude
      the old root since its delta has been applied previously. */
   ushort sd_pool_indices[ banks->max_total_banks ];
@@ -702,7 +702,7 @@ fd_bank_apply_deltas( fd_banks_t * banks,
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
 
-  /* We have populated all of the indicies that we need to apply deltas
+  /* We have populated all of the indices that we need to apply deltas
      from in reverse order. */
 
   fd_stake_history_t stake_history_[1];

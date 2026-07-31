@@ -164,7 +164,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   ele->epoch            = epoch % 2;
   ele->exists_t_1       = 1;
   ele->exists_t_2       = 0;
-  /* It is fine to leave node account t_2 uninitalized because it will
+  /* It is fine to leave node account t_2 uninitialized because it will
      only be used if stake_t_2 is non-zero. */
 
   FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );

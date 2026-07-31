@@ -53,7 +53,7 @@ test_false_positive_rate( float      expected,
   }
   fd_chkdup_delete( fd_chkdup_leave( chkdup ) );
 
-  /* Is observing `false_positive` successes consistant with a binomial
+  /* Is observing `false_positive` successes consistent with a binomial
      distribution with n=iters and p=expected?  The math is not too
      hard, but calculating it in C seems like a nightmare.  Instead
      we'll use the normal approximation to the binomial, since iters is

@@ -9,7 +9,7 @@
    The snapct tile gathers the latest SnapshotHashes information from
    gossip to decide whether to download snapshots or read local
    snapshots from disk.  If the snapct tile needs to download a snapshot,
-   it goes through the process of discovering and selecting elegible
+   it goes through the process of discovering and selecting eligible
    peers from gossip to download from. */
 
 #define FD_SNAPCT_STATE_INIT                            ( 0) /* Initialization step, it determines whether to start loading from file or to download */

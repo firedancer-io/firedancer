@@ -41,7 +41,7 @@ FD_PROTOTYPES_END
 /* Features API */
 
 /* sol_compat_features_t is a compressed feature set storage format.
-   {harcoded,supported}_features point to a vector of features.
+   {hardcoded,supported}_features point to a vector of features.
    Each entry contains the first 8 bytes of the feature gate account
    address identifying the feature, interpreted as a little-endian
    64-bit integer. */

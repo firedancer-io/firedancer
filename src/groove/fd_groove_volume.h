@@ -46,7 +46,7 @@
    stack and reclaim the returned volume. */
 
 /* FIXME: consider allowing larger volume headers (or adding a
-   volume footer) to not waste ~15KiB space with pading */
+   volume footer) to not waste ~15KiB space with padding */
 
 #define FD_GROOVE_VOLUME_ALIGN     (4096UL)
 #define FD_GROOVE_VOLUME_FOOTPRINT (1UL<<30)

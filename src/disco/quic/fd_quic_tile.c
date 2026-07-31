@@ -24,7 +24,7 @@
    and TPU/QUIC.
 
    The fd_quic tile acts as a plain old Tango producer.  The tile will
-   defragment multi-packet TPU streams coming in from QUIC, such tha
+   defragment multi-packet TPU streams coming in from QUIC, such that
    each frag_meta refers to a complete txn.  This requires the dcache
    mtu to be at least that of the largest allowed serialized txn size.
 

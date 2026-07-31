@@ -82,7 +82,7 @@ recvfrom: (not (or (eq (arg 0) 2)
 
 # snapshot: if we are bottlenecked by the network, spinning on
 # non-blocking recv() calls will waste power and may have lower
-# throughtput.
+# throughput.
 ppoll: (eq (arg 1) 1)
 
 # snapshot: yield to scheduler during idle pipeline to save power

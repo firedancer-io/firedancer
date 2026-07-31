@@ -932,7 +932,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
      TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
-     be moved in the future. The Agave call heirarchy looks something like this:
+     be moved in the future. The Agave call hierarchy looks something like this:
             process_single_slot
                    v
             confirm_full_slot
@@ -1369,7 +1369,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     }
   }
 
-  /* Transaction sanitization.  If a transaction can't be commited or is
+  /* Transaction sanitization.  If a transaction can't be committed or is
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
@@ -1392,7 +1392,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
   }
 }
 
-/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
+/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responsible
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
    parity in terms of error codes. Sigverify is kept separate from the rest
