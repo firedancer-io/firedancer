@@ -246,7 +246,8 @@ static int
 pd_write_committed_on_child( test_env_t * env ) {
   int   pd  = 0;
   ulong len = ULONG_MAX;
-  fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len );
+  ulong lamports = 0UL;
+  fd_accdb_probe_pd_this_fork( env->runtime->accdb, env->fork_id, env->programdata.uc, &pd, &len, &lamports );
   return pd;
 }
 

@@ -43,3 +43,5 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_relax_only -m 2000000 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6333 -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_696 -m 2000000 -e 325
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l rent_lamports_per_byte_6960 -m 2000000 -e 325
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-closeslot -m 10000 -e 330
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l programdata-poison -m 10000 -e 562
