@@ -265,7 +265,9 @@ struct fd_rpc_tile {
 
   fd_alloc_t * bz2_alloc;
 
-  long next_poll_deadline;
+  long  next_poll_deadline;
+  ulong in_cnt;
+  ulong idle_cnt;
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -476,10 +478,14 @@ before_credit( fd_rpc_tile_t *     ctx,
                int *               charge_busy ) {
   (void)stem;
 
+  ctx->idle_cnt++;
+  if( FD_LIKELY( ctx->idle_cnt<2UL*ctx->in_cnt ) ) return;
+  ctx->idle_cnt = 0UL;
+
   long now = fd_tickcount();
   int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
   if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
-    *charge_busy = fd_http_server_poll( ctx->http, 0 );
+    *charge_busy = fd_http_server_poll( ctx->http, 0, 1UL );
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
   }
 }
@@ -644,6 +650,8 @@ returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
+
+  ctx->idle_cnt = 0UL;
 
   if( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) {
     switch( sig ) {
@@ -2436,6 +2444,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->bz2_alloc );
 
   ctx->next_poll_deadline = fd_tickcount();
+  ctx->in_cnt             = tile->in_cnt;
+  ctx->idle_cnt           = 0UL;
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
   ctx->genesis_tar_bz_sz = ULONG_MAX;
