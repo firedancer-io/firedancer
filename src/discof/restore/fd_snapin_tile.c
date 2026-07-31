@@ -243,8 +243,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_snapin_tile_t * ctx ) {
-  /* Flush any accumulated metrics from snapshot loading into the
-     accdb. */
   fd_accdb_flush_metrics( ctx->accdb );
 
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
