@@ -89,6 +89,9 @@
 #define SNAPMK_STATE_ACCDB_DISK          7 /* writing on-disk accounts */
 #define SNAPMK_STATE_ACCDB_DISK_FLUSH    8 /* flushing on-disk accounts */
 #define SNAPMK_STATE_ACCDB_DISK_FINISH   9 /* wait for flush to complete */
+#define SNAPMK_STATE_ACCDB_DELTA        10 /* writing incremental accounts */
+#define SNAPMK_STATE_ACCDB_DELTA_FLUSH  11 /* flushing incremental accounts */
+#define SNAPMK_STATE_ACCDB_DELTA_FINISH 12 /* waiting for flush to complete */
 #define SNAPMK_STATE_STATUS_CACHE       13 /* writing status cache */
 #define SNAPMK_STATE_EOF_MARKER         14 /* writing tar EOF marker */
 #define SNAPMK_STATE_DONE               15 /* done, notify replay tile */
@@ -158,7 +161,16 @@ struct fd_snapmk {
   long  start_time;
   ulong last_snapshot_create_slot;
 
+  int   incremental;
   ulong base_slot;
+
+  struct {
+    fd_accdb_delta_t const * pool;
+    uint const *             chain;
+    ulong                    chain_cnt;
+    ulong                    chain_idx;
+    uint                     ele_idx;
+  } delta;
 
   /* replay in link */
 
@@ -311,6 +323,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 
+  ctx->incremental = 0;
   ctx->base_slot   = ULONG_MAX;
   ctx->visited_set = visited_set_join( fd_topo_obj_laddr( topo, tile->snapmk.visited_set_obj_id ) );
   FD_TEST( ctx->visited_set );
@@ -340,6 +353,12 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->accdb_shfork = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t) );
   }
   ctx->accdb_root_fork = &accdb_shmem_ro->root_fork_id;
+
+  ctx->delta.chain     = (uint const *)( (uchar const *)accdb_shmem_ro + accdb_shmem_ro->delta.chain_off );
+  ctx->delta.pool      = (fd_accdb_delta_t const *)( (uchar const *)accdb_shmem_ro + accdb_shmem_ro->delta.ele_off );
+  ctx->delta.chain_cnt = accdb_shmem_ro->delta.chain_cnt;
+  ctx->delta.chain_idx = 0UL;
+  ctx->delta.ele_idx   = UINT_MAX;
 
   for( ulong i=0UL; i < tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -603,13 +622,19 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
   }
   fd_cstr_ncpy( inode->name, ctx->final_name, sizeof(inode->name) );
 
-  inode->full_slot = ctx->bank->f.slot;
-  inode->incr_slot = ULONG_MAX;
-  ctx->base_slot   = ctx->bank->f.slot;
+  if( FD_UNLIKELY( ctx->incremental ) ) {
+    inode->full_slot = ctx->base_slot;
+    inode->incr_slot = ctx->bank->f.slot;
+  } else {
+    inode->full_slot = ctx->bank->f.slot;
+    inode->incr_slot = ULONG_MAX;
+    ctx->base_slot   = ctx->bank->f.slot;
+  }
 
   ctx->snap_fd = -1;
 
-  FD_LOG_INFO(( "full snapshot created in %.3f seconds (%s/%s, %.3f GB)",
+  FD_LOG_INFO(( "%s snapshot created in %.3f seconds (%s/%s, %.3f GB)",
+                ctx->incremental ? "incremental" : "full",
                 (double)( fd_log_wallclock() - ctx->start_time )/1e9,
                 ctx->snap_dir, ctx->final_name,
                 (double)file_sz/1e9 ));
@@ -628,6 +653,19 @@ snapshot_sync_transition( fd_snapmk_t * ctx,
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
   fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_to ) ) FD_YIELD();
+}
+
+static ulong
+snapshot_sync_request( fd_snapmk_t * ctx,
+                       ulong         state_from,
+                       ulong         state_req ) {
+  while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
+  fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
+  for(;;) {
+    ulong state = fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync );
+    if( FD_LIKELY( state!=state_req ) ) return state;
+    FD_YIELD();
+  }
 }
 
 static inline ulong
@@ -832,6 +870,7 @@ check_credit( fd_snapmk_t *       ctx,
     __attribute__((fallthrough));
   case SNAPMK_STATE_START:
   case SNAPMK_STATE_ACCDB_CACHE:
+  case SNAPMK_STATE_ACCDB_DELTA:
     if( FD_UNLIKELY( !ctx->zp_ready ) ) {
       *is_backpressured = 1;
       return;
@@ -843,7 +882,9 @@ check_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_ACCDB_CACHE_FLUSH:
   case SNAPMK_STATE_ACCDB_CACHE_FINISH:
   case SNAPMK_STATE_ACCDB_DISK_FLUSH:
-  case SNAPMK_STATE_ACCDB_DISK_FINISH: {
+  case SNAPMK_STATE_ACCDB_DISK_FINISH:
+  case SNAPMK_STATE_ACCDB_DELTA_FLUSH:
+  case SNAPMK_STATE_ACCDB_DELTA_FINISH: {
     /* wait for snapzp tiles to acknowledge zp_barrier[*] */
     *is_backpressured = 0;
     for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
@@ -977,6 +1018,37 @@ snapmk_accdb_cache( fd_snapmk_t *       ctx,
   return 1;
 }
 
+/* snapmk_accdb_delta drains a batch of incremental snapshot accounts
+   and passes them to snapzp for a compression job. */
+
+static int
+snapmk_accdb_delta( fd_snapmk_t *       ctx,
+                    fd_stem_context_t * stem ) {
+  ulong out_idx = zp_rr_next( ctx );
+
+  fd_backup_delta_msg_t batch = {0};
+  while( batch.cnt<FD_BACKUP_CACHE_PARA ) {
+    if( FD_UNLIKELY( ctx->delta.ele_idx==UINT_MAX ) ) {
+      if( FD_UNLIKELY( ctx->delta.chain_idx>=ctx->delta.chain_cnt ) ) break;
+      ctx->delta.ele_idx = __atomic_load_n( &ctx->delta.chain[ ctx->delta.chain_idx++ ], __ATOMIC_ACQUIRE );
+      continue;
+    }
+    fd_accdb_delta_t const * cur = &ctx->delta.pool[ ctx->delta.ele_idx ];
+    ctx->delta.ele_idx = __atomic_load_n( &cur->next, __ATOMIC_RELAXED );
+    fd_memcpy( &batch.pubkey[ batch.cnt ], cur->pubkey, sizeof(fd_pubkey_t) );
+    batch.cnt++;
+  }
+  if( FD_UNLIKELY( !batch.cnt ) ) return 0;
+
+  ulong chunk;
+  void * payload = zp_alloc( ctx, out_idx, sizeof(fd_backup_delta_msg_t), &chunk );
+  fd_memcpy( payload, &batch, sizeof(fd_backup_delta_msg_t) );
+  ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_ACC_DELTA, 0, 0, 0 );
+  zp_publish( ctx, stem, out_idx, 0UL, chunk, sizeof(fd_backup_delta_msg_t), ctl, 0UL, 0UL );
+
+  return 1;
+}
+
 /* snapmk_replay_sleep sleeps until the replay tile publishes a new
    snapshot command or IDLE_SLEEP nanoseconds pass. */
 
@@ -1051,7 +1123,7 @@ after_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_MANIFEST:
     *charge_busy = 1;
     if( FD_UNLIKELY( !snapmk_manifest_chunk( ctx ) ) ) {
-      ctx->state = SNAPMK_STATE_ACCDB_CACHE;
+      ctx->state = ctx->incremental ? SNAPMK_STATE_ACCDB_DELTA : SNAPMK_STATE_ACCDB_CACHE;
     }
     break;
   case SNAPMK_STATE_ACCDB_CACHE: {
@@ -1091,7 +1163,24 @@ after_credit( fd_snapmk_t *       ctx,
     }
     break;
   }
+  case SNAPMK_STATE_ACCDB_DELTA: {
+    *charge_busy = 1;
+    if( FD_UNLIKELY( !snapmk_accdb_delta( ctx, stem ) ) ) {
+      barrier_install( ctx, stem );
+      broadcast_prepare( ctx );
+      ctx->state = SNAPMK_STATE_ACCDB_DELTA_FLUSH;
+    }
+    break;
+  }
+  case SNAPMK_STATE_ACCDB_DELTA_FLUSH: {
+    ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_FLUSH, 0, 0, 0 );
+    if( broadcast( ctx, stem, ctl, charge_busy ) ) {
+      ctx->state = SNAPMK_STATE_ACCDB_DELTA_FINISH;
+    }
+    break;
+  }
   case SNAPMK_STATE_ACCDB_DISK_FINISH:
+  case SNAPMK_STATE_ACCDB_DELTA_FINISH:
     /* accounts done, snapzp workers idle; now process status cache */
     if( FD_UNLIKELY( lseek( ctx->snap_fd, 0L, SEEK_END )<0L ) ) {
       FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
@@ -1127,6 +1216,14 @@ after_credit( fd_snapmk_t *       ctx,
     }
     break;
   }
+  case SNAPMK_STATE_FAIL: {
+    ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, /* err */ 1 );
+    fd_stem_publish( stem, ctx->out.out_idx, ctx->bank->idx, 0UL, 0UL, ctl, 0UL, 0UL );
+    ctx->snap_idx = UINT_MAX;
+    ctx->state    = SNAPMK_STATE_SLEEP;
+    *charge_busy  = 1;
+    break;
+  }
   case SNAPMK_STATE_STARTUP: /* wait for startup */
     if( FD_UNLIKELY( fd_startup_gate_idle( ctx->startup_gate ) ) ) {
       ctx->state = SNAPMK_STATE_SLEEP;
@@ -1143,8 +1240,9 @@ after_credit( fd_snapmk_t *       ctx,
 static uint
 snap_pool_select( fd_snapmk_t * ctx ) {
 
-  uint slot0 = 0;
-  uint slot1 = ctx->snap_full_max;
+  uint slot0 = ctx->incremental ? ctx->snap_full_max : 0U;
+  uint slot1 = ctx->incremental ? ctx->snap_max      : ctx->snap_full_max;
+  FD_CHECK_ERR( slot0<slot1, "no snapshot file descriptors reserved" );
 
   /* if this snapshot already exists, recreate it */
   for( uint i=slot0; i<slot1; i++ ) {
@@ -1155,7 +1253,7 @@ snap_pool_select( fd_snapmk_t * ctx ) {
   ulong oldest   = ULONG_MAX;
   for( uint i=slot0; i<slot1; i++ ) {
     if( FD_UNLIKELY( ctx->pool[ i ].full_slot==ULONG_MAX ) ) return i; /* free */
-    ulong slot = ctx->pool[ i ].full_slot;
+    ulong slot = ctx->incremental ? ctx->pool[ i ].incr_slot : ctx->pool[ i ].full_slot;
     if( slot<oldest ) {
       oldest   = slot;
       slot_idx = i;
@@ -1223,6 +1321,13 @@ snap_start( fd_snapmk_t *                  ctx,
   FD_TEST( bank );
   ctx->bank = bank;
 
+  int incremental = msg->slot!=msg->base_slot;
+  if( FD_UNLIKELY( incremental ) ) {
+    FD_CHECK_CRIT( msg->base_slot!=ULONG_MAX, "incremental snapshot requested without a base full snapshot" );
+    ctx->base_slot = msg->base_slot;
+  }
+  ctx->incremental = incremental;
+
   /* wait for accdb root to match published root */
   fd_accdb_fork_id_t root_fork_id = bank->accdb_fork_id;
   FD_TEST( root_fork_id.val!=USHORT_MAX );
@@ -1232,15 +1337,31 @@ snap_start( fd_snapmk_t *                  ctx,
   ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
 
   /* wait for accdb to disable compaction */
-  snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_IDLE, FD_ACCDB_SNAPSHOT_SYNC_START_FULL, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+  ulong sync_req = incremental ? FD_ACCDB_SNAPSHOT_SYNC_START_INCR
+                               : FD_ACCDB_SNAPSHOT_SYNC_START_FULL;
+  ulong sync_ack = snapshot_sync_request( ctx, FD_ACCDB_SNAPSHOT_SYNC_IDLE, sync_req );
+  if( FD_UNLIKELY( sync_ack==FD_ACCDB_SNAPSHOT_SYNC_FAIL ) ) {
+    FD_LOG_WARNING(( "cannot create incremental snapshot, too many accounts changed (increase [snapshots.max_incremental_snapshot_accounts])" ));
+    snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_FAIL, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+    ctx->state = SNAPMK_STATE_FAIL;
+    return -1;
+  }
+  if( FD_UNLIKELY( sync_ack!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) {
+    FD_LOG_CRIT(( "unexpected accdb snapshot sync state %lu", sync_ack ));
+  }
 
   /* final name of snap (during compression has a "partial" name) */
   uchar snap_hash[ 32 ];
   fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, snap_hash );
   char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( snap_hash, NULL, encoded_hash );
-  FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_SNAP_NAME_MAX, NULL,
-           "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
+  if( FD_UNLIKELY( incremental ) ) {
+    FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_SNAP_NAME_MAX, NULL,
+             "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->base_slot, ctx->bank->f.slot, encoded_hash ) );
+  } else {
+    FD_TEST( fd_cstr_printf_check( ctx->final_name, FD_SNAP_NAME_MAX, NULL,
+             "snapshot-%lu-%s.tar.zst", ctx->bank->f.slot, encoded_hash ) );
+  }
 
   ctx->snap_idx = snap_pool_acquire( ctx );
   ctx->snap_fd  = FD_SNAP_FD( ctx->snap_idx );
@@ -1283,6 +1404,9 @@ snap_start( fd_snapmk_t *                  ctx,
     .root_generation    = (uint)root_generation
   };
 
+  ctx->delta.chain_idx = 0UL;
+  ctx->delta.ele_idx   = UINT_MAX;
+
   visited_set_null( ctx->visited_set );
 
   ctx->state              = SNAPMK_STATE_START;
@@ -1292,7 +1416,12 @@ snap_start( fd_snapmk_t *                  ctx,
   ctx->start_time         = fd_log_wallclock();
   broadcast_prepare( ctx );
 
-  FD_LOG_INFO(( "snapshot creation started (slot %lu)", ctx->bank->f.slot ));
+  if( FD_UNLIKELY( incremental ) ) {
+    FD_LOG_INFO(( "incremental snapshot creation started (slot %lu, base slot %lu)",
+                  ctx->bank->f.slot, ctx->base_slot ));
+  } else {
+    FD_LOG_INFO(( "snapshot creation started (slot %lu)", ctx->bank->f.slot ));
+  }
   return 1;
 }
 
