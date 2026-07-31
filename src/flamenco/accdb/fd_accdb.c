@@ -3544,7 +3544,8 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
                              fd_accdb_fork_id_t fork_id,
                              uchar const *      pubkey,
                              int *              out_pd_write,
-                             ulong *            out_data_len ) {
+                             ulong *            out_data_len,
+                             ulong *            out_lamports ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE();
@@ -3568,19 +3569,24 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   int   pd        = 0;
   int   gen_match = 0;
   ulong len       = 0UL;
+  ulong lamports  = 0UL;
   if( FD_LIKELY( acc!=UINT_MAX ) ) {
     fd_accdb_accmeta_t const * m = &accdb->acc_pool[ acc ];
     uint es   = FD_VOLATILE_CONST( m->executable_size );
     gen_match = ( m->key.generation==fork->shmem->generation );
     pd        = gen_match && FD_ACCDB_SIZE_PD_WRITE( es );
     len       = FD_ACCDB_SIZE_DATA( es );
+    lamports  = FD_VOLATILE_CONST( m->lamports );
   }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 
   *out_pd_write = pd;
-  if( gen_match ) *out_data_len = len;
+  if( gen_match ) {
+    *out_data_len = len;
+    *out_lamports = lamports;
+  }
   return gen_match;
 }
 

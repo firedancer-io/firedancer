@@ -295,6 +295,7 @@ struct fd_txn_out {
     int        executable_from_parent[ MAX_TX_ACCOUNT_LOCKS ]; /* 1 => read-only copy from the parent fork (loader gates on pd_write); 0 => current-fork copy (loader keeps the slot check) */
     int        executable_pd_write[ MAX_TX_ACCOUNT_LOCKS ];    /* probe result: deploy-status-changing write committed on the current fork this slot */
     ulong      executable_cur_len[ MAX_TX_ACCOUNT_LOCKS ];     /* current-fork committed data length, ULONG_MAX if none; for loaded-account-size accounting */
+    ulong      executable_cur_lamports[ MAX_TX_ACCOUNT_LOCKS ];/* current-fork committed lamports; only meaningful when executable_cur_len!=ULONG_MAX. */
 
     /* Programdata deployed this slot has no executable[] entry, but
        Agave still counts its size toward loaded-accounts-data-size
