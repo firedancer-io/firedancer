@@ -252,13 +252,6 @@ void
 fd_accdb_purge( fd_accdb_t *       accdb,
                 fd_accdb_fork_id_t fork_id );
 
-/* fd_accdb_fork_generation returns the generation assigned to fork_id.
-   fork_id must refer to a live fork for the duration of this call. */
-
-uint
-fd_accdb_fork_generation( fd_accdb_t const * accdb,
-                          fd_accdb_fork_id_t fork_id );
-
 /* fd_accdb_acquire brings all of the requested accounts as-of the given
    fork_idx into the cache, and refcnts them in the cache so they cannot
    be evicted until later released.

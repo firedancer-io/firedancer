@@ -793,16 +793,6 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
   return fork_id;
 }
 
-uint
-fd_accdb_fork_generation( fd_accdb_t const * accdb,
-                          fd_accdb_fork_id_t fork_id ) {
-  if( FD_UNLIKELY( fork_id.val>=fork_pool_ele_max( accdb->fork_shmem_pool ) ) ) {
-    FD_LOG_CRIT(( "fd_accdb_fork_generation: invalid fork id %u (capacity %lu)",
-                  (uint)fork_id.val, fork_pool_ele_max( accdb->fork_shmem_pool ) ));
-  }
-  return FD_VOLATILE_CONST( accdb->fork_pool[ fork_id.val ].shmem->generation );
-}
-
 /* evict_clear_acc_cache_ref atomically tears down acc->cache_idx and
    acc->executable_size.CACHE_VALID for an acc that is being evicted
    from cache line (size_class, line_idx).  The caller must already
