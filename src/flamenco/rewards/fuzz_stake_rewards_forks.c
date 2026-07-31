@@ -35,6 +35,7 @@ typedef struct {
 /* expected metadata and reward entries for one fork. */
 typedef struct {
   uchar fork_idx;
+  ulong refcnt; /* references the model is holding on the fork */
   ulong epoch;
   ulong parent_slot;
   ulong slot;
@@ -195,12 +196,74 @@ validate_model( model_t const * m ) {
   for( ulong i=0UL; i<m->fork_cnt; i++ ) validate_fork( m, &m->fork[ i ] );
 }
 
+/* Give one of the model's references on a fork back.  The fork is purged
+   once the last reference goes, so the model stops tracking it and
+   expects its slot to return to the pool. */
+
+static void
+release_fork( model_t * m,
+              ulong     fork_pos ) {
+  fork_model_t * f = &m->fork[ fork_pos ];
+
+  ulong free_before = fd_stake_rewards_free_cnt( m->stake_rewards );
+  fd_stake_rewards_release( m->stake_rewards, f->fork_idx );
+  f->refcnt--;
+  ulong free_after = fd_stake_rewards_free_cnt( m->stake_rewards );
+
+  if( FD_LIKELY( f->refcnt ) ) {
+    if( FD_UNLIKELY( free_after!=free_before ) ) {
+      FD_LOG_ERR(( "fork %u was purged with %lu references left", (uint)f->fork_idx, f->refcnt ));
+    }
+    if( FD_UNLIKELY( fd_stake_rewards_refcnt( m->stake_rewards, f->fork_idx )!=f->refcnt ) ) {
+      FD_LOG_ERR(( "reference count diverged for fork %u", (uint)f->fork_idx ));
+    }
+    return;
+  }
+
+  if( FD_UNLIKELY( free_after!=free_before+1UL ) ) {
+    FD_LOG_ERR(( "fork %u was not returned to the pool", (uint)f->fork_idx ));
+  }
+  m->fork[ fork_pos ] = m->fork[ --m->fork_cnt ];
+}
+
+/* Take another reference on a fork, as a bank inheriting it does. */
+
+static void
+acquire_fork( model_t *       m,
+              fuzz_reader_t * r ) {
+  if( FD_UNLIKELY( !m->fork_cnt ) ) return;
+
+  fork_model_t * f = &m->fork[ fuzz_bounded( r, m->fork_cnt ) ];
+  fd_stake_rewards_acquire( m->stake_rewards, f->fork_idx );
+  f->refcnt++;
+
+  if( FD_UNLIKELY( fd_stake_rewards_refcnt( m->stake_rewards, f->fork_idx )!=f->refcnt ) ) {
+    FD_LOG_ERR(( "reference count diverged for fork %u", (uint)f->fork_idx ));
+  }
+}
+
+static void
+release_one_fork( model_t *       m,
+                  fuzz_reader_t * r ) {
+  if( FD_UNLIKELY( !m->fork_cnt ) ) return;
+  release_fork( m, fuzz_bounded( r, m->fork_cnt ) );
+}
+
 static fork_model_t *
 init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
   int new_epoch = force_new_epoch || ( m->fork_cnt && !( fuzz_u8( r ) & 15U ) );
   if( FD_UNLIKELY( new_epoch ) ) {
+    /* The banks holding an epoch's forks retire before the rewards of the
+       next epoch are computed, so every reference is given back.  Nothing
+       reclaims forks on an epoch change: the pool only comes back if the
+       references are dropped. */
+    while( m->fork_cnt ) release_fork( m, m->fork_cnt-1UL );
+    if( FD_UNLIKELY( fd_stake_rewards_free_cnt( m->stake_rewards )!=FUZZ_MAX_FORKS ) ) {
+      FD_LOG_ERR(( "epoch change left %lu of %lu forks in use",
+                   FUZZ_MAX_FORKS-fd_stake_rewards_free_cnt( m->stake_rewards ), FUZZ_MAX_FORKS ));
+    }
+
     m->epoch += 1UL + fuzz_bounded( r, 4UL );
-    m->fork_cnt         = 0UL;
     m->epoch_insert_cnt = 0UL;
   }
 
@@ -226,6 +289,7 @@ init_fork( model_t * m, fuzz_reader_t * r, int force_new_epoch ) {
 
   fork_model_t * f = &m->fork[ m->fork_cnt++ ];
   memset( f, 0, sizeof(fork_model_t) );
+  f->refcnt                = 1UL;
   f->epoch                 = m->epoch;
   f->parent_slot           = parent_slot;
   f->slot                  = slot;
@@ -337,7 +401,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   ulong action_cnt = 1UL + fuzz_bounded( &r, FUZZ_MAX_ACTIONS );
   for( ulong action_idx=0UL; action_idx<action_cnt; action_idx++ ) {
-    uchar op = fuzz_u8( &r ) % 8U;
+    uchar op = fuzz_u8( &r ) % 10U;
     switch( op ) {
     case 0:
     case 1:
@@ -353,6 +417,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
       break;
     case 6:
       distribute_partition( m, &r );
+      break;
+    case 7:
+      acquire_fork( m, &r );
+      break;
+    case 8:
+      release_one_fork( m, &r );
       break;
     default:
       clear_rewards( m );
