@@ -6,6 +6,7 @@
 #include "fd_compute_budget_program.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../ballet/txn/fd_txn_v1.h"
 
 /* The functions in this header implement the transaction cost model
    that is soon to be part of consensus.

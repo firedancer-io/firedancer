@@ -18,6 +18,7 @@
 #include "../log_collector/fd_log_collector.h"
 
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
+#include "../../ballet/txn/fd_txn_v1.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15 */
 struct fd_rent_state {
