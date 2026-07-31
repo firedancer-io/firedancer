@@ -379,8 +379,8 @@ advance_account_batch( fd_ssparse_t *                ssparse,
     off = next_off;
   }
 
-  /* Not worth batching if current chunk contains too few accounts. */
-  if( FD_UNLIKELY( result->account_batch.batch_cnt!=FD_SSPARSE_ACC_BATCH_MAX ) ) {
+  /* Skip if no batches to process. */
+  if( FD_UNLIKELY( !result->account_batch.batch_cnt ) ) {
     return FD_SSPARSE_ADVANCE_AGAIN;
   }
 
