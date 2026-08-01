@@ -51,6 +51,11 @@ else
   fi
 
   git -C "$CACHE" fetch -q --prune
+
+  # Repair cache state left by interrupted checkouts
+  git -C "$CACHE" reset -q --hard
+  git -C "$CACHE" clean -q -fd
+
   git -C "$CACHE" checkout -q "$GIT_REF"
 
   # Remove stale working copies older than 24 hours (non-fatal)
