@@ -4,6 +4,8 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -15,6 +17,58 @@ struct overflow_close_state {
 };
 
 typedef struct overflow_close_state overflow_close_state_t;
+
+#define WS_MSG_MAX (256UL)
+
+struct ws_msg_state {
+  ulong msg_cnt;                /* Number of ws_message callbacks received */
+  ulong last_len;              /* Payload length of the most recent message */
+  uchar last_msg[ WS_MSG_MAX ]; /* Payload of the most recent message */
+  int   open;                  /* Set once ws_open has fired */
+  ulong close_cnt;
+};
+
+typedef struct ws_msg_state ws_msg_state_t;
+
+static fd_http_server_response_t
+request_upgrade( fd_http_server_request_t const * request ) {
+  fd_http_server_response_t response = {
+    .status            = 200,
+    .upgrade_websocket = request->headers.upgrade_websocket,
+  };
+  return response;
+}
+
+static void
+ws_open_capture( ulong  ws_conn_id,
+                 void * ctx ) {
+  (void)ws_conn_id;
+  ws_msg_state_t * state = (ws_msg_state_t *)ctx;
+  state->open = 1;
+}
+
+static void
+ws_message_capture( ulong         ws_conn_id,
+                    uchar const * data,
+                    ulong         data_len,
+                    void *        ctx ) {
+  (void)ws_conn_id;
+  ws_msg_state_t * state = (ws_msg_state_t *)ctx;
+  state->msg_cnt++;
+  state->last_len = data_len;
+  FD_TEST( data_len<=WS_MSG_MAX );
+  fd_memcpy( state->last_msg, data, data_len );
+}
+
+static void
+ws_close_capture( ulong  ws_conn_id,
+                  int    reason,
+                  void * ctx ) {
+  (void)ws_conn_id;
+  (void)reason;
+  ws_msg_state_t * state = (ws_msg_state_t *)ctx;
+  state->close_cnt++;
+}
 
 static fd_http_server_response_t
 request_noop( fd_http_server_request_t const * request ) {
@@ -402,6 +456,251 @@ test_ws_early_data_close( void ) {
       default_test_params() );
 }
 
+/* recv_until_header_end drains bytes until "\r\n\r\n". */
+
+static void
+recv_until_header_end( int fd ) {
+  char win[ 4 ] = {0};
+  char status[ 34 ];
+  ulong total = 0UL;
+  for(;;) {
+    char c;
+    long n = recv( fd, &c, 1UL, 0 );
+    if( FD_UNLIKELY( n==0L ) ) FD_LOG_ERR(( "peer closed connection during handshake" ));
+    if( FD_UNLIKELY( n<0L ) ) {
+      if( errno==EINTR ) continue;
+      FD_LOG_ERR(( "recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( total<sizeof( status ) ) status[ total ] = c;
+    total++;
+    win[ 0 ] = win[ 1 ]; win[ 1 ] = win[ 2 ]; win[ 2 ] = win[ 3 ]; win[ 3 ] = c;
+    if( win[ 0 ]=='\r' && win[ 1 ]=='\n' && win[ 2 ]=='\r' && win[ 3 ]=='\n' ) break;
+  }
+  FD_TEST( total>=sizeof( status ) );
+  FD_TEST( !memcmp( status, "HTTP/1.1 101 Switching Protocols\r\n", sizeof( status ) ) );
+}
+
+/* ws_frame appends a masked WebSocket frame with the given opcode, fin
+   bit, and payload to buf (at offset *off, which is advanced). */
+
+static void
+ws_frame( uchar *       buf,
+          ulong *       off,
+          int           opcode,
+          int           fin,
+          uchar const * payload,
+          ulong         payload_len ) {
+  FD_TEST( payload_len<126UL );
+  static uchar const mask[ 4 ] = { 0x12, 0x34, 0x56, 0x78 };
+  ulong o = *off;
+  buf[ o++ ] = (uchar)( ( fin ? 0x80 : 0x00 ) | ( opcode & 0x0F ) );
+  buf[ o++ ] = (uchar)( 0x80 | payload_len ); /* mask bit set + length */
+  buf[ o++ ] = mask[ 0 ];
+  buf[ o++ ] = mask[ 1 ];
+  buf[ o++ ] = mask[ 2 ];
+  buf[ o++ ] = mask[ 3 ];
+  for( ulong i=0UL; i<payload_len; i++ ) buf[ o++ ] = (uchar)( payload[ i ] ^ mask[ i % 4 ] );
+  *off = o;
+}
+
+/* ws_connect performs a WebSocket handshake against the server on
+   client_fd and drains the response. */
+
+static void
+ws_connect( fd_http_server_t * http,
+            int                client_fd,
+            ws_msg_state_t *   state ) {
+  char const * req =
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "Sec-WebSocket-Version: 13\r\n"
+      "\r\n";
+  send_all( client_fd, req, strlen( req ) );
+
+  for( ulong i=0UL; i<200UL && !state->open; i++ ) fd_http_server_poll( http, 1 );
+  FD_TEST( state->open );
+
+  recv_until_header_end( client_fd );
+}
+
+static fd_http_server_params_t
+ws_test_params( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = 4096UL,
+  };
+  return params;
+}
+
+static fd_http_server_t *
+ws_test_server_new( uchar **         out_scratch,
+                    ws_msg_state_t * state,
+                    int *            out_client_fd ) {
+  fd_http_server_params_t params = ws_test_params();
+
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_upgrade,
+    .close      = NULL,
+    .ws_open    = ws_open_capture,
+    .ws_close   = ws_close_capture,
+    .ws_message = ws_message_capture,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+  *out_scratch = scratch;
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  int one = 1;
+  FD_TEST( !setsockopt( client_fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof( one ) ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  *out_client_fd = client_fd;
+  return http;
+}
+
+static void
+ws_test_server_delete( fd_http_server_t * http,
+                       uchar *            scratch,
+                       int                client_fd ) {
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+/* test_ws_fragmented_coalesced sends a multi-fragment WebSocket message
+   in a single write. */
+
+static void
+test_ws_fragmented_coalesced( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket fragmented message (coalesced in one write)" ));
+
+  ws_msg_state_t state = {0};
+  uchar * scratch;
+  int client_fd;
+  fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+
+  ws_connect( http, client_fd, &state );
+
+  /* Three fragments: text (fin=0), continuation (fin=0), continuation
+     (fin=1).  All in a single write so the server sees them in one
+     read and walks them via `goto again`. */
+  uchar buf[ 512 ];
+  ulong off = 0UL;
+  ws_frame( buf, &off, 0x1, 0, (uchar const *)"Hello, ",     7UL );
+  ws_frame( buf, &off, 0x0, 0, (uchar const *)"fragmented ", 11UL );
+  ws_frame( buf, &off, 0x0, 1, (uchar const *)"world!",      6UL );
+  send_all( client_fd, (char const *)buf, off );
+
+  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) fd_http_server_poll( http, 1 );
+
+  char const * expected = "Hello, fragmented world!";
+  FD_TEST( state.msg_cnt==1UL );
+  FD_TEST( state.last_len==strlen( expected ) );
+  FD_TEST( !memcmp( state.last_msg, expected, state.last_len ) );
+
+  ws_test_server_delete( http, scratch, client_fd );
+}
+
+/* test_ws_fragmented_split sends the same fragmented message but splits
+   each fragment (and even individual frames) across separate writes. */
+
+static void
+test_ws_fragmented_split( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket fragmented message (split across writes)" ));
+
+  ws_msg_state_t state = {0};
+  uchar * scratch;
+  int client_fd;
+  fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+
+  ws_connect( http, client_fd, &state );
+
+  uchar frames[ 512 ];
+  ulong total = 0UL;
+  ws_frame( frames, &total, 0x1, 0, (uchar const *)"abc",  3UL );
+  ws_frame( frames, &total, 0x0, 0, (uchar const *)"defg", 4UL );
+  ws_frame( frames, &total, 0x0, 1, (uchar const *)"hi",   2UL );
+
+  /* Send one byte at a time, polling in between, so the server must
+     handle every possible partial-frame boundary. */
+  for( ulong i=0UL; i<total; i++ ) {
+    send_all( client_fd, (char const *)( frames+i ), 1UL );
+    fd_http_server_poll( http, 1 );
+  }
+
+  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) fd_http_server_poll( http, 1 );
+
+  char const * expected = "abcdefghi";
+  FD_TEST( state.msg_cnt==1UL );
+  FD_TEST( state.last_len==strlen( expected ) );
+  FD_TEST( !memcmp( state.last_msg, expected, state.last_len ) );
+
+  ws_test_server_delete( http, scratch, client_fd );
+}
+
+/* test_ws_fragmented_interleaved_control interleaves a ping and a pong
+   control frame between data fragments, all coalesced in a single
+   write. */
+
+static void
+test_ws_fragmented_interleaved_control( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket fragmented message with interleaved ping/pong" ));
+
+  ws_msg_state_t state = {0};
+  uchar * scratch;
+  int client_fd;
+  fd_http_server_t * http = ws_test_server_new( &scratch, &state, &client_fd );
+
+  ws_connect( http, client_fd, &state );
+
+  /* text(fin=0) | ping | cont(fin=0) | pong | cont(fin=1), all in one
+     write. */
+  uchar buf[ 512 ];
+  ulong off = 0UL;
+  ws_frame( buf, &off, 0x1, 0, (uchar const *)"one ",   4UL );
+  ws_frame( buf, &off, 0x9, 1, (uchar const *)"pingpl", 6UL ); /* ping */
+  ws_frame( buf, &off, 0x0, 0, (uchar const *)"two ",   4UL );
+  ws_frame( buf, &off, 0xA, 1, (uchar const *)"pongpl", 6UL ); /* pong */
+  ws_frame( buf, &off, 0x0, 1, (uchar const *)"three",  5UL );
+  send_all( client_fd, (char const *)buf, off );
+
+  for( ulong i=0UL; i<200UL && !state.msg_cnt; i++ ) fd_http_server_poll( http, 1 );
+
+  char const * expected = "one two three";
+  FD_TEST( state.msg_cnt==1UL );
+  FD_TEST( state.last_len==strlen( expected ) );
+  FD_TEST( !memcmp( state.last_msg, expected, state.last_len ) );
+
+  ws_test_server_delete( http, scratch, client_fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -414,6 +713,9 @@ main( int     argc,
   test_duplicate_content_length_different_close();
   test_ws_bad_key_close();
   test_ws_early_data_close();
+  test_ws_fragmented_coalesced();
+  test_ws_fragmented_split();
+  test_ws_fragmented_interleaved_control();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

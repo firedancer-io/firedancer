@@ -84,7 +84,6 @@ fd_http_server_connection_close_reason_str( int reason ) {
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE:       return "WS_EXPECTED_CONT_OPCODE-Expected continuation opcode in websocket frame";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:       return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:    return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE:             return "FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE-Websocket frame type changed unexpectedly";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING: return "UNSUPPORTED_TRANSFER_ENCODING-Transfer-Encoding is not supported";
     default: break;
   }
@@ -770,50 +769,56 @@ again:
     return;
   } else if( FD_UNLIKELY( opcode==0x9 ) ) {
     /* Ping frame, queue pong unless we are already sending one */
+    uchar * trailing_data     = conn->recv_bytes+conn->recv_bytes_parsed+frame_len;
+    ulong   trailing_data_len = conn->recv_bytes_read-frame_len;
     if( FD_LIKELY( conn->pong_state!=FD_HTTP_SERVER_PONG_STATE_WAITING ) ) {
       conn->pong_state    = FD_HTTP_SERVER_PONG_STATE_WAITING;
       conn->pong_data_len = payload_len;
       FD_TEST( payload_len<=125UL );
       memcpy( conn->pong_data, conn->recv_bytes+conn->recv_bytes_parsed, payload_len );
     }
-    if( FD_UNLIKELY( conn->recv_bytes_read-frame_len ) ) {
-      memmove( conn->recv_bytes, conn->recv_bytes+conn->recv_bytes_parsed+frame_len, conn->recv_bytes_read-frame_len );
+    conn->recv_bytes_read = trailing_data_len;
+    if( FD_UNLIKELY( trailing_data_len ) ) {
+      memmove( conn->recv_bytes+conn->recv_bytes_parsed, trailing_data, trailing_data_len );
+      goto again; /* Might be another frame in the buffer to process */
     }
-    conn->recv_bytes_parsed = 0UL;
-    conn->recv_bytes_read -= frame_len;
     return;
   } else if( FD_UNLIKELY( opcode==0xA ) ) {
     /* Pong frame, ignore */
-    if( FD_UNLIKELY( conn->recv_bytes_read-frame_len ) ) {
-      memmove( conn->recv_bytes, conn->recv_bytes+conn->recv_bytes_parsed+frame_len, conn->recv_bytes_read-frame_len );
+    uchar * trailing_data     = conn->recv_bytes+conn->recv_bytes_parsed+frame_len;
+    ulong   trailing_data_len = conn->recv_bytes_read-frame_len;
+    conn->recv_bytes_read = trailing_data_len;
+    if( FD_UNLIKELY( trailing_data_len ) ) {
+      memmove( conn->recv_bytes+conn->recv_bytes_parsed, trailing_data, trailing_data_len );
+      goto again; /* Might be another frame in the buffer to process */
     }
-    conn->recv_bytes_parsed = 0UL;
-    conn->recv_bytes_read -= frame_len;
     return;
   }
 
-  if( FD_UNLIKELY( conn->recv_started_msg && opcode!=0x0 ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE );
-    return;
+  if( FD_UNLIKELY( conn->recv_started_msg ) ) {
+    if( FD_UNLIKELY( opcode!=0x0 ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE );
+      return;
+    }
+  } else {
+    if( FD_UNLIKELY( opcode!=0x1 && opcode!=0x2 ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE );
+      return;
+    }
   }
-
-  if( FD_UNLIKELY( !conn->recv_started_msg && opcode!=0x1 && opcode!=0x2 ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE );
-    return;
-  }
-
-  if( FD_UNLIKELY( conn->recv_started_msg && opcode!=conn->recv_last_opcode ) ) {
-    close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE );
-    return;
-  }
-  conn->recv_last_opcode = opcode;
 
   /* Check if this is a complete message */
 
   if( FD_UNLIKELY( !is_fin_set ) ) {
+    uchar * trailing_data     = conn->recv_bytes+conn->recv_bytes_parsed+frame_len;
+    ulong   trailing_data_len = conn->recv_bytes_read-frame_len;
     conn->recv_started_msg   = 1;
-    conn->recv_bytes_read   -= frame_len;
     conn->recv_bytes_parsed += payload_len;
+    conn->recv_bytes_read    = trailing_data_len;
+    if( FD_UNLIKELY( trailing_data_len ) ) {
+      memmove( conn->recv_bytes+conn->recv_bytes_parsed, trailing_data, trailing_data_len );
+      goto again; /* Might be another frame in the buffer to process */
+    }
     return; /* Not a complete message yet */
   }
 
