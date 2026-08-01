@@ -82,11 +82,13 @@ ulong fd_shmem_private_base_len;                          /* 0UL at ",          
 
 static ulong  fd_shmem_private_numa_cnt;                      /* 0UL at thread group start, initialized at boot */
 static ulong  fd_shmem_private_cpu_cnt;                       /* " */
+static ulong  fd_shmem_private_available_cpu_cnt;             /* " */
 static ushort fd_shmem_private_numa_idx[ FD_SHMEM_CPU_MAX  ]; /* " */
 static ushort fd_shmem_private_cpu_idx [ FD_SHMEM_NUMA_MAX ]; /* " */
 
-ulong fd_shmem_numa_cnt( void ) { return fd_shmem_private_numa_cnt; }
-ulong fd_shmem_cpu_cnt ( void ) { return fd_shmem_private_cpu_cnt;  }
+ulong fd_shmem_numa_cnt         ( void ) { return fd_shmem_private_numa_cnt; }
+ulong fd_shmem_cpu_cnt          ( void ) { return fd_shmem_private_cpu_cnt;  }
+ulong fd_shmem_available_cpu_cnt( void ) { return fd_shmem_private_available_cpu_cnt;  }
 
 ulong
 fd_shmem_numa_idx( ulong cpu_idx ) {
@@ -713,6 +715,11 @@ fd_shmem_private_boot( int *    pargc,
     FD_LOG_ERR(( "fd_shmem: unexpected cpu_cnt %lu (expected in [1,%lu])", cpu_cnt, FD_SHMEM_CPU_MAX ));
   fd_shmem_private_cpu_cnt = cpu_cnt;
 
+  ulong available_cpu_cnt = fd_numa_available_cpu_cnt();
+  if( FD_UNLIKELY( !((1UL<=available_cpu_cnt) & (available_cpu_cnt<=FD_SHMEM_CPU_MAX)) ) )
+    FD_LOG_ERR(( "fd_shmem: unexpected available_cpu_cnt %lu (expected in [1,%lu])", available_cpu_cnt, FD_SHMEM_CPU_MAX ));
+  fd_shmem_private_available_cpu_cnt = available_cpu_cnt;
+
   for( ulong cpu_rem=cpu_cnt; cpu_rem; cpu_rem-- ) {
     ulong cpu_idx  = cpu_rem-1UL;
     ulong numa_idx = fd_numa_node_idx( cpu_idx );
@@ -746,8 +753,9 @@ fd_shmem_private_halt( void ) {
 
   /* At this point, shared memory is offline */
 
-  fd_shmem_private_numa_cnt = 0;
-  fd_shmem_private_cpu_cnt  = 0;
+  fd_shmem_private_numa_cnt           = 0;
+  fd_shmem_private_cpu_cnt            = 0;
+  fd_shmem_private_available_cpu_cnt  = 0;
   fd_memset( fd_shmem_private_numa_idx, 0, FD_SHMEM_CPU_MAX );
 
   fd_shmem_private_base[0] = '\0';

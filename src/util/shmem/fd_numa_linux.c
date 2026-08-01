@@ -4,7 +4,10 @@
 #include "../sanitize/fd_msan.h"
 #include <errno.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/sysinfo.h>
+#include <unistd.h>
+
 
 /* The below uses the sysfs API added ~2009-Dec.  See
    https://github.com/torvalds/linux/commit/1830794ae6392ce12d36dbcc5ff52f11298ddab6 */
@@ -76,10 +79,7 @@ fd_numa_node_cnt( void ) {
 }
 
 ulong
-fd_numa_cpu_cnt( void ) {
-
-  /* FIXME: Consider using get_nprocs_conf, syscall or sysfs director
-     scan. */
+fd_numa_available_cpu_cnt( void ) {
 
   int cpu_cnt = get_nprocs();
   if( FD_UNLIKELY( cpu_cnt<=0 ) ) {
@@ -88,6 +88,34 @@ fd_numa_cpu_cnt( void ) {
   }
 
   return (ulong)cpu_cnt;
+}
+
+ulong
+fd_numa_cpu_cnt( void ) {
+  /* Don't use get_nprocs_conf() because it returns
+     /sys/devices/system/cpu/possible.
+     Parse /sys/devices/system/cpu/present instead. */
+
+  char path[ PATH_MAX ];
+  fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/devices/system/cpu/present" );
+
+  char line[ 128 ];
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  long bytes_read = read( fd, line, sizeof( line ) );
+  if( FD_UNLIKELY( -1==bytes_read ) ) FD_LOG_ERR(( "read( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  else if ( FD_UNLIKELY( (ulong)bytes_read>=sizeof( line ) ) ) FD_LOG_ERR(( "read( \"%s\" ) failed: buffer too small", path ));
+
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  line[ bytes_read ] = '\0';
+  char * saveptr;
+  char * first = strtok_r( line, "-", &saveptr );
+  char * last  = strtok_r( NULL, "-", &saveptr );
+  ulong end    = fd_cstr_to_ulong( last ? last : first );
+
+  return end+1UL;
 }
 
 ulong

@@ -17,6 +17,7 @@ struct fd_topo_cpus {
   ulong         numa_node_cnt;
 
   ulong         cpu_cnt;
+  ulong         cpu_online_cnt;
   fd_topo_cpu_t cpu[ FD_TILE_MAX ];
 };
 
