@@ -290,6 +290,7 @@ deser_duplicate_shred( fd_gossip_value_t * value,
   READ_U8( value->duplicate_shred->chunk_index, payload, payload_sz );
   CHECK( value->duplicate_shred->chunk_index<value->duplicate_shred->num_chunks );
   READ_U64( value->duplicate_shred->chunk_len, payload, payload_sz );
+  CHECK( value->duplicate_shred->chunk_len<=sizeof( value->duplicate_shred->chunk ) );
   READ_BYTES( value->duplicate_shred->chunk, value->duplicate_shred->chunk_len, payload, payload_sz );
   return 1;
 }
